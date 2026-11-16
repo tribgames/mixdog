@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
@@ -17,16 +18,71 @@ test('findApp: an executable is used as it is, a folder yields its Mixdog execut
 });
 
 test('loadVector derives the expected SSH hosts and paired PCs from the profile files', () => {
-  const files = { 'ssh-hosts.json': { hosts: [{ id: 's1' }] }, 'remote-hosts.json': { hosts: [{ id: 'stored-id-not-used', url: 'https://relay.example.test/d/pc/', name: 'PC', alias: 'desk', addedAt: 1, lastConnectedAt: 2 }] } };
+  const files = { 'ssh-hosts.json': { hosts: [{ id: 's1' }] }, 'remote-hosts.json': { hosts: [{ id: 'stored-id-not-used', url: 'https://relay.example.test/d/0f8fad5b-d9cb-469f-a165-70867728950e/', name: 'PC', alias: 'desk', addedAt: 1, lastConnectedAt: 2 }] } };
   const root = resolve('v');
   const exists = (p) => p === join(root, 'profile') || Object.keys(files).some((f) => p === join(root, 'profile', f));
   const v = loadVector('v', { exists, read: (p) => files[p.split(/[\\/]/).pop()] });
   assert.deepEqual(v.expect.sshHosts, ['s1']);
   assert.equal(v.expect.remoteHostRecords[0].name, 'desk');
-  assert.equal(v.expect.remoteHostRecords[0].url, 'https://relay.example.test/d/pc/');
+  assert.equal(v.expect.remoteHostRecords[0].url, 'https://relay.example.test/d/0f8fad5b-d9cb-469f-a165-70867728950e/');
   assert.match(v.expect.remoteHostRecords[0].id, /^[0-9a-f]{16}$/);
   assert.equal(v.home, null);
   assert.throws(() => loadVector('v', { exists: () => false }), /no profile/);
+});
+
+const DEVICE = '0f8fad5b-d9cb-469f-a165-70867728950e';
+const REMOTE_URL = `https://relay.example.test/d/${DEVICE}/`;
+function remoteVector(hosts, expect) {
+  const root = resolve('synthetic-remote-vector');
+  return loadVector(root, {
+    exists: (path) => path === join(root, 'profile') || path === join(root, 'profile', 'remote-hosts.json') || (expect !== undefined && path === join(root, 'expect.json')),
+    read: (path) => path === join(root, 'expect.json') ? expect : { hosts },
+  }).expect;
+}
+
+test('automatic remote expectations use null for absent connection time and omit clock-assigned addedAt', () => {
+  for (const lastConnectedAt of [undefined, null, '12', 12]) {
+    const [expected] = remoteVector([{ url: REMOTE_URL, name: 'PC', lastConnectedAt }]).remoteHostRecords;
+    assert.equal(expected.lastConnectedAt, lastConnectedAt === 12 ? 12 : null);
+    assert.equal(Object.hasOwn(expected, 'addedAt'), false);
+    const actual = { ...expected, addedAt: 1700000000000 };
+    assert.deepEqual(subsetProblems(actual, expected), []);
+  }
+  assert.equal(remoteVector([{ url: REMOTE_URL, name: 'PC', addedAt: 0 }]).remoteHostRecords[0].addedAt, 0);
+});
+
+test('automatic remote identity follows canonical host, default port, device casing and route spelling', () => {
+  for (const [raw, canonical] of [
+    [`https://RELAY.EXAMPLE.TEST:443/D/${DEVICE.toUpperCase()}?ignored=1#fragment`, REMOTE_URL],
+    [`https://relay.example.test/d/${DEVICE}`, REMOTE_URL],
+    [REMOTE_URL, REMOTE_URL],
+    [`https://relay.example.test:8443/d/${DEVICE}`, `https://relay.example.test:8443/d/${DEVICE}/`],
+    [`http://LOCALHOST:80/D/${DEVICE.toUpperCase()}/`, `http://localhost/d/${DEVICE}/`],
+    [`https://relay.example.test/d/${'AB'.repeat(16)}`, `https://relay.example.test/d/${'ab'.repeat(16)}/`],
+  ]) {
+    const [expected] = remoteVector([{ id: 'ignored', url: raw, name: 'PC', alias: '  fixture alias  ' }]).remoteHostRecords;
+    assert.equal(expected.url, canonical);
+    assert.equal(expected.id, createHash('sha256').update(canonical).digest('hex').slice(0, 16));
+    assert.equal(expected.name, 'fixture alias');
+  }
+  const long = `${'a'.repeat(79)}😀`;
+  assert.equal(remoteVector([{ url: REMOTE_URL, name: long, alias: '  ' }]).remoteHostRecords[0].name, 'a'.repeat(79));
+});
+
+test('invalid automatic remote input is a vector error before app launch, with explicit malformed-source expectations supported', () => {
+  for (const url of [
+    'not a URL', 'https://relay.example.test/d/pc/', `http://relay.example.test/d/${DEVICE}/`,
+    `https://user:credential@relay.example.test/d/${DEVICE}/`, `https://relay.example.test/d/${DEVICE}/extra`,
+  ]) {
+    assert.throws(() => remoteVector([{ url, name: 'PC' }]), (error) => {
+      assert.match(error.message, /synthetic remote-hosts\.json row 0: invalid/);
+      assert.ok(!error.message.includes(url), 'fixture diagnostics must not echo a URL credential');
+      return true;
+    });
+  }
+  assert.throws(() => remoteVector([{ url: REMOTE_URL }]), /invalid url\/name/);
+  assert.throws(() => remoteVector(null), /hosts must be an array/);
+  assert.deepEqual(remoteVector([{ url: 'intentionally malformed' }], { remoteHostRecords: [] }).remoteHostRecords, []);
 });
 
 test('markerProblems names every missing or wrong marker', () => {
@@ -99,13 +155,13 @@ test('effective settings, real store records and retained unknown keys are disti
   const expect = {
     sshHostRecords: [{ id: 's', settings: { autoReconnect: false, remoteCwd: '/work' } }],
     remoteHostRecords: [{ id: 'p', url: 'https://example.test/d/p/', name: 'alias' }],
-    restore: { enabled: false }, config: { 'desktop.testSetting': false }, editorSettings: { tabSize: 2 },
-    storedConfig: { future: { sentinel: 'retained' } }, configWrite: { path: 'desktop.testSetting', value: false },
+    restore: { enabled: false }, config: { 'desktop.usagePinned': false }, editorSettings: { tabSize: 2 },
+    storedConfig: { future: { sentinel: 'retained' } }, configWrite: { path: 'desktop.usagePinned', value: false },
   };
   const answers = {
     'connections/ssh/list': [{ id: 's', settings: { autoReconnect: false, remoteCwd: '/work' } }],
     'remoteHosts/list': [{ id: 'p', url: 'https://example.test/d/p/', name: 'alias' }],
-    'connections/restore/get': { enabled: false }, 'config/read': { config: { 'desktop.testSetting': false } },
+    'connections/restore/get': { enabled: false }, 'config/read': { config: { 'desktop.usagePinned': false } },
     'projectFs/readEditorSettings': { tabSize: 2 },
   };
   const calls = [];

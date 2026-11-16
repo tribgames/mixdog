@@ -40,6 +40,40 @@ export function findApp(app, { exists = existsSync, isDir = (p) => statSync(p).i
   return found;
 }
 
+/** The saved-host consumer's view (`mixdog-connections/remote_hosts.rs`), never the stored id or a raw URL hash.
+ * Invalid automatic expectations are a fixture error before launch. A deliberately malformed-source vector can
+ * supply explicit remoteHostRecords instead, to assert the consumer's intended recovery/filtering behavior. */
+function expectedRemoteHost(row, index) {
+  const invalid = (field) => new Error(`synthetic remote-hosts.json row ${index}: invalid ${field}; provide explicit remoteHostRecords for an intentional malformed-source case`);
+  if (!row || typeof row.url !== 'string' || typeof row.name !== 'string') throw invalid('url/name');
+  let parsed;
+  try { parsed = new URL(row.url.trim()); } catch { throw invalid('pairing URL'); }
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
+  if (!(parsed.protocol === 'https:' || (parsed.protocol === 'http:' && loopback)) || parsed.username || parsed.password) throw invalid('pairing URL');
+  const route = /^\/d\/([^/]+)\/?$/i.exec(parsed.pathname);
+  const device = route?.[1];
+  if (!device || !/^(?:[0-9a-f]{32,64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(device)) throw invalid('device route');
+  const url = `${parsed.origin}/d/${device.toLowerCase()}/`;
+  const label = (text) => {
+    let units = 0, kept = '';
+    for (const character of text) {
+      units += character.length;
+      if (units > 80) break;
+      kept += character;
+    }
+    return kept;
+  };
+  const alias = typeof row.alias === 'string' ? label(row.alias.trim()) : '';
+  return {
+    id: createHash('sha256').update(url).digest('hex').slice(0, 16),
+    url,
+    name: alias || label(row.name),
+    // Missing addedAt is assigned by the real reader's clock; do not invent an expected timestamp.
+    ...(Number.isFinite(row.addedAt) ? { addedAt: row.addedAt } : {}),
+    lastConnectedAt: Number.isFinite(row.lastConnectedAt) ? row.lastConnectedAt : null,
+  };
+}
+
 /** What the vector directory holds: its profile, its MIXDOG_HOME (or null) and what a start must read back. */
 export function loadVector(dir, { exists = existsSync, read = readJson } = {}) {
   const root = resolve(dir);
@@ -49,10 +83,9 @@ export function loadVector(dir, { exists = existsSync, read = readJson } = {}) {
   const expect = exists(join(root, 'expect.json')) ? read(join(root, 'expect.json')) : {};
   if (!expect.sshHosts && exists(join(profile, 'ssh-hosts.json'))) expect.sshHosts = read(join(profile, 'ssh-hosts.json')).hosts.map((host) => host.id);
   if (!expect.remoteHosts && !expect.remoteHostRecords && exists(join(profile, 'remote-hosts.json'))) {
-    // The production reader derives id from the canonical URL and presents alias as name; the stored id is not authoritative.
-    expect.remoteHostRecords = read(join(profile, 'remote-hosts.json')).hosts.map(({ url, name, alias, addedAt, lastConnectedAt }) => ({
-      id: createHash('sha256').update(url).digest('hex').slice(0, 16), url, name: alias || name, addedAt, lastConnectedAt,
-    }));
+    const hosts = read(join(profile, 'remote-hosts.json')).hosts;
+    if (!Array.isArray(hosts)) throw new Error('synthetic remote-hosts.json: hosts must be an array to derive expectations');
+    expect.remoteHostRecords = hosts.map(expectedRemoteHost);
   }
   if (!expect.restore && exists(join(profile, 'server-windows.json'))) expect.restore = { enabled: read(join(profile, 'server-windows.json')).enabled !== false };
   return { root, profile, home, expect };
