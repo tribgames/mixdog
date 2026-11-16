@@ -15,7 +15,8 @@ use serde::Serialize;
 use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
-use tokio::sync::Mutex;
+use std::sync::OnceLock;
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use crate::error::WsError;
@@ -77,13 +78,18 @@ struct State {
 pub struct DesktopGrantStore {
     path: PathBuf,
     lanes: Lanes,
-    /// One queue for the load, every commit and every read of the table: a reader never sees a half-loaded map.
-    state: Mutex<State>,
+    /// Lazy single owner: no data lock spans an await, and publication precedes every following read.
+    queue: OnceLock<mpsc::UnboundedSender<Command>>,
+    #[cfg(test)]
+    publish_probe: Arc<OnceLock<Arc<PublishProbe>>>,
 }
 
 impl DesktopGrantStore {
     pub fn new(path: PathBuf, lanes: Lanes) -> Arc<Self> {
-        Arc::new(Self { path, lanes, state: Mutex::new(State::default()) })
+        Arc::new(Self { path, lanes, queue: OnceLock::new(),
+            #[cfg(test)]
+            publish_probe: Arc::new(OnceLock::new()),
+        })
     }
 
     /// Describes each path (1..=100). `mint` is false for a chat link: a file outside every project is then addressed as its own
@@ -133,37 +139,10 @@ impl DesktopGrantStore {
         if minted.is_empty() {
             return Ok(rows);
         }
-        // Everything was inspected before authority changes; only publication is serialized.
-        let mut state = self.state.lock().await;
-        self.load(&mut state).await?;
-        // Every link verification and hover describes its file again: a fresh token each time would evict the grants of open
-        // editors and links (cap 100).
-        let mut grants = state.grants.clone();
-        let mut tokens: Vec<(PathBuf, String)> = Vec::new();
-        for (index, file) in &minted {
-            let key = comparable(file);
-            let live = |token: &String| state.grants.iter().any(|(hash, _)| *hash == token_hash(token));
-            let token = tokens
-                .iter()
-                .find(|(known, _)| *known == key)
-                .map(|(_, token)| token.clone())
-                .or_else(|| state.tokens.get(&key).filter(|token| live(token)).cloned())
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-            // A described file becomes the most recently used grant.
-            let hash = token_hash(&token);
-            grants.retain(|(known, _)| *known != hash);
-            grants.push((hash, file.clone()));
-            rows[*index].access_token = Some(token.clone());
-            tokens.push((key, token));
-        }
-        if grants.len() > MAX_DESKTOP_GRANTS {
-            grants.drain(..grants.len() - MAX_DESKTOP_GRANTS);
-        }
-        self.persist(&grants).await?;
-        state.tokens.extend(tokens);
-        state.tokens.retain(|_, token| grants.iter().any(|(hash, _)| *hash == token_hash(token)));
-        state.grants = grants;
-        Ok(rows)
+        // Inspection is complete before entering the grant book's ordered transaction queue.
+        let (reply, answer) = oneshot::channel();
+        self.queue().send(Command::Mint { rows, minted, reply }).map_err(|_| actor_closed())?;
+        answer.await.map_err(|_| actor_closed())?
     }
 
     /// The file a token grants, when the path asked for is that file (`requireGrant`).
@@ -186,12 +165,94 @@ impl DesktopGrantStore {
     }
 
     async fn granted_file(&self, token: &str) -> WsResult<Option<PathBuf>> {
-        let mut state = self.state.lock().await;
-        self.load(&mut state).await?;
-        let key = token_hash(token);
-        Ok(state.grants.iter().find(|(hash, _)| *hash == key).map(|(_, file)| file.clone()))
+        let (reply, answer) = oneshot::channel();
+        self.queue().send(Command::Lookup { token: token.to_owned(), reply }).map_err(|_| actor_closed())?;
+        answer.await.map_err(|_| actor_closed())?
     }
 
+    fn queue(&self) -> &mpsc::UnboundedSender<Command> {
+        self.queue.get_or_init(|| {
+            let (send, mut receive) = mpsc::unbounded_channel();
+            let disk = GrantDisk { path: self.path.clone(), lanes: self.lanes,
+                #[cfg(test)]
+                publish_probe: self.publish_probe.clone(),
+            };
+            mixdog_rt::spawn("desktop-grants", mixdog_rt::TaskClass::Work, async move {
+                let mut state = State::default();
+                while let Some(command) = receive.recv().await {
+                    match command {
+                        Command::Mint { rows, minted, reply } => {
+                            if reply.is_closed() { continue; }
+                            // Once begun, finish disk+memory publication even if its caller drops.
+                            let result = mint(&disk, &mut state, rows, minted).await;
+                            let _ = reply.send(result);
+                        }
+                        Command::Lookup { token, reply } => {
+                            if reply.is_closed() { continue; }
+                            let result = disk.load(&mut state).await.map(|()| {
+                                let key = token_hash(&token);
+                                state.grants.iter().find(|(hash, _)| *hash == key).map(|(_, file)| file.clone())
+                            });
+                            let _ = reply.send(result);
+                        }
+                    }
+                }
+            });
+            send
+        })
+    }
+}
+
+#[derive(Debug)]
+enum Command {
+    Mint { rows: Vec<LocalPathEntry>, minted: Vec<(usize, PathBuf)>, reply: oneshot::Sender<WsResult<Vec<LocalPathEntry>>> },
+    Lookup { token: String, reply: oneshot::Sender<WsResult<Option<PathBuf>>> },
+}
+
+fn actor_closed() -> WsError {
+    WsError::new(crate::error::Reason::Cancelled, "The request was cancelled.")
+}
+
+struct GrantDisk {
+    path: PathBuf,
+    lanes: Lanes,
+    #[cfg(test)]
+    publish_probe: Arc<OnceLock<Arc<PublishProbe>>>,
+}
+
+async fn mint(disk: &GrantDisk, state: &mut State, mut rows: Vec<LocalPathEntry>, minted: Vec<(usize, PathBuf)>) -> WsResult<Vec<LocalPathEntry>> {
+    disk.load(state).await?;
+    // Every link verification and hover describes its file again: a fresh token each time would evict the grants of open
+    // editors and links (cap 100).
+    let mut grants = state.grants.clone();
+    let mut tokens: Vec<(PathBuf, String)> = Vec::new();
+    for (index, file) in &minted {
+        let key = comparable(file);
+        let live = |token: &String| state.grants.iter().any(|(hash, _)| *hash == token_hash(token));
+        let token = tokens
+            .iter()
+            .find(|(known, _)| *known == key)
+            .map(|(_, token)| token.clone())
+            .or_else(|| state.tokens.get(&key).filter(|token| live(token)).cloned())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        // A described file becomes the most recently used grant.
+        let hash = token_hash(&token);
+        grants.retain(|(known, _)| *known != hash);
+        grants.push((hash, file.clone()));
+        rows[*index].access_token = Some(token.clone());
+        tokens.push((key, token));
+    }
+    if grants.len() > MAX_DESKTOP_GRANTS {
+        grants.drain(..grants.len() - MAX_DESKTOP_GRANTS);
+    }
+    disk.persist(&grants).await?;
+    state.tokens.extend(tokens);
+    state.tokens.retain(|_, token| grants.iter().any(|(hash, _)| *hash == token_hash(token)));
+    state.grants = grants;
+    Ok(rows)
+}
+
+impl GrantDisk {
     /// Reads the file once. A failure to read it, or to write converted rows back, fails the call and leaves the store unloaded, so the
     /// next call retries: a disk failure never becomes an empty authoritative map that a later selection overwrites.
     async fn load(&self, state: &mut State) -> WsResult<()> {
@@ -216,6 +277,13 @@ impl DesktopGrantStore {
 
     /// An owner-only atomic replace of the file, with its folder flushed.
     async fn persist(&self, grants: &Grants) -> WsResult<()> {
+        #[cfg(test)]
+        if let Some(probe) = self.publish_probe.get()
+            && probe.remaining.fetch_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
+            probe.entered.notify_one();
+            probe.release.notified().await;
+            if probe.fail { return Err(WsError::plain("fixture publication failure")); }
+        }
         let path = self.path.clone();
         let data = serialize_grants(grants);
         run_in(self.lanes.durability, &CancellationToken::new(), move |lane| {
@@ -621,3 +689,15 @@ mod tests {
         assert_eq!(grants, vec![(token_hash("a"), dir.join("three")), (token_hash("b"), dir.join("two"))]);
     }
 }
+
+#[cfg(test)]
+struct PublishProbe {
+    remaining: std::sync::atomic::AtomicUsize,
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+    fail: bool,
+}
+
+#[cfg(test)]
+#[path = "desktop_grants_tests.rs"]
+mod actor_tests;

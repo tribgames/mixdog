@@ -146,7 +146,7 @@ fn matches_selector(options: &Value, language_id: &str, uri: Option<&str>) -> bo
         Some(Value::Array(a)) if !a.is_empty() => a,
         Some(_) => return false,
     };
-    let path = uri.and_then(|u| crate::lspwire::uri_to_path(u)).map(|p| p.to_string_lossy().replace('\\', "/"));
+    let path = uri.and_then(crate::lspwire::uri_to_path).map(|p| p.to_string_lossy().replace('\\', "/"));
     selector.iter().any(|raw| {
         if let Some(text) = raw.as_str() {
             return text == language_id;

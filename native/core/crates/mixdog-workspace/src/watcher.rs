@@ -96,14 +96,13 @@ pub fn git_dirs_of(dir: &Path) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if dot_git.is_dir() {
         dirs.push(dot_git);
-    } else if let Ok(text) = std::fs::read_to_string(&dot_git) {
-        if let Some(target) = text.trim().strip_prefix("gitdir:") {
-            let git_dir = dir.join(target.trim());
-            if let Ok(common) = std::fs::read_to_string(git_dir.join("commondir")) {
-                dirs.push(crate::pathguard::lexical(&git_dir.join(common.trim())));
-            }
-            dirs.push(crate::pathguard::lexical(&git_dir));
+    } else if let Ok(text) = std::fs::read_to_string(&dot_git)
+        && let Some(target) = text.trim().strip_prefix("gitdir:") {
+        let git_dir = dir.join(target.trim());
+        if let Ok(common) = std::fs::read_to_string(git_dir.join("commondir")) {
+            dirs.push(crate::pathguard::lexical(&git_dir.join(common.trim())));
         }
+        dirs.push(crate::pathguard::lexical(&git_dir));
     }
     dirs.retain(|d| d.is_dir());
     dirs.dedup();
@@ -174,11 +173,10 @@ impl State {
         let before = (entry.recursive_refs > 0, entry.direct_refs + entry.recursive_refs > 0);
         if recursive { entry.recursive_refs += 1 } else { entry.direct_refs += 1 }
         let after = (entry.recursive_refs > 0, true);
-        if before != after {
-            if let Err(error) = self.apply(path) {
-                self.remove_os(path, recursive);
-                return Err(error);
-            }
+        if before != after
+            && let Err(error) = self.apply(path) {
+            self.remove_os(path, recursive);
+            return Err(error);
         }
         Ok(())
     }
