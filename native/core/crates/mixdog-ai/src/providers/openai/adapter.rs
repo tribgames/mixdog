@@ -29,6 +29,7 @@ use std::sync::Mutex;
 use std::sync::PoisonError;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -159,6 +160,7 @@ struct TurnStates {
 struct Sources {
     now: Box<dyn Fn() -> u64 + Send + Sync>,
     request_id: Box<dyn Fn() -> String + Send + Sync>,
+    retry_pace: Option<Arc<dyn crate::oauth::Pace>>,
     /// Node's `process.env`: the process environment unless a recording gives its own.
     var: Box<SettingLookup>,
 }
@@ -172,6 +174,7 @@ impl Default for Sources {
                     .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
             }),
             request_id: Box::new(|| rand::random::<[u8; 16]>().iter().map(|b| format!("{b:02x}")).collect()),
+            retry_pace: None,
             var: Box::new(|name| std::env::var(name).ok()),
         }
     }
@@ -201,6 +204,26 @@ impl SessionContext {
     pub fn with_var(mut self, var: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Self {
         self.sources.var = Box::new(var);
         self
+    }
+
+    /// The send's wait and jitter sources, paired with the clock supplied by
+    /// `with_sources` when replaying Node's injected sleep.
+    pub fn with_retry_pace(mut self, pace: Arc<dyn crate::oauth::Pace>) -> Self {
+        self.sources.retry_pace = Some(pace);
+        self
+    }
+
+    fn retry_samples(&self) -> mixdog_core_api::domain::retry::JitterSamples {
+        self.sources.retry_pace.as_ref().map_or_else(crate::retry::random_samples, |pace| {
+            mixdog_core_api::domain::retry::JitterSamples { step: pace.draw(), advice: pace.draw() }
+        })
+    }
+
+    async fn retry_wait(&self, delay: Duration) {
+        match &self.sources.retry_pace {
+            Some(pace) => pace.wait(delay).await,
+            None => mixdog_rt::time::sleep(delay).await,
+        }
     }
 
     /// `activateCodexTurnState` (`openai-turn-state.mjs:15`): the token of `turn` in `scope` for a request about to go
@@ -939,7 +962,7 @@ impl WebSocketSend {
                     &error,
                     &self.retry,
                     &self.adapter.policy,
-                    crate::retry::random_samples(),
+                    self.adapter.context.retry_samples(),
                 );
                 let exhausted = matches!(decision.verdict, Verdict::Exhausted);
                 if let Some(fallback) = self.adapter.mode.http_fallback()
@@ -950,7 +973,7 @@ impl WebSocketSend {
                         self.adapter.pool.mark_http(scope);
                     }
                     if let Some(wait) = error.retry_after {
-                        mixdog_rt::time::sleep(wait).await;
+                        self.adapter.context.retry_wait(wait).await;
                     }
                     self.websocket = false;
                     self.stream = Some(self.adapter.run(Wire::Http, &self.request).await.map_err(|failed| failed.error)?);
@@ -991,7 +1014,7 @@ impl WebSocketSend {
                         self.adapter.context.now_unix_ms(),
                     ),
                 );
-                mixdog_rt::time::sleep(delay).await;
+                self.adapter.context.retry_wait(delay).await;
             }
             match self.adapter.exchange(Wire::Ws, &self.request, &mut self.wire, self.retry.count(None).retries > 0).await {
                 Ok(stream) => {

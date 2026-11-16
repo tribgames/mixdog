@@ -173,8 +173,8 @@ impl RetryDecider for RecordedBackoff {
     }
 }
 
-/// The clock and pause of the token refreshes: the recording's clock, a pause recorded as a `sleep` event that moves the
-/// clock on by its delay without waiting, and the recorder's fixed `Math.random()` (0.5).
+/// The token refreshes and WebSocket sends share the recording's clock and pause:
+/// a `sleep` event advances the clock, with the recorder's fixed `Math.random()` (0.5).
 struct RecordedPace(Arc<Loopback>, Arc<AtomicU64>);
 
 #[async_trait::async_trait]
@@ -276,9 +276,11 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
     // The recording's clock: fixed, and moved on by exactly a recorded backoff, as Node's recorder moves its own.
     let clock = Arc::new(AtomicU64::new(now));
     let reading = clock.clone();
-    env.openai_context = Arc::new(SessionContext::with_sources(move || reading.load(Ordering::SeqCst), || "0".repeat(32)).with_var(move |name| read.lock().unwrap().get(name).cloned()));
-    // The token refreshes read the same clock, and their backoffs are recorded as Node's recorder records them.
-    env.pace = Arc::new(RecordedPace(server.clone(), clock.clone()));
+    let pace = Arc::new(RecordedPace(server.clone(), clock.clone()));
+    env.openai_context = Arc::new(SessionContext::with_sources(move || reading.load(Ordering::SeqCst), || "0".repeat(32))
+        .with_var(move |name| read.lock().unwrap().get(name).cloned())
+        .with_retry_pace(pace.clone()));
+    env.pace = pace;
     let builder = DefaultProviderBuilder::new(env);
     let config = |provider: &str| if provider == "gemini" { json!({ "enabled": true, "apiKey": FAKE }) } else { json!({ "enabled": true }) };
 
@@ -368,9 +370,8 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
                 Err(_) => "error",
             }
         } else if scenario["registryRetry"] == true {
-            // The send through the core's retrying driver (`ModelBroker::send`, the standard retry decider): Node's
-            // provider retries inside `send` (`openai-ws-send-attempts/stream-failure.mjs`). A backoff the decider asks
-            // for is recorded as Node's recorder records its sleeps.
+            // The core driver retains its backoff recorder for driver-owned retries.
+            // OpenAI's send owns its WS retries and records their waits through RecordedPace.
             let broker = ModelBroker::new(Arc::new(Admission::new()), Arc::new(RecordedBackoff(server.clone(), clock.clone())));
             let lane = broker.admission().lane(&LaneKey { provider: ProviderId::from(provider), account: "default".into() }, LaneSettings::default());
             let send = SendRequest { request: Arc::new(request(&session, scenario, model, &stored)), lane, admission: AdmissionRequest::default() };

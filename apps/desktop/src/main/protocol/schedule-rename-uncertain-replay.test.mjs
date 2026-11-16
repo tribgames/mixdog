@@ -62,6 +62,10 @@ async function serve(conn, generation, seen) {
       case 'thread/start':
         conn.serverSend({ id: frame.id, result: { thread: { id: CONTROL } } });
         break;
+      case 'thread/resume':
+        // The client holds the control thread it started and resumes it after a reconnect, before any request naming it.
+        conn.serverSend({ id: frame.id, result: { thread: { id: frame.params.threadId } } });
+        break;
       case 'channel/saveSchedule':
         seen.saves.push(frame.params);
         conn.serverClose(1006);
