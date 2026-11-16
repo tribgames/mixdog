@@ -79,6 +79,7 @@ pub(super) fn paging_notice(shown: usize, total: usize, known: bool, omitted: us
 /// `expandGrepAnchorContextOutput`: the rendered text, empty when there is no anchor. `limit` `usize::MAX` is no limit;
 /// `requested` 0 is the automatic window.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn expand(
     ctx: &ToolContext,
     matches: Vec<Match<'_>>,
@@ -243,6 +244,7 @@ fn unwrap_pattern_shell(pattern: &str) -> (String, bool) {
 
 /// `readAnchorSources` (`readSourceWindows`): per file, the raw lines inside the anchors' merged windows; `None` for a
 /// file that could not be read.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn read_sources(ctx: &ToolContext, selected: &[Anchor], span: Span) -> Result<HashMap<AbsPath, Option<HashMap<u64, String>>>, ToolError> {
     let mut sources: HashMap<AbsPath, Option<HashMap<u64, String>>> = HashMap::new();
     for anchor in selected {

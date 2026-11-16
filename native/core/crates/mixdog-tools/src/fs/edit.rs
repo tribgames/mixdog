@@ -65,18 +65,18 @@ impl Default for EditTool {
 
 /// `old_string` / `new_string`, each also accepted as `old_str` / `new_str` when the canonical
 /// key is absent; both present with different values is ambiguous.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn string_args(args: &JsonValue) -> Result<(&str, &str), ToolError> {
     let mut chosen: [Option<&JsonValue>; 2] = [None, None];
     for (slot, (canonical, alias)) in [("old_string", "old_str"), ("new_string", "new_str")].into_iter().enumerate() {
         let (c, a) = (args.get(canonical), args.get(alias));
-        if let (Some(c), Some(a)) = (c, a) {
-            if c != a {
-                return Err(invalid(
-                    canonical,
-                    "ambiguous",
-                    format!("Error: edit received both {canonical} and {alias} with different values; pass only {canonical}"),
-                ));
-            }
+        if let (Some(c), Some(a)) = (c, a)
+            && c != a {
+            return Err(invalid(
+                canonical,
+                "ambiguous",
+                format!("Error: edit received both {canonical} and {alias} with different values; pass only {canonical}"),
+            ));
         }
         chosen[slot] = c.or(a);
     }
@@ -196,6 +196,7 @@ fn unreadable(full: &str, why: &str) -> ToolError {
     fail(ToolErrorCode::Io { os_code: None }, format!("Error: cannot read {full} ({why})"))
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn write_checked(
     ctx: &ToolContext,
     abs: &AbsPath,
@@ -221,6 +222,7 @@ async fn write_checked(
     }
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn create(ctx: &ToolContext, state: Option<&ReadState>, abs: &AbsPath, shown: &str, full: &str, new: &str) -> ToolOutcome {
     if let Some(parent) = abs.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf())) {
         // Node `createEditTarget`: a parent that cannot be made is surfaced by the write.

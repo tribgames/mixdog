@@ -404,7 +404,8 @@ fn real_anchors(hunk: &Hunk) -> Vec<String> {
 }
 
 fn seek_anchor(lines: &[String], anchor: &str, cursor: usize) -> Option<usize> {
-    let passes: [Box<dyn Fn(&str) -> bool>; 4] = [
+    type AnchorMatch<'a> = Box<dyn Fn(&str) -> bool + 'a>;
+    let passes: [AnchorMatch<'_>; 4] = [
         Box::new(|l| l.contains(anchor)),
         Box::new(|l| js_trim_end(l).contains(js_trim_end(anchor))),
         Box::new(|l| js_trim(l).contains(js_trim(anchor))),
@@ -446,10 +447,9 @@ fn find_anchor_line(lines: &[String], hunk: &Hunk, from_line: usize) -> Option<u
     }
     // Hunks listed out of file order leave the cursor past an anchor that is still present; retrying
     // from the top is safe only when every anchor occurs exactly once.
-    if from_line > 0 && list.iter().all(|a| lines.iter().filter(|l| l.contains(a.as_str())).take(2).count() == 1) {
-        if let Some(top) = seek_anchor_chain(lines, &list, 0) {
-            return Some(top);
-        }
+    if from_line > 0 && list.iter().all(|a| lines.iter().filter(|l| l.contains(a.as_str())).take(2).count() == 1)
+        && let Some(top) = seek_anchor_chain(lines, &list, 0) {
+        return Some(top);
     }
     numeric_anchor_hint(&list, lines.len())
 }
@@ -769,22 +769,18 @@ fn adopt_remapped_window(source: &[String], w: &mut Window, start: usize, strict
 /// hunk is still unlocated; the peeled-`+` tier may also refine a located match.
 fn recover(source: &[String], hunk: &Hunk, s: &Stats, anchor_line: usize, w: &mut Window, eof: bool) {
     let unlocated = |w: &Window| w.start.is_none() && !w.old.is_empty();
-    if unlocated(w) {
-        if let Some(restored) = restore_opcode_prefix_window(source, hunk) {
-            adopt_window(w, restored, eof);
-        }
+    if unlocated(w)
+        && let Some(restored) = restore_opcode_prefix_window(source, hunk) {
+        adopt_window(w, restored, eof);
     }
-    if let Some(restored) = restore_plus_as_context(source, hunk) {
-        if plus_window_covers_match(restored.start, restored.old.len(), w.start) {
-            adopt_window(w, restored, eof);
-        }
+    if let Some(restored) = restore_plus_as_context(source, hunk)
+        && plus_window_covers_match(restored.start, restored.old.len(), w.start) {
+        adopt_window(w, restored, eof);
     }
-    if unlocated(w) {
-        if let Some(at) = indent_normalized_window(source, &w.old) {
-            if adopt_remapped_window(source, w, at, false) && eof {
-                w.eof_ignored = true;
-            }
-        }
+    if unlocated(w)
+        && let Some(at) = indent_normalized_window(source, &w.old)
+        && adopt_remapped_window(source, w, at, false) && eof {
+        w.eof_ignored = true;
     }
     // Escape equivalence: the marker is dropped before the scan whether or not it finds anything.
     if unlocated(w) {
@@ -801,15 +797,13 @@ fn recover(source: &[String], hunk: &Hunk, s: &Stats, anchor_line: usize, w: &mu
             adopt_remapped_window(source, w, at, true);
         }
     }
-    if w.start.is_none() && !w.trimmed_trailing {
-        if let Some(trimmed) = outer_context_trimmed_window(source, hunk, s) {
-            adopt_window(w, trimmed, false);
-        }
+    if w.start.is_none() && !w.trimmed_trailing
+        && let Some(trimmed) = outer_context_trimmed_window(source, hunk, s) {
+        adopt_window(w, trimmed, false);
     }
-    if w.start.is_none() && w.old.len() >= 3 {
-        if let Some(at) = edit_distance_window(source, &w.old) {
-            adopt_remapped_window(source, w, at, true);
-        }
+    if w.start.is_none() && w.old.len() >= 3
+        && let Some(at) = edit_distance_window(source, &w.old) {
+        adopt_remapped_window(source, w, at, true);
     }
 }
 
@@ -846,27 +840,25 @@ fn resolve(source: &[String], hunk: &Hunk, next_search: usize, fuzzy: bool) -> R
     }
     let unlocated = |w: &Window| w.start.is_none() && !w.old.is_empty();
     // `*** End of File` is a hint: retry as an ordinary in-file search.
-    if eof && unlocated(&w) {
-        if let Some(r) = find_line_sequence(source, &w.old, search_from, search_from, fuzzy, false) {
-            w.start = Some(r);
-            w.eof_ignored = true;
-        }
+    if eof && unlocated(&w)
+        && let Some(r) = find_line_sequence(source, &w.old, search_from, search_from, fuzzy, false) {
+        w.start = Some(r);
+        w.eof_ignored = true;
     }
     // A bare line-number anchor is also a positional claim.
-    if unlocated(&w) {
-        if let Some(hint) = numeric_anchor_hint(&real_anchors(hunk), source.len()) {
-            let leading = hunk
-                .lines
-                .iter()
-                .filter(|l| matches!(l.as_bytes().first(), Some(b' ' | b'-')))
-                .take_while(|l| l.starts_with(' '))
-                .count();
-            let from = (hint - 1).saturating_sub(leading);
-            if let Some(at) = find_line_sequence(source, &w.old, from, from, fuzzy, false) {
-                w.start = Some(at);
-                if eof {
-                    w.eof_ignored = true;
-                }
+    if unlocated(&w)
+        && let Some(hint) = numeric_anchor_hint(&real_anchors(hunk), source.len()) {
+        let leading = hunk
+            .lines
+            .iter()
+            .filter(|l| matches!(l.as_bytes().first(), Some(b' ' | b'-')))
+            .take_while(|l| l.starts_with(' '))
+            .count();
+        let from = (hint - 1).saturating_sub(leading);
+        if let Some(at) = find_line_sequence(source, &w.old, from, from, fuzzy, false) {
+            w.start = Some(at);
+            if eof {
+                w.eof_ignored = true;
             }
         }
     }
@@ -876,11 +868,10 @@ fn resolve(source: &[String], hunk: &Hunk, next_search: usize, fuzzy: bool) -> R
     if let Some(start) = w.start.filter(|_| !w.old.is_empty()) {
         let slice: Vec<String> = source[start..start + w.old.len()].to_vec();
         w.new = remap_new_indents(&w.old, &slice, &w.new);
-        if let Some((count, new, old)) = remap_window(source, start, &w.old, &w.new, true, false) {
-            if count > 0 {
-                w.new = new;
-                w.old = old;
-            }
+        if let Some((count, new, old)) = remap_window(source, start, &w.old, &w.new, true, false)
+            && count > 0 {
+            w.new = new;
+            w.old = old;
         }
     }
     let Some(start) = w.start else {
@@ -965,7 +956,8 @@ fn order_hunks(source: &[String], hunks: &[Hunk], fuzzy: bool) -> Vec<Hunk> {
             .lines
             .iter()
             .filter(|l| !is_eof_marker(l))
-            .filter_map(|l| matches!(l.as_bytes().first(), Some(b' ' | b'-')).then(|| l[1..].to_owned()))
+            .filter(|l| matches!(l.as_bytes().first(), Some(b' ' | b'-')))
+            .map(|l| l[1..].to_owned())
             .collect();
         match (!seq.is_empty()).then(|| unique_exact_start(source, &seq)).flatten() {
             Some(pos) => keyed.push((pos, idx, h.clone())),
@@ -986,8 +978,7 @@ pub(super) fn apply_hunks(
     source: &Lines,
     hunks: &[Hunk],
     fuzzy: bool,
-    path: Option<&str>,
-    display: &str,
+    (path, display): (Option<&str>, &str),
     mut notices: Option<&mut Notices>,
     overlap_label: &str,
     reject_partial: bool,
