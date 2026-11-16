@@ -384,7 +384,7 @@ impl PluginAdmin {
                 "updatedAt": now,
             });
             self.mutate_registry(lane, |plugins| {
-                if let Some(index) = plugins.iter().position(|p| matches(p)) {
+                if let Some(index) = plugins.iter().position(matches) {
                     if let Some(installed) = plugins[index].get("installedAt").filter(|v| truthy(v)) {
                         entry["installedAt"] = installed.clone();
                     }

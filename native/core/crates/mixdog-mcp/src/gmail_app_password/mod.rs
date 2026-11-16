@@ -255,7 +255,7 @@ async fn search_work(session: &mut Session, query: &str, limit: usize) -> Result
     }
     let range = uids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
     let mut messages = mailbox.fetch(&range, SEARCH_ITEMS).await?;
-    messages.sort_by(|a, b| b.uid.cmp(&a.uid));
+    messages.sort_by_key(|message| std::cmp::Reverse(message.uid));
     let mut lines = Vec::new();
     for message in &messages {
         let snippet = match &message.structure {

@@ -198,7 +198,7 @@ pub struct McpServer {
     /// to send on, and reconnects. Cleared when a connect settles.
     died: ArcSwapOption<Ready>,
     /// One failure-driven reconnect at a time (`reconnects.run(registryKey, …)`).
-    reconnecting: tokio::sync::Mutex<()>,
+    reconnecting: tokio::sync::Semaphore,
     /// Test seam: the transport that serves a server whose identity (`config`) is a remote one, so a replay can drive the real
     /// call path of a server the core never reaches over the network.
     #[cfg(feature = "test-support")]
@@ -417,7 +417,7 @@ impl McpServer {
             shutdown: CancellationToken::new(),
             scope_root: Arc::default(),
             died: ArcSwapOption::empty(),
-            reconnecting: tokio::sync::Mutex::new(()),
+            reconnecting: tokio::sync::Semaphore::new(1),
             #[cfg(feature = "test-support")]
             stand_in: None,
         })
@@ -950,7 +950,7 @@ impl McpServer {
     /// itself), unless a peer already did (its replacement is reused) or the server was closed meanwhile (a failed call
     /// never brings back a server someone removed).
     pub(crate) async fn reconnect_after(self: &Arc<Self>, failed: Option<Arc<RpcClient>>) -> Result<(), String> {
-        let _one = self.reconnecting.lock().await;
+        let _one = self.reconnecting.acquire().await.expect("the private reconnect admission gate is never closed");
         let disconnected = || format!("MCP server \"{}\" was disconnected", self.name());
         match &*self.state() {
             ServerState::Ready(ready) if !ready.client.is_closed() && failed.as_ref().is_none_or(|old| !Arc::ptr_eq(old, &ready.client)) => {

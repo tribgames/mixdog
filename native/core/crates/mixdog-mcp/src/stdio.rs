@@ -88,6 +88,7 @@ fn start(lane: &InLane<SpawnIo>, command: &str, args: &[String], cwd: Option<&st
 
 /// Creates `process` with piped stdio and puts it under containment. A tree that cannot be contained is not started: the
 /// server would outlive its kill. The child of a failed attach (never resumed) is ended and handed back with the error.
+#[allow(clippy::result_large_err, reason = "Preserve child ownership on attach failure without a new allocation in the cleanup path")]
 fn spawn_contained(mut process: Command, shown: &str) -> Result<(Child, Containment), (TransportError, Option<Child>)> {
     process
         .stdin(std::process::Stdio::piped())
