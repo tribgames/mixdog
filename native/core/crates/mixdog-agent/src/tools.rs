@@ -776,8 +776,7 @@ async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, edi
 /// The gate, the approval wait and the final surface judgement of one call: the call to
 /// dispatch, or the model-visible refusal.
 async fn authorize(
-    call_id: &str,
-    name: &str,
+    call: (&str, &str),
     arguments: &JsonValue,
     cwd: &std::path::Path,
     gate: &dyn ToolGate,
@@ -785,6 +784,7 @@ async fn authorize(
     observer: &dyn crate::env::RunObserver,
     guards: &dyn TurnGuards,
 ) -> Result<GateCall, String> {
+    let (call_id, name) = call;
     let mut target = GateCall::new(name, arguments.clone()).at(cwd);
     let decision = gate.check_call(call_id, &target).await;
     if !matches!(decision, GateDecision::Ask(_)) && !mixdog_tools::policy::pipeline::USER_PROMPT_TOOLS.contains(&name) {
@@ -864,6 +864,7 @@ pub struct Pipeline {
 /// approval wait, `web_fetch` routing, the surface judgement, argument coercion, the tool itself
 /// with the caller's context (its cancel, deadline, approvals and lane tokens) and PostToolUse /
 /// PostToolUseFailure. A refusal is the error whose model text is the refusal.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured provider/tool/run failure by value without boxing or changing this API")]
 pub async fn run_nested(
     pipeline: &Pipeline,
     tools: &dyn mixdog_tools::policy::ToolResolver,
@@ -874,8 +875,7 @@ pub async fn run_nested(
 ) -> ToolOutcome {
     let refused = |text: String| ToolError::new(ToolErrorCode::DeniedByPolicy { rule: "pipeline".to_owned() }, text);
     let target = authorize(
-        ctx.call_id.as_str(),
-        name,
+        (ctx.call_id.as_str(), name),
         &arguments,
         ctx.cwd.as_path(),
         pipeline.gate.as_ref(),
@@ -1004,6 +1004,7 @@ fn read_only_io_timeout(name: &str, timeout: Option<Duration>) -> ToolError {
 /// What a read-only I/O call that settled inside the grace after its deadline gives back (`read-only-deadline.mjs:99-107`): a result
 /// with text, that text and the deadline notice (`withReadOnlyIoDeadlineNotice`); a structured result (one with an image or a
 /// document) as it is; an empty result or a failure, the timeout.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured provider/tool/run failure by value without boxing or changing this API")]
 fn graced(outcome: ToolOutcome, name: &str, timeout: Option<Duration>) -> ToolOutcome {
     let mut output = outcome.map_err(|_| read_only_io_timeout(name, timeout))?;
     if output.parts.iter().any(|part| matches!(part, ToolPart::Image { .. } | ToolPart::Document { .. })) {
@@ -1080,8 +1081,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
     let authorized = or_cancelled(
         &env.cancel,
         authorize(
-            &call.id,
-            &name,
+            (&call.id, &name),
             &call.arguments,
             cwd.as_path(),
             env.gate.as_ref(),

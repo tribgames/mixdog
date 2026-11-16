@@ -829,9 +829,9 @@ impl Run {
                     continue;
                 }
                 let started_in = self.live_cwd();
-                for k in j..n {
+                for (k, wire_call) in wire_calls.iter().enumerate().take(n).skip(j) {
                     if !dups.contains_key(&k) {
-                        self.try_eager(&wire_calls[k], &started_in).await;
+                        self.try_eager(wire_call, &started_in).await;
                     }
                 }
                 let call = calls[j].clone();
@@ -945,7 +945,7 @@ impl Run {
         }
         drop(running);
 
-        self.finalize_results(&calls, &mut staged, &was_executed, &tool_ms, &mut intervals, &cacheable, &outputs).await;
+        self.finalize_results(&calls, &mut staged, &was_executed, &tool_ms, &mut intervals, (&cacheable, &outputs)).await;
         // Results commit in the assistant's call order.
         for message in staged.into_iter().flatten() {
             if let (Some(id), Some(kind)) = (message.tool_call_id(), message.tool_kind) {
@@ -990,9 +990,9 @@ impl Run {
         executed: &[bool],
         tool_ms: &[i64],
         intervals: &mut [Vec<(i64, i64)>],
-        cacheable: &[bool],
-        outputs: &[Option<ToolOutput>],
+        cache: (&[bool], &[Option<ToolOutput>]),
     ) {
+        let (cacheable, outputs) = cache;
         let indices: Vec<usize> = (0..calls.len())
             .filter(|i| executed[*i] && staged[*i].is_some())
             .collect();

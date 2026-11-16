@@ -831,10 +831,10 @@ impl AgentPort for AgentRuntime {
         // The resolved image, PDF and file parts ride in the call's arguments, where the spawn and
         // send flows read them for the worker's turn (and its queued follow-up).
         let mut args = request.args;
-        if !request.attachment_parts.is_empty() {
-            if let Some(object) = args.as_object_mut() {
-                object.insert("attachmentParts".into(), Value::Array(request.attachment_parts));
-            }
+        if !request.attachment_parts.is_empty()
+            && let Some(object) = args.as_object_mut()
+        {
+            object.insert("attachmentParts".into(), Value::Array(request.attachment_parts));
         }
         Ok(self.handle(&args, &caller).await)
     }

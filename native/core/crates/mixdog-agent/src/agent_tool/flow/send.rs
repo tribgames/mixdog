@@ -176,7 +176,7 @@ impl SendFlowImpl {
         let preset = &current.preset;
         let own = [format!("agent-{agent}"), agent_preset_name(&agent), preset_key(Some(preset))];
         let named = current.preset_name.as_str().is_some_and(|n| n == spawned_on);
-        if spawned_on.is_empty() || !(own.iter().any(|o| *o == spawned_on) || named) {
+        if spawned_on.is_empty() || !(own.contains(&spawned_on) || named) {
             return Ok(None);
         }
         if !truthy(preset.get("provider")) || !truthy(preset.get("model")) {
@@ -281,10 +281,10 @@ impl SendFlowImpl {
                 queue_depth,
             })
         };
-        if self.world.surface_runs(&session) && busy {
-            if let Some(queued) = self.world.enqueue_turn(&session, &prompt, &attachments, context).await? {
-                return Ok(queued_view(queued.get("queueDepth").and_then(Value::as_u64)));
-            }
+        if self.world.surface_runs(&session) && busy
+            && let Some(queued) = self.world.enqueue_turn(&session, &prompt, &attachments, context).await?
+        {
+            return Ok(queued_view(queued.get("queueDepth").and_then(Value::as_u64)));
         }
         if !self.world.surface_runs(&session) && busy {
             // The queued follow-up keeps the forwarded files, as the canonical queue does.
