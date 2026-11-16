@@ -10,6 +10,9 @@
 //! that completes later answers through the `complete_*` methods; one that is done at once says
 //! so (`Settle::Now`) and its continuation is queued exactly where Node's microtask would be.
 
+// Private spelling of the existing admission callback; the ownership and call contract stay unchanged.
+type WriteGateCallback = dyn Fn(&mut dyn FnMut()) -> bool + Send + Sync;
+
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -113,11 +116,17 @@ pub enum SealFault {
 pub trait StreamChannel {
     fn encrypt_binary(&mut self, plaintext: &str) -> Result<Vec<u8>, SealFault>;
     /// The plaintext of one application box (a JSON document).
+    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
     fn decrypt_json(&mut self, box_bytes: &[u8]) -> Result<Vec<u8>, ()>;
+    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
     fn seal_control(&mut self, message: &Value, lane: &ControlLane) -> Result<Vec<u8>, ()>;
+    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
     fn open_control(&mut self, raw: &[u8], lane: &ControlLane) -> Result<ControlOpen, ()>;
+    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
     fn register_control_lane(&mut self, lane: &ControlLane) -> Result<(), ()>;
+    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
     fn activate_control_lane(&mut self, lane: &ControlLane) -> Result<(), ()>;
+    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
     fn retire_control_lane(&mut self, lane: &ControlLane) -> Result<(), ()>;
 }
 
@@ -146,6 +155,7 @@ pub trait Host {
     /// Whether a peer host is attached; absent, the session stays on the relay.
     fn peer_host_attached(&mut self) -> bool;
     /// Creates the offering peer of one session. `Err`: the host cannot run one now.
+    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
     fn peer_create(&mut self, init: &PeerInit) -> Result<(), ()>;
     fn peer_offer(&mut self, connection_id: &str) -> Settle<Result<LocalOffer, ()>>;
     fn peer_answer(&mut self, connection_id: &str, sdp: &str, fingerprints: &[Fingerprint]) -> Settle<Result<(), ()>>;
@@ -230,7 +240,7 @@ pub struct SendOptions {
 
 /// Runs a write (its argument) only while it is allowed, in one step with what ends the permission; false when it refused.
 #[derive(Clone)]
-pub struct WriteGate(pub std::sync::Arc<dyn Fn(&mut dyn FnMut()) -> bool + Send + Sync>);
+pub struct WriteGate(pub std::sync::Arc<WriteGateCallback>);
 
 impl std::fmt::Debug for WriteGate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1706,8 +1716,7 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
 
     /// Seals one application message (its JSON text, byte for byte) and hands it to the stream.
     pub fn send(&mut self, payload: &str, options: SendOptions) -> Sent {
-        let sent = self.send_inner(payload, options);
-        sent
+        self.send_inner(payload, options)
     }
 
     fn send_inner(&mut self, payload: &str, options: SendOptions) -> Sent {
@@ -1854,8 +1863,7 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
 
     /// Ends the session from outside (client removed, revoked, replaced).
     pub fn close(&mut self, reason: EndReason) -> Ended {
-        let ended = self.close_inner(reason);
-        ended
+        self.close_inner(reason)
     }
 
     fn close_inner(&mut self, end_reason: EndReason) -> Ended {

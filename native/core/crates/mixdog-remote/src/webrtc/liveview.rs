@@ -654,13 +654,13 @@ fn on_input_event(event: DataChannelEvent, live: &mut Live, emit: &impl Fn(LiveV
         }
         DataChannelEvent::OnMessage(message) => {
             // The input protocol is text.
-            if message.is_string {
-                if let Ok(text) = String::from_utf8(message.data.to_vec()) {
-                    emit(LiveViewEvent::Channel {
-                        text,
-                        received_at_ms: wall_clock_ms(),
-                    });
-                }
+            if message.is_string
+                && let Ok(text) = String::from_utf8(message.data.to_vec())
+            {
+                emit(LiveViewEvent::Channel {
+                    text,
+                    received_at_ms: wall_clock_ms(),
+                });
             }
         }
         DataChannelEvent::OnClose | DataChannelEvent::OnError => fail(

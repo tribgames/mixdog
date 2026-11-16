@@ -181,10 +181,10 @@ impl Receiver {
             return AcceptResult::OutOfWindow;
         }
         // Chunk 0 carries the box header: its embedded sequence must be the one the chunk claims.
-        if let RecordMessage::Chunk { index: 0, data, .. } = message {
-            if !header_names(data, sequence) {
-                return AcceptResult::Mismatch;
-            }
+        if let RecordMessage::Chunk { index: 0, data, .. } = message
+            && !header_names(data, sequence)
+        {
+            return AcceptResult::Mismatch;
         }
         // A later record is evidence about every earlier one (RFC 9002 §6.1).
         if sequence > self.highest_arrived {
@@ -226,25 +226,25 @@ impl Receiver {
         };
         // A full slot makes room by evicting its least advanced incomplete rival.
         let mut victim: Option<usize> = None;
-        if let Some(slot) = self.slots.get(&sequence) {
-            if slot.candidates.len() >= CANDIDATES_PER_SLOT {
-                for (position, candidate) in slot.candidates.iter().enumerate() {
-                    if candidate.complete() {
-                        continue;
-                    }
-                    let better = victim.is_none_or(|v| {
-                        let current = &slot.candidates[v];
-                        candidate.received < current.received
-                            || (candidate.received == current.received && candidate.progress_at < current.progress_at)
-                    });
-                    if better {
-                        victim = Some(position);
-                    }
+        if let Some(slot) = self.slots.get(&sequence)
+            && slot.candidates.len() >= CANDIDATES_PER_SLOT
+        {
+            for (position, candidate) in slot.candidates.iter().enumerate() {
+                if candidate.complete() {
+                    continue;
                 }
-                if victim.is_none() {
-                    self.duplicates += 1;
-                    return AcceptResult::Duplicate;
+                let better = victim.is_none_or(|v| {
+                    let current = &slot.candidates[v];
+                    candidate.received < current.received
+                        || (candidate.received == current.received && candidate.progress_at < current.progress_at)
+                });
+                if better {
+                    victim = Some(position);
                 }
+            }
+            if victim.is_none() {
+                self.duplicates += 1;
+                return AcceptResult::Duplicate;
             }
         }
         // Every candidate is charged at least one carrier message.

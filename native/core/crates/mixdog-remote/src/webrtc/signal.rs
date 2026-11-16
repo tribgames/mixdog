@@ -522,7 +522,7 @@ pub fn is_candidate_line(line: &str) -> bool {
         at += 4;
     }
     let extensions = &tokens[at..];
-    if extensions.len() % 2 != 0 {
+    if !extensions.len().is_multiple_of(2) {
         return false;
     }
     let mut tcp_types: Vec<String> = Vec::new();

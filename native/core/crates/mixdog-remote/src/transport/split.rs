@@ -45,7 +45,7 @@ pub fn split_payload(text: &str, id: u64) -> Result<Vec<String>, TransportError>
     if bytes.len() > MAX_APPLICATION_MESSAGE_BYTES {
         return Err(TransportError::invalid("message size"));
     }
-    if id < 1 || id > MAX_SAFE_INTEGER {
+    if !(1..=MAX_SAFE_INTEGER).contains(&id) {
         return Err(TransportError::invalid("fragment id"));
     }
     let count = bytes.len().div_ceil(FRAGMENT_BYTES);
