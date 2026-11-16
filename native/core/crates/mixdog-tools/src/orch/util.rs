@@ -204,6 +204,7 @@ pub(crate) fn text_output(text: impl Into<String>) -> ToolOutput {
     }
 }
 
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 pub(crate) fn text(text: impl Into<String>) -> ToolOutcome {
     Ok(text_output(text))
 }

@@ -138,6 +138,9 @@ pub struct Authorized {
     pub allow_not_saved: bool,
 }
 
+#[cfg(feature = "policy-observer")]
+type PolicyObserver = dyn Fn(&mut GateVerdict) + Send + Sync;
+
 pub struct ToolPolicy {
     hook: Option<Arc<dyn PreToolHook>>,
     store: Arc<dyn GrantStore>,
@@ -146,7 +149,7 @@ pub struct ToolPolicy {
     /// Development only (`policy-observer`): told the gate's verdict of every call the pipeline judges, before it acts on it,
     /// and may replace it (a replay presenting a recorded gate the product's own sessions cannot produce).
     #[cfg(feature = "policy-observer")]
-    observer: Option<Arc<dyn Fn(&mut GateVerdict) + Send + Sync>>,
+    observer: Option<Arc<PolicyObserver>>,
 }
 
 fn denied(name: &str, code: ToolErrorCode, detail: &str) -> ToolError {
@@ -255,6 +258,7 @@ impl ToolPolicy {
 
     /// Runs the pipeline for one call. `Ok` carries the call as it will run
     /// (a hook or the card may have rewritten it); `Err` is the denial.
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     pub async fn authorize(&self, rq: AuthorizeRequest<'_>) -> Result<Authorized, ToolError> {
         let name = rq.name;
         // The session's own tool policy refuses before any hook or approval. What the
@@ -379,6 +383,7 @@ impl ToolPolicy {
         })
     }
 
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn run_hook(&self, rq: &AuthorizeRequest<'_>) -> Result<Option<HookDecision>, ToolError> {
         let Some(hook) = &self.hook else {
             return Ok(None);
@@ -399,6 +404,7 @@ impl ToolPolicy {
     /// A connector tool a bot's own session runs, and the bot set to
     /// `needs_approval`, asks again here unless the outbound card already
     /// approved this very call.
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn connector_approval(
         &self,
         rq: &AuthorizeRequest<'_>,
@@ -449,6 +455,7 @@ impl ToolPolicy {
         }
     }
 
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn ask(&self, rq: &AuthorizeRequest<'_>, spec: AskSpec<'_>) -> Result<Answer, ToolError> {
         // A schedule or webhook run never asks: saving it was the user's grant.
         if rq.facts.run.is_some_and(|run| run.is_granted()) {

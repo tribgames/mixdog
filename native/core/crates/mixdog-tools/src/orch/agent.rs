@@ -148,6 +148,7 @@ pub struct ContentView {
 }
 
 #[derive(Clone, PartialEq, Debug)]
+#[allow(clippy::large_enum_variant, reason = "Keep the canonical agent reply variants and TaskView by value without a per-reply allocation solely for lint.")]
 pub enum AgentReply {
     Roster { workers: Vec<WorkerRow>, jobs: Vec<JobRow> },
     Task { view: TaskView, diagnostics: bool },

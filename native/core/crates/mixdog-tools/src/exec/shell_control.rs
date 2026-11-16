@@ -149,10 +149,8 @@ impl ShellControl {
                 if !runtime.cancel_survivors_intent(&job) && !job.termination_pending() {
                     return;
                 }
-                if let Some(watch) = &runtime.config.survivors {
-                    if watch.kill(&job.handle).await {
-                        runtime.finish_survivors(&job).await;
-                    }
+                if let Some(watch) = &runtime.config.survivors && watch.kill(&job.handle).await {
+                    runtime.finish_survivors(&job).await;
                 }
             }));
         } else if !send_kill(&self.runtime, &*self.processes, &job) {

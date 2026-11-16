@@ -320,7 +320,7 @@ pub fn decode_tee_capture(bytes: &[u8], utf16: bool) -> Option<String> {
         return None;
     }
     let text = if utf16 {
-        let units: Vec<u16> = bytes.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
+        let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
         String::from_utf16_lossy(&units)
     } else {
         String::from_utf8_lossy(bytes).into_owned()

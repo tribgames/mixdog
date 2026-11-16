@@ -52,26 +52,32 @@ impl TaskTool {
     }
 }
 
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 fn ok(text: String) -> ToolOutcome {
     Ok(ToolOutput { parts: vec![ToolPart::Text(text)], ..ToolOutput::default() })
 }
 
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 fn refused(code: ToolErrorCode, text: String) -> ToolOutcome {
     Err(ToolError::new(code, text))
 }
 
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 fn invalid(field: &str, text: String) -> ToolOutcome {
     refused(ToolErrorCode::InvalidArgs { field: field.into(), reason: text.clone() }, text)
 }
 
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 fn not_found(id: &str) -> ToolOutcome {
     refused(ToolErrorCode::NotFound { target: id.into() }, format!("Error: task not found: {id}"))
 }
 
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 fn unavailable(text: String) -> ToolOutcome {
     refused(ToolErrorCode::Unavailable { capability: "task".into(), reason: text.clone() }, text)
 }
 
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 async fn list(runtime: &ExecRuntime, ctx: &ToolContext) -> ToolOutcome {
     let jobs = runtime.list(&ctx.thread_id);
     let mut out = vec![format!("background tasks: {}", jobs.len())];
@@ -113,6 +119,7 @@ async fn list(runtime: &ExecRuntime, ctx: &ToolContext) -> ToolOutcome {
 
 /// `executeTaskTool` for a task this runtime does not hold (task-tool.mjs:411-444): the record the runtime that ran it kept
 /// answers for it. Nothing can wait on or control a process after a restart, so a wait reads what is kept.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 async fn kept_task(runtime: &ExecRuntime, ctx: &ToolContext, id: &str, cancelling: bool, tail: bool) -> ToolOutcome {
     let Some(kept) = runtime.kept(&ctx.thread_id, id, &ctx.cancel).await else {
         return not_found(id);
@@ -136,6 +143,7 @@ fn wait_ceiling_ms(timeout: Option<f64>, default: u64) -> u64 {
     }
 }
 
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 async fn read_or_wait(
     runtime: &ExecRuntime,
     ctx: &ToolContext,
@@ -270,6 +278,7 @@ async fn cancel_outcome(runtime: &ExecRuntime, processes: &dyn ProcessManager, j
     CancelOutcome::Cancelled
 }
 
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 async fn cancel(runtime: &ExecRuntime, ctx: &ToolContext, job: Arc<Job>) -> ToolOutcome {
     let id = job.id.clone();
     match cancel_job(runtime, &*ctx.processes, &job).await {
@@ -417,6 +426,7 @@ fn guard_task_args(args: JsonValue) -> Result<JsonValue, String> {
 
 impl TaskTool {
     /// `executeTaskTool`: the handler behind the argument guard.
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     pub async fn execute(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let action = args
             .get("action")

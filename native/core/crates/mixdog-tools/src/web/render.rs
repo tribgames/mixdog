@@ -218,13 +218,11 @@ impl BrowserRenderer {
                         open.remove(text_of(params, "requestId"));
                         state.inflight.send_replace(open.len());
                     }
-                    "Page.lifecycleEvent" => {
-                        if text_of(params, "name") == "DOMContentLoaded" && text_of(params, "frameId") == main_frame {
-                            let loader = text_of(params, "loaderId").to_string();
-                            state.dom_loaded.send_modify(|loaders| {
-                                loaders.insert(loader);
-                            });
-                        }
+                    "Page.lifecycleEvent" if text_of(params, "name") == "DOMContentLoaded" && text_of(params, "frameId") == main_frame => {
+                        let loader = text_of(params, "loaderId").to_string();
+                        state.dom_loaded.send_modify(|loaders| {
+                            loaders.insert(loader);
+                        });
                     }
                     _ => {}
                 }

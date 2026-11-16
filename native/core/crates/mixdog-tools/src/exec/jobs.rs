@@ -860,10 +860,8 @@ fn progress_digest(growth: &[Range], hung: Option<&str>) -> String {
             serde_json::to_string(&shown).unwrap_or_default()
         ));
     }
-    if let Some(m) = PERCENT.captures_iter(&text).last() {
-        if m[1].parse::<f64>().is_ok_and(|n| n <= 100.0) {
-            parts.push(format!("{}%", &m[1]));
-        }
+    if let Some(m) = PERCENT.captures_iter(&text).last() && m[1].parse::<f64>().is_ok_and(|n| n <= 100.0) {
+        parts.push(format!("{}%", &m[1]));
     }
     if let Some(m) = ETA.captures_iter(&text).last() {
         parts.push(format!("ETA {}", mixdog_js::js_trim(&m[1])));
@@ -1074,11 +1072,9 @@ impl Job {
             // The encoding is decided once, firmly (or when the task is terminal); until then
             // only the ASCII prefix is read.
             let label = stream.probe(&mut cursor.sniffer, options.terminal);
-            if let Some(label) = label {
-                if !cursor.committed {
-                    cursor.committed = true;
-                    cursor.decoder.force(label);
-                }
+            if let Some(label) = label && !cursor.committed {
+                cursor.committed = true;
+                cursor.decoder.force(label);
             }
             let read_end = if label.is_some() { size } else { cursor.sniffer.safe_end(size) };
             let mut start = cursor.offset;
@@ -1546,6 +1542,7 @@ impl ExecRuntime {
 
     /// Spawns the process, or claims the parked `standby` taken for it, registers the task and starts the collector on a
     /// lane. A standby that cannot be claimed is ended, unfed, and the process spawned.
+    #[allow(clippy::too_many_arguments, reason = "Preserve the existing process ownership and result-rendering boundary and its explicit call arguments.")]
     pub async fn start(
         self: &Arc<Self>,
         processes: &Arc<dyn ProcessManager>,

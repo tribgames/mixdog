@@ -409,6 +409,7 @@ pub(super) fn time_limit_ms(args: &Args, background_enabled: bool, env: &dyn Fn(
 }
 
 /// `shellCwdError` and `effectiveShellCwd`: the requested directory against the session cwd.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 async fn resolve_cwd(ctx: &ToolContext, requested: Option<String>) -> Result<AbsPath, ToolError> {
     let Some(requested) = requested.filter(|c| !mixdog_js::js_trim(c).is_empty()) else {
         return Ok(ctx.cwd.clone());
@@ -490,10 +491,8 @@ fn exit_class_diagnostic(code: i32) -> String {
     if code == 126 {
         return " — 126: command found but not executable (permission or format)".to_owned();
     }
-    if code > 128 && code < 165 {
-        if let Some(name) = signal_name(code - 128) {
-            return format!(" — 128+{}: terminated by {name}", code - 128);
-        }
+    if code > 128 && code < 165 && let Some(name) = signal_name(code - 128) {
+        return format!(" — 128+{}: terminated by {name}", code - 128);
     }
     String::new()
 }
@@ -599,6 +598,8 @@ async fn cancel_foreground(runtime: &Arc<ExecRuntime>, ctx: &ToolContext, job: &
 }
 
 /// Result of a finished foreground command (`renderCompletedResult`).
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+#[allow(clippy::too_many_arguments, reason = "Preserve the existing process ownership and result-rendering boundary and its explicit call arguments.")]
 async fn completed(
     runtime: &Arc<ExecRuntime>,
     ctx: &ToolContext,
@@ -717,6 +718,7 @@ async fn completed(
 }
 
 /// The result of a command that outlived the hold (`renderBackgroundedResult`).
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 fn backgrounded(job: &Job, command: &str, guard_note: &str, message: &str) -> ToolOutcome {
     let block = job.render(true, None);
     let partial = job.read_output(ReadOptions { digest: true, ..ReadOptions::default() });
@@ -746,6 +748,7 @@ impl Tool for ShellTool {
 impl ShellTool {
     /// The call, its misuse guards reading the command as POSIX syntax when `posix` and a bash resolves (`requestedShellType`: a call a foreign
     /// CLI's `bash` name makes asks for the POSIX shell) and as the default shell's otherwise.
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn call_as(&self, ctx: &ToolContext, args: JsonValue, posix: bool) -> ToolOutcome {
         // Whatever the outcome or classification, a finished command is a turn boundary for the
         // review of the folder it ran in (`tool-exec.mjs`); the folder is the raw `cwd` argument
@@ -758,6 +761,7 @@ impl ShellTool {
 }
 
 impl ShellTool {
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn run(&self, ctx: &ToolContext, args: JsonValue, posix: bool) -> ToolOutcome {
         let args = guard_shell_args(args)
             .map_err(|text| failed(ToolErrorCode::InvalidArgs { field: "arguments".into(), reason: text.clone() }, text))?;
@@ -768,14 +772,20 @@ impl ShellTool {
             )
         })?;
         let runtime = &self.runtime;
-        // A call that asks for the bash shell is read as POSIX syntax where one resolves (`requestedShellType`).
-        let bash_requested = posix && super::shell_choice::bash_request_is_posix(runtime.config.windows);
         if args.command.is_empty() {
             return Err(failed(
                 ToolErrorCode::InvalidArgs { field: "command".into(), reason: "required".into() },
                 tool_failure("command is required"),
             ));
         }
+        // A call that asks for the bash shell is read as POSIX syntax where one resolves (`requestedShellType`).
+        // Reject the invalid empty command before lane admission, so a full lane cannot replace that argument error.
+        let bash_requested = posix && super::shell_choice::bash_request_is_posix_on(runtime.config.windows, runtime.config.lanes.spawn, &ctx.cancel)
+            .await
+            .map_err(|reason| failed(
+                ToolErrorCode::Unavailable { capability: "shell".into(), reason: reason.clone() },
+                tool_failure(&reason),
+            ))?;
         let check_policy = |text: &str| -> Result<(), ToolError> {
             let verdict = runtime.config.policy.evaluate(text);
             let elevation_approved =
@@ -839,11 +849,9 @@ impl ShellTool {
         // Effects and results are read from the command as the caller meant it.
         let analysis_command = command.clone();
         // Bash-isms that always fail in Windows PowerShell are rewritten before the first run.
-        if runtime.config.windows && runtime.config.powershell && hard_cap == 0 {
-            if let Some((text, note)) = rewrite_powershell_bashisms(&command) {
-                command = text;
-                rewrite_notes.push(note);
-            }
+        if runtime.config.windows && runtime.config.powershell && hard_cap == 0 && let Some((text, note)) = rewrite_powershell_bashisms(&command) {
+            command = text;
+            rewrite_notes.push(note);
         }
         check_policy(&command)?;
         rewrite_notes.extend(guard_notes.iter().cloned());
@@ -868,18 +876,16 @@ impl ShellTool {
                 tool_failure(&format!("script syntax check unavailable: {reason}")),
             )
         })?;
-        if let Some(plan) = planned {
-            if let Some(path) = spill::write_hoist_file(
-                runtime.config.lanes.spawn,
-                &ctx.cancel,
-                plan.extension,
-                &plan.body,
-            )
-            .await
-            {
-                command = plan.replace(&path.to_string_lossy().replace('\\', "/"));
-                hoist_path = Some(path);
-            }
+        if let Some(plan) = planned && let Some(path) = spill::write_hoist_file(
+            runtime.config.lanes.spawn,
+            &ctx.cancel,
+            plan.extension,
+            &plan.body,
+        )
+        .await
+        {
+            command = plan.replace(&path.to_string_lossy().replace('\\', "/"));
+            hoist_path = Some(path);
         }
         let background_enabled = !env_flag("MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS", false);
         let mut time_limit = time_limit_ms(&args, background_enabled, &process_env);
@@ -962,25 +968,23 @@ impl ShellTool {
                     // The command travels in the environment, not argv, behind a snapshot of the
                     // user's shell state when one can be made.
                     let mut wrapped = command.clone();
-                    if std::env::var("MIXDOG_BASH_SNAPSHOT").as_deref() != Ok("off") {
-                        if let (Some(data), Some(dir)) = (runtime.config.data_dir.as_deref(), launcher_dir.as_deref()) {
-                            let snapshot = runtime
-                                .snapshots
-                                .get(SnapshotRequest {
-                                    processes: &ctx.processes,
-                                    lane: runtime.config.lanes.spawn,
-                                    cancel: &ctx.cancel,
-                                    shell_path: &shell_program,
-                                    data_dir: data,
-                                    launcher_dir: &dir.to_string_lossy(),
-                                    cwd: cwd.clone(),
-                                    thread: ctx.thread_id.clone(),
-                                    call: ctx.call_id.clone(),
-                                })
-                                .await;
-                            if let Some(snapshot) = snapshot {
-                                wrapped = wrap_with_snapshot(&snapshot.to_string_lossy(), &command);
-                            }
+                    if std::env::var("MIXDOG_BASH_SNAPSHOT").as_deref() != Ok("off") && let (Some(data), Some(dir)) = (runtime.config.data_dir.as_deref(), launcher_dir.as_deref()) {
+                        let snapshot = runtime
+                            .snapshots
+                            .get(SnapshotRequest {
+                                processes: &ctx.processes,
+                                lane: runtime.config.lanes.spawn,
+                                cancel: &ctx.cancel,
+                                shell_path: &shell_program,
+                                data_dir: data,
+                                launcher_dir: &dir.to_string_lossy(),
+                                cwd: cwd.clone(),
+                                thread: ctx.thread_id.clone(),
+                                call: ctx.call_id.clone(),
+                            })
+                            .await;
+                        if let Some(snapshot) = snapshot {
+                            wrapped = wrap_with_snapshot(&snapshot.to_string_lossy(), &command);
                         }
                     }
                     env.set.push(("MIXDOG_SHELL_SCRIPT".to_owned(), wrapped));

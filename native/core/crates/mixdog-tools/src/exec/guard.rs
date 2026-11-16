@@ -247,7 +247,7 @@ pub fn adds_unmanaged_worktree(command: &str) -> bool {
         .captures_iter(command)
     {
         let bytes = decode_base64_lenient(m.get(1).unwrap_or("").as_bytes());
-        let units: Vec<u16> = bytes.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
+        let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
         texts.push(String::from_utf16_lossy(&units));
     }
     texts.iter().any(|text| {
@@ -276,17 +276,13 @@ pub enum Guarded {
 pub fn guard_shell_call(command: &str, cwd: Option<&str>, background: bool, powershell: bool) -> Guarded {
     let mut notes = Vec::new();
     let (mut command, mut cwd) = (command.to_owned(), cwd.map(str::to_owned));
-    if cwd.is_none() {
-        if let Some((dir, rest)) = split_leading_cd(&command, powershell) {
-            notes.push(format!("Moved `cd {dir}` into cwd."));
-            command = rest;
-            cwd = Some(dir);
-        }
+    if cwd.is_none() && let Some((dir, rest)) = split_leading_cd(&command, powershell) {
+        notes.push(format!("Moved `cd {dir}` into cwd."));
+        command = rest;
+        cwd = Some(dir);
     }
-    if !background {
-        if let Some(failure) = leading_sleep_failure(&command, powershell) {
-            return Guarded::Refused(failure);
-        }
+    if !background && let Some(failure) = leading_sleep_failure(&command, powershell) {
+        return Guarded::Refused(failure);
     }
     if adds_unmanaged_worktree(&command) {
         return Guarded::Refused(super::shell::tool_failure(SHELL_WORKTREE_ADD_BLOCK));

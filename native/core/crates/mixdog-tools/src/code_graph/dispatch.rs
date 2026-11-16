@@ -273,7 +273,7 @@ fn answer(
         rel: file_rel,
         scope_prefix,
     };
-    let result = match mode {
+    match mode {
         "overview" => Ok(modes::overview(&ctx)),
         "imports" => Ok(modes::imports(&ctx)),
         "dependents" => modes::dependents(&ctx),
@@ -285,6 +285,5 @@ fn answer(
         "references" => modes::references(&ctx),
         "callers" => modes::callers(&ctx),
         _ => modes::callees(&ctx),
-    };
-    result
+    }
 }

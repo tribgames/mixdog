@@ -131,12 +131,10 @@ pub fn strip_quoted_and_heredoc(s: &str) -> String {
                 }
             }
         }
-        if ch == '<' && i + 1 < n && t[i + 1] == '#' && is_comment_start(&t, i) {
-            if let Some(end) = index_of(&t, &['#', '>'], i + 2) {
-                out.push(' ');
-                i = end + 2;
-                continue;
-            }
+        if ch == '<' && i + 1 < n && t[i + 1] == '#' && is_comment_start(&t, i) && let Some(end) = index_of(&t, &['#', '>'], i + 2) {
+            out.push(' ');
+            i = end + 2;
+            continue;
         }
         if ch == '#' && is_comment_start(&t, i) {
             i = (i..n).find(|&k| t[k] == '\n').unwrap_or(n);
@@ -264,11 +262,9 @@ pub fn tokenize(s: &str) -> Vec<String> {
             i = (i..src.len()).find(|&k| src[k] == '\n').unwrap_or(src.len());
             continue;
         }
-        if cur.is_empty() && c == '<' && i + 1 < src.len() && src[i + 1] == '#' {
-            if let Some(end) = index_of(&src, &['#', '>'], i + 2) {
-                i = end + 2;
-                continue;
-            }
+        if cur.is_empty() && c == '<' && i + 1 < src.len() && src[i + 1] == '#' && let Some(end) = index_of(&src, &['#', '>'], i + 2) {
+            i = end + 2;
+            continue;
         }
         if c == ' ' || c == '\t' {
             if !cur.is_empty() {
@@ -454,10 +450,8 @@ fn collect_leaf_embedded_payloads(peeled: &[String], out: &mut Vec<String>) {
             while j < peeled.len() {
                 let t = peeled[j].as_str();
                 if t == flag || (leaf == "perl" && t == "-E") {
-                    if let Some(arg) = peeled.get(j + 1) {
-                        if !arg.is_empty() {
-                            out.push(strip_quotes(arg).to_owned());
-                        }
+                    if let Some(arg) = peeled.get(j + 1) && !arg.is_empty() {
+                        out.push(strip_quotes(arg).to_owned());
                     }
                     break;
                 }
@@ -491,10 +485,8 @@ pub fn extract_shell_c_inner(s: &str) -> Vec<String> {
         while i < peeled.len() {
             let t = peeled[i].as_str();
             if t == "-c" || t == "--command" || COMBINED_C.is_match(t) {
-                if let Some(arg) = peeled.get(i + 1) {
-                    if !arg.is_empty() {
-                        out.push(strip_quotes(arg).to_owned());
-                    }
+                if let Some(arg) = peeled.get(i + 1) && !arg.is_empty() {
+                    out.push(strip_quotes(arg).to_owned());
                 }
                 break;
             }
@@ -591,7 +583,7 @@ pub fn decode_powershell_encoded_command(command: &str) -> Option<String> {
         .map(|caps| {
             let bytes = decode_base64_lenient(caps.get(1).unwrap_or_default().as_bytes());
             let units: Vec<u16> = bytes
-                .chunks_exact(2)
+                .as_chunks::<2>().0.iter()
                 .map(|p| u16::from_le_bytes([p[0], p[1]]))
                 .collect();
             String::from_utf16_lossy(&units)
