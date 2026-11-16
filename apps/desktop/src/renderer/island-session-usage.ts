@@ -66,6 +66,9 @@ function measuredUsage(value: unknown): MeasuredUsage | null {
 const LAST_USAGE_SESSIONS = 16;
 const lastUsage = new Map<string, unknown>();
 
+/** Reads of one session start at least this far apart; cues inside it share one follow-up. */
+export const MIN_READ_GAP_MS = 4_000;
+
 function rememberUsage(sessionId: string, value: unknown): void {
   if (value === null) return;
   lastUsage.delete(sessionId);
@@ -140,6 +143,8 @@ export function useIslandSessionUsage(
   const reading = useRef(new Set<string>());
   const wanted = useRef('');
   const readAgain = useRef<(() => void) | null>(null);
+  const followUp = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readStarts = useRef(new Map<string, number>());
   const ids = islandUsageSessionIds(agentSessionIds);
   const idsKey = ids.join('\n');
   const mounted = useRef(true);
@@ -147,6 +152,8 @@ export function useIslandSessionUsage(
     mounted.current = true;
     return () => {
       mounted.current = false;
+      if (followUp.current) clearTimeout(followUp.current);
+      followUp.current = null;
     };
   }, []);
   // biome-ignore lint/correctness/useExhaustiveDependencies: ids ride idsKey; cue is the trigger
@@ -154,6 +161,8 @@ export function useIslandSessionUsage(
     if (!open || !sessionId) {
       wanted.current = '';
       readAgain.current = null;
+      if (followUp.current) clearTimeout(followUp.current);
+      followUp.current = null;
       return undefined;
     }
     const api = window.mixdogDesktop;
@@ -163,6 +172,20 @@ export function useIslandSessionUsage(
         wanted.current = sessionId;
         return;
       }
+      // The group's token moves with every model response of every agent, so a busy team cues a read back to back;
+      // each is several ledger requests and a thread lookup. Reads start at most one per bound; cues inside it wait
+      // for one follow-up that asks for the latest agents.
+      const wait = (readStarts.current.get(sessionId) ?? 0) + MIN_READ_GAP_MS - Date.now();
+      if (wait > 0) {
+        if (!followUp.current) {
+          followUp.current = setTimeout(() => {
+            followUp.current = null;
+            readAgain.current?.();
+          }, wait);
+        }
+        return;
+      }
+      readStarts.current.set(sessionId, Date.now());
       reading.current.add(sessionId);
       Promise.resolve(
         api.invokeCapability({ capability: 'getSessionUsage', args: [{ sessionIds: ids, agents: true }], sessionId })

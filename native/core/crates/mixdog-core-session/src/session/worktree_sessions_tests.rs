@@ -5,6 +5,7 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use mixdog_scm::worktree::maintenance::SessionSource;
 use mixdog_spawn::tasks::HostShellJobs;
@@ -84,6 +85,104 @@ async fn the_ids_activity_and_marks_are_the_ones_nodes_maintenance_read() {
         .map(|(id, row)| (id, json!({ "lastActiveAt": row.last_active_at, "title": row.title })))
         .collect();
     assert_eq!(Value::Object(got), golden["activity"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_mark_written_after_a_scan_is_what_the_next_ask_reads_whatever_the_age() {
+    use crate::session::seams::CommitRecord;
+    use crate::session::seams::EncodedRecord;
+    use crate::session::seams::SessionLog;
+    use crate::session::seams::ThreadStore;
+    use mixdog_core_api::ids::ThreadId;
+    use mixdog_rt::LaneToken as _;
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::HeaderChange;
+    use mixdog_store::schema::record::MetaRecord;
+    use mixdog_store::schema::record::Record;
+
+    let golden = golden();
+    let (_dir, threads, lanes) = migrated(&golden).await;
+    let source = StoredWorktreeSessions::new(Arc::new(StoredSearchSessions::new(threads.clone(), lanes.clone())), tasks());
+    let commit = |record: Record| {
+        let encoded = EncodedRecord(mixdog_store::encode::encode_record(record.clone()).expect("encodes"));
+        CommitRecord { record: Arc::new(record), encoded }
+    };
+    let session = commit(
+        serde_json::from_value(json!({"k":"session","v":2,"id":"sess_kept","log_id":"4f1c2a9e0b7d3c5a6e8f9012","header":{"inline":{"title":"kept","archivedAt":7}}}))
+            .expect("a record"),
+    );
+    let thread = ThreadId::from("sess_kept".to_owned());
+    let log = {
+        let (threads, thread) = (threads.clone(), thread.clone());
+        lanes
+            .durability
+            .submit(&mixdog_rt::CancellationToken::new(), move |lane| threads.create_log(lane, &thread, &session).expect("created").0)
+            .expect("lane")
+            .await
+            .expect("job ran")
+    };
+    let log = Arc::new(std::sync::Mutex::new(log));
+    let meta = |set: &[(&str, Value)], unset: &[&str]| {
+        commit(Record::Meta(MetaRecord {
+            op: None,
+            change: Slot::Inline(HeaderChange {
+                set: set.iter().map(|(key, value)| ((*key).to_owned(), value.clone())).collect(),
+                unset: unset.iter().map(|key| (*key).to_owned()).collect(),
+            }),
+        }))
+    };
+    let write = |record: CommitRecord| {
+        let log = log.clone();
+        let lanes = lanes.clone();
+        async move {
+            lanes
+                .durability
+                .submit(&mixdog_rt::CancellationToken::new(), move |lane| log.lock().unwrap().commit(lane, &[record]).expect("committed"))
+                .expect("lane")
+                .await
+                .expect("job ran");
+        }
+    };
+
+    // Primed: archived, not favorite.
+    assert!(source.archived().await.expect("archived").contains("sess_kept"));
+    assert!(!source.favorites().await.expect("favorites").contains("sess_kept"));
+    let scans = source.scans.load(Ordering::Relaxed);
+    assert!(source.favorites().await.is_some());
+    assert_eq!(source.scans.load(Ordering::Relaxed), scans, "nothing was written: the scan is served as held");
+
+    // A favorite written now is what cleanup reads next, with no wait for an age.
+    write(meta(&[("favoriteAt", json!(9))], &[])).await;
+    assert!(source.favorites().await.expect("favorites").contains("sess_kept"), "a newly favorited session is protected at once");
+    // An un-archive likewise.
+    write(meta(&[], &["archivedAt"])).await;
+    assert!(!source.archived().await.expect("archived").contains("sess_kept"), "a restored session is no longer archived");
+    // A write of any other key moves nothing.
+    assert!(source.favorites().await.is_some());
+    let scans = source.scans.load(Ordering::Relaxed);
+    write(meta(&[("title", json!("renamed"))], &[])).await;
+    assert!(source.favorites().await.is_some());
+    assert_eq!(source.scans.load(Ordering::Relaxed), scans, "a title is no retention mark");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_marks_are_scanned_once_for_overlapping_asks() {
+    let golden = golden();
+    let (_dir, threads, lanes) = migrated(&golden).await;
+    let source = Arc::new(StoredWorktreeSessions::new(Arc::new(StoredSearchSessions::new(threads, lanes)), tasks()));
+    let asks: Vec<_> = (0..6)
+        .map(|n| {
+            let source = source.clone();
+            tokio::spawn(async move { if n % 2 == 0 { source.favorites().await } else { source.archived().await } })
+        })
+        .collect();
+    for ask in asks {
+        assert!(ask.await.expect("joined").is_some());
+    }
+    assert_eq!(source.scans.load(Ordering::Relaxed), 2, "one scan per mark key however many asks overlap");
+    source.favorites().await.expect("favorites");
+    assert_eq!(source.scans.load(Ordering::Relaxed), 2, "an answer is served as held until a mark is written");
+    assert_eq!(sorted(source.favorites().await.expect("favorites")), strings(&golden["favorites"]));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -432,6 +432,23 @@ export function nothingToCleanUp(preview: unknown): boolean {
   return (preview as { hasCandidates?: unknown } | null | undefined)?.hasCandidates === false;
 }
 
+const cleanupPreviewsInFlight = new Map<string, Promise<unknown>>();
+
+/** One previewWorktreeCleanup round trip per repository at a time: every open menu of a repository (a composer per
+ *  running session) asks for the same answer, and the runtime's scan behind it is not cheap, so asks that land while
+ *  one is unanswered share it. Nothing is kept once it settles: a later ask reads again. */
+export function sharedCleanupPreview(repoCommonDir: string, read: () => Promise<unknown>): Promise<unknown> {
+  const running = cleanupPreviewsInFlight.get(repoCommonDir);
+  if (running) return running;
+  const next = read();
+  cleanupPreviewsInFlight.set(repoCommonDir, next);
+  const settle = () => {
+    if (cleanupPreviewsInFlight.get(repoCommonDir) === next) cleanupPreviewsInFlight.delete(repoCommonDir);
+  };
+  next.then(settle, settle);
+  return next;
+}
+
 export type BranchChipState =
   | { kind: 'branch'; label: string }
   | { kind: 'intent'; label: string }

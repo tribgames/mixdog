@@ -151,6 +151,11 @@ pub trait SessionSource: Send + Sync {
     async fn activity(&self, ids: &[String]) -> HashMap<String, SessionActivity>;
     /// Running background shell jobs; an unreadable record is an `Err` (fail closed).
     async fn running_jobs(&self) -> Result<Vec<ShellJob>, ScmFailure>;
+    /// A value that moves whenever a favorite or archive mark is written: an answer derived from the marks is current only at
+    /// the value it was derived at.
+    fn retention(&self) -> u64 {
+        0
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -330,6 +335,14 @@ impl Worktrees {
     /// interrupted removals, and with autoCleanup on the limits and archive rules. A candidate
     /// may still be kept when the prune verifies it. `(ids, stale)`.
     pub async fn preview_worktree_cleanup(&self, sessions: &Arc<dyn SessionSource>, options: &CleanupOptions, cancel: &CancellationToken) -> Result<(Vec<String>, Vec<String>), ScmFailure> {
+        // Candidates and stale registrations come only from the scoped repository's records, so a repository with none has
+        // nothing to find: the stored-session listing and the marks scan below are never needed for it.
+        if let Some(only) = options.repo_common_dir.as_deref().map(|dir| crate::locks::path_key(std::path::Path::new(dir))) {
+            let any = self.all_records(cancel).await?.iter().any(|record| crate::locks::path_key(std::path::Path::new(&record.repo_common_dir)) == only);
+            if !any {
+                return Ok((Vec::new(), Vec::new()));
+            }
+        }
         let settings = match &options.settings {
             Some(settings) => settings.clone(),
             None => self.current_settings().await,

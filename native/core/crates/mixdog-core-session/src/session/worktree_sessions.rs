@@ -21,6 +21,9 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_scm::error::ScmFailure;
@@ -34,6 +37,7 @@ use serde_json::Value;
 
 use super::worktree_consumers::listing_failure;
 use super::worktree_state::plain;
+use crate::project::aged::Aged;
 use crate::session::delete::sidebar_flag;
 use crate::session::search_backfill::StoredSearchSessions;
 use crate::session::sub_agent_retention::activity_at;
@@ -42,6 +46,12 @@ use crate::session::sub_agent_retention::activity_at;
 pub struct StoredWorktreeSessions {
     stored: Arc<StoredSearchSessions>,
     tasks: Arc<TaskRegistry>,
+    /// The marked sessions per header key. Finding them reads every stored session's header on the interactive io lane (a
+    /// thousand jobs for a long-lived profile), and Node read one small sidebar file instead: a scan stands until a mark is
+    /// written (the store's retention version moves), and overlapping asks share one.
+    marks: Aged<&'static str, HashSet<String>>,
+    /// How many scans of the stored headers ran.
+    scans: AtomicUsize,
 }
 
 impl StoredWorktreeSessions {
@@ -49,17 +59,22 @@ impl StoredWorktreeSessions {
     /// already share (one listing, one header read) and the shell runtime's task registry
     /// (`ShellControl::tasks()`).
     pub fn new(stored: Arc<StoredSearchSessions>, tasks: Arc<TaskRegistry>) -> Self {
-        Self { stored, tasks }
+        Self { stored, tasks, marks: Aged::new(Duration::MAX), scans: AtomicUsize::new(0) }
     }
 
-    async fn marked(&self, key: &str) -> Result<HashSet<String>, ScmFailure> {
-        let mut marked = HashSet::new();
-        for id in self.stored_session_ids().await? {
-            if self.stored.header(&id).await.is_some_and(|header| sidebar_flag(&header, key)) {
-                marked.insert(id);
-            }
-        }
-        Ok(marked)
+    async fn marked(&self, key: &'static str) -> Result<HashSet<String>, ScmFailure> {
+        self.marks
+            .get_at(key, self.stored.retention(), || async {
+                self.scans.fetch_add(1, Ordering::Relaxed);
+                let mut marked = HashSet::new();
+                for id in self.stored_session_ids().await? {
+                    if self.stored.header(&id).await.is_some_and(|header| sidebar_flag(&header, key)) {
+                        marked.insert(id);
+                    }
+                }
+                Ok(marked)
+            })
+            .await
     }
 }
 
@@ -77,6 +92,10 @@ impl SessionSource for StoredWorktreeSessions {
     async fn stored_session_ids(&self) -> Result<HashSet<String>, ScmFailure> {
         let listed = self.stored.listed().await.map_err(|error| listing_failure(error, self.stored.sessions_dir()))?;
         Ok(listed.into_iter().collect())
+    }
+
+    fn retention(&self) -> u64 {
+        self.stored.retention()
     }
 
     async fn favorites(&self) -> Option<HashSet<String>> {

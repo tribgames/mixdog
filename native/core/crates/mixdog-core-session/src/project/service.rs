@@ -107,7 +107,15 @@ pub struct ProjectService {
     live: LiveSessions,
     connectors: ProjectConnectors,
     ops: OpScopes,
+    /// The cleanup preview per repository. Every open composer asks for it whenever its branch menu is read, and the answer
+    /// is a registry read plus a scan of the stored sessions: asks inside the bound share one answer, overlapping ones one scan.
+    previews: super::aged::Aged<String, Value>,
 }
+
+/// How long a preview answer stands, as a cost limit only. What it is derived from changes at known points: a worktree
+/// mutation drops it at once ([`ProjectService::call`]) and a favorite or archive mark moves the sessions' retention version it
+/// is held at. The bound covers what has no such point (a folder deleted by hand).
+const PREVIEW_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// A thrown plain `Error`/`TypeError`: its text is the whole answer.
 fn plain(message: impl Into<String>) -> ScmFailure {
@@ -164,7 +172,7 @@ impl ProjectService {
         connectors: ProjectConnectors,
         ops: OpScopes,
     ) -> Self {
-        Self { projects, worktrees, workspaces, sessions, live, connectors, ops }
+        Self { projects, worktrees, workspaces, sessions, live, connectors, ops, previews: super::aged::Aged::new(PREVIEW_MAX_AGE) }
     }
 
     /// `WORKTREE_PROJECT_UNKNOWN` unless `value` is a registered Project; with no details, as Node's
@@ -310,8 +318,13 @@ impl ProjectService {
     /// Whether the manual prune could act on anything (no git verification, nothing removed).
     async fn preview_cleanup(&self, input: Option<&Value>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         let options = self.cleanup_options(input, false);
-        let (ids, stale) = self.worktrees.preview_worktree_cleanup(&self.sessions, &options, cancel).await?;
-        Ok(json!({ "hasCandidates": ids.len() + stale.len() > 0 }))
+        let key = options.repo_common_dir.clone().unwrap_or_default();
+        self.previews
+            .get_at(key, self.sessions.retention(), || async {
+                let (ids, stale) = self.worktrees.preview_worktree_cleanup(&self.sessions, &options, cancel).await?;
+                Ok(json!({ "hasCandidates": ids.len() + stale.len() > 0 }))
+            })
+            .await
     }
 
     /// The manual prune: independent of autoCleanup, optionally limited to one repository.
@@ -467,7 +480,10 @@ impl DomainService for ProjectService {
         if MUTATIONS.contains(&method) {
             // A duplicate answers what the first one did; a report too large to be stored with
             // the op is not reproduced.
-            return self.ops.run(&req, None, || self.mutate(&req), || async { Ok(Value::Null) }).await;
+            self.previews.forget();
+            let done = self.ops.run(&req, None, || self.mutate(&req), || async { Ok(Value::Null) }).await;
+            self.previews.forget();
+            return done;
         }
         Err(wrong_method(DOMAIN, method))
     }

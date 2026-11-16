@@ -193,6 +193,7 @@ export function BranchIslandSegment({
     menu,
     query,
     locked,
+    menuOpen: open,
     load,
     setNotice,
     close,
