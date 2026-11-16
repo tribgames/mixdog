@@ -94,6 +94,7 @@ pub fn turn_started(header: &Header) -> Option<HeaderPatch> {
 /// `onUsageDelta(delta)` for one model call: `delta` is the call's `usageDeltaEvent`, `outgoing` the
 /// transcript its request carried (the provider's reading covers it, not the reply appended after) and
 /// `send_tools` its tools. `books`: `None` records no pressure.
+#[allow(clippy::too_many_arguments, reason = "Preserve the established usage projection API shared by core-session and recorded replay callers; inputs retain their independent meanings")]
 pub fn usage_change(
     header: &Header,
     delta: &Value,

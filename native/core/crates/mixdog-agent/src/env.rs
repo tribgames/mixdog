@@ -330,6 +330,7 @@ pub struct UsageDelta {
 }
 
 #[derive(Clone, PartialEq, Debug)]
+#[allow(clippy::large_enum_variant, reason = "Keep the public event constructors and direct AgentMessage forwarding without an allocation per early result")]
 pub enum RunEvent {
     Stage(Stage),
     TextDelta(String),
@@ -708,6 +709,7 @@ pub trait Yielder: Send + Sync {
 }
 
 /// What the loop does with a failure no retry covers (Node `advanceAgentRoute`'s three ends).
+#[allow(clippy::large_enum_variant, reason = "Keep the public route-switch decision and its structured route metadata by value without boxing the API")]
 pub enum RouteDecision {
     /// The request goes to the next model.
     Switch(RouteSwitch),

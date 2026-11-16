@@ -711,6 +711,7 @@ impl Run {
     }
 
     /// The loop. Completion, cancellation and terminal failures end it.
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured provider/tool/run failure by value without boxing or changing this API")]
     pub async fn run(mut self) -> Result<RunOutput, RunFailure> {
         // An explicit request asks for a current answer: the account pool re-measures quota it recorded as exhausted
         // instead of refusing from the old reading, once per loop entry and not per provider round.
