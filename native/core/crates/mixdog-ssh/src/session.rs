@@ -435,10 +435,10 @@ impl RemoteSession {
         let _turn = self.gate.acquire().await;
         {
             let state = self.lock();
-            if state.finished != seen {
-                if let Some(result) = &state.last {
-                    return result.clone();
-                }
+            if state.finished != seen
+                && let Some(result) = &state.last
+            {
+                return result.clone();
             }
         }
         let result = self.establish().await;
@@ -684,11 +684,10 @@ impl RemoteSession {
 fn tunnel_failure(tunnel: &dyn TunnelHandle) -> Option<SshError> {
     let state = tunnel.state();
     let now = state.borrow();
-    let failure = match &*now {
+    match &*now {
         TunnelState::Stopped { failure } => failure.clone(),
         _ => None,
-    };
-    failure
+    }
 }
 
 /// No child runs and none will start by itself (a stop, or a link that dropped with automatic reconnection off).

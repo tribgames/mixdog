@@ -236,10 +236,9 @@ fn invalid_spec(spec: &TunnelSpec) -> Option<SshError> {
         "a tunnel needs a forward".to_owned()
     } else if spec.forwards.len() > MAX_FORWARDS {
         format!("a tunnel carries at most {MAX_FORWARDS} forwards")
-    } else if let Some(forward) = spec.forwards.iter().find(|forward| forward.remote_host != LOOPBACK) {
-        format!("a forward reaches {LOOPBACK} on the server only, not {}", forward.remote_host)
     } else {
-        return None;
+        let forward = spec.forwards.iter().find(|forward| forward.remote_host != LOOPBACK)?;
+        format!("a forward reaches {LOOPBACK} on the server only, not {}", forward.remote_host)
     };
     Some(SshError::new(format!("Cannot start the ssh tunnel to {}: {reason}.", spec.target.display), FailureClass::Terminal))
 }
