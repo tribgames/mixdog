@@ -229,7 +229,7 @@ pub mod gate {
             (false, None) => return Some(Decision(State::Undecided { listed, kind: None, as_dir, as_file })),
         };
         let kind = listed.kind;
-        (!rules.excludes(verdict, &listed.path, listed.hidden)).then(|| Decision(State::Admitted { listed, kind }))
+        (!rules.excludes(verdict, &listed.path, listed.hidden)).then_some(Decision(State::Admitted { listed, kind }))
     }
 
     /// An undecided `decision` judged by the type [`probe`] told: `None`, dropping it, when the rules exclude it.
@@ -237,7 +237,7 @@ pub mod gate {
         match decision.0 {
             State::Undecided { listed, kind: Some(kind), as_dir, as_file } => {
                 let verdict = if kind == EntryKind::Dir { as_dir } else { as_file };
-                (!rules.excludes(verdict, &listed.path, listed.hidden)).then(|| Decision(State::Admitted { listed, kind: Some(kind) }))
+                (!rules.excludes(verdict, &listed.path, listed.hidden)).then_some(Decision(State::Admitted { listed, kind: Some(kind) }))
             }
             state => Some(Decision(state)),
         }
@@ -366,7 +366,7 @@ impl Rules {
 
     fn entered(&mut self) {
         self.entered += 1;
-        if self.entered % FOLDERS_REMEMBERED == 0 {
+        if self.entered.is_multiple_of(FOLDERS_REMEMBERED) {
             self.matcher = self.fresh.clone();
         }
     }

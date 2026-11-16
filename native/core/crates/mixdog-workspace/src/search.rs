@@ -182,10 +182,9 @@ impl SearchSessions {
 
     async fn index_for(&self, session: &Session, generation: u64, root: &Path) -> WsResult<Option<Arc<Index>>> {
         let key = (comparable(root), session.config.include_ignored);
-        if let Some(index) = self.indexes.lock().expect("search indexes").get(&key) {
-            if !index.stale.load(Ordering::SeqCst) {
-                return Ok(Some(index.clone()));
-            }
+        if let Some(index) = self.indexes.lock().expect("search indexes").get(&key)
+            && !index.stale.load(Ordering::SeqCst) {
+            return Ok(Some(index.clone()));
         }
         let (walk_root, include_ignored) = (root.to_path_buf(), session.config.include_ignored);
         let watch = SessionStop { generation, session_generation: session.generation.clone() };
@@ -206,10 +205,9 @@ impl SearchSessions {
     /// query extends its needle, else walked within the time budget (an unfinished walk keeps nothing).
     async fn beyond(&self, session: &Session, generation: u64, root: &Path, index: &Arc<Index>, query: &str) -> WsResult<Vec<String>> {
         let needle = normalize_query(query);
-        if let Some((cached, matches)) = &*index.beyond.lock().expect("beyond cache") {
-            if needle.contains(cached.as_str()) {
-                return Ok(matches.iter().filter(|p| match_file(p, query).is_some()).cloned().collect());
-            }
+        if let Some((cached, matches)) = &*index.beyond.lock().expect("beyond cache")
+            && needle.contains(cached.as_str()) {
+            return Ok(matches.iter().filter(|p| match_file(p, query).is_some()).cloned().collect());
         }
         let (walk_root, pending, include_ignored, q) = (root.to_path_buf(), index.pending.clone(), session.config.include_ignored, query.to_owned());
         let watch = SessionStop { generation, session_generation: session.generation.clone() };
