@@ -440,7 +440,7 @@ fn worker_policy(session: &Header, tools: &RequestTools<'_>, agent_mode: bool) -
     let policy_trigger = policy.trigger_tokens.unwrap_or(f64::NAN);
     let single_shot = reserve >= policy_trigger;
     let base_trigger = if !single_shot && !is_agent_owner(session) && policy.auto_compact_token_limit.is_none() {
-        let margin = (compact_boundary * 0.01).floor().min(1024.0).max(1.0);
+        let margin = (compact_boundary * 0.01).floor().clamp(1.0, 1024.0);
         policy_trigger.max(compact_boundary.min(legacy_target + margin))
     } else {
         policy_trigger

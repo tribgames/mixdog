@@ -312,10 +312,10 @@ fn describe_diagnostic(stage: &str, input: &ProgressInput<'_>, silent: Option<u6
             format!("idle, {queued} follow-up{plural} queued")
         };
     }
-    if let (Some(policy), Some(snapshot)) = (input.policy.as_ref(), input.snapshot) {
-        if let Some(stale) = stale_report(snapshot, input.now, policy) {
-            return format!("stale: {}", without_agent_prefix(&stale));
-        }
+    if let (Some(policy), Some(snapshot)) = (input.policy.as_ref(), input.snapshot)
+        && let Some(stale) = stale_report(snapshot, input.now, policy)
+    {
+        return format!("stale: {}", without_agent_prefix(&stale));
     }
     let snapshot = input.snapshot;
     let flag = |f: fn(&Snapshot) -> bool| snapshot.is_some_and(f);

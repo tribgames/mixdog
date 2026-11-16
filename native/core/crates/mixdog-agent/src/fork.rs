@@ -81,6 +81,7 @@ pub fn prompt_tokens(request: &ModelRequest, meter: &MessageMeter<'_>) -> u64 {
 
 /// One attempt of `request` on `provider`, folded into the whole response. No retry: a fork that fails
 /// falls back to the isolated summary request.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured provider/tool/run failure by value without boxing or changing this API")]
 pub async fn send_forked(
     provider: &Arc<dyn ProviderAdapter>,
     request: ModelRequest,
