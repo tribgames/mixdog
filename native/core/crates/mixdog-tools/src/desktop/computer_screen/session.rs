@@ -20,6 +20,9 @@
 //! Every dependency call takes effect when it is made, as Node's do; what Node leaves running behind a
 //! promise (`void …then(…)`) runs as a task of [`Timers::spawn`].
 
+// Private names for unchanged callback/state shapes.
+type AbortState = (bool, Vec<Box<dyn FnOnce() + Send>>);
+
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -167,6 +170,7 @@ pub(super) struct ScreenDisplay {
     pub capture_source_id: String,
 }
 
+#[cfg(test)]
 fn summarize_display(display: &ScreenDisplay) -> Value {
     json!({
         "screenId": display.screen_id,
@@ -428,7 +432,7 @@ fn wipe_credential(credential: &SharedCredential) {
 /// Aborts a password request when its session ends.
 #[derive(Clone, Default)]
 pub(super) struct AbortSignal {
-    state: Arc<Mutex<(bool, Vec<Box<dyn FnOnce() + Send>>)>>,
+    state: Arc<Mutex<AbortState>>,
 }
 
 impl AbortSignal {
@@ -437,6 +441,7 @@ impl AbortSignal {
     }
 
     /// Runs `listener` at the abort (never if it has already happened).
+    #[cfg(test)]
     pub(super) fn on_abort(&self, listener: Box<dyn FnOnce() + Send>) {
         let mut state = lock(&self.state);
         if !state.0 {
@@ -1760,6 +1765,7 @@ impl ScreenSession {
     }
 
     /// The displays a phone may choose, before `start`.
+    #[cfg(test)]
     pub(super) fn list_displays(&self) -> Vec<Value> {
         self.inner.entry(|| self.inner.deps.displays.list().iter().map(summarize_display).collect())
     }
@@ -1790,6 +1796,7 @@ impl ScreenSession {
         self.inner.entry(|| self.inner.state().status.clone())
     }
 
+    #[cfg(test)]
     pub(super) fn video_path(&self) -> VideoPath {
         self.inner.entry(|| self.inner.state().video_path)
     }

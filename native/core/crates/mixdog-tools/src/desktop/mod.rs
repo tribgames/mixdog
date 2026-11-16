@@ -9,6 +9,7 @@ pub mod computer;
 mod computer_abort;
 mod computer_act;
 mod computer_app_owned;
+mod computer_io;
 pub mod computer_backend;
 pub mod computer_bridge_run;
 pub mod computer_budget;

@@ -60,7 +60,7 @@ pub(super) fn decorate(command: &mut Map<String, Value>, desktop: Option<&Arc<dy
     if asks(command, desktop) {
         command.insert("pointer_feedback".into(), Value::Bool(true));
     } else {
-        command.remove("pointer_feedback");
+        command.shift_remove("pointer_feedback");
     }
 }
 

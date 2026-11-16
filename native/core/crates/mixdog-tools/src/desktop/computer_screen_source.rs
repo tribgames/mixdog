@@ -26,6 +26,9 @@
 //! This module is declared inside `computer_screen` (`#[path]`), so it reaches the session, the lease and the timers
 //! that are private to that module; what it offers outside is the public surface below.
 
+// Private names for unchanged callback/state shapes.
+type CreatedViewer = (Arc<ScreenViewer>, Arc<ScreenSession>, Arc<SecureDesktopLease<HelperFrame>>, u64);
+
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
@@ -244,7 +247,7 @@ impl AccountAdmin {
     pub async fn is_admin(&self) -> Option<bool> {
         let read = async {
             let args = ["/groups", "/fo", "csv", "/nh"].map(str::to_owned).to_vec();
-            let exit = tokio::time::timeout(WHOAMI_TIMEOUT, self.runner.run("whoami".into(), args, None)).await.ok()?.ok()?;
+            let exit = mixdog_rt::time::timeout(WHOAMI_TIMEOUT, self.runner.run("whoami".into(), args, None)).await.ok()?.ok()?;
             if exit.code != 0 {
                 return None;
             }
@@ -1170,7 +1173,7 @@ impl ScreenSources {
         Some(viewer)
     }
 
-    fn create(&self, key: &str, screen_id: &str, client: &str) -> Option<(Arc<ScreenViewer>, Arc<ScreenSession>, Arc<SecureDesktopLease<HelperFrame>>, u64)> {
+    fn create(&self, key: &str, screen_id: &str, client: &str) -> Option<CreatedViewer> {
         let parts = &self.parts;
         // The session belongs to the connection its access was decided for: the access of any other connection under the
         // same client id is none of its.
