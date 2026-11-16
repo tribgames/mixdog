@@ -102,7 +102,8 @@ pub(super) fn merge_overlapping(entries: Vec<BEntry>, key: &dyn Fn(&str) -> Stri
     let explicit = |e: &BEntry| {
         e.is_full_mode() && e.full != Some(true) && e.offset.is_some_and(f64::is_finite) && e.limit.is_some_and(|l| l.is_finite() && l > 0.0)
     };
-    let mut by_path: Vec<(String, Vec<(usize, u64, u64)>)> = Vec::new();
+    type PathWindows = (String, Vec<(usize, u64, u64)>);
+    let mut by_path: Vec<PathWindows> = Vec::new();
     for (i, e) in entries.iter().enumerate() {
         if !explicit(e) {
             continue;
@@ -466,7 +467,7 @@ pub(super) fn intersect_ranges(a: &[LineRange], b: &[LineRange]) -> Vec<LineRang
                 (Some(p), None) | (None, Some(p)) => Some(p),
                 (None, None) => None,
             };
-            if end.map_or(true, |e| e >= start) {
+            if end.is_none_or(|e| e >= start) {
                 out.push(LineRange { start, end });
             }
         }

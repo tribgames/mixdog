@@ -73,10 +73,9 @@ async fn suffix_strip(ctx: &ToolContext, base: &AbsPath, requested: &Path) -> Op
         }
         let candidate = tail.iter().fold(base.as_path().to_path_buf(), |acc, part| acc.join(part));
         let abs = AbsPath::new(candidate.clone())?;
-        if let Ok(stat) = ctx.files.stat(ctx.io.interactive, abs).await {
-            if matches!(stat.kind, EntryKind::File | EntryKind::Dir) {
-                return Some(tail.iter().collect());
-            }
+        if let Ok(stat) = ctx.files.stat(ctx.io.interactive, abs).await
+            && matches!(stat.kind, EntryKind::File | EntryKind::Dir) {
+            return Some(tail.iter().collect());
         }
     }
     None
@@ -85,6 +84,7 @@ async fn suffix_strip(ctx: &ToolContext, base: &AbsPath, requested: &Path) -> Op
 /// `findFileByBasename` with `limit: 2`: a breadth-first scan, shallow hits first, of at most
 /// 6000 directories within 750 ms, skipping hidden and vendor directories. What was found when
 /// it stops still counts.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn basename_hits(ctx: &ToolContext, base: &AbsPath, requested: &Path) -> Result<Vec<PathBuf>, ToolError> {
     let Some(target) = requested.file_name().map(|n| n.to_string_lossy().to_lowercase()) else { return Ok(Vec::new()) };
     let stop = std::time::Instant::now() + BASENAME_SCAN_DEADLINE;
@@ -124,14 +124,14 @@ async fn basename_hits(ctx: &ToolContext, base: &AbsPath, requested: &Path) -> R
 }
 /// `uniqueExistingPatchTarget`: the one existing file the missing `requested` path most likely
 /// meant. Only a path inside the patch root is ever relocated.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn unique_existing_target(ctx: &ToolContext, base: &AbsPath, requested: &AbsPath) -> Result<Option<AbsPath>, ToolError> {
     if relative_inside(base.as_path(), requested.as_path()).is_none() {
         return Ok(None);
     }
-    if let Some(rel) = suffix_strip(ctx, base, requested.as_path()).await {
-        if let Some(found) = is_file(ctx, &base.as_path().join(rel)).await {
-            return Ok(Some(found));
-        }
+    if let Some(rel) = suffix_strip(ctx, base, requested.as_path()).await
+        && let Some(found) = is_file(ctx, &base.as_path().join(rel)).await {
+        return Ok(Some(found));
     }
     let hits = basename_hits(ctx, base, requested.as_path()).await?;
     match hits.as_slice() {
@@ -142,6 +142,7 @@ async fn unique_existing_target(ctx: &ToolContext, base: &AbsPath, requested: &A
 
 /// The header spelling of the one relocated twin of `requested` when that path is missing and has
 /// exactly one candidate; `None` when it exists or no twin is found.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn relocated_header(ctx: &ToolContext, base: &AbsPath, requested: &AbsPath) -> Result<Option<String>, ToolError> {
     if ctx.files.stat(ctx.io.interactive, requested.clone()).await.is_ok() {
         return Ok(None);
@@ -152,6 +153,7 @@ pub(super) async fn relocated_header(ctx: &ToolContext, base: &AbsPath, requeste
 
 /// Node `rewriteV4AReadRedirects`: every non-Add section whose file is missing and has one
 /// relocated twin is rewritten to the twin's path.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn redirect_sections(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>) -> Result<Vec<Section>, ToolError> {
     let mut out = Vec::with_capacity(sections.len());
     for mut section in sections {

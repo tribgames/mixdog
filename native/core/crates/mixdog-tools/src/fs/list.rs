@@ -132,6 +132,7 @@ fn row_under(root: &std::path::Path, entry: DirEntry) -> Row {
 /// noise directory, the directory itself listed), as a broad search: it takes its turn on the broad-search gate. `None`
 /// when the request was refused or ran past its budget, or the inventory was cut at the row cap: Node's own walk then
 /// answers.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn native_rows(ctx: &ToolContext, abs: &AbsPath, depth: usize, hidden: bool, include_noise: bool) -> Result<Option<Vec<Row>>, ToolError> {
     let root = abs.as_path().to_path_buf();
     let keep = |entry: &DirEntry| {
@@ -226,14 +227,14 @@ struct Walk<'a> {
 
 /// `collectListRows`: the native inventory when it can serve a deep list, else a depth-first walk of the folder, cut at
 /// 50,000 rows or 20 s.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn collect_rows(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>) -> Result<Rows, ToolError> {
     let Walk { raw, depth, hidden, include_noise, kind } = *walk;
-    if depth > 1 {
-        if let Some(found) = native_rows(ctx, abs, depth, hidden, include_noise).await? {
-            let visited = found.len();
-            let rows = found.into_iter().filter(|row| kind.keeps(row.kind)).collect();
-            return Ok(Rows { rows, visited, truncated: false, warnings: Vec::new() });
-        }
+    if depth > 1
+        && let Some(found) = native_rows(ctx, abs, depth, hidden, include_noise).await? {
+        let visited = found.len();
+        let rows = found.into_iter().filter(|row| kind.keeps(row.kind)).collect();
+        return Ok(Rows { rows, visited, truncated: false, warnings: Vec::new() });
     }
     let started = mixdog_rt::time::Instant::now();
     let mut out = Rows { rows: Vec::new(), visited: 0, truncated: false, warnings: Vec::new() };
@@ -342,6 +343,7 @@ async fn meta_suffix(ctx: &ToolContext, path: &AbsPath, known: Option<FileStat>)
 /// `coerceIntegerString`): null is absent; a number must be a finite integer; a numeric string (`-?\d+(\.\d+)?`, trimmed,
 /// integral) is its number; a negative value, a fraction and any other type are refused, with the guard's wording
 /// (`head_limit` is worded `limit`, the name the model sees).
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn guarded_int(args: &JsonValue, key: &str) -> Result<Option<u64>, ToolError> {
     let Some(raw) = args.get(key).filter(|v| !v.is_null()) else { return Ok(None) };
     let coerced = match raw {
@@ -716,12 +718,14 @@ fn invalid_window(field: &str, value: &JsonValue) -> ToolError {
 }
 
 /// The `offset` argument: a non-negative integer, 0 when absent.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn page_offset(args: &JsonValue) -> Result<usize, ToolError> {
     Ok(guarded_int(args, "offset")?.map_or(0, |n| n as usize))
 }
 
 /// The `head_limit` argument: `limit` is its short spelling, and `head_limit` wins when it is given (a null counts as not
 /// given: `dropUndefinedArgs` removes it first).
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn head_limit(args: &JsonValue) -> Result<Option<u64>, ToolError> {
     let spelling = if args.get("head_limit").is_some_and(|v| !v.is_null()) { "head_limit" } else { "limit" };
     guarded_int(args, spelling)
@@ -731,6 +735,7 @@ fn head_limit(args: &JsonValue) -> Result<Option<u64>, ToolError> {
 /// inventory under the static base (`--files --directories --no-ignore`, the noise-tree excludes, `--iglob` of the rest),
 /// filtered by the name (a glob when it holds a wildcard, else a case-insensitive substring), the type, the size and the
 /// modified window, sorted (newest first unless `sort` says otherwise) and paged.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
     let raw = super::common::optional_path_arg(args, "path", |got| format!("Error: list arg \"path\" must be string (got {got})"))?
         .unwrap_or(".");
@@ -946,6 +951,7 @@ fn tree_level(mut entries: Vec<DirEntry>, prefix: String) -> TreeLevel {
 
 /// `executeTreeTool`: `mode: "tree"`, the folder as indented branch lines, directories first, to `depth` (default 3, at most
 /// 6), paged by `offset` and `head_limit` (default 200).
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn tree_list(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
     let raw = super::common::optional_path_arg(args, "path", |got| format!("Error: list arg \"path\" must be string (got {got})"))?
         .unwrap_or(".");

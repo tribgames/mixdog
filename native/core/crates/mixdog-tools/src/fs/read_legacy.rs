@@ -511,7 +511,7 @@ fn display_line(raw: &str, index: usize) -> &str {
     if index == 0 { line.strip_prefix('\u{feff}').unwrap_or(line) } else { line }
 }
 
-/// What a head or tail answer showed whole: lines start..=end of a file of 	otal.
+/// What a head or tail answer showed whole: lines start..=end of a file of `total` lines.
 pub(super) struct Seen {
     pub start: u64,
     pub end: u64,

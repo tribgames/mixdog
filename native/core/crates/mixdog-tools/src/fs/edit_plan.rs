@@ -121,11 +121,10 @@ pub(super) fn dialect(content: &str, markdown: bool, mut old: String, mut new: S
     if !markdown {
         new = strip_trailing_blanks(&new);
     }
-    if !content.contains(&old) {
-        if let Some((span, styled)) = typographic_rematch(content, &old, &new, replace_all) {
-            old = span;
-            new = styled;
-        }
+    if !content.contains(&old)
+        && let Some((span, styled)) = typographic_rematch(content, &old, &new, replace_all) {
+        old = span;
+        new = styled;
     }
     if new.is_empty() && !old.ends_with('\n') {
         if content.contains(&format!("{old}\r\n")) {
@@ -259,6 +258,7 @@ fn plan_eol(content: &str, old: &str, new: &str, absorb_trailing_newline: bool) 
 /// UTF-16 file, which only the exact applier splices.
 /// `occupation` is a same-anchor batch member's `editOccurrence.expected`: when exactly that many occurrences remain, the
 /// first is consumed (`applyEditOccupation`); any other count falls through to the strict ambiguity reject.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) fn apply(content: &str, old: &str, new: &str, replace_all: bool, utf8: bool, occupation: Option<u32>) -> Result<(String, usize), ToolError> {
     let plan = plan_eol(content, old, new, occupation.is_none());
     if !plan.positions.is_empty() && plan.replacements.iter().all(|r| *r == plan.old) {
@@ -278,6 +278,7 @@ pub(super) fn apply(content: &str, old: &str, new: &str, replace_all: bool, utf8
     apply_tiered(content, &plan.old, new, replace_all)
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn apply_exact(content: &str, plan: &Plan, replace_all: bool) -> Result<(String, usize), ToolError> {
     let n = plan.positions.len();
     if n == 0 {
@@ -313,6 +314,7 @@ enum Miss {
     Many(usize),
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn apply_tiered(content: &str, old: &str, new: &str, replace_all: bool) -> Result<(String, usize), ToolError> {
     let spans = match locate(content, old, replace_all) {
         Ok(spans) => spans,
@@ -394,13 +396,12 @@ fn view(s: &str, tier: Tier) -> View {
                 spans.push(span);
             }),
             Tier::Crlf => {
-                if c == '\r' {
-                    if let Some(&(j, '\n')) = it.peek() {
-                        it.next();
-                        chars.push('\n');
-                        spans.push((i, j + 1));
-                        continue;
-                    }
+                if c == '\r'
+                    && let Some(&(j, '\n')) = it.peek() {
+                    it.next();
+                    chars.push('\n');
+                    spans.push((i, j + 1));
+                    continue;
                 }
                 chars.push(c);
                 spans.push(span);
@@ -549,10 +550,9 @@ fn excerpt_center(source: &str, lines: &[String], old: &str, error_text: &str) -
     if let Some(n) = nearest_match_line(error_text) {
         return Some(n.saturating_sub(1));
     }
-    if !old.is_empty() {
-        if let Some(at) = source.find(old) {
-            return Some(source[..at].matches('\n').count());
-        }
+    if !old.is_empty()
+        && let Some(at) = source.find(old) {
+        return Some(source[..at].matches('\n').count());
     }
     let mut tokens: Vec<&str> = js_words(old).filter(|t| utf16_len(t) >= 4).collect();
     tokens.sort_by_key(|t| Reverse(utf16_len(t)));

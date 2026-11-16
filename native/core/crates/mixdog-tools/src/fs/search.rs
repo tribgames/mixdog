@@ -84,6 +84,7 @@ pub(super) struct Walked {
 }
 
 /// Pulls a recursive walk of `root` into a list of at most `cap` kept files.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn walk_entries(
     ctx: &ToolContext,
     root: &AbsPath,
@@ -95,6 +96,7 @@ async fn walk_entries(
     walk_entries_pruned(ctx, root, respect_ignore, keep, root_scan_prunes(root, cfg!(not(windows))), cap, server).await
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn walk_entries_pruned(
     ctx: &ToolContext,
     root: &AbsPath,
@@ -110,6 +112,7 @@ pub(super) async fn walk_entries_pruned(
 
 /// Files and directories under `root` (nothing ignored or hidden skipped; the kernel trees of a
 /// filesystem root pruned), at most `cap` kept entries.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn walk_inventory(
     ctx: &ToolContext,
     root: &AbsPath,
@@ -126,11 +129,13 @@ pub(super) async fn walk_inventory(
 /// args hold `--files`) and takes its turn on the broad-search gate within the search's budget. It is refused or ends past
 /// its budget as a glob's inventory does (`BROAD_REFUSALS`). The walk itself stops at `descent` (`--max-depth`, the
 /// noise folders and, unless hidden, dotted folders listed but not entered), so nothing `keep` would drop is read.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn broad_listing(ctx: &ToolContext, root: &AbsPath, descent: Descent, keep: impl Fn(&DirEntry) -> bool, cap: usize) -> Result<Walked, ToolError> {
     let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, require_git: true, include_dirs: true, prune: Vec::new(), descent, server: Some(SearchClass::Bulk) };
     broad_search(ctx, BROAD_REFUSALS[1], |_| walk_kept(ctx, request, keep, Some(cap))).await
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn walk_kept(
     ctx: &ToolContext,
     request: WalkRequest,
@@ -231,6 +236,7 @@ fn refused_with(error: &ToolError) -> Option<&str> {
 }
 
 /// Include/exclude sets for gitignore-style globs (`!` excludes).
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn compile_globs(patterns: &[String]) -> Result<(GlobSet, GlobSet, bool), ToolError> {
     let (mut inc, mut exc) = (GlobSetBuilder::new(), GlobSetBuilder::new());
     let mut any_include = false;
@@ -303,11 +309,13 @@ pub(super) struct Turn {
 /// budget here as no setup is spent), and the work has what the wait left, at least 1 ms
 /// (`searchRemainingMs`), before the search's hard timeout (`requestNative`). A cancel ends the wait, or the work and
 /// its turn with it; the turn is released as the work ends, however it ends.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn broad_search<T, W: Future<Output = Result<T, ToolError>>>(ctx: &ToolContext, kind: &str, work: impl FnOnce(u64) -> W) -> Result<T, ToolError> {
     broad_search_turn(ctx, kind, work).await.map(|(out, _)| out)
 }
 
 /// As [`broad_search`], with how the turn came and went; `work` is given the budget left, in ms.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(super) async fn broad_search_turn<T, W: Future<Output = Result<T, ToolError>>>(
     ctx: &ToolContext,
     kind: &str,
@@ -351,6 +359,7 @@ pub(super) async fn broad_search_turn<T, W: Future<Output = Result<T, ToolError>
 /// Files under `root` matching any pattern, in walk order, with their mtime (ms; `None` when the
 /// stat failed), at most `cap` of them. `complete` is false when the walk hit the deadline,
 /// `capped` true when a match past the cap was dropped.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 pub(crate) async fn glob_files(
     ctx: &ToolContext,
     root: &AbsPath,
@@ -384,6 +393,7 @@ pub(crate) async fn glob_files(
     Ok((found, complete, capped, turn))
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn require_dir(ctx: &ToolContext, raw: &str, abs: &AbsPath) -> Result<Option<String>, ToolError> {
     match guarded(ctx, "search", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
         Ok(_) => Ok(None),
@@ -1216,7 +1226,7 @@ fn grep_display_root(raw: &str, root: &AbsPath, cwd: &AbsPath) -> String {
         Some(rel) => rel,
         None => given,
     };
-    shown.trim_end_matches('/').trim_start_matches("./").to_owned().replace("", "").pipe_dot()
+    shown.trim_end_matches('/').trim_start_matches("./").to_owned().pipe_dot()
 }
 
 trait PipeDot {
@@ -1229,13 +1239,11 @@ impl PipeDot for String {
 }
 
 impl GrepTool {
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn run_one_root(
         &self,
         ctx: &ToolContext,
-        raw: &str,
-        args: &JsonValue,
-        pattern: &str,
-        globs: &[String],
+        (raw, args, pattern, globs): (&str, &JsonValue, &str, &[String]),
         mode: Mode,
         bound: Option<usize>,
         class: SearchClass,
@@ -1373,6 +1381,7 @@ impl GrepTool {
 
 /// A combined scan's or a prefilter's failure (its hard deadline included) declines it, as Node's callers catch it
 /// (`streamCombinedLines`, `fanoutPrefilterCandidates`, `runCombinedPathFanout`); a cancel ends the call.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn declined_on_failure<T>(outcome: Result<T, ToolError>) -> Result<Option<T>, ToolError> {
     match outcome {
         Ok(value) => Ok(Some(value)),
@@ -1459,6 +1468,7 @@ impl Tool for GrepTool {
 
 impl GrepTool {
     /// One grep call's text, its context renderings fitted to `budget` characters.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn answer(&self, ctx: &ToolContext, args: JsonValue, budget: usize) -> Result<String, ToolError> {
         let patterns = arg_strings(&args, "pattern");
         if patterns.is_empty() || patterns.iter().all(|p| p.is_empty()) {
@@ -1532,6 +1542,7 @@ impl GrepTool {
     }
 
     /// One path's answer to its (distinct, capped) patterns.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn answer_patterns(&self, ctx: &ToolContext, args: &JsonValue, patterns: &[String], mode: Mode, budget: usize) -> Result<String, ToolError> {
         let args = args.clone();
         let patterns = patterns.to_vec();
@@ -1578,6 +1589,7 @@ impl GrepTool {
 
     /// One grep of `pattern`, rendered. `fanout`: a section of a several-pattern answer, whose
     /// bare match lines carry their file (Node's combined pass, `disableContentGrouping`).
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn search(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, fanout: bool, budget: usize) -> Result<String, ToolError> {
         let window = Window::of(args, mode);
         // The native search window (serve_search/search.rs `collect_until`): the scan stops one hit past what the call
@@ -1609,6 +1621,7 @@ impl GrepTool {
     /// to each pattern they match, when every pattern compiles as a JavaScript regex. It keeps `min(4000, max(400,
     /// (offset + limit + 4) × patterns))` lines (300 per pattern when unlimited); past that, or over a file, a missing
     /// path or a pattern the scan refuses, it declines (`None`). Its sections know their totals.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn combined_patterns(
         &self,
         ctx: &ToolContext,
@@ -1674,6 +1687,7 @@ impl GrepTool {
     /// grep-pattern-fanout.mjs `fanoutPrefilterCandidates`: before the per-pattern greps, one files-with-matches scan of
     /// every pattern over a folder; when it completes with no file the call is one no-match answer. A file, a missing
     /// path or a scan error leaves the per-pattern greps to answer.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn no_candidate_files(&self, ctx: &ToolContext, args: &JsonValue, patterns: &[String]) -> Result<bool, ToolError> {
         // Sent as a bulk search (grep-pattern-fanout.mjs:76).
         let Some(found) = declined_on_failure(self.collect(ctx, args, &combined_regex(patterns), Mode::Files, Some(1), SearchClass::Bulk).await)? else {
@@ -1683,6 +1697,7 @@ impl GrepTool {
     }
 
     /// Every root's hits (at most `bound` in all, in scan order), labelled and sorted.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn collect(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, bound: Option<usize>, class: SearchClass) -> Result<Collected, ToolError> {
         let mut roots = arg_strings(args, "path");
         if roots.is_empty() {
@@ -1701,9 +1716,9 @@ impl GrepTool {
             // A bulk scan (a fan-out's prefilter or combined pass, `bulkHint`) takes its turn on the broad-search gate as
             // Node's client makes it (search-admission.mjs `isBroadSearchRequest`); the others pass it.
             let scanned = if class == SearchClass::Bulk {
-                broad_search(ctx, BROAD_REFUSALS[3], |budget| self.run_one_root(ctx, raw, args, pattern, &globs, mode, left, class, budget)).await?
+                broad_search(ctx, BROAD_REFUSALS[3], |budget| self.run_one_root(ctx, (raw, args, pattern, &globs), mode, left, class, budget)).await?
             } else {
-                self.run_one_root(ctx, raw, args, pattern, &globs, mode, left, class, u64::MAX).await?
+                self.run_one_root(ctx, (raw, args, pattern, &globs), mode, left, class, u64::MAX).await?
             };
             complete &= scanned.complete;
             timed_out |= scanned.timed_out;
@@ -1725,6 +1740,7 @@ impl GrepTool {
     /// another and which share one filter set. The scan keeps `min(4000, max(400, (offset + limit + 4) × paths))` hits
     /// (300 per path when unlimited); past that, or when a path cannot be scanned, it declines (`None`) and every path is
     /// searched on its own. Its sections know their totals.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn combined_paths(
         &self,
         ctx: &ToolContext,
@@ -1785,7 +1801,7 @@ impl GrepTool {
         let mut sections = Vec::with_capacity(roots.len());
         let mut seen = 0usize;
         for (raw, _, _, _) in &roots {
-            let scanned = self.run_one_root(ctx, raw, args, pattern, &globs, mode, Some(cap + 1 - seen), SearchClass::Interactive, u64::MAX).await;
+            let scanned = self.run_one_root(ctx, (raw, args, pattern, &globs), mode, Some(cap + 1 - seen), SearchClass::Interactive, u64::MAX).await;
             let Some(Scanned { hits, complete, error, single_file: is_file, .. }) = declined_on_failure(scanned)? else {
                 return Ok(None);
             };
@@ -1970,6 +1986,7 @@ fn multiline_mode(args: &JsonValue, pattern: &str) -> bool {
 }
 
 /// A root's hits under the names grep shows: a file's path from the cwd, a folder's hits under the folder as given.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn label_hits(ctx: &ToolContext, raw: &str, is_file: bool, hits: Vec<Hit>) -> Result<Vec<(String, Hit)>, ToolError> {
     let abs = resolve_path(&ctx.cwd, raw)?;
     let prefix = grep_display_root(raw, &abs, &ctx.cwd);
@@ -2069,6 +2086,7 @@ struct Shape {
     totals: Totals,
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn render(
     ctx: &ToolContext,
     all: &[(String, Hit)],
@@ -2087,6 +2105,7 @@ async fn render(
 
 /// `runAdaptiveContextGrep`: the anchors after the stream's cap, whose total is known only when the stream ended inside
 /// it; a cut stream says so after the rendering.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn adaptive_body(
     ctx: &ToolContext,
     all: &[(String, Hit)],

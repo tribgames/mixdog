@@ -220,6 +220,7 @@ fn valid_window(offset: Option<i64>, limit: Option<i64>) -> Option<(u64, u64)> {
     }
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
     let bad = |field: &str, reason: &str, text: String| invalid(field, reason, format!("Error: {text}"));
     // `normalizePublicReadTargets`: the public form is `file_path`; the executor's own `path`
@@ -329,9 +330,7 @@ impl Tool for ReadTool {
         // A tail is read off the path as the caller wrote it, before a `path:line` coordinate is taken off it.
         for e in &mut public.entries {
             let raw = e.path.clone();
-            if !public.single {
-                self.resolve_tail(ctx, e, &raw).await;
-            } else if !(has_glob_magic(&raw) && !exists(ctx, &raw).await) {
+            if !public.single || !(has_glob_magic(&raw) && !exists(ctx, &raw).await) {
                 self.resolve_tail(ctx, e, &raw).await;
             }
         }
@@ -364,6 +363,7 @@ impl Tool for ReadTool {
     }
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn text_output(text: String) -> ToolOutcome {
     Ok(ToolOutput { parts: vec![ToolPart::Text(text)], ..ToolOutput::default() })
 }
@@ -390,13 +390,14 @@ fn has_line_coordinate(path: &str) -> bool {
 fn limit_arg(v: Option<f64>, default: u64) -> u64 {
     match v {
         None => default,
-        Some(n) if n == 0.0 => u64::MAX,
+        Some(0.0) => u64::MAX,
         Some(n) => (n.trunc().max(1.0)) as u64,
     }
 }
 
 /// The calls that name the executor's own `path`: Node's `guardRead`, then `executeReadToolBody`.
 impl ReadTool {
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn call_legacy(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let kind = read_legacy::describe_type(&args);
         let JsonValue::Object(mut map) = args else {
@@ -441,6 +442,7 @@ impl ReadTool {
     /// `executeBatchRead` over a `path` array. Region objects (`batchEntriesFromArgs` /
     /// `objectBatchEntry`) carry their own options and are merged and coalesced; a string, or an
     /// object met after a string, takes the call's.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn legacy_batch(&self, ctx: &ToolContext, map: &read_legacy::Obj, items: &[JsonValue], injected: bool) -> ToolOutcome {
         let object = matches!(items.first(), Some(JsonValue::Object(_)));
         let mut entries = Vec::with_capacity(items.len());
@@ -547,6 +549,7 @@ impl ReadTool {
     }
     /// `splitJoinedPathScopes`: one string that joins several existing paths with commas or
     /// whitespace is those paths, when every piece lies strictly inside the working directory.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn split_joined_path_scopes(&self, ctx: &ToolContext, map: &mut read_legacy::Obj) -> Result<(), ToolError> {
         const LIMIT: usize = 10;
         let refuse = |text: String| invalid("path", "joined", text);
@@ -608,6 +611,7 @@ impl ReadTool {
     }
     /// `executeHeadTool` / `executeTailTool` / `executeWcTool` / `executeSummaryTool` /
     /// `executeHexTool` over a file read whole: the numbered text a mode answers with.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn glance_text(&self, ctx: &ToolContext, path: &str, mode: &str, n: Option<&JsonValue>, offset: Option<f64>, seen: &mut Option<Observed>) -> Result<String, ToolError> {
         if let Some(reason) = path_string_guard(path) {
             return Ok(format!("Error: {reason}: {}", super::patch_guard::normalize_output_path(path)));
@@ -646,7 +650,7 @@ impl ReadTool {
             return Ok(read_legacy::hex_text(&named, &bytes, from, stat.len));
         }
         if stat.len > MAX_FILE_BYTES {
-            return self.glance_large(ctx, &abs, &shown, &named, mode, n, stat.len, &mut observe).await;
+            return self.glance_large(ctx, (&abs, &shown, &named), mode, n, stat.len, &mut observe).await;
         }
         let bytes = match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await? {
             Ok(b) => b.bytes,
@@ -691,12 +695,11 @@ impl ReadTool {
     /// The glance modes over a file past the buffered cap (`read-mode-tool.mjs`, `read-streaming.mjs`):
     /// head reads from the front, tail from a window at the end, count and summary by passes over the
     /// file; none holds the file. A UTF-16 file is refused.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn glance_large(
         &self,
         ctx: &ToolContext,
-        abs: &AbsPath,
-        shown: &str,
-        named: &str,
+        (abs, shown, named): (&AbsPath, &str, &str),
         mode: &str,
         n: Option<&JsonValue>,
         size: u64,
@@ -861,6 +864,7 @@ fn survey_parts(results: &[Resolved], capped: bool) -> Vec<ToolPart> {
 }
 
 /// len bytes of a file from offset.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn read_range(ctx: &ToolContext, abs: &AbsPath, shown: &str, offset: u64, len: u64) -> Result<Vec<u8>, ToolError> {
     match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset, max_len: Some(len) })).await? {
         Ok(b) => Ok(b.bytes),
@@ -876,6 +880,7 @@ fn read_failure(err: &FsError, abs: &AbsPath, shown: &str) -> ToolError {
 }
 
 /// The lines `countLogicalLinesBytesSync` counts: the newlines, and a last line without one.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn count_logical_lines(ctx: &ToolContext, abs: &AbsPath, shown: &str, size: u64) -> Result<u64, ToolError> {
     const CHUNK: u64 = 1024 * 1024;
     let (mut at, mut lines, mut last) = (0_u64, 0_u64, None);
@@ -906,6 +911,7 @@ async fn exists(ctx: &ToolContext, raw: &str) -> bool {
 
 /// `normaliseReadLineWindowArgs`' path half: `file.rs:12` / `file.rs#L12-20` names `file.rs` when
 /// only that exists. The window itself is already explicit.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn strip_line_coordinate(ctx: &ToolContext, raw: &str) -> Result<String, ToolError> {
     Ok(line_coordinate(ctx, raw).await?.map_or_else(|| raw.to_owned(), |c| c.0))
 }
@@ -913,6 +919,7 @@ async fn strip_line_coordinate(ctx: &ToolContext, raw: &str) -> Result<String, T
 /// `resolveExistingPathLineCoordinate` / `normaliseReadLineWindowArgs`: `file.rs:12-20` names
 /// `file.rs` and its lines (start, then the end when it is not before the start) when only
 /// `file.rs` exists. An inverted range is refused.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn line_coordinate(ctx: &ToolContext, raw: &str) -> Result<Option<(String, u64, Option<u64>)>, ToolError> {
     static HASH: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     static COLON: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -938,6 +945,7 @@ async fn line_coordinate(ctx: &ToolContext, raw: &str) -> Result<Option<(String,
 type Pipeline<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<Resolved>, ToolError>> + Send + 'a>>;
 
 /// What a glob that names nothing real expands to.
+#[allow(clippy::large_enum_variant, reason = "private survey retains its full BEntry by value; avoid a new per-read heap allocation solely for lint")]
 enum Survey {
     /// Several files: a batch of them, and whether more matched than the cap.
     Many(Vec<Resolved>, bool),
@@ -958,6 +966,7 @@ enum Plan {
 
 impl ReadTool {
     /// One top-level file read: the answer, and what it taught the session.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn single(&self, ctx: &ToolContext, e: &Entry, pages: Option<&JsonValue>, mode: Mode) -> ToolOutcome {
         let body = self.read_one(ctx, e, pages, mode).await?;
         // An image read's empty, corrupt and over-cap answers are Node's `isError` results; in a
@@ -977,6 +986,7 @@ impl ReadTool {
     }
 
     /// The URL refusal, the window-beats-mode rule, a `path:line` coordinate, and the glance modes.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn plan(&self, ctx: &ToolContext, be: &BEntry) -> Result<Plan, ToolError> {
         if url_as_path(&be.path) {
             return Ok(Plan::Text(URL_AS_PATH.to_owned()));
@@ -1022,6 +1032,7 @@ impl ReadTool {
     }
 
     /// One top-level read of `be`, or the survey of a glob that names no real file.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn run_top(&self, ctx: &ToolContext, be: BEntry, base: u64, pages: Option<&JsonValue>) -> ToolOutcome {
         if has_glob_magic(&be.path) && !exists(ctx, &be.path).await {
             match self.survey(ctx, &be, base, SURVEY_BUDGET, true).await? {
@@ -1041,6 +1052,7 @@ impl ReadTool {
         self.run_plan(ctx, &be, base, pages, mode).await
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn run_plan(&self, ctx: &ToolContext, be: &BEntry, base: u64, pages: Option<&JsonValue>, mode: Mode) -> ToolOutcome {
         match self.plan(ctx, be).await? {
             // A refused path (none, a URL) is an `Error:` answer, a failed call to Node's caller (classifyResultKind).
@@ -1061,6 +1073,7 @@ impl ReadTool {
     /// `readGlobSurvey`: a magic path that names nothing becomes the batch of its newest matches,
     /// each read as the call asked (its mode, `n`, `full` and offset; the limit tightened).
     /// `None` when it matches nothing, so the raw pattern gets the single-read answer.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn survey(&self, ctx: &ToolContext, be: &BEntry, base: u64, cap: usize, record: bool) -> Result<Option<Survey>, ToolError> {
         let (root, pattern) = split_glob(&be.path);
         let root = resolve_path(&ctx.cwd, &root)?;
@@ -1179,7 +1192,7 @@ impl ReadTool {
                         CBody::Str(s) if object && slot.is_full_mode() && slot.needs_slice => {
                             let off = slot.orig_offset.map_or(0, |o| o.max(0.0) as u64);
                             let lim = match slot.orig_limit {
-                                Some(l) if l == 0.0 => None,
+                                Some(0.0) => None,
                                 Some(l) => Some(l.max(0.0) as u64),
                                 None => Some(2000),
                             };
@@ -1257,6 +1270,7 @@ impl ReadTool {
 
     /// One batch entry through the child `read`: a failure is pasted into the aggregate as that
     /// entry's text, never aborting the batch. `defer` is an object batch, which records later.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn child(&self, ctx: &ToolContext, be: &BEntry, base: u64, max_output: usize, defer: bool, record: bool) -> Result<(CBody, Option<Observed>), ToolError> {
         if has_glob_magic(&be.path) && !exists(ctx, &be.path).await {
             // What a nested glob's reads saw is dropped by an object batch, as Node's is.
@@ -1285,6 +1299,7 @@ impl ReadTool {
         self.child_plan(ctx, be, base, Mode::Child { max_output }).await
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn child_plan(&self, ctx: &ToolContext, be: &BEntry, base: u64, mode: Mode) -> Result<(CBody, Option<Observed>), ToolError> {
         let pasted = |err: ToolError| match err.code {
             ToolErrorCode::Cancelled | ToolErrorCode::DeadlineExceeded { .. } => Err(err),
@@ -1313,6 +1328,7 @@ impl ReadTool {
         }
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn child_read(&self, ctx: &ToolContext, e: &Entry, mode: Mode) -> Result<(CBody, Option<Observed>), ToolError> {
         match self.read_one(ctx, e, None, mode).await {
             Ok(body) => {
@@ -1330,6 +1346,7 @@ impl ReadTool {
         }
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn read_one(&self, ctx: &ToolContext, e: &Entry, pages: Option<&JsonValue>, mode: Mode) -> Result<Body, ToolError> {
         let raw = e.path.trim();
         if let Some(reason) = path_string_guard(raw) {
@@ -1371,12 +1388,10 @@ impl ReadTool {
         let scope =self.state.as_ref().map(|_| scope_of(ctx));
         let cacheable = stat.len <= CACHEABLE_BYTES;
         // A file this session has just edited, and read before the edit, is not sent again.
-        if let (Some(state), Some(v), false, true) = (&self.state, version, mode.suppress(), cacheable) {
-            if let Some(snap) = state.snapshot(scope.as_deref(), &key_path) {
-                if is_mutation_source(&snap.source) && snap.body_delivered == Some(true) && same_version(&v, &snap.version) && covers_full_file(&snap) {
-                    return Ok(Body::text(format!("[file unchanged: {shown}]")));
-                }
-            }
+        if let (Some(state), Some(v), false, true) = (&self.state, version, mode.suppress(), cacheable)
+            && let Some(snap) = state.snapshot(scope.as_deref(), &key_path)
+            && is_mutation_source(&snap.source) && snap.body_delivered == Some(true) && same_version(&v, &snap.version) && covers_full_file(&snap) {
+            return Ok(Body::text(format!("[file unchanged: {shown}]")));
         }
         // Node answers an image before any size cap: by its extension, or for a path with none, by
         // its signature (a stored attachment).
@@ -1428,25 +1443,24 @@ impl ReadTool {
             Err(err) => return Err(read_failure(&err, &abs, &shown)),
         };
         // A cached answer is reused only while the bytes still hash as they did.
-        if let (Some(state), Some(key), Some(v), true) = (&self.state, &cache_key, version, cacheable) {
-            if let Some(hit) = state.cache_get(key) {
-                if hit.prefix_hash == hash_bytes(&bytes) {
-                    let session = state.snapshot(scope.as_deref(), &key_path);
-                    let body_sent = session.as_ref().is_some_and(|s| {
-                        same_version(&v, &s.version)
-                            && (s.source.starts_with("read") || (is_mutation_source(&s.source) && s.body_delivered == Some(true)))
-                            && covers_full_file(s)
-                    });
-                    let meta = hit.meta.clone().unwrap_or_else(|| SnapshotMeta::new("read_cached"));
-                    let seen = Observed { path: key_path.clone(), version: v, meta };
-                    if !is_error_text(&hit.value) && body_sent && !mode.suppress() {
-                        return Ok(Body { observed: Some(seen), ..Body::text(format!("[file unchanged: {shown}]")) });
-                    }
-                    let text = if mode.raw() { hit.value } else { rows_for_model(&hit.value) };
-                    return Ok(Body { observed: Some(seen), ..Body::text(text) });
+        if let (Some(state), Some(key), Some(v), true) = (&self.state, &cache_key, version, cacheable)
+            && let Some(hit) = state.cache_get(key) {
+            if hit.prefix_hash == hash_bytes(&bytes) {
+                let session = state.snapshot(scope.as_deref(), &key_path);
+                let body_sent = session.as_ref().is_some_and(|s| {
+                    same_version(&v, &s.version)
+                        && (s.source.starts_with("read") || (is_mutation_source(&s.source) && s.body_delivered == Some(true)))
+                        && covers_full_file(s)
+                });
+                let meta = hit.meta.clone().unwrap_or_else(|| SnapshotMeta::new("read_cached"));
+                let seen = Observed { path: key_path.clone(), version: v, meta };
+                if !is_error_text(&hit.value) && body_sent && !mode.suppress() {
+                    return Ok(Body { observed: Some(seen), ..Body::text(format!("[file unchanged: {shown}]")) });
                 }
-                state.invalidate(&[key_path.as_str()]);
+                let text = if mode.raw() { hit.value } else { rows_for_model(&hit.value) };
+                return Ok(Body { observed: Some(seen), ..Body::text(text) });
             }
+            state.invalidate(&[key_path.as_str()]);
         }
         if let Some(document) = document_kind(&bytes, raw) {
             return self.document(ctx, &abs, &stat, document, &bytes, pages, mode).await;
@@ -1468,13 +1482,12 @@ impl ReadTool {
         };
         let (text, utf16) = text;
         // A call with no window over the output cap is answered by the smart elision of the file's head and tail.
-        if !utf16 && !e.ranged && !e.full && stat.len >= output_max_bytes() as u64 {
-            if let Some((out, ranges, total)) = smart_stream_summary(&text, stat.len) {
-                let meta = SnapshotMeta { ranges: Some(ranges), file_line_count: Some(total), ..SnapshotMeta::new("read_smart_stream") };
-                cache(&out, &meta);
-                let out = if mode.raw() || matches!(mode, Mode::Child { .. }) { out } else { rows_for_model(&out) };
-                return Ok(Body { observed: observe(meta), ..Body::text(out) });
-            }
+        if !utf16 && !e.ranged && !e.full && stat.len >= output_max_bytes() as u64
+            && let Some((out, ranges, total)) = smart_stream_summary(&text, stat.len) {
+            let meta = SnapshotMeta { ranges: Some(ranges), file_line_count: Some(total), ..SnapshotMeta::new("read_smart_stream") };
+            cache(&out, &meta);
+            let out = if mode.raw() || matches!(mode, Mode::Child { .. }) { out } else { rows_for_model(&out) };
+            return Ok(Body { observed: observe(meta), ..Body::text(out) });
         }
         // A batch child streams its window, as does any file over 128 KiB; a UTF-16 body is always
         // decoded whole and read buffered, with its total in the footer.
@@ -1516,6 +1529,7 @@ impl ReadTool {
     /// UTF-16 body is refused (it is decoded whole), a binary one previewed, any other streamed from disk a megabyte at
     /// a time.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn read_huge(
         &self,
         ctx: &ToolContext,
@@ -1589,6 +1603,7 @@ impl ReadTool {
     }
 
     /// One extension-pool call over `abs`: its result and the bytes it streamed (its chunks in order), or why it failed.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn ext_call(&self, ctx: &ToolContext, method: &str, params: JsonValue, abs: &AbsPath) -> Result<Result<(JsonValue, Vec<u8>), ExtError>, ToolError> {
         let Some(pool) = &self.ext else {
             return Err(fail(
@@ -1623,6 +1638,7 @@ impl ReadTool {
     /// the file's, or the head of one past the buffered cap. An OOXML answer that is not an error records the read; a PDF
     /// read records none.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn document(
         &self,
         ctx: &ToolContext,
@@ -1638,16 +1654,16 @@ impl ReadTool {
             Document::Pdf => return self.pdf(ctx, abs, bytes, stat.len, pages, matches!(mode, Mode::Child { .. })).await,
             Document::Ooxml => self.ooxml_text(ctx, abs).await?,
         };
-        if let Some(v) = FileVersion::of(stat) {
-            if !body.failed() {
-                body.observed = Some(Observed { path: fwd(abs.as_path()), version: v, meta: SnapshotMeta { replace_existing: true, ..SnapshotMeta::new("read") } });
-            }
+        if let Some(v) = FileVersion::of(stat)
+            && !body.failed() {
+            body.observed = Some(Observed { path: fwd(abs.as_path()), version: v, meta: SnapshotMeta { replace_existing: true, ..SnapshotMeta::new("read") } });
         }
         Ok(body)
     }
 
     /// `extractOoxmlText` within the read's output budget (`READ_MAX_OUTPUT_BYTES`), run by the extension host: the
     /// document's text, or its failure as `Error:` text.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn ooxml_text(&self, ctx: &ToolContext, abs: &AbsPath) -> Result<Body, ToolError> {
         let params = serde_json::json!({ "path": fwd(abs.as_path()), "maxOutputBytes": output_max_bytes() });
         Ok(Body::text(match self.ext_call(ctx, "ooxml.text", params, abs).await? {
@@ -1662,6 +1678,7 @@ impl ReadTool {
     /// (`mode === 'image' && nativeDocument`, up to `MAX_PDF_BYTES`), else every page through the range path. `bytes`
     /// are the file's `size` bytes, or the head of a file past the buffered cap. `text_only` is a batch's
     /// `mediaTextOnly`. offset/limit do not apply.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn pdf(&self, ctx: &ToolContext, abs: &AbsPath, bytes: &[u8], size: u64, pages: Option<&JsonValue>, text_only: bool) -> Result<Body, ToolError> {
         let range = match parse_pages_arg(pages) {
             Ok(range) => range,
@@ -1709,6 +1726,7 @@ impl ReadTool {
 
     /// `readPdfPageRange`: the range's header, then each page in order, a page with a text layer as its text and one
     /// without as `scannedPageBodies` gives it. The text is capped at the read's output budget; images pass uncounted.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn pdf_page_range(
         &self,
         ctx: &ToolContext,
@@ -1774,6 +1792,7 @@ impl ReadTool {
     /// `scannedPageBodies`: each page without a text layer as its page image for a model that reads images
     /// (`pageMode: 'image'`), as the OCR engine's text for one that does not (`'ocr'`), or as a note in a batch
     /// (`textOnly`); a render or a recognition that fails leaves every such page a note.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn scanned_page_bodies(&self, ctx: &ToolContext, abs: &AbsPath, scanned: &[u64], text_only: bool) -> Result<HashMap<u64, Scanned>, ToolError> {
         let mut bodies = HashMap::new();
         if scanned.is_empty() {
@@ -1817,6 +1836,7 @@ impl ReadTool {
 
     /// `renderPdfPageImages`: the pages' images, `PDF_RENDER_BATCH` pages a `pdf.render` call; each image is its byte
     /// count's share of the call's chunks, in `images` order.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn render_pdf_pages(&self, ctx: &ToolContext, abs: &AbsPath, pages: &[u64]) -> Result<Result<Vec<(u64, ToolPart)>, ExtError>, ToolError> {
         let mut out = Vec::new();
         for batch in pages.chunks(PDF_RENDER_BATCH) {
@@ -1849,6 +1869,7 @@ impl ReadTool {
     /// cells, markdown as written and code fenced with its text outputs, the text capped at the read's output budget.
     /// An image output is embedded after its cell when it can be resized, and stays a placeholder otherwise or in a
     /// batch (`text_only`). Every `Error:` answer is a failed call.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn notebook(&self, ctx: &ToolContext, e: &Entry, abs: &AbsPath, size: u64, text_only: bool) -> Result<Body, ToolError> {
         let failed = |text: String| Ok(Body { error: true, ..Body::text(text) });
         if e.ranged && !e.injected {
@@ -1903,13 +1924,12 @@ impl ReadTool {
                         if let Some(raw) = field("text/plain").or_else(|| out.get("text").filter(|v| js_truthy(v))) {
                             let text = notebook_text(Some(raw)).unwrap_or_default();
                             let length = mixdog_js::utf16_len(&text);
-                            if raw.is_string() || raw.is_array() {
-                                if length > IPYNB_OUTPUT_MAX_CHARS {
-                                    block.push_str(&format!(
-                                        "\n# Output: [large output omitted — {length} chars; inspect with: cat \"{full_path}\" | jq '.cells[{index}].outputs']"
-                                    ));
-                                    continue;
-                                }
+                            if (raw.is_string() || raw.is_array())
+                                && length > IPYNB_OUTPUT_MAX_CHARS {
+                                block.push_str(&format!(
+                                    "\n# Output: [large output omitted — {length} chars; inspect with: cat \"{full_path}\" | jq '.cells[{index}].outputs']"
+                                ));
+                                continue;
                             }
                             block.push_str(&format!("\n# Output:\n{text}"));
                         } else if let Some((mime, raw)) = field("image/png").map(|v| ("image/png", v)).or_else(|| field("image/jpeg").map(|v| ("image/jpeg", v))) {
@@ -1967,12 +1987,14 @@ impl ReadTool {
 
     /// `readImageAsContent`: the resized image behind its metadata line; without a resizer, the
     /// original under the inline-view cap.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn image_body(&self, ctx: &ToolContext, display: &str, bytes: Vec<u8>, mime: &'static str) -> Result<Body, ToolError> {
         let body = self.image_content(ctx, display, bytes, mime).await?;
         // Every answer of an image read, its refusals too, is a structured result to a batch.
         Ok(Body { rich: true, ..body })
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn image_content(&self, ctx: &ToolContext, display: &str, bytes: Vec<u8>, mime: &'static str) -> Result<Body, ToolError> {
         if bytes.is_empty() {
             return Ok(Body::text(format!("Error: image \"{display}\" is empty (0 bytes).")));
@@ -2648,10 +2670,9 @@ impl Collector {
             return;
         }
         let mut line = String::from_utf8_lossy(&raw[..raw.len().min(output_max_bytes())]).into_owned();
-        if self.line_idx == 0 {
-            if let Some(rest) = line.strip_prefix('\u{feff}') {
-                line = rest.to_owned();
-            }
+        if self.line_idx == 0
+            && let Some(rest) = line.strip_prefix('\u{feff}') {
+            line = rest.to_owned();
         }
         let row = render_read_line(self.line_idx + 1, &line);
         self.bytes += row.len() + 1;
@@ -2737,7 +2758,7 @@ fn decode_for_read(bytes: &[u8]) -> ReadText {
     if let Some(little) = utf16_bom(bytes) {
         let body = &bytes[2..];
         let units: Vec<u16> = body
-            .chunks_exact(2)
+            .as_chunks::<2>().0.iter()
             .map(|p| if little { u16::from_le_bytes([p[0], p[1]]) } else { u16::from_be_bytes([p[0], p[1]]) })
             .collect();
         return ReadText::Text { text: String::from_utf16_lossy(&units), utf16: true };
