@@ -331,7 +331,7 @@ impl Command {
         let name = command.get("action").and_then(Value::as_str).ok_or("a command names its `action`")?.trim();
         let Some(action) = ComputerAction::from_wire(name) else {
             let mut raw = command.clone();
-            raw.remove("session_id");
+            raw.shift_remove("session_id");
             raw.insert("action".into(), json!(name));
             return Ok(Command::Raw(raw));
         };

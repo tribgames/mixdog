@@ -337,7 +337,7 @@ fn watch(
             // The machine slept, or this thread was not scheduled: what looks like a long wait is not the runtime's. Only a
             // probe still waiting restarts its count (it clears the mark when it runs); with none waiting nothing is marked, or
             // the mark would be a wait that no probe ever answers.
-            let _ = outstanding.fetch_update(Ordering::AcqRel, Ordering::Acquire, |posted| (posted != 0).then_some(now + 1));
+            let _ = outstanding.try_update(Ordering::AcqRel, Ordering::Acquire, |posted| (posted != 0).then_some(now + 1));
         }
         let posted = outstanding.load(Ordering::Acquire);
         let waited = if posted == 0 {

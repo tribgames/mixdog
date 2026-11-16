@@ -30,10 +30,12 @@ use super::WriteBehind;
 
 const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
+type HeaderGate = (String, Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>);
+
 /// Headers whose patch of a named session waits at a gate.
 #[derive(Default)]
 struct GatedHeaders {
-    gates: Mutex<Vec<(String, Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    gates: Mutex<Vec<HeaderGate>>,
 }
 
 impl GatedHeaders {
@@ -133,6 +135,7 @@ fn settled() -> CoreRequest {
 /// nothing else meanwhile, and once the read resumes it appends its record, which the store then holds unsynced. That record
 /// was accepted after the call arrived, so the call answers without it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
 async fn a_record_an_awaiting_header_update_appends_after_the_call_arrived_is_not_waited_for() {
     let rig = Rig::new();
     let directory = Arc::new(SessionDirectory::new(rig.deps()));
@@ -188,6 +191,7 @@ async fn a_record_an_awaiting_header_update_appends_after_the_call_arrived_is_no
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
 async fn a_record_accepted_while_the_call_waits_on_the_agent_index_is_not_waited_for() {
     let rig = Rig::new();
     let directory = Arc::new(SessionDirectory::new(rig.deps()));

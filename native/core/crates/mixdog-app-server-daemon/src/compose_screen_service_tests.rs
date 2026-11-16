@@ -31,6 +31,7 @@ impl Desktop {
     }
 
     /// The requests are sent by a task of their own: waits until `count` have arrived.
+    #[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
     async fn until(&self, count: usize) -> Vec<(String, Value)> {
         for _ in 0..2_000 {
             if self.seen().len() >= count {

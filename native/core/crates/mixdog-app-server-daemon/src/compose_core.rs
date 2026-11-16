@@ -102,6 +102,7 @@ mod tests {
     /// A legacy rule in `<data>/hooks.json` that asks before a read is asked about by the policy over the hook bus, composed as
     /// `compose_flip.rs` composes it, as Node's tool gate asks the hook bus before every call (hook-bus/tool-gate.mjs `decisionFromRule`).
     #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
     async fn a_hook_rule_that_asks_puts_the_call_to_the_person() {
         let dir = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();

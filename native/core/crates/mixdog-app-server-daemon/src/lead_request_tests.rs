@@ -24,7 +24,7 @@ use crate::server::serve_in_process;
 const PROMPT_TOKEN: &str = "LEAD-REQUEST-PROMPT";
 
 fn golden() -> Value {
-    serde_json::from_str(&mixdog_testkit::fixture!("../../fixtures/lead-request/golden.json")).expect("the lead-request recording")
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/lead-request/golden.json")).expect("the lead-request recording")
 }
 
 /// What one HTTP exchange of the loopback endpoint carried: a POST's path and JSON body.
@@ -182,6 +182,7 @@ fn sandbox_env(home: &Path, programs: &[&str]) {
 
 /// A real-time deadline for an await: a thread of its own ends the process with `what` if it is not dropped within `secs`. It does not read the
 /// runtime's clock, which a replay that advances time by hand holds still.
+#[allow(dead_code, reason = "The test guard owns the sender until drop, which disarms the deadline thread without reading the field.")]
 struct Deadline(Sender<()>);
 
 fn deadline(what: String, secs: u64) -> Deadline {

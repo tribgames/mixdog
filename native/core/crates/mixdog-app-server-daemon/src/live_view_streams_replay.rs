@@ -50,11 +50,14 @@ use super::*;
 const STREAMS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/browser-streams/streams.json");
 const HOST_CONNECTION: u64 = 99;
 
+type ClockTimers = (u64, BTreeMap<u64, (f64, Box<dyn FnOnce() + Send>)>);
+type ConnectionSet = Arc<Mutex<HashSet<u64>>>;
+
 /// The recording's clock: time moves only by `advance`, which runs the due timers in due-time then registration order, one at a time.
 #[derive(Default)]
 struct VirtualClock {
     now: Mutex<f64>,
-    timers: Mutex<(u64, BTreeMap<u64, (f64, Box<dyn FnOnce() + Send>)>)>,
+    timers: Mutex<ClockTimers>,
 }
 
 impl VirtualClock {
@@ -211,7 +214,7 @@ fn call(connection: u64, params: Value) -> CoreRequest {
 fn send_frame(service: &LiveViewService, media: &HostMedia, frame: &Value) {
     let session = frame["sessionId"].as_str().unwrap();
     let mut facts = frame.clone();
-    let picture = facts.get_mut("image").and_then(Value::as_object_mut).and_then(|image| image.remove("data"));
+    let picture = facts.get_mut("image").and_then(Value::as_object_mut).and_then(|image| image.shift_remove("data"));
     service.notify(Method("host/browser/frame"), json!({ "tabId": session, "frame": facts }), ConnectionId(HOST_CONNECTION));
     let stream = lock(&service.inner.state).streams.get(session).map(|stream| stream.stream_id);
     // A session nobody views has no stream: the host sends it no picture.
@@ -253,17 +256,19 @@ struct World {
     /// The held pushes, in the order they were held.
     parked: Arc<Mutex<Vec<Parked>>>,
     /// Told each time a send stops on its way.
+    #[allow(clippy::disallowed_types, reason = "Test replay serializes one event receiver across recv().await; a synchronous mutex would block the test executor.")]
     parked_events: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<()>>,
     /// The steps whose send stopped on its way, still running on their own threads, in the order they stopped.
     running: Mutex<Vec<tokio::sync::oneshot::Receiver<()>>>,
 }
 
 impl World {
+    #[allow(clippy::disallowed_types, reason = "Test-only single stream receiver ownership spans recv().await; a synchronous mutex would block the executor.")]
     fn new(dir: &std::path::Path, clock_start: f64) -> Arc<Self> {
         let log: Log = Arc::default();
         let media = HostMedia::new(1 << 20);
         let clock = VirtualClock::starting_at(clock_start);
-        let (revoked, left): (Arc<Mutex<HashSet<u64>>>, Arc<Mutex<HashSet<u64>>>) = Default::default();
+        let (revoked, left): (ConnectionSet, ConnectionSet) = Default::default();
         let (held, gone) = (revoked.clone(), left.clone());
         let access = PairedScreenAccess::new(
             Arc::new(|_| None),
@@ -391,7 +396,7 @@ impl World {
                             }
                             other => panic!("{what}: {other:?}"),
                         };
-                        lock(&log).push(json!(["reply", client, reply]));
+                        lock(log).push(json!(["reply", client, reply]));
                     }
                     "browserRemoteStreamAck" => {
                         service.notify(Method("browser/streamAck"), json!({ "sessionId": params[0], "seq": params[1] }), ConnectionId(connection));
@@ -421,7 +426,7 @@ impl World {
             "query" => {
                 let (client, session) = (connection_of(step["client"].as_str().unwrap()).to_string(), step["session"].as_str().unwrap());
                 let streams = service.inner.streams();
-                lock(&log).push(json!(["state", { "subscribed": streams.subscribed(&client, session), "awaitingFit": streams.awaiting_fit(&client, session) }]));
+                lock(log).push(json!(["state", { "subscribed": streams.subscribed(&client, session), "awaitingFit": streams.awaiting_fit(&client, session) }]));
             }
             "accept" => {
                 let client = connection_of(step["client"].as_str().unwrap()).to_string();
@@ -429,7 +434,7 @@ impl World {
                     Ok(_) => json!(["accepted"]),
                     Err(error) => json!(["refused", error]),
                 };
-                lock(&log).push(entry);
+                lock(log).push(entry);
             }
             "send" => {
                 let client = connection_of(step["client"].as_str().unwrap()).to_string();
@@ -438,7 +443,7 @@ impl World {
                     Ok(()) => json!(["sent"]),
                     Err(error) => json!(["refused", error]),
                 };
-                lock(&log).push(entry);
+                lock(log).push(entry);
             }
             other => panic!("{what}: unmapped op {other}"),
         }

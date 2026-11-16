@@ -324,7 +324,7 @@ async fn a_failure_row_still_queued_at_the_stop_is_written_by_the_exit_flush_as_
     };
     let data = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
-    let io = mixdog_core_api::domain::tool::ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io.clone(), maintenance: tokens.maintenance_io.clone() };
+    let io = mixdog_core_api::domain::tool::ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
     let writer = mixdog_core_run::run_host::failure_log::FailureWriter::register_with_timer_held(data.path(), &|_| None, io, Arc::new(Now));
     let session = format!("<session:{index}>");
     mixdog_agent::env::ToolFailureLog::failed(&mixdog_core_run::run_host::failure_log::RunFailureLog::new(writer, &session, Some("lead"), "<WS>"), failed);

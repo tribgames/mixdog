@@ -1196,6 +1196,7 @@ async fn an_initial_goal_snapshot_cannot_overwrite_a_newer_change_or_deletion() 
 
 
 #[tokio::test]
+#[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
 async fn a_real_goal_subscription_seeds_existing_state_and_remains_live_after_binding() {
     use mixdog_core_goal::goal::{GoalConfig, GoalEnv, GoalRuntime};
     let dir = tempfile::tempdir().unwrap();

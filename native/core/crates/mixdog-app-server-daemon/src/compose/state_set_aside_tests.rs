@@ -20,6 +20,8 @@ async fn good_state_file(path: &Path, tokens: &LaneTokens) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
+#[allow(clippy::disallowed_types, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 async fn a_damaged_core_state_file_does_not_stop_the_daemon_from_composing() {
     let tokens = mixdog_rt::testing::tokens();
     for damage in ["garbage", "truncated", "another database"] {

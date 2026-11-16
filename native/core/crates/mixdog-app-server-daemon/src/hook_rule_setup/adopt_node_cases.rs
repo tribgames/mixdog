@@ -3,6 +3,7 @@
 //!   of the hook bus (`HookBus::before_tool`) against Node's `beforeToolHook` answer, in order;
 //! - deny: a configured PreToolUse command that denies `shell`; the whole tool result text of the call through the
 //!   tool policy (`ToolPolicy::authorize` over `BusPreToolHook`) and the hook's run count, per session.
+//!
 //! The compaction cases replay in mixdog-core (`run_host/run_seams/adopt_node_cases.rs`).
 #![allow(clippy::disallowed_methods, reason = "test fixtures: the recording, the hooks file and the deny script")]
 
