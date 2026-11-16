@@ -96,7 +96,7 @@ fn lenient_base64() -> GeneralPurpose {
 
 /// `/^[A-Za-z0-9+/]*={0,2}$/` with a length divisible by 4.
 fn base64_shaped(text: &str) -> bool {
-    if text.len() % 4 != 0 {
+    if !text.len().is_multiple_of(4) {
         return false;
     }
     let body = text.trim_end_matches('=');

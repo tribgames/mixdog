@@ -501,9 +501,7 @@ impl LspManager {
 
     fn emit_status(
         &self,
-        project_path: &str,
-        root: &Path,
-        language_id: &str,
+        (project_path, root, language_id): (&str, &Path, &str),
         spec: Option<&Spec>,
         status: &str,
         detail: Option<&str>,
@@ -537,12 +535,12 @@ impl LspManager {
         for (uri, language, rel) in docs {
             let caps = session.capabilities(&language, Some(&uri));
             emitted.insert(language.clone());
-            self.emit_status(&session.project_path, &session.root, &language, Some(&session.spec), "ready", None, Some(&caps), Some(&rel));
+            self.emit_status((&session.project_path, &session.root, &language), Some(&session.spec), "ready", None, Some(&caps), Some(&rel));
         }
         let languages: Vec<String> = session.language_ids.lock().expect("lsp languages").iter().cloned().collect();
         for language in languages.into_iter().filter(|l| !emitted.contains(l)) {
             let caps = session.capabilities(&language, None);
-            self.emit_status(&session.project_path, &session.root, &language, Some(&session.spec), "ready", None, Some(&caps), None);
+            self.emit_status((&session.project_path, &session.root, &language), Some(&session.spec), "ready", None, Some(&caps), None);
         }
     }
 
@@ -559,7 +557,7 @@ impl LspManager {
         let delay = self.record_failure(&session.key);
         let tail = session.stderr.lock().expect("lsp stderr").trim().lines().last().map(|l| l.chars().take(200).collect::<String>());
         let detail = [tail, Some(format!("Retrying after {}s.", delay.div_ceil(1000)))].into_iter().flatten().collect::<Vec<_>>().join(" ");
-        self.emit_status(&session.project_path, &session.root, language_id, Some(&session.spec), "stopped", Some(&detail), None, None);
+        self.emit_status((&session.project_path, &session.root, language_id), Some(&session.spec), "stopped", Some(&detail), None, None);
     }
 
     /// A live session of the key, or a started one; `None` when the server is
@@ -599,16 +597,16 @@ impl LspManager {
     }
 
     async fn start(self: &Arc<Self>, project_path: &str, root: &Path, language_id: &str, spec: &Spec, key: String) -> Option<Arc<Session>> {
-        self.emit_status(project_path, root, language_id, Some(spec), "starting", None, None, None);
+        self.emit_status((project_path, root, language_id), Some(spec), "starting", None, None, None);
         let (probe_spec, probe_root) = (spec.clone(), root.to_path_buf());
         let found = crate::lanes::run(self.lane, &tokio_util::sync::CancellationToken::new(), move || resolve_executable(&probe_spec, &probe_root)).await.ok().flatten();
         let Some(executable) = found else {
             self.health.lock().expect("lsp health").missing_until.insert(key, Instant::now() + Duration::from_secs(30));
-            self.emit_status(project_path, root, language_id, Some(spec), "missing", None, None, None);
+            self.emit_status((project_path, root, language_id), Some(spec), "missing", None, None, None);
             return None;
         };
         let handle = ProcessHandle::from(format!("lsp-{}-{}", std::process::id(), self.next_handle.fetch_add(1, Ordering::SeqCst)).as_str());
-        let Some(cwd) = AbsPath::new(root.to_path_buf()) else { return None };
+        let cwd = AbsPath::new(root.to_path_buf())?;
         let request = SpawnRequest {
             handle: handle.clone(),
             command: CommandSpec::Argv { program: executable.to_string_lossy().into_owned(), args: spec.args.clone() },
@@ -711,7 +709,7 @@ impl LspManager {
                 self.health.lock().expect("lsp health").failures.remove(&key);
                 session.ready.store(true, Ordering::SeqCst);
                 conn.notify("initialized", json!({}));
-                self.emit_status(project_path, root, language_id, Some(spec), "ready", None, Some(&caps), None);
+                self.emit_status((project_path, root, language_id), Some(spec), "ready", None, Some(&caps), None);
                 Some(session)
             }
             Err(error) => {
@@ -728,7 +726,7 @@ impl LspManager {
         let delay = self.record_failure(&session.key);
         let tail = session.stderr.lock().expect("lsp stderr").trim().lines().last().map(|l| l.chars().take(500).collect::<String>());
         let detail = [Some(error.to_owned()), tail, Some(format!("Retrying after {}s.", delay.div_ceil(1000)))].into_iter().flatten().collect::<Vec<_>>().join(" ");
-        self.emit_status(&session.project_path, &session.root, language_id, Some(&session.spec), "error", Some(&detail), None, None);
+        self.emit_status((&session.project_path, &session.root, language_id), Some(&session.spec), "error", Some(&detail), None, None);
     }
 
     fn dispatch(&self, session: &Arc<Session>, message: Value) {
@@ -843,7 +841,7 @@ impl LspManager {
         let spec = match self.spec_for(root, &input.language_id).await {
             Ok(Some(spec)) => spec,
             Ok(None) => return Ok(public_state(None, "unsupported", None, None)),
-            Err(error) => return Ok(self.emit_status(project_path, root, &input.language_id, None, "error", Some(&error.message), None, None)),
+            Err(error) => return Ok(self.emit_status((project_path, root, &input.language_id), None, "error", Some(&error.message), None, None)),
         };
         let uri = file_uri(&project_entry_path(root, &input.rel_path)?);
         let key = session_key(root, &spec);

@@ -311,10 +311,9 @@ fn language_settings(source: &Map<String, Value>, language: &str) -> Map<String,
             continue;
         }
         let listed = key.split('[').skip(1).filter_map(|s| s.split(']').next()).any(|l| l == language);
-        if listed {
-            if let Some(object) = value.as_object() {
-                result.extend(object.clone());
-            }
+        if listed
+            && let Some(object) = value.as_object() {
+            result.extend(object.clone());
         }
     }
     result
@@ -358,9 +357,9 @@ fn editor_settings(scopes: Vec<Value>, language: &str) -> Value {
         "fontFamily": font.map_or_else(|| "\"JetBrains Mono Variable\", \"Cascadia Code\", Consolas, monospace".to_owned(), |f| f.chars().take(500).collect()),
         "fontSize": number_json(finite(get("editor.fontSize"), 14.0, 6.0, 100.0)),
         "lineHeight": number_json(finite(get("editor.lineHeight"), 21.0, 8.0, 200.0)),
-        "wordWrap": match word_wrap.as_deref() { Some(w @ ("on" | "wordWrapColumn" | "bounded")) => w, _ => "off" },
+        "wordWrap": word_wrap.as_deref().filter(|w| matches!(*w, "on" | "wordWrapColumn" | "bounded")).unwrap_or("off"),
         "wordWrapColumn": number_json(finite(get("editor.wordWrapColumn"), 80.0, 1.0, 1000.0).round()),
-        "renderWhitespace": match whitespace.as_deref() { Some(w @ ("none" | "boundary" | "trailing" | "all")) => w, _ => "selection" },
+        "renderWhitespace": whitespace.as_deref().filter(|w| matches!(*w, "none" | "boundary" | "trailing" | "all")).unwrap_or("selection"),
         "minimapEnabled": boolean(get("editor.minimap.enabled"), true),
         "stickyScrollEnabled": boolean(get("editor.stickyScroll.enabled"), true),
         "bracketPairColorization": boolean(get("editor.bracketPairColorization.enabled"), true),
@@ -375,7 +374,7 @@ fn editor_settings(scopes: Vec<Value>, language: &str) -> Value {
         "formatOnSave": boolean(get("editor.formatOnSave"), false),
         "formatOnPaste": boolean(get("editor.formatOnPaste"), false),
         "formatOnType": boolean(get("editor.formatOnType"), false),
-        "markdownDefaultView": match get("mixdog.markdown.defaultView").as_ref().and_then(Value::as_str) { Some(v @ ("rich" | "source")) => v, _ => "preview" },
+        "markdownDefaultView": get("mixdog.markdown.defaultView").as_ref().and_then(Value::as_str).filter(|v| matches!(*v, "rich" | "source")).unwrap_or("preview"),
         "tabSize": number_json(finite(get("editor.tabSize"), 4.0, 1.0, 16.0).round()),
         "insertSpaces": boolean(get("editor.insertSpaces"), true),
         "detectIndentation": boolean(get("editor.detectIndentation"), true),

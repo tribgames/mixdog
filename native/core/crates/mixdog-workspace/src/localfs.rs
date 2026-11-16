@@ -190,6 +190,7 @@ struct Resolved {
 /// leaf symlink is written through) and `..`, names in the case the file system stores. A parent
 /// that does not exist is kept as given, so the write fails with `NotFound` before it touches
 /// anything.
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 fn resolve_write(path: &Path) -> Result<Resolved, FsError> {
     let full = canonical_lock_target(path);
     let (Some(dir), Some(leaf)) = (full.parent(), full.file_name()) else {
@@ -248,6 +249,7 @@ fn entry_kind(file_type: fs::FileType) -> EntryKind {
 
 /// `fs.stat` of `path` (links followed). The change time, inode and device are `fileVersion`'s own
 /// reading (`stat_version`), so the two never disagree.
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 fn stat_path(path: &Path) -> Result<FileStat, FsError> {
     let (meta, version) = stat_with_version(path).map_err(|e| io_error(&e, path))?;
     let ns = version.ctime_ns;
@@ -265,6 +267,7 @@ fn stat_path(path: &Path) -> Result<FileStat, FsError> {
 }
 
 /// Runs `job` on `lane`; dropping the future cancels a job that has not started.
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 async fn on<L, R, F>(lane: L, job: F) -> Result<R, FsError>
 where
     L: LaneToken,
@@ -286,6 +289,7 @@ enum Expect {
     Version(StatVersion),
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 fn current_content(path: &Path) -> Result<Option<Vec<u8>>, FsError> {
     match fs::read(path) {
         Ok(bytes) => Ok(Some(bytes)),
@@ -302,6 +306,7 @@ fn precondition_failed(path: &Path) -> FsError {
 }
 
 /// Checks the caller's compare-and-set condition and returns what must still hold at the rename.
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 fn evaluate(target: &Path, precondition: &WritePrecondition) -> Result<Expect, FsError> {
     let existing = match fs::metadata(target) {
         Ok(meta) => Some(meta),
@@ -381,6 +386,7 @@ fn cleanup_empty_placeholder(target: &Path) {
 }
 
 /// One single-file write at its resolved path.
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 fn write_resolved(locks: &Arc<PathLocks>, resolved: &Resolved, request: &WriteRequest) -> Result<FileStat, FsError> {
     let _held = locks.acquire([resolved.key.clone()]);
     let target = resolved.path.as_path();
@@ -390,6 +396,7 @@ fn write_resolved(locks: &Arc<PathLocks>, resolved: &Resolved, request: &WriteRe
 }
 
 /// Node: `atomicWrite`. The caller holds the write lock of `target`.
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 fn atomic_write(target: &Path, content: &[u8], expect: &Expect) -> Result<(), FsError> {
     let existing = fs::metadata(target).ok();
     let tmp = temp_name(target);
@@ -423,7 +430,8 @@ fn atomic_write(target: &Path, content: &[u8], expect: &Expect) -> Result<(), Fs
         }
     }
     let attempts = if cfg!(windows) { RENAME_BACKOFFS_MS.len() + 1 } else { 1 };
-    for attempt in 0..attempts {
+    // The final attempt has no backoff; Unix takes only that first, non-retried attempt.
+    for (attempt, backoff) in RENAME_BACKOFFS_MS.iter().copied().map(Some).chain(std::iter::once(None)).take(attempts).enumerate() {
         if let Expect::Version(expected) = expect {
             // assertTargetUnchanged (TOCTOU).
             let unchanged = stat_version(target).is_ok_and(|v| v == *expected);
@@ -443,7 +451,7 @@ fn atomic_write(target: &Path, content: &[u8], expect: &Expect) -> Result<(), Fs
                 let transient = cfg!(windows) && (e.kind() == io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(SHARING_VIOLATION));
                 if transient && attempt + 1 < attempts {
                     let jitter = u64::from(uuid::Uuid::new_v4().as_bytes()[0]) % 40;
-                    std::thread::sleep(Duration::from_millis(RENAME_BACKOFFS_MS[attempt] + jitter));
+                    std::thread::sleep(Duration::from_millis(backoff.expect("a retried attempt has a backoff") + jitter));
                     continue;
                 }
                 let _ = fs::remove_file(&tmp);
@@ -463,10 +471,9 @@ fn atomic_write(target: &Path, content: &[u8], expect: &Expect) -> Result<(), Fs
 
 /// Makes the rename itself durable across power loss; unsupported on Windows (Node: best effort).
 fn sync_directory(target: &Path) {
-    if let Some(dir) = target.parent() {
-        if let Ok(handle) = File::open(dir) {
-            let _ = handle.sync_all();
-        }
+    if let Some(dir) = target.parent()
+        && let Ok(handle) = File::open(dir) {
+        let _ = handle.sync_all();
     }
 }
 
@@ -493,6 +500,7 @@ struct PreImage {
     mode: Option<u32>,
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 fn pre_image(target: &Path) -> Result<PreImage, FsError> {
     match fs::metadata(target) {
         Ok(meta) if meta.is_file() => {
@@ -560,14 +568,16 @@ fn remove_any(path: &Path) -> io::Result<()> {
 
 #[async_trait]
 impl FileService for LocalFileService {
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn stat(&self, lane: InteractiveIo, path: AbsPath) -> Result<FileStat, FsError> {
         on(lane, move || {
             let p = path.as_path();
-            stat_path(&p)
+            stat_path(p)
         })
         .await?
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn read(&self, lane: InteractiveIo, path: AbsPath, range: ReadRange) -> Result<FileBytes, FsError> {
         on(lane, move || {
             let p = path.as_path();
@@ -593,6 +603,7 @@ impl FileService for LocalFileService {
         .await?
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn list_dir(&self, lane: InteractiveIo, path: AbsPath) -> Result<Vec<DirEntry>, FsError> {
         on(lane, move || {
             let p = path.as_path();
@@ -613,11 +624,13 @@ impl FileService for LocalFileService {
         .await?
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn write(&self, lane: DurabilityIo, request: WriteRequest) -> Result<FileStat, FsError> {
         let locks = self.locks.clone();
         on(lane, move || write_resolved(&locks, &resolve_write(request.path.as_path())?, &request)).await?
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn write_batch(&self, lane: DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<FileStat>, FsError> {
         let locks = self.locks.clone();
         on(lane, move || {
@@ -665,6 +678,7 @@ impl FileService for LocalFileService {
         .await?
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn create_dir(&self, lane: DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), FsError> {
         on(lane, move || {
             let p = path.as_path();
@@ -674,6 +688,7 @@ impl FileService for LocalFileService {
         .await?
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn rename(&self, lane: DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), FsError> {
         on(lane, move || {
             let (f, t) = (from.as_path(), to.as_path());
@@ -694,6 +709,7 @@ impl FileService for LocalFileService {
         .await?
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn copy(&self, lane: DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), FsError> {
         on(lane, move || {
             let (f, t) = (from.as_path(), to.as_path());
@@ -708,6 +724,7 @@ impl FileService for LocalFileService {
         .await?
     }
 
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn remove(&self, lane: DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), FsError> {
         on(lane, move || {
             let p = path.as_path();
@@ -747,6 +764,7 @@ impl FileService for LocalFileService {
 }
 
 /// A walk request's walk, its entries listed through `dirs` ([`tree`]).
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 fn walking(request: &WalkRequest, dirs: Box<dyn tree::Dirs>) -> Result<Walking, FsError> {
     let root = request.root.as_path();
     let mut builder = WalkBuilder::new(root);
@@ -762,6 +780,7 @@ fn walking(request: &WalkRequest, dirs: Box<dyn tree::Dirs>) -> Result<Walking, 
 
 /// A text search's walk, its entries listed through `dirs` ([`tree`]): siblings in name order, depth first, so the
 /// files come in `PathBuf` order, the order Node's server answers in, each searched as the walk reaches it.
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 fn text_listing(request: &SearchRequest, dirs: Box<dyn tree::Dirs>) -> Result<Walked, FsError> {
     let root = request.root.as_path();
     // ripgrep's rule: later globs win, so the excludes follow the includes.
@@ -1360,7 +1379,7 @@ impl SchedulerConfig {
     }
 
     /// The given-up threads the process can ever hold: `stuck_total - 1` plus the producers that can run at once, 24 - 1
-    /// + 8 + 1 + 64 = 96 with the defaults on 8 or more cores, as [`SchedulerConfig::max_stranded_per_volume`] counts
+    /// plus 8 + 1 + 64 = 96 with the defaults on 8 or more cores, as [`SchedulerConfig::max_stranded_per_volume`] counts
     /// them: a producer names any volume only while the process holds fewer than `stuck_total`.
     pub fn max_stranded_total(&self) -> usize {
         self.stuck_total - 1 + self.total + self.interactive_reserve + self.local
@@ -1748,12 +1767,11 @@ impl Producers {
             probe::answered(ticket.seq);
             return Err(refusal);
         }
-        if let Some(class) = ticket.class {
-            if full || s.queue_depth() >= self.config.admission(class) {
-                #[cfg(feature = "count-jobs")]
-                probe::answered(ticket.seq);
-                return Err(FsErrorKind::Saturated);
-            }
+        if let Some(class) = ticket.class
+            && (full || s.queue_depth() >= self.config.admission(class)) {
+            #[cfg(feature = "count-jobs")]
+            probe::answered(ticket.seq);
+            return Err(FsErrorKind::Saturated);
         }
         ticket.state.store(WAITING, Ordering::SeqCst);
         s.queue(ticket.class).push_back(ticket.clone());
@@ -2878,10 +2896,9 @@ impl<T: Weigh + Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> 
         self.waiting = None;
         // Counted before the wait, so a caller that drops this `close` leaves the count right.
         self.producers.release(&self.ticket, self.thread.take(), self.interrupt.take());
-        if let Some(finished) = self.finished.take() {
-            if tokio::time::timeout(self.producers.config.grace, finished).await.is_err() {
-                self.producers.give_up(&self.ticket);
-            }
+        if let Some(finished) = self.finished.take()
+            && tokio::time::timeout(self.producers.config.grace, finished).await.is_err() {
+            self.producers.give_up(&self.ticket);
         }
     }
 }

@@ -79,7 +79,7 @@ fn out_of_range(value: u64, max: u64) -> WsError {
     let received = if value > 1 << 32 {
         let mut grouped = String::new();
         for (at, digit) in digits.chars().enumerate() {
-            if at > 0 && (digits.len() - at) % 3 == 0 {
+            if at > 0 && (digits.len() - at).is_multiple_of(3) {
                 grouped.push('_');
             }
             grouped.push(digit);

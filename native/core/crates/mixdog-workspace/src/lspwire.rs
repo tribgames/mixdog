@@ -15,8 +15,7 @@ impl Framer {
     pub fn push(&mut self, bytes: &[u8]) -> Vec<Value> {
         self.buffer.extend_from_slice(bytes);
         let mut messages = Vec::new();
-        loop {
-            let Some(split) = self.buffer.windows(4).position(|w| w == b"\r\n\r\n") else { break };
+        while let Some(split) = self.buffer.windows(4).position(|w| w == b"\r\n\r\n") {
             let header = String::from_utf8_lossy(&self.buffer[..split]).into_owned();
             let length = header.lines().find_map(|line| {
                 let (name, value) = line.split_once(':')?;

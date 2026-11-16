@@ -84,6 +84,9 @@ pub struct Granted {
     pub absolute: PathBuf,
 }
 
+type UnpairedHook = Arc<dyn Fn(&str) + Send + Sync>;
+type ListedHook = Arc<dyn Fn(&[&str]) + Send + Sync>;
+
 pub struct GrantStore {
     clock: Arc<dyn IdleClock>,
     catalog: Arc<dyn SessionCatalog>,
@@ -95,9 +98,9 @@ pub struct GrantStore {
     /// `seenSessions` filled by `retainCatalog` on each publication, `file-downloads.ts:472`).
     seen: Mutex<HashSet<String>>,
     /// Told the credential of a device that unpaired, so what else the device holds ends in the same step (the downloads).
-    unpaired: std::sync::OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
+    unpaired: std::sync::OnceLock<UnpairedHook>,
     /// Told the conversations each publication lists, in the step it is published (the downloads' catalog membership).
-    listed: std::sync::OnceLock<Arc<dyn Fn(&[&str]) + Send + Sync>>,
+    listed: std::sync::OnceLock<ListedHook>,
 }
 
 /// `selectedFileGrantKey`.
@@ -130,12 +133,12 @@ impl GrantStore {
     }
 
     /// Connects what is told the conversations each catalog publication lists. Set once.
-    pub fn on_listed(&self, hook: Arc<dyn Fn(&[&str]) + Send + Sync>) {
+    pub fn on_listed(&self, hook: ListedHook) {
         let _ = self.listed.set(hook);
     }
 
     /// Connects what else ends when a device unpairs. Set once.
-    pub fn on_unpaired(&self, hook: Arc<dyn Fn(&str) + Send + Sync>) {
+    pub fn on_unpaired(&self, hook: UnpairedHook) {
         let _ = self.unpaired.set(hook);
     }
 

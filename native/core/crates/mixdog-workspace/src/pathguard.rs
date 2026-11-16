@@ -51,10 +51,9 @@ fn strip_verbatim(path: PathBuf) -> PathBuf {
     if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
         return PathBuf::from(format!(r"\\{rest}"));
     }
-    if let Some(rest) = text.strip_prefix(r"\\?\") {
-        if rest.as_bytes().get(1) == Some(&b':') {
-            return PathBuf::from(rest);
-        }
+    if let Some(rest) = text.strip_prefix(r"\\?\")
+        && rest.as_bytes().get(1) == Some(&b':') {
+        return PathBuf::from(rest);
     }
     path
 }
