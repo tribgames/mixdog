@@ -474,15 +474,15 @@ mod tests {
         assert!(!state.enabled && state.error.is_some());
     }
 
-    #[test]
-    fn the_packaged_extension_is_found_from_the_core_folder_of_the_resources() {
+    #[tokio::test]
+    async fn the_packaged_extension_is_found_from_the_core_folder_of_the_resources() {
         let resources = tempfile::tempdir().unwrap();
         let bundled = resources.path().join("gnome-extension").join(GNOME_EXTENSION_UUID);
         std::fs::create_dir_all(&bundled).unwrap();
         std::fs::write(bundled.join("metadata.json"), meta(1)).unwrap();
         let core = resources.path().join("core");
         std::fs::create_dir_all(&core).unwrap();
-        assert_eq!(bundled_dir(&Env::new(), &core), Some(bundled));
+        assert_eq!(bundled_dir(mixdog_rt::testing::tokens().interactive_io, &Env::new(), &core).await, Some(bundled));
     }
 
     #[test]
