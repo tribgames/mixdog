@@ -9,6 +9,7 @@ export const DESKTOP_NOTICE_CODES = [
   'conversation-save-failed',
   'offload-prune-blocked',
   'memory-runtime-preparing',
+  'remote-restore-declined',
 ] as const;
 export type DesktopNoticeCode = (typeof DESKTOP_NOTICE_CODES)[number];
 

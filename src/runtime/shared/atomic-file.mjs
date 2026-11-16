@@ -37,37 +37,89 @@ export { withFileLock, withFileLockSync };
 // decrease when latency shows the filesystem is saturated. This gate never
 // touches synchronous compatibility paths and never revokes in-flight writes.
 const _ioCeiling = Math.max(1, Math.floor(Number(process.env.MIXDOG_FILE_IO_MAX_CONCURRENCY) || 16));
-let _ioLimit = Math.min(4, _ioCeiling);
+const _ioStartLimit = Math.min(4, _ioCeiling);
+// Writes of independent files keep moving however slow the disk reads.
+const _ioFloor = Math.min(2, _ioCeiling);
+const IO_SLOW_MS = 250;
+const IO_FAST_MS = 40;
+let _ioLimit = _ioStartLimit;
 let _ioActive = 0;
 let _ioFastStreak = 0;
 const _ioQueue = [];
+
+// A write's wall time also holds every wait for the loop: each fs step's
+// completion runs only once the loop is free. The loop's busy (active) time over
+// the same interval is the most that wait can be, so wall time minus it is the
+// least the I/O itself took, and wall time is the most. A sample is evidence
+// only where both bounds agree:
+//   least >= slow    the disk was slow whatever the loop did: back off.
+//   wall  <= fast    the disk was fast: counts toward a higher limit.
+//   least <= fast < wall   the loop's own work may explain all of it, or may
+//                    hide a slow disk; that is no reason to stay below the
+//                    limit the gate starts with, and none to go above it.
+// So a busy daemon is not read as a saturated disk, and a disk hidden behind a
+// busy daemon never gets more than the starting parallelism.
+const _defaultIoClock = {
+  now: () => performance.now(),
+  loopActiveMs: () => performance.eventLoopUtilization().active,
+};
+let _ioClock = _defaultIoClock;
+
+function _noteIoLatency(wallMs, loopBusyMs) {
+  const leastMs = Math.max(0, wallMs - loopBusyMs);
+  if (leastMs >= IO_SLOW_MS) {
+    _ioLimit = Math.max(_ioFloor, Math.ceil(_ioLimit / 2));
+    _ioFastStreak = 0;
+    return;
+  }
+  const fast = wallMs <= IO_FAST_MS || (leastMs <= IO_FAST_MS && _ioLimit < _ioStartLimit);
+  if (!fast || _ioLimit >= _ioCeiling) {
+    _ioFastStreak = 0;
+    return;
+  }
+  _ioFastStreak += 1;
+  if (_ioFastStreak >= _ioLimit * 4) {
+    _ioLimit += 1;
+    _ioFastStreak = 0;
+  }
+}
 
 function _drainAdaptiveFileIo() {
   while (_ioActive < _ioLimit && _ioQueue.length > 0) {
     const item = _ioQueue.shift();
     _ioActive += 1;
-    const startedAt = Date.now();
+    const clock = _ioClock;
+    const startedAt = clock.now();
+    const loopActiveAt = clock.loopActiveMs();
     Promise.resolve()
       .then(item.run)
       .then(item.resolve, item.reject)
       .finally(() => {
-        const elapsed = Date.now() - startedAt;
+        const elapsed = clock.now() - startedAt;
+        const loopBusy = clock.loopActiveMs() - loopActiveAt;
         _ioActive = Math.max(0, _ioActive - 1);
-        if (elapsed >= 250) {
-          _ioLimit = Math.max(1, Math.ceil(_ioLimit / 2));
-          _ioFastStreak = 0;
-        } else if (elapsed <= 40 && _ioLimit < _ioCeiling) {
-          _ioFastStreak += 1;
-          if (_ioFastStreak >= _ioLimit * 4) {
-            _ioLimit += 1;
-            _ioFastStreak = 0;
-          }
-        } else {
-          _ioFastStreak = 0;
-        }
+        _noteIoLatency(elapsed, loopBusy);
         _drainAdaptiveFileIo();
       });
   }
+}
+
+/** Test seam: the gate's limit, its runner, a clock (`{ now, loopActiveMs }`,
+ *  null for the real one) and a reset to the starting limit. */
+export function _fileIoGateForTest() {
+  return {
+    limit: () => _ioLimit,
+    floor: _ioFloor,
+    startLimit: _ioStartLimit,
+    run: _runAdaptiveFileIo,
+    setClock(clock) {
+      _ioClock = clock || _defaultIoClock;
+    },
+    reset() {
+      _ioLimit = _ioStartLimit;
+      _ioFastStreak = 0;
+    },
+  };
 }
 
 function _runAdaptiveFileIo(run) {

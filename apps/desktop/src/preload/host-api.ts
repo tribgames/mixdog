@@ -8,6 +8,7 @@ import { DESKTOP_PET_IPC, desktopPetAppLayout } from '../shared/desktop-pet';
 import { type DesktopNotice, readDesktopNotice } from '../shared/desktop-notice';
 import type { createBrowserTextureBridge } from './browser-texture';
 import { createHeldChannel } from './held-ipc';
+import { createRendererProbeBridge } from './renderer-probe';
 
 export interface HostApiDeps {
   invokeIpc<T>(channel: string, ...args: unknown[]): Promise<T>;
@@ -152,6 +153,7 @@ export function createHostApi({ invokeIpc, subscribeIpc, ipcRenderer, webUtils, 
         /* the overlay keeps its last state */
       }
     },
+    rendererProbe: createRendererProbeBridge(ipcRenderer),
     rendererDiagnostic: (diagnostic) => {
       try {
         ipcRenderer.send(DESKTOP_IPC.rendererDiagnostic, diagnostic);

@@ -43,6 +43,7 @@ import { raiseDesktopWindow } from './notification-window';
 import { createSignInFocus } from './sign-in-focus';
 import { createCoreFileGrants } from './core-file-grants';
 import { registerScreenSessions } from './screen-sessions';
+import { registerRendererProbeIpc } from './renderer-probe';
 import type { ConnectionKind } from './connections/contract';
 import { connectionFeatureGate } from './connections/feature-gates';
 import {
@@ -322,6 +323,7 @@ export function registerDesktopIpc(
     (host as { perfLog?: (line: string) => void }).perfLog?.(String(line ?? ''));
   };
   ipcMain.on(DESKTOP_IPC.perfLog, onPerfLog);
+  const disposeRendererProbe = registerRendererProbeIpc({ window, ipcMain, handle });
   // What this window paints, for the completion-notification rule.
   const disposeScreenSessions = registerScreenSessions(window, ipcMain);
   const disposePaneLayoutIpc = registerPaneLayoutIpc({ window, ipcMain, file: paneLayoutFile });
@@ -343,6 +345,7 @@ export function registerDesktopIpc(
     DESKTOP_IPC.stateResync,
     DESKTOP_IPC.updaterState,
     DESKTOP_IPC.perfLog,
+    DESKTOP_IPC.rendererProbeLog,
     DESKTOP_IPC.reportScreenSessions,
     DESKTOP_IPC.rendererDiagnostic,
     DESKTOP_IPC.readPaneLayoutFile,
@@ -370,6 +373,7 @@ export function registerDesktopIpc(
     void server?.dispose();
     disposeHostExtrasIpc();
     ipcMain.removeListener(DESKTOP_IPC.perfLog, onPerfLog);
+    disposeRendererProbe();
     disposeScreenSessions();
     disposePaneLayoutIpc();
     for (const channel of channels) ipcMain.removeHandler(channel);

@@ -211,20 +211,29 @@ function namedFilesDir(ref) {
  */
 export function namedAttachmentFile(value, { filename = '', mimeType = '', original = null } = {}) {
   const ref = typeof value === 'string' ? value : value?.attachmentRef;
-  let buffer = readAttachmentBuffer(ref);
   // The stored blob may be a resized copy made for the model. When the picked
   // file's own bytes were kept (`original: { attachmentRef, mimeType }`), the
   // PC file is those, named by their own type and kept in a folder keyed by
   // THEIR hash, so two originals that resize to the same bytes never share
   // (or overwrite) a file. If they are gone, the stored copy stands in.
-  let keyRef = ref;
-  let typeForName = mimeType;
+  // Only an unreadable original falls back; failing to publish its copy throws,
+  // so degraded bytes never stand in for a readable original.
   if (isAttachmentReference(original)) {
+    let plan = null;
     try {
-      buffer = readAttachmentBuffer(original.attachmentRef);
-      keyRef = original.attachmentRef;
-      typeForName = original.mimeType || mimeType;
+      plan = namedCopyPlan(original.attachmentRef, original.mimeType || mimeType, filename, mimeType);
     } catch {}
+    if (plan) return publishNamedCopy(plan);
+  }
+  return publishNamedCopy(namedCopyPlan(ref, mimeType, filename, mimeType));
+}
+
+// The copy of blob `keyRef` is valid when it is a file of the blob's size (a
+// stat); only a missing or differently sized copy reads the blob and is written.
+function namedCopyPlan(keyRef, typeForName, filename, mimeType) {
+  const blob = statSync(attachmentPath(keyRef));
+  if (!blob.isFile() || blob.size <= 0 || blob.size > MAX_ATTACHMENT_BLOB_BYTES) {
+    throw Object.assign(new Error('prompt attachment blob is invalid'), { code: ATTACHMENT_INVALID });
   }
   const dir = namedFilesDir(keyRef);
   let name;
@@ -238,13 +247,16 @@ export function namedAttachmentFile(value, { filename = '', mimeType = '', origi
     name = existing || attachmentFileName('', mimeType, String(mimeType).startsWith('image/') ? 'image' : 'attachment');
   }
   const target = join(dir, name);
-  let current = null;
+  let present = false;
   try {
-    current = readFileSync(target);
+    const copy = statSync(target);
+    present = copy.isFile() && copy.size === blob.size;
   } catch {}
-  // A copy that is already there is never overwritten: the folder is keyed by
-  // these exact bytes, so it holds them unless someone is working on the file.
-  if (current === null) {
+  return { dir, target, buffer: present ? null : readAttachmentBuffer(keyRef) };
+}
+
+function publishNamedCopy({ dir, target, buffer }) {
+  if (buffer) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     writeFileAtomicSync(target, buffer, { mode: 0o600 });
   }
