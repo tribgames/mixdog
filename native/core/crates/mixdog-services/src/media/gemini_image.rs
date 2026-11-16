@@ -51,6 +51,7 @@ pub fn gemini_image_request_body(prompt: &str, options: &Value, references: &[Im
 
 /// First inline image among a candidate's parts. A text-only answer is the model's refusal and
 /// surfaces as such; it is never retried.
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 pub fn pick_gemini_image_part(parts: &[Value], label: &str, failure: Option<String>, usage: Option<Value>) -> Result<GeneratedImage, AdapterError> {
     let image = parts.iter().find(|part| truthy(part.get("inlineData").and_then(|d| d.get("data"))));
     let Some(image) = image else {
@@ -68,6 +69,7 @@ pub fn pick_gemini_image_part(parts: &[Value], label: &str, failure: Option<Stri
 }
 
 /// `generateImage({ model, prompt, options, references, signal })`; `key` is the Gemini API key.
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 pub async fn generate_image(http: &dyn JsonPost, key: &str, model: &str, prompt: &str, options: &Value, references: &[ImageReference], cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
     let url = format!("{BASE_URL}/{}:generateContent", encode_uri_component(model));
     let headers = [("Content-Type".to_owned(), "application/json".to_owned()), ("x-goog-api-key".to_owned(), key.to_owned())];

@@ -196,10 +196,7 @@ impl MediaLanes {
             // The request keeps running: the loader's single flight lets the next listing join it.
             Some(budget) => {
                 let mut loading = loading;
-                match mixdog_rt::time::timeout(budget, &mut loading).await {
-                    Ok(joined) => Some(joined),
-                    Err(_) => None,
-                }
+                mixdog_rt::time::timeout(budget, &mut loading).await.ok()
             }
             None => Some(loading.await),
         };

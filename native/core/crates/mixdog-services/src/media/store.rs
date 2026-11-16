@@ -485,6 +485,7 @@ impl MediaStore {
     }
 
     /// Persists one generated artifact and returns its index entry.
+    #[allow(clippy::too_many_arguments, reason = "preserve the public media-store publication API and its ordered artifact metadata inputs")]
     pub fn save_asset(&self, kind: &str, lane: &str, model: &str, prompt: &str, options: Value, mime: &str, bytes: &[u8], meta: Map<String, Value>) -> Result<Value, MediaError> {
         self.ensure_dirs()?;
         self.migrate_asset_layout()?;

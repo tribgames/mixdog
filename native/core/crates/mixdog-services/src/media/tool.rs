@@ -238,10 +238,9 @@ fn compact_lane(lane: &Value) -> Value {
         }
     }
     for kind in MEDIA_KINDS {
-        if truthy(lane.get(kind)) {
-            if let Some(model) = lane[kind].get("defaultModel") {
-                out.insert(kind.into(), model.clone());
-            }
+        if truthy(lane.get(kind))
+            && let Some(model) = lane[kind].get("defaultModel") {
+            out.insert(kind.into(), model.clone());
         }
     }
     Value::Object(out)
@@ -461,25 +460,23 @@ fn build_options(lane_id: &str, kind: &str, controls: &Value, p: &Placement<'_>)
             options.insert("quality".into(), json!(p.quality));
         }
     }
-    if kind == "video" {
-        if let Some(duration) = p.duration.filter(|d| !d.is_null()) {
-            let seconds = to_number(duration);
-            let shown = number_to_string(seconds);
-            if let Some(durations) = allowed(controls, "durations") {
-                if !durations.iter().any(|entry| to_number(entry) == seconds && entry.is_number()) {
-                    let list = durations.iter().map(value_to_string).collect::<Vec<_>>().join(", ");
-                    return Err(ToolFailure::new(format!("duration {shown}s is not supported; use one of {list}")));
-                }
-            }
-            let range = controls.get("durationRange").and_then(Value::as_array).filter(|r| r.len() == 2);
-            if let Some(range) = range {
-                let (low, high) = (to_number(&range[0]), to_number(&range[1]));
-                if seconds < low || seconds > high {
-                    return Err(ToolFailure::new(format!("duration {shown}s is outside {}-{}s", number_to_string(low), number_to_string(high))));
-                }
-            }
-            options.insert("duration".into(), json_number(seconds));
+    if kind == "video"
+        && let Some(duration) = p.duration.filter(|d| !d.is_null()) {
+        let seconds = to_number(duration);
+        let shown = number_to_string(seconds);
+        if let Some(durations) = allowed(controls, "durations")
+            && !durations.iter().any(|entry| to_number(entry) == seconds && entry.is_number()) {
+            let list = durations.iter().map(value_to_string).collect::<Vec<_>>().join(", ");
+            return Err(ToolFailure::new(format!("duration {shown}s is not supported; use one of {list}")));
         }
+        let range = controls.get("durationRange").and_then(Value::as_array).filter(|r| r.len() == 2);
+        if let Some(range) = range {
+            let (low, high) = (to_number(&range[0]), to_number(&range[1]));
+            if seconds < low || seconds > high {
+                return Err(ToolFailure::new(format!("duration {shown}s is outside {}-{}s", number_to_string(low), number_to_string(high))));
+            }
+        }
+        options.insert("duration".into(), json_number(seconds));
     }
     Ok(Value::Object(options))
 }

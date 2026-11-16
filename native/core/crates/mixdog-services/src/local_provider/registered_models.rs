@@ -49,7 +49,7 @@ pub fn is_repository_id(value: &str) -> bool {
 
 /// Pinned download URL for one repository file at an exact revision.
 pub fn hugging_face_file_url(repository: &str, revision: &str, remote_filename: &str) -> String {
-    let encoded: Vec<String> = remote_filename.split('/').map(|p| urlencoding_component(p)).collect();
+    let encoded: Vec<String> = remote_filename.split('/').map(urlencoding_component).collect();
     format!("https://huggingface.co/{repository}/resolve/{revision}/{}", encoded.join("/"))
 }
 
@@ -136,10 +136,9 @@ fn read_blocking(path: &Path) -> Result<Vec<Value>, RegistryError> {
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn write_blocking(path: &Path, models: &[Value]) -> Result<(), RegistryError> {
     // A newer build's index makes the write refuse instead of replacing it.
-    if let Ok(bytes) = std::fs::read(path) {
-        if let Some(schema) = serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| v.get("schema").and_then(Value::as_i64)).filter(|s| *s > 1) {
-            return Err(RegistryError::NewerSchema(schema));
-        }
+    if let Ok(bytes) = std::fs::read(path)
+        && let Some(schema) = serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| v.get("schema").and_then(Value::as_i64)).filter(|s| *s > 1) {
+        return Err(RegistryError::NewerSchema(schema));
     }
     let bytes = serde_json::to_vec(&json!({"schema": 1, "models": models})).map_err(|e| RegistryError::Io(e.to_string()))?;
     write_atomic(path, &bytes, true).map_err(|e| RegistryError::Io(e.to_string()))

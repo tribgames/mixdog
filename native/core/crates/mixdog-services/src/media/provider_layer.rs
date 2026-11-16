@@ -43,6 +43,8 @@ use super::codex_image::{CodexAuth, CodexSession, chatgpt_limit_reset_at};
 use super::probe::{AgentKeys, AgentSettings, ProviderAuth};
 use super::adapter_http::JsonPost;
 
+type OriginatorEnvironment = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
 const XAI_BASE_URL: &str = "https://api.x.ai/v1";
 const CODEX_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 const CODEX_ORIGINATOR: &str = "codex_cli_rs";
@@ -50,8 +52,6 @@ const CODEX_ORIGINATOR: &str = "codex_cli_rs";
 const FETCH_MODELS_TIMEOUT: Duration = Duration::from_secs(15);
 /// How much of a refused answer the message keeps (`.slice(0, 300)`).
 const ERROR_TEXT_LIMIT: usize = 300;
-
-/// The default account's credential file of a provider (`AccountStore::credential_file(provider, "default")`).
 
 /// The label of the late cell startup verifies (`late::Bound::cell`).
 pub const PROBE_CELL: &str = "media account probe";
@@ -69,6 +69,7 @@ pub struct LateProbe(Arc<OnceLock<Arc<dyn AccountProbe>>>);
 
 impl LateProbe {
     /// The bound probe; reading it unbound is an error that says so, never an absent check.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
     pub fn bound(&self) -> Result<&Arc<dyn AccountProbe>, AdapterError> {
         self.0.get().ok_or_else(|| AdapterError::plain(PROBE_UNBOUND))
     }
@@ -99,6 +100,7 @@ pub struct ProviderLayer {
 }
 
 impl ProviderLayer {
+    #[allow(clippy::too_many_arguments, reason = "preserve the established public provider-layer constructor and independent injected capabilities")]
     pub fn new(
         http: Arc<dyn HttpSend>,
         post: Arc<dyn JsonPost>,
@@ -321,7 +323,7 @@ impl CodexProviderSession {
     }
 
     /// `originator` as `codexOriginator()` reads it from the environment.
-    pub fn originator_of(env: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>) -> Live {
+    pub fn originator_of(env: OriginatorEnvironment) -> Live {
         Live::new(move || env("MIXDOG_CODEX_ORIGINATOR").map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()).unwrap_or_else(|| CODEX_ORIGINATOR.to_owned()))
     }
 }
