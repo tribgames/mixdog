@@ -112,6 +112,7 @@ impl Offsets {
 
 /// A transcript's text mapped to the same lines, each possibly changed.
 pub type LineRewrite = Box<dyn FnOnce(String) -> String + Send>;
+type RewriteFuture = std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<Option<(Vec<u8>, Vec<u8>)>>> + Send>>;
 
 /// Replaces `path` atomically with `rewrite` of its text, on `lane`; the old and new bytes, or
 /// `None` when the file is missing or unchanged.
@@ -121,7 +122,7 @@ pub fn rewrite_lines_file<L: mixdog_fsio::WriteLane + Send + 'static>(
     lane: L,
     path: &Path,
     rewrite: LineRewrite,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<Option<(Vec<u8>, Vec<u8>)>>> + Send>> {
+) -> RewriteFuture {
     let file = path.to_owned();
     Box::pin(async move { rewrite_lines_job(lane, file, rewrite).await })
 }

@@ -278,12 +278,11 @@ impl VoicePipeline {
                 return Ok(None);
             }
         }
-        if settings.max_duration_sec > 0.0 {
-            if let Some(duration) = self.tools.probe_duration_sec(audio).await {
-                if duration > settings.max_duration_sec {
-                    return Ok(None);
-                }
-            }
+        if settings.max_duration_sec > 0.0
+            && let Some(duration) = self.tools.probe_duration_sec(audio).await
+            && duration > settings.max_duration_sec
+        {
+            return Ok(None);
         }
         let Some(id) = attachment_id else {
             return Arc::clone(self).transcribe_uncached(audio.to_owned(), None).await;

@@ -655,6 +655,7 @@ impl PgCluster {
     /// holds for the whole wait falls back to one more reuse and else fails (`:619-627`). `cancel` ends an `initdb` in progress (it has no time limit, as in
     /// Node), and a wait for another starter's lock or postmaster; a start is never begun once it is cancelled or `admit` refuses it, and one that was
     /// begun is waited for until it is ready (so the caller, if still there, can stop it) or has failed.
+    #[allow(clippy::too_many_arguments, reason = "Keep the cluster lifecycle boundary explicit, including admission, cancellation and process ownership")]
     pub(crate) async fn ensure(
         runtime: PgRuntime,
         profile: &Path,

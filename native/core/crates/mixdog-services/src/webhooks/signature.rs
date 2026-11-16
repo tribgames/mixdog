@@ -37,7 +37,7 @@ pub fn extract_signature(headers: &Headers, parser: Option<&str>) -> Option<Stri
 fn lenient_hex(text: &str) -> Vec<u8> {
     let nibble = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
     text.as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>().0.iter()
         .map_while(|pair| Some(nibble(pair[0])? << 4 | nibble(pair[1])?))
         .collect()
 }

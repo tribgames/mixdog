@@ -73,7 +73,7 @@ fn snapshot(schedules: &[Schedule], skipped: impl Fn(&str) -> bool, now_ms: i64,
 fn stable_text(snapshot: &Value) -> String {
     let mut stable = snapshot.clone();
     if let Some(map) = stable.as_object_mut() {
-        map.remove("writtenAt");
+        map.shift_remove("writtenAt");
     }
     serde_json::to_string_pretty(&stable).unwrap_or_default()
 }

@@ -86,12 +86,13 @@ pub(crate) fn deadline(alarm: &dyn Alarm, delay: Duration) -> impl Future<Output
 /// A job as the thread runs it. When it panicked it hands back its answer, which the thread delivers
 /// once it has let itself go, so a caller that reads it finds the next job going to a new thread.
 struct Job {
-    run: Box<dyn FnOnce(&mut Seat) -> Result<(), Deliver> + Send>,
+    run: SeatWork,
     /// A judgment, under the watchdog; a model load is not (Node's has no watchdog for a load).
     watched: bool,
 }
 
 type Deliver = Box<dyn FnOnce() + Send>;
+type SeatWork = Box<dyn FnOnce(&mut Seat) -> Result<(), Deliver> + Send>;
 
 /// How a job ended, as its thread reports it.
 enum Ran<R> {

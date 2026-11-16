@@ -284,10 +284,10 @@ impl Core {
         // A pid file that cannot be read stops the start: a stale child would be orphaned when
         // the new pid file replaces its record.
         let recorded = read_pid_file(lane, pid_path.clone()).await.map_err(|e| VoiceError(format!("the whisper-server pid file could not be read: {e}")))?;
-        if let Some(meta) = recorded {
-            if reclaim_stale(&self.processes, &meta, &contract.model_path.to_string_lossy(), self.preferred_port, &cwd).await {
-                clear_pid_file(lane, pid_path.clone()).await;
-            }
+        if let Some(meta) = recorded
+            && reclaim_stale(&self.processes, &meta, &contract.model_path.to_string_lossy(), self.preferred_port, &cwd).await
+        {
+            clear_pid_file(lane, pid_path.clone()).await;
         }
         let port = select_port(&contract.host, self.preferred_port).map_err(VoiceError)?;
         let args = [

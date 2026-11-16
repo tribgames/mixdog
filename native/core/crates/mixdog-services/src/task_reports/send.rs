@@ -293,7 +293,7 @@ impl TaskSends {
             Ok(accepted) => accepted,
             Err(error) => {
                 turn.unwatch();
-                turn.disown(&[id.clone()]).await;
+                turn.disown(std::slice::from_ref(&id)).await;
                 if notify {
                     turn.drop_watch().await;
                 }
@@ -304,7 +304,7 @@ impl TaskSends {
         match accepted {
             None => {
                 turn.unwatch();
-                turn.disown(&[id.clone()]).await;
+                turn.disown(std::slice::from_ref(&id)).await;
                 if notify {
                     turn.drop_watch().await;
                 }
@@ -524,7 +524,7 @@ impl SendTurn {
             let this = Arc::clone(&finished);
             Box::pin(async move {
                 this.unwatch();
-                this.disown(&[this.id.clone()]).await;
+                this.disown(std::slice::from_ref(&this.id)).await;
                 if this.notify {
                     this.report(&status, &text, &answer_id).await;
                 }

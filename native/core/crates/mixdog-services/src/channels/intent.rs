@@ -142,7 +142,7 @@ impl IntentFile {
     /// unreadable one is kept and costs only the restore.
     pub async fn load(&self) -> Option<RemoteIntent> {
         let now = self.now();
-        let read = self.job(|lane, path| mixdog_fsio::read(lane, path)).await;
+        let read = self.job(mixdog_fsio::read).await;
         match intent_of_read(read, now) {
             IntentRead::Absent => None,
             IntentRead::Pinned(intent) => Some(intent),
