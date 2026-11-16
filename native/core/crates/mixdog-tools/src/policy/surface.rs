@@ -287,7 +287,7 @@ impl SessionSurface {
             catalog_tools,
             bridge: text("toolExposureMode") == BRIDGE_EXPOSURE,
             agent_owned: text("scope").starts_with("agent:")
-                || mixdog_js::js_trim(&text("owner")).to_lowercase() == "agent",
+                || mixdog_js::js_trim(text("owner")).to_lowercase() == "agent",
             workflow_name: overlay
                 .and_then(|o| o.pointer("/workflow/name"))
                 .and_then(Value::as_str)
@@ -301,7 +301,7 @@ impl SessionSurface {
             route_excluded,
             connector_disabled: false,
             project_disabled: false,
-            mcp_scope: Some(mixdog_js::js_trim(&text("mcpScopeId")).to_owned()).filter(|scope| !scope.is_empty()),
+            mcp_scope: Some(mixdog_js::js_trim(text("mcpScopeId")).to_owned()).filter(|scope| !scope.is_empty()),
         }
     }
 

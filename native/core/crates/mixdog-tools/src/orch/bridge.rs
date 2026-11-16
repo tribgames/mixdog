@@ -282,6 +282,7 @@ fn fits(page: &Page<'_>) -> bool {
 /// `load_tool` as the session runs it: off the bridge, the catalog's load; on it, the page, and
 /// when the page carried MCP instruction text, the record that the session was told it (only the
 /// servers of the entries that made the page).
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 pub async fn load(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> Result<String, ToolError> {
     catalog.refresh(thread).await;
     // A name the catalog does not hold yet may belong to a server still in its handshake: wait for that connect before
@@ -303,6 +304,7 @@ pub async fn load(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) ->
 }
 
 /// `load_tool`: describes tools by exact name (or keyword), paging long definitions.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 pub fn describe(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> Result<String, ToolError> {
     const SYNTAX_HINT: &str = " Use load_tool {\"names\":[\"exact_tool_name\"]}; the required key is names, not name.";
     let Some(object) = args.as_object() else {
@@ -569,6 +571,7 @@ impl CallTool {
     /// `resolveExecutionToolCall`: the target a wire call stands for and its arguments. A
     /// malformed call, or one naming no tool of this session, is answered with the bridge error
     /// and never executed.
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     fn project_call(&self, thread: &ThreadId, args: &JsonValue) -> Result<(String, JsonValue), ToolError> {
         let Some(object) = args.as_object() else {
             return Err(bridge_error("INVALID_ARGUMENTS", "call_tool requires {name, arguments}."));

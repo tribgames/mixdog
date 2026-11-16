@@ -50,6 +50,38 @@ const BASH_MISS_TTL: std::time::Duration = std::time::Duration::from_secs(30);
 /// The last Git Bash lookup: whether it found one, and when it was made.
 static GIT_BASH: std::sync::Mutex<Option<(bool, std::time::Instant)>> = std::sync::Mutex::new(None);
 
+/// The runtime boundary of the Git Bash probe: a cache hit never waits on a probing thread's mutex, while a miss probes
+/// on the existing spawn lane with this call's cancellation token. The lane job is awaited, never detached.
+pub(crate) async fn bash_request_is_posix_on(
+    windows: bool,
+    lane: mixdog_rt::SpawnIo,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<bool, String> {
+    if !windows { return Ok(true); }
+    let read = |slot: &Option<(bool, std::time::Instant)>| {
+        slot.as_ref().filter(|(found, at)| *found || at.elapsed() < BASH_MISS_TTL).map(|(found, _)| *found)
+    };
+    let cached = match GIT_BASH.try_lock() {
+        Ok(slot) => read(&slot),
+        Err(std::sync::TryLockError::Poisoned(error)) => read(&error.into_inner()),
+        Err(std::sync::TryLockError::WouldBlock) => None,
+    };
+    if let Some(found) = cached { return Ok(found); }
+    probe_on_lane(lane, cancel, move || bash_request_is_posix(windows)).await
+}
+
+async fn probe_on_lane(
+    lane: mixdog_rt::SpawnIo,
+    cancel: &tokio_util::sync::CancellationToken,
+    probe: impl FnOnce() -> bool + Send + 'static,
+) -> Result<bool, String> {
+    use mixdog_rt::LaneToken;
+    lane.submit(cancel, move |_lane| probe())
+        .map_err(|_| "the lane is full".to_owned())?
+        .await
+        .map_err(|error| error.to_string())
+}
+
 /// Whether a call that asks for the `bash` shell (a foreign CLI's `bash` name, `shell: 'bash'`) is read as POSIX syntax
 /// (`requestedShellType` over `resolveShellFor('bash')`). Off Windows a bash, or `/bin/sh` as the last resort, is always
 /// there. On Windows it is Git Bash, and without one the request is no request: the default shell's syntax applies. A
@@ -78,6 +110,7 @@ fn path_entries(cwd: Option<std::path::PathBuf>, path: &str) -> Vec<std::path::P
 }
 
 /// Every existing `name` in `entries`, once per path (case-insensitively).
+#[allow(clippy::disallowed_methods, reason = "Production lookup runs in bash_request_is_posix_on's SpawnIo job; tests use owned fixture paths.")]
 fn existing_on_path(entries: &[std::path::PathBuf], name: &str) -> Vec<std::path::PathBuf> {
     let mut seen = std::collections::HashSet::new();
     entries
@@ -88,6 +121,7 @@ fn existing_on_path(entries: &[std::path::PathBuf], name: &str) -> Vec<std::path
 }
 
 /// The Git-for-Windows launcher under an install root: `bin\bash.exe`, then `usr\bin\bash.exe`.
+#[allow(clippy::disallowed_methods, reason = "Production lookup runs in bash_request_is_posix_on's SpawnIo job; tests use owned fixture paths.")]
 fn bash_under(root: &std::path::Path) -> Option<std::path::PathBuf> {
     let launcher = |dirs: &[&str]| dirs.iter().fold(root.to_path_buf(), |path, part| path.join(part)).join("bash.exe");
     [launcher(&["bin"]), launcher(&["usr", "bin"])].into_iter().find(|candidate| candidate.exists())
@@ -138,6 +172,25 @@ fn program_name(program: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn bash_path_probing_runs_on_the_spawn_lane_not_the_callers_thread() {
+        let caller = std::thread::current().id();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let off_caller = probe_on_lane(mixdog_rt::testing::tokens().spawn_io, &cancel, move || std::thread::current().id() != caller).await.unwrap();
+        assert!(off_caller);
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_bash_probe_does_not_run_its_filesystem_lookup() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let ran = std::sync::Arc::new(AtomicBool::new(false));
+        let probe_ran = ran.clone();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        cancel.cancel();
+        assert!(probe_on_lane(mixdog_rt::testing::tokens().spawn_io, &cancel, move || { probe_ran.store(true, Ordering::SeqCst); true }).await.is_err());
+        assert!(!ran.load(Ordering::SeqCst));
+    }
 
     fn golden() -> serde_json::Value {
         serde_json::from_str(include_str!("testdata/shell_choice.json")).unwrap()

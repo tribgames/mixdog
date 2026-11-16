@@ -30,10 +30,8 @@ fn safe_segment(session: &str) -> String {
 }
 
 fn write(path: &Path, content: &str) -> std::io::Result<()> {
-    if let Ok(meta) = std::fs::metadata(path) {
-        if meta.is_file() && meta.len() == content.len() as u64 && std::fs::read(path)? == content.as_bytes() {
-            return Ok(());
-        }
+    if let Ok(meta) = std::fs::metadata(path) && meta.is_file() && meta.len() == content.len() as u64 && std::fs::read(path)? == content.as_bytes() {
+        return Ok(());
     }
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;

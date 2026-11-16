@@ -30,6 +30,7 @@ pub fn input_schema() -> Value {
     def["inputSchema"].clone()
 }
 
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 pub fn validate(args: &Value, schema: &Value) -> Result<(), ToolError> {
     let table: Map<String, Value> = serde_json::from_str(ACTION_FIELDS).expect("embedded action table");
     let given = args.get("action").and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or_default();

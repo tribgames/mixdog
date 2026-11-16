@@ -38,7 +38,7 @@ fn classify_rm(args: &[String]) -> Option<&'static str> {
             r = true;
         } else if t == "--force" || t == "-f" {
             f = true;
-        } else if SHORT_FLAGS.is_match(&t) {
+        } else if SHORT_FLAGS.is_match(t) {
             r |= t.contains(['r', 'R']);
             f |= t.contains('f');
         } else if !t.starts_with('-') {
@@ -85,11 +85,11 @@ fn classify_git(args: &[String]) -> Option<&'static str> {
         let t = args[i].as_str();
         if t == "-C" || t == "-c" {
             i += 2;
-        } else if OWN_VALUE.is_match(&t) {
+        } else if OWN_VALUE.is_match(t) {
             i += if t.contains('=') { 1 } else { 2 };
         } else if matches!(t, "--no-pager" | "--paginate" | "--bare" | "--exec-path")
-            || PATHSPECS.is_match(&t)
-            || EXEC_PATH.is_match(&t)
+            || PATHSPECS.is_match(t)
+            || EXEC_PATH.is_match(t)
         {
             i += 1;
         } else {
@@ -107,7 +107,7 @@ fn classify_git(args: &[String]) -> Option<&'static str> {
                     || t == "-f"
                     || t == "--force-with-lease"
                     || t.starts_with("--force-with-lease=")
-                    || PLUS_REF.is_match(&t)
+                    || PLUS_REF.is_match(t)
             }) =>
         {
             return Some("may overwrite remote history");
@@ -115,10 +115,10 @@ fn classify_git(args: &[String]) -> Option<&'static str> {
         "clean" => {
             let dry = rest
                 .iter()
-                .any(|t| t == "-n" || t == "--dry-run" || HAS_N.is_match(&t));
+                .any(|t| t == "-n" || t == "--dry-run" || HAS_N.is_match(t));
             let force = rest
                 .iter()
-                .any(|t| t == "-f" || t == "--force" || HAS_F.is_match(&t));
+                .any(|t| t == "-f" || t == "--force" || HAS_F.is_match(t));
             if !dry && force {
                 return Some("may permanently delete untracked files");
             }
@@ -207,10 +207,8 @@ fn classify_segment(tokens: &[String]) -> Option<&'static str> {
     if cmd == "rm" {
         return classify_rm(rest);
     }
-    if PS_REMOVE_COMMANDS.contains(&low.as_str()) {
-        if let Some(warning) = classify_remove_item(rest) {
-            return Some(warning);
-        }
+    if PS_REMOVE_COMMANDS.contains(&low.as_str()) && let Some(warning) = classify_remove_item(rest) {
+        return Some(warning);
     }
     match cmd.as_str() {
         "git" => return classify_git(rest),
@@ -222,7 +220,7 @@ fn classify_segment(tokens: &[String]) -> Option<&'static str> {
     if cmd == "rmdir" || cmd == "rd" {
         static DRIVE_ROOT: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^[A-Za-z]:\\?$"));
         let has_s = rest.iter().any(|t| t.eq_ignore_ascii_case("/s"));
-        let has_root = rest.iter().any(|t| DRIVE_ROOT.is_match(&t));
+        let has_root = rest.iter().any(|t| DRIVE_ROOT.is_match(t));
         if has_s && has_root {
             return Some("may recursively remove a drive root");
         }
@@ -235,7 +233,7 @@ pub fn destructive_command_warning(command: &str) -> Option<&'static str> {
     let cleaned = strip_quoted_and_heredoc(command);
     for statement in cleaned.split([';', '&', '|', '\n']) {
         for (pattern, warning) in DB_PATTERNS.iter() {
-            if pattern.is_match(&statement) {
+            if pattern.is_match(statement) {
                 return Some(warning);
             }
         }
