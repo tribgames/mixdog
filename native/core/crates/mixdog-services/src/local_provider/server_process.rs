@@ -37,6 +37,8 @@ pub struct Ready {
     pub load_time_ms: f64,
 }
 
+type ServerArgs = Box<dyn FnOnce(u16, &str) -> Vec<String> + Send>;
+
 pub struct StartSpec {
     /// Same key, same running child: `executable|weights|contextWindow`.
     pub key: String,
@@ -46,7 +48,7 @@ pub struct StartSpec {
     /// Runs after the previous child is stopped, so GPU memory is measured free.
     pub prepare: Box<dyn FnOnce(CancellationToken) -> BoxFut<Result<Launch, String>> + Send>,
     pub on_ready: Box<dyn FnOnce(Ready, CancellationToken) -> BoxFut<()> + Send>,
-    pub args: Box<dyn FnOnce(u16, &str) -> Vec<String> + Send>,
+    pub args: ServerArgs,
 }
 
 #[derive(Debug, Clone)]
@@ -215,10 +217,9 @@ impl ServerProcess {
 
     async fn start(&self, spec: StartSpec, cancel: CancellationToken) -> Result<Value, String> {
         let current = self.owner.lock().unwrap().current.clone();
-        if let Some(c) = &current {
-            if c.key == spec.key && c.inner.lock().unwrap().ready && !c.has_exited() {
-                return Ok(json!({"baseURL": c.base_url, "apiKey": c.api_key}));
-            }
+        if let Some(c) = &current
+            && c.key == spec.key && c.inner.lock().unwrap().ready && !c.has_exited() {
+            return Ok(json!({"baseURL": c.base_url, "apiKey": c.api_key}));
         }
         self.stop_state(&current).await?;
         if cancel.is_cancelled() {
@@ -491,7 +492,7 @@ impl Launcher for SystemLauncher {
             handle: handle.clone(),
             command: CommandSpec::Argv { program: program.clone(), args: argv },
             cwd,
-            env: EnvSpec { inherit: true, set: env.iter().cloned().collect(), remove: Vec::new() },
+            env: EnvSpec { inherit: true, set: env.to_vec(), remove: Vec::new() },
             pty: None,
             stdin_piped: false,
             output: OutputMode::Separate,

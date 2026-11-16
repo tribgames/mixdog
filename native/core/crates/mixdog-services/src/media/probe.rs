@@ -49,12 +49,14 @@ pub trait ProviderAuth: Send + Sync {
     async fn provider_rows(&self, lane: &str, auth: &Auth) -> Result<Value, FetchError>;
 }
 
+type ProbeEnvironment = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
 pub struct ProbeParts {
     pub data_dir: PathBuf,
     pub lane: DurabilityIo,
     pub now: Arc<dyn Fn() -> i64 + Send + Sync>,
     /// `process.env`.
-    pub env: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
+    pub env: ProbeEnvironment,
     pub keys: Arc<dyn AgentKeys>,
     pub settings: Arc<dyn AgentSettings>,
     pub provider_auth: Arc<dyn ProviderAuth>,
@@ -77,10 +79,9 @@ fn truthy(value: Option<&Value>) -> bool {
 /// 0 when unknown.
 fn normalize_expires_at_ms(value: Option<&Value>) -> f64 {
     let Some(value) = value.filter(|v| !v.is_null()) else { return 0.0 };
-    if let Value::String(text) = value {
-        if mixdog_js::string_to_number(js_trim(text)).is_nan() && !js_trim(text).is_empty() {
-            return chrono::DateTime::parse_from_rfc3339(js_trim(text)).map_or(0.0, |at| at.timestamp_millis() as f64);
-        }
+    if let Value::String(text) = value
+        && mixdog_js::string_to_number(js_trim(text)).is_nan() && !js_trim(text).is_empty() {
+        return chrono::DateTime::parse_from_rfc3339(js_trim(text)).map_or(0.0, |at| at.timestamp_millis() as f64);
     }
     let number = if truthy(Some(value)) { to_number(value) } else { 0.0 };
     if !number.is_finite() || number <= 0.0 {

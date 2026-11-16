@@ -135,7 +135,7 @@ impl RequestQueue {
             if state.stopping {
                 return Err(QueueError::Stopping);
             }
-            if state.requests.len() >= self.0.max_queue + 1 {
+            if state.requests.len() > self.0.max_queue {
                 return Err(QueueError::Full);
             }
             Self::clear_idle(&mut state);

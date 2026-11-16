@@ -79,6 +79,7 @@ fn failed(message: String, status: u16) -> AdapterError {
 }
 
 /// `redirectTarget(response, currentUrl)`.
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 fn redirect_target(response: &dyn PublicResponse, current: &str) -> Result<Option<String>, AdapterError> {
     let status = response.status();
     if !(300..400).contains(&status) {
@@ -90,6 +91,7 @@ fn redirect_target(response: &dyn PublicResponse, current: &str) -> Result<Optio
 }
 
 /// `readResponseBuffer(response, { maxBytes, label })`.
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 pub async fn read_response_buffer(response: &mut dyn PublicResponse, limits: &Limits<'_>, cancel: &CancellationToken) -> Result<Vec<u8>, AdapterError> {
     let label = limits.label;
     let too_big = || AdapterError::plain(format!("{label}: response exceeds the {} byte limit", limits.max_bytes));
@@ -115,6 +117,7 @@ pub async fn read_response_buffer(response: &mut dyn PublicResponse, limits: &Li
 }
 
 /// `downloadPublicMedia(input, { signal, label, maxBytes })`.
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 pub async fn download_public_media(fetch: &dyn PublicFetch, input: &str, limits: &Limits<'_>, cancel: &CancellationToken) -> Result<Vec<u8>, AdapterError> {
     let mut url = input.to_owned();
     for _ in 0..=5 {
@@ -134,6 +137,7 @@ pub async fn download_public_media(fetch: &dyn PublicFetch, input: &str, limits:
 
 /// `downloadGeminiMedia(input, { key, signal, label, maxBytes })`: the key travels in a header and
 /// a redirect is refused.
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 pub async fn download_gemini_media(fetch: &dyn PublicFetch, input: &str, key: &str, limits: &Limits<'_>, cancel: &CancellationToken) -> Result<Vec<u8>, AdapterError> {
     let url = gemini_media_download_url(&serde_json::Value::String(input.to_owned()))?;
     let mut response = fetch.get(&url, &[("x-goog-api-key".to_owned(), key.to_owned())], cancel).await?;
@@ -149,6 +153,7 @@ pub async fn download_gemini_media(fetch: &dyn PublicFetch, input: &str, key: &s
 
 /// `await res.json()`: the parsed body, or the rejection Node's `JSON.parse` raises for text
 /// that is not JSON, in V8's words.
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 pub(super) fn parse_json_body(text: &str) -> Result<serde_json::Value, AdapterError> {
     mixdog_js::json_parse(text).map_err(|_| AdapterError::plain(mixdog_js::v8_json_parse_error(text).unwrap_or_else(|| "Unexpected token".to_owned())))
 }
