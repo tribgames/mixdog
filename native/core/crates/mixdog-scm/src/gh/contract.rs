@@ -215,10 +215,9 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
         // Anything but a string is no repository (an empty name fails the same rule).
         github_repository(repo.as_str().unwrap_or(""))?;
     }
-    if let Some(host) = object.get("hostname") {
-        if !host.as_str().is_some_and(valid_hostname) {
-            return Err(type_error("hostname must be a GitHub or GitHub Enterprise DNS name."));
-        }
+    if let Some(host) = object.get("hostname")
+        && !host.as_str().is_some_and(valid_hostname) {
+        return Err(type_error("hostname must be a GitHub or GitHub Enterprise DNS name."));
     }
     for key in ["number", "id", "page", "limit"] {
         if let Some(value) = object.get(key) {
@@ -254,25 +253,21 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
             }
         }
     }
-    if let Some(state) = object.get("state") {
-        if !matches!(state.as_str(), Some("open" | "closed" | "all")) {
-            return Err(type_error("Invalid state."));
-        }
+    if let Some(state) = object.get("state")
+        && !matches!(state.as_str(), Some("open" | "closed" | "all")) {
+        return Err(type_error("Invalid state."));
     }
-    if let Some(visibility) = object.get("visibility") {
-        if !matches!(visibility.as_str(), Some("private" | "public")) {
-            return Err(type_error("Invalid visibility."));
-        }
+    if let Some(visibility) = object.get("visibility")
+        && !matches!(visibility.as_str(), Some("private" | "public")) {
+        return Err(type_error("Invalid visibility."));
     }
-    if let Some(method) = object.get("method") {
-        if !matches!(method.as_str(), Some("merge" | "squash" | "rebase")) {
-            return Err(type_error("Invalid merge method."));
-        }
+    if let Some(method) = object.get("method")
+        && !matches!(method.as_str(), Some("merge" | "squash" | "rebase")) {
+        return Err(type_error("Invalid merge method."));
     }
-    if let Some(event) = object.get("event") {
-        if !matches!(event.as_str(), Some("COMMENT" | "APPROVE" | "REQUEST_CHANGES")) {
-            return Err(type_error("Invalid review event."));
-        }
+    if let Some(event) = object.get("event")
+        && !matches!(event.as_str(), Some("COMMENT" | "APPROVE" | "REQUEST_CHANGES")) {
+        return Err(type_error("Invalid review event."));
     }
     if let Some(sha) = object.get("sha") {
         // `/^[a-f0-9]{40}$/i.test(sha)` reads the value as a string.

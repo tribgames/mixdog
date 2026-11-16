@@ -40,10 +40,9 @@ fn refusal_reason_text(reason: &str) -> Option<&'static str> {
 /// of its code (`contract.mjs` `DEFAULT_ERROR_MESSAGES`), or for `WORKTREE_BUSY_JOBS` with a
 /// shared reason that reason's text (`worktreeRefusal`).
 pub fn contract_message(code: &str, detail: Option<&DomainErrorDetail>) -> Option<&'static str> {
-    if let (WORKTREE_BUSY_JOBS_CODE, Some(DomainErrorDetail::WorktreeBusyJobs { reason, .. })) = (code, detail) {
-        if let Some(text) = refusal_reason_text(reason) {
-            return Some(text);
-        }
+    if let (WORKTREE_BUSY_JOBS_CODE, Some(DomainErrorDetail::WorktreeBusyJobs { reason, .. })) = (code, detail)
+        && let Some(text) = refusal_reason_text(reason) {
+        return Some(text);
     }
     Some(match code {
         "WORKTREE_BUSY_JOBS" => "The session has running jobs; wait for them or stop them before changing its workspace.",
@@ -209,12 +208,11 @@ pub fn failure_json(failure: &ScmFailure, raw: bool) -> Option<Value> {
     };
     let detail = detail.as_deref();
     let mut out = json!({ "ok": false, "code": code, "error": error_text(failure, code, detail) });
-    if let Some(detail) = detail {
-        if let Ok(Value::Object(mut fields)) = serde_json::to_value(detail) {
-            fields.shift_remove("type");
-            if !fields.is_empty() {
-                out["details"] = Value::Object(fields);
-            }
+    if let Some(detail) = detail
+        && let Ok(Value::Object(mut fields)) = serde_json::to_value(detail) {
+        fields.shift_remove("type");
+        if !fields.is_empty() {
+            out["details"] = Value::Object(fields);
         }
     }
     if let Some(next) = next_step(code, detail, raw) {
