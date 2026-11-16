@@ -598,10 +598,9 @@ impl<'a> Tx<'a> {
             if let Some(is_current) = &admission.is_current {
                 accepted = check(is_current.as_ref());
             }
-            if accepted {
-                if let Some(accept) = &admission.accept {
-                    accepted = check(accept.as_ref());
-                }
+            if accepted
+                && let Some(accept) = &admission.accept {
+                accepted = check(accept.as_ref());
             }
             if !accepted {
                 self.rollback(previous.as_ref())?;
