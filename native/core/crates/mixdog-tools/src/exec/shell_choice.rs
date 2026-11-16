@@ -175,9 +175,13 @@ mod tests {
 
     #[tokio::test]
     async fn bash_path_probing_runs_on_the_spawn_lane_not_the_callers_thread() {
+        // testing::tokens installs InlineBackend, which deliberately executes a submitted job on the caller. This
+        // assertion needs the real executor and its owned spawn-lane threads (one backend-installing test per process).
+        let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("the real executors");
         let caller = std::thread::current().id();
         let cancel = tokio_util::sync::CancellationToken::new();
-        let off_caller = probe_on_lane(mixdog_rt::testing::tokens().spawn_io, &cancel, move || std::thread::current().id() != caller).await.unwrap();
+        // Await the job to completion before the test returns; no held/blocking fixture job or detached task survives it.
+        let off_caller = probe_on_lane(tokens.spawn_io, &cancel, move || std::thread::current().id() != caller).await.unwrap();
         assert!(off_caller);
     }
 
