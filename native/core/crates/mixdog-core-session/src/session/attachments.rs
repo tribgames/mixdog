@@ -42,6 +42,7 @@ impl mixdog_core_domains::domains::desktop_residual::AttachmentHost for DesktopA
         Some(serde_json::json!({ "items": rows }))
     }
 
+    #[allow(clippy::disallowed_methods, reason = "The corrupt-blob fallback read executes only inside the existing on_lane(self.interactive) closure")]
     async fn attachment_bytes(&self, id: &str) -> Option<Vec<u8>> {
         use mixdog_store::blobs::BlobError;
         let digest = mixdog_store::schema::bounded::Digest::try_from(format!("sha256:{id}")).ok()?;

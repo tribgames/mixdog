@@ -7,6 +7,9 @@
 //! transcript projection; [`RunFactory`] by `mixdog-agent` (WP-AGENT); [`FeedFactory`] by
 //! `core::feed` (WP-FEED).
 
+// Transparent names for existing callback/record shapes; no ownership or ordering change.
+type RecordRewriter<'a> = dyn FnMut(&Record) -> Option<Record> + 'a;
+
 use std::any::Any;
 use std::future::Future;
 use std::pin::Pin;
@@ -241,7 +244,7 @@ pub trait SensitiveMarks: Send + Sync + 'static {
     /// One pass over the records `thread` stored before its newest mark, oldest first (`redactSessionFiles`,
     /// `session-writers.mjs`): each as [`Self::stored`] stores it now, `None` when it stays as it is. A body it changes is
     /// held in full like a new one's; a body it keeps leaves the held copy as it is unless this pass took it.
-    fn rewriter<'a>(&'a self, _thread: &ThreadId) -> Box<dyn FnMut(&Record) -> Option<Record> + 'a> {
+    fn rewriter<'a>(&'a self, _thread: &ThreadId) -> Box<RecordRewriter<'a>> {
         Box::new(|_| None)
     }
 }
@@ -592,7 +595,7 @@ pub fn merge_update(existing: &ThreadItem, update: &ThreadItem) -> ThreadItem {
             // (`attachRestoredToolResult`); the rest of the call's meta stays.
             let mut meta = meta.clone();
             if new_meta.status.is_some() {
-                meta.status = new_meta.status.clone();
+                meta.status = new_meta.status;
             }
             let mut run = run.clone();
             overlay(&mut run.call_id, &new_run.call_id);

@@ -4,6 +4,9 @@
 //! restored rows ([`super::transcript_rows`]) and a display record's verbatim row (an imported
 //! compaction-archive item), so both show the same item for the same row.
 
+// Transparent names for existing callback/record shapes; no ownership or ordering change.
+type StoredDetails = (Vec<String>, Vec<Option<String>>, Option<u32>, Vec<String>, Option<String>);
+
 use mixdog_protocol::HeldRequest;
 use mixdog_protocol::ImageRef;
 use mixdog_protocol::ImportedToolRun;
@@ -125,7 +128,7 @@ fn id_of(row: &mut Row) -> String {
 }
 
 /// A stored message's own facts for the user row's details (`persistedUserTranscriptMetadata`).
-fn stored_details(message: &Value) -> (Vec<String>, Vec<Option<String>>, Option<u32>, Vec<String>, Option<String>) {
+fn stored_details(message: &Value) -> StoredDetails {
     let stored = message.pointer("/meta/transcript").unwrap_or(&Value::Null);
     let strings = |key: &str| -> Vec<String> {
         stored

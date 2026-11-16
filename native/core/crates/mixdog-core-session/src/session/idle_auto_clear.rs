@@ -41,7 +41,7 @@ pub struct ContextStatus {
 /// `contextUsageBelowThreshold(runtime, minContextPercent)`: a zero is often an unavailable or stale meter field, not a
 /// measurement, so it never masks the sibling live estimate; with no usable measure the context counts as below.
 fn context_usage_below_threshold(status: &ContextStatus, min_percent: f64) -> bool {
-    if !(min_percent > 0.0) {
+    if min_percent.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return false;
     }
     let used = [status.used_tokens, status.current_estimated_tokens, status.compaction_current_estimated_tokens].into_iter().fold(0.0_f64, |best, n| if n.is_finite() && n > best { n } else { best });
@@ -65,7 +65,7 @@ pub fn idle_auto_clear_due(config: &IdleConfig, activity_at: f64, at: f64, statu
 /// The part of [`idle_auto_clear_due`] that needs no context meter: auto-clear on, and idle at least the window since the
 /// activity stamp (0: no model-visible conversation). Cheap, so a start that fails it never reads the meter.
 pub fn idle_window_elapsed(config: &IdleConfig, activity_at: f64, at: f64) -> bool {
-    config.enabled && activity_at != 0.0 && !(at - activity_at < config.idle_ms)
+    config.enabled && activity_at != 0.0 && (at - activity_at).partial_cmp(&config.idle_ms) != Some(std::cmp::Ordering::Less)
 }
 
 /// `autoClearState()` from the route's `autoClear` value (`getAutoClear`): `enabled`, `idleMs` and `minContextPercent` (null

@@ -4,6 +4,11 @@
 //! synchronous: validate against the projected state, append to the outbox, submit the
 //! record encode to cpu-interactive, never await storage or a lane.
 
+// Transparent names for existing callback/record shapes; no ownership or ordering change.
+type EncodedBundle = (EncodedRecord, Vec<Shown>, Vec<Note>, Option<Record>);
+type ActorAgentCompletion = (Option<Arc<dyn Fn(&TurnResult) + Send + Sync>>, oneshot::Sender<RunOutcome>);
+type DraftQueueEntry = (super::turn_draft::DraftWrite, Option<oneshot::Sender<Result<(), RunError>>>);
+
 use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
 use std::time::Duration;
@@ -330,6 +335,7 @@ pub(super) struct AfterCompaction {
 
 /// One thing the scheduled compaction holds: a request, or an admitted retry turn (Node's
 /// `retryFailedTurn` enqueues it and its `runtime.ask` waits on the gate like any ask).
+#[allow(clippy::large_enum_variant, reason = "Retain the existing queued request/retry ownership without adding a separate allocation for each retry")]
 pub(super) enum Waiting {
     Request(CoreRequest, Waiter),
     Retry(super::quota_lane::RetryTurn),
@@ -345,13 +351,14 @@ impl Drop for HeadTask {
 }
 
 /// Results of lane jobs the actor submitted.
+#[allow(clippy::large_enum_variant, reason = "Keep the established actor completion message and encoded record by value; boxing changes the mailbox representation and allocates on every encoded result")]
 pub(crate) enum JobDone {
     /// What the runs the process died in leave, by run id ([`SessionActor::recover`]).
     Recovered(Vec<(String, super::seams::CrashedRows)>),
     Encoded {
         id: u64,
         /// The encoding, the live items and notes, and the record as the log stores it when that differs.
-        result: Result<(EncodedRecord, Vec<Shown>, Vec<Note>, Option<Record>), CoreError>,
+        result: Result<EncodedBundle, CoreError>,
     },
     PromptSession { session: Vec<String>, publish: bool },
     PromptPersisted(Vec<String>),
@@ -536,6 +543,7 @@ pub(crate) struct InputStart {
 }
 
 /// What the actor does first.
+#[allow(clippy::large_enum_variant, reason = "Preserve the session-create state and its record ownership without a new allocation at the actor boundary")]
 pub(crate) enum Init {
     /// A new thread: its `session` record, answered with `value` once durable.
     Create {
@@ -685,7 +693,7 @@ struct RunSlot {
     /// The run's input never became durable: no terminal record follows.
     start_failed: bool,
     /// A worker's turn: told the run's final result, then its outcome.
-    agent: Option<(Option<Arc<dyn Fn(&TurnResult) + Send + Sync>>, oneshot::Sender<RunOutcome>)>,
+    agent: Option<ActorAgentCompletion>,
     /// The host submissions steered into this run (`turnSettlements`, `steering.mjs:219`): each
     /// is answered with this run's outcome, as the turn it joined settles.
     joined: Vec<oneshot::Sender<RunOutcome>>,
@@ -928,7 +936,7 @@ pub(crate) struct SessionActor {
     usage_unsaved: Option<HeaderChange>,
     usage_save_armed: bool,
     /// The draft file writes not run yet, in order (one runs at a time, [`Self::draft_pump`]), with the producer's ack.
-    draft_queue: std::collections::VecDeque<(super::turn_draft::DraftWrite, Option<oneshot::Sender<Result<(), RunError>>>)>,
+    draft_queue: std::collections::VecDeque<DraftQueueEntry>,
     draft_busy: bool,
     /// Runs whose draft could neither be redacted nor removed: nothing more of them is written (`failClosed`,
     /// `turn-checkpoint.mjs:310`).
@@ -3406,7 +3414,7 @@ impl SessionActor {
             let refusal = coded(
                 "session",
                 TURN_NOT_DURABLE,
-                &format!("Session {}: the previous turn is not saved to disk, so the next turn cannot start ({})", self.id.as_str(), self.save_failure),
+                format!("Session {}: the previous turn is not saved to disk, so the next turn cannot start ({})", self.id.as_str(), self.save_failure),
             );
             if let Some(Effect::Reply { op, tx, .. }) = start.reply {
                 if let Some(op) = &op {
@@ -6074,11 +6082,11 @@ impl SessionActor {
         }
         // `restoreQueued` of an entry that is not queued (it started, or was taken) answers
         // `count: 0` and the composer's own text, not an error.
-        if req.method.as_str() == "thread/queue/delete" {
-            if let Some(reply) = self.restore_miss(&req) {
-                let _ = tx.send(Ok(Reply::Value(reply)));
-                return Ok(());
-            }
+        if req.method.as_str() == "thread/queue/delete"
+            && let Some(reply) = self.restore_miss(&req)
+        {
+            let _ = tx.send(Ok(Reply::Value(reply)));
+            return Ok(());
         }
         // A retried submission joins the original (`drain-enqueue.mjs:37`): an idempotent success, not a second prompt.
         if req.method.as_str() == "turn/start"
@@ -8090,6 +8098,7 @@ struct Plan {
     prompt: Option<String>,
 }
 
+#[allow(clippy::large_enum_variant, reason = "Retain the existing run-plan state by value without boxing each TurnInput")]
 enum PlanKind {
     StartRun(TurnInput, Option<OpRef>),
     /// Records with their class, display and accept-time notes, then view-only changes.

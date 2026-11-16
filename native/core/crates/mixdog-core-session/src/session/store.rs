@@ -7,6 +7,9 @@
 //! records and the prompt-history prefill; decode assembles the session's [`OpenedLog`]. The
 //! store's fold already covers the tail, so the opened log carries no tail records.
 
+// Transparent names for existing callback/record shapes; no ownership or ordering change.
+type StoredHistoryPage = (Vec<ItemRecord>, Vec<HistoryRow>, bool);
+
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -914,7 +917,7 @@ impl StoreThreads {
         cut: Option<u64>,
         mut cursor: Option<mixdog_store::sqlite::PageCursor>,
         want: usize,
-    ) -> Result<Option<(Vec<ItemRecord>, Vec<HistoryRow>, bool)>, CoreError> {
+    ) -> Result<Option<StoredHistoryPage>, CoreError> {
         let mut rows = Vec::new();
         let mut marks = Vec::new();
         loop {

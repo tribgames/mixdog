@@ -36,6 +36,7 @@ pub(super) fn normalized(row: &Row, id: &str) -> Row {
 }
 
 /// Key order counts: the row is compared as it is written.
+#[allow(clippy::cmp_owned, reason = "Serialized equality intentionally includes nested JSON key order; Value equality would change the persisted-row comparison")]
 fn same(a: &Row, b: &Row) -> bool {
     Value::Object(a.clone()).to_string() == Value::Object(b.clone()).to_string()
 }

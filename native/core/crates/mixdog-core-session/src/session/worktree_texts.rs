@@ -69,10 +69,10 @@ pub fn thrown_message(failure: &ScmFailure) -> String {
     if let Some(message) = failure.message() {
         return message.to_owned();
     }
-    if let Some(DomainErrorDetail::WorktreeBusyJobs { reason, .. }) = failure.detail() {
-        if let Some((_, text)) = REASONS.iter().find(|(known, _)| known == reason) {
-            return (*text).to_owned();
-        }
+    if let Some(DomainErrorDetail::WorktreeBusyJobs { reason, .. }) = failure.detail()
+        && let Some((_, text)) = REASONS.iter().find(|(known, _)| known == reason)
+    {
+        return (*text).to_owned();
     }
     match failure.code() {
         Some(code) => DEFAULTS.iter().find(|(known, _)| *known == code).map_or_else(|| code.to_owned(), |(_, text)| (*text).to_owned()),

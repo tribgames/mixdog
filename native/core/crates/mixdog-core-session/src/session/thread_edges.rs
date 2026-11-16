@@ -13,6 +13,9 @@
 //! - a deleted row is announced by the delete itself (`purge.rs`, `thread/deleted`), so the write that marks it deleted
 //!   adds nothing.
 
+// Transparent names for existing callback/record shapes; no ownership or ordering change.
+type ThreadGoneHook = dyn Fn(&str) + Send + Sync;
+
 use std::sync::Arc;
 
 use mixdog_app_protocol::v2::thread::ThreadIdParams;
@@ -169,7 +172,7 @@ pub(super) fn on_roster(mut thread: mixdog_protocol::ThreadSummary, row: &serde_
 /// exists without it.
 pub struct ThreadDeletions {
     app: Arc<SectionFeedState>,
-    gone: std::sync::OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
+    gone: std::sync::OnceLock<Arc<ThreadGoneHook>>,
 }
 
 impl ThreadDeletions {
@@ -178,7 +181,8 @@ impl ThreadDeletions {
     }
 
     /// Connects what is told a conversation that left the catalog. Set once; `Err` when it was set already.
-    pub fn on_gone(&self, hook: Arc<dyn Fn(&str) + Send + Sync>) -> Result<(), ()> {
+    #[allow(clippy::result_unit_err, reason = "The existing registration API reports only whether the one-shot hook was already set; preserve its opaque status contract")]
+    pub fn on_gone(&self, hook: Arc<ThreadGoneHook>) -> Result<(), ()> {
         self.gone.set(hook).map_err(|_| ())
     }
 

@@ -21,14 +21,13 @@ impl Inner {
         self: &Arc<Self>,
         target: &str,
         own_turn: bool,
-        name: Option<String>,
-        branch: Option<String>,
-        create: bool,
-        carry: Option<String>,
-        confirm_large: bool,
+        selection: (Option<String>, Option<String>, bool),
+        carrying: (Option<String>, bool),
         tx_id: String,
         cancel: &CancellationToken,
     ) -> Result<JsonValue, ScmFailure> {
+        let (name, branch, create) = selection;
+        let (carry, confirm_large) = carrying;
         if let Some(branch) = branch {
             let input = SelectBranch { branch, create, expected_revision: None, confirm_large, tx_id };
             return self.select_branch(target, input, own_turn, cancel).await;
@@ -91,10 +90,10 @@ impl Inner {
                 "git worktree remove: {path} is not a Mixdog-managed worktree; unmanaged worktrees are not removed through the git tool"
             ))
         })?;
-        if entry.owner_session_id.as_deref() != Some(caller) {
-            if let Some(gone) = self.orphan(cancel, |row| row["id"] == entry.id.as_str()).await? {
-                return self.remove_orphan(&gone, force, cancel).await;
-            }
+        if entry.owner_session_id.as_deref() != Some(caller)
+            && let Some(gone) = self.orphan(cancel, |row| row["id"] == entry.id.as_str()).await?
+        {
+            return self.remove_orphan(&gone, force, cancel).await;
         }
         let Some(owner) = entry.owner_session_id.clone() else {
             return Err(plain(format!(
@@ -142,10 +141,10 @@ impl Inner {
             let path = row["path"].as_str().unwrap_or_default().to_owned();
             return self.remove_path(&path, force, caller, cancel).await;
         }
-        if target != caller {
-            if let Some(gone) = self.orphan(cancel, |row| row["ownerSessionId"] == target).await? {
-                return self.remove_orphan(&gone, force, cancel).await;
-            }
+        if target != caller
+            && let Some(gone) = self.orphan(cancel, |row| row["ownerSessionId"] == target).await?
+        {
+            return self.remove_orphan(&gone, force, cancel).await;
         }
         self.remove_worktree(target, force, None, target == caller, cancel).await
     }
@@ -172,7 +171,7 @@ impl SessionWorktrees for SessionWorkspaces {
         let tx_id = tx_id.clone();
         match op {
             SessionOp::Enter { name, branch, create, carry, confirm_large, .. } => {
-                inner.enter(&target, own_turn, name, branch, create, carry, confirm_large, tx_id, cancel).await
+                inner.enter(&target, own_turn, (name, branch, create), (carry, confirm_large), tx_id, cancel).await
             }
             SessionOp::Return { .. } => inner.back(&target, own_turn, tx_id, cancel).await,
             SessionOp::Merge { .. } => inner.merge(&target, own_turn, cancel).await,
