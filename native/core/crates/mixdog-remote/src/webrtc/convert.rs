@@ -72,7 +72,7 @@ impl I420Buf {
                     return Err(invalid("stride shorter than a row"));
                 }
                 self.check_len(frame)?;
-                self.from_packed(&frame.data, stride, width, height, &BGR_X);
+                self.convert_packed_into(&frame.data, stride, width, height, &BGR_X);
             }
             PixelFormat::I420 => {
                 self.check_len(frame)?;
@@ -82,7 +82,7 @@ impl I420Buf {
                 self.u.copy_from_slice(&frame.data[y_len..y_len + c_len]);
                 self.v.copy_from_slice(&frame.data[y_len + c_len..y_len + 2 * c_len]);
             }
-            PixelFormat::Jpeg => self.from_jpeg(&frame.data)?,
+            PixelFormat::Jpeg => self.decode_jpeg_into(&frame.data)?,
         }
         Ok(())
     }
@@ -104,7 +104,7 @@ impl I420Buf {
         self.v.resize(chroma, 0);
     }
 
-    fn from_jpeg(&mut self, data: &[u8]) -> Result<(), MediaError> {
+    fn decode_jpeg_into(&mut self, data: &[u8]) -> Result<(), MediaError> {
         let mut decoder = jpeg_decoder::Decoder::new(data);
         let pixels = decoder
             .decode()
@@ -119,11 +119,11 @@ impl I420Buf {
             jpeg_decoder::PixelFormat::L8 => &GRAY,
             other => return Err(invalid(format!("jpeg pixel format {other:?}"))),
         };
-        self.from_packed(&pixels, width * layout.bytes_per_pixel, width, height, layout);
+        self.convert_packed_into(&pixels, width * layout.bytes_per_pixel, width, height, layout);
         Ok(())
     }
 
-    fn from_packed(&mut self, src: &[u8], stride: usize, width: usize, height: usize, layout: &Layout) {
+    fn convert_packed_into(&mut self, src: &[u8], stride: usize, width: usize, height: usize, layout: &Layout) {
         self.resize(width, height);
         let chroma_width = width.div_ceil(2);
         let pixel = |x: usize, y: usize| -> (i32, i32, i32) {
