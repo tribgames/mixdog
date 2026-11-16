@@ -20,18 +20,15 @@ use crate::providers::anthropic::effort_tests::caps_of;
 use crate::providers::anthropic::effort_tests::message_of;
 
 /// Node's usage object (`buildAnthropicTurnResult`, the OAuth `parseSSEStream` result) of the core's: the core's input
-/// is Node's `promptTokens` (fresh input plus cache read and write), `raw` and `cacheWrite1hTokens` only when present.
+/// is Node's `inputTokens` (the cache left out), `promptTokens` adds the cache read and write, `raw` and
+/// `cacheWrite1hTokens` only when present.
 pub(super) fn node_usage(usage: &Usage) -> Value {
-    let fresh = usage
-        .input_tokens
-        .checked_sub(usage.cache_read_tokens + usage.cache_write_tokens)
-        .expect("the input holds the cache read and write");
     let mut out = json!({
-        "inputTokens": fresh,
+        "inputTokens": usage.input_tokens,
         "outputTokens": usage.output_tokens,
         "cachedTokens": usage.cache_read_tokens,
         "cacheWriteTokens": usage.cache_write_tokens,
-        "promptTokens": usage.input_tokens,
+        "promptTokens": usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens,
     });
     if usage.cache_write_1h_tokens > 0 {
         out["cacheWrite1hTokens"] = json!(usage.cache_write_1h_tokens);

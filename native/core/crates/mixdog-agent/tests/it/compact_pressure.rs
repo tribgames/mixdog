@@ -206,6 +206,47 @@ fn row_signatures_equal_nodes() {
 }
 
 #[test]
+fn cached_prompt_has_one_scale_in_live_reading_and_next_turn_pressure() {
+    use mixdog_agent::boundary::{CompactPolicy, CompactSettings, ContextReading};
+    use mixdog_agent::compact::pressure::{Books, send_pressure, usage_change};
+    use mixdog_core_api::domain::provider::Usage;
+    use serde_json::json;
+
+    let owner = replay_owner();
+    let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
+    let images = GoldenImages(HashMap::new());
+    let stored = GoldenRows(Vec::new());
+    let signer = TranscriptSigner { meter: &meter, images: &images, rows: &stored };
+    let books = Books { signer: &signer, native: &[], agent_mode: false };
+    let messages = vec![AgentMessage::user("request")];
+    let policy = CompactPolicy::resolve(&CompactSettings {
+        auto: true, context_window: Some(500_000), ..Default::default()
+    }).unwrap();
+    // The reported session's last prompt: 2 fresh + 405,809 read + 1,943 written.
+    for (excludes, input) in [(true, 2), (false, 407_754)] {
+        let mut header = header_of(&json!({
+            "provider": "anthropic-oauth", "model": "m",
+            "contextWindow": 500_000, "compactBoundaryTokens": 500_000
+        }));
+        let usage = Usage { input_tokens: input, cache_read_tokens: 405_809, cache_write_tokens: 1_943, output_tokens: 1_245, ..Default::default() };
+        let mut reading = ContextReading::default();
+        reading.measure(&usage, excludes);
+        let delta = json!({
+            "source": "provider_send", "deltaInput": input, "deltaOutput": 1_245,
+            "deltaCachedRead": 405_809, "deltaCacheWrite": 1_943, "deltaPrompt": 407_754
+        });
+        usage_change(&header, &delta, &messages, &[], Some(&books), excludes, 1.0, 2.0).unwrap().apply(&mut header);
+        let mut next = messages.clone();
+        next.push(AgentMessage::assistant("answer", Vec::new()));
+        let pressure = send_pressure(&header, &next, &[], &books).tokens.unwrap();
+        assert_eq!(pressure, 408_999, "prompt plus reply, not cache counted twice");
+        assert_eq!(header["lastContextTokens"], json!(407_754));
+        assert_eq!(reading.display_before(pressure), 407_754);
+        assert!(pressure < policy.trigger_tokens, "the reported 816k must not compact this 408k context");
+    }
+}
+
+#[test]
 fn row_restores_equal_nodes() {
     let golden = golden!("pressure");
     let now = golden["now"].as_f64().expect("now");

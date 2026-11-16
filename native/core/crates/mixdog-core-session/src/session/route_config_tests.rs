@@ -25,6 +25,37 @@ fn newest(rig: &Rig, thread: &str, method: &str) -> Option<Value> {
     rig.feeds.frames(thread).into_iter().rev().find(|(_, name, _)| name == method).map(|(_, _, params)| params["value"].clone())
 }
 
+/// No picker reply drives an external control's UI: the actor must publish tuning as well as model changes.
+#[tokio::test(start_paused = true)]
+async fn model_and_effort_changes_reach_both_the_route_feed_and_thread_read() {
+    use mixdog_core_api::ThreadHandle;
+    use mixdog_core_ports::ports::threads::ThreadState;
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let handle = start_thread(&directory).await;
+    let threads = super::thread_state::SessionThreads::new(directory.clone());
+    for (set, unset, model, effort) in [
+        (json!({ "provider": "p", "model": "running", "effort": "low" }), vec![], "running", Some("low")),
+        (json!({ "effort": "high", "autoEffort": false }), vec![], "running", Some("high")),
+        (json!({ "pendingRoute": { "provider": "p", "model": "next", "effort": "ultra", "effectiveEffort": "high" } }), vec![], "next", Some("high")),
+        (json!({ "model": "fallback", "effort": "low" }), vec![], "next", Some("high")),
+        (json!({ "pendingRoute": { "provider": "p", "model": "next", "effort": null } }), vec![], "next", None),
+        (json!({ "model": "next", "effort": null }), vec!["pendingRoute".into()], "next", None),
+    ] {
+        threads.patch_header(&handle.id, set.as_object().unwrap().clone(), unset).await.unwrap();
+        // Drain a subsequent route section through the same actor, without publishing route values for the test.
+        handle.set_section(Section::TurnEffort(Some("medium".into()))).await.unwrap();
+        let read = handle.request(super::tests::request("thread/read", json!({ "threadId": handle.id }), "read")).await.unwrap();
+        let mixdog_core_api::Reply::Value(read) = read else { panic!("thread/read must answer a value") };
+        assert_eq!(read["state"]["route"]["model"], model);
+        assert_eq!(read["state"]["route"]["effort"].as_str(), effort);
+        let published = newest(&rig, handle.id.as_str(), "thread/route/updated").expect("route publication");
+        assert_eq!(published["model"], model);
+        assert_eq!(published["effort"].as_str(), effort);
+    }
+    directory.shutdown().await;
+}
+
 /// What Node recorded for `setupChanged` (`testdata/node-setup-changed.json`): the value its session published for a thread started with a
 /// draft route (the real-turn harness's recording), and the `seq` of each of two settings announcements delivered before the state was read
 /// (`testdata/record-setup-changed.mjs` runs Node's own modules through them; the state ends on the last).
@@ -571,6 +602,89 @@ async fn announcements_before_the_thread_begins_do_not_count() {
     announce.send_modify(|count| *count += 1);
     let (recorded, _) = node_setup_changed();
     eventually_on!(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
+}
+
+/// A gauge whose answer to the load's status pass is the stored reading of a session (`measurement`), as a restarted core reads it off the header.
+struct StoredReading(Value);
+
+#[async_trait::async_trait]
+impl super::thread_context::ContextStatusHost for StoredReading {
+    async fn context_status(&self, _: Option<mixdog_core_api::ids::ThreadId>, _: Option<Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+        Ok(self.0.clone())
+    }
+
+    async fn context_status_for(&self, _: mixdog_core_api::ids::ThreadId, _: serde_json::Map<String, Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+        Ok(self.0.clone())
+    }
+}
+
+/// The context reading of a conversation is part of its restored state: a thread loaded after a restart shows the stored reading in its
+/// `stats` without a model response, and a call of its own keeps its live reading over the stored one.
+#[tokio::test(start_paused = true)]
+async fn a_loaded_thread_shows_the_stored_context_reading_before_any_model_response() {
+    let rig = Rig::new();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.context_status = Arc::new(StoredReading(json!({
+        "contextWindow": 200_000,
+        "measurement": { "tokens": 42_000, "source": "last_api_request", "updatedAt": 7_000 },
+    })));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    let stats = |handle: &super::SessionHandle| handle.cell.view.load_full().state.context.clone().expect("context").stats.expect("stats");
+    assert_eq!(stats(&handle)["currentContextSource"], "pending", "before the load's status pass");
+    tokio::time::advance(super::actor::STATUS_SETTLE).await;
+    eventually_on!(&[&handle.cell.stepped], || (stats(&handle)["currentContextTokens"] == json!(42_000)).then_some(())).await;
+    let stats = stats(&handle);
+    assert_eq!((&stats["currentContextSource"], &stats["currentContextUpdatedAt"]), (&json!("last_api_request"), &json!(7_000)));
+}
+
+/// A gauge whose answer the test changes between status passes.
+struct ScriptedReading(std::sync::Mutex<Value>);
+
+impl ScriptedReading {
+    fn says(&self, measurement: Value) {
+        *self.0.lock().unwrap() = json!({ "contextWindow": 200_000, "measurement": measurement });
+    }
+}
+
+#[async_trait::async_trait]
+impl super::thread_context::ContextStatusHost for ScriptedReading {
+    async fn context_status(&self, _: Option<mixdog_core_api::ids::ThreadId>, _: Option<Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+}
+
+/// Until the session folds a model call of its own, the gauge's measurement is its reading, pending included: a restored reading
+/// becomes pending when a compaction or a route change leaves the status pass saying so, before any model response.
+#[tokio::test(start_paused = true)]
+async fn a_restored_reading_becomes_pending_after_a_compaction_and_after_a_route_change() {
+    let known = json!({ "tokens": 42_000, "source": "last_api_request", "updatedAt": 7_000 });
+    let pending = json!({ "tokens": null, "source": "pending", "updatedAt": null });
+    let gauge = Arc::new(ScriptedReading(Default::default()));
+    gauge.says(known.clone());
+    let rig = Rig::new();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.context_status = gauge.clone();
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let source = |handle: &super::SessionHandle| handle.cell.view.load_full().state.context.clone().expect("context").stats.expect("stats")["currentContextSource"].clone();
+
+    let compacted = start_thread(&directory).await;
+    tokio::time::advance(super::actor::STATUS_SETTLE).await;
+    eventually_on!(&[&compacted.cell.stepped], || (source(&compacted) == json!("last_api_request")).then_some(())).await;
+    gauge.says(pending.clone());
+    let compaction = super::run::Compaction { replacement: vec![(mixdog_core_api::ids::ItemId::from("sum".to_owned()), json!({ "role": "user", "content": "summary" }))], at: 5, dropped_count: 0, dropped: None };
+    let commit = directory.commit_compaction(&compacted.id, Vec::new(), compaction, None).await.expect("answered");
+    assert_eq!(commit, super::turn_ops::CompactionCommit::Applied);
+    eventually_on!(&[&compacted.cell.stepped], || (source(&compacted) == json!("pending")).then_some(())).await;
+
+    gauge.says(known);
+    let moved = start_thread(&directory).await;
+    tokio::time::advance(super::actor::STATUS_SETTLE).await;
+    eventually_on!(&[&moved.cell.stepped], || (source(&moved) == json!("last_api_request")).then_some(())).await;
+    gauge.says(pending);
+    let recorded = recorded_moves().into_iter().find(|m| m.read.is_some()).expect("a read move");
+    move_to(&moved, &recorded.after).await.expect("moved");
+    eventually_on!(&[&moved.cell.stepped], || (source(&moved) == json!("pending")).then_some(())).await;
 }
 
 /// A turn's close does not take `setupChanged`: the settings announcement is the session's, not the run's, and a client reads it after the turn.

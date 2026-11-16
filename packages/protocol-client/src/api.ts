@@ -296,6 +296,8 @@ export interface ConnectOptions<S = Json> {
   readonly ladder?: LadderConfig;
   /** Bounds how long the fold may hold the thread it runs on. Defaults: 8 ms, `performance.now`, a `setTimeout(0)` macrotask. */
   readonly turn?: TurnOptions;
+  /** Link life-cycle lines (`link-open`, `link-down`, `link-reconnected`, `link-restore-settled`) for the host's own log: counts and times, never frames. */
+  readonly onDiagnostic?: (event: string, fields: Record<string, unknown>) => void;
 }
 
 /**

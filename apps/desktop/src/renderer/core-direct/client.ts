@@ -8,6 +8,7 @@ import {
   type ProtocolClient,
   type SessionFold,
 } from '../../../../../packages/protocol-client/src/index.ts';
+import { createLinkLog } from '../../../../../packages/protocol-client/src/link-log.mjs';
 import type { InitializeResponse } from '../../../../../packages/protocol/src/index';
 import { createPortConnector, type CorePortBridge, type PortSlot } from './port-connector.ts';
 
@@ -48,6 +49,13 @@ export function windowOfReply(reply: Pick<InitializeResponse, 'connection'> | un
   return undefined;
 }
 
+/** Link life-cycle lines go to the main process's diagnostics log (`mixdog:renderer-diagnostic`, kind `core-link`). */
+export const reportCoreLink = createLinkLog((event, fields) => {
+  // The host half exists before the composed API does (install.ts), and the first link lines come in between.
+  const host = window as unknown as Record<'mixdogDesktop' | 'mixdogDesktopHost', { rendererDiagnostic?: (payload: unknown) => void } | undefined>;
+  (host.mixdogDesktop ?? host.mixdogDesktopHost)?.rendererDiagnostic?.({ kind: 'core-link', event, ...fields });
+});
+
 export async function openDirectClient(o: OpenDirectClientOptions): Promise<ProtocolClient<SessionFold>> {
   const slot: PortSlot = o.slot ?? 'primary';
   if (slot === 'pc') serverWindow = true;
@@ -65,6 +73,7 @@ export async function openDirectClient(o: OpenDirectClientOptions): Promise<Prot
     threadReducer: sessionReducer,
     clock: { sleep: (ms) => new Promise((done) => setTimeout(done, ms)) },
     random: Math.random,
+    onDiagnostic: (event, fields) => reportCoreLink(event, { slot, ...fields }),
   });
   clients.set(slot, client);
   windows.set(slot, windowOfReply(client.server));

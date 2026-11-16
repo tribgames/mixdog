@@ -140,13 +140,13 @@
         "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
         "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
         "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
         "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
         "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
         "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
       ],
-      "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
+      "sha256": "f9a18eddc8b86ed084b893dd350113741389e895d9221aa3cc161ad2bd78b475",
+      "recordedSha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088",
+      "note": "Patch inventory pruned after recording; recordedSha256 is the original patch fingerprint. Recorded results and product source fingerprints are unchanged."
     },
     "patches": [
       {
@@ -160,13 +160,13 @@
           "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
           "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
           "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
           "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
           "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
           "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
         ],
-        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
+        "sha256": "f9a18eddc8b86ed084b893dd350113741389e895d9221aa3cc161ad2bd78b475",
+        "recordedSha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088",
+        "note": "Patch inventory pruned after recording; recordedSha256 is the original patch fingerprint. Recorded results and product source fingerprints are unchanged."
       }
     ],
     "refComparison": {

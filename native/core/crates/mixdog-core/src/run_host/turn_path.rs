@@ -61,6 +61,8 @@ pub struct TurnPathParts {
     /// The process's one provider registry, built before the turn path (`compose_parts::provider_registry`):
     /// `ProviderReadiness` and the settings and feature effects hold the same `Arc`.
     pub registry: Arc<ProviderRegistry>,
+    /// The live baselines owned by the applied route-change boundary.
+    pub prefix_guards: Arc<super::assemble::PrefixGuards>,
     /// The shared effort-judge model (needs the ONNX Runtime library, WP-INTEGRATE).
     pub effort_judge: Arc<EffortJudgeModel>,
     /// The one side-question store: compaction.requests is built over the same instance.
@@ -161,7 +163,7 @@ pub struct TurnPath {
 impl TurnPath {
     pub fn new(parts: TurnPathParts) -> Result<Self, TurnPathError> {
         let TurnPathParts {
-            tokens, clock, paths, registry, effort_judge, side, next, files, processes, policy, connectors, resolver, unattended, approvals, exclusions, agents, allow_all, hub, blobs, tool_pool, mcp,
+            tokens, clock, paths, registry, prefix_guards, effort_judge, side, next, files, processes, policy, connectors, resolver, unattended, approvals, exclusions, agents, allow_all, hub, blobs, tool_pool, mcp,
             skills_listed, skill_names, skill_deliveries, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compactors, hops, shells, liveness, search_usage, reuses,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
@@ -172,6 +174,7 @@ impl TurnPath {
         let gate_env = Arc::new(HostGateEnv::new(unattended.clone(), contacts.clone(), allow_all, hub));
         let host = HostParts {
             registry: registry.clone(),
+            prefix_guards,
             clock: clock.clone(),
             files,
             processes: processes.clone(),

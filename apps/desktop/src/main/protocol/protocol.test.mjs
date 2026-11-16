@@ -302,6 +302,61 @@ test('a reconnect sends the live file watches and the ports subscription again, 
   ]);
 });
 
+test('the connection logs an internal reconnect, a replacement and the feeds it sent again', async () => {
+  const first = fakeClient();
+  const second = fakeClient();
+  const clients = [first, second];
+  const lines = [];
+  const connection = createProtocolConnection({
+    open: async () => clients.shift(),
+    log: (event, fields) => lines.push({ event, ...fields }),
+  });
+  await connection.start();
+  const window = { push() {}, notification() {}, loginFeedLost() {} };
+  connection.attach(window);
+  await connection.watchFiles(window, { watchId: 'w1:a', path: '/p', recursive: true });
+
+  // An internal reconnect of the client (its own ladder) is the client's `link-*` lines; here it is only the feeds sent again.
+  first.emit({ type: 'status', status: { state: 'reconnecting' } });
+  first.emit({ type: 'status', status: { state: 'ready' } });
+  await turn();
+  assert.deepEqual(lines.map((l) => l.event), ['core-scoped-feeds-restore-started', 'core-scoped-feeds-restore-settled']);
+  assert.deepEqual(lines[0].attempted, { fsWatches: 1, feeds: 0, ports: 0 });
+
+  // A replacement is its own line, naming that a client was there.
+  lines.length = 0;
+  await connection.reopen();
+  await turn();
+  assert.equal(lines[0].event, 'core-connection-replace');
+  assert.equal(lines[0].hadClient, true);
+  assert.equal(lines.some((l) => l.event === 'core-scoped-feeds-restore-started'), true);
+});
+
+test('the restore line says what was attempted, and what each request then came to: restored, lost, or failed', async () => {
+  const client = fakeClient();
+  const lines = [];
+  const connection = createProtocolConnection({ open: async () => client, log: (event, fields) => lines.push({ event, ...fields }) });
+  await connection.start();
+  const window = { push() {}, notification() {}, loginFeedLost() {} };
+  connection.attach(window);
+  await connection.watchFiles(window, { watchId: 'w1:a', path: '/p', recursive: true });
+  await connection.watchFiles(window, { watchId: 'w2:b', path: '/q', recursive: false });
+  await connection.viewPorts(window, true);
+  // After the link is back: one watch is accepted, the other is refused, the ports subscription fails.
+  client.call = async (method, params) => {
+    if (method === 'fs/watch' && params.watchId === 'w2:b') throw new Error('refused');
+    if (method === 'system/ports/subscribe') throw new Error('no');
+  };
+  lines.length = 0;
+  client.emit({ type: 'status', status: { state: 'reconnecting' } });
+  client.emit({ type: 'status', status: { state: 'ready' } });
+  await turn();
+  assert.deepEqual(lines.map((l) => l.event), ['core-scoped-feeds-restore-started', 'core-scoped-feeds-restore-settled'], 'the attempt first, its outcome after');
+  assert.deepEqual(lines[0].attempted, { fsWatches: 2, feeds: 0, ports: 1 });
+  assert.equal('restored' in lines[0], false, 'the attempt carries no outcome');
+  assert.deepEqual([lines[1].restored, lines[1].lost, lines[1].failed], [1, 1, 1]);
+});
+
 test('reopen replaces the client: the old one is closed and silenced, the snapshot is the new store, the feeds are sent again', async () => {
   const first = fakeClient();
   const second = fakeClient();

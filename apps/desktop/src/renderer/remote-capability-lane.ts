@@ -18,19 +18,35 @@ const controlThreads = new WeakMap<object, Promise<unknown>>();
 
 /** The lane over this call's client: its frames are this call's (the router's send claim). */
 function laneOf(client: Client) {
-  const call = (method: string, params: unknown): Promise<unknown> => {
+  /** Whether the client still holds the thread a start answered with: the library subscribes a control thread it started again
+   *  after each redial, and drops it when the core no longer has it (or the client is another one: the store is the client's). */
+  const stillHeld = async (reply: unknown): Promise<boolean> => {
+    const id = (reply as { thread?: { id?: unknown } } | null)?.thread?.id;
+    const library = client as { threadSubscription?(threadId: string): { readonly held: boolean }; whenHeldSettled?(threadId: string): Promise<void> };
+    if (typeof id !== 'string' || !library.threadSubscription) return true;
+    // Settled first: after a redial the client's resume of the thread decides whether it is still the core's.
+    await library.whenHeldSettled?.(id);
+    return library.threadSubscription(id).held;
+  };
+  const call = async (method: string, params: unknown): Promise<unknown> => {
     if (method !== 'thread/start' || (params as { kind?: unknown } | null)?.kind !== 'control') {
       return client.call(method as never, params as never);
     }
-    const held = controlThreads.get(client.store);
-    if (held) return held;
-    const started = client.call(method as never, params as never) as Promise<unknown>;
-    controlThreads.set(client.store, started);
-    // A failed start is tried again by the next call, as the lane's own does.
-    started.catch(() => {
-      if (controlThreads.get(client.store) === started) controlThreads.delete(client.store);
-    });
-    return started;
+    for (;;) {
+      let known = controlThreads.get(client.store);
+      if (!known) {
+        const started = client.call(method as never, params as never) as Promise<unknown>;
+        controlThreads.set(client.store, started);
+        // A failed start is tried again by the next call, as the lane's own does.
+        started.catch(() => {
+          if (controlThreads.get(client.store) === started) controlThreads.delete(client.store);
+        });
+        known = started;
+      }
+      const reply = await known;
+      if (await stillHeld(reply)) return reply;
+      if (controlThreads.get(client.store) === known) controlThreads.delete(client.store);
+    }
   };
   return createCapabilityLane({
     protocol: {

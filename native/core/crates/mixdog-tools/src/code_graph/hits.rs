@@ -153,7 +153,7 @@ pub(super) fn occurrences(node: &Node, name: &str) -> Vec<(u32, u32)> {
     let Some(scan) = node.scan_lang else {
         return Vec::new();
     };
-    let mut hits = identifier_hits(node.source(), scan, name);
+    let mut hits = identifier_hits(node.read().text(), scan, name);
     hits.sort_unstable();
     hits
 }
@@ -165,7 +165,8 @@ fn hits_on_node(node: &Node, name: &str, out: &mut Vec<Hit>) {
         out.extend(natives.iter().filter_map(|s| native_hit(node, s)));
         return;
     }
-    let lines = node.lines();
+    let source = node.read();
+    let lines = source.lines();
     let line_text = |l: u32| lines.get(l as usize - 1).map_or("", |s| s.trim());
     let decl_symbol = |line: u32| natives.iter().find(|s| s.start_line == line).copied();
     let mut declaration_like = false;
@@ -221,6 +222,7 @@ pub(super) fn find_hits(graph: &Graph, symbol: &str, language: Option<&str>) -> 
                 }
                 if let Some(mut hit) = native_hit(node, sym) {
                     hit.content = node
+                        .read()
                         .lines()
                         .get(sym.start_line as usize - 1)
                         .map_or("", |s| s.trim())
@@ -494,16 +496,16 @@ pub(super) fn find_symbol_across_graph(
         ));
         let mut body_emitted = false;
         if opts.body
-            && let Some(node) = graph.node(&primary.rel).filter(|n| !n.text.is_empty())
+            && let Some(source) = graph.node(&primary.rel).map(|n| n.read()).filter(|s| !s.text().is_empty())
         {
-            let all_lines: Vec<&str> = node.source().split('\n').collect();
+            let all_lines: Vec<&str> = source.text().split('\n').collect();
             let start = primary.line.max(1);
             let end = primary
                 .end_line
                 .filter(|e| *e >= start)
                 .or_else(|| infer_span_end(&all_lines, start))
                 .unwrap_or(start);
-            lines.push(format_body(&node.text, start, end));
+            lines.push(format_body(source.text(), start, end));
             body_emitted = true;
         }
         let text = summary(primary);

@@ -89,6 +89,16 @@ pub trait ToolResolver: Send + Sync {
     fn resolve(&self, scope: Option<&str>, name: &str) -> Option<Arc<dyn Tool>>;
 }
 
+pub struct CallAccount {
+    pub binding: mixdog_core_api::domain::tool::ConnectorAccountBinding,
+    pub label: String,
+}
+
+#[async_trait]
+pub trait AccountResolver: Send + Sync {
+    async fn resolve_account(&self, name: &str, args: &Value) -> Result<Option<CallAccount>, String>;
+}
+
 /// Per-agent connector tool permissions.
 #[async_trait]
 pub trait ConnectorPermissions: Send + Sync {
@@ -260,6 +270,24 @@ impl ToolPolicy {
     /// (a hook or the card may have rewritten it); `Err` is the denial.
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     pub async fn authorize(&self, rq: AuthorizeRequest<'_>) -> Result<Authorized, ToolError> {
+        self.authorize_resolving(rq, None).await.map(|(call, _)| call)
+    }
+
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+    pub async fn authorize_with_accounts(
+        &self,
+        rq: AuthorizeRequest<'_>,
+        accounts: &dyn AccountResolver,
+    ) -> Result<(Authorized, Option<mixdog_core_api::domain::tool::ConnectorAccountBinding>), ToolError> {
+        self.authorize_resolving(rq, Some(accounts)).await
+    }
+
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+    async fn authorize_resolving(
+        &self,
+        rq: AuthorizeRequest<'_>,
+        accounts: Option<&dyn AccountResolver>,
+    ) -> Result<(Authorized, Option<mixdog_core_api::domain::tool::ConnectorAccountBinding>), ToolError> {
         let name = rq.name;
         // The session's own tool policy refuses before any hook or approval. What the
         // agent's connectors and the project switched off depends on the tool, so it is
@@ -274,11 +302,11 @@ impl ToolPolicy {
             return Err(refusal);
         }
         if USER_PROMPT_TOOLS.contains(&name) {
-            return Ok(Authorized {
+            return Ok((Authorized {
                 name: name.to_owned(),
                 args: rq.args,
                 allow_not_saved: false,
-            });
+            }, None));
         }
 
         let decision = self.run_hook(&rq).await?.unwrap_or_default();
@@ -297,6 +325,22 @@ impl ToolPolicy {
                 call_args = args.clone();
             }
         }
+
+        // Bind the executable call, not the hook's input. No approval may precede
+        // this resolution, and approval completion must never resolve it again.
+        let bound = match accounts {
+            Some(accounts) => accounts.resolve_account(&call_name, &call_args).await.map_err(|message| {
+                ToolError::new(ToolErrorCode::DeniedByPolicy { rule: "connector-account".into() }, format!("Error: {message}"))
+            })?,
+            None => None,
+        };
+        if let Some(bound) = &bound {
+            let mut args = call_args.as_object().cloned().unwrap_or_default();
+            args.insert("account".into(), Value::String(bound.binding.name.clone()));
+            call_args = Value::Object(args);
+        }
+        let account = bound.as_ref().map(|bound| bound.label.as_str())
+            .or_else(|| rq.account.filter(|_| call_name == name));
 
         let kind = rq
             .tools
@@ -349,7 +393,6 @@ impl ToolPolicy {
                     request,
                     audit,
                 } = *plan;
-                let account = (call_name == name).then_some(rq.account).flatten();
                 let answer = self
                     .ask(
                         &rq,
@@ -374,13 +417,13 @@ impl ToolPolicy {
         }
 
         let allow_not_saved = self
-            .connector_approval(&rq, &call_name, &call_args, outbound_approved)
+            .connector_approval(&rq, &call_name, &call_args, outbound_approved, account)
             .await?;
-        Ok(Authorized {
+        Ok((Authorized {
             name: call_name,
             args: call_args,
             allow_not_saved,
-        })
+        }, bound.map(|bound| bound.binding)))
     }
 
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
@@ -411,6 +454,7 @@ impl ToolPolicy {
         name: &str,
         args: &Value,
         outbound_approved: bool,
+        account: Option<&str>,
     ) -> Result<bool, ToolError> {
         let facts = rq.facts;
         if outbound_approved
@@ -443,7 +487,7 @@ impl ToolPolicy {
                     reason: CONNECTOR_APPROVAL_REASON,
                     request: request.as_ref(),
                     audit: None,
-                    account: rq.account.filter(|_| name == rq.name),
+                    account,
                 },
             )
             .await?;

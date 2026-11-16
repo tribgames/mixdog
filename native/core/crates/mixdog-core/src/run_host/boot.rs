@@ -26,9 +26,10 @@ use mixdog_core_session::session::RunFactory;
 use mixdog_core_session::session::SessionDeps;
 use mixdog_core_session::session::SessionDirectory;
 
-/// What the turn assembly is made of; `HostServices` less the directory it is bound to.
+/// What the turn assembly is made of; `HostServices` less the directory, plus its shared prefix guards.
 pub struct HostParts {
     pub registry: Arc<ProviderRegistry>,
+    pub prefix_guards: Arc<super::assemble::PrefixGuards>,
     pub clock: Arc<dyn Clock>,
     pub files: Arc<dyn FileService>,
     pub processes: Arc<dyn ProcessManager>,
@@ -68,7 +69,7 @@ pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -
     let mut bound = None;
     let registry = host.registry.clone();
     let directory = Arc::new_cyclic(|directory: &Weak<SessionDirectory>| {
-        let HostParts { registry, clock, files, processes, io, policy, connectors, resolver, gate_env, approvals, blobs, reaction_targets, reuses, effort_judge, side, next, seams, settings, probes, observed, shells, exclusions, turn_settings, liveness, search_usage } = host;
+        let HostParts { registry, prefix_guards, clock, files, processes, io, policy, connectors, resolver, gate_env, approvals, blobs, reaction_targets, reuses, effort_judge, side, next, seams, settings, probes, observed, shells, exclusions, turn_settings, liveness, search_usage } = host;
         let services = HostServices {
             registry,
             clock,
@@ -94,7 +95,7 @@ pub fn build_directory(host: HostParts, deps: impl FnOnce(Arc<dyn RunFactory>) -
             exclusions,
             turn_settings,
         };
-        let parts = Arc::new(HostRunParts::new(services));
+        let parts = Arc::new(HostRunParts::new(services, prefix_guards));
         next.bind(directory.clone(), parts.clone());
         let runs: Arc<dyn RunFactory> = Arc::new(RunHostFactory::new(liveness, search_usage, parts));
         SessionDirectory::new(Arc::new(deps(runs)))

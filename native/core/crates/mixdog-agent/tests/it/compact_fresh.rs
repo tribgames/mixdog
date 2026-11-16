@@ -61,6 +61,55 @@ async fn fresh_context_equals_node() {
 }
 
 struct FixedHandoff(String);
+
+#[tokio::test]
+async fn fresh_context_matches_node_for_runtime_shaped_and_marked_requests() {
+    use mixdog_agent::message_row::{message_of, row_of};
+    use serde_json::json;
+
+    let prefix = "<system-reminder>old runtime state</system-reminder>\n";
+    let suffix = "\n<system-reminder>old agent list</system-reminder>";
+    let provenance = json!({ "runtimeUserContext": { "prefix": prefix, "suffix": suffix }, "agentListing": ["worker"], "keep": true });
+    let envelope = "<system-reminder>human-authored instruction</system-reminder>";
+    let rows = vec![
+        json!({ "role": "user", "content": format!("{prefix}first request{suffix}"), "meta": provenance }),
+        json!({ "role": "user", "content": [
+            { "type": "text", "text": prefix },
+            { "type": "text", "text": "second request" },
+            { "type": "text", "text": suffix }
+        ], "meta": provenance }),
+        json!({ "role": "user", "content": "stale provenance is not permission to trim", "meta": provenance }),
+        json!({ "role": "user", "content": envelope }),
+        json!({ "role": "user", "content": envelope, "meta": { "runtimeUserContext": { "prefix": envelope, "suffix": "" } } }),
+        json!({ "role": "user", "content": envelope, "meta": { "source": "compact-context", "synthetic": true } }),
+        json!({ "role": "user", "content": format!("{envelope}\nordinary instruction") }),
+        json!({ "role": "user", "content": format!("{prefix}current request{suffix}"), "meta": provenance }),
+    ];
+    let messages: Vec<_> = rows.iter().map(|row| message_of(row).unwrap()).collect();
+    let owner = replay_owner();
+    let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
+    let archive = PreviewArchive { session: "runtime-context".into() };
+    let ctx = FreshContext {
+        tail: TailContext { meter: &meter, rows: &Rows, archive: &archive, redactor: &compact_support::NoRedaction, preview: true },
+        attachments: &NoAttachments,
+    };
+    let result = fresh_context_compact_messages(
+        &ctx,
+        &messages,
+        100_000,
+        &FreshOptions { force: true, context_window: 500_000, ..Default::default() },
+    ).await.unwrap();
+    let got: Vec<_> = result.messages.iter().map(row_of).collect();
+    // Node's freshContextCompactMessages on these exact rows drops all three envelope-only
+    // conversation turns; its unmarked mixed-content legacy request remains verbatim.
+    assert_eq!(got, vec![
+        json!({ "role": "user", "content": "first request", "meta": { "keep": true } }),
+        json!({ "role": "user", "content": [{ "type": "text", "text": "second request" }], "meta": { "keep": true } }),
+        rows[2].clone(), rows[6].clone(), rows[7].clone(),
+    ]);
+    assert!(meter.messages(&result.messages) < meter.messages(&messages));
+}
+
 #[async_trait::async_trait]
 impl mixdog_agent::compact::compactor::HandoffSource for FixedHandoff {
     async fn triggered(&self, _: &[mixdog_agent::message::AgentMessage]) -> bool {
@@ -71,7 +120,7 @@ impl mixdog_agent::compact::compactor::HandoffSource for FixedHandoff {
         _: &[mixdog_agent::message::AgentMessage],
         _: u64,
     ) -> Result<mixdog_agent::compact::compactor::Handoff, mixdog_agent::env::CompactError> {
-        Ok(mixdog_agent::compact::compactor::Handoff { text: self.0.clone(), usage: None, summary_ms: 0.0, route: None })
+        Ok(mixdog_agent::compact::compactor::Handoff { text: self.0.clone(), usage: None, input_excludes_cache: false, summary_ms: 0.0, route: None })
     }
 }
 
@@ -139,7 +188,7 @@ impl mixdog_agent::compact::compactor::HandoffSource for SlowHandoff {
         _: u64,
     ) -> Result<mixdog_agent::compact::compactor::Handoff, mixdog_agent::env::CompactError> {
         mixdog_rt::time::sleep(std::time::Duration::from_millis(40)).await;
-        Ok(mixdog_agent::compact::compactor::Handoff { text: "handoff".into(), usage: None, summary_ms: 33.0, route: None })
+        Ok(mixdog_agent::compact::compactor::Handoff { text: "handoff".into(), usage: None, input_excludes_cache: false, summary_ms: 33.0, route: None })
     }
 }
 

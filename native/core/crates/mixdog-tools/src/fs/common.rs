@@ -116,7 +116,7 @@ pub(crate) fn cancelled() -> ToolError {
 pub(crate) fn deadline_exceeded(name: &str, partial: bool) -> ToolError {
     fail(
         ToolErrorCode::DeadlineExceeded { partial },
-        format!("Error: read-only I/O tool \"{name}\" timed out; narrow the scope and retry"),
+        format!("Error: read-only I/O tool \"{name}\" exceeded its deadline."),
     )
 }
 

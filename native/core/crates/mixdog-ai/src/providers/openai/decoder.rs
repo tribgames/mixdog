@@ -396,6 +396,12 @@ impl Citations {
     }
 }
 
+/// An item that is a tool call, by its type alone.
+fn is_tool_item(item: &Value) -> bool {
+    let kind = str_of(item, "type");
+    kind.contains("tool") || kind.contains("function_call")
+}
+
 fn is_incomplete_tool_item(item: &Value) -> bool {
     str_of(item, "status") == "incomplete"
         && matches!(
@@ -581,10 +587,6 @@ impl ResponsesDecoder {
                 if let Some(model) = event.get("response").map(|r| str_of(r, "model")).filter(|m| !m.is_empty()) {
                     self.model = Some(model.to_owned());
                 }
-                // The compatible collector reports the ack as a boundary once the stream has seen output.
-                if self.collector() == Collector::Compat && self.semantic_seen {
-                    out.push(StreamEvent::Progress(ProgressKind::Semantic));
-                }
             }
             "codex.rate_limits" => out.push(StreamEvent::ProviderKeepalive),
             "response.output_item.added" => {
@@ -597,9 +599,9 @@ impl ResponsesDecoder {
                 }
                 self.item_added(item, out);
                 self.flight.item_added(self.collector(), item);
-                // `onItemAdded` (`openai-ws-stream/event-switch.mjs`, `onOutputItemAdded`): a call in flight, else a
-                // boundary after earlier output; the first boundary of a response is transport only.
-                let kind = if self.flight.in_flight() {
+                // A new item is a lifecycle transition, named by what the item is: a call, else a boundary after earlier
+                // output; the first boundary of a response is transport only. A call still in flight is not progress.
+                let kind = if is_tool_item(item) {
                     Some(ProgressKind::Tool)
                 } else if self.semantic_seen {
                     Some(ProgressKind::Semantic)
@@ -639,8 +641,10 @@ impl ResponsesDecoder {
                     let key = Refusals::key(str_of(event, "item_id"), event.get("content_index").and_then(Value::as_u64).unwrap_or(0));
                     self.refusals.set(key, delta.to_owned(), true);
                 }
-                self.semantic_seen = true;
-                out.push(StreamEvent::Progress(ProgressKind::Semantic));
+                if event.get("delta").and_then(Value::as_str).is_some_and(|d| !d.is_empty()) {
+                    self.semantic_seen = true;
+                    out.push(StreamEvent::Progress(ProgressKind::Semantic));
+                }
             }
             "response.refusal.done" => {
                 if let Some(text) = event.get("refusal").and_then(Value::as_str) {
@@ -653,11 +657,11 @@ impl ResponsesDecoder {
             "response.function_call_arguments.delta" | "response.custom_tool_call_input.delta" => {
                 let delta = str_of(event, "delta");
                 let item_id = str_of(event, "item_id");
-                // `onToolInputDelta` reports every delta, an empty one included.
                 self.flight.input_delta(item_id);
-                self.semantic_seen = true;
-                out.push(StreamEvent::Progress(ProgressKind::Tool));
+                // Only content advances the response: an empty delta is not progress.
                 if !delta.is_empty() {
+                    self.semantic_seen = true;
+                    out.push(StreamEvent::Progress(ProgressKind::Tool));
                     let id = self
                         .tools
                         .get(item_id)
@@ -750,8 +754,8 @@ impl ResponsesDecoder {
         }
     }
 
-    /// The kind a finished item reports: the WebSocket collector (`completeOutputItem`) also reads the in-flight
-    /// flag, the HTTP/SSE one (`outputItemKind`) only the item type, the compatible one also counts a web search.
+    /// The kind a finished item reports: by the item's type alone (the compatible collector also counts a web search); a call
+    /// still in flight elsewhere in the response does not label it.
     fn done_kind(&self, item: &Value) -> ProgressKind {
         let collector = self.collector();
         let kind = str_of(item, "type");
@@ -759,11 +763,7 @@ impl ResponsesDecoder {
             ProgressKind::Tool
         } else if kind == "reasoning" {
             ProgressKind::Reasoning
-        } else if (collector == Collector::WebSocket && self.flight.in_flight())
-            || kind.contains("tool")
-            || kind.contains("function_call")
-            || (collector == Collector::Compat && kind.contains("web_search_call"))
-        {
+        } else if is_tool_item(item) || (collector == Collector::Compat && kind.contains("web_search_call")) {
             ProgressKind::Tool
         } else {
             ProgressKind::Semantic
@@ -1490,6 +1490,22 @@ mod progress_tests {
         fn turn_state(&self, _scope: &str, _turn_id: &str) -> Option<String> {
             None
         }
+    }
+
+    /// Progress is content that advances the response or a lifecycle transition: an empty argument delta is neither, a
+    /// whitespace one is content, and a call still in flight does not label the next item.
+    #[test]
+    fn an_empty_argument_delta_is_no_progress_and_a_call_in_flight_labels_nothing() {
+        let mut decoder = ResponsesDecoder::new(Framing::WebSocket, Arc::new(Ctx), ProviderId::from("openai"));
+        let mut feed = |wire: serde_json::Value| decoder.feed(wire.to_string().as_bytes()).expect("a valid frame");
+        let progress = |events: &[StreamEvent]| events.iter().filter_map(|e| if let StreamEvent::Progress(kind) = e { Some(*kind) } else { None }).collect::<Vec<_>>();
+        let call = serde_json::json!({ "type": "response.output_item.added", "item": { "type": "function_call", "id": "fc", "call_id": "c", "name": "write" } });
+        assert_eq!(progress(&feed(call)), vec![ProgressKind::Tool], "a call opening is a lifecycle transition");
+        let delta = |text: &str| serde_json::json!({ "type": "response.function_call_arguments.delta", "item_id": "fc", "delta": text });
+        assert!(progress(&feed(delta(""))).is_empty(), "an empty delta advances nothing");
+        assert_eq!(progress(&feed(delta(" "))), vec![ProgressKind::Tool], "whitespace is content");
+        let message = serde_json::json!({ "type": "response.output_item.added", "item": { "type": "message", "id": "m" } });
+        assert_eq!(progress(&feed(message)), vec![ProgressKind::Semantic], "an item is named by its type, not by the call in flight");
     }
 
     /// Node's three Responses collectors reported these kinds for each event of each scenario

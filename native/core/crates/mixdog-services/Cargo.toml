@@ -16,6 +16,7 @@ assigned-pg-port = []
 workspace = true
 
 [dependencies]
+mixdog-mcp = { workspace = true }
 mixdog-ai = { workspace = true }
 mixdog-tools = { workspace = true }
 mixdog-store = { workspace = true }

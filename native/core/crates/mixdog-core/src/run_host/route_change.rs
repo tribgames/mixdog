@@ -104,11 +104,17 @@ fn merge(into: &mut HeaderChange, other: HeaderChange) {
 pub struct RunHostRouteChange {
     facts: Arc<dyn RouteFacts>,
     clock: Arc<dyn Clock>,
+    prefix_guards: Arc<super::assemble::PrefixGuards>,
 }
 
 impl RunHostRouteChange {
     pub fn new(facts: Arc<dyn RouteFacts>, clock: Arc<dyn Clock>) -> Self {
-        Self { facts, clock }
+        Self { facts, clock, prefix_guards: Arc::default() }
+    }
+
+    /// Turn assembly must keep its baselines in this same store, so an applied switch clears them.
+    pub fn prefix_guards(&self) -> Arc<super::assemble::PrefixGuards> {
+        self.prefix_guards.clone()
     }
 
     /// `applyRouteContextWindow`: always derived anew from the model; never seeded with the old
@@ -164,8 +170,9 @@ impl RunHostRouteChange {
             set(change, "lastContextTokensStaleAfterCompact", json!(false));
         }
         unset(change, "providerState");
-        // The previous route's prefix snapshot measured another prompt; the new chain baselines on
-        // its first send.
+        // Clear the live baseline on every applied switch, not by comparing the final route at turn
+        // start: A -> B -> A can leave a changed prompt after B consumes a staged workspace re-root.
+        self.prefix_guards.invalidate(&mixdog_core_api::ids::ThreadId::from(text(header.get("id"))));
         unset(change, "_providerPrefixGuardState");
         // The new route resolves its own wire before its first request.
         set(change, "wireRoute", Value::Null);

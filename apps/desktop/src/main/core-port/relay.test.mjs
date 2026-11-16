@@ -5,6 +5,9 @@ import test from 'node:test';
 import { CLOSE_ALL_CODE, CORE_PORT_CHANNEL, CorePortRelay } from './relay.ts';
 import { windowIdFor } from './window-ids.ts';
 
+/** Lines are written after the caller's own work (link-log.mjs): read them one turn later. */
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+
 class FakeSocket extends EventEmitter {
   sent = [];
   closed = null;
@@ -46,6 +49,7 @@ function harness({ scope = 1, endpoints } = {}) {
   const headers = [];
   const ports = [];
   const logs = [];
+  const diags = [];
   const all = endpoints ?? [{ slot: 'primary', url: 'ws://127.0.0.1:1/rpc', token: 'tok', target: 'local', role: 'main' }];
   const relay = new CorePortRelay({
     endpointFor: async () => all,
@@ -64,8 +68,9 @@ function harness({ scope = 1, endpoints } = {}) {
       return { port1, port2: { port2: ports.length } };
     },
     log: (line) => logs.push(line),
+    diagnostic: (event, fields) => diags.push({ event, ...fields }),
   });
-  return { relay, sockets, headers, ports, logs };
+  return { relay, sockets, headers, ports, logs, diags };
 }
 harness.refuse = false;
 
@@ -108,6 +113,127 @@ test('socket_close_posts_closed', async () => {
   assert.deepEqual(ports[0].posted, [{ t: 'closed', code: 1006, reason: 'gone' }]);
   assert.equal(ports[0].isClosed, true);
   assert.ok(logs.some((line) => line.includes('core socket closed') && line.includes('code=1006')));
+});
+
+test('a link that the core ends is written to the diagnostics with its code, reason and age, and the next open is a reconnect, not a replacement', async () => {
+  const { relay, sockets, diags } = harness();
+  const wc = webContents();
+  const first = await relay.open(wc);
+  sockets[0].emit('close', 4001, Buffer.from('pingDeadline'));
+  await flush();
+  const close = diags.find((d) => d.event === 'core-link-close');
+  assert.equal(close.code, 4001);
+  assert.equal(close.reason, 'pingDeadline');
+  assert.equal(close.generation, first.generation);
+  assert.equal(close.initiator, 'core-or-network');
+  assert.equal(typeof close.openMs, 'number');
+  await relay.open(wc);
+  const opens = diags.filter((d) => d.event === 'core-link-open');
+  assert.deepEqual(opens.map((d) => d.replaced), [false, false]);
+});
+
+test('a link ended by a newer open is written as closed by the desktop, and the newer open says it replaced a live link', async () => {
+  const { relay, diags } = harness();
+  const wc = webContents();
+  await relay.open(wc);
+  await relay.open(wc);
+  await flush();
+  const close = diags.find((d) => d.event === 'core-link-close');
+  assert.equal(close.initiator, 'desktop');
+  assert.equal(close.reason, 'superseded');
+  assert.deepEqual(diags.filter((d) => d.event === 'core-link-open').map((d) => d.replaced), [false, true]);
+});
+
+test('a channel that cannot be created after the socket opened still leaves the link\'s close line, from the desktop', async () => {
+  const { diags } = harness();
+  const failing = new CorePortRelay({
+    coreWindowScope: async () => 1,
+    endpointFor: async () => [{ slot: 'primary', url: 'ws://x', token: 't', role: 'main', target: { id: 'core' } }],
+    createSocket: () => {
+      const socket = new FakeSocket();
+      queueMicrotask(() => socket.emit('open'));
+      return socket;
+    },
+    createChannel: () => {
+      throw new Error('no channel');
+    },
+    diagnostic: (event, fields) => diags.push({ event, ...fields }),
+    log: () => {},
+  });
+  await assert.rejects(failing.open(webContents()), /no channel/);
+  await flush();
+  const close = diags.filter((d) => d.event === 'core-link-close');
+  assert.equal(close.length, 1);
+  assert.equal(close[0].initiator, 'desktop');
+  assert.match(close[0].reason, /no channel/);
+});
+
+test('a socket the core closes while the channel is still being created leaves one close line from the core side', async () => {
+  const { diags } = harness();
+  let socket;
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const relay = new CorePortRelay({
+    coreWindowScope: async () => 1,
+    endpointFor: async () => [{ slot: 'primary', url: 'ws://x', token: 't', role: 'main', target: { id: 'core' } }],
+    createSocket: () => {
+      socket = new FakeSocket();
+      queueMicrotask(() => socket.emit('open'));
+      return socket;
+    },
+    createChannel: async () => {
+      await gate;
+      return { port1: new FakePort(), port2: {} };
+    },
+    diagnostic: (event, fields) => diags.push({ event, ...fields }),
+    log: () => {},
+  });
+  const opening = relay.open(webContents());
+  await new Promise((resolve) => setImmediate(resolve));
+  socket.emit('close', 4001, Buffer.from('pingDeadline'));
+  release();
+  await opening;
+  await flush();
+  const close = diags.filter((d) => d.event === 'core-link-close');
+  assert.equal(close.length, 1);
+  assert.equal(close[0].initiator, 'core-or-network');
+  assert.equal(close[0].code, 4001);
+});
+
+test('a close the window asks for is written as the window\'s, once, not as the core\'s or network\'s', async () => {
+  const { relay, ports, sockets, diags } = harness();
+  await relay.open(webContents());
+  ports[0].emit('message', { data: { t: 'close' } });
+  await flush();
+  const close = diags.filter((d) => d.event === 'core-link-close');
+  assert.equal(close.length, 1);
+  assert.equal(close[0].initiator, 'window');
+  assert.equal(close[0].reason, 'window closed the port');
+  await new Promise((resolve) => setImmediate(resolve)); // the socket's own close event follows
+  assert.equal(diags.filter((d) => d.event === 'core-link-close').length, 1);
+  assert.equal(sockets[0].closed.reason, 'window closed the port');
+});
+
+test('a throwing diagnostics sink does not break opening or closing a link', async () => {
+  const throwing = new CorePortRelay({
+    coreWindowScope: async () => 1,
+    endpointFor: async () => [{ slot: 'primary', url: 'ws://x', token: 't', role: 'main', target: { id: 'core' } }],
+    createSocket: () => {
+      const socket = new FakeSocket();
+      queueMicrotask(() => socket.emit('open'));
+      return socket;
+    },
+    createChannel: () => ({ port1: new FakePort(), port2: {} }),
+    diagnostic: () => {
+      throw new Error('sink failed');
+    },
+    log: () => {},
+  });
+  const wc = webContents();
+  assert.equal(typeof (await throwing.open(wc)).generation, 'number');
+  throwing.closeAll('test');
 });
 
 test('an open superseded before its port is delivered rejects and delivers nothing', async () => {

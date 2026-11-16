@@ -125,6 +125,105 @@ for (const [label, pane, first, second] of [
   });
 }
 
+test('a refused answer claims another device only when the core published the request as decided; otherwise the pane reads its state again', async () => {
+  const resynced = [];
+  dom.window.mixdogDesktop.resyncSessionState = (id) => resynced.push(id);
+  answer = async () => false;
+  const ui = await mountHook('s1');
+  try {
+    // This connection simply does not hold the request: nothing says another device decided it.
+    await act(async () => ui.state.approvals.approvalDock.props.resolve({ approved: true }));
+    assert.equal(ui.state.approvals.answeredElsewhere, null);
+    assert.deepEqual(resynced, ['s1']);
+    assert.ok(ui.state.approvals.approvalDock, 'the card stays answerable');
+    // The core reports it decided by another device: now the notice is true.
+    await ui.show({
+      sessionId: 's1',
+      items: [],
+      toolApproval: shell,
+      toolApprovalResult: { id: 'ap-1', approved: true, device: 'Pixel' },
+    });
+    await act(async () => ui.state.approvals.approvalDock.props.resolve({ approved: true }));
+    assert.equal(ui.state.approvals.answeredElsewhere?.id, 'ap-1');
+    assert.deepEqual(resynced, ['s1'], 'no further refresh once the core says it is decided');
+  } finally {
+    delete dom.window.mixdogDesktop.resyncSessionState;
+    await ui.done();
+  }
+});
+
+async function mountCard(sessionId) {
+  const routeSessionIdRef = { current: sessionId };
+  const host = document.getElementById('root');
+  function Harness({ snapshot }) {
+    return useConversationApprovals(snapshot, routeSessionIdRef).approvalDock;
+  }
+  const root = createRoot(host);
+  const show = (snapshot) => act(async () => root.render(React.createElement(Harness, { snapshot })));
+  await show({ sessionId, items: [], toolApproval: shell });
+  const buttons = () => [...host.querySelectorAll('.approval-prompt .approval-buttons .approval-button')];
+  return { show, buttons, host, done: () => act(async () => root.unmount()) };
+}
+const click = (node) => act(async () => node.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, detail: 1 })));
+
+test('after a refusal the core did not confirm, the card shows the client\'s current truth: gone when no longer held', async () => {
+  answer = async () => false;
+  const ui = await mountCard('s1');
+  try {
+    const asked = [];
+    dom.window.mixdogDesktop.resyncSessionState = async (id, options) => (asked.push([id, options]), true);
+    assert.ok(ui.buttons().length > 0);
+    await click(ui.buttons()[0]);
+    assert.deepEqual(asked, [['s1', { fresh: true }]]);
+    // The fresh projection arrives without the request.
+    await ui.show({ sessionId: 's1', items: [], toolApproval: null });
+    assert.equal(ui.buttons().length, 0, 'the request is no longer held: the card disappears');
+    assert.equal(ui.host.textContent.includes('another device'), false);
+  } finally {
+    delete dom.window.mixdogDesktop.resyncSessionState;
+    await ui.done();
+  }
+});
+
+test('after a refusal the core did not confirm, a request still held leaves the card clickable and the next answer succeeds', async () => {
+  const answers = [];
+  let accept = false;
+  answer = async (...args) => (answers.push(args), accept);
+  const ui = await mountCard('s1');
+  try {
+    dom.window.mixdogDesktop.resyncSessionState = async () => true;
+    await click(ui.buttons()[0]);
+    assert.equal(answers.length, 1);
+    assert.ok(ui.buttons().length > 0, 'the card stays');
+    assert.ok(
+      ui.buttons().every((button) => !button.disabled && button.getAttribute('aria-disabled') !== 'true'),
+      'and is answerable again'
+    );
+    accept = true;
+    await click(ui.buttons()[0]);
+    assert.equal(answers.length, 2, 'the retry reached the resolver');
+  } finally {
+    delete dom.window.mixdogDesktop.resyncSessionState;
+    await ui.done();
+  }
+});
+
+test('the card is answerable again even when the refresh never completes', async () => {
+  const answers = [];
+  answer = async (...args) => (answers.push(args), answers.length > 1);
+  const ui = await mountCard('s1');
+  try {
+    dom.window.mixdogDesktop.resyncSessionState = () => new Promise(() => {});
+    await click(ui.buttons()[0]);
+    assert.ok(ui.buttons().every((button) => !button.disabled && button.getAttribute('aria-disabled') !== 'true'));
+    await click(ui.buttons()[0]);
+    assert.equal(answers.length, 2);
+  } finally {
+    delete dom.window.mixdogDesktop.resyncSessionState;
+    await ui.done();
+  }
+});
+
 test('an answer that is accepted after the pane switched chats leaves no trace anywhere', async () => {
   let accept;
   answer = () => new Promise((resolve) => (accept = resolve));

@@ -218,7 +218,8 @@ async fn warm_project(cache: std::sync::Arc<GraphCache>, cwd: std::path::PathBuf
         let cache = cache.clone();
         move || {
             let root = roots::find_dir_project_root(&cwd, true)?;
-            let _ = graph::Graph::build(&root, &[], &cache);
+            // Fills the shared graph cache, or finds it valid already; builds nothing the cache cannot keep.
+            cache.prewarm(&root);
             Some(root)
         }
     })

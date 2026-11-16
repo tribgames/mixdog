@@ -67,6 +67,13 @@ impl Running {
             Arc::new(move |id| origins.origin_of(id)),
             ServerConfig { native_push: core.native_push_offered(), ..server_config(limits, core.defaults_separation()) },
         )?;
+        // One contained sink for every connection line, served or not: recording never reaches the connection that is recorded.
+        let sink = contained(core.log_line_sink());
+        server
+            .set_connection_log(sink.clone())
+            .unwrap_or_else(|_| unreachable!("a server built a line above has no connection log yet"));
+        // Sockets that never reach `drive` (refused, abandoned, handshake failed) leave their line through the same sink.
+        hub.set_log(sink).unwrap_or_else(|_| unreachable!("a hub built a line above has no log yet"));
         let windows = hub.clone();
         server
             .set_window_of(Arc::new(move |id| windows.connection_origin(id).as_ref().and_then(window_scope_of)))
@@ -82,6 +89,13 @@ impl Running {
             spawn_drive(self.server.clone(), accepted);
         }
     }
+}
+
+/// `sink` that cannot panic into its caller: a failing log write never changes what a connection does.
+fn contained(sink: Arc<dyn Fn(&str) + Send + Sync>) -> Arc<dyn Fn(&str) + Send + Sync> {
+    Arc::new(move |line: &str| {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sink(line)));
+    })
 }
 
 /// The window a connection's origin names, in the shape the core's calls carry.
@@ -142,11 +156,47 @@ pub(crate) fn spawn_drive(server: AppServer, accepted: AcceptedConnection) {
 
 /// One connection's life: its requests go to the server in arrival order until it closes.
 async fn drive(server: AppServer, accepted: AcceptedConnection) {
-    let AcceptedConnection { id, mut inbound, sink, .. } = accepted;
+    let AcceptedConnection { id, origin, mut inbound, sink } = accepted;
+    let opened = std::time::Instant::now();
+    let kind = connection_kind(&origin);
+    server.log_connection(&format!("connection open id={} {kind}", id.0));
     let handle = server.open(id, Arc::new(sink.clone()));
     if let Some(code) = pump(&mut inbound, |message| handle.on_message(message), is_control).await {
         sink.close(code);
     }
+    server.log_connection(&close_line(id.0, &kind, sink.close_code(), opened.elapsed(), handle.subscription_count()));
+}
+
+/// Who the connection is, for its open and close lines: no token, only the origin and a window's own ids.
+fn connection_kind(origin: &ConnectionOrigin) -> String {
+    match origin {
+        ConnectionOrigin::Loopback => "kind=loopback".to_owned(),
+        ConnectionOrigin::SshTunnel => "kind=sshTunnel".to_owned(),
+        ConnectionOrigin::Relay { .. } => "kind=relay".to_owned(),
+        ConnectionOrigin::InProcess => "kind=inProcess".to_owned(),
+        ConnectionOrigin::Window { window_id, tunnel, role } => {
+            let role = match role {
+                mixdog_app_server_transport::WindowRole::Main => "main".to_owned(),
+                mixdog_app_server_transport::WindowRole::Server { connection_id } => format!("server:{connection_id}"),
+            };
+            format!("kind=window window={window_id} role={role}{}", if *tunnel { " tunnel=true" } else { "" })
+        }
+    }
+}
+
+/// `code` is the one this side closed with (`ConnectionWriter::close_code`), `None` when the peer closed first or the socket failed.
+fn close_line(id: u64, kind: &str, code: Option<CloseCode>, lived: std::time::Duration, subscriptions_dropped: usize) -> String {
+    let reason = match code {
+        None => "peerClosed",
+        Some(CloseCode::Normal) => "normal",
+        Some(CloseCode::GoingAway) => "shutdown",
+        Some(CloseCode::SlowConsumer) => "slowConsumer",
+        Some(CloseCode::PeerUnresponsive) => "pingDeadline",
+        Some(CloseCode::VersionRefused) => "versionRefused",
+        Some(CloseCode::UnsupportedData | CloseCode::InvalidFrame | CloseCode::PolicyViolation | CloseCode::FrameTooBig) => "protocolError",
+    };
+    let code = code.map_or_else(|| "none".to_owned(), |code| code.code().to_string());
+    format!("connection close id={id} {kind} reason={reason} code={code} openMs={} subscriptionsDropped={subscriptions_dropped}", lived.as_millis())
 }
 
 /// Where a connection's decoded frames come from.
@@ -421,6 +471,75 @@ mod tests {
             shutdown.run().await;
             assert!(unserved.is_empty(), "table methods no handler serves: {unserved:#?}");
         });
+    }
+
+    /// A socket that never delivers a frame and takes every write: a peer that has gone silent.
+    struct Silent;
+
+    impl SocketRead for Silent {
+        async fn next(&mut self) -> Option<Incoming> {
+            std::future::pending().await
+        }
+    }
+
+    impl SocketWrite for Silent {
+        async fn text(&mut self, _: Bytes) -> Result<(), SocketClosed> {
+            Ok(())
+        }
+        async fn ping(&mut self) -> Result<(), SocketClosed> {
+            Ok(())
+        }
+        async fn close(&mut self, _: CloseCode) -> Result<(), SocketClosed> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn link_log_contained_sink_does_not_panic_into_its_caller() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = calls.clone();
+        let sink = contained(Arc::new(move |_: &str| {
+            seen.fetch_add(1, Ordering::SeqCst);
+            panic!("the sink failed");
+        }));
+        sink("connection open id=1 kind=loopback");
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "the sink ran, and its panic stayed in it");
+    }
+
+    #[test]
+    fn a_close_line_names_the_reason_the_connection_ended_with() {
+        let lived = std::time::Duration::from_millis(1500);
+        let line = |code| close_line(7, "kind=loopback", code, lived, 3);
+        assert_eq!(line(None), "connection close id=7 kind=loopback reason=peerClosed code=none openMs=1500 subscriptionsDropped=3");
+        for (code, reason, number) in [
+            (CloseCode::SlowConsumer, "slowConsumer", 4000),
+            (CloseCode::PeerUnresponsive, "pingDeadline", 4001),
+            (CloseCode::GoingAway, "shutdown", 1001),
+            (CloseCode::FrameTooBig, "protocolError", 1009),
+            (CloseCode::InvalidFrame, "protocolError", 1007),
+        ] {
+            let said = line(Some(code));
+            assert!(said.contains(&format!("reason={reason} code={number} ")), "{said}");
+        }
+        let window = ConnectionOrigin::Window { window_id: "w1".into(), tunnel: false, role: mixdog_app_server_transport::WindowRole::Server { connection_id: "c9".into() } };
+        assert_eq!(connection_kind(&window), "kind=window window=w1 role=server:c9");
+    }
+
+    #[tokio::test]
+    async fn a_close_line_of_a_silent_peer_says_ping_deadline() {
+        let _tokens = mixdog_rt::testing::tokens();
+        let hub = ConnectionHub::new(Limits::default()).unwrap();
+        let mut accepted = hub.attach(ConnectionOrigin::Loopback, Silent, Silent).unwrap();
+        // A ping after one silent tick, the deadline two ticks later, the socket abandoned one tick after that.
+        for _ in 0..8 {
+            hub.heartbeat_tick();
+            for _ in 0..4 {
+                tokio::task::yield_now().await;
+            }
+        }
+        assert!(accepted.inbound.recv().await.is_none());
+        let line = close_line(accepted.id.0, &connection_kind(&accepted.origin), accepted.sink.close_code(), std::time::Duration::ZERO, 0);
+        assert!(line.contains("reason=pingDeadline code=4001"), "{line}");
     }
 
     struct Source(mpsc::Receiver<JsonRpcMessage>);

@@ -359,7 +359,7 @@ impl SummarySender for Scripted {
                 "cacheStrategy": cache,
             },
         }));
-        Ok(SummaryResponse { text: self.replies[sent.len() - 1].clone(), tool_call: false, usage: None })
+        Ok(SummaryResponse { text: self.replies[sent.len() - 1].clone(), tool_call: false, usage: None, input_excludes_cache: false })
     }
 }
 

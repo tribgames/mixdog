@@ -297,6 +297,10 @@ impl Connection {
         }
     }
 
+    pub(crate) fn subscription_count(&self) -> usize {
+        lock(&self.subs).as_ref().map_or(0, HashMap::len)
+    }
+
     /// Closes the connection's state: cancels its work, and hands back what must be released
     /// elsewhere. Pending `host/*` requests are dropped, which fails their waiters.
     pub(crate) fn close(&self) -> Closed {

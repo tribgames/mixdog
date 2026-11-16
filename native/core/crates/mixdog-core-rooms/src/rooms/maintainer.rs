@@ -124,7 +124,7 @@ mod tests {
             if self.0 == "boom" {
                 return Err(SummaryFailure::Failed("x".into()));
             }
-            Ok(SummaryResponse { text: self.0.to_owned(), tool_call: false, usage: None })
+            Ok(SummaryResponse { text: self.0.to_owned(), tool_call: false, usage: None, input_excludes_cache: false })
         }
     }
 

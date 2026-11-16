@@ -71,7 +71,7 @@ test('a lone weak row match is not an alignment', () => {
   assert.equal(result.offset, 0);
 });
 
-test('optimized alignment preserves exhaustive ranking across duplicate ids, windows and history rewrites', () => {
+test('optimized content alignment preserves exhaustive ranking across disjoint source namespaces', () => {
   let seed = 1729;
   const random = (n) => {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
@@ -90,7 +90,9 @@ test('optimized alignment preserves exhaustive ranking across duplicate ids, win
       run % 2
         ? previous.slice(random(previous.length + 1)).map((item) => ({ ...item }))
         : Array.from({ length: random(24) }, row);
-    if (run % 3 === 0) incoming = incoming.map((item) => ({ ...item, id: `new-${random(4)}` }));
+    // The legacy oracle ranks content first; that remains the contract only
+    // when neither source supplies an identity shared with the other.
+    incoming = incoming.map((item) => ({ ...item, id: `new-${random(4)}` }));
     assert.deepEqual(findTranscriptAlignment(previous, incoming), legacyAlignment(previous, incoming));
   }
 });

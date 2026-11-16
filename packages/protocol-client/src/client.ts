@@ -40,6 +40,7 @@ import type {
 import type { OpStatusEntry } from '@mixdog/protocol';
 import { DEFAULT_LADDER, WIRE } from './api.ts';
 import { isOfferedRequest, isScopedMethod, isSectionMethod, methodInfo } from './method-table.ts';
+import { createLinkLog } from './link-log.mjs';
 
 // ───────────────────────────── pure helpers ─────────────────────────────
 
@@ -203,6 +204,9 @@ interface Unanswered {
   readonly resolve: (v: Json) => void;
   readonly reject: (e: ClientFailure) => void;
 }
+/** A `thread/start` of a control thread: the client keeps the subscription its reply gave. */
+const startsControlThread = (method: string, params: unknown): boolean =>
+  method === 'thread/start' && (params as { kind?: unknown } | null)?.kind === 'control';
 interface SentAt {
   readonly all: number;
   readonly byClass: Record<RequestClass, number>;
@@ -239,6 +243,15 @@ class Engine implements ProtocolClient<Json> {
   private generation = 0;
   private readonly listeners = new Set<(e: ClientEvent) => void>();
   private readonly subs = new Map<string, ResumeWindow>();
+  /** Threads this client started as `kind: "control"` (the reply to `thread/start` subscribed this connection to them): resumed
+   *  after each reconnect like `subs`, but never folded (their frames are not tracked), until `unsubscribeThread` or lost. */
+  private readonly held = new Map<string, ResumeWindow>();
+  /** The resume of each held thread after the latest reconnect, while it is in flight: a request naming the thread waits for it. */
+  private readonly heldRestoring = new Map<string, { done: Promise<ClientErrorDetail | undefined>; end(): void }>();
+  /** The threads whose resume after a reconnect (`restoreThread`) is in flight; each entry is that restore's own token. */
+  private readonly restoring = new Map<string, object>();
+  /** The number of restores (`restoreThread`) started on this client, of any thread. */
+  private restoreStarts = 0;
   private appSubscribed = false;
   private readonly serverRequests = new Map<string, ServerRequest>();
   private readonly recv = new Map<string, { epoch: string; seq: number }>();
@@ -255,6 +268,9 @@ class Engine implements ProtocolClient<Json> {
   private readonly unanswered = new Map<string, Unanswered>();
   private looping = false;
   private everReady = false;
+  /** When this client's link last became ready, and when it last went down (wall clock, for the host's link log). */
+  private readyAt = 0;
+  private downAt = 0;
   private terminal: ClientErrorDetail | undefined;
   private readonly reducer: ThreadReducer<Json> | undefined;
   private readonly o: ConnectOptions<Json>;
@@ -267,8 +283,12 @@ class Engine implements ProtocolClient<Json> {
   private readonly subToken = new Map<string, number>();
   private tokenSeq = 0;
 
+  /** Link life-cycle lines for the host's log (`link-log.mjs`): counts, ids and times only; it cannot throw into the link. */
+  private readonly diag: (event: string, fields?: Record<string, unknown>) => void;
+
   constructor(options: ConnectOptions<Json>) {
     this.o = options;
+    this.diag = createLinkLog(options.onDiagnostic);
     this.reducer = options.threadReducer;
     this.budgetMs = options.turn?.budgetMs ?? 8;
     this.now = options.turn?.now ?? (() => performance.now());
@@ -301,7 +321,9 @@ class Engine implements ProtocolClient<Json> {
       throw e;
     }
     this.everReady = true;
+    this.readyAt = Date.now();
     this.setStatus({ state: 'ready', serverInstanceId: this.server.serverInstanceId });
+    this.diag('link-open', { linkSeq: this.connSeq });
   }
 
   private async openTransport(): Promise<void> {
@@ -352,7 +374,20 @@ class Engine implements ProtocolClient<Json> {
     const dropped = [...this.serverRequests.values()];
     this.serverRequests.clear();
     for (const r of dropped) this.touchSurface(r);
-    for (const p of drain(this.pending)) p.reject(fail({ kind: 'connectionLost' }));
+    const lost = drain(this.pending);
+    // A thread attached without a `thread/resume` (`thread/start`) is in the store but not in `subs`: the ladder cannot restore it.
+    this.diag('link-down', {
+      linkSeq: this.connSeq,
+      openMs: this.readyAt ? Date.now() - this.readyAt : 0,
+      ownerClosed: Boolean(this.terminal),
+      threadsFollowed: this.subs.size,
+      threadsNotRestorable: [...this.store.threads.keys()].filter((id) => !this.subs.has(id)).length,
+      appSubscribed: this.appSubscribed,
+      requestsFailed: lost.length,
+      serverRequestsDropped: dropped.length,
+    });
+    this.downAt = Date.now();
+    for (const p of lost) p.reject(fail({ kind: 'connectionLost' }));
     this.pulse();
     if (this.terminal || !this.everReady || this.looping) return;
     this.looping = true;
@@ -383,48 +418,107 @@ class Engine implements ProtocolClient<Json> {
         continue;
       }
       this.looping = false;
+      this.readyAt = Date.now();
       this.setStatus({ state: 'ready', serverInstanceId: this.server.serverInstanceId });
+      this.diag('link-reconnected', { linkSeq: this.connSeq, attempts: attempt + 1, downMs: Date.now() - this.downAt, threadsToRestore: this.subs.size, appToRestore: this.appSubscribed });
       // The connection is usable now. Each subscription and each scope's reconciliation proceeds independently.
-      this.restoreSubscriptions();
+      // The connection this restore belongs to is fixed now: a later reconnect advances `connSeq` before this settles.
+      const restoring = this.connSeq;
+      void this.restoreSubscriptions().then((outcome) => this.diag('link-restore-settled', { linkSeq: restoring, ...outcome }));
       this.reconcileOps();
       return;
     }
   }
 
-  private restoreSubscriptions(): void {
-    for (const [threadId, window] of [...this.subs]) void this.restoreThread(threadId, window);
-    if (this.appSubscribed) void this.restoreApp();
+  private restoreSubscriptions(): Promise<{ threadsRestored: number; threadsLost: number; threadsFailed: number; appRestored: boolean }> {
+    // Started in the same turn as the status change to ready, so a request waiting for readiness finds the restore registered.
+    for (const [threadId, window] of [...this.held]) this.restoreHeld(threadId, window);
+    const threads = [...this.subs].map(([threadId, window]) => this.restoreThread(threadId, window));
+    const app = this.appSubscribed ? this.restoreApp() : Promise.resolve(false);
+    return Promise.all([Promise.all(threads), app]).then(([done, appRestored]) => ({
+      threadsRestored: done.filter((o) => o === 'restored').length,
+      threadsLost: done.filter((o) => o === 'lost').length,
+      threadsFailed: done.filter((o) => o === 'failed').length,
+      appRestored,
+    }));
   }
 
   /** An rpc error drops the subscription; the end of the connection is the ladder's business. */
-  private async restoreThread(threadId: string, window: ResumeWindow): Promise<void> {
+  private async restoreThread(threadId: string, window: ResumeWindow): Promise<'restored' | 'lost' | 'failed'> {
+    const mine = {};
+    this.restoring.set(threadId, mine);
+    this.restoreStarts += 1;
+    const settled = (): void => {
+      if (this.restoring.get(threadId) === mine) this.restoring.delete(threadId);
+    };
     try {
       await this.run('thread/resume', this.resumeParams(threadId, window), INTERNAL, (r) => this.attached(threadId, r));
+      settled();
       this.store.emit({ type: 'subscription', feedId: threadId, state: 'restored' });
+      return 'restored';
     } catch (e) {
+      settled();
       const d = detailOf(e);
-      if (d.kind !== 'rpc') return;
+      if (d.kind !== 'rpc') return 'failed';
       this.subs.delete(threadId);
       this.subToken.delete(threadId);
       this.store.threads.delete(threadId);
       this.emit({ type: 'subscriptionLost', threadId, error: d });
       this.store.emit({ type: 'subscription', feedId: threadId, state: 'lost', error: d });
+      return 'lost';
     }
   }
-  private async restoreApp(): Promise<void> {
+  /** A control thread the core no longer has (restarted, or swept during a long disconnect) is dropped from `held`; the end of the
+   *  connection leaves it held for the next reconnect. */
+  private restoreHeld(threadId: string, window: ResumeWindow): Promise<ClientErrorDetail | undefined> {
+    let end = (): void => undefined;
+    const ended = new Promise<undefined>((resolve) => (end = () => resolve(undefined)));
+    const entry = { done: undefined as unknown as Promise<ClientErrorDetail | undefined>, end };
+    const resume = (async (): Promise<ClientErrorDetail | undefined> => {
+      try {
+        await this.run('thread/resume', { threadId, window } as unknown as Json, INTERNAL);
+        return undefined;
+      } catch (e) {
+        const d = detailOf(e);
+        if (d.kind !== 'rpc' || this.held.get(threadId) !== window) return undefined;
+        this.held.delete(threadId);
+        return d;
+      } finally {
+        if (this.heldRestoring.get(threadId) === entry) this.heldRestoring.delete(threadId);
+      }
+    })();
+    // A waiter ends with the resume, or when the hold is dropped (`unsubscribeThread`) or the client closes, whichever is first.
+    // The resume itself ends as any request does: with its answer, or with the connection.
+    entry.done = Promise.race([resume, ended]);
+    this.heldRestoring.set(threadId, entry);
+    return entry.done;
+  }
+  /** Resolves once this client is ready and no resume of `threadId` is in flight: the point from which a held thread is, or is not,
+   *  subscribed on the current connection (`threadSubscription(id).held`). Rejects when the client is closed. */
+  async whenHeldSettled(threadId: string): Promise<void> {
+    for (;;) {
+      await this.whenReady();
+      const restoring = this.heldRestoring.get(threadId);
+      if (!restoring) return;
+      await restoring.done;
+    }
+  }
+  private async restoreApp(): Promise<boolean> {
     try {
       await this.run('app/subscribe', this.appParams(), INTERNAL, (r) => {
         this.attached(WIRE.appFeedId, r);
         this.completeAnnouncements();
       });
       this.store.emit({ type: 'subscription', feedId: WIRE.appFeedId, state: 'restored' });
+      return true;
     } catch (e) {
       const d = detailOf(e);
-      if (d.kind !== 'rpc') return;
+      if (d.kind !== 'rpc') return false;
       this.appSubscribed = false;
       this.subToken.delete(WIRE.appFeedId);
       this.emit({ type: 'subscriptionLost', threadId: WIRE.appFeedId, error: d });
       this.store.emit({ type: 'subscription', feedId: WIRE.appFeedId, state: 'lost', error: d });
+      return false;
     }
   }
 
@@ -433,6 +527,7 @@ class Engine implements ProtocolClient<Json> {
     for (const p of drain(this.pending)) p.reject(fail(detail));
     for (const u of [...this.unanswered.values()]) u.reject(fail(detail));
     this.unanswered.clear();
+    for (const threadId of [...this.held.keys(), ...this.heldRestoring.keys()]) this.releaseHeld(threadId);
     for (const w of this.readyWaiters.splice(0)) w.err(fail(detail));
     this.pulse();
     this.setStatus({ state: 'closed', reason: detail });
@@ -475,8 +570,10 @@ class Engine implements ProtocolClient<Json> {
     return () => void this.listeners.delete(listener);
   }
 
-  private violation(code: number, what: string): void {
+  /** `category` is what the host's log gets: a fixed name, never `what`, which may carry feed ids or exception text. */
+  private violation(code: number, what: string, category = what): void {
     this.emit({ type: 'protocolViolation', what });
+    this.diag('link-violation', { linkSeq: this.connSeq, code, category });
     this.writer?.close(code, what);
   }
 
@@ -570,7 +667,7 @@ class Engine implements ProtocolClient<Json> {
     const snapshot = n.method === WIRE.threadSnapshot || n.method === WIRE.appSnapshot;
     const cur = this.recv.get(f.id);
     if (!snapshot && (!cur || cur.epoch !== f.epoch || firstOf(f) !== cur.seq + 1)) {
-      return this.violation(1002, `feed gap on ${f.id}`);
+      return this.violation(1002, `feed gap on ${f.id}`, 'feed gap');
     }
     this.recv.set(f.id, { epoch: f.epoch, seq: f.seq });
     const tok = this.subToken.get(f.id);
@@ -582,7 +679,7 @@ class Engine implements ProtocolClient<Json> {
   private onScoped(n: JsonRpcNotification, f: FeedStamp, gen: number): void {
     const cur = this.recv.get(f.id);
     if (n.method !== 'feed/snapshot' && cur && (cur.epoch !== f.epoch || firstOf(f) !== cur.seq + 1)) {
-      return this.violation(1002, `feed gap on ${f.id}`);
+      return this.violation(1002, `feed gap on ${f.id}`, 'feed gap');
     }
     this.recv.set(f.id, { epoch: f.epoch, seq: f.seq });
     this.feedChains.set(
@@ -650,7 +747,7 @@ class Engine implements ProtocolClient<Json> {
       else state = this.reducer ? this.reducer.apply(prev.state, resolved) : prev.state;
     } catch (e) {
       // A reducer that throws leaves the fold unknown: drop the connection so the ladder re-attaches from a snapshot.
-      return this.violation(1002, `reducer failed on ${f.id}: ${String(e)}`);
+      return this.violation(1002, `reducer failed on ${f.id}: ${String(e)}`, 'reducer failed');
     }
     // The awaits above leave microtask gaps in which an unsubscribe or a resubscribe can run: the identity is checked again here,
     // in the same synchronous block as the swap, so an abandoned fold can never commit.
@@ -797,8 +894,35 @@ class Engine implements ProtocolClient<Json> {
     }, false, options?.sent);
     return r as unknown as ThreadResumeResponse;
   }
+  /** Whether this client follows `threadId` (a `thread/resume` it sent was answered; it resumes the thread again after each
+   *  reconnect, until `unsubscribeThread` or `subscriptionLost`); whether its resume of the thread after a reconnect is in
+   *  flight (it ends with the `subscription` store change, restored or lost, or with the connection; until then the core may
+   *  attach the thread after an unsubscribe it already answered); `restoresStarted`, the client's count of restores started
+   *  of any thread (so a restore of this thread that was in flight at any point between two reads shows as `restoring` in
+   *  the first or as a changed count, however it ended; a restore of another thread may show too, which only costs a
+   *  redundant request, and nothing is kept per thread once it is neither followed nor restoring); and the number of its
+   *  current transport connection: the core's subscriptions of a connection end with that connection. A fold in the store
+   *  is no such proof. */
+  threadSubscription(threadId: string): {
+    readonly followed: boolean;
+    /** Whether this client holds the control thread it started: its subscription is restored after every reconnect, so while this
+     *  is true the thread is subscribed on the current connection (or being resumed, and a request naming it waits for that). */
+    readonly held: boolean;
+    readonly restoring: boolean;
+    readonly restoresStarted: number;
+    readonly connection: number;
+  } {
+    return {
+      followed: this.subs.has(threadId),
+      held: this.held.has(threadId),
+      restoring: this.restoring.has(threadId),
+      restoresStarted: this.restoreStarts,
+      connection: this.generation,
+    };
+  }
   async unsubscribeThread(threadId: string, options?: Pick<CallOptions, 'sent'>): Promise<void> {
     this.subs.delete(threadId);
+    this.releaseHeld(threadId);
     this.subToken.delete(threadId);
     this.recv.delete(threadId);
     this.store.threads.delete(threadId);
@@ -822,15 +946,44 @@ class Engine implements ProtocolClient<Json> {
       const given = (p as { opId?: string } | null)?.opId;
       p = { ...(p as object), opId: options?.opId ?? given ?? (this.o.newOpId ?? (() => uuidv7(Date.now())))() } as Json;
     }
-    return this.run(method, p, info, undefined, false, options?.sent) as Promise<never>;
+    return this.run(method, p, info, startsControlThread(method, p) ? (v) => void this.holdStarted(v, true) : undefined, false, options?.sent) as Promise<never>;
   }
 
+  /** The one way a control thread becomes held, whichever way its start was confirmed. `subscribed`: the reply itself subscribed this
+   *  connection (the direct answer); otherwise (`op/status` confirmed a start made on a connection that is gone) it is resumed here,
+   *  and the caller has the thread only once that is answered. Ended by `releaseHeld`. */
+  private holdStarted(reply: Json, subscribed: boolean): Promise<Json> {
+    const id = (reply as { thread?: { id?: unknown } } | null)?.thread?.id;
+    if (typeof id !== 'string') return Promise.resolve(reply);
+    const window: ResumeWindow = { none: true };
+    this.held.set(id, window);
+    return subscribed ? Promise.resolve(reply) : this.restoreHeld(id, window).then(() => reply);
+  }
+
+  /** The one way a hold ends (unsubscribed, or the client closed; an unrestorable thread ends in `restoreHeld` the same way): what
+   *  waits on the thread's resume is let go. */
+  private releaseHeld(threadId: string): void {
+    this.held.delete(threadId);
+    this.heldRestoring.get(threadId)?.end();
+    this.heldRestoring.delete(threadId);
+  }
   /** `stay` calls (stub resolution inside the fold) never wait for a reconnect: they reject `connectionLost` instead. */
   private async run(method: string, params: Json, info: MethodInfo, sync?: (v: Json) => void, stay = false, onSent?: SentClaim): Promise<Json> {
     for (;;) {
       if (stay) {
         if (this.status.state !== 'ready') throw fail({ kind: 'connectionLost' });
-      } else await this.whenReady();
+      } else {
+        await this.whenReady();
+        // A request naming a held control thread leaves only once that thread is subscribed again on this connection. A resume the
+        // core refused (the thread is gone) never lets the request go on naming it: it fails here, nothing sent.
+        const naming = (params as { threadId?: unknown } | null)?.threadId;
+        const restoring = typeof naming === 'string' && method !== 'thread/resume' ? this.heldRestoring.get(naming) : undefined;
+        if (restoring) {
+          const lost = await restoring.done;
+          if (lost) throw fail(lost);
+          continue;
+        }
+      }
       const sent: SentAt = { all: this.responses, byClass: { ...this.classResponses }, feed: this.feedEvents };
       try {
         return await this.rpc(method, params, info.class, sync, onSent);
@@ -922,12 +1075,15 @@ class Engine implements ProtocolClient<Json> {
   private settle(u: Unanswered, e: OpStatusEntry): void {
     switch (e.state) {
       case 'applied':
+        if (startsControlThread(u.method, u.params)) return void this.holdStarted((e.result ?? null) as Json, false).then(u.resolve, u.reject);
         return u.resolve(e.result ?? null);
       case 'rejected':
         return u.reject(rpcFailure(e.error as unknown as JsonRpcErrorBody));
       case 'inProgress':
         // Same opId and payload: the core attaches the request to the running execution (protocol.md §9.3).
-        this.run(u.method, u.params, u.info).then(u.resolve, u.reject);
+        this.run(u.method, u.params, u.info)
+          .then((r) => (startsControlThread(u.method, u.params) ? this.holdStarted(r, false) : r))
+          .then(u.resolve, u.reject);
         return;
       case 'notApplied':
         return u.reject(fail({ kind: 'opNotApplied', opId: e.opId }));

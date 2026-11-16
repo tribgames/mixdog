@@ -913,12 +913,12 @@ pub async fn run_nested(
         approvals: Arc::clone(&ctx.approvals),
         files: Arc::clone(&ctx.files),
         processes: Arc::clone(&ctx.processes),
-        options: ctx.options.clone(),
+        options: CallOptions { connector_account: target.connector_account.clone(), ..ctx.options.clone() },
         review: ctx.review.clone(),
     };
     let mut args = target.args.clone();
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
-    let hook_call = GateCall { name: target.name.clone(), args: args.clone(), schema_name: target.schema_name.clone(), cwd: target.cwd.clone() };
+    let hook_call = GateCall { name: target.name.clone(), args: args.clone(), schema_name: target.schema_name.clone(), cwd: target.cwd.clone(), connector_account: target.connector_account.clone() };
     let timeout = ctx.deadline.map(|d| d.saturating_duration_since(Instant::now()));
     let mut running = Box::pin(mixdog_rt::in_tool_call(mixdog_rt::tool_label(&spec.name), tool.call(&nested, args)));
     let waited = Scope::new()
@@ -990,12 +990,12 @@ fn io_timeout_from(raw: &str) -> Option<Duration> {
     (ms <= TIMER_MAX_MS).then(|| Duration::from_millis(ms as u64))
 }
 
-/// `runReadOnlyIoWithDeadline`'s timeout error: the text a read-only I/O call gives when it has nothing to hand back past its deadline.
+/// The outer deadline establishes that no result was returned, not which phase consumed the budget.
 fn read_only_io_timeout(name: &str, timeout: Option<Duration>) -> ToolError {
     ToolError::new(
         ToolErrorCode::DeadlineExceeded { partial: false },
         format!(
-            "Error: read-only I/O tool \"{name}\" timed out after {}ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry.",
+            "Error: read-only I/O tool \"{name}\" exceeded its {}ms deadline with no result returned.",
             timeout.map_or(0, |t| t.as_millis())
         ),
     )
@@ -1018,7 +1018,7 @@ fn graced(outcome: ToolOutcome, name: &str, timeout: Option<Duration>) -> ToolOu
     }
     let ms = timeout.map_or(0, |t| t.as_millis());
     output.parts = vec![ToolPart::Text(format!(
-        "{text}\n[warning] read-only I/O tool \"{name}\" hit the {ms}ms deadline; PARTIAL results shown — narrow the scope (path, glob, more specific pattern, smaller limit) for the complete set."
+        "{text}\n[warning] read-only I/O tool \"{name}\" exceeded its {ms}ms deadline; output was returned, but completeness is unknown."
     ))];
     Ok(output)
 }
@@ -1116,7 +1116,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
         let text = crate::text::unknown_tool_message(&target.name, &names);
         // The executor returns this text, so PostToolUse sees it like any other result (`applyAfterToolHook`).
         let updated = match &env.hooks {
-            Some(hooks) => hooked(&env.cancel, hooks.after_tool(&call.id, &GateCall { name: target.name.clone(), args: target.args.clone(), schema_name: target.schema_name.clone(), cwd: target.cwd.clone() }, &text)).await.flatten(),
+            Some(hooks) => hooked(&env.cancel, hooks.after_tool(&call.id, &GateCall { name: target.name.clone(), args: target.args.clone(), schema_name: target.schema_name.clone(), cwd: target.cwd.clone(), connector_account: target.connector_account.clone() }, &text)).await.flatten(),
             None => None,
         };
         return Executed::returned(&call.id, updated.unwrap_or(text));
@@ -1139,6 +1139,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
         files: Arc::clone(&env.tool_env.files),
         processes: Arc::clone(&env.tool_env.processes),
         options: CallOptions {
+            connector_account: target.connector_account.clone(),
             notify: env.tool_env.notify.clone(),
             edit_occurrence,
             // Only `shell` asks which tools replace what it would run.
@@ -1228,6 +1229,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
                             args: target_args_for_hook,
                             schema_name: target.schema_name.clone(),
                             cwd: target.cwd.clone(),
+                            connector_account: target.connector_account.clone(),
                         },
                         visible,
                     ),
@@ -1819,7 +1821,7 @@ mod tests {
         assert!(executed.failed);
         assert_eq!(
             executed.message.text(),
-            "Error: read-only I/O tool \"stuck\" timed out after 0ms with no partial output; narrow the scope (path, glob, more specific pattern, smaller limit) and retry."
+            "Error: read-only I/O tool \"stuck\" exceeded its 0ms deadline with no result returned."
         );
         // The task may not have started before the deadline fired; either way it ends.
         let _ = dropped.await;
@@ -1837,7 +1839,7 @@ mod tests {
         assert!(!executed.failed);
         assert_eq!(
             executed.message.text(),
-            "partial\n[warning] read-only I/O tool \"grep\" hit the 20000ms deadline; PARTIAL results shown — narrow the scope (path, glob, more specific pattern, smaller limit) for the complete set."
+            "partial\n[warning] read-only I/O tool \"grep\" exceeded its 20000ms deadline; output was returned, but completeness is unknown."
         );
     }
 

@@ -758,6 +758,12 @@ fn fresh_heir_state(header: &mut mixdog_store::schema::record::Header) {
     // `ensureCodexWireSessionId`: the heir's own wire id on an `openai-oauth` route, none on any other.
     let wire = if header.get("provider").and_then(Value::as_str) == Some("openai-oauth") { json!(uuid::Uuid::now_v7().to_string()) } else { Value::Null };
     header.insert("codexWireSessionId".into(), wire);
+    // Only the maintenance provenance is reset (to `ROOT_LEAD_IDENTITY.sourceType` of `cold-heir.mjs`): it would keep a user's fork out
+    // of memory when it closes. Every other source type travels, as the preserved copies of a clear or an archival reset (Node's
+    // `session-crud.mjs` copy) keep theirs.
+    if header.get("sourceType").and_then(Value::as_str) == Some(super::session_options::MEMORY_CYCLE_SOURCE) {
+        header.insert("sourceType".into(), json!("lead"));
+    }
     for key in ["totalInputTokens", "totalOutputTokens", "totalToolCalls", "tokensCumulative"] {
         header.insert(key.into(), json!(0));
     }

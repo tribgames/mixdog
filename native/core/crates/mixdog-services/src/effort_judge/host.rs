@@ -11,19 +11,15 @@
 
 use std::ffi::OsString;
 use std::io::{BufRead, Write};
-use std::path::PathBuf;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
-use mixdog_exthost::Containment;
 use mixdog_agent::step_effort::{StepCall, StepInput};
-use mixdog_rt::{JudgeThread, TaskClass};
+use mixdog_rt::JudgeThread;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio_util::sync::CancellationToken;
+pub(crate) use crate::model_host::HostLaunch;
+use crate::model_host::Pipes;
 
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::input::TurnInput;
@@ -165,14 +161,6 @@ pub fn serve(config: &ModelConfig, threads: JudgeThread, input: impl BufRead, ou
     serve_resident(|| JudgeModel::load(config, threads).map(|model| Arc::new(model) as Arc<dyn Resident>), input, output)
 }
 
-/// How the host process is started.
-#[derive(Clone, Debug)]
-pub(crate) struct HostLaunch {
-    pub(crate) program: PathBuf,
-    pub(crate) args: Vec<OsString>,
-    pub(crate) env: Vec<(String, String)>,
-}
-
 impl HostLaunch {
     /// This executable as `mixdogd effort-judge-host` over `config`'s model.
     pub(crate) fn of(config: &ModelConfig) -> Result<Self, JudgeError> {
@@ -193,18 +181,7 @@ fn dead() -> JudgeError {
 
 /// The judge thread's end of a running host. Dropping it, or [`Resident::stopper`], kills the host.
 pub(crate) struct HostClient {
-    to_host: tokio::sync::mpsc::UnboundedSender<String>,
-    replies: Mutex<mpsc::Receiver<Reply>>,
-    kill: CancellationToken,
-    /// Windows: the job the host runs in, which ends it whenever this process does (and when this
-    /// client is dropped).
-    _contained: Containment,
-}
-
-impl Drop for HostClient {
-    fn drop(&mut self) {
-        self.kill.cancel();
-    }
+    pipes: Pipes,
 }
 
 impl HostClient {
@@ -213,47 +190,8 @@ impl HostClient {
     ///
     /// The host is killed when it is not ready [`START_LIMIT`] after this starts, on `alarm`.
     pub(crate) fn start(launch: &HostLaunch, runtime: &tokio::runtime::Handle, alarm: &dyn Alarm) -> Result<Self, JudgeError> {
-        let _context = runtime.enter();
-        let mut command = tokio::process::Command::new(&launch.program);
-        command
-            .args(&launch.args)
-            .envs(launch.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
-            .env(PARENT_ENV, std::process::id().to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        // CREATE_NO_WINDOW | CREATE_SUSPENDED: the host joins its job before it runs an instruction.
-        #[cfg(windows)]
-        command.creation_flags(0x0800_0000 | 0x0000_0004);
-        #[cfg(target_os = "linux")]
-        {
-            let parent = std::process::id() as libc::pid_t;
-            // SAFETY: between fork and exec only async-signal-safe calls run (prctl, getppid). The
-            // signal follows the thread that started the host; a parent that died before the signal
-            // was set shows as a different parent, and the start fails.
-            unsafe {
-                command.pre_exec(move || {
-                    if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    if libc::getppid() != parent {
-                        return Err(std::io::Error::other("the effort judge host's parent exited"));
-                    }
-                    Ok(())
-                });
-            }
-        }
-        let mut child = command.spawn().map_err(|error| JudgeError::Load(format!("effort judge host: {error}")))?;
-        let contained = match Containment::attach(&child) {
-            Ok(contained) => contained,
-            Err(error) => {
-                drop(child.start_kill());
-                return Err(JudgeError::Load(format!("effort judge host: {error}")));
-            }
-        };
-        let (stdin, stdout) = (child.stdin.take().expect("piped"), child.stdout.take().expect("piped"));
-        let kill = CancellationToken::new();
+        let pipes = Pipes::start(launch, TAG, runtime).map_err(|error| JudgeError::Load(format!("effort judge host: {error}")))?;
+        let kill = pipes.kill.clone();
         let ready = Arc::new(AtomicBool::new(false));
         let timed_out = Arc::new(AtomicBool::new(false));
         {
@@ -268,35 +206,8 @@ impl HostClient {
                 }),
             );
         }
-        let (to_host, mut lines) = tokio::sync::mpsc::unbounded_channel::<String>();
-        let (replies_tx, replies) = mpsc::channel();
-        drop(mixdog_rt::spawn("services.effort-judge.host-write", TaskClass::Work, async move {
-            let mut stdin = stdin;
-            while let Some(line) = lines.recv().await {
-                if stdin.write_all(line.as_bytes()).await.is_err() || stdin.flush().await.is_err() {
-                    return;
-                }
-            }
-        }));
-        drop(mixdog_rt::spawn("services.effort-judge.host-read", TaskClass::Work, async move {
-            let mut lines = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let Some(reply) = line.split_once(TAG).and_then(|(_, json)| serde_json::from_str::<Reply>(json).ok()) else { continue };
-                if replies_tx.send(reply).is_err() {
-                    return;
-                }
-            }
-            // The sender goes with the task: a judgment waiting for a reply learns the host is gone.
-        }));
-        let reaper = kill.clone();
-        drop(mixdog_rt::spawn("services.effort-judge.host-reap", TaskClass::Work, async move {
-            tokio::select! {
-                _ = child.wait() => {}
-                () = reaper.cancelled() => drop(child.kill().await),
-            }
-        }));
-        let client = Self { to_host, replies: Mutex::new(replies), kill, _contained: contained };
-        let first = client.replies.lock().unwrap_or_else(PoisonError::into_inner).recv();
+        let client = Self { pipes };
+        let first = client.receive();
         if timed_out.load(Ordering::Acquire) {
             // Not a load failure: nothing is remembered, and the next judgment starts a new host.
             return Err(JudgeError::Worker("the effort judge host did not become ready in time".to_owned()));
@@ -317,12 +228,16 @@ impl HostClient {
 
     fn ask(&self, request: &Request) -> Result<Vec<f64>, JudgeError> {
         let line = serde_json::to_string(request).expect("a request serializes");
-        self.to_host.send(format!("{line}\n")).map_err(|_| dead())?;
-        match self.replies.lock().unwrap_or_else(PoisonError::into_inner).recv() {
+        self.pipes.send(line).map_err(|_| dead())?;
+        match self.receive() {
             Ok(Reply::Probs { probs }) => Ok(probs),
             Ok(Reply::Failed { kind, message }) => Err(if kind == "stepsUnsupported" { JudgeError::StepsUnsupported } else { JudgeError::Run(message) }),
             Ok(_) | Err(_) => Err(dead()),
         }
+    }
+
+    fn receive(&self) -> Result<Reply, JudgeError> {
+        serde_json::from_str(&self.pipes.receive().map_err(|_| dead())?).map_err(|_| dead())
     }
 }
 
@@ -337,7 +252,7 @@ impl Resident for HostClient {
     }
 
     fn stopper(&self) -> Stopper {
-        let kill = self.kill.clone();
+        let kill = self.pipes.kill.clone();
         Arc::new(move || kill.cancel())
     }
 }

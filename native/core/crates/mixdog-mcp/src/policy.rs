@@ -80,8 +80,11 @@ impl GmailCardEnricher {
         if let Some(account) = args.get("account").and_then(Value::as_str).map(js_trim).filter(|a| !a.is_empty()) {
             request["account"] = Value::String(account.to_owned());
         }
+        let name = crate::naming::qualified_tool_name(server.name(), "describe_emails", crate::naming::PROVIDER_TOOL_NAME_MAX);
+        let account = self.hub.resolve_tool_account_in(&normalize_scope(scope), &name, &request, "card:describe_emails").await.ok()?
+            .map(|account| mixdog_core_api::domain::tool::ConnectorAccountBinding { name: account.name, id: account.id });
         let output = server
-            .call_tool_unlisted("card:describe_emails", "describe_emails", request, &CancellationToken::new(), None)
+            .call_tool_unlisted_bound("card:describe_emails", "describe_emails", request, &CancellationToken::new(), None, account.as_ref())
             .await
             .ok()?;
         // A reply with any part that is not text reaches Node's `JSON.parse` as an object, not a

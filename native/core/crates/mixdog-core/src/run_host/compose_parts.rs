@@ -360,13 +360,14 @@ pub struct Owed {
 
 /// The whole `TurnPathParts`: the flip only adds the calls that produce `process`, `early`,
 /// `ready` and `owed`.
-pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry>, early: EarlyRows, ready: ReadyRows, owed: Owed) -> TurnPathParts {
+pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry>, prefix_guards: Arc<super::assemble::PrefixGuards>, early: EarlyRows, ready: ReadyRows, owed: Owed) -> TurnPathParts {
     let hops = hops(process, &ready.hop, ready.bots.clone(), owed.hop_sessions);
     TurnPathParts {
         tokens: owed.tokens,
         clock: owed.clock,
         paths: owed.paths,
         registry,
+        prefix_guards,
         effort_judge: owed.effort_judge,
         side: owed.side,
         next: owed.next,

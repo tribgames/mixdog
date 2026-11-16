@@ -122,6 +122,7 @@ pub struct McpHub {
     /// The accounts of each connector server (by scope and server name), set by the connector
     /// server that answers for them; dropped with the server.
     accounts: ArcSwap<HashMap<ScopedName, Arc<ConnectorAccounts>>>,
+    account_runtime: std::sync::OnceLock<crate::connector_transport::AccountRuntime>,
     /// Generation and release of the scopes that have had either (a scope with neither has no entry).
     lives: Mutex<HashMap<String, ScopeLife>>,
     /// The id of the process's one runtime scope (`rt.mcpScopeId` of the runtime the daemon's own
@@ -155,6 +156,7 @@ impl McpHub {
             sign_in_notices: Mutex::new(None),
             gmail: Mutex::new(None),
             accounts: ArcSwap::from_pointee(HashMap::new()),
+            account_runtime: std::sync::OnceLock::new(),
             lives: Mutex::new(HashMap::new()),
             runtime_scope: uuid::Uuid::new_v4().to_string(),
             scope_roots: Mutex::new(HashMap::new()),
@@ -177,6 +179,10 @@ impl McpHub {
     /// Sets the accounts of connector server `server` of the default scope.
     pub fn set_connector_accounts(&self, server: &str, accounts: Arc<ConnectorAccounts>) {
         self.set_connector_accounts_in(&self.default_scope(), server, accounts);
+    }
+
+    pub fn set_account_runtime(&self, runtime: crate::connector_transport::AccountRuntime) {
+        let _ = self.account_runtime.set(runtime);
     }
 
     /// Sets the accounts of connector server `server` of `scope`; `resolve_tool_account_in`
@@ -240,7 +246,7 @@ impl McpHub {
             return Ok(None);
         }
         let held = (normalize_scope(Some(scope)), target.server.name().to_owned());
-        let Some(accounts) = self.accounts.load().get(&held).cloned() else { return Ok(None) };
+        let Some(accounts) = target.server.connector_accounts().or_else(|| self.accounts.load().get(&held).cloned()) else { return Ok(None) };
         let leaf = match &target.entry {
             Some(entry) => entry.tool.clone(),
             None => split_mcp_tool_name(name).map(|(_, tool)| tool).unwrap_or_default(),
@@ -322,6 +328,38 @@ impl McpHub {
         self.apply_retrying(scope, configs, &|_| true);
     }
 
+    fn make_server(&self, config: &McpServerConfig, env: Option<&OAuthEnv>, oauths: &mut HashMap<String, Arc<McpOAuth>>) -> Arc<McpServer> {
+        let oauth = match (&config.oauth, env) {
+            (Some(binding), Some(env)) => match McpOAuth::new(binding.clone(), env) {
+                Ok(oauth) => Some(oauth),
+                Err(error) => {
+                    tracing::warn!(server = config.name, %error, "mcp sign-in unavailable");
+                    None
+                }
+            },
+            _ => None,
+        };
+        let notices = self.sign_in_notices.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let authorizer = oauth.clone().map(|o| match &notices {
+            Some(notices) => Arc::new(NoticingAuthorizer::new(o, &config.name, notices.clone())) as Arc<dyn Authorizer>,
+            None => o as Arc<dyn Authorizer>,
+        });
+        if let Some(oauth) = oauth {
+            oauths.insert(config.name.clone(), oauth);
+        }
+        let server = McpServer::new(config.clone(), self.io, self.spiller.clone(), self.policy, authorizer);
+        if let Some(gmail) = self.gmail.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            server.set_gmail(gmail);
+        }
+        if !config.accounts.is_empty()
+            && let Some(runtime) = self.account_runtime.get()
+        {
+            let children = config.accounts.iter().map(|account| self.make_server(&account.server, env, oauths)).collect();
+            server.set_accounts(crate::connector_transport::AccountGroup::new(config, children, runtime));
+        }
+        server
+    }
+
     /// [`apply_in`](Self::apply_in) that connects again only the failed servers `retry` names; the
     /// other failed ones stay as they are (a one-server toggle touches only its own server).
     fn apply_retrying(self: &Arc<Self>, scope: &str, configs: Vec<McpServerConfig>, retry: &dyn Fn(&str) -> bool) {
@@ -352,6 +390,17 @@ impl McpHub {
                     if let Some(kept) = previous_oauth.get(&(scope.clone(), config.name.clone())) {
                         next_oauth.insert(config.name.clone(), Arc::clone(kept));
                     }
+                    for account in &config.accounts {
+                        if let Some(kept) = previous_oauth.get(&(scope.clone(), account.server.name.clone())) {
+                            next_oauth.insert(account.server.name.clone(), Arc::clone(kept));
+                        }
+                    }
+                    for child in existing.account_servers() {
+                        if matches!(&*child.state(), ServerState::Failed { .. }) && retry(&config.name) {
+                            let dead = child.is_dead();
+                            started.push((child, dead));
+                        }
+                    }
                 }
                 _ => {
                     // `adoptSharedConnection` (mcp/client.mjs:1395-1405): the connection the scopes hold for the same
@@ -372,28 +421,7 @@ impl McpHub {
                         added.push(live);
                         continue;
                     }
-                    let oauth = match (&config.oauth, &env) {
-                        (Some(binding), Some(env)) => match McpOAuth::new(binding.clone(), env) {
-                            Ok(oauth) => Some(oauth),
-                            Err(error) => {
-                                tracing::warn!(server = config.name, %error, "mcp sign-in unavailable");
-                                None
-                            }
-                        },
-                        _ => None,
-                    };
-                    let notices = self.sign_in_notices.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                    let authorizer = oauth.clone().map(|o| match &notices {
-                        Some(notices) => Arc::new(NoticingAuthorizer::new(o, &config.name, notices.clone())) as Arc<dyn Authorizer>,
-                        None => o as Arc<dyn Authorizer>,
-                    });
-                    if let Some(oauth) = oauth {
-                        next_oauth.insert(config.name.clone(), oauth);
-                    }
-                    let server = McpServer::new(config.clone(), self.io, self.spiller.clone(), self.policy, authorizer);
-                    if let Some(gmail) = self.gmail.lock().unwrap_or_else(|e| e.into_inner()).clone() {
-                        server.set_gmail(gmail);
-                    }
+                    let server = self.make_server(&config, env.as_deref(), &mut next_oauth);
                     // A server that follows its scope starts with the scope's root as it is now.
                     let root = self.scope_roots.lock().unwrap_or_else(|e| e.into_inner()).get(&scope).cloned();
                     server.set_scope_root(root.as_deref().unwrap_or_default());
@@ -404,6 +432,7 @@ impl McpHub {
                         shared.push(Arc::clone(&server));
                     }
                     added.push(Arc::clone(&server));
+                    started.extend(server.account_servers().into_iter().map(|child| (child, false)));
                     started.push((server, false));
                 }
             }

@@ -10,6 +10,7 @@ import type {
   DesktopSectionsSnapshot,
 } from '../../shared/contract-sections';
 import { SECTION_NAMES } from '../../shared/contract-sections';
+import { createLinkLog } from '../../../../../packages/protocol-client/src/link-log.mjs';
 import { loginFeedId, loginUpdateOf, LOGIN_CANCEL_METHODS, LOGIN_START_METHODS } from './login-feed';
 import { scopedSectionChanges, type ScopedFeedRoute } from './scoped-sections';
 
@@ -88,6 +89,8 @@ export interface ConnectionStoreChange {
 export interface ProtocolConnectionOptions {
   /** Opens the transport and performs `initialize`; the library's `connect` bound to this target. */
   open(): Promise<ConnectionClient>;
+  /** The desktop diagnostics sink for this connection's life-cycle lines (replacement, status, restored feeds). */
+  log?(event: string, fields: Record<string, unknown>): void;
 }
 
 /** A window of this connection: where pushes are delivered. */
@@ -188,7 +191,9 @@ const isAbsentFeed = (error: unknown): boolean => {
 const toStatus =(state: string): DesktopProtocolStatus =>
   state === 'ready' ? 'ready' : state === 'closed' ? 'closed' : 'reconnecting';
 
-export function createProtocolConnection({ open }: ProtocolConnectionOptions): ProtocolConnection {
+export function createProtocolConnection({ open, log }: ProtocolConnectionOptions): ProtocolConnection {
+  /** One line to the desktop diagnostics log (`link-log.mjs`): which owner (epoch) and what the connection did; never frames. */
+  const note = createLinkLog(log);
   const windows = new Set<ProtocolWindow>();
   const portViewers = new Set<ProtocolWindow>();
   const eventListeners = new Set<(event: ConnectionClientEvent) => void>();
@@ -261,18 +266,38 @@ export function createProtocolConnection({ open }: ProtocolConnectionOptions): P
   };
   /** The scoped feeds do not survive the socket: send again what live owners still want. */
   const restoreScopedFeeds = (restored: ConnectionClient): void => {
+    const owner = epoch;
+    const attempted = { fsWatches: fsWatches.size, feeds: feedWatches.size, ports: portViewers.size > 0 ? 1 : 0 };
+    note('core-scoped-feeds-restore-started', { epoch: owner, attempted });
+    // What each request came to: succeeded, the core no longer has it (lost), or failed for another reason.
+    const settled = { restored: 0, lost: 0, failed: 0 };
+    const tally: Array<Promise<unknown>> = [];
     for (const [watchId, { params }] of [...fsWatches]) {
-      void restored.call('fs/watch', params).catch(() => void fsWatches.delete(watchId));
+      tally.push(
+        restored.call('fs/watch', params).then(
+          () => void (settled.restored += 1),
+          () => void (fsWatches.delete(watchId), (settled.lost += 1))
+        )
+      );
     }
-    if (portViewers.size > 0) void restored.call('system/ports/subscribe', {}).catch(() => undefined);
+    if (portViewers.size > 0) {
+      tally.push(restored.call('system/ports/subscribe', {}).then(() => void (settled.restored += 1), () => void (settled.failed += 1)));
+    }
     for (const feedId of [...feedWatches.keys()]) {
-      void restored.call('feed/subscribe', { feedId }).catch((error: unknown) => {
-        // Only a feed the core does not hold is gone; any other failure keeps what the windows hold and tells them.
-        if (isAbsentFeed(error)) return dropFeed(feedId);
-        const message = error instanceof Error ? error.message : String(error);
-        for (const window of [...(feedWatches.get(feedId)?.windows ?? [])]) window.push({ kind: 'feedError', feedId, message });
-      });
+      tally.push(
+        restored.call('feed/subscribe', { feedId }).then(
+          () => void (settled.restored += 1),
+          (error: unknown) => {
+            // Only a feed the core does not hold is gone; any other failure keeps what the windows hold and tells them.
+            if (isAbsentFeed(error)) return void ((settled.lost += 1), dropFeed(feedId));
+            settled.failed += 1;
+            const message = error instanceof Error ? error.message : String(error);
+            for (const window of [...(feedWatches.get(feedId)?.windows ?? [])]) window.push({ kind: 'feedError', feedId, message });
+          }
+        )
+      );
     }
+    void Promise.allSettled(tally).then(() => note('core-scoped-feeds-restore-settled', { epoch: owner, attempted, ...settled }));
   };
   const removalsOf = (route: ScopedFeedRoute): DesktopSectionChange[] =>
     [...route.held.values()].map(({ section, key }) => ({ section, key, entry: null }));
@@ -454,6 +479,7 @@ export function createProtocolConnection({ open }: ProtocolConnectionOptions): P
     reopen() {
       if (closedByOwner) return Promise.reject(new Error('The core connection is closed.'));
       const mine = ++epoch;
+      note('core-connection-replace', { epoch: mine, status, hadClient: client !== null });
       pendingSync();
       const run = (async (): Promise<void> => {
         await release('reconnecting');

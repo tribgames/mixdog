@@ -1413,8 +1413,13 @@ function ToolApprovalCard({
     setResolving(true);
     try {
       const accepted = await resolve(decision);
-      // Recorded, or refused because another device answered first: the
-      // buttons stay disabled until the request leaves the snapshot.
+      // Recorded, or confirmed decided elsewhere: the buttons stay disabled
+      // until the request leaves the snapshot. An unconfirmed refusal is retryable.
+      if (accepted === 'unconfirmed') {
+        resolvingRef.current = false;
+        setResolving(false);
+        return;
+      }
       if (typeof accepted === 'boolean') return;
       setError(t('Mixdog could not record this decision. Please try again.'));
     } catch (reason) {

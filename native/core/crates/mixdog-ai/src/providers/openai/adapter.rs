@@ -1,12 +1,14 @@
 //! `ProviderAdapter` of the OpenAI Responses routes (`openai`,
-//! `openai-oauth`) over HTTP/SSE or WebSocket. One attempt: encode, add the
-//! credential, send, hand back the decoded stream. Retrying is above the
-//! adapter. Two repeats happen inside an attempt, both decided from the
+//! `openai-oauth`) over HTTP/SSE or WebSocket. The WebSocket send owns one
+//! handshake/stream retry budget, shared by agent and direct callers. HTTP
+//! retrying remains above the adapter. Two repairs are decided from the
 //! response head or the first frame, before any output exists:
 //!
 //! - a 401 asks the credential source to reload or refresh once and replays;
 //! - a 400 whose structured `param` points at a mid-conversation effort
 //!   update replays once without the updates.
+//! Connection retirement spends the same WebSocket budget as other transient
+//! failures; no caller retries a failure whose provider recovery has ended.
 //!
 //! The HTTP exchange is the shared [`HttpSend`] seam and the socket is the
 //! shared [`WsDial`] seam.
@@ -312,6 +314,7 @@ impl WireContext for SessionContext {
 // Adapter
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub struct OpenAiAdapter {
     id: ProviderId,
     codec: OpenAiCodec,
@@ -333,6 +336,10 @@ pub struct OpenAiAdapter {
     /// when `MIXDOG_ENABLE_STREAM_WATCHDOG` turns the idle watchdog off.
     http_idle_ms: Option<f64>,
     ws_idle_ms: Option<f64>,
+    /// `PROVIDER_FIRST_OUTPUT_TIMEOUT_MS` of each transport, and the WebSocket's no-first-frame window.
+    http_first_output_ms: f64,
+    ws_first_output_ms: f64,
+    ws_pre_stream_ms: Option<f64>,
 }
 
 /// The seams and sources an adapter runs on.
@@ -367,6 +374,9 @@ impl OpenAiAdapter {
         let http_response_ms = crate::providers::google::cache::policy::http_response_ms(|name| links.context.var(name));
         let http_idle_ms = crate::providers::google::cache::policy::semantic_idle_ms(|name| links.context.var(name));
         let ws_idle_ms = crate::providers::google::cache::policy::ws_semantic_idle_ms(|name| links.context.var(name));
+        let http_first_output_ms = crate::providers::google::cache::policy::first_output_ms(|name| links.context.var(name), http_idle_ms);
+        let ws_first_output_ms = crate::providers::google::cache::policy::first_output_ms(|name| links.context.var(name), ws_idle_ms);
+        let ws_pre_stream_ms = crate::providers::google::cache::policy::ws_pre_stream_ms(|name| links.context.var(name));
         let ws_ping = crate::providers::google::cache::policy::ws_ping(|name| links.context.var(name), KeepaliveSchedule::SPEC.ws);
         let adapter = Self {
             id,
@@ -385,6 +395,9 @@ impl OpenAiAdapter {
             http_response_ms,
             http_idle_ms,
             ws_idle_ms,
+            http_first_output_ms,
+            ws_first_output_ms,
+            ws_pre_stream_ms,
         };
         // The provider's constructor warms the socket (`openai-oauth.mjs:106`).
         adapter.preconnect();
@@ -485,7 +498,8 @@ impl OpenAiAdapter {
         if response.is_success() {
             let token = header(&response.headers, TURN_STATE_HEADER).map(str::to_owned);
             self.remember_turn_state(request, token.as_deref());
-            let idle = IdleWatch::new(self.http_idle_ms, codec.http_label());
+            let mut idle = IdleWatch::new(self.http_idle_ms, codec.http_label()).with_first(&request.options.send_identity, self.http_first_output_ms);
+            idle.arm_first();
             return Ok(Opened::Stream(ResponsesStream::new(Source::Http(response.body), codec.decoder(request)).with_idle(idle)));
         }
         Ok(Opened::Rejected(read_failure(response).await?))
@@ -499,6 +513,7 @@ impl OpenAiAdapter {
         request: &ModelRequest,
         wire: WireRequest,
         credential: &Credential,
+        force_fresh: bool,
     ) -> Result<Opened, ProviderError> {
         let mut body: serde_json::Map<String, Value> = serde_json::from_slice(&wire.body)
             .map_err(|_| ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent))?;
@@ -511,7 +526,7 @@ impl OpenAiAdapter {
             Some(scope) => (scope.to_owned(), false),
             None => (format!("\0shared:{}:{}", compat.auth, compat.cache_key), true),
         };
-        let mut checkout = self.pool.checkout(&key, &compat, shared, false).await;
+        let mut checkout = self.pool.checkout(&key, &compat, shared, force_fresh).await;
         if checkout.socket.is_none() {
             // One acquire is a hedged race of dial legs under the acquire deadline (`openHedged`).
             ws_request(&wire)?;
@@ -593,9 +608,10 @@ impl OpenAiAdapter {
                 error
             })?;
         let owner = checkout.owner;
-        let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.decoder(request)).with_idle(IdleWatch::new(self.ws_idle_ms, "Responses WS"));
+        let mut idle = IdleWatch::new(self.ws_idle_ms, "Responses WS").with_first(&request.options.send_identity, self.ws_first_output_ms);
+        idle.arm_first();
+        let mut stream = ResponsesStream::new(Source::Ws { checkout, pending: None }, self.codec.decoder(request)).with_idle(idle);
         stream.anchor = Some(Anchor { body, response_id: None, items: Vec::new() });
-        stream.ledger = Some((self.pool.clone(), key, self.mode.http_fallback()));
         // `_captureTurnStateFromEvent` returns at once when the activation gave the socket a token.
         if let Some((scope, turn)) = scope_turn
             && token.is_none()
@@ -603,7 +619,7 @@ impl OpenAiAdapter {
             stream.turn_state = Some((self.context.clone(), scope.to_owned(), turn, owner));
         }
         // The first frame decides whether the server took the request.
-        stream.prime().await;
+        stream.prime(self.ws_pre_stream_ms).await;
         Ok(Opened::Stream(stream))
     }
 }
@@ -705,54 +721,33 @@ impl ProviderAdapter for OpenAiAdapter {
         self.pool.release_scope(scope, "transport_scope_disposed");
     }
 
-    /// One attempt. On a WebSocket codec in `auto` mode the attempt may move
-    /// to HTTP/SSE inside itself, as Node's send does ([`switch`]): at once
-    /// for a refused upgrade, a 426 or a server close 1009, and when the
-    /// session's WebSocket budget is spent (the sixth attempt goes straight to
-    /// HTTP/SSE rather than trying a sixth socket). A switch of an `openai-oauth`
-    /// session and every 1009 stay switched for the session.
+    /// One send. WebSocket handshake and stream failures share its bounded
+    /// provider recovery; transport switches are decided by that same owner.
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         // `_sendOnce` re-warms before every turn (`openai-oauth.mjs:170`).
         self.preconnect();
-        let route = self.codec.route();
         let scope = request_scope(&request).map(str::to_owned);
         let keys: Vec<&str> = scope.iter().map(String::as_str).chain(request.options.session_id.as_deref()).collect();
         let switching = self.mode.http_fallback();
         if self.codec.transport() != TransportKind::WebSocket || (switching && self.pool.http_active(&keys)) {
             return self.run(Wire::Http, &request).await.map_err(|failed| failed.error);
         }
-        if switching
-            && let Some(key) = scope.as_deref()
-            && self.pool.budget_spent(key, switch::WS_ATTEMPTS)
-        {
-            if route == Route::Codex {
-                self.pool.mark_http(key);
-            }
-            self.pool.ws_ok(key);
-            return self.run(Wire::Http, &request).await.map_err(|failed| failed.error);
-        }
-        match self.run(Wire::Ws, &request).await {
-            Ok(stream) => Ok(stream),
-            Err(failed) => {
-                if let Some(key) = scope.as_deref() {
-                    self.pool.ws_failed(key, switch::eligible(&failed.error));
-                }
-                let Some(fallback) = switching.then(|| switch::decide(route, &failed.error, failed.handshake, false)).flatten()
-                else {
-                    return Err(failed.error);
-                };
-                if fallback.sticky
-                    && let Some(key) = scope.as_deref()
-                {
-                    self.pool.mark_http(key);
-                }
-                // A transport switch does not outrun the server's retry deadline.
-                if let Some(wait) = failed.error.retry_after {
-                    mixdog_rt::time::sleep(wait).await;
-                }
-                self.run(Wire::Http, &request).await.map_err(|failed| failed.error)
-            }
-        }
+        let wire = self.codec.encode_with(&request, effort_of(&request).as_ref())?;
+        let mut send = WebSocketSend {
+            adapter: self.clone(),
+            retry: mixdog_core_api::domain::retry::RetryState::new(
+                mixdog_core_api::domain::retry::RetryClass::Midstream,
+                request.model.clone(),
+            ),
+            request,
+            wire,
+            stream: None,
+            first_failure: None,
+            reasoning_exposed: false,
+            websocket: true,
+        };
+        send.resume(None).await?;
+        Ok(Box::new(send))
     }
 }
 
@@ -780,7 +775,8 @@ struct Failed {
 
 impl From<ProviderError> for Failed {
     fn from(error: ProviderError) -> Self {
-        Self { error, handshake: false }
+        let handshake = error.ws_phase == Some(WsPhase::Handshake);
+        Self { error, handshake }
     }
 }
 
@@ -805,6 +801,26 @@ impl OpenAiAdapter {
             Wire::Http => self.http_codec.as_ref().unwrap_or(&self.codec),
         };
         let mut wire = codec.encode_with(request, effort_of(request).as_ref())?;
+        self.exchange(wire_kind, request, &mut wire, false).await
+    }
+
+    /// The acquisition fixture exercises one exchange, not the send's retry ladder.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn ws_attempt_once(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        self.run(Wire::Ws, &request).await.map_err(|failed| failed.error)
+    }
+
+    async fn exchange(
+        &self,
+        wire_kind: Wire,
+        request: &Arc<ModelRequest>,
+        wire: &mut WireRequest,
+        force_fresh: bool,
+    ) -> Result<Box<dyn ModelStream>, Failed> {
+        let codec = match wire_kind {
+            Wire::Ws => &self.codec,
+            Wire::Http => self.http_codec.as_ref().unwrap_or(&self.codec),
+        };
         let identity = &request.options.send_identity;
         let mut credential = self.credentials.current().await?;
         let mut refreshed = false;
@@ -831,7 +847,7 @@ impl OpenAiAdapter {
             let authorized = self.authorize(wire.clone(), &credential);
             let opened = match wire_kind {
                 // The acquire and the upgrade are the handshake; a failure past the socket is stamped where it happens.
-                Wire::Ws => self.open_ws(request, authorized, &credential).await.map_err(|mut error| {
+                Wire::Ws => self.open_ws(request, authorized, &credential, force_fresh).await.map_err(|mut error| {
                     error.ws_phase.get_or_insert(WsPhase::Handshake);
                     error
                 })?,
@@ -861,13 +877,13 @@ impl OpenAiAdapter {
                 if let Some(next) = self.credentials.after_rejection(&credential).await? {
                     credential = next;
                 }
-                self.renew_request_id(wire_kind, &mut wire);
+                self.renew_request_id(wire_kind, wire);
                 continue;
             }
             if !stripped && let Some(next) = without_effort_updates(&wire, &rejected) {
                 stripped = true;
-                wire = next;
-                self.renew_request_id(wire_kind, &mut wire);
+                *wire = next;
+                self.renew_request_id(wire_kind, wire);
                 continue;
             }
             let mut err = codec.classify(&rejected);
@@ -897,6 +913,126 @@ impl OpenAiAdapter {
 // ---------------------------------------------------------------------------
 // Stream
 // ---------------------------------------------------------------------------
+
+/// One logical send's handshake and stream ladder. Neither the pool nor the
+/// caller owns another WebSocket counter. Replays preserve the full request,
+/// not the failed connection's delta chain.
+struct WebSocketSend {
+    adapter: OpenAiAdapter,
+    request: Arc<ModelRequest>,
+    wire: WireRequest,
+    stream: Option<Box<dyn ModelStream>>,
+    retry: mixdog_core_api::domain::retry::RetryState,
+    first_failure: Option<ProviderError>,
+    reasoning_exposed: bool,
+    websocket: bool,
+}
+
+impl WebSocketSend {
+    async fn resume(&mut self, mut failed: Option<Failed>) -> Result<(), ProviderError> {
+        use mixdog_core_api::domain::retry::{RetryDecider, Verdict};
+
+        loop {
+            if let Some(Failed { mut error, handshake }) = failed.take() {
+                error.unsafe_to_retry |= self.reasoning_exposed;
+                let decision = crate::retry::StandardRetryDecider.verdict(
+                    &error,
+                    &self.retry,
+                    &self.adapter.policy,
+                    crate::retry::random_samples(),
+                );
+                let exhausted = matches!(decision.verdict, Verdict::Exhausted);
+                if let Some(fallback) = self.adapter.mode.http_fallback()
+                    .then(|| switch::decide(self.adapter.codec.route(), &error, handshake, exhausted))
+                    .flatten()
+                {
+                    if fallback.sticky && let Some(scope) = request_scope(&self.request) {
+                        self.adapter.pool.mark_http(scope);
+                    }
+                    if let Some(wait) = error.retry_after {
+                        mixdog_rt::time::sleep(wait).await;
+                    }
+                    self.websocket = false;
+                    self.stream = Some(self.adapter.run(Wire::Http, &self.request).await.map_err(|failed| failed.error)?);
+                    return Ok(());
+                }
+                let Verdict::Retry { delay, .. } = decision.verdict else {
+                    let current = matches!(error.status, Some(401 | 403 | 426 | 429))
+                        || switch::too_big_close(&error)
+                        || error.unsafe_to_retry
+                        || error.exposure.text_emitted
+                        || error.exposure.tool_dispatched
+                        || error.exposure.tool_input_cut
+                        // A connection retirement must neither mask nor be masked by another failure.
+                        || [Some(&error), self.first_failure.as_ref()].into_iter().flatten().any(super::error::connection_limit);
+                    if !current && let Some(first) = self.first_failure.take() {
+                        error = first;
+                    }
+                    // An exposed stream needs the owner's retraction or split-call
+                    // recovery, not another provider retry. Only a genuinely ended
+                    // ladder forbids that owner-controlled new request.
+                    error.recovery_exhausted |= exhausted;
+                    if exhausted || (!error.exposure.text_emitted && !error.exposure.tool_input_cut && !self.reasoning_exposed) {
+                        error.should_retry = Some(false);
+                    }
+                    return Err(error);
+                };
+                if !handshake || self.first_failure.is_none() {
+                    self.first_failure = Some(error.clone());
+                }
+                self.retry = decision.next;
+                self.request.options.send_identity.raise_stage_with(
+                    "reconnecting",
+                    crate::retry::stage::reconnecting(
+                        &error,
+                        self.retry.count(None).retries,
+                        self.adapter.policy.midstream.schedule.max_retries,
+                        delay,
+                        self.adapter.context.now_unix_ms(),
+                    ),
+                );
+                mixdog_rt::time::sleep(delay).await;
+            }
+            match self.adapter.exchange(Wire::Ws, &self.request, &mut self.wire, self.retry.count(None).retries > 0).await {
+                Ok(stream) => {
+                    self.stream = Some(stream);
+                    return Ok(());
+                }
+                Err(error) => failed = Some(error),
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl ModelStream for WebSocketSend {
+    async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+        loop {
+            let event = self.stream.as_mut()?.next().await?;
+            match event {
+                Ok(event) => {
+                    if matches!(&event, StreamEvent::ReasoningDelta(text) if !text.is_empty()) {
+                        self.reasoning_exposed = true;
+                    }
+                    return Some(Ok(event));
+                }
+                Err(error) if self.websocket => {
+                    self.stream = None;
+                    if let Err(error) = self.resume(Some(Failed { error, handshake: false })).await {
+                        return Some(Err(error));
+                    }
+                }
+                Err(error) => return Some(Err(error)),
+            }
+        }
+    }
+
+    fn delivery(&self) -> DeliveryState {
+        DeliveryState::Accepted
+    }
+
+    fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
+}
 
 #[allow(clippy::large_enum_variant, reason = "Keep the live WebSocket checkout and pending frame inline rather than add an allocation to every stream")]
 enum Source {
@@ -938,9 +1074,6 @@ struct ResponsesStream {
     failed: Option<ProviderError>,
     /// A pooled socket's request, to anchor its response.
     anchor: Option<Anchor>,
-    /// The pool and session a failed exchange is recorded on, and whether the
-    /// session may switch transports.
-    ledger: Option<(Arc<WsPool>, String, bool)>,
     /// Where a WebSocket response's `x-codex-turn-state` goes (the context, the scope, the turn and the socket that
     /// owns it), until the first one is taken (`_captureTurnStateFromEvent` returns once its entry holds a token).
     turn_state: Option<(Arc<SessionContext>, String, String, u64)>,
@@ -976,7 +1109,7 @@ fn frame_turn_state(unit: &[u8]) -> Option<String> {
 impl ResponsesStream {
     fn new(source: Source, decoder: Box<dyn WireDecoder>) -> Self {
         let ws = matches!(source, Source::Ws { .. });
-        Self { source: Some(source), ws, decoder, queue: VecDeque::new(), failed: None, anchor: None, ledger: None, turn_state: None, idle: IdleWatch::off() }
+        Self { source: Some(source), ws, decoder, queue: VecDeque::new(), failed: None, anchor: None, turn_state: None, idle: IdleWatch::off() }
     }
 
     fn with_idle(mut self, idle: IdleWatch) -> Self {
@@ -984,12 +1117,20 @@ impl ResponsesStream {
         self
     }
 
-    /// Reads a WebSocket's first frame ahead of the consumer.
-    async fn prime(&mut self) {
-        if let Some(Source::Ws { checkout, pending }) = &mut self.source
-            && let Some(socket) = checkout.socket.as_mut()
-        {
-            *pending = socket.recv().await;
+    /// Reads a WebSocket's first frame ahead of the consumer, within `window_ms` (`None`: unbounded, the watchdog is off). A
+    /// socket that takes the request and sends nothing fails the stream as a stall, which the send's retry ladder takes.
+    async fn prime(&mut self, window_ms: Option<f64>) {
+        let Some(Source::Ws { checkout, pending }) = &mut self.source else { return };
+        let Some(socket) = checkout.socket.as_mut() else { return };
+        let mut pre = IdleWatch::new(window_ms, "Responses WS");
+        pre.rearm();
+        match pre.read(socket.recv()).await {
+            Ok(first) => *pending = first,
+            Err(Stalled) => {
+                let err = pre.stalled(mixdog_core_api::domain::provider::Exposure::default());
+                self.source = None;
+                self.failed = Some(err);
+            }
         }
     }
 
@@ -1039,18 +1180,6 @@ impl ResponsesStream {
             chain.anchor(&id, &anchor.body, &anchor.items);
         }
         checkout.finish(chain);
-    }
-
-    /// A pooled exchange failed with `error`: count it, and keep the session
-    /// on HTTP/SSE when the server refused the frame itself.
-    fn record_failure(&self, error: &ProviderError) {
-        let Some((pool, key, switching)) = &self.ledger else {
-            return;
-        };
-        pool.ws_failed(key, switch::eligible(error));
-        if *switching && switch::too_big_close(error) {
-            pool.mark_http(key);
-        }
     }
 
     /// The first frame as a failed response, when it is an `error` frame.
@@ -1107,7 +1236,6 @@ impl ModelStream for ResponsesStream {
                 Ok(unit) => unit,
                 Err(Stalled) => {
                     let err = self.idle.stalled(self.decoder.exposure());
-                    self.record_failure(&err);
                     self.source = None;
                     self.failed = Some(err);
                     continue;
@@ -1122,7 +1250,6 @@ impl ModelStream for ResponsesStream {
                             self.push(events);
                         }
                         Err(err) => {
-                            self.record_failure(&err);
                             self.source = None;
                             self.failed = Some(err);
                         }
@@ -1147,7 +1274,6 @@ impl ModelStream for ResponsesStream {
                         None => ProviderError::transport(fault, DeliveryState::Accepted),
                     };
                     err.exposure = self.decoder.exposure();
-                    self.record_failure(&err);
                     self.failed = Some(err);
                 }
                 None => {
@@ -1155,7 +1281,6 @@ impl ModelStream for ResponsesStream {
                     match self.decoder.finish() {
                         Ok(events) => self.push(events),
                         Err(err) => {
-                            self.record_failure(&err);
                             self.failed = Some(err);
                         }
                     }

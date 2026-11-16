@@ -56,10 +56,13 @@ test('capability_lane_runs', async () => {
 test('service_lane_resume_unsubscribe', async () => {
   const { client, connection } = await opened();
   const lane = createServiceLane({ protocol: connection, snapshot: () => ({}) });
-  await lane.call('setVisibleSessions', [['a', 'b']]);
-  await lane.call('setVisibleSessions', [['b']]);
-  const sent = client.calls.filter((c) => /^thread\/(resume|unsubscribe)$/.test(c.method)).map((c) => [c.method, c.params.threadId]);
-  assert.deepEqual(sent, [['thread/resume', 'a'], ['thread/resume', 'b'], ['thread/unsubscribe', 'a']]);
+  assert.equal(await lane.call('setVisibleSessions', [['a', 'b']]), true);
+  assert.equal(await lane.call('setVisibleSessions', [['b']]), true);
+  // Acceptance answers the call; the lane brings each thread there after it, so the unsubscribe follows the reply.
+  const sent = () => client.calls.filter((c) => /^thread\/(resume|unsubscribe)$/.test(c.method)).map((c) => [c.method, c.params.threadId]);
+  for (let turn = 0; turn < 50 && sent().length < 3; turn++) await new Promise((r) => setImmediate(r));
+  assert.deepEqual(sent(), [['thread/resume', 'a'], ['thread/resume', 'b'], ['thread/unsubscribe', 'a']]);
+  lane.dispose();
 });
 
 test('watch_per_connection', async () => {
@@ -86,6 +89,29 @@ test('watches_restored_after_reconnect', async () => {
   client.emit({ type: 'status', status: { state: 'reconnecting' } });
   client.emit({ type: 'status', status: { state: 'ready' } });
   assert.equal(client.calls.filter((c) => c.method === 'fs/watch').length, 2);
+});
+
+test('restore_line_separates_attempted_from_settled', async () => {
+  const lines = [];
+  const client = fakeClient(async (method, params) => {
+    if (method === 'fs/watch' && params.watchId === 'w2') throw new Error('refused');
+    return {};
+  });
+  const connection = createRendererConnection({ open: async () => client, log: (event, fields) => lines.push({ event, ...fields }) });
+  await connection.start();
+  const w = win();
+  connection.attach(w);
+  await connection.watchFiles(w, { watchId: 'w1' }).catch(() => undefined);
+  await connection.watchFiles(w, { watchId: 'w2' }).catch(() => undefined);
+  lines.length = 0;
+  client.emit({ type: 'status', status: { state: 'reconnecting' } });
+  client.emit({ type: 'status', status: { state: 'ready' } });
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(lines.map((l) => l.event), ['core-scoped-feeds-restore-started', 'core-scoped-feeds-restore-settled'], 'the attempt first, its outcome after');
+  const [started, settled] = lines;
+  assert.equal('restored' in started, false, 'the attempt carries no outcome');
+  assert.equal(settled.restored + settled.lost + settled.failed, started.attempted.fsWatches + started.attempted.feeds + started.attempted.ports);
+  assert.ok(settled.restored >= 1);
 });
 
 test('errors_mapped', async () => {

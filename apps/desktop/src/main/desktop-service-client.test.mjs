@@ -5,7 +5,7 @@ import { DesktopServiceClient, displayExitCode } from './desktop-service-client.
 
 const notice = (key, name = 'Gmail') => ({ key, code: 'connector-sign-in-expired', params: { name } });
 const clientWith = (lanes = {}) =>
-  new DesktopServiceClient({ serviceLane: { call: async () => null }, capabilityLane: {}, operationLane: {}, sessionLane: { dispose() {} }, ...lanes });
+  new DesktopServiceClient({ serviceLane: { call: async () => null, dispose() {} }, capabilityLane: {}, operationLane: {}, sessionLane: { dispose() {} }, ...lanes });
 
 test('service notices that arrive before any window wait for it, one per condition', async (t) => {
   const client = clientWith();

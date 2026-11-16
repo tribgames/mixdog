@@ -3,40 +3,27 @@ import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-sche
 import { STUDIO_GRID_MAX_WIDTH } from './studio-support';
 import { STUDIO_NARROW_PANE } from './studio-pane-support';
 
-// Tile hover chrome follows the Studio PANE width, and the composer dock
-// height is published as a CSS variable for the results overlay padding.
+// Tile hover chrome follows the Studio PANE width.
 export function useStudioPaneObserver(
   studioRootRef: RefObject<HTMLDivElement | null>,
-  dockRef: RefObject<HTMLDivElement | null>,
   setNarrowPane: (narrow: boolean) => void
 ) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: refs and the state setter are stable; the observer attaches once on mount
   useLayoutEffect(() => {
     const element = studioRootRef.current;
     if (!element) return undefined;
-    const dock = dockRef.current;
     const apply = (width: number) => {
       if (width > 0) setNarrowPane(width <= STUDIO_NARROW_PANE);
     };
-    const applyDockHeight = (height: number) => {
-      if (height > 0) {
-        element.style.setProperty('--studio-dock-overlay-height', `${Math.ceil(height)}px`);
-      }
-    };
     apply(element.getBoundingClientRect().width);
-    applyDockHeight(dock?.getBoundingClientRect().height || 0);
     if (typeof ResizeObserver !== 'function') return undefined;
     const observer = new ResizeObserver((entries) => {
       const rootEntry = entries.find((candidate) => candidate.target === element);
       if (rootEntry) apply(rootEntry.contentRect.width || element.getBoundingClientRect().width);
-      const dockEntry = entries.find((candidate) => candidate.target === dock);
-      if (dockEntry) applyDockHeight(dockEntry.contentRect.height);
     });
     observer.observe(element);
-    if (dock) observer.observe(dock);
     return () => {
       observer.disconnect();
-      element.style.removeProperty('--studio-dock-overlay-height');
     };
   }, []);
 }

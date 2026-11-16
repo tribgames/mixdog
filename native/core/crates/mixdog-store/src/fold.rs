@@ -88,7 +88,7 @@ pub struct Below {
 pub(crate) enum Effect {
     None,
     Header(HeaderChange),
-    Item { visible: bool },
+    Item { visible: bool, receipt: Option<String> },
     Rewind { to: u64, below: Option<Below> },
     Compacted,
     RunStarted(String),
@@ -98,7 +98,7 @@ pub(crate) enum Effect {
     Enqueued(String),
     Updated(String),
     Prioritized(String),
-    Dequeued(String),
+    Dequeued { qid: String, delivered: bool },
 }
 
 #[derive(Debug, Clone)]
@@ -218,7 +218,14 @@ impl Fold {
                 Record::Session(_) => return Err(FoldError::Unexpected("session")),
                 Record::Checkpoint(_) | Record::Amend(_) | Record::Op(_) | Record::Draft(_) => Effect::None,
                 Record::Meta(meta) => Effect::Header(resolve_slot(&meta.change, resolve).map_err(FoldError::Body)?),
-                Record::Item(item) => Effect::Item { visible: item.visible },
+                Record::Item(item) => Effect::Item {
+                    visible: item.visible,
+                    receipt: if item.model && item.role.as_ref().is_some_and(|role| role.as_str() == "tool") {
+                        crate::completion_receipts::tool_receipt(&resolve_slot(&item.body, resolve).map_err(FoldError::Body)?)
+                    } else {
+                        None
+                    },
+                },
                 Record::ModelSwitch(switch) => {
                     if switch.anchor.ordinal >= ordinal {
                         return Err(FoldError::AnchorNotBefore { anchor: switch.anchor.ordinal, at: ordinal });
@@ -272,7 +279,10 @@ impl Fold {
                     QueueAction::Enqueue => Effect::Enqueued(q.qid.as_str().to_owned()),
                     QueueAction::Update => Effect::Updated(q.qid.as_str().to_owned()),
                     QueueAction::Prioritize => Effect::Prioritized(q.qid.as_str().to_owned()),
-                    QueueAction::Dequeue => Effect::Dequeued(q.qid.as_str().to_owned()),
+                    QueueAction::Dequeue => Effect::Dequeued {
+                        qid: q.qid.as_str().to_owned(),
+                        delivered: q.reason == Some(crate::schema::record::DequeueReason::Delivered),
+                    },
                 },
             };
             effects.push(effect);
@@ -293,7 +303,11 @@ impl Fold {
                     self.header.insert(k, v);
                 }
             }
-            Effect::Item { visible } => {
+            Effect::Item { visible, receipt } => {
+                if let Some(qid) = receipt {
+                    crate::completion_receipts::record(&mut self.header, &qid);
+                    self.queue.retain(|q| q.qid != qid);
+                }
                 self.live.push((pos.ordinal, visible));
                 self.rows += 1;
                 self.visible_rows += u64::from(visible);
@@ -347,7 +361,12 @@ impl Fold {
                     self.queue.insert(0, entry);
                 }
             }
-            Effect::Dequeued(qid) => self.queue.retain(|q| q.qid != qid),
+            Effect::Dequeued { qid, delivered } => {
+                if delivered && qid.starts_with("completion_") {
+                    crate::completion_receipts::record(&mut self.header, &qid);
+                }
+                self.queue.retain(|q| q.qid != qid);
+            }
         }
         self.next_ordinal += 1;
     }

@@ -422,6 +422,16 @@ async fn replay_fs_search_slice(scenario: &str, slice: Option<(usize, usize)>) {
             Some(thrown) => (thrown.as_str().unwrap(), true),
             None => (call["text"].as_str().unwrap(), call["isError"] == true),
         };
+        let want = timeout_wording(want);
+        // The shorter warning lets this formerly capped second section fit. Its rows are recorded in call 18;
+        // this call's deadline script marks both sections partial even after their last match.
+        let want = if scenario == "grep-timeout" && index == 16 {
+            let (first, _) = want.split_once("\n\n# grep t\n").expect("the recorded capped answer has two scopes");
+            let second = fixture["calls"][18]["text"].as_str().expect("the complete t-scope rows were recorded");
+            format!("{first}\n\n# grep t\n{second}\n[3 shown, more exist; offset:3 for the rest]\n[warning] search deadline reached; partial results shown.")
+        } else {
+            want
+        };
         // B-1: Node refused a notebook read that named no window (its guard's injected limit read as a range); the core reads it.
         let unwindowed = ["offset", "limit", "line"].iter().all(|key| call["input"].get(key).is_none());
         if tool == "read" && unwindowed && want.contains(super::read::IPYNB_RANGE_REFUSAL) {
@@ -3331,6 +3341,34 @@ async fn replay_admission(scenario: &str, fixture: &str) {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// Preserve the Node recordings while expecting the approved deadline copy; actual output is never normalized.
+pub(super) fn timeout_wording(recorded: &str) -> String {
+    [
+        (
+            "native file inventory search timed out after 17500ms.",
+            "native file inventory search exceeded its 17500ms remaining budget.",
+        ),
+        (
+            "Error: native content search timed out after 17500ms.",
+            "Error: native content search exceeded its 17500ms total deadline.",
+        ),
+        (
+            "[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+            "[warning] search deadline reached; partial results shown.",
+        ),
+        (
+            "[warning] search timed out; partial results shown. Narrow path/pattern for a complete result.",
+            "[warning] search deadline reached; partial results shown.",
+        ),
+        (
+            "... [search timed out; partial results shown]",
+            "... [search deadline reached; partial results shown]",
+        ),
+    ]
+    .into_iter()
+    .fold(recorded.to_owned(), |text, (old, new)| text.replace(old, new))
+}
+
 /// A call's outcome beside Node's: its text and failure flag. An exception Node's tool threw for the call's cancel (an
 /// abort reason's text, which is Node's runtime's) is a call the core's runtime states as cancelled: that is compared.
 fn compare(failures: &mut Vec<String>, index: usize, name: &str, (got, cancelled): (&(bool, String), bool), telemetry: &Option<JsonValue>, step: &JsonValue, said: &dyn Fn(&str) -> String) {
@@ -3357,6 +3395,7 @@ fn compare(failures: &mut Vec<String>, index: usize, name: &str, (got, cancelled
         Some(thrown) => (true, thrown.as_str().unwrap()),
         None => (want["isError"] == true, want["text"].as_str().unwrap()),
     };
+    let want_text = timeout_wording(want_text);
     let text = said(&got.1);
     if text != want_text || got.0 != want_error || cancelled {
         failures.push(format!("step #{index} {name}:\n  want ({want_error}) {want_text:?}\n  got  ({}) {text:?} cancelled={cancelled}", got.0));

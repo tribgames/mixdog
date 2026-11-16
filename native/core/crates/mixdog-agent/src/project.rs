@@ -217,6 +217,49 @@ pub fn is_control_marker(text: &str) -> bool {
 
 // --- user message kinds ---
 
+/// Node distinguishes boundary removal from turn retention: only matching producer provenance
+/// permits slicing a request, while `is_protected_context_user` also recognizes legacy envelope-only
+/// rows. Leaving an unmarked row unsliced does not make it a retainable instruction.
+pub(crate) fn strip_runtime_user_context(message: &AgentMessage) -> AgentMessage {
+    let context = message.stored.as_ref()
+        .filter(|_| message.role() == Role::User)
+        .and_then(|row| row.get("meta"))
+        .and_then(|meta| meta.get("runtimeUserContext"))
+        .and_then(|context| Some((context.get("prefix")?.as_str()?, context.get("suffix")?.as_str()?)));
+    let Some((prefix, suffix)) = context else { return message.clone() };
+    let Some(content) = stripped_content(&message.message.content, prefix, suffix) else { return message.clone() };
+    let mut out = message.clone();
+    out.message.content = content;
+    let mut row = crate::message_row::row_of(&out).as_object().expect("message row").clone();
+    let meta = row.get_mut("meta").and_then(serde_json::Value::as_object_mut).expect("runtime context meta");
+    meta.shift_remove("runtimeUserContext");
+    meta.shift_remove("agentListing");
+    if meta.is_empty() {
+        row.shift_remove("meta");
+    }
+    out.stored = Some(std::sync::Arc::new(row));
+    out
+}
+
+/// `stripRuntimeUserContext`'s content: `None` when the recorded boundaries no longer match.
+pub(crate) fn stripped_content(content: &Content, prefix: &str, suffix: &str) -> Option<Content> {
+    match content {
+        Content::Text(text) => {
+            let inner = text.strip_prefix(prefix)?;
+            (text.len() >= prefix.len() + suffix.len()).then_some(())?;
+            Some(Content::Text(inner.strip_suffix(suffix)?.to_owned()))
+        }
+        Content::Parts(parts) => {
+            let is_text = |part: Option<&ContentPart>, want: &str| matches!(part, Some(ContentPart::Text(text, _)) if text == want);
+            if (!prefix.is_empty() && !is_text(parts.first(), prefix)) || (!suffix.is_empty() && !is_text(parts.last(), suffix)) {
+                return None;
+            }
+            let (head, tail) = (usize::from(!prefix.is_empty()), usize::from(!suffix.is_empty()));
+            (parts.len() >= head + tail).then(|| Content::Parts(parts[head..parts.len() - tail].to_vec()))
+        }
+    }
+}
+
 pub fn is_summary_message(m: &AgentMessage) -> bool {
     m.role() == Role::User
         && !is_imported(m)
@@ -226,7 +269,9 @@ pub fn is_summary_message(m: &AgentMessage) -> bool {
             }))
 }
 
-/// A user turn made only of `<system-reminder>` envelopes.
+/// A non-imported user turn made only of `<system-reminder>` envelopes, including legacy rows
+/// without provenance. Node classifies the shape, not the author's intent; only a leading prefix
+/// protects such a row from the conversation-tail filter.
 pub fn is_protected_context_user(m: &AgentMessage) -> bool {
     let Some(text) = string_content(m) else {
         return false;

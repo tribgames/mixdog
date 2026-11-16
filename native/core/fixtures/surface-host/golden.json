@@ -61,10 +61,6 @@
       "hash": "2c0a719b021b2096"
     },
     {
-      "$tool": "machine",
-      "hash": "bcff9e8a3d10e007"
-    },
-    {
       "$tool": "Skill",
       "variant": "internal",
       "hash": "6b52df78e9a7e474"
@@ -313,11 +309,6 @@
             "agentHidden": false
           },
           {
-            "name": "machine",
-            "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
-            "agentHidden": false
-          },
-          {
             "name": "Skill",
             "description": "Load or refresh an available skill’s SKILL.md before task actions when its body is missing or needs an update.",
             "agentHidden": false
@@ -444,7 +435,6 @@
           "github",
           "web_fetch",
           "recall",
-          "machine",
           "browser",
           "browser_devtools",
           "computer",
@@ -560,11 +550,6 @@
             "agentHidden": false
           },
           {
-            "name": "machine",
-            "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
-            "agentHidden": false
-          },
-          {
             "name": "Skill",
             "description": "Load or refresh an available skill’s SKILL.md before task actions when its body is missing or needs an update.",
             "agentHidden": false
@@ -682,7 +667,6 @@
           "load_tool",
           "todo",
           "github",
-          "machine",
           "browser",
           "browser_devtools",
           "computer",
@@ -792,11 +776,6 @@
           {
             "name": "recall",
             "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
-            "agentHidden": false
-          },
-          {
-            "name": "machine",
-            "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
             "agentHidden": false
           },
           {
@@ -921,7 +900,6 @@
           "todo",
           "web_fetch",
           "recall",
-          "machine",
           "browser",
           "browser_devtools",
           "computer",
@@ -1046,11 +1024,6 @@
           {
             "name": "recall",
             "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
-            "agentHidden": false
-          },
-          {
-            "name": "machine",
-            "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
             "agentHidden": false
           },
           {
@@ -1197,7 +1170,6 @@
           "github",
           "web_fetch",
           "recall",
-          "machine",
           "browser",
           "browser_devtools",
           "computer",
@@ -1707,11 +1679,6 @@
             "agentHidden": false
           },
           {
-            "name": "machine",
-            "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
-            "agentHidden": false
-          },
-          {
             "name": "Skill",
             "description": "Load or refresh an available skill’s SKILL.md before task actions when its body is missing or needs an update.",
             "agentHidden": false
@@ -1838,7 +1805,6 @@
           "github",
           "web_fetch",
           "recall",
-          "machine",
           "browser",
           "browser_devtools",
           "computer",

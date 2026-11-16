@@ -196,7 +196,31 @@ pub struct HostRunParts {
     services: HostServices,
     /// Each thread's `_providerPrefixGuardState`: the fingerprint of the request its last completed turn settled on, in memory
     /// only (Node never stores it), beside the transcript lineage that turn ran on.
-    prefix_guards: std::sync::Mutex<std::collections::HashMap<ThreadId, KeptPrefixGuard>>,
+    prefix_guards: Arc<PrefixGuards>,
+}
+
+/// The live baselines shared by turn assembly and the applied route-change boundary.
+#[derive(Default)]
+pub struct PrefixGuards(std::sync::Mutex<std::collections::HashMap<ThreadId, KeptPrefixGuard>>);
+
+impl PrefixGuards {
+    fn entries(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<ThreadId, KeptPrefixGuard>> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn for_header(&self, thread: &ThreadId, header: &Header) -> Option<mixdog_agent::prefix_guard::Snapshot> {
+        self.entries().entry(thread.clone()).or_default().for_header(header)
+    }
+
+    fn keep(&self, thread: &ThreadId, guard: Option<mixdog_agent::prefix_guard::Snapshot>) {
+        self.entries().entry(thread.clone()).or_default().guard = guard;
+    }
+
+    pub(super) fn invalidate(&self, thread: &ThreadId) {
+        if let Some(kept) = self.entries().get_mut(thread) {
+            kept.guard = None;
+        }
+    }
 }
 
 /// A thread's kept prefix guard. Node deletes `_providerPrefixGuardState` wherever it rewrites the transcript outside a
@@ -207,6 +231,149 @@ struct KeptPrefixGuard {
     /// The header's `transcriptEpoch` of the turn the guard was taken for.
     epoch: Option<String>,
     guard: Option<mixdog_agent::prefix_guard::Snapshot>,
+}
+
+impl KeptPrefixGuard {
+    fn for_header(&mut self, header: &Header) -> Option<mixdog_agent::prefix_guard::Snapshot> {
+        let epoch = header.get("transcriptEpoch").and_then(Value::as_str).map(str::to_owned);
+        if self.epoch != epoch {
+            self.guard = None;
+            self.epoch = epoch;
+        }
+        self.guard.clone()
+    }
+}
+
+#[cfg(test)]
+mod prefix_guard_tests {
+    use mixdog_agent::prefix_guard::{GuardOptions, Snapshot, compare, snapshot};
+    use mixdog_core_api::domain::provider::{CacheTier, Content, Message, ModelRequest, Role, ToolDefinition};
+    use mixdog_core_session::session::route_session::RouteChange;
+
+    use super::*;
+    use super::super::route_change::{RouteFacts, RunHostRouteChange};
+
+    struct Facts;
+
+    #[async_trait]
+    impl RouteFacts for Facts {
+        fn context_meta(&self, _: &str, _: &str, _: &Value) -> Option<mixdog_core_run::run_host::session_context_meta::ContextMeta> {
+            None
+        }
+
+        fn cache_opts(&self, _: &str, _: &str, _: Option<&str>, _: &Header) -> Option<Value> {
+            None
+        }
+    }
+
+    impl Clock for Facts {
+        fn now_ms(&self) -> i64 {
+            1
+        }
+    }
+
+    async fn apply_route(change: &RunHostRouteChange, header: &mut Header, provider: &str, model: &str) {
+        let previous = header.clone();
+        let route = json!({ "provider": provider, "model": model }).as_object().unwrap().clone();
+        let lookups = change.lookups(header, &route).await;
+        header.extend(route.clone());
+        let patch = change.route_change(header, &route, &previous, true, &lookups);
+        for key in patch.unset {
+            header.shift_remove(&key);
+        }
+        header.extend(patch.set);
+    }
+
+    fn request(provider: &str, model: &str) -> ModelRequest {
+        ModelRequest {
+            model: model.into(),
+            messages: vec![
+                Message::new(Role::System, Content::Text(format!("Model: {provider}/{model}"))),
+                Message::new(Role::User, Content::Text("Continue the conversation.".into())),
+                Message::new(Role::Assistant, Content::Text("Earlier answer.".into())),
+            ],
+            tools: Vec::new(),
+            options: Default::default(),
+        }
+    }
+
+    fn fingerprint(request: &ModelRequest, provider: &str) -> Snapshot {
+        snapshot(&request.messages, &request.tools, &request.options.hosted_tools, provider, &request.model)
+    }
+
+    /// Only an applied switch starts a new chain, even when two switches return to the original route
+    /// before another turn. A held pick and subsequent same-route mutations cannot reset the guard.
+    #[tokio::test]
+    async fn route_changes_rebaseline_without_allowing_same_route_mutations() {
+        let change = RunHostRouteChange::new(Arc::new(Facts), Arc::new(Facts));
+        let guards = change.prefix_guards();
+        let thread = ThreadId::from("route-guard");
+        for (provider, model) in [("anthropic", "new-model"), ("openai", "old-model"), ("openai", "new-model")] {
+            for held in [false, true] {
+                let mut header = json!({ "id": thread.as_str(), "provider": "anthropic", "model": "old-model", "transcriptEpoch": "same-lineage" }).as_object().unwrap().clone();
+                let mut before = request("anthropic", "old-model");
+                before.messages[0].cache_tier = Some(CacheTier::Tier3);
+                before.messages[2].thinking_blocks = Some(json!([{ "type": "thinking", "thinking": "Earlier reasoning.", "signature": "old-signature" }]));
+                let old = fingerprint(&before, "anthropic");
+                guards.entries().insert(thread.clone(), KeptPrefixGuard { epoch: Some("same-lineage".into()), guard: Some(old.clone()) });
+                if held {
+                    header.insert("pendingRoute".into(), json!({ "provider": provider, "model": model }));
+                    let running = guards.for_header(&thread, &header);
+                    let mut mutated = before.clone();
+                    mutated.messages[1].content = Content::Text("Rewritten while the pick is held.".into());
+                    let options = GuardOptions { provider: "anthropic", model: "old-model", intent: None, mutation_source: None };
+                    assert_eq!(compare(running.as_ref(), &fingerprint(&mutated, "anthropic"), &options).unwrap()["classification"], "unexpected");
+                    header.shift_remove("pendingRoute");
+                }
+                // The applied pick, not the displayed pendingRoute, is what assemble reads.
+                apply_route(&change, &mut header, provider, model).await;
+                let mut next = request(provider, model);
+                next.messages[0].cache_tier = Some(CacheTier::Env);
+                next.tools.push(ToolDefinition { name: "read".into(), description: "Read a file.".into(), input_schema: json!({ "type": "object" }), defer_loading: false, freeform: None });
+                next.messages.push(Message::new(Role::User, Content::Text("Next turn.".into())));
+                let next_guard = fingerprint(&next, provider);
+                let options = GuardOptions { provider, model, intent: None, mutation_source: None };
+                // This is the original failure: route-specific prompt/replay changes against the old chain.
+                assert_eq!(compare(Some(&old), &next_guard, &options).unwrap()["classification"], "unexpected");
+                assert!(compare(guards.for_header(&thread, &header).as_ref(), &next_guard, &options).is_none(), "{provider}/{model}, held={held}");
+                // settle_prefix / keep_prefix_guard retain the route that actually sent, including a fallback.
+                guards.keep(&thread, Some(next_guard));
+                apply_route(&change, &mut header, provider, model).await;
+                let baseline = guards.for_header(&thread, &header);
+                assert!(compare(baseline.as_ref(), &fingerprint(&next, provider), &options).is_none());
+                next.messages[1].content = Content::Text("An unauthorized prefix rewrite.".into());
+                assert_eq!(compare(baseline.as_ref(), &fingerprint(&next, provider), &options).unwrap()["reason"], "message_prefix");
+                next.messages.truncate(1);
+                assert_eq!(compare(baseline.as_ref(), &fingerprint(&next, provider), &options).unwrap()["reason"], "history_shrink");
+            }
+        }
+
+        let mut header = json!({
+            "id": thread.as_str(), "provider": "anthropic", "model": "old-model", "transcriptEpoch": "same-lineage",
+            "cwd": "new-workspace", "bp3EnvSplit": true, "bp3EnvironmentContext": "- Workspace: old",
+            "promptEnv": "# Session\nCwd: old-workspace\nModel: Old-Model\n\n- Workspace: old",
+            "workspaceReroot": { "rootCwd": "old-workspace", "target": { "environmentContext": "- Workspace: new" } }
+        }).as_object().unwrap().clone();
+        let mut before = request("anthropic", "old-model");
+        before.messages[0] = mixdog_core_prompt::prompt::blocks::request_system_messages(&header).pop().unwrap();
+        let old = fingerprint(&before, "anthropic");
+        guards.entries().insert(thread.clone(), KeptPrefixGuard { epoch: Some("same-lineage".into()), guard: Some(old.clone()) });
+        // No guard lookup or send between A -> B -> A. The first switch consumes the staged re-root;
+        // returning to A must not revive A's old baseline.
+        apply_route(&change, &mut header, "openai", "new-model").await;
+        apply_route(&change, &mut header, "anthropic", "old-model").await;
+        assert_eq!(header["bp3EnvironmentContext"], "- Workspace: new");
+        assert_eq!(header["transcriptEpoch"], "same-lineage");
+        let mut next = before;
+        next.messages[0] = mixdog_core_prompt::prompt::blocks::request_system_messages(&header).pop().unwrap();
+        let options = GuardOptions { provider: "anthropic", model: "old-model", intent: None, mutation_source: None };
+        let next_guard = fingerprint(&next, "anthropic");
+        assert_eq!(compare(Some(&old), &next_guard, &options).unwrap()["reason"], "message_prefix");
+        assert!(compare(guards.for_header(&thread, &header).as_ref(), &next_guard, &options).is_none());
+        guards.keep(&thread, Some(next_guard));
+        next.messages[1].content = Content::Text("An unauthorized rewrite after the round trip.".into());
+        assert_eq!(compare(guards.for_header(&thread, &header).as_ref(), &fingerprint(&next, "anthropic"), &options).unwrap()["reason"], "message_prefix");
+    }
 }
 
 /// The thread a Codex request names. Node's `codexWireSendOpts` fixes the wire window at `<wire id>:0` whatever the
@@ -241,6 +408,9 @@ pub(crate) fn apply_identity(options: &mut mixdog_core_api::domain::provider::Re
     let identity = request_identity(thread, header, turn);
     options.session_id = Some(identity.id.to_string());
     options.thread = Some(identity);
+    // The spend belongs to the thread, whatever id the provider sees: a Codex request's `session_id` is its wire id, which
+    // the ledger and the session's header do not know. An attribution set upstream stays.
+    options.usage_session_id.get_or_insert_with(|| thread.as_str().to_owned());
 }
 
 /// `...session.providerCacheOpts`, spread last into every send's options (`ask-turn-loop-options.mjs:74-77`): the
@@ -260,25 +430,14 @@ pub(crate) fn apply_cache_opts(options: &mut mixdog_core_api::domain::provider::
 }
 
 impl HostRunParts {
-    pub fn new(services: HostServices) -> Self {
-        Self { services, prefix_guards: std::sync::Mutex::default() }
+    pub fn new(services: HostServices, prefix_guards: Arc<PrefixGuards>) -> Self {
+        Self { services, prefix_guards }
     }
 
-    fn prefix_guards(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<ThreadId, KeptPrefixGuard>> {
-        self.prefix_guards.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    /// The guard a turn on `header` starts with: the one the thread's last completed turn kept, unless the transcript was
-    /// rewritten since (the header names another lineage), where the next send baselines afresh as Node's does.
+    /// The guard a turn on `header` starts with: the one the thread's last completed turn kept on this route and lineage.
+    /// A route switch or transcript rewrite starts a new baseline, as Node's live session reset does.
     fn prefix_guard_for(&self, thread: &ThreadId, header: &Header) -> Option<mixdog_agent::prefix_guard::Snapshot> {
-        let epoch = header.get("transcriptEpoch").and_then(Value::as_str).map(str::to_owned);
-        let mut guards = self.prefix_guards();
-        let kept = guards.entry(thread.clone()).or_default();
-        if kept.epoch != epoch {
-            kept.guard = None;
-            kept.epoch = epoch;
-        }
-        kept.guard.clone()
+        self.prefix_guards.for_header(thread, header)
     }
 }
 
@@ -355,13 +514,72 @@ mod cwd_tests {
     }
 }
 
-/// The registry's connected-server tools (`isMcpTool`, `mcp__…`), which a non-bridge session's call reaches
-/// by name though its request did not carry them; a built-in it did not offer stays unknown.
-struct McpOnly(Arc<dyn ToolResolver>);
+/// What a non-bridge session's call reaches by name though its request did not carry it: a connected server's
+/// tool (`isMcpTool`, `mcp__…`) and a tool of the session's deferred catalog. A natively loaded tool is callable
+/// (`deferredCallableTools`) without joining the session's `tools`, and Node runs it from the registry once the
+/// call-through guard let it by (`isInternalTool`, `tool-exec/dispatch.mjs`). A name outside the catalog stays unknown.
+struct Surfaced {
+    registry: Arc<dyn ToolResolver>,
+    /// The deferred catalog's names, less what the route sends in no request.
+    catalog: Vec<String>,
+}
 
-impl ToolResolver for McpOnly {
+impl ToolResolver for Surfaced {
     fn resolve(&self, scope: Option<&str>, name: &str) -> Option<Arc<dyn Tool>> {
-        if name.starts_with("mcp__") { self.0.resolve(scope, name) } else { None }
+        if name.starts_with("mcp__") || self.catalog.iter().any(|known| known == name) { self.registry.resolve(scope, name) } else { None }
+    }
+}
+
+#[cfg(test)]
+mod surfaced_tests {
+    use mixdog_core_api::domain::tool::{ToolAnnotations, ToolContext, ToolOutcome, ToolOutput, ToolSpec};
+
+    use super::*;
+
+    struct Stub(ToolSpec);
+
+    #[async_trait]
+    impl Tool for Stub {
+        fn spec(&self) -> &ToolSpec {
+            &self.0
+        }
+        async fn call(&self, _: &ToolContext, _: Value) -> ToolOutcome {
+            Ok(ToolOutput::default())
+        }
+    }
+
+    struct Pool(Vec<Arc<dyn Tool>>);
+
+    impl ToolResolver for Pool {
+        fn resolve(&self, _: Option<&str>, name: &str) -> Option<Arc<dyn Tool>> {
+            self.0.iter().find(|tool| tool.spec().name == name).cloned()
+        }
+    }
+
+    fn stub(name: &str) -> Arc<dyn Tool> {
+        Arc::new(Stub(ToolSpec {
+            name: name.into(),
+            title: None,
+            trigger: None,
+            public: true,
+            aliases: Vec::new(),
+            description: String::new(),
+            input_schema: json!({}),
+            annotations: ToolAnnotations::default(),
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        }))
+    }
+
+    /// A tool `load_tool` made callable on a native session is not in the request's tool set: a call to it by name
+    /// runs the registered tool, as a connected server's tool does, and a name the catalog does not hold is unknown.
+    #[test]
+    fn a_deferred_catalog_tool_called_by_name_runs_the_registered_tool() {
+        let registry: Arc<dyn ToolResolver> = Arc::new(Pool(vec![stub("read"), stub("computer"), stub("mcp__alpha__zeta"), stub("uncatalogued")]));
+        let set = ToolSet::new(vec![stub("read")]).with_registry(Arc::new(Surfaced { registry, catalog: vec!["read".into(), "computer".into()] }), None);
+        assert_eq!(set.resolve("computer").expect("a catalog tool").spec().name, "computer");
+        assert_eq!(set.resolve("mcp__alpha__zeta").expect("a server's tool").spec().name, "mcp__alpha__zeta");
+        assert!(set.resolve("uncatalogued").is_none());
     }
 }
 
@@ -392,7 +610,7 @@ struct RequestSource<'a> {
 
 impl HostRunParts {
     /// The tools a run calls: the surface's own and the registry behind them, the whole registry on a bridge
-    /// session and its connected servers' tools on any other. A deferred tool is not in the request, but a call
+    /// session, its connected servers' tools and its deferred catalog on any other. A deferred tool is not in the request, but a call
     /// to it (through `call_tool`, or by its name) runs it, as Node's executor dispatches by registry
     /// (`tool-exec/dispatch.mjs`); `dispatchMcp` runs a tool a connected server of the session's scope holds
     /// whatever the session's exposure (`isRegisteredMcpTool`).
@@ -401,7 +619,8 @@ impl HostRunParts {
         if surface.bridge {
             return set.with_registry(self.services.resolver.clone(), scope);
         }
-        set.with_registry(Arc::new(McpOnly(self.services.resolver.clone())), scope)
+        let catalog = surface.catalog_tools.iter().filter(|name| !surface.route_excluded.iter().any(|(excluded, _)| excluded == *name)).cloned().collect();
+        set.with_registry(Arc::new(Surfaced { registry: self.services.resolver.clone(), catalog }), scope)
     }
 
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured core/provider failure by value without boxing or changing this call contract")]
@@ -584,7 +803,7 @@ impl RunParts for HostRunParts {
 
     fn keep_prefix_guard(&self, thread: &ThreadId, guard: Option<mixdog_agent::prefix_guard::Snapshot>) {
         // The lineage stays the one the turn started on (`prefix_guard_for`).
-        self.prefix_guards().entry(thread.clone()).or_default().guard = guard;
+        self.prefix_guards.keep(thread, guard);
     }
 
     async fn record_applied_skills(&self, thread: &ThreadId, item: &mixdog_core_api::ids::ItemId, names: &[String]) -> Result<(), TurnError> {

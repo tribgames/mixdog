@@ -79,6 +79,41 @@ test('a core that answers nothing for the freeze limit is killed, not before, an
   assert.equal(served.pid, 200);
 });
 
+/** A watch over a silent core with `onEnding`; resolves with what was killed and what the callback saw. */
+async function endSilentCore(onEnding: (ending: any) => unknown) {
+  let clock = 0;
+  const killed: number[] = [];
+  const watcher: ReturnType<typeof watchCore> = watchCore({
+    readDiscovery: async () => serving(),
+    ownedPid: () => 100,
+    ping: async () => ({ answered: false, stalledMs: 0 }),
+    kill: (pid) => void killed.push(pid),
+    onEnding,
+    onKilled: () => watcher.stop(),
+    sleep: async (ms) => void (clock += ms),
+    now: () => clock,
+    intervalMs: 5_000,
+    runs: () => true,
+  });
+  await watcher.done;
+  return killed;
+}
+
+test('a core the watch ends is reported with why', async () => {
+  const endings: any[] = [];
+  const killed = await endSilentCore((ending) => void endings.push(ending));
+  await new Promise((resolve) => setImmediate(resolve)); // the report is deferred off the kill's path
+  assert.deepEqual(killed, [100]);
+  assert.deepEqual({ ...endings[0], unansweredMs: 0 }, { pid: 100, reason: 'statusUnanswered', unansweredMs: 0, stalledMs: 0, limitMs: 120_000 });
+  assert.ok(endings[0].unansweredMs >= 120_000);
+});
+
+test('a report that throws, rejects or never returns does not stop or delay the kill', async () => {
+  assert.deepEqual(await endSilentCore(() => { throw new Error('diagnostic sink failed'); }), [100], 'a throwing report');
+  assert.deepEqual(await endSilentCore(() => Promise.reject(new Error('diagnostic sink failed'))), [100], 'a rejecting report');
+  assert.deepEqual(await endSilentCore(() => new Promise(() => {})), [100], 'a report that never settles');
+});
+
 test('a runtime that reports a stall of the limit is ended at once, one reporting less is not', async () => {
   let clock = 0;
   const killed: number[] = [];

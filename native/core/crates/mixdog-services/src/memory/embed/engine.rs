@@ -84,6 +84,29 @@ pub(crate) fn ort_environment(library: &Path) -> Result<&'static ort::environmen
         .map_err(|message| MemoryError::Runtime(message.clone()))
 }
 
+/// The worker's `executionProviders` plus its `enableCpuMemArena: false`: ONNX Runtime's CPU arena is on unless the CPU
+/// provider is registered with it off, and it keeps every freed activation buffer resident for the model's life.
+fn session_providers(gpu: bool) -> Vec<ort::ep::ExecutionProviderDispatch> {
+    let mut providers = Vec::new();
+    if gpu {
+        providers.push(ort::ep::DirectML::default().build().error_on_failure());
+    }
+    providers.push(ort::ep::CPU::default().with_arena_allocator(false).build());
+    providers
+}
+
+#[cfg(test)]
+mod session_option_tests {
+    use super::session_providers;
+
+    #[test]
+    fn the_cpu_provider_is_registered_so_its_arena_is_off() {
+        let names = |gpu| session_providers(gpu).iter().map(|p| p.name()).collect::<Vec<_>>();
+        assert_eq!(names(false), ["CPUExecutionProvider"]);
+        assert_eq!(names(true), ["DmlExecutionProvider", "CPUExecutionProvider"]);
+    }
+}
+
 struct Inner {
     model_id: String,
     dtype: String,
@@ -134,7 +157,7 @@ impl Embedder {
             let mut sessions = Vec::new();
             for _ in 0..count {
                 let build = || -> ort::Result<Session> {
-                    let providers = if gpu { vec![ort::ep::DirectML::default().build().error_on_failure()] } else { Vec::new() };
+                    let providers = session_providers(gpu);
                     let mut builder = Session::builder(environment)?
                         .with_execution_providers(providers)?
                         .with_intra_threads(1)?

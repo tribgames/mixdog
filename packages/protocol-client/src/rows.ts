@@ -197,8 +197,11 @@ export function* mergeToolRowsSteps(rows: readonly Obj[]): Generator<void, Obj[]
     run = null;
     if (live) liveCards.push({ at: merged.length, stopped: members.some((member) => stoppedRows.has(member.item)) });
     // A restore merges two or more finished cards (`mergeRestoredToolItems`); a live turn's tool cards put every call of a bucket on an aggregate, even one.
-    if (members.length >= 2 || live) merged.push(yield* aggregateRowSteps(members, live));
-    else for (const member of members) merged.push(member.item);
+    if (members.length >= 2 || live) {
+      const card = yield* aggregateRowSteps(members, live);
+      // Node archives the card itself (compaction-view.mjs `archivedItem`): a card of calls a compaction took dims as they do.
+      merged.push(members.every((member) => member.item.archived === true) ? { ...card, archived: true } : card);
+    } else for (const member of members) merged.push(member.item);
   }
   // A live card's header is sealed (`finalizeToolHeaders`, header-sync.mjs:13-31) once the block it is in ends: the turn's next
   // non-tool row (`clearAggregateContinuation` at assistant text, a steer or a compact, turn.mjs:256,322; the turn's end,
@@ -591,6 +594,11 @@ function userRow(item: Obj, m: Obj): Obj {
         ...(original.digest === undefined ? {} : { original: { attachmentRef: bare(original.digest), mimeType: text(original.mediaType) } }),
       };
     });
+  const details = asObj(item.details);
+  const imageRefs = details.imageRefs;
+  // restore.mjs `restoredTranscriptMetadata`: the stored attachments (`meta.transcript.attachments`, the core's
+  // `details.attachments`) the pasted-text and file chips read and open from the store.
+  const stored = Array.isArray(details.attachments) ? details.attachments : [];
   return {
     kind: 'user',
     // Node's row id is the submission id (`pushUserOrSyntheticItem(text, id)`), which a client matches its pending bubble by
@@ -603,9 +611,11 @@ function userRow(item: Obj, m: Obj): Obj {
     ...present('device', item.device),
     ...present('checkpointId', item.checkpointId),
     // `persistedUserTranscriptMetadata`: who sent a bot's message.
-    ...present('sender', asObj(item.details).sender),
-    ...present('fromAgent', asObj(item.details).fromAgent),
-    ...attachmentsField(attachments),
+    ...present('sender', details.sender),
+    ...present('fromAgent', details.fromAgent),
+    ...attachmentsField([...attachments, ...stored]),
+    // restore.mjs: each `[Image: …]` line's stored original, which the transcript chip draws its picture from.
+    ...(Array.isArray(imageRefs) && imageRefs.length ? { imageRefs: imageRefs as Json } : {}),
     ...(Array.isArray(item.appliedSkills) && item.appliedSkills.length ? { appliedSkills: item.appliedSkills.filter((s) => typeof s === 'string' && s) } : {}),
   };
 }

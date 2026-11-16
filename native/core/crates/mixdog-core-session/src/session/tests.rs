@@ -419,6 +419,7 @@ async fn a_tool_steps_approval_goes_out_before_the_step() {
                     reasoning_tokens_complete: false,
                     outgoing: Vec::new(),
                     sent_at_ms: 0,
+                    input_excludes_cache: false,
                 })
                 .await
                 .expect("usage");
@@ -3115,6 +3116,44 @@ async fn a_deleted_base_stays_readable_by_its_fork() {
     assert_eq!(rows(&reopened).len(), 2, "the base's history shows in the fork");
 }
 
+/// A fork of a live memory-cycle dispatch is the user's own Lead (`cold-heir.mjs` `ROOT_LEAD_IDENTITY.sourceType`): it does not
+/// inherit the maintenance provenance that keeps a dispatch out of memory, so its conversation is ingested when it closes.
+#[tokio::test(start_paused = true)]
+async fn a_fork_of_a_memory_cycle_dispatch_is_not_itself_a_memory_cycle_dispatch() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let ctx = CallContext::internal("test");
+    let id = ThreadId::from("sess_cycle_source");
+    let header = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model", "sourceType": "memory-cycle" });
+    directory.create_with_id(id.clone(), header.as_object().cloned().expect("header"), json!({})).await.expect("create the source");
+    let source = directory.open_handle(&id, &ctx).await.expect("open the source");
+    give_conversation(&source).await;
+    let reply = source.request(request("thread/fork", json!({ "threadId": id, "opId": "op-fork" }), "op-fork")).await.expect("thread/fork");
+    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+    let heir = directory.open_handle(&ThreadId::from(value["thread"]["id"].as_str().expect("heir id")), &ctx).await.expect("open the heir");
+    let header = heir.cell.header.load();
+    assert!(super::session_options::memory_ingest_off(&source.cell.header.load()), "the source is a maintenance dispatch");
+    assert!(!super::session_options::memory_ingest_off(&header), "its fork is not: {:?}", header.get("sourceType"));
+}
+
+/// A preserved copy (a clear's or an archival reset's `thread/fork`) keeps the source's own `sourceType`: it is a copy of that
+/// session, not a new Lead, so it stays out of the Lead catalog and keeps its provenance.
+#[tokio::test(start_paused = true)]
+async fn a_fork_keeps_a_sources_ordinary_source_type() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let ctx = CallContext::internal("test");
+    let id = ThreadId::from("sess_exec_source");
+    let header = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model", "sourceType": "exec" });
+    directory.create_with_id(id.clone(), header.as_object().cloned().expect("header"), json!({})).await.expect("create the source");
+    let source = directory.open_handle(&id, &ctx).await.expect("open the source");
+    give_conversation(&source).await;
+    let reply = source.request(request("thread/fork", json!({ "threadId": id, "opId": "op-fork" }), "op-fork")).await.expect("thread/fork");
+    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+    let heir = directory.open_handle(&ThreadId::from(value["thread"]["id"].as_str().expect("heir id")), &ctx).await.expect("open the heir");
+    assert_eq!(heir.cell.header.load().get("sourceType"), Some(&json!("exec")));
+}
+
 /// The heir drops what it does not carry as Node's `delete` drops a key: the source's header keys it keeps stay in their order.
 #[tokio::test(start_paused = true)]
 async fn a_fork_keeps_the_order_of_the_header_keys_it_carries() {
@@ -3510,8 +3549,8 @@ async fn a_model_switch_after_a_compaction_anchors_on_the_summary() {
 
 /// A run's live-only events reach the view and the feed as Node's turn shows them: reasoning
 /// grows its item (`item/reasoning/textDelta`), a notice is a polished `info` line, a model
-/// call's usage is `thread/tokenUsage/updated`, a compaction that changed the context marks
-/// where the turn began, and a committed row's own prompt text joins the prompt history.
+/// call's usage is `thread/tokenUsage/updated`, and a committed row's own prompt text joins the
+/// prompt history.
 #[tokio::test(start_paused = true)]
 async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
     let rig = Rig::new();
@@ -3546,6 +3585,7 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
                     reasoning_tokens_complete: true,
                     outgoing: Vec::new(),
                     sent_at_ms: 0,
+                    input_excludes_cache: false,
                 })
                 .await
                 .expect("usage");
@@ -3605,8 +3645,7 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
             other => format!("{:?}", std::mem::discriminant(other)),
         })
         .collect();
-    let marker = kinds.iter().position(|k| k == "statusdone:Compact complete").expect("the marker");
-    assert_eq!(kinds[marker + 1], "user:go", "the marker stands before the turn's input row: {kinds:?}");
+    assert!(kinds.contains(&"user:go".to_owned()), "{kinds:?}");
     let notice = shown
         .iter()
         .find_map(|item| match item {
@@ -3688,6 +3727,7 @@ async fn a_model_calls_usage_reaches_the_header_when_it_is_reported() {
                     reasoning_tokens_complete: true,
                     outgoing: Vec::new(),
                     sent_at_ms: 4242,
+                    input_excludes_cache: false,
                 })
                 .await
                 .expect("usage");
@@ -3752,6 +3792,7 @@ async fn a_web_searchs_spend_is_heard_by_the_feed_and_not_by_the_headers_books()
                     reasoning_tokens_complete: false,
                     outgoing: Vec::new(),
                     sent_at_ms: 0,
+                    input_excludes_cache: false,
                 })
                 .await
                 .expect("usage");
@@ -3857,6 +3898,7 @@ async fn a_streaming_tool_call_stamps_the_stored_heartbeat_once_a_minute() {
                         reasoning_tokens_complete: false,
                         outgoing: Vec::new(),
                         sent_at_ms: 0,
+                        input_excludes_cache: false,
                     })
                     .await
                     .expect("usage");
@@ -3901,11 +3943,12 @@ async fn a_compaction_passs_summary_usage_reaches_the_header_totals() {
                     reasoning_tokens_complete: false,
                     outgoing: Vec::new(),
                     sent_at_ms: 0,
+                    input_excludes_cache: false,
                 })
                 .await
                 .expect("usage");
             run.port
-                .compact_usage(crate::session::CompactUsageReport { iteration: 1, usage: usage(200), reasoning_tokens: None, reasoning_tokens_complete: false })
+                .compact_usage(crate::session::CompactUsageReport { iteration: 1, usage: usage(200), reasoning_tokens: None, reasoning_tokens_complete: false, input_excludes_cache: false })
                 .await
                 .expect("compact usage");
             RunOutcome::Completed(Default::default())
@@ -4284,6 +4327,211 @@ async fn a_restored_compaction_shows_its_divider_and_the_switches_on_its_summary
     assert!(super::record_model_switch(&reopened, &id, &switch(400)).await.expect("record live"));
     eventually_on!(&[&restored.cell.stepped], || (ids(&restored).len() == shown.len() + 1).then_some(())).await;
     assert_eq!(ids(&restored)[divider + 1..], [format!("divider:{cid}:model:300"), format!("divider:{cid}:model:400")]);
+}
+
+/// One compaction of a run shows one divider, carrying the pass's duration and token move: the pass's
+/// event and the `compacted` record reach the thread in either order, and neither adds a row of its own.
+#[tokio::test(start_paused = true)]
+async fn one_compaction_of_a_run_shows_one_divider_with_its_stats() {
+    for event_first in [true, false] {
+        let rig = Rig::new();
+        rig.set_script(Arc::new(move |run| {
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let event = mixdog_agent::env::CompactEvent {
+                    dropped_count: 3,
+                    dropped: None,
+                    trigger: mixdog_agent::env::CompactTrigger::Auto,
+                    status: mixdog_agent::env::CompactStatus::Compacted,
+                    before_tokens: 537_276,
+                    duration_ms: 110,
+                    after_tokens: 41_248,
+                    before_messages: 4,
+                    after_messages: 1,
+                    pressure_tokens: 537_276,
+                    trigger_tokens: 500_000,
+                    boundary_tokens: 500_000,
+                    target_budget_tokens: 40_000,
+                };
+                let summary = json!({ "role": "user", "content": "[summary] earlier work" });
+                let compaction = super::run::Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), summary)], at: 777, dropped_count: 3, dropped: None };
+                if event_first {
+                    run.port.compact_event(event).await.expect("compact");
+                    run.port.compacted(compaction).await.expect("compacted");
+                } else {
+                    run.port.compacted(compaction).await.expect("compacted");
+                    run.port.compact_event(event).await.expect("compact");
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+        let directory = SessionDirectory::new(rig.deps());
+        let handle = start_thread(&directory).await;
+        turn(&handle, "go", "op-1").await;
+        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+        let dividers: Vec<Option<String>> = handle
+            .cell
+            .view
+            .load_full()
+            .items
+            .iter()
+            .filter(|item| matches!(item.as_ref(), ThreadItem::ContextCompaction { .. }) || super::view::meta(item).label.as_deref().is_some_and(|label| label.starts_with("Compact")))
+            .map(|item| super::view::meta(item).detail.clone())
+            .collect();
+        assert_eq!(dividers, [Some("1s · 537k→41k".to_owned())], "event first: {event_first}");
+    }
+}
+
+/// Two compactions of one turn, their records and their events arriving in batches (each stream in order, as the run
+/// delivers them), still pair one to one: each divider shows its own pass's figures, and no pass adds a row of its own.
+/// Node keeps no figures past the live row (the archive's divider is the label and the time), so a reopened store shows
+/// the same two dividers without a detail.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_compactions_of_one_turn_pair_their_stats_in_order_and_reopen_as_two_dividers() {
+    for event_first in [true, false] {
+        let data = tempfile::tempdir().expect("data dir");
+        let store = real_store(data.path()).await;
+        let rig = Rig::new();
+        rig.set_script(Arc::new(move |run| {
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let event = |before_tokens: u64, after_tokens: u64| mixdog_agent::env::CompactEvent {
+                    dropped_count: 3,
+                    dropped: None,
+                    trigger: mixdog_agent::env::CompactTrigger::Auto,
+                    status: mixdog_agent::env::CompactStatus::Compacted,
+                    before_tokens,
+                    duration_ms: 110,
+                    after_tokens,
+                    before_messages: 4,
+                    after_messages: 1,
+                    pressure_tokens: before_tokens,
+                    trigger_tokens: 500_000,
+                    boundary_tokens: 500_000,
+                    target_budget_tokens: 40_000,
+                };
+                let compaction = |iid: &str, at: i64| {
+                    let summary = json!({ "role": "user", "content": format!("[summary] {iid}") });
+                    super::run::Compaction { replacement: vec![(ItemId::from(iid.to_owned()), summary)], at, dropped_count: 3, dropped: None }
+                };
+                if event_first {
+                    run.port.compact_event(event(537_276, 41_248)).await.expect("event a");
+                    run.port.compact_event(event(300_000, 20_000)).await.expect("event b");
+                    run.port.compacted(compaction("sum1", 777)).await.expect("record a");
+                    run.port.compacted(compaction("sum2", 888)).await.expect("record b");
+                } else {
+                    run.port.compacted(compaction("sum1", 777)).await.expect("record a");
+                    run.port.compacted(compaction("sum2", 888)).await.expect("record b");
+                    run.port.compact_event(event(537_276, 41_248)).await.expect("event a");
+                    run.port.compact_event(event(300_000, 20_000)).await.expect("event b");
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+        let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "go", "op-1").await;
+        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+        let compactions = |handle: &SessionHandle| -> Vec<(i64, Option<String>)> {
+            handle
+                .cell
+                .view
+                .load_full()
+                .items
+                .iter()
+                .filter(|item| matches!(item.as_ref(), ThreadItem::ContextCompaction { .. }) || super::view::meta(item).label.as_deref().is_some_and(|label| label.starts_with("Compact")))
+                .map(|item| (super::view::meta(item).at.unwrap_or_default(), super::view::meta(item).detail.clone()))
+                .collect()
+        };
+        assert_eq!(
+            compactions(&handle),
+            [(777, Some("1s · 537k→41k".to_owned())), (888, Some("1s · 300k→20k".to_owned()))],
+            "live, event first: {event_first}"
+        );
+        let id = handle.id.clone();
+        let reopened = SessionDirectory::new(rig.deps_on(store));
+        let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+        assert_eq!(compactions(&restored), [(777, None), (888, None)], "reopened, event first: {event_first}");
+    }
+}
+
+/// A compaction record the encoder rejects (an oversized replacement) leaves no divider, and the live view is the same
+/// whichever of the record and its event came first: the rejected pass's event is dropped with it, the patch of a
+/// record-first divider goes with its record, and the pairs after it stay aligned.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rejected_compaction_record_leaves_no_divider_in_either_arrival_order_and_later_pairs_stay_aligned() {
+    for event_first in [true, false] {
+        let data = tempfile::tempdir().expect("data dir");
+        let store = real_store(data.path()).await;
+        let rig = Rig::new();
+        rig.set_script(Arc::new(move |run| {
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let event = |before_tokens: u64, after_tokens: u64| mixdog_agent::env::CompactEvent {
+                    dropped_count: 3,
+                    dropped: None,
+                    trigger: mixdog_agent::env::CompactTrigger::Auto,
+                    status: mixdog_agent::env::CompactStatus::Compacted,
+                    before_tokens,
+                    duration_ms: 110,
+                    after_tokens,
+                    before_messages: 4,
+                    after_messages: 1,
+                    pressure_tokens: before_tokens,
+                    trigger_tokens: 500_000,
+                    boundary_tokens: 500_000,
+                    target_budget_tokens: 40_000,
+                };
+                let compaction = |iid: &str, at: i64, size: usize| {
+                    let summary = json!({ "role": "user", "content": format!("[summary] {iid}{}", "x".repeat(size)) });
+                    super::run::Compaction { replacement: vec![(ItemId::from(iid.to_owned()), summary)], at, dropped_count: 3, dropped: None }
+                };
+                let oversized = mixdog_protocol::MAX_BLOB_BYTES as usize + 1;
+                let events = [event(537_276, 41_248), event(400_000, 30_000), event(300_000, 20_000)];
+                let records = [compaction("sum1", 777, 0), compaction("sum2", 888, oversized), compaction("sum3", 999, 0)];
+                if event_first {
+                    for event in events {
+                        run.port.compact_event(event).await.expect("event");
+                    }
+                    for record in records {
+                        let _ = run.port.compacted(record).await;
+                    }
+                } else {
+                    for record in records {
+                        let _ = run.port.compacted(record).await;
+                    }
+                    for event in events {
+                        run.port.compact_event(event).await.expect("event");
+                    }
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }));
+        let directory = SessionDirectory::new(rig.deps_on(store.clone()));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "go", "op-1").await;
+        eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+        let compactions = |handle: &SessionHandle| -> Vec<(i64, Option<String>)> {
+            handle
+                .cell
+                .view
+                .load_full()
+                .items
+                .iter()
+                .filter(|item| matches!(item.as_ref(), ThreadItem::ContextCompaction { .. }) || super::view::meta(item).label.as_deref().is_some_and(|label| label.starts_with("Compact")))
+                .map(|item| (super::view::meta(item).at.unwrap_or_default(), super::view::meta(item).detail.clone()))
+                .collect()
+        };
+        assert_eq!(
+            compactions(&handle),
+            [(777, Some("1s · 537k→41k".to_owned())), (999, Some("1s · 300k→20k".to_owned()))],
+            "live, event first: {event_first}"
+        );
+        let id = handle.id.clone();
+        let reopened = SessionDirectory::new(rig.deps_on(store));
+        let restored = reopened.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+        assert_eq!(compactions(&restored), [(777, None), (999, None)], "reopened, event first: {event_first}");
+    }
 }
 
 /// `recordModelSwitchBoundary`: the boundary goes on the switch anchor once, as a record
@@ -6040,4 +6288,97 @@ async fn a_persons_clear_keeps_the_conversation_as_a_session_of_its_own_and_reco
     let own = CoreRequest { method: Method("thread/clear"), params: json!({ "threadId": handle.id, "opId": "op-c2" }), op: Some(OpId::from("op-c2")), ctx: CallContext::internal("test") };
     handle.request(own).await.expect("clear");
     assert_eq!(ids(), before, "an internal reset makes no copy of its own");
+}
+
+/// A queue entry an earlier build wrote (its `{"type":"text"}` part beside an image, which this build's intake would have
+/// cleaned) is delivered under the one rule on resume: the image reaches the turn's input row, the entry is delivered.
+#[tokio::test(start_paused = true)]
+async fn a_restored_queue_entry_keeps_its_image_beside_an_empty_text_part() {
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::bounded::Text;
+    use mixdog_store::schema::record::{DequeueReason, QueueAction, QueueRecord, Record};
+    let rig = Rig::new();
+    let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let seen = inputs.clone();
+    rig.set_script(Arc::new(move |run| {
+        let seen = seen.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            lock(&seen).push(serde_json::to_value(&run.input.prompt).unwrap());
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let first = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&first).await;
+    let reference = "c".repeat(64);
+    let entry = json!({
+        "message": [
+            { "type": "text", "text": "look" },
+            { "type": "image", "mimeType": "image/png", "attachmentRef": reference, "sizeBytes": 5 },
+            { "type": "text" }
+        ],
+        "enqueuedAt": 1,
+        "priority": "next"
+    });
+    rig.store.append_record(&handle.id, Record::Queue(QueueRecord {
+        qid: Text::try_from("restored-1").unwrap(),
+        action: QueueAction::Enqueue,
+        reason: None,
+        op: None,
+        entry: Some(Slot::Inline(entry)),
+    }));
+    let second = SessionDirectory::new(rig.deps());
+    let reopened = second.open_handle(&handle.id, &CallContext::internal("test")).await.expect("open");
+    reopened.cell.deliver(super::control::Ctl::Resumed);
+    eventually_on!(&[&reopened.cell.stepped], || (!lock(&inputs).is_empty()).then_some(())).await;
+    let content = lock(&inputs)[0].clone();
+    assert_eq!(content[0]["text"], "look");
+    assert_eq!(content[1]["type"], "image");
+    assert_eq!(content[1]["attachmentRef"], json!(reference));
+    assert_eq!(content.as_array().map(Vec::len), Some(2), "the empty text part is left out: {content}");
+    let dequeued: Vec<DequeueReason> = rig.store.records(&handle.id).into_iter().filter_map(|(_, record)| match record {
+        Record::Queue(queue) if queue.action == QueueAction::Dequeue => queue.reason,
+        _ => None,
+    }).collect();
+    assert_eq!(dequeued, [DequeueReason::Delivered]);
+}
+
+/// A restored queue entry that cannot be delivered is handed back to its sender under the submission id the sender registered
+/// (`options.clientSubmissionId`, what a composer's `wasSubmittedHere` knows), and leaves the queue as cancelled, not delivered.
+#[tokio::test(start_paused = true)]
+async fn a_refused_queue_entry_is_handed_back_under_its_client_submission_id() {
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::bounded::Text;
+    use mixdog_store::schema::record::{DequeueReason, QueueAction, QueueRecord, Record};
+    let rig = Rig::new();
+    let first = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&first).await;
+    let entry = json!({
+        "message": [{ "type": "text", "text": "look" }, { "type": "text", "attachmentRef": 5 }],
+        "options": { "clientSubmissionId": "desktop-submit-abc", "displayText": "look" },
+        "enqueuedAt": 1,
+        "priority": "next"
+    });
+    rig.store.append_record(&handle.id, Record::Queue(QueueRecord {
+        qid: Text::try_from("restored-2").unwrap(),
+        action: QueueAction::Enqueue,
+        reason: None,
+        op: None,
+        entry: Some(Slot::Inline(entry)),
+    }));
+    let second = SessionDirectory::new(rig.deps());
+    let reopened = second.open_handle(&handle.id, &CallContext::internal("test")).await.expect("open");
+    reopened.cell.deliver(super::control::Ctl::Resumed);
+    let restores = || -> Vec<Value> {
+        rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/promptRestore").map(|(_, _, value)| value).collect()
+    };
+    eventually_on!(&[&reopened.cell.stepped, &*rig.feeds.published], || (!restores().is_empty()).then_some(())).await;
+    let restore = restores().pop().unwrap();
+    assert_eq!(restore["value"]["ids"], json!(["desktop-submit-abc"]), "{restore}");
+    assert_eq!(restore["value"]["text"], "look", "{restore}");
+    let dequeued: Vec<DequeueReason> = rig.store.records(&handle.id).into_iter().filter_map(|(_, record)| match record {
+        Record::Queue(queue) if queue.action == QueueAction::Dequeue => queue.reason,
+        _ => None,
+    }).collect();
+    assert_eq!(dequeued, [DequeueReason::Cancelled]);
 }

@@ -1,6 +1,6 @@
 {
   "tree": {
-    "srcSha256": "ec0c02f005655288486e646f3e92c145e9fefcb8c718e6d60a0831fe1a9fb567"
+    "srcSha256": "c1cbfce65220d1d96ecd57bf4af1113fc55dffeebd6d3833af4ea401b193f79c"
   },
   "definitions": {
     "Skill": {
@@ -4574,38 +4574,6 @@
           "destructiveHint": false,
           "idempotentHint": true,
           "openWorldHint": false
-        }
-      }
-    },
-    "machine": {
-      "hash": "bcff9e8a3d10e007",
-      "definition": {
-        "name": "machine",
-        "title": "Machine Status",
-        "annotations": {
-          "title": "Machine Status",
-          "readOnlyHint": true,
-          "destructiveHint": false,
-          "idempotentHint": false,
-          "openWorldHint": false,
-          "compressible": true
-        },
-        "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "process": {
-              "type": "string",
-              "description": "Also list processes whose name contains this text."
-            },
-            "top": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 20,
-              "description": "Rows per top list; default 5."
-            }
-          },
-          "additionalProperties": false
         }
       }
     },

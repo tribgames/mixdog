@@ -80,9 +80,6 @@ struct State {
     fresh: HashSet<String>,
     /// Sessions on HTTP/SSE for good.
     http: HashSet<String>,
-    /// Consecutive failed WebSocket exchanges per session, and whether the
-    /// last was one a transport switch answers.
-    failures: HashMap<String, (u32, bool)>,
 }
 
 #[derive(Default)]
@@ -239,26 +236,6 @@ impl WsPool {
         self.state().http.insert(key.to_owned());
     }
 
-    /// A WebSocket exchange of `key` failed; `switchable` when the failure is
-    /// one a transport switch answers. Returns the consecutive failures.
-    pub fn ws_failed(&self, key: &str, switchable: bool) -> u32 {
-        let mut state = self.state();
-        let entry = state.failures.entry(key.to_owned()).or_insert((0, false));
-        entry.0 += 1;
-        entry.1 = switchable;
-        entry.0
-    }
-
-    pub fn ws_ok(&self, key: &str) {
-        self.state().failures.remove(key);
-    }
-
-    /// Whether the session's WebSocket retry budget is spent by switchable
-    /// failures, so its next attempt goes to HTTP/SSE.
-    pub fn budget_spent(&self, key: &str, attempts: u32) -> bool {
-        self.state().failures.get(key).is_some_and(|(n, switchable)| *switchable && *n + 1 >= attempts)
-    }
-
     /// Closes a scope's sockets for good with `reason`, the ones in use too, and drops its transport state
     /// (`closeOpenaiWsPoolForSession`: `_clearPoolOwnerScope`, then `_shutdownEntry(entry, reason)`,
     /// `socket.close(1000, reason)`, for every pooled entry, busy or not, and every unpooled one). A socket in use goes
@@ -271,7 +248,6 @@ impl WsPool {
             let released = state.owners.remove(key).is_some();
             state.fresh.remove(key);
             state.http.remove(key);
-            state.failures.remove(key);
             let in_use: Vec<WsCloser> = state.leases.values_mut().filter(|lease| lease.key == key).filter_map(|lease| {
                 lease.revoked = true;
                 lease.closer.clone()
@@ -298,7 +274,6 @@ impl WsPool {
             let mut state = self.state();
             state.fresh.remove(key);
             state.http.remove(key);
-            state.failures.remove(key);
             state.idle.remove(key)
         };
         drop(gone);
@@ -370,7 +345,6 @@ impl Checkout {
         // One hold of the pool from the disposal check to the parking: a disposal lands before it (the socket is not
         // parked) or after it (the socket is parked, and the disposal closes it with the idle ones).
         let mut state = self.pool.state();
-        state.failures.remove(&self.key);
         if self.socket.is_none() {
             return;
         }

@@ -444,6 +444,8 @@ pub struct CompactUsageReport {
     pub usage: mixdog_core_api::domain::provider::Usage,
     pub reasoning_tokens: Option<u64>,
     pub reasoning_tokens_complete: bool,
+    /// The convention of the adapter that produced the usage.
+    pub input_excludes_cache: bool,
 }
 
 /// The request the loop is about to send, as its pre-send check judged it.
@@ -472,6 +474,8 @@ pub struct Settled {
     pub response_model: String,
     /// `askStartedAt`, in wall-clock milliseconds.
     pub asked_at_ms: i64,
+    /// The convention of the adapter the ask ended on, which its aggregate is settled by.
+    pub input_excludes_cache: bool,
 }
 
 /// Everything Node's `usageDeltaEvent` carries about one model call (`onUsageDelta`).
@@ -498,6 +502,8 @@ pub struct UsageReport {
     pub outgoing: Vec<mixdog_agent::message::AgentMessage>,
     /// `sendStartedAt`.
     pub sent_at_ms: i64,
+    /// The convention of the adapter that produced this usage (`providerInputExcludesCache`).
+    pub input_excludes_cache: bool,
 }
 
 impl UsageReport {
@@ -516,6 +522,7 @@ impl UsageReport {
             reasoning_tokens_complete: delta.reasoning_tokens_complete,
             outgoing: delta.outgoing,
             sent_at_ms: delta.sent_at_ms,
+            input_excludes_cache: delta.input_excludes_cache,
         }
     }
 }

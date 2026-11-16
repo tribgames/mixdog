@@ -474,6 +474,9 @@ export function createRosterFeed<S>(options: {
 // ── The adapter the phone's switch point loads ───────────────────────────────────────────────────────────────────────────────────────
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
 
+/** How long a fresh recovery waits for a thread this client does not yet fold. */
+const FRESH_FOLD_WAIT_MS = 3000;
+
 const CHAT_CALLS = [
   'abortSession', 'agentRoomAction', 'cancelQuotaResume', 'continueSessionInModel', 'deleteSession',
   'getQuotaAutoResume', 'getTaskWorkspace', 'inheritSession', 'listProviderModels', 'markSessionRead', 'openAgentHome',
@@ -547,6 +550,29 @@ export function createChatAdapter(options: {
   calls.getSnapshot = (_params, host) => {
     const held = shells.get(host.ctx);
     return held ? withRemoteSession(held, remoteSessionIdOf(options.remoteSession(host.client() as unknown as ChatClient))) : null;
+  };
+  // A refused approval answer: the page's session state is projected anew from this client's own fold (its current pending
+  // list) and published to the page, whatever the feed replays (a same-window resume at the cursor replays nothing). A thread
+  // this client does not fold gets one bounded resume; no fold, nothing is published and the card stays retryable.
+  calls.refreshSessionState = async (params, host) => {
+    const sessionId = String(params[0] ?? '');
+    const client = host.client() as unknown as ChatClient;
+    const shared = options.sharedFor(client);
+    let state = shared.sessionStateOf(sessionId);
+    if (!state) {
+      const [resume] = shared.routeService('prefetchSession', [sessionId]).requests;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        shared.whenFolded(sessionId, () => client.resumeThread(sessionId, resume?.params.window)).catch(() => undefined),
+        new Promise<void>((resolve) => (timer = setTimeout(resolve, FRESH_FOLD_WAIT_MS))),
+      ]);
+      clearTimeout(timer);
+      state = shared.sessionStateOf(sessionId);
+    }
+    if (!state) return false;
+    const snapshot = withRemoteSession(state, remoteSessionIdOf(options.remoteSession(client))) as unknown as SessionSnapshot;
+    host.ctx.sessionInbox.publish({ sessionId, snapshot, frameSource: 'live' });
+    return true;
   };
   calls.listSessions = (_params, host) => feedFor(host).list(host.client() as unknown as RosterClient);
   return {

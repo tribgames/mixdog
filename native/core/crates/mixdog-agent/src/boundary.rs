@@ -72,6 +72,12 @@ pub struct ContextReading {
     pub stale_after_compact: bool,
 }
 
+/// The whole prompt of a call (Node's `promptTokens`): its input, plus the cache reads and writes when the provider's input
+/// leaves them out.
+pub fn prompt_tokens(usage: &Usage, input_excludes_cache: bool) -> u64 {
+    if input_excludes_cache { usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens } else { usage.input_tokens }
+}
+
 impl ContextReading {
     /// `compactDisplayBeforeTokens`: the live reading, else the pass's own `fallback`.
     pub fn display_before(&self, fallback: u64) -> u64 {
@@ -81,11 +87,11 @@ impl ContextReading {
         }
     }
 
-    /// `recordLastContextTokens` for one model call: the prompt the call measured (a `Usage`'s
-    /// input already counts cache reads and writes, which Node adds back for providers that report
-    /// them apart); no prompt leaves the window unknown until the next measured call.
-    pub fn measure(&mut self, usage: &Usage) {
-        let prompt = usage.input_tokens;
+    /// `recordLastContextTokens` for one model call: the prompt the call measured (a provider whose
+    /// input leaves the cache out, `input_excludes_cache`, has its cache reads and writes added back);
+    /// no prompt leaves the window unknown until the next measured call.
+    pub fn measure(&mut self, usage: &Usage, input_excludes_cache: bool) {
+        let prompt = prompt_tokens(usage, input_excludes_cache);
         *self = if prompt == 0 { Self { tokens: None, stale_after_compact: true } } else { Self { tokens: Some(prompt), stale_after_compact: false } };
     }
 }
@@ -237,9 +243,10 @@ impl Baseline {
 
 impl Run {
     /// Records the provider's reading of the request just sent.
-    pub(crate) fn record_baseline(&mut self, usage: &Usage) {
-        let tokens = usage.input_tokens + usage.output_tokens;
-        if usage.input_tokens == 0 || tokens == 0 {
+    pub(crate) fn record_baseline(&mut self, usage: &Usage, input_excludes_cache: bool) {
+        let prompt = prompt_tokens(usage, input_excludes_cache);
+        let tokens = prompt + usage.output_tokens;
+        if prompt == 0 || tokens == 0 {
             return;
         }
         self.baseline = Some(Baseline {
@@ -472,7 +479,7 @@ impl Run {
         if let Some(usage) = &output.usage {
             // `accumulateCompactUsage` reports it through `onUsageDelta` as well as into the aggregate.
             let (reasoning_tokens, reasoning_tokens_complete) = crate::run::reasoning_usage(usage);
-            self.emit(RunEvent::CompactUsage { iteration: self.iterations + 1, usage: usage.clone(), reasoning_tokens, reasoning_tokens_complete });
+            self.emit(RunEvent::CompactUsage { iteration: self.iterations + 1, usage: usage.clone(), reasoning_tokens, reasoning_tokens_complete, input_excludes_cache: output.input_excludes_cache });
             self.last_usage = Some(add_usage(self.last_usage.take(), usage));
             if self.first_turn_usage.is_none() {
                 self.first_turn_usage = Some(usage.clone());
@@ -507,6 +514,7 @@ impl Run {
         self.env.sink.replace(&self.messages, rewrite);
         // Provider readings and the request in flight described the old shape.
         self.baseline = None;
+        self.context.stale_after_compact = true;
         // `invalidateProviderContextBaseline` drops the session's unanchored mark with its reading.
         self.reanchored = true;
         // Receipts point at tool results compaction just removed from context.

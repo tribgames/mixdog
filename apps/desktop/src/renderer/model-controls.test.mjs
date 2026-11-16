@@ -82,6 +82,10 @@ window.mixdogDesktop = {
 
 const { ModelSelector } = await import('./model-controls.tsx');
 const { invalidateSharedModelCatalogRequest } = await import('./model-catalog-cache.ts');
+const { createSessionLane } = await import('../shared/core-lanes/session-lane.ts');
+const { sessionReducer } = await import('../../../../packages/protocol-client/src/session-state.ts');
+const { createSessionLaneStore, useSessionLane } = await import('./session-lane-store.ts');
+const { desktopConversationShellSnapshotsEqual } = await import('./desktop-snapshot-store.ts');
 
 test.beforeEach(() => {
   requests.length = 0;
@@ -89,6 +93,71 @@ test.beforeEach(() => {
   providerSetup = { api: [{ id: 'openai', authenticated: true }] };
   window.localStorage.clear();
   invalidateSharedModelCatalogRequest();
+});
+
+test('a mounted picker follows model and effort route feeds, not the running session model', async () => {
+  const next = { ...model, model: 'gpt-next-route', display: 'Next route' };
+  availableModels = [model, next];
+  const id = 'picker-route-feed';
+  let route = { provider: model.provider, model: model.model, effort: 'low', fast: false, autoEffort: false };
+  let fold = sessionReducer.initial({ thread: { id }, state: { route }, items: [], hasOlder: false });
+  const listeners = new Set();
+  const client = {
+    pendingServerRequests: () => [],
+    store: { thread: () => ({ state: fold }), section: () => undefined },
+  };
+  const lane = createSessionLane({ protocol: {
+    client: () => client,
+    onStoreChange: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+    onEvent: () => () => {},
+    onReplaced: () => () => {},
+    call: async () => ({ threads: [] }),
+  } });
+  const store = createSessionLaneStore();
+  const stop = store.start((listener) => lane.subscribeSessionStates(listener));
+  const publish = async (patch) => act(async () => {
+    let off;
+    const published = new Promise((resolve) => { off = store.subscribe(id, resolve); });
+    route = { ...route, ...patch };
+    fold = sessionReducer.apply(fold, {
+      method: 'thread/route/updated', params: { threadId: id, value: route },
+    });
+    for (const listener of listeners) listener({ type: 'thread', threadId: id });
+    await published;
+    off();
+  });
+  function Harness() {
+    const snapshot = useSessionLane(id, store, desktopConversationShellSnapshotsEqual);
+    return React.createElement(ModelSelector, {
+      ...snapshot, sessionId: id, fastCapable: true, modelDisabled: false, tuningDisabled: false,
+      invokeResult: (action) => action(), applySnapshot() {}, onOpenSettings() {},
+    });
+  }
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await publish({});
+    await act(async () => root.render(React.createElement(Harness)));
+    assert.match(host.querySelector('.model-trigger').textContent, /Fast handoff test/);
+    // Another control selects next/high while a running turn still uses the old model.
+    await publish({ model: next.model, effort: 'high', sessionProvider: model.provider, sessionModel: model.model });
+    assert.match(host.querySelector('.model-trigger').textContent, /Next route/);
+    await act(async () => host.querySelector('.model-trigger').click());
+    const effortRow = () => [...document.querySelectorAll('.route-sheet-row')].find((row) => row.textContent.includes('Reasoning effort'));
+    assert.match(effortRow().textContent, /High/);
+    await publish({ effort: 'low' });
+    assert.match(effortRow().textContent, /Low/);
+    await publish({ model: model.model, effort: 'high' });
+    assert.match(host.querySelector('.model-trigger').textContent, /Fast handoff test/);
+    assert.match(effortRow().textContent, /High/);
+  } finally {
+    await act(async () => root.unmount());
+    stop();
+    lane.dispose();
+    store.clear();
+    host.remove();
+  }
 });
 
 test('a cold selected route never flashes its raw id or Select model while the full catalog is outstanding', async () => {

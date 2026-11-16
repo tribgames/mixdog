@@ -1059,6 +1059,11 @@ impl AgentRegistry {
         if self.tombstone_blocks_scan(st, session, tag, by_key) {
             return false;
         }
+        // An idle session header is not a new task outcome. Only an actual turn's row
+        // update can replace the durable failure left by restart recovery.
+        if st.map(&clean(session.get("id"))).is_some_and(restart::is_restart_failure) {
+            return true;
+        }
         let extra = self.terminal_scan_extra(st, session).unwrap_or_default();
         self.upsert_session(st, session, tag, &extra);
         true

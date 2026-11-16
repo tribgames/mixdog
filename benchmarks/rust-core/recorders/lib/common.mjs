@@ -225,8 +225,12 @@ export function patchedProductIdentity(tree, commit, patchList) {
   return { ...identity, commit, baseCommit: commit, patches, ...(patch ? { patch } : {}), exact: true };
 }
 
-/** The recorders' `--tree` export of `commit`: exactly the commit, or with `--patch <file>[,<file>…]` the commit with those fixes applied. */
+/** An exact export plus patches, or an explicitly requested working tree identified by its actual source hashes. */
 export function nodeTreeIdentity(args, tree, commit) {
+  if (args.has('working-tree')) {
+    if (args.has('patch')) throw new Error('--working-tree and --patch are mutually exclusive');
+    return productIdentity(tree);
+  }
   const patch = args.get('patch');
   return patch ? patchedProductIdentity(tree, commit, patch.split(',').map((p) => resolve(p))) : exactProductIdentity(tree, commit);
 }
@@ -382,9 +386,7 @@ export function recordingProvenance(recorder, inputs = []) {
  * interrupted or crashed run leaves the previous set intact.
  */
 export function stageSet(finalDir, ownedSubdirs = null) {
-  const stage = `${finalDir}.stage`;
-  rmSync(stage, { recursive: true, force: true });
-  mkdirSync(stage, { recursive: true });
+  const stage = mkdtempSync(`${finalDir}.stage-`);
   if (existsSync(finalDir)) cpSync(finalDir, stage, { recursive: true });
   for (const sub of ownedSubdirs ?? readdirSync(stage)) rmSync(join(stage, sub), { recursive: true, force: true });
   return stage;

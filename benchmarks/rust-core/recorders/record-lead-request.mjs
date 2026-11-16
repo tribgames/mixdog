@@ -388,5 +388,5 @@ if (only) {
   const setDir = join(FIXTURES_ROOT, 'lead-request');
   mkdirSync(setDir, { recursive: true });
   writeJson(join(setDir, 'golden.json'), { scenarios: recorded });
-  writeSetManifest(setDir, { set: 'lead-request', recorder: RECORDER, command: `node ${RECORDER} --tree <b6f10295a export with node_modules> --patch ${PATCHES}`, identity, extra: { ...recorderProvenance(import.meta.url, ['benchmarks/rust-core/recorders/lib/offline-network.mjs']), mappings: MAPPINGS, scope: SCOPE } });
+  writeSetManifest(setDir, { set: 'lead-request', recorder: RECORDER, command: `node ${RECORDER} --tree <tree>${args.has('working-tree') ? ' --working-tree' : ` --patch ${PATCHES}`}`, identity, extra: { ...recorderProvenance(import.meta.url, ['benchmarks/rust-core/recorders/lib/offline-network.mjs']), mappings: MAPPINGS, scope: SCOPE } });
 }

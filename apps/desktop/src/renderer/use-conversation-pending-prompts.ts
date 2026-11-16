@@ -12,6 +12,7 @@ export function useConversationPendingPrompts({
   setOptimisticPrompts,
   settledItems,
   queued,
+  busy,
   transcriptSessionKey,
   promotedOwnDraft,
 }: {
@@ -19,6 +20,7 @@ export function useConversationPendingPrompts({
   setOptimisticPrompts: Dispatch<SetStateAction<PendingPromptItem[]>>;
   settledItems: TranscriptItem[];
   queued: unknown;
+  busy: boolean;
   transcriptSessionKey: string;
   promotedOwnDraft: { current: boolean };
 }) {
@@ -26,7 +28,7 @@ export function useConversationPendingPrompts({
   const settledUsers = useMemo(() => settledUserRowCount(settledItems), [settledItems]);
   const settledUsersRef = useRef(settledUsers);
   settledUsersRef.current = settledUsers;
-  const steering = useConversationSteering(optimisticPrompts, settledItems, queued);
+  const steering = useConversationSteering(optimisticPrompts, settledItems, queued, busy);
   const { transcriptPendingPromptItems } = steering;
   // An idle submit starts the next review scope on its optimistic user row,
   // not one host round-trip later when that row settles. Otherwise the prior
@@ -46,7 +48,9 @@ export function useConversationPendingPrompts({
   useConversationOptimisticPromptRelease({
     transcriptSessionKey,
     promotedOwnDraft,
+    optimisticPrompts,
     settledItems,
+    busy,
     setOptimisticPrompts,
   });
   return { ...steering, settledUsersRef, reviewItems, goalSubmitScopeRef, goalSubmission, goalSubmissionId };

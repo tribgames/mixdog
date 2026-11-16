@@ -24,7 +24,9 @@ import { approvalInstanceKey } from './renderer-logic.mjs';
 import { RETIRED_APPROVAL_MS, type RetiredApproval, useRetiredApproval } from './use-retired-approval';
 import { useViewerDevice } from './use-viewer-device';
 
-type AnsweredElsewhere = { id: string; device: string };
+/** A refusal the core did not confirm as a decision: the card clears its resolving state and can be answered again. */
+export const UNCONFIRMED = 'unconfirmed';
+type AnsweredElsewhere ={ id: string; device: string };
 type ComposerSubmit<R> = (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<R>;
 
 /** Tool approvals for the session this pane renders: the pending card, the
@@ -139,12 +141,26 @@ export function useConversationApprovals(
         }
       }
       if (accepted === false) {
-        const result = snapshot.toolApprovalResult;
-        setAnsweredElsewhere({
-          id: approvalId,
-          device:
-            multiDevice && result?.id === approvalId && isOtherDevice(result.device, viewerDevice) ? result.device : '',
-        });
+        // "Another device" is claimed only when the core published this request as decided. A refusal without that (this
+        // connection does not hold the request, or the pane's state lags the core's) is not evidence of another device: the
+        // pane reads its state again instead, and the card stays answerable until the refreshed state says otherwise.
+        if (resolvedIdRef.current === approvalId) {
+          const result = snapshot.toolApprovalResult;
+          setAnsweredElsewhere({
+            id: approvalId,
+            device:
+              multiDevice && result?.id === approvalId && isOtherDevice(result.device, viewerDevice) ? result.device : '',
+          });
+        } else {
+          // Reproject from the client's current pending list (not the cached frame). Never awaited: the card is answerable
+          // again at once, whether or not a read completes.
+          try {
+            void Promise.resolve(host.resyncSessionState?.(sessionId, { fresh: true })).catch(() => false);
+          } catch {
+            // A closed bridge leaves the card retryable.
+          }
+          return UNCONFIRMED;
+        }
       }
       return accepted;
     };

@@ -349,8 +349,9 @@ impl SessionActor {
     fn retry_turn(retained: Option<super::super::quota_lane::Retained>, prompt: Option<String>, provenance: Option<Value>) -> Result<Option<super::super::quota_lane::RetryTurn>, CoreError> {
         if let Some(retained) = retained {
             let prior = retained.prior();
-            let prompt: PromptContent = serde_json::from_value(retained.content)
-                .map_err(|_| super::super::turn_ops::failure("The failed message holds content this daemon cannot resend"))?;
+            let cannot_resend = || super::super::turn_ops::failure("The failed message holds content this daemon cannot resend");
+            let content = super::super::prompt_submission::deliverable(&retained.content).map_err(|_| cannot_resend())?;
+            let prompt: PromptContent = serde_json::from_value(content).map_err(|_| cannot_resend())?;
             let options = mixdog_protocol::thread::SubmitOptions {
                 retry_failed_turn: Some(true),
                 retry_turn_id: Some(retained.message_id),
@@ -738,6 +739,10 @@ impl SessionActor {
         });
         compaction.replacement.extend(appended);
         let jobs = self.jobs_tx.clone();
+        // The compaction moves the reading (the header's reset, `lastContextTokens` 0): the status pass after it is the gauge's own
+        // answer, read once the header is durable.
+        let pass = self.next_status_pass();
+        let (gauge, thread) = (self.deps.context_status.clone(), self.id.clone());
         let (ack, durable) = oneshot::channel();
         // No turn: the divider is shown live with no turn id, as a card outside a turn is.
         self.on_producer(ProducerMsg::Compacted { turn: TurnId::from(""), compaction, header, ack });
@@ -749,6 +754,8 @@ impl SessionActor {
                     if jobs.send(JobDone::PruneOffloads(told)).is_ok() {
                         let _ = pruned.await;
                     }
+                    let status = gauge.context_status(Some(thread), None).await.unwrap_or(Value::Null);
+                    let _ = jobs.send(JobDone::ContextStatus(pass, status));
                     Ok(CompactionCommit::Applied)
                 }
                 _ => Err(CoreError::Internal { incident_id: "compaction-commit".into() }),

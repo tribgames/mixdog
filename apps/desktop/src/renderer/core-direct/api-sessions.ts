@@ -12,6 +12,7 @@ import { createCapabilityLane, type CapabilityLane } from '../../shared/core-lan
 import { createServiceLane, type ServiceLane } from '../../shared/core-lanes/service-route.ts';
 import { createSessionLane, type SessionLane } from '../../shared/core-lanes/session-lane.ts';
 import { filterSessionIds, isSessionId, requiredSessionIds } from '../../shared/desktop-state';
+import { modelRouteWrite } from '../../shared/model-route-write';
 import {
   createSessionReadWindow,
   createSnapshotDeltaEncoder,
@@ -222,7 +223,10 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
 
     // ── models ──
     listProviderModels: async (options = {}) => withDirectErrors((await session.chat()).listProviderModels(options)),
-    setModelRoute: (selection, sessionId) => svc('setModelRoute', [selection, optionalId(sessionId)]),
+    setModelRoute: async (selection, sessionId) => {
+      const target = optionalId(sessionId);
+      return (await withDirectErrors(capability.invoke('setRoute', [modelRouteWrite(selection, target)], target))).snapshot;
+    },
     setFast: (enabled, sessionId) => svc('setFast', [enabled, optionalId(sessionId)]),
     // The core announces a frame the relay refused as `ui/relayPayloadRefused` on the app feed (the size and the ceiling, each null
     // when the relay reported none); the window shows the toast.
@@ -302,9 +306,21 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
       stateListeners.add(listener);
       return () => void stateListeners.delete(listener);
     },
-    resyncSessionState(sessionId) {
+    resyncSessionState(sessionId, options) {
       const id = String(sessionId || '');
       if (!isSessionId(id)) return;
+      // `fresh`: the existing fold projected anew, with no transcript fetched (the held frame may show a request the client
+      // no longer holds). Without a fold nothing is published; one bounded read is attempted, which no caller waits on.
+      if (options?.fresh) {
+        sessionEncoders.get(id)?.reset();
+        const before = latest.get(id);
+        session.requestSessionStateResync(id);
+        if (latest.get(id) !== before) return Promise.resolve(true);
+        return Promise.race([
+          session.prefetchSession(id).catch(() => false),
+          new Promise<boolean>((resolve) => setTimeout(resolve, SESSION_RECOVERY_COALESCE_MS, false)),
+        ]);
+      }
       const held = latest.get(id);
       if (held) {
         sessionEncoders.get(id)?.reset();

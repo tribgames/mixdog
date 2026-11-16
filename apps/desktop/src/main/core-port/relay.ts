@@ -4,6 +4,7 @@
 // MessagePort: a flood from the core buffers in this process.
 import WebSocket from 'ws';
 
+import { createLinkLog } from '../../../../../packages/protocol-client/src/link-log.mjs';
 import { windowIdFor } from './window-ids';
 
 export type CoreSlot = 'primary' | 'pc';
@@ -61,12 +62,21 @@ export interface CorePortRelayOptions {
   createSocket?(url: string, headers: Record<string, string>): RelaySocket;
   createChannel?(): Promise<RelayChannel> | RelayChannel;
   log?(message: string): void;
+  /** The desktop diagnostics sink: one record per window link opened, failed to open, closed or ended by this side. */
+  diagnostic?(event: string, fields: Record<string, unknown>): void;
 }
 
 interface Live {
   socket: RelaySocket | null;
   port: RelayPort | null;
   ended: boolean;
+  /** Which open made it, who it is for, and when its socket opened (for the close line). */
+  generation: number;
+  window: string;
+  slot: CoreSlot;
+  openedAt: number;
+  /** The link's one close line, whoever ends it and however (a later call is a no-op): the lifecycle boundary of the link. */
+  finish(initiator: 'core-or-network' | 'desktop' | 'window', code: number, reason: string, error?: string): void;
 }
 
 function defaultSocket(url: string, headers: Record<string, string>): RelaySocket {
@@ -95,8 +105,31 @@ export class CorePortRelay {
     const windowId = windowIdFor(webContents);
     const key = `${webContents.id}:${slot}`;
     this.watch(webContents);
+    const replaced = this.live.has(key);
     this.end(key, 1000, 'superseded');
-    const entry: Live = { socket: null, port: null, ended: false };
+    // Every line of this link carries who it is for; the open line is written where the socket opens, the close line by `finish`.
+    const linkLog = createLinkLog(this.options.diagnostic, { link: 'window-port', window: windowId, slot, generation });
+    let finished = false;
+    const entry: Live = {
+      socket: null,
+      port: null,
+      ended: false,
+      generation,
+      window: windowId,
+      slot,
+      openedAt: 0,
+      finish: (initiator, code, reason, error) => {
+        if (finished) return;
+        finished = true;
+        linkLog('core-link-close', {
+          code,
+          reason: reason.slice(0, 200),
+          openMs: entry.openedAt ? Date.now() - entry.openedAt : 0,
+          initiator,
+          ...(error ? { error } : {}),
+        });
+      },
+    };
     this.live.set(key, entry);
     const current = (): boolean => !this.disposed && this.live.get(key) === entry;
     const superseded = (): Error => new Error(`The core port open ${generation} was superseded.`);
@@ -116,6 +149,23 @@ export class CorePortRelay {
         'Mixdog-Window-Role': endpoint.role,
       });
       entry.socket = socket;
+      // An error always precedes a close event that carries the code. This listener is the link's one place that sees the
+      // peer or the network end it, before or after the channel exists; what only exists with the channel is done only then.
+      let socketError = '';
+      socket.on('error', (error) => {
+        socketError = (error instanceof Error ? error.message : String(error)).slice(0, 200);
+      });
+      socket.on('close', (code, reason) => {
+        const text = reason.toString('utf8');
+        entry.finish('core-or-network', code, text, socketError);
+        if (!entry.port || entry.ended) return;
+        entry.ended = true;
+        if (this.live.get(key) === entry) this.live.delete(key);
+        // Why the link went is known here and nowhere after.
+        this.log(`[mixdog] core socket closed window=${windowId} slot=${slot} code=${code} reason=${JSON.stringify(text.slice(0, 300))}`);
+        entry.port.postMessage({ t: 'closed', code, reason: text });
+        entry.port.close();
+      });
       await new Promise<void>((resolveOpen, rejectOpen) => {
         socket.once('open', () => resolveOpen());
         socket.once('error', rejectOpen);
@@ -124,8 +174,9 @@ export class CorePortRelay {
           rejectOpen(new Error(`The core refused the connection (HTTP ${response.statusCode}).`));
         });
       });
-      // An error always precedes a close event that carries the code.
-      socket.on('error', () => {});
+      entry.openedAt = Date.now();
+      // `replaced`: a live link of this window and slot was still open and was ended for this one; otherwise the last one had closed already (a reconnect) or there was none.
+      linkLog('core-link-open', { role: endpoint.role, replaced });
       if (!current()) {
         socket.close(1000, 'superseded');
         throw superseded();
@@ -144,23 +195,18 @@ export class CorePortRelay {
         }
         if (!entry.ended) channel.port1.postMessage(data.toString('utf8'));
       });
-      socket.on('close', (code, reason) => {
-        if (entry.ended) return;
-        entry.ended = true;
-        if (this.live.get(key) === entry) this.live.delete(key);
-        const text = reason.toString('utf8');
-        // Why the link went is known here and nowhere after.
-        this.log(`[mixdog] core socket closed window=${windowId} slot=${slot} code=${code} reason=${JSON.stringify(text.slice(0, 300))}`);
-        channel.port1.postMessage({ t: 'closed', code, reason: text });
-        channel.port1.close();
-      });
       channel.port1.on('message', ({ data }) => {
         if (entry.ended) return;
         if (typeof data === 'string') socket.send(data);
-        else if ((data as { t?: unknown } | null)?.t === 'close') socket.close(1000, 'window closed the port');
+        else if ((data as { t?: unknown } | null)?.t === 'close') {
+          entry.finish('window', 1000, 'window closed the port');
+          socket.close(1000, 'window closed the port');
+        }
       });
       channel.port1.on('close', () => {
-        if (!entry.ended) socket.close(1000, 'window port closed');
+        if (entry.ended) return;
+        entry.finish('window', 1000, 'window port closed');
+        socket.close(1000, 'window port closed');
       });
       channel.port1.start();
       webContents.postMessage(CORE_PORT_CHANNEL, { generation, slot, role: endpoint.role, target: endpoint.target }, [
@@ -168,6 +214,10 @@ export class CorePortRelay {
       ]);
       return { generation };
     } catch (error) {
+      const message = (error instanceof Error ? error.message : String(error)).slice(0, 200);
+      if (!entry.openedAt) linkLog('core-link-open-failed', { message });
+      // A socket that opened and is torn down by a failed or superseded setup: its close line says so.
+      else entry.finish('desktop', 1006, `setup failed: ${message}`);
       if (this.live.get(key) === entry) this.live.delete(key);
       entry.ended = true;
       entry.socket?.terminate();
@@ -201,6 +251,7 @@ export class CorePortRelay {
     const entry = this.live.get(key);
     if (!entry) return;
     this.live.delete(key);
+    entry.finish('desktop', code, reason);
     if (code === CLOSE_ALL_CODE && !entry.ended) entry.port?.postMessage({ t: 'closed', code, reason });
     entry.ended = true;
     entry.socket?.close(code, reason);

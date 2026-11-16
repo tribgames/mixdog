@@ -87,6 +87,8 @@ pub struct SummaryResponse {
     /// The model answered with a tool call instead of text.
     pub tool_call: bool,
     pub usage: Option<Usage>,
+    /// The usage convention of the adapter that sent this request.
+    pub input_excludes_cache: bool,
 }
 
 /// Sends one summary request (system prompt + user prompt, no tools) with the
@@ -174,6 +176,8 @@ pub struct Generated {
     pub summary: String,
     pub repaired: bool,
     pub usage: Option<Usage>,
+    /// The usage convention of the adapter that sent the summary requests the usage sums.
+    pub input_excludes_cache: bool,
     pub calls: u32,
     /// `shared-prefix` or `isolated`.
     pub mode: &'static str,
@@ -310,6 +314,7 @@ pub async fn generate_fresh_handoff_summary(
         run.summary = enforced.summary;
         run.repaired |= enforced.repaired;
         run.usage = add_usage(run.usage, response.usage.as_ref());
+        run.input_excludes_cache = response.input_excludes_cache;
         run.calls += 1;
         previous = Some(run.summary.clone());
         offset = end;
@@ -392,6 +397,7 @@ pub async fn summarize_on_shared_prefix(
         summary: enforced.summary,
         repaired: enforced.repaired,
         usage: response.usage,
+        input_excludes_cache: response.input_excludes_cache,
         calls: 1,
         mode: "shared-prefix",
         shared_prefix_fallback: None,

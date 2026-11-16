@@ -592,6 +592,39 @@ async fn a_send_with_no_session_header_is_scoped_by_its_options_alone() {
     assert_eq!((got.session_id.as_deref(), got.source_type.as_str(), got.owner_session_id, got.primary), (Some("s"), "lead", None, None));
 }
 
+/// The ledger scope of a request assembled through the session-aware identity (the turn's, a delegated agent's, and a
+/// side question's rebuilt request all share it): a Codex route sends its wire id as the provider session, and the spend still
+/// belongs to the visible thread with its source type and owner. A request that names no session stays sessionless.
+#[tokio::test]
+async fn a_codex_requests_spend_is_scoped_to_its_thread_and_a_sessionless_one_stays_sessionless() {
+    let wire = "0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d";
+    let header = header_of(&json!({
+        "provider": "openai-oauth", "codexWireSessionId": wire, "sourceType": "cli", "ownerSessionId": "lead-1"
+    }));
+    let headers = Arc::new(Headers::default());
+    headers.0.lock().unwrap().insert("agent-1".into(), header.clone());
+    let scope = HeaderScope::new(headers);
+    let of = |options: RequestOptions| {
+        let request = ModelRequest { model: "gpt-6-astra".into(), messages: Vec::new(), tools: Vec::new(), options };
+        mixdog_ai::registry::accounted::SendScope::of(&scope, "openai-oauth", &request)
+    };
+
+    let mut options = RequestOptions::default();
+    super::assemble::apply_identity(&mut options, &"agent-1".into(), &header, None);
+    assert_eq!(options.session_id.as_deref(), Some(wire), "the provider still sees the wire id");
+    let got = of(options);
+    assert_eq!((got.session_id.as_deref(), got.source_type.as_str(), got.owner_session_id.as_deref()), (Some("agent-1"), "cli", Some("lead-1")));
+
+    // An attribution set upstream is kept.
+    let mut options = RequestOptions { usage_session_id: Some("other".into()), ..RequestOptions::default() };
+    super::assemble::apply_identity(&mut options, &"agent-1".into(), &header, None);
+    assert_eq!(options.usage_session_id.as_deref(), Some("other"));
+
+    // A one-shot (the heartbeat) builds no identity: no session, so none is recorded.
+    let got = of(RequestOptions { request_kind: Some("heartbeat".into()), ..RequestOptions::default() });
+    assert_eq!((got.session_id, got.source_type.as_str(), got.owner_session_id), (None, "heartbeat", None));
+}
+
 // ---- LadderSources -----------------------------------------------------------------------
 
 #[tokio::test]

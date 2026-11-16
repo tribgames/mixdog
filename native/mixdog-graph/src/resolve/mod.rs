@@ -27,7 +27,7 @@ mod paths;
 mod top_level_types;
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
 
@@ -579,6 +579,23 @@ pub fn resolve_and_link<R: ImportRecord + Sync>(
     root: &Path,
     file_set: &HashSet<String>,
 ) {
+    link_records(records, root, file_set);
+}
+
+/// [`resolve_and_link`], returning every path the manifest loaders looked at: the files read (missing ones too)
+/// and the directories listed or probed, each with its stamp from just before it was looked at. A caller that keeps
+/// the edges compares these with the paths' stamps later to know when they are stale (or were while linking).
+pub fn resolve_and_link_reporting<R: ImportRecord + Sync>(
+    records: &mut [R],
+    root: &Path,
+    file_set: &HashSet<String>,
+) -> Vec<(PathBuf, Option<(u64, u64)>)> {
+    // The loaders run in `build_graph_index`, sequentially on this thread, before the parallel resolve.
+    let ((), inputs) = manifests::recording(|| link_records(records, root, file_set));
+    inputs
+}
+
+fn link_records<R: ImportRecord + Sync>(records: &mut [R], root: &Path, file_set: &HashSet<String>) {
     let index = build_graph_index(records, root);
     let resolved: Vec<Vec<String>> = records
         .par_iter()
@@ -628,6 +645,23 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).expect("temp dir");
         dir
+    }
+
+    /// Every existence test is recorded before it is made, with the stamp it had then: a manifest that appears after
+    /// the test (before the directory listing that follows it, say) differs from what was recorded.
+    #[test]
+    fn an_existence_test_is_recorded_before_it_is_made() {
+        let root = temp_root("dart-probe");
+        std::fs::create_dir_all(root.join("pkg").join("child")).expect("dirs");
+        let (_, inputs) = manifests::recording(|| manifests::load_dart_packages(&root));
+        let yaml = root.join("pkg").join("child").join("pubspec.yaml");
+        let recorded = inputs.iter().find(|(path, _)| *path == yaml).expect("the child's pubspec.yaml test is recorded");
+        assert_eq!(recorded.1, None, "recorded as absent");
+        std::fs::write(&yaml, "name: late\n").expect("pubspec");
+        let (_, after) = manifests::recording(|| manifests::load_dart_packages(&root));
+        let now = after.iter().find(|(path, _)| *path == yaml).expect("recorded again");
+        assert_ne!(now.1, recorded.1, "its appearance changes the recorded stamp");
+        std::fs::remove_dir_all(&root).ok();
     }
 
     /// Two packages whose names are the SAME LENGTH both match an import of

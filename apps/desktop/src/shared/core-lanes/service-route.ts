@@ -142,7 +142,6 @@ const SINGLE: Readonly<Record<string, Single>> = {
   abortSession: ([threadId, options]) =>
     one('turn/interrupt', given({ threadId, restorePrompt: options?.restorePrompt, submissionId: options?.submissionId }), 'interrupt'),
   listProviderModels: ([options]) => one('model/list', given({ force: options?.force, refresh: options?.refresh, quick: options?.quick })),
-  setModelRoute: ([route, threadId]) => one('route/set', given({ threadId, route }), 'snapshot'),
   setFast: ([on, threadId]) => one('fast/set', given({ threadId, on }), 'snapshot'),
 };
 
@@ -159,8 +158,11 @@ const ROOM_ACTIONS: Readonly<Record<string, (args: readonly any[]) => ServiceReq
 
 /** Methods that are not requests of this lane: it refuses them with `unknownMethod`. The client sends the first two through
  *  the capability lane (`getQuotaAutoResume` reads the `config` section, `resolveToolApprovalForSession` answers the server
- *  request), the others through the capability and operation lanes. `perfLog` is the `client/perfLog` notification. */
+ *  request), the others through the capability and operation lanes. `perfLog` is the `client/perfLog` notification.
+ *  `setModelRoute` is the capability lane's `setRoute`: Node answered the session's state after the change, which only that lane
+ *  reads from the core (`thread/read`). */
 export const SERVICE_NOT_ROUTED = [
+  'setModelRoute',
   'getQuotaAutoResume',
   'resolveToolApprovalForSession',
   'invokeCapability',
@@ -200,6 +202,21 @@ const ROOTED_SERVICE_METHODS: ReadonlySet<string> = new Set([
 
 export interface ServiceLane {
   call<T = unknown>(method: string, args: unknown[], signal?: AbortSignal): Promise<T>;
+  /** Stops following the visible threads' convergence: no request or retry starts after it. */
+  dispose(): void;
+}
+
+/** What the lane reads of the open client (the library's `threadSubscription`): whether it follows a thread, whether its own
+ *  restore of the thread is in flight, a mark that changes whenever such a restore starts, and on which of its transport
+ *  connections. A client that cannot say is judged by the lane's own record of the requests it answered. */
+export interface FollowingClient {
+  readonly status: { readonly state: string };
+  threadSubscription?(threadId: string): {
+    readonly followed: boolean;
+    readonly restoring: boolean;
+    readonly restoresStarted: number;
+    readonly connection: number;
+  };
 }
 
 /** What the lane needs from the desktop's protocol connection (`ProtocolConnection` of main/protocol/connection.ts), declared
@@ -211,7 +228,72 @@ export interface ServiceProtocol {
   unsubscribeThread(threadId: string): Promise<void>;
   onEvent(listener: (event: ServiceProtocolEvent) => void): () => void;
   onReplaced?(listener: () => void): () => void;
+  /** The client open now; null while none is. */
+  client?(): FollowingClient | null;
+  /** Every change of the open client's store (a subscription restored or lost is `subscription` of its feed). */
+  onStoreChange?(listener: (change: { readonly type: string; readonly feedId?: string }) => void): () => void;
 }
+
+/** Where the lane leaves evidence of a thread that keeps failing. */
+export type FollowReport = (line: string) => void;
+/** A thread's failures in a row are reported at the third, then at every twentieth after it (about ten minutes apart once
+ *  retries are at the cap). */
+const reportedFailure = (failures: number): boolean => failures === 3 || (failures > 3 && (failures - 3) % 20 === 0);
+
+/** Starts `run` after `ms`; returns its cancellation. */
+export type ScheduleRetry = (run: () => void, ms: number) => () => void;
+const scheduleTimer: ScheduleRetry = (run, ms) => {
+  const timer = setTimeout(run, ms);
+  return () => clearTimeout(timer);
+};
+/** A visible thread's failed request is sent again after this, doubled per failure in a row up to the cap: the rate is
+ *  bounded, the retries are not, so an open pane is never left unfollowed for good. */
+export const FOLLOW_RETRY_MS = 500;
+export const FOLLOW_RETRY_MAX_MS = 30_000;
+
+/** The connection a request went out on: the lane's replacement count, the client object and the client's own transport
+ *  connection. The core's subscriptions of one end with it, so what was learned under another says nothing now. */
+interface Generation {
+  readonly replaced: number;
+  readonly client: FollowingClient | null;
+  readonly connection: number | undefined;
+}
+const sameGeneration = (a: Generation, b: Generation): boolean =>
+  a.replaced === b.replaced && a.client === b.client && a.connection === b.connection;
+/** The same client object: a subscription it holds outlives its own reconnects (it restores them), not a replacement. */
+const sameClient = (a: Generation, b: Generation): boolean => a.replaced === b.replaced && a.client === b.client;
+
+/** A registered thread's convergence: the lane manages only threads `setVisibleSessions` asked for, and lets a thread go once
+ *  its own subscription of it is gone, so a fold another caller made (a new thread's snapshot) is never torn down here. At
+ *  most one request is in flight: `running` is its attempt. */
+interface Follow {
+  attempt: number;
+  running: number;
+  /** The lane's own subscription: on this client the thread was followed while wanted, and the lane has not unsubscribed it
+   *  since. Also what a client that cannot say what it follows is judged by. */
+  mine?: Generation;
+  /** An unsubscribe failed, or a restore of the thread overlapped it, on this generation: the core may still feed it until
+   *  absence is confirmed there or the generation retires. */
+  owed?: Generation;
+  /** A wake arrived while a request was in flight: the thread is looked at again when it is answered; after a failure only
+   *  a changed need acts at once. */
+  dirty?: boolean;
+  failures: number;
+  cancelRetry?: () => void;
+  /** What the pending retry is for: until its deadline, a wake for the same need changes nothing. */
+  backoff?: Need;
+}
+/** The request a thread needs: a resume (wanted) or an unsubscribe, on a generation. */
+interface Need {
+  readonly wanted: boolean;
+  readonly generation: Generation;
+}
+
+/** A thread the core does not have (Node's `session <id> is not available`). */
+const unavailable = (error: unknown): boolean => {
+  const detail = (error as { detail?: { kind?: unknown; data?: { reason?: unknown } } } | null)?.detail;
+  return detail?.kind === 'rpc' && detail.data?.reason === 'threadNotFound';
+};
 
 /** A client event as the lane reads it (`ConnectionClientEvent` of the connection). */
 export type ServiceProtocolEvent =
@@ -228,9 +310,13 @@ export type ServiceProtocolEvent =
 export function createServiceLane({
   protocol,
   snapshot,
+  schedule = scheduleTimer,
+  report = (line) => console.error(line),
 }: {
   protocol: ServiceProtocol;
   snapshot(): SessionSnapshot;
+  schedule?: ScheduleRetry;
+  report?: FollowReport;
 }): ServiceLane {
   const answered = (reply: Promise<unknown>, threadId: unknown): Promise<unknown> =>
     reply.catch((error: unknown) => {
@@ -242,21 +328,6 @@ export function createServiceLane({
       throw coreErrorForWindow(error);
     });
   const send = ({ method, params }: ServiceRequest): Promise<unknown> => answered(protocol.call(method, params), params.threadId);
-  // A visible thread is followed through the client library, which folds its feed (session-lane.ts publishes the fold).
-  const resume = (threadId: string): Promise<unknown> => answered(protocol.resumeThread(threadId, tail(undefined)), threadId);
-  // The threads this process resumed (`setVisibleSessions` names the visible set; the core feeds only those).
-  // Each entry's token is that resume's own: a replacement's rejection that arrives after the thread was hidden and
-  // shown again finds another token and leaves the newer state alone.
-  const resumed = new Map<string, object>();
-  // A replaced client has none of the threads' subscriptions: they are resumed on it again, so a visible thread's
-  // stream goes on. One the core refuses is dropped from the set; the next `setVisibleSessions` resumes it.
-  protocol.onReplaced?.(() => {
-    for (const [threadId, token] of [...resumed]) {
-      void resume(threadId).catch(() => {
-        if (resumed.get(threadId) === token) resumed.delete(threadId);
-      });
-    }
-  });
   const searching = new Map<string, string>();
   // The query each search session is answering: a newer query of the same consumer ends the older one's wait, since the
   // core completes only the query it holds.
@@ -316,7 +387,178 @@ export function createServiceLane({
   // that arrives after it (a retried call) changes nothing (Node's desktop-service-state-sync.ts `setDeliveryFilter` fence).
   // It is this process's own counter: a restarted desktop starts over at 1 on its own connection.
   let shownVersion: number | undefined;
+  // The visible threads. A registration records what is wanted and wakes the threads it touches; each thread is then brought
+  // there on its own, comparing what is wanted with what the open client follows (not with a record of past requests), one
+  // request at a time. Nothing is queued: a notification only wakes a thread, which reads the state again. So one thread's
+  // slow or failing request holds back no other thread and no registration (Node's session-view-registry.ts attaches each
+  // session apart as well).
+  let desired = new Set<string>();
+  const follows = new Map<string, Follow>();
+  let replacements = 0;
+  let disposed = false;
+  const generationNow = (threadId: string): Generation => {
+    const client = protocol.client?.() ?? null;
+    return { replaced: replacements, client, connection: client?.threadSubscription?.(threadId).connection };
+  };
+  const owes = (follow: Follow, now: Generation): boolean => follow.owed !== undefined && sameGeneration(follow.owed, now);
+  /** Whether the core feeds the thread to the open client: `restoring` while the client's own resume of it after a reconnect
+   *  is in flight (the core may attach it after any unsubscribe answered meanwhile), `unknown` while cleanup is owed. */
+  const observed = (threadId: string, follow: Follow, now: Generation): 'attached' | 'absent' | 'unknown' | 'restoring' => {
+    const told = now.client?.threadSubscription?.(threadId);
+    if (told?.restoring) return 'restoring';
+    if (owes(follow, now)) return 'unknown';
+    const followed = told ? told.followed : follow.mine !== undefined && sameClient(follow.mine, now);
+    return followed ? 'attached' : 'absent';
+  };
+  const retryLater = (threadId: string, follow: Follow, delay: number, need: Need): void => {
+    follow.cancelRetry?.();
+    follow.backoff = need;
+    follow.cancelRetry = schedule(() => {
+      follow.cancelRetry = undefined;
+      follow.backoff = undefined;
+      wake(threadId);
+    }, delay);
+  };
+  /** Brings one thread to what is wanted of it. Ends when it is there, when a retry is scheduled, or when its attempt was
+   *  retired (a replacement or the lane's end): after every await it checks it still owns the thread. */
+  const reconcile = async (threadId: string, follow: Follow): Promise<void> => {
+    for (;;) {
+      follow.dirty = false;
+      const now = generationNow(threadId);
+      const wanted = desired.has(threadId);
+      const seen = observed(threadId, follow, now);
+      if (wanted && seen === 'attached') {
+        follow.mine = now;
+        follow.failures = 0;
+        return;
+      }
+      // Not wanted, and neither the lane's subscription nor its owed cleanup is on this client: nothing here is the lane's.
+      if (!wanted && (seen === 'absent' || !((follow.mine !== undefined && sameClient(follow.mine, now)) || owes(follow, now)))) {
+        follows.delete(threadId);
+        return;
+      }
+      // The client's restore decides first; its end (restored or lost) wakes the thread.
+      if (seen === 'restoring') return;
+      const attempt = ++follow.attempt;
+      follow.running = attempt;
+      let failure: { error: unknown } | undefined;
+      // Read before the request can go out (the connection may hand it to the client later), compared after its answer.
+      const restoreBefore = now.client?.threadSubscription?.(threadId);
+      try {
+        if (wanted) await protocol.resumeThread(threadId, tail(undefined));
+        else {
+          // The client stops following before its request goes out.
+          follow.mine = undefined;
+          await protocol.unsubscribeThread(threadId);
+        }
+      } catch (error) {
+        failure = { error };
+      }
+      if (disposed || follow.attempt !== attempt || follows.get(threadId) !== follow) return;
+      follow.running = 0;
+      const after = generationNow(threadId);
+      // An unsubscribe that a restore of the thread overlapped (in flight at any point from before the request could go out
+      // until now, however it ended) confirms nothing: the core may have attached the restore after removing the thread, and
+      // the order of their answers says nothing about that. Cleanup stays owed and the unsubscribe is sent again once the
+      // restore has ended; a redundant one costs nothing at the core.
+      const restoreAfter = sameClient(now, after) ? after.client?.threadSubscription?.(threadId) : undefined;
+      const overlapped =
+        !wanted &&
+        restoreAfter !== undefined &&
+        (restoreBefore?.restoring === true ||
+          restoreAfter.restoring ||
+          restoreBefore?.restoresStarted !== restoreAfter.restoresStarted);
+      // Answered on a generation that is gone: it says nothing about the current one, which is read again.
+      if (!sameGeneration(now, after)) {
+        if (overlapped) follow.owed = after;
+        continue;
+      }
+      if (!failure) {
+        follow.failures = 0;
+        if (wanted) {
+          follow.owed = undefined;
+          follow.mine = now;
+        } else follow.owed = overlapped ? now : undefined;
+        continue;
+      }
+      // The core may still feed this generation: cleanup stays owed until absence is confirmed on it or it retires.
+      if (!wanted) follow.owed = now;
+      follow.failures += 1;
+      // A thread the core does not have is asked again at the slowest rate (it may be created yet); no other waits on it.
+      const delay = unavailable(failure.error)
+        ? FOLLOW_RETRY_MAX_MS
+        : Math.min(FOLLOW_RETRY_MAX_MS, FOLLOW_RETRY_MS * 2 ** Math.min(follow.failures - 1, 16));
+      if (reportedFailure(follow.failures)) {
+        const reason = failure.error instanceof Error ? failure.error.message : String(failure.error);
+        report(
+          `[mixdog-lane] follow failing thread=${threadId.slice(-8)} ${wanted ? 'resume' : 'unsubscribe'} failures=${follow.failures} retryMs=${delay} error=${reason.slice(0, 160)}`
+        );
+      }
+      // Woken while the request was in flight: only a changed need acts now (the generation is the same here); the same
+      // request again waits out its backoff.
+      if (follow.dirty && desired.has(threadId) !== wanted) continue;
+      retryLater(threadId, follow, delay, { wanted, generation: now });
+      return;
+    }
+  };
+  /** Marks a thread for another look. One with a request in flight is marked dirty and looked at again when that is answered.
+   *  A thread the lane has no record of is taken on only when it is wanted. */
+  const wake = (threadId: string): void => {
+    if (disposed) return;
+    let follow = follows.get(threadId);
+    if (!follow) {
+      if (!desired.has(threadId)) return;
+      follow = { attempt: 0, running: 0, failures: 0 };
+      follows.set(threadId, follow);
+    }
+    // Waiting out a backoff: the same request on the same generation waits for its deadline; a changed need acts now.
+    const { backoff } = follow;
+    if (backoff && desired.has(threadId) === backoff.wanted && sameGeneration(backoff.generation, generationNow(threadId))) return;
+    follow.cancelRetry?.();
+    follow.cancelRetry = undefined;
+    follow.backoff = undefined;
+    if (follow.running === 0) void reconcile(threadId, follow);
+    else follow.dirty = true;
+  };
+  const wakeAll = (): void => {
+    for (const threadId of new Set([...desired, ...follows.keys()])) wake(threadId);
+  };
+  // A replaced client follows none of the threads, and whatever is in flight belongs to the old one: every attempt is retired
+  // now, so a late answer of the old client changes nothing and a request it never answers holds no thread.
+  const offReplaced = protocol.onReplaced?.(() => {
+    replacements += 1;
+    for (const follow of follows.values()) {
+      follow.attempt += 1;
+      follow.running = 0;
+    }
+    wakeAll();
+  });
+  const offEvents = protocol.onEvent((event) => {
+    // A connection that is ready again: what failed while it was down is tried now, and owed cleanups of the ended
+    // connection are void.
+    if (event.type === 'status' && (event as { status: { state: string } }).status.state === 'ready') wakeAll();
+    else if (event.type === 'subscriptionLost') {
+      const threadId = (event as { threadId?: unknown }).threadId;
+      if (typeof threadId !== 'string') return;
+      const follow = follows.get(threadId);
+      if (follow) follow.mine = undefined;
+      wake(threadId);
+    }
+  });
+  // The end of the client's restore of a thread (`subscription` restored or lost): a thread waiting on it is looked at again.
+  const offStore = protocol.onStoreChange?.((change) => {
+    if (change.type === 'subscription' && change.feedId !== undefined) wake(change.feedId);
+  });
   return {
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      offReplaced?.();
+      offEvents();
+      offStore?.();
+      for (const follow of follows.values()) follow.cancelRetry?.();
+      follows.clear();
+    },
     async call<T>(method: string, args: unknown[], signal?: AbortSignal): Promise<T> {
       if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('Request aborted.');
       if (method === 'perfLog') {
@@ -330,17 +572,12 @@ export function createServiceLane({
           if (shownVersion !== undefined && next <= shownVersion) return true as T;
           shownVersion = next;
         }
-        const visible = new Set(ids);
-        for (const threadId of [...resumed.keys()]) {
-          if (visible.has(threadId)) continue;
-          resumed.delete(threadId);
-          await answered(protocol.unsubscribeThread(threadId), threadId);
-        }
-        for (const threadId of visible) {
-          if (resumed.has(threadId)) continue;
-          await resume(threadId);
-          resumed.set(threadId, {});
-        }
+        // `true` is acceptance: the lane has taken the set over and brings each thread there, retrying what fails (as
+        // Node's answer stayed true for a session the core refused).
+        const prior = desired;
+        desired = new Set(ids);
+        // The threads still converging are woken too: a registration repairs a pending retry at once.
+        for (const threadId of new Set([...prior, ...desired, ...follows.keys()])) wake(threadId);
         return true as T;
       }
       if (method === 'readAttachmentImage') return (await readAttachment(args[0], args[1])) as T;

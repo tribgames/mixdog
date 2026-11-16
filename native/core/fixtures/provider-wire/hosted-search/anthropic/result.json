@@ -128,10 +128,6 @@
     },
     {
       "on": "streamDelta",
-      "kind": "tool"
-    },
-    {
-      "on": "streamDelta",
       "kind": "text"
     }
   ]

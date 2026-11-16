@@ -273,6 +273,142 @@ test('a steering message delivered while its queue entry lingers is drawn once, 
   }
 });
 
+// A turn with many tool calls shows them as one activity group, keyed by the
+// first member it was shown with. A compaction mid-turn lands its divider
+// between tool rows of that group, and the group splits in two. When the
+// group's key came from a member that now opens the lower half (its head was
+// supplied later, by an older page), both halves projected under ONE key: the
+// stranded element of the old group stayed where it was and the two activity
+// summaries were drawn over each other under the divider.
+test('a compaction divider that splits a tool group mid-turn draws each half once, at its own offset', async () => {
+  const project = await projection();
+  const turn = { kind: 'user', id: 'desktop-submit-tools', text: '컴퓨터유즈 왜호출안되는지부터 파악필요할듯' };
+  const tool = (id, count) => ({
+    kind: 'tool',
+    id,
+    name: '__aggregate__',
+    aggregate: true,
+    count,
+    completedCount: count,
+  });
+  const midTurn = { ...divider, id: 'divider:mid-turn' };
+  // A group's box grows with its calls, so a split, a re-merge and an update
+  // each change the heights of the rows below.
+  const heightOf = (row) =>
+    row._tag === 'ToolActivity' ? 40 + row.items.reduce((sum, item) => sum + item.count * 3, 0) : rowHeight(row);
+  for (const [name, frames] of [
+    [
+      'a group whose head an older page supplied, split and merged again',
+      [
+        [tool('tool-n', 9), tool('tool-o', 4)],
+        [...previousTurns, turn, tool('tool-a', 6), tool('tool-n', 9), tool('tool-o', 4)],
+        [...archived, turn, tool('tool-a', 6), midTurn, tool('tool-n', 9), tool('tool-o', 4)],
+        [...archived, turn, tool('tool-a', 6), midTurn, tool('tool-n', 9), tool('tool-o', 7)],
+        [...archived, midTurn, turn, tool('tool-a', 6), tool('tool-n', 9), tool('tool-o', 7)],
+      ],
+    ],
+  ]) {
+    const heights = new Map();
+    const mount = await mountTranscript(heights);
+    try {
+      for (const [index, items] of frames.entries()) {
+        const rows = project(items);
+        for (const row of rows) heights.set(row.key, heightOf(row));
+        await mount.render(rows);
+        await mount.settle();
+        const label = `${name}, frame ${index}`;
+        const tops = new Map();
+        let offset = 0;
+        for (const row of rows) {
+          tops.set(row.key, offset);
+          offset += heights.get(row.key);
+        }
+        const elements = mount.mounted();
+        assert.equal(
+          new Set(elements.map((element) => element.key)).size,
+          elements.length,
+          `${label}: one element per row (${JSON.stringify(elements.slice(-4))})`
+        );
+        for (const element of elements) {
+          assert.equal(element.top, tops.get(element.key), `${label}: ${element.key} sits at its own offset`);
+        }
+        const keys = rows.map((row) => row.key);
+        assert.equal(new Set(keys).size, keys.length, `${label}: every row key is unique (${keys.join(', ')})`);
+      }
+    } finally {
+      await mount.cleanup();
+    }
+  }
+});
+
+// The other input: after a compaction the core sends every row of its window
+// again, archived. The client store holds only its tail; the older rows it
+// appended came out under the divider as a tool group of the current turn
+// (the earlier turn's folder listing and exploration calls, as a summary).
+test('rows re-sent archived after a compaction stay above the divider, out of the turn that goes on below it', async () => {
+  const { sessionReducer, desktopSessionState } = await import('../../../../packages/protocol-client/src/session-state.ts');
+  const { projectSettledTranscriptRows } = await import('./transcript-rows.ts');
+  const { transcriptTurnKeys } = await import('./renderer-logic.mjs');
+  const user = (id, text, ext = {}) => ({ type: 'userMessage', id, content: [{ type: 'text', text }], meta: { ext } });
+  const reply = (id, text, ext = {}) => ({ type: 'agentMessage', id, text, meta: { ext } });
+  const call = (id, name, ext = {}) => ({
+    type: 'toolCall',
+    id,
+    name,
+    input: { path: 'src' },
+    run: { callId: id, result: 'ok' },
+    meta: { status: 'completed', ext },
+  });
+  const archive = (item) => ({ ...item, meta: { ...item.meta, ext: { ...item.meta.ext, archived: true } } });
+  const held = [
+    user('u1', '모델피커에서 모델선택이안되네'),
+    call('call:read-1', 'read'),
+    call('call:grep-1', 'grep'),
+    reply('a1', '원인을 절반까지 좁혔습니다'),
+    user('u2', '컴퓨터유즈 왜호출안되는지부터 파악필요할듯'),
+  ];
+  const older = [user('u0', 'ㅎㅇ'), call('call:list-0', 'list'), call('call:explore-0', 'explore'), reply('a0', '안녕하세요')];
+  const completed = (s, item) =>
+    sessionReducer.apply(s, { method: 'item/completed', params: { threadId: SESSION, turnId: '', item } });
+  let fold = sessionReducer.initial({ thread: { id: SESSION }, items: held, state: {}, hasOlder: true });
+  for (const item of [
+    { type: 'contextCompaction', id: 'divider:c1', meta: { label: 'Conversation compacted', detail: '520k→41k' } },
+    ...[...older, ...held.slice(0, 4)].map(archive),
+    reply('a2', '`computer` 호출이 거부되는 지점을 찾겠습니다'),
+    call('call:grep-2', 'grep'),
+    call('call:shell-2', 'shell'),
+  ]) {
+    fold = completed(fold, item);
+  }
+  const items = desktopSessionState(fold, []).items;
+  const rows = projectSettledTranscriptRows({
+    sessionKey: SESSION,
+    items,
+    turnKeys: transcriptTurnKeys(items),
+    failedTurns: new Set(),
+  }).rows;
+  const dividerAt = rows.findIndex((row) => row.item?.id === 'divider:c1');
+  const shown = (row) => (row._tag === 'ToolActivity' ? row.items.map((item) => item.id) : [row.item?.id]);
+  assert.deepEqual(
+    rows.slice(dividerAt + 1).map(shown),
+    [['a2'], ['call:grep-2', 'call:shell-2']],
+    'below the divider: only the turn that goes on'
+  );
+  assert.deepEqual(
+    rows
+      .slice(0, dividerAt)
+      .filter((row) => row._tag !== 'TurnGap')
+      .map((row) => [shown(row), row._tag === 'ToolActivity' ? row.items.every((item) => item.archived) : row.item.archived === true]),
+    [
+      [['u1'], true],
+      [['call:read-1'], true],
+      [['a1'], true],
+      [['u2'], false],
+    ],
+    'the rows the store held dim where they are'
+  );
+});
+
 for (const [name, frame] of [
   ['its pending twin', (project) => project([...archived, divider, prompt], { pendingItems: [pendingTwin] })],
   ['a repeated copy of the item', (project) => project([...archived, divider, prompt, { ...prompt }])],

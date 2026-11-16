@@ -140,14 +140,13 @@ export function StudioPane({
   const mediaForeground = useForegroundMedia(active);
   const gridRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
-  const dockRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
   const { gridWidth, gridMotionReady } = useStudioGridMotion(active, gridRef);
   const { lanes, loadLanes, catalogErrorText } = useStudioLaneCatalog(api, active, setError);
 
-  useStudioPaneObserver(studioRootRef, dockRef, setNarrowPane);
+  useStudioPaneObserver(studioRootRef, setNarrowPane);
 
   const { loading, gallerySettled, catalogSettled, retry } = useStudioLoad({
     active,
@@ -484,7 +483,7 @@ export function StudioPane({
               onToggleChecked={toggleChecked}
             />
           </div>
-          <div className="studio-dock" ref={dockRef}>
+          <div className="studio-dock">
             {/* Progress AND job failures live on the pending tile; the banner is
             only for pane-level errors. */}
             <ErrorNotice

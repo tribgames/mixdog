@@ -1,17 +1,17 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-lead-request.mjs --tree <b6f10295a export with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch,benchmarks/rust-core/recorders/node-patches/node-fix-deferred-listing-trigger.patch,benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+  "command": "node benchmarks/rust-core/recorders/record-lead-request.mjs --tree <tree> --working-tree",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2296440,
+      "bytes": 2298384,
       "path": "golden.json",
-      "sha256": "0934105490b695ca26d674703e74bce6c0a65462149de92d669d7c1c5d054d0a"
+      "sha256": "2f94ba585ada891d43acf8e08b68e923cfcac67ce762acd2638ff32a317a381c"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+      "sha256": "0bca2d2cbc7927e2a28b332c841ee846c3dd24c1c70aee89b5d38f34b266eb8d"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lead-request-scenarios.mjs",
@@ -35,65 +35,23 @@
   },
   "nodeVersion": "v22.20.0",
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
-    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
-    "exact": true,
-    "files": 9146,
-    "patches": [
-      {
-        "file": "node-fix-spawn-model-settings.patch",
-        "paths": [
-          "src/session-runtime/services/agent-tool/model-select.mjs",
-          "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
-          "src/session-runtime/services/agent-tool/spawn-preset.mjs",
-          "src/session-runtime/services/agent-tool/tool-def.mjs",
-          "src/tui/app/model-picker/route-selection/effort.mjs"
-        ],
-        "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
-      },
-      {
-        "file": "node-fix-deferred-listing-trigger.patch",
-        "paths": [
-          "src/runtime/agent/orchestrator/runtime-core/tool-catalog.mjs",
-          "src/runtime/agent/orchestrator/runtime-core/tool-catalog-listing.test.mjs"
-        ],
-        "sha256": "f51d56c5d9536b802fb86cccbcc6dcfe10e29542002e4ea0cfc547471d52d963"
-      },
-      {
-        "file": "node-change-shell-cover-tools.patch",
-        "paths": [
-          "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
-        ],
-        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
-      }
-    ],
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21681,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 0,
+      "closestCommit": "50c0ef6c2b6b96e5cf9f61fb7c7d1b756f889555",
+      "commitFilesMissingFromTree": 766,
       "exact": false,
-      "filesDifferingFromCommit": 20
+      "filesDifferingFromCommit": 17870
     },
-    "srcSha256": "2ab1f3f583c7ba76aada52e7d9a1e82d7c8f5894980c83448101881cd3b0e031",
+    "srcSha256": "c1cbfce65220d1d96ecd57bf4af1113fc55dffeebd6d3833af4ea401b193f79c",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-lead-request.mjs",
-  "recorderSha256": "14c696f8b15ceb067ae3c36d5dfdcd848f62b7dfe1980fdd5f1ef737437d3150",
+  "recorderSha256": "1094863e0eacf16aadabb1966a68bb0c3a684c815667e21611e7792da14e70e5",
   "scope": {
     "covered": "the desktop lead thread (session.create with a desktopSession, then submit)",
     "notCovered": [
@@ -102,5 +60,5 @@
     ]
   },
   "set": "lead-request",
-  "totalBytes": 2296440
+  "totalBytes": 2298384
 }

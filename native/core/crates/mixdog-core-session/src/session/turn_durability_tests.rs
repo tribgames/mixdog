@@ -168,6 +168,60 @@ async fn a_completion_starts_no_turn_while_the_previous_turn_is_unsaved() {
     assert_eq!(reached.load(std::sync::atomic::Ordering::SeqCst), 1, "no turn reached the provider while the disk refuses writes");
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_completion_receipt_ack_requires_the_terminal_result_to_be_durable() {
+    let rig = Rig::new();
+    let failing = rig.store.failing.clone();
+    rig.set_script(Arc::new(move |run| {
+        let failing = failing.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            *failing.lock().unwrap() = Some("EIO: terminal result".into());
+            for (iid, role, body) in [
+                ("terminal-read", "tool", json!({
+                    "role": "tool", "content": "finished output",
+                    "toolMeta": { "code": "task-completion", "executionId": "shell-receipt", "status": "completed" }
+                })),
+                ("kept-reply", "assistant", json!({ "role": "assistant", "text": "kept reply" })),
+            ] {
+                run.port.commit_item(ItemCommit {
+                    iid: ItemId::from(iid), role: Some(role.into()), model: true, visible: true, body, prompt: None,
+                }).await.expect("the failed write is kept in memory");
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "receipt-work").await;
+    crate::eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy() && rows(&handle).len() == 3).then_some(())).await;
+    let notice = "<task-notification><task-id>shell-receipt</task-id><status>completed</status></task-notification>";
+    let result = directory.queue_completion_durably(&handle.id, "shell", "shell-receipt", "completed", notice.into()).await;
+    assert!(result.is_err(), "an unsaved receipt must not acknowledge durable consumption: {result:?}");
+    assert_eq!(stored(&rig, &handle.id), ["work"], "neither the receipt nor unrelated held output reached disk");
+
+    // Replay exactly the records that survived the failed save, without the old actor's memory.
+    let replay = Rig::new();
+    replay.set_script(super::tests::echo());
+    for (_, record) in rig.store.records(&handle.id) {
+        replay.store.append_record(&handle.id, record);
+    }
+    let restarted = SessionDirectory::new(replay.deps());
+    let reopened = restarted.open_handle(&handle.id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("reopen");
+    crate::eventually_on!(&[&reopened.cell.stepped], || reopened.recovered().then_some(())).await;
+    restarted.queue_completion_durably(&handle.id, "shell", "shell-receipt", "completed", notice.into()).await.expect("redelivery survives restart");
+    crate::eventually_on!(&[&reopened.cell.stepped], || (idle(&reopened) && stored(&replay, &handle.id).iter().any(|text| text == notice)).then_some(())).await;
+
+    // A fresh durable commit may acknowledge the original receipt, but must retain every
+    // other held record and must not start a redundant turn.
+    *rig.store.failing.lock().unwrap() = None;
+    directory.queue_completion_durably(&handle.id, "shell", "shell-receipt", "completed", notice.into()).await.expect("receipt saved");
+    assert_eq!(stored(&rig, &handle.id), ["work", "finished output", "kept reply"]);
+    assert_eq!(super::tests::runs_started(&rig, &handle.id), 1);
+    directory.shutdown().await;
+    restarted.shutdown().await;
+}
+
 /// A recovery at open that cannot read the model context leaves the crashed run open for the next open, instead of ending it
 /// as interrupted with nothing of its draft.
 #[tokio::test(start_paused = true)]

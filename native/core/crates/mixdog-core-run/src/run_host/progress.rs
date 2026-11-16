@@ -1106,6 +1106,34 @@ mod tests {
         assert_eq!(p.snapshot(500_000).unwrap().last_progress_at, 50_000);
     }
 
+    /// Staleness is inactivity of the response's content: content that keeps advancing keeps a run alive however long it
+    /// lasts, and events that carry none never do.
+    #[test]
+    fn only_content_progress_keeps_a_stream_alive_and_the_status_names_its_absence() {
+        use mixdog_agent::agent_tool::progress::{ProgressInput, WatchdogPolicy, progress_fields, stale_report};
+        let policy = WatchdogPolicy { first_transport_ms: 0, first_semantic_ms: 0, idle_stale_ms: 300_000 };
+        let mut p = RunProgress::default();
+        p.ask_start(1000);
+        p.stage_change("requesting", 1000);
+        p.stage_change("streaming", 2000);
+        // A large write: arguments advance every 10 s for 20 minutes, four times the idle budget.
+        for beat in 0..120 {
+            p.stream_delta(StreamKind::Tool, 10_000 + beat * 10_000);
+        }
+        let now = 10_000 + 119 * 10_000 + 5_000;
+        assert_eq!(stale_report(&p.snapshot(now).unwrap(), now, &policy), None);
+        // Then only keep-alives: no content, so the run goes stale once the budget (and the keep-alive allowance) is spent.
+        let mut at = now;
+        while at < now + 1_000_000 {
+            at += 10_000;
+            p.stream_delta(StreamKind::Keepalive, at);
+        }
+        let snapshot = p.snapshot(at).unwrap();
+        assert!(stale_report(&snapshot, at, &policy).is_some_and(|s| s.contains("task stale")));
+        let fields = progress_fields(&ProgressInput { now: at, snapshot: Some(&snapshot), runtime_stage: Some("streaming"), policy: Some(policy), ..ProgressInput::default() });
+        assert!(fields.diagnostic.starts_with("stale: "), "{}", fields.diagnostic);
+        assert!(fields.last_progress.contains("no new content"), "{}", fields.last_progress);
+    }
     struct Quiet;
     impl WaitedJobs for Quiet {
         fn silence(&self, ids: &[String], _: i64) -> Option<ToolSilence> {

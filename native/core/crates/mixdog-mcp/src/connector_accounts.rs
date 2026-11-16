@@ -40,11 +40,11 @@ pub enum AccountError {
     State(String),
 }
 
-/// The account a call is bound to: `name` is unique and binds the call; `label` is what it is
-/// shown as.
+/// The account a call is bound to: a reusable name and its immutable id; the label is shown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Chosen {
     pub name: String,
+    pub id: String,
     pub label: String,
 }
 
@@ -220,6 +220,51 @@ impl ConnectorAccounts {
         self.pick(call.tool, named, remembered)
     }
 
+    pub fn approved(&self, tool: &str, binding: &mixdog_core_api::domain::tool::ConnectorAccountBinding) -> Result<Chosen, AccountError> {
+        // Use the same identity check as a remembered account, without reselecting by name.
+        self.pick(tool, "", Some(Remembered { name: binding.name.clone(), id: binding.id.clone() }))
+            .map_err(|_| self.refuse(&self.inner().emails.clone(), &format!("The approved {} account ({}) is no longer available with the same identity.", self.service, binding.name)))
+    }
+
+    pub fn labels(&self) -> Vec<(String, Option<String>)> {
+        let emails = self.inner().emails.clone();
+        self.accounts.iter().enumerate().map(|(at, account)| {
+            let note = self.health.get(&account.name).and_then(|h| {
+                if h.auth_required { Some("needs sign-in".to_owned()) }
+                else if !h.error.is_empty() { Some("unavailable".to_owned()) }
+                else { None }
+            });
+            (self.label_of(&emails, at), note)
+        }).collect()
+    }
+
+    pub async fn remember(&self, name: &str, conversation: &str) -> Result<(), AccountError> {
+        if conversation.is_empty() {
+            return Ok(());
+        }
+        let account = self.accounts.iter().find(|a| a.name == name).expect("chosen account");
+        let value = serde_json::json!({"name": account.name, "id": account.id});
+        let (dir, connector, conversation) = (self.data_dir.clone(), self.connector.clone(), conversation.to_owned());
+        let job = move |lane: &InLane<MaintenanceIo>| -> Result<(), String> {
+            for (file, scoped) in [(CONVERSATION_FILE, true), (IN_USE_FILE, false)] {
+                mixdog_statefile::update_json(lane, &dir.join(file), |stored| {
+                    let mut all = stored.filter(Value::is_object).unwrap_or_else(|| serde_json::json!({}));
+                    if scoped {
+                        if !all[&conversation].is_object() { all[&conversation] = serde_json::json!({}); }
+                        if !all[&conversation]["accounts"].is_object() { all[&conversation]["accounts"] = serde_json::json!({}); }
+                        all[&conversation]["accounts"][&connector] = value.clone();
+                    } else {
+                        all[&connector] = value.clone();
+                    }
+                    Ok::<_, std::convert::Infallible>(Some(all))
+                }, &mixdog_statefile::Opts::default()).map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        };
+        let handle = self.maintenance.submit_wait(&CancellationToken::new(), job).await.map_err(|e| AccountError::State(e.to_string()))?;
+        handle.await.map_err(|e| AccountError::State(e.to_string()))?.map_err(AccountError::State)
+    }
+
     fn pick(&self, tool: &str, named: &str, remembered: Option<Remembered>) -> Result<Chosen, AccountError> {
         let emails = self.inner().emails.clone();
         let service = &self.service;
@@ -265,7 +310,7 @@ impl ConnectorAccounts {
                 return Err(refuse(&format!("{} has no {tool} tool.", self.label_of(&emails, at))));
             }
         }
-        Ok(Chosen { name: self.accounts[at].name.clone(), label: self.label_of(&emails, at) })
+        Ok(Chosen { name: self.accounts[at].name.clone(), id: self.accounts[at].id.clone(), label: self.label_of(&emails, at) })
     }
 
     /// The account `conversation` used last on this connector, else the one the connector used

@@ -153,10 +153,11 @@ impl UsageAcc {
         }
     }
 
-    /// Mixdog input is inclusive: fresh input + cache read + cache write.
+    /// Anthropic's input leaves the cache out (`inputExcludesCache`, Node's `inputTokens`): the ledger, the session totals and
+    /// the context gauge all add the cache back themselves, so the whole prompt (Node's `promptTokens`) is not stored here.
     pub(super) fn usage(&self) -> Usage {
         Usage {
-            input_tokens: self.input + self.cache_read + self.cache_write,
+            input_tokens: self.input,
             output_tokens: self.output,
             cache_read_tokens: self.cache_read,
             cache_write_tokens: self.cache_write,
@@ -598,15 +599,13 @@ impl AnthropicDecoder {
                         json.push_str(piece);
                         out.push(StreamEvent::ToolCallArgsDelta { id: id.clone(), delta: piece.to_owned() });
                     }
-                    Some(Block::NativeCall { json, .. }) => {
-                        json.push_str(piece);
-                        // A server tool's input is reported once more (content-block-delta.mjs:79-82).
-                        out.push(StreamEvent::Progress(ProgressKind::Tool));
-                    }
+                    Some(Block::NativeCall { json, .. }) => json.push_str(piece),
                     _ => {}
                 }
-                // Node reports every input_json_delta, whatever block it lands on.
-                out.push(StreamEvent::Progress(ProgressKind::Tool));
+                // Only content advances the response: an empty fragment is not progress.
+                if !piece.is_empty() {
+                    out.push(StreamEvent::Progress(ProgressKind::Tool));
+                }
             }
             // A citation belongs to the text block it cites, replayed with it (turn-blocks.mjs:41-51, :79-81); Node's
             // Anthropic result has no citation list of its own.

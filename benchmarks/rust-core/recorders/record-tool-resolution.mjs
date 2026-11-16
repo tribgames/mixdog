@@ -269,7 +269,7 @@ await writeJsonCompact(tree, join(stage, 'golden.json'), {
 writeSetManifest(stage, {
   set: 'tool-resolution',
   recorder,
-  command: `node ${recorder} --tree <tree>${args.get('patch') ? ` --patch ${args.get('patch')}` : ''}`,
+  command: `node ${recorder} --tree <tree>${args.has('working-tree') ? ' --working-tree' : args.get('patch') ? ` --patch ${args.get('patch')}` : ''}`,
   identity: nodeTreeIdentity(args, tree, 'b6f10295a2f698afc85332467192de28500bd146'),
   extra: {
     ...recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/tool-definitions.mjs']),

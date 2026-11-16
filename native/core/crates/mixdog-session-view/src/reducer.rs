@@ -35,6 +35,7 @@ use crate::rows::fld;
 use crate::rows::js_string;
 use crate::rows::merge_tool_rows_steps;
 use crate::rows::row_of;
+use crate::rows::rows_of;
 use crate::rows::text;
 use crate::rows::truthy;
 
@@ -422,7 +423,7 @@ pub fn initial_steps(snapshot: &Json, mut yield_point: impl FnMut()) -> Json {
     };
     let mut rows: Vec<Row> = Vec::new();
     for (at, item) in source.iter().enumerate() {
-        rows.extend(row_of(item));
+        rows.extend(rows_of(item));
         if at % ITEMS_PER_STEP == ITEMS_PER_STEP - 1 {
             yield_point();
         }
@@ -531,6 +532,13 @@ fn apply_item(state: &Json, completed: bool, params: Opt) -> Json {
     let item = fld(params, "item");
     let Some(row) = row_of(item.unwrap_or(&Value::Null)) else { return state.clone() };
     let mut fold = Fold::from_state(state);
+    // Archiving updates the held window; rows outside it are read by history,
+    // never appended below the compaction boundary.
+    if row.value.get("archived") == Some(&Value::Bool(true))
+        && !fold.items.iter().any(|held| strict_eq(held.get("id"), row.value.get("id")))
+    {
+        return state.clone();
+    }
     if text(fld(item, "type")) == "agentMessage" && !completed {
         let mut identity = row.value.as_object().cloned().unwrap_or_default();
         let shown = identity.shift_remove("text");
@@ -635,6 +643,41 @@ mod tests {
         assert!(fields(&state).get("spinner").is_none());
         state = reducer.apply(&state, &note("thread/goal/updated", json!({ "value": null })));
         assert!(fields(&state).get("goal").is_none());
+    }
+
+    #[test]
+    fn compaction_history_and_live_updates_keep_the_same_boundary_and_archived_cards() {
+        let reducer = SessionReducer;
+        let call = |id: &str, archived: bool| json!({
+            "type": "toolCall", "id": id, "name": "read", "input": { "path": "src" },
+            "run": { "callId": id, "result": "ok" },
+            "meta": { "status": "completed", "ext": { "archived": archived } }
+        });
+        let summary = json!({ "type": "agentMessage", "id": "summary", "text": "Investigation summary", "meta": {} });
+        let divider = json!({ "type": "contextCompaction", "id": "divider:c1", "meta": {} });
+        let prompt = json!({ "type": "userMessage", "id": "prompt", "content": [{ "type": "text", "text": "Continue" }], "meta": {} });
+        let mut archived_summary = summary.clone();
+        archived_summary["meta"]["ext"] = json!({ "archived": true });
+        let mut history_summary = archived_summary.clone();
+        history_summary["meta"]["ext"]["dividersAfter"] = json!([divider]);
+        let initial = reducer.initial(&json!({
+            "thread": { "id": "t" }, "state": {},
+            "items": [call("read-1", true), call("read-2", true), history_summary, prompt]
+        }));
+        let mut live = reducer.initial(&json!({
+            "thread": { "id": "t" }, "state": {},
+            "items": [call("read-1", false), call("read-2", false), summary]
+        }));
+        for item in [divider, call("outside-window", true), call("read-1", true), call("read-2", true), archived_summary, prompt] {
+            live = reducer.apply(&live, &note("item/completed", json!({ "item": item })));
+        }
+        assert_eq!(live["transcript"], initial["transcript"]);
+        let rows = live["transcript"].as_array().unwrap();
+        assert_eq!(rows.iter().map(|row| row["id"].as_str().unwrap()).collect::<Vec<_>>(), ["read-1", "summary", "divider:c1", "prompt"]);
+        assert_eq!(rows[0]["archived"], true);
+        assert!(rows[2].get("archived").is_none());
+        live = reducer.apply(&live, &note("item/completed", json!({ "item": call("read-2", false) })));
+        assert_ne!(live["transcript"][0]["archived"], true, "a card with a retained member stays live");
     }
 
     #[test]

@@ -5,8 +5,6 @@
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
-use sha2::Digest;
-use sha2::Sha256;
 
 /// `PENDING_MODE_TASK_NOTIFICATION`.
 pub const MODE: &str = "task-notification";
@@ -29,13 +27,7 @@ pub fn entry(surface: &str, task_id: &str, status: &str, text: &str, now: i64) -
         return None;
     }
     let execution_id = mixdog_js::js_trim(task_id);
-    let identity = if execution_id.is_empty() {
-        format!("content:{text}")
-    } else {
-        format!("execution:{execution_id}")
-    };
-    let digest = Sha256::digest(identity.as_bytes());
-    let id = format!("completion_{}", &hex(&digest)[..24]);
+    let id = mixdog_store::completion_receipts::queue_id(execution_id, text);
     let mut execution = Map::new();
     let surface = mixdog_js::js_trim(surface);
     if !surface.is_empty() {
@@ -115,10 +107,6 @@ pub fn input_row(entry: &Value) -> Value {
         meta["origin"] = Value::String(origin.to_owned());
     }
     json!({ "role": "user", "content": text(entry), "meta": meta })
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 #[cfg(test)]

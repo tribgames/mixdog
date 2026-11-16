@@ -162,6 +162,48 @@ async fn a_stalled_walk_answers_its_partial_at_the_soft_deadline() {
     replay_cases(true).await;
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_queued_walk_returns_its_partial_before_the_remaining_total_budget_expires() {
+    use std::time::Duration;
+
+    for (name, args) in [
+        ("glob", serde_json::json!({ "pattern": "*.rs", "sort": "natural" })),
+        ("find", serde_json::json!({ "query": "needle" })),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = AbsPath::new(dir.path().to_path_buf()).unwrap();
+        let files = Arc::new(mixdog_core_api::domain::mock::MockFileService::default());
+        let seeded = super::tests::context_seeded(&root, files.clone(), vec![("needle.rs".to_owned(), b"needle\n".to_vec())]).await;
+        let files = Arc::new(Stalling(files, Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0))));
+        let holder_ctx = context(&root, files.clone(), None);
+        let waiter_ctx = ToolContext { files, ..seeded };
+        let holder_tool = FindTool::new();
+        let waiter_tool = tool(name);
+        let mut holder = Box::pin(holder_tool.call(&holder_ctx, serde_json::json!({ "query": "needle" })));
+        let mut waiter = Box::pin(waiter_tool.call(&waiter_ctx, args));
+        assert!(std::future::poll_fn(|cx| std::task::Poll::Ready(holder.as_mut().poll(cx))).await.is_pending());
+        assert!(std::future::poll_fn(|cx| std::task::Poll::Ready(waiter.as_mut().poll(cx))).await.is_pending());
+
+        tokio::time::advance(Duration::from_millis(10_000)).await;
+        assert!(std::future::poll_fn(|cx| std::task::Poll::Ready(waiter.as_mut().poll(cx))).await.is_pending());
+        holder_ctx.cancel.cancel();
+        assert!(matches!(holder.await.unwrap_err().code, ToolErrorCode::Cancelled));
+        assert!(std::future::poll_fn(|cx| std::task::Poll::Ready(waiter.as_mut().poll(cx))).await.is_pending());
+
+        // 17 500 ms total minus 10 000 ms queued leaves 7 500 ms, with a 562 ms response margin.
+        tokio::time::advance(Duration::from_millis(6_937)).await;
+        assert!(std::future::poll_fn(|cx| std::task::Poll::Ready(waiter.as_mut().poll(cx))).await.is_pending());
+        tokio::time::advance(Duration::from_millis(1)).await;
+        let out = match std::future::poll_fn(|cx| std::task::Poll::Ready(waiter.as_mut().poll(cx))).await {
+            std::task::Poll::Ready(out) => out.expect("collected rows must survive the admission wait"),
+            std::task::Poll::Pending => panic!("{name}: no partial before the total hard deadline"),
+        };
+        let text = text_of(Ok(out));
+        assert!(text.contains("needle.rs"), "{name}: {text}");
+        assert!(text.contains("partial"), "{name}: {text}");
+    }
+}
+
 async fn replay_cases(stalled: bool) {
     let golden = golden();
     let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_767_323_045); // the recording's 2026-01-02T03:04:05Z
@@ -211,6 +253,7 @@ async fn replay_cases(stalled: bool) {
             if let Some(notice) = case["rescueNotice"].as_str() {
                 want = want.strip_suffix(notice).expect("the rescue notice ends the Node text").to_owned();
             }
+            let want = super::tests::timeout_wording(&want);
             if text != want {
                 let at = want.bytes().zip(text.bytes()).take_while(|(a, b)| a == b).count();
                 let from = want.floor_char_boundary(at.saturating_sub(200));

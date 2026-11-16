@@ -547,7 +547,7 @@ function Get-CoreTargetDir {
     if (Test-Path -LiteralPath $cargoGate -PathType Leaf) {
         $top = (& git -C $coreBuildRoot rev-parse --show-toplevel 2>$null)
         $leaf = if ($top) { Split-Path -Leaf $top } else { 'misc' }
-        return "D:\mixdog-build\pool\$leaf-target"
+        return "C:\mixdog-build\pool\$leaf-target"
     }
     return Join-Path $coreBuildRoot 'native\core\target'
 }

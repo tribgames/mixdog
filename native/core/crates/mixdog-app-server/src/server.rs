@@ -214,6 +214,7 @@ impl AppServer {
                 outgoing,
                 origin_of,
                 window_of: OnceLock::new(),
+                connection_log: OnceLock::new(),
                 config,
                 queues: KeyedQueues::new(),
                 lanes: Mutex::new(CallLanes::new()),
@@ -226,6 +227,18 @@ impl AppServer {
     /// The second call is refused and hands its argument back.
     pub fn set_window_of(&self, window_of: WindowOf) -> Result<(), WindowOf> {
         self.shared.window_of.set(window_of)
+    }
+
+    /// Where the connection open/close lines go (the daemon log); set once. A server without it logs nothing.
+    pub fn set_connection_log(&self, log: Arc<dyn Fn(&str) + Send + Sync>) -> Result<(), Arc<dyn Fn(&str) + Send + Sync>> {
+        self.shared.connection_log.set(log)
+    }
+
+    /// One line to the connection log, if one is set.
+    pub fn log_connection(&self, line: &str) {
+        if let Some(log) = self.shared.connection_log.get() {
+            log(line);
+        }
     }
 
     /// Registers an accepted, authenticated connection.
@@ -255,6 +268,11 @@ pub struct ConnectionHandle {
 impl ConnectionHandle {
     pub fn id(&self) -> ConnectionId {
         self.conn.id
+    }
+
+    /// How many feed subscriptions the connection holds now (those the close will detach).
+    pub fn subscription_count(&self) -> usize {
+        self.conn.subscription_count()
     }
 
     /// One inbound text frame. Oversized and unparseable frames end the connection (P §3).
@@ -327,6 +345,7 @@ pub(crate) struct Shared {
     origin_of: OriginOf,
     /// Set once by the composition; a server without it has no window connections.
     window_of: OnceLock<WindowOf>,
+    connection_log: OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
     config: ServerConfig,
     lifecycle: watch::Receiver<CoreState>,
     queues: KeyedQueues,

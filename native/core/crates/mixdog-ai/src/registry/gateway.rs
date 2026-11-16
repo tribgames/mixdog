@@ -290,10 +290,15 @@ impl GatewayAdapter {
         let engine = self.engine(wire).ok_or_else(|| self.not_routable(&request.model))?;
         request.options.send_identity.set_wire(wire.as_str());
         let request = self.with_ceiling(wire, request);
-        match self.session_headers(&request) {
+        let result = match self.session_headers(&request) {
             Some(headers) => SEND_HEADERS.scope(headers, engine.attempt(request)).await,
             None => engine.attempt(request).await,
+        };
+        // The Messages wire reports input without its cache; this provider's own convention is the declared one.
+        if wire == Wire::Messages && !crate::registry::accounted::adapter_input_excludes_cache(self) {
+            return crate::registry::inclusive::inclusive_attempt(result);
         }
+        result
     }
 
     /// OpenCode Go names the conversation on every request: its id, else one id for this send (`opencode-go.mjs`

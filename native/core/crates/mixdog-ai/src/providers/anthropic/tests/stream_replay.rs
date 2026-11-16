@@ -59,12 +59,7 @@ async fn every_recorded_stream_is_decoded_and_sent_as_node_does() {
             carried["category"] = delta["delta"]["category"].clone();
             assert_eq!(details, carried, "{id}: Node's stop details are what the stream carried");
         }
-        // The core's `input_tokens` is the whole prompt (Node's `promptTokens`); Node's `inputTokens` is the uncached part.
-        let mut core = core_result(&events, &request.model);
-        if let Some(usage) = core.pointer_mut("/ok/usage") {
-            let prompt = usage["inputTokens"].as_u64().unwrap() - usage["cachedTokens"].as_u64().unwrap() - usage["cacheWriteTokens"].as_u64().unwrap();
-            usage["inputTokens"] = json!(prompt);
-        }
+        let core = core_result(&events, &request.model);
         let wanted = json!({"ok": ok, "dispatchedToolCalls": node["toolCalls"]});
         assert_same_result(&core, &node_result(&wanted), id);
 
@@ -77,7 +72,7 @@ async fn every_recorded_stream_is_decoded_and_sent_as_node_does() {
         let usage = &node["usageSlots"];
         if !usage.is_null() {
             let rust = events.iter().rev().find_map(|e| if let StreamEvent::Usage(u) = e { Some(u) } else { None }).unwrap();
-            let slots = json!([rust.input_tokens - rust.cache_read_tokens - rust.cache_write_tokens, rust.output_tokens, rust.cache_read_tokens, rust.cache_write_tokens, rust.input_tokens]);
+            let slots = json!([rust.input_tokens, rust.output_tokens, rust.cache_read_tokens, rust.cache_write_tokens, rust.input_tokens + rust.cache_read_tokens + rust.cache_write_tokens]);
             assert_eq!(&slots, usage, "{id}: usage slots");
         }
     }

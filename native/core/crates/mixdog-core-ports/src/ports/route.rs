@@ -152,6 +152,13 @@ pub fn is_summary_anchor(message: &Value) -> bool {
         && message.get("content").and_then(Value::as_str).is_some_and(|c| c.starts_with(SUMMARY_PREFIX))
 }
 
+/// The effort a route is on, as clients read it (the runtime facade's `effort` getter, `runtime-facade.mjs:74`): the effective
+/// effort the provider's clamp left, else the requested one, else the preset's.
+pub fn facade_effort(route: &Route) -> Option<&Value> {
+    let preset_effort = route.get("preset").and_then(|preset| preset.get("effort"));
+    [route.get("effectiveEffort"), route.get("effort"), preset_effort].into_iter().find(|v| truthy(*v)).flatten()
+}
+
 /// `heldRoutePick`: the route fields a model pick held for the next turn keeps on its session.
 pub fn held_route_pick(route: &Route) -> Route {
     let mut pick = Route::new();
@@ -165,6 +172,10 @@ pub fn held_route_pick(route: &Route) -> Route {
     }
     if let Some(effort) = route.get("effort") {
         put("effort", effort.clone());
+    }
+    // The pick's applied effort travels with it: the thread state reads its effort off the pick (`facade_effort`).
+    if truthy(route.get("effectiveEffort")) {
+        put("effectiveEffort", route["effectiveEffort"].clone());
     }
     put("fast", Value::Bool(route.get("fast") == Some(&Value::Bool(true))));
     if route.get("autoEffort") == Some(&Value::Bool(false)) {
@@ -365,10 +376,15 @@ impl SessionRoutes {
     pub async fn tune(&self, thread: &ThreadId) -> Result<(), PortError> {
         let header = self.threads.header(thread).await?;
         let route = self.live.route(thread);
-        if text(&header, "provider") != text(&route, "provider") || text(&header, "model") != text(&route, "model") {
-            return Ok(());
-        }
         let mut set = Map::new();
+        // The selected route may belong to the next turn. Its persisted pick is also the thread state's source, so tuning
+        // must move that pick even while the running session still uses another model.
+        if header.contains_key("pendingRoute") {
+            set.insert("pendingRoute".into(), Value::Object(held_route_pick(&route)));
+        }
+        if text(&header, "provider") != text(&route, "provider") || text(&header, "model") != text(&route, "model") {
+            return if set.is_empty() { Ok(()) } else { self.threads.patch_header(thread, set, Vec::new()).await };
+        }
         let mut unset = Vec::new();
         set.insert("fast".into(), Value::Bool(route.get("fast") == Some(&Value::Bool(true))));
         // Absent means on; only the off state is stored on the session.
@@ -778,6 +794,26 @@ mod tests {
         let session = Session::new(calls.clone(), None);
         let routes = SessionRoutes::new(Arc::new(threads), Arc::new(Messages(messages)), Arc::new(session), Arc::new(Live(obj(live))));
         (routes, calls)
+    }
+
+    #[tokio::test]
+    async fn tuning_a_pending_route_updates_the_selected_effort_without_switching_the_running_model() {
+        for running_model in ["old", "next"] {
+            let (routes, _) = routes(
+                json!({
+                    "provider": "p", "model": running_model, "effort": "low",
+                    "pendingRoute": { "provider": "p", "model": "next", "effort": "low" }
+                }),
+                established(),
+                json!({ "provider": "p", "model": "next", "effort": "ultra", "effectiveEffort": "high", "autoEffort": false }),
+            );
+            routes.tune(&thread()).await.unwrap();
+            let header = routes.threads.header(&thread()).await.unwrap();
+            assert_eq!(facade_effort(header["pendingRoute"].as_object().unwrap()), Some(&json!("high")));
+            assert_eq!(header["pendingRoute"]["autoEffort"], false);
+            assert_eq!(header["model"], running_model);
+            assert_eq!(header["effort"], if running_model == "next" { "high" } else { "low" });
+        }
     }
 
     /// A held pick with no runtime to take it any more goes, as Node's ends with its runtime (`set-route.mjs:398-399`) and is

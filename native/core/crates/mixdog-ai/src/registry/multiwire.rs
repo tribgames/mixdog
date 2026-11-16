@@ -137,7 +137,17 @@ impl ProviderAdapter for MultiWireAdapter {
         }
         // A refusal on the selected wire is the provider's error: the wire is
         // chosen by config, never switched on the wording of a refusal.
-        self.engine(wire).attempt(request).await
+        let result = self.engine(wire).attempt(request).await;
+        // The Messages wire reports input without its cache; the provider's own convention is the declared one.
+        if wire == Wire::Messages && !crate::registry::accounted::adapter_input_excludes_cache(self) {
+            return crate::registry::inclusive::inclusive_attempt(result);
+        }
+        result
+    }
+
+    /// The convention of a custom provider is its default wire's engine's (its protocol's class, `custom-provider.mjs`).
+    fn input_excludes_cache(&self) -> Option<bool> {
+        self.default_engine().input_excludes_cache()
     }
 
     fn models(&self) -> Option<&dyn ModelListing> {
@@ -171,7 +181,13 @@ impl ProviderAdapter for MultiWireAdapter {
 
     async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         match self.route(request.model.as_str()) {
-            Some(wire) => self.engine(wire).recover_spent(request).await,
+            Some(wire) => {
+                let result = self.engine(wire).recover_spent(request).await;
+                if wire == Wire::Messages && !crate::registry::accounted::adapter_input_excludes_cache(self) {
+                    return crate::registry::inclusive::inclusive_attempt(result);
+                }
+                result
+            }
             None => Err(ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent)),
         }
     }

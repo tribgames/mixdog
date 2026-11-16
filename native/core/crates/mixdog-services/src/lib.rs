@@ -8,6 +8,7 @@ pub mod local_provider;
 pub mod media;
 pub mod memory;
 pub mod model_install;
+pub(crate) mod model_host;
 pub mod native_asset;
 pub(crate) mod params;
 pub mod scheduler;

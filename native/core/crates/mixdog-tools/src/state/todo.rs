@@ -234,9 +234,29 @@ fn arg_line(args: &Value, key: &str) -> String {
     }
 }
 
+/// A step of a plan as sent: its wording, or an object of `content` and the `status` it already has.
+fn plan_step(raw: &Value) -> Result<(String, Option<TodoStatus>), String> {
+    let Value::Object(step) = raw else {
+        return Ok((item_text(raw, "step")?, None));
+    };
+    let content = item_text(step.get("content").unwrap_or(&Value::Null), "step")?;
+    let status = match step.get("status") {
+        None | Some(Value::Null) => None,
+        Some(said) => Some(match one_line(&said.as_str().map_or_else(|| said.to_string(), str::to_owned)).to_lowercase().as_str() {
+            "pending" => TodoStatus::Pending,
+            "in_progress" => TodoStatus::InProgress,
+            "completed" => TodoStatus::Completed,
+            "abandoned" => TodoStatus::Abandoned,
+            other => return Err(format!("todo: step \"{content}\" has status \"{other}\"; use pending, in_progress, completed or abandoned")),
+        }),
+    };
+    Ok((content, status))
+}
+
 /// `set` (and its `init` spelling): the whole plan in order, replacing the list there was. The steps come as `items`
-/// (under `phase`, default `Tasks`) or as named `phases` of `items`. `done` says how many of its leading steps are
-/// already finished, for a plan set again part-way through.
+/// (under `phase`, default `Tasks`) or as named `phases` of `items`; an item is a wording or an object of `content` and
+/// `status`. `done` says how many of its leading steps are already finished (a step's own status wins), for a plan
+/// set again part-way through.
 fn set_list(args: &Value, now_ms: i64) -> Result<TodoList, String> {
     let source: Vec<(String, &Vec<Value>)> = match (args.get("phases"), args.get("items")) {
         (Some(Value::Array(phases)), _) if !phases.is_empty() => {
@@ -278,14 +298,12 @@ fn set_list(args: &Value, now_ms: i64) -> Result<TodoList, String> {
     for (name, items) in source {
         let mut tasks = Vec::with_capacity(items.len());
         for raw in items {
-            let content = item_text(raw, "step")?;
+            let (content, said) = plan_step(raw)?;
             if !seen.insert(content.clone()) {
                 return Err(format!("todo: duplicate step \"{content}\""));
             }
             let mut task = TodoTask::pending(content);
-            if at < finished {
-                task.status = TodoStatus::Completed;
-            }
+            task.status = said.unwrap_or(if at < finished { TodoStatus::Completed } else { TodoStatus::Pending });
             at += 1;
             tasks.push(task);
         }
@@ -329,23 +347,85 @@ fn append_steps(list: &mut TodoList, args: &Value) -> Result<String, String> {
     Ok(text)
 }
 
-/// The position of the step `item` (its exact wording) or a 1-based `index` names, counted over the whole list in
-/// order.
-fn step_index(list: &TodoList, args: &Value) -> Result<usize, String> {
-    let wording = arg_line(args, "item");
-    if !wording.is_empty() {
-        return list
-            .tasks()
-            .position(|task| task.content == wording)
-            .ok_or_else(|| format!("todo: no step \"{wording}\"; view the list for exact wordings"));
-    }
+fn position_by_wording(list: &TodoList, wording: &str) -> Result<usize, String> {
+    list.tasks()
+        .position(|task| task.content == wording)
+        .ok_or_else(|| format!("todo: no step \"{wording}\"; view the list for exact wordings"))
+}
+
+fn position_by_number(list: &TodoList, number: &Value) -> Result<usize, String> {
     let total = list.tasks().count();
-    args.get("index")
-        .and_then(Value::as_u64)
+    number
+        .as_u64()
         .and_then(|n| usize::try_from(n).ok())
         .filter(|n| (1..=total).contains(n))
         .map(|n| n - 1)
         .ok_or_else(|| format!("todo: index is a step number from 1 to {total}"))
+}
+
+/// The positions of the steps `item` (exact wordings) or `index` (1-based numbers) name, counted over the whole list
+/// in order; each key takes one value or a list of them, and wordings win over numbers. Repeats count once.
+fn step_indexes(list: &TodoList, args: &Value) -> Result<Vec<usize>, String> {
+    let listed = |key: &str| match args.get(key) {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(values)) => values.clone(),
+        Some(value) => vec![value.clone()],
+    };
+    let wordings: Vec<String> = listed("item")
+        .iter()
+        .map(|value| match value {
+            Value::String(s) => one_line(s),
+            other => one_line(&other.to_string()),
+        })
+        .filter(|wording| !wording.is_empty())
+        .collect();
+    let mut at = Vec::new();
+    if wordings.is_empty() {
+        for number in listed("index") {
+            at.push(position_by_number(list, &number)?);
+        }
+    } else {
+        for wording in &wordings {
+            at.push(position_by_wording(list, wording)?);
+        }
+    }
+    if at.is_empty() {
+        return Err(position_by_number(list, &Value::Null).unwrap_err());
+    }
+    let mut seen = HashSet::new();
+    at.retain(|n| seen.insert(*n));
+    Ok(at)
+}
+
+/// The one step `item` or `index` names, for the operations that take a single step.
+fn step_index(list: &TodoList, args: &Value) -> Result<usize, String> {
+    match step_indexes(list, args)?.as_slice() {
+        [at] => Ok(*at),
+        _ => Err("todo: this operation takes one step; send one index or item".to_owned()),
+    }
+}
+
+/// The position `start` names: a step number, or the step's exact wording.
+fn start_position(list: &TodoList, start: &Value) -> Result<usize, String> {
+    match start {
+        Value::String(wording) => position_by_wording(list, &one_line(wording)),
+        number => position_by_number(list, number),
+    }
+}
+
+/// Makes the step at `at` the one in progress, any other going back to pending.
+fn begin_step(list: &mut TodoList, at: usize) -> Result<String, String> {
+    if list.tasks().nth(at).is_some_and(|task| task.status == TodoStatus::Completed) {
+        return Err(format!("todo: step {} is completed and stays closed", at + 1));
+    }
+    for task in list.tasks_mut() {
+        if task.status == TodoStatus::InProgress {
+            task.status = TodoStatus::Pending;
+        }
+    }
+    let task = list.tasks_mut().nth(at).ok_or("todo: no such step")?;
+    task.status = TodoStatus::InProgress;
+    Ok(task.content.clone())
 }
 
 fn summary_line(list: &TodoList, op: &str, content: &str) -> String {
@@ -389,11 +469,20 @@ pub fn run(current: &TodoList, args: &Value, now_ms: i64) -> Result<TodoRun, Str
             None => return Err("todo: every step is closed; set a new list for new work".to_owned()),
         },
         "done" => {
-            let at = step_index(&list, args)?;
-            match list.tasks_mut().nth(at) {
-                Some(task) => close(task),
-                None => return Err("todo: no such step".to_owned()),
+            // Every step named closes in this one call, so steps that finished out of order are not left open;
+            // `start` then names the step to begin.
+            let mut closed = Vec::new();
+            for at in step_indexes(&list, args)? {
+                match list.tasks_mut().nth(at) {
+                    Some(task) => closed.push(close(task)),
+                    None => return Err("todo: no such step".to_owned()),
+                }
             }
+            if let Some(start) = args.get("start").filter(|start| !start.is_null()) {
+                let at = start_position(&list, start)?;
+                begin_step(&mut list, at)?;
+            }
+            closed.join(", ")
         }
         "append" => append_steps(&mut list, args)?,
         "rm" => {
@@ -424,21 +513,7 @@ pub fn run(current: &TodoList, args: &Value, now_ms: i64) -> Result<TodoRun, Str
         }
         _ => {
             let at = step_index(&list, args)?;
-            if list.tasks().nth(at).is_some_and(|task| task.status == TodoStatus::Completed) {
-                return Err(format!("todo: step {} is completed and stays closed", at + 1));
-            }
-            for task in list.tasks_mut() {
-                if task.status == TodoStatus::InProgress {
-                    task.status = TodoStatus::Pending;
-                }
-            }
-            match list.tasks_mut().nth(at) {
-                Some(task) => {
-                    task.status = TodoStatus::InProgress;
-                    task.content.clone()
-                }
-                None => return Err("todo: no such step".to_owned()),
-            }
+            begin_step(&mut list, at)?
         }
     };
     list.normalize();
@@ -742,5 +817,51 @@ Ship
         assert_eq!(list.phases[0].name, "One");
         let fifty: Vec<String> = (0..MAX_TODO_ITEMS).map(|n| format!("s{n}")).collect();
         assert!(run(&TodoList::default(), &json!({"op":"set","items":fifty}), 1).is_ok());
+    }
+
+    /// Steps that finished out of order close in one call, which may also begin another; a bad number leaves the
+    /// list alone.
+    #[test]
+    fn done_closes_several_steps_and_may_start_another() {
+        let (list, _) = commit(&TodoList::default(), json!({"op":"set","items":["A","B","C","D"]}));
+        let (after, reply) = commit(&list, json!({"op":"done","index":[2,3],"start":4}));
+        assert_eq!(reply, "2/4 · done: B, C · next: D");
+        assert_eq!(after.render(), "2/4\nTasks\n  [ ] A\n  [x] B\n  [x] C\n  [>] D");
+        let (after, reply) = commit(&list, json!({"op":"done","item":["C","A"],"note":"ok"}));
+        assert_eq!(reply, "2/4 · done: C, A · next: B");
+        assert_eq!(after.render(), "2/4\nTasks\n  [x] A — ok\n  [>] B\n  [x] C — ok\n  [ ] D");
+        assert_eq!(run(&list, &json!({"op":"done","index":[1,9]}), 1).unwrap_err(), "todo: index is a step number from 1 to 4");
+        assert_eq!(
+            run(&list, &json!({"op":"done","index":[1],"start":1}), 1).unwrap_err(),
+            "todo: step 1 is completed and stays closed"
+        );
+        assert_eq!(
+            run(&list, &json!({"op":"start","index":[1,2]}), 1).unwrap_err(),
+            "todo: this operation takes one step; send one index or item"
+        );
+    }
+
+    /// A plan sent again states each step's status; plain wordings and the leading count still work.
+    #[test]
+    fn set_takes_a_status_for_each_step() {
+        let items = json!([
+            {"content":"A","status":"completed"},
+            {"content":"B","status":"completed"},
+            "C",
+            {"content":"D","status":"in_progress"},
+            {"content":"E"}
+        ]);
+        let (list, reply) = commit(&TodoList::default(), json!({"op":"set","items":items}));
+        assert_eq!(reply, "2/5\nTasks\n  [x] A\n  [x] B\n  [ ] C\n  [>] D\n  [ ] E");
+        assert_eq!(list.phases[0].tasks[0].status, TodoStatus::Completed);
+        let (_, reply) = commit(
+            &TodoList::default(),
+            json!({"op":"set","done":1,"phases":[{"name":"P","items":["A",{"content":"B","status":"pending"}]}]}),
+        );
+        assert_eq!(reply, "1/2\nP\n  [x] A\n  [>] B");
+        assert_eq!(
+            run(&TodoList::default(), &json!({"op":"set","items":[{"content":"A","status":"stuck"}]}), 1).unwrap_err(),
+            "todo: step \"A\" has status \"stuck\"; use pending, in_progress, completed or abandoned"
+        );
     }
 }

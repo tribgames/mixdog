@@ -71,9 +71,36 @@ function compatibleText(a: TranscriptItem, b: TranscriptItem): boolean {
   return hashText(longerText, shorterFp.length) === shorterFp.hash;
 }
 
-export const hasOwnId = (item: TranscriptItem): boolean => item.id !== undefined && item.id !== null;
-export const sameRowId = (a: TranscriptItem, b: TranscriptItem): boolean =>
+type RowIdentity = { readonly id?: unknown };
+export const hasOwnId = (item: RowIdentity): boolean => item.id !== undefined && item.id !== null;
+export const sameRowId = (a: RowIdentity, b: RowIdentity): boolean =>
   hasOwnId(a) && hasOwnId(b) && String(a.id) === String(b.id);
+
+/** Join adjacent source windows at their shared suffix/prefix. A history row
+ * can carry a divider already present at the beginning of the live window. */
+export function joinTranscriptWindows<T extends RowIdentity>(
+  older: readonly T[],
+  newer: readonly T[]
+): { items: T[]; joint: number } {
+  let overlap = 0;
+  for (let start = 0; start < older.length; start += 1) {
+    const length = older.length - start;
+    if (length > newer.length) continue;
+    if (!older.slice(start).every((row, index) => sameRowId(row, newer[index]))) continue;
+    overlap = length;
+    break;
+  }
+  const joint = older.length - overlap;
+  return { items: older.slice(0, joint).concat(newer), joint };
+}
+
+/** The same window decision must govern identity adoption and head retention. */
+export function transcriptWindowAlignment(previous: readonly TranscriptItem[], incoming: readonly TranscriptItem[]) {
+  const found = findTranscriptAlignment(previous, incoming);
+  const inWindow = found && alignmentAnchored(found, previous.length, incoming.length) ? found : null;
+  const prepend = findTranscriptPrependAlignment(previous, incoming, inWindow);
+  return { inWindow, prepend, found };
+}
 
 function sameRowContent(a: TranscriptItem, b: TranscriptItem): boolean {
   return a.kind === b.kind && sameText(a, b) && String(a.name ?? '') === String(b.name ?? '');
@@ -84,6 +111,25 @@ export function alignedRow(a: TranscriptItem, b: TranscriptItem): boolean {
   if (a.kind === 'tool') return String(a.name ?? '') === String(b.name ?? '');
   if (a.kind === 'user' || a.kind === 'assistant') return compatibleText(a, b);
   return true;
+}
+
+function transcriptSourceAlignment(previous: readonly TranscriptItem[], incoming: readonly TranscriptItem[]) {
+  const previousIds = new Set(previous.filter(hasOwnId).map((row) => String(row.id)));
+  const sharedIds = new Set(incoming.filter((row) => hasOwnId(row) && previousIds.has(String(row.id))).map((row) => String(row.id)));
+  return {
+    hasSharedIds: sharedIds.size > 0,
+    aligned(a: TranscriptItem, b: TranscriptItem): boolean {
+      if (sameRowId(a, b)) return true;
+      // Content can bridge source namespaces, never relocate an id both
+      // sources already identify.
+      if ((hasOwnId(a) && sharedIds.has(String(a.id))) || (hasOwnId(b) && sharedIds.has(String(b.id)))) return false;
+      return alignedRow(a, b);
+    },
+  };
+}
+
+function compareAlignment(a: { idMatches: number; overlap: number }, b: { idMatches: number; overlap: number }): number {
+  return a.idMatches - b.idMatches || a.overlap - b.overlap;
 }
 
 /** Rows lined up by kind alone (two turn-completion rows, two tool calls of the
@@ -109,35 +155,37 @@ type PrependAlignment = { start: number; overlap: number; idMatches: number };
 
 /** An incoming window that starts BEFORE the displayed one (an older page
  *  loaded above it) carries `previous` from index `start` > 0. Offsets inside
- *  `previous` belong to findTranscriptAlignment; a prepend wins only when it
- *  overlaps more than `floor` (or as much, with more shared ids). */
+ *  `previous` belong to findTranscriptAlignment; shared source ids rank
+ *  before overlap length in both directions. */
 export function findTranscriptPrependAlignment(
   previous: readonly TranscriptItem[],
   incoming: readonly TranscriptItem[],
   floor: { overlap: number; idMatches: number } | null
 ): PrependAlignment | null {
+  const source = transcriptSourceAlignment(previous, incoming);
   let best: PrependAlignment | null = null;
   for (let start = 1; start < incoming.length; start += 1) {
     // Non-increasing in `start`: once it cannot win, no later start can.
     const span = Math.min(previous.length, incoming.length - start);
-    if (best && span < best.overlap) break;
-    if (floor && (span < floor.overlap || (span === floor.overlap && floor.idMatches >= span))) break;
+    const upper = { overlap: span, idMatches: source.hasSharedIds ? span : 0 };
+    if (best && compareAlignment(upper, best) < 0) break;
+    if (floor && compareAlignment(upper, floor) <= 0) break;
     let idMatches = 0;
     let aligned = true;
     for (let index = 0; index < span; index += 1) {
       const a = previous[index],
         b = incoming[start + index];
-      if (a !== b && !alignedRow(a, b)) {
+      if (!source.aligned(a, b)) {
         aligned = false;
         break;
       }
       if (sameRowId(a, b)) idMatches += 1;
     }
-    if (!aligned) continue;
+    if (!aligned || (source.hasSharedIds && idMatches === 0)) continue;
     const candidate = { start, overlap: span, idMatches };
     if (!alignmentAnchored(candidate, previous.length, incoming.length)) continue;
-    if (floor && span === floor.overlap && idMatches <= floor.idMatches) continue;
-    if (!best || span > best.overlap || idMatches > best.idMatches) best = candidate;
+    if (floor && compareAlignment(candidate, floor) <= 0) continue;
+    if (!best || compareAlignment(candidate, best) > 0) best = candidate;
     if (idMatches === span) break;
   }
   return best;
@@ -153,8 +201,8 @@ type AlignmentCandidate = {
 
 function better(candidate: AlignmentCandidate, best: AlignmentCandidate | null, shorter: boolean): boolean {
   if (!best) return true;
-  if (candidate.overlap !== best.overlap) return candidate.overlap > best.overlap;
-  if (candidate.idMatches !== best.idMatches) return candidate.idMatches > best.idMatches;
+  const order = compareAlignment(candidate, best);
+  if (order !== 0) return order > 0;
   if (candidate.strongMatches !== best.strongMatches) return candidate.strongMatches > best.strongMatches;
   if (candidate.endsAtBaselineTail !== best.endsAtBaselineTail) return candidate.endsAtBaselineTail;
   return shorter ? candidate.offset > best.offset : candidate.offset < best.offset;
@@ -167,6 +215,7 @@ export function findTranscriptAlignment(
   incoming: readonly TranscriptItem[]
 ): AlignmentCandidate | null {
   const shorter = incoming.length < previous.length;
+  const source = transcriptSourceAlignment(previous, incoming);
   const signatures = new WeakMap<TranscriptItem, string>();
   const signature = (item: TranscriptItem): string => {
     let value = signatures.get(item);
@@ -185,11 +234,11 @@ export function findTranscriptAlignment(
     for (let index = 0; index < span; index += 1) {
       const a = previous[offset + index],
         b = incoming[index];
-      if (a !== b && !alignedRow(a, b)) return null;
+      if (!source.aligned(a, b)) return null;
       if (sameRowId(a, b)) idMatches += 1;
       if (a === b || (sameRowContent(a, b) && signature(a) === signature(b))) strongMatches += 1;
     }
-    return span > 0
+    return span > 0 && (!source.hasSharedIds || idMatches > 0)
       ? { offset, overlap: span, idMatches, strongMatches, endsAtBaselineTail: offset + span === previous.length }
       : null;
   };
@@ -207,10 +256,9 @@ export function findTranscriptAlignment(
     best = tail;
     if (tail?.strongMatches === incoming.length) {
       if (tail.idMatches === incoming.length) return tail;
-      const ids = new Set(previous.filter(hasOwnId).map((item) => String(item.id)));
       // A source namespace with no shared ids has an id-score upper bound of
       // zero. Full strict tail equality reaches every remaining score bound.
-      if (!incoming.some((item) => hasOwnId(item) && ids.has(String(item.id)))) return tail;
+      if (!source.hasSharedIds) return tail;
     }
     if (hasOwnId(incoming[0])) {
       for (let offset = 0; offset < previous.length; offset += 1) {
@@ -225,7 +273,8 @@ export function findTranscriptAlignment(
   for (let offset = 0; offset < previous.length; offset += 1) {
     const maximumOverlap = Math.min(previous.length - offset, incoming.length);
     const current = best as AlignmentCandidate | null;
-    if (current && maximumOverlap < current.overlap) break;
+    const upper = { overlap: maximumOverlap, idMatches: source.hasSharedIds ? maximumOverlap : 0 };
+    if (current && compareAlignment(upper, current) < 0) break;
     if (!evaluated.has(offset)) consider(offset);
   }
   return best;

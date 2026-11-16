@@ -1,6 +1,6 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-exec-readonly.mjs --tree <tree> --commit b6f10295a2f698afc85332467192de28500bd146 --patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
-  "exact": true,
+  "command": "node benchmarks/rust-core/recorders/record-exec-readonly.mjs --tree <tree> --working-tree",
+  "exact": false,
   "fileCount": 8,
   "files": [
     {
@@ -19,9 +19,9 @@
       "sha256": "25bfa5da9ee25704c8488bf862eff237785138f86a3cffffce2ad202f2b703a2"
     },
     {
-      "bytes": 35679,
+      "bytes": 37723,
       "path": "interactive-gated.json",
-      "sha256": "232838e6bdd0362795d8dc21908529385bef613074348bab1acb15387c05a5ca"
+      "sha256": "76a02ad20a164edf46ba6f7c87136cdb24d303b43d425cb123493d3d79ba7645"
     },
     {
       "bytes": 43948,
@@ -47,7 +47,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+      "sha256": "0bca2d2cbc7927e2a28b332c841ee846c3dd24c1c70aee89b5d38f34b266eb8d"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/determinism.mjs",
@@ -68,65 +68,23 @@
   ],
   "nodeVersion": "v22.20.0",
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
-    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
-    "exact": true,
-    "files": 9144,
-    "patch": {
-      "file": "benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
-      "paths": [
-        "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
-        "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
-      ],
-      "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
-    },
-    "patches": [
-      {
-        "file": "node-change-shell-cover-tools.patch",
-        "paths": [
-          "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
-        ],
-        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
-      }
-    ],
+    "appsSha256": "3390591343a48f363f15d45c3ae41576e01ff3dfec89ed46a9035d47703239d6",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 21681,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 0,
+      "closestCommit": "50c0ef6c2b6b96e5cf9f61fb7c7d1b756f889555",
+      "commitFilesMissingFromTree": 766,
       "exact": false,
-      "filesDifferingFromCommit": 13
+      "filesDifferingFromCommit": 17870
     },
-    "srcSha256": "a53f593e1ae8950fae848b9b732c8bef4699f6c3a4bb046558a74bce62c88758",
+    "srcSha256": "c1cbfce65220d1d96ecd57bf4af1113fc55dffeebd6d3833af4ea401b193f79c",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-exec-readonly.mjs",
-  "recorderSha256": "ed02070e653ccc6436c8cebef45fc944a74903d1fe13a2960a053edffa91c48e",
+  "recorderSha256": "b30cc0354d1420ad1475d800e5b9f24c9f2d62710754ba51f1ba3b5f020664f6",
   "set": "exec-readonly",
-  "totalBytes": 189484
+  "totalBytes": 191528
 }

@@ -1,3 +1,5 @@
+import { LINK_EVENTS } from '../../../../packages/protocol-client/src/link-log.mjs';
+
 const RECOVERY_WINDOW_MS = 60_000;
 const AUTO_RELOAD_LIMIT = 2;
 const RECOVERABLE_REASONS = new Set(['abnormal-exit', 'crashed', 'oom', 'launch-failed', 'integrity-failure']);
@@ -95,6 +97,20 @@ export function normalizeRendererLongTaskDiagnostic(input: unknown): Record<stri
   return {
     durationMs: Math.min(60_000, Math.round(durationMs)),
   };
+}
+
+/** A renderer-direct core link line (`kind: 'core-link'`, renderer/core-direct/client.ts `reportCoreLink`): an event of the
+ *  link vocabulary and its scalar fields, bounded; frames and anything not a number, boolean or short text are dropped. */
+export function normalizeRendererCoreLinkDiagnostic(input: unknown): { event: string; fields: Record<string, unknown> } | null {
+  const record = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  if (record.kind !== 'core-link' || typeof record.event !== 'string' || !LINK_EVENTS.has(record.event)) return null;
+  const fields: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record).slice(0, 24)) {
+    if (key === 'kind' || key === 'event') continue;
+    if (typeof value === 'number' || typeof value === 'boolean') fields[key.slice(0, 40)] = value;
+    else if (typeof value === 'string') fields[key.slice(0, 40)] = value.slice(0, 120);
+  }
+  return { event: record.event, fields };
 }
 
 export function normalizeRendererWhatsNewDiagnostic(input: unknown): Record<string, unknown> | null {

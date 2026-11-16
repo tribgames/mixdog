@@ -11,7 +11,6 @@ use mixdog_agent::compact::pressure::TranscriptSigner;
 use mixdog_agent::env::CompactPass;
 use mixdog_agent::env::SessionPressure;
 use mixdog_agent::message::AgentMessage;
-use mixdog_ai::registry::accounted::input_excludes_cache;
 use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_protocol::ProviderId;
 use mixdog_store::schema::record::HeaderChange;
@@ -64,16 +63,15 @@ fn with_loop_ids(header: &Header, delta: &Value) -> Value {
 
 /// The summary usage of a compaction pass (`accumulateCompactUsage` -> `onUsageDelta`): the call's metrics only; no send,
 /// so no baseline and no `lastProviderSendAt`.
-pub(crate) fn compact_usage_change(header: &Header, delta: &Value, now: f64) -> Option<HeaderChange> {
-    let excludes = input_excludes_cache(provider_of(header));
+pub(crate) fn compact_usage_change(header: &Header, excludes: bool, delta: &Value, now: f64) -> Option<HeaderChange> {
     change(Some(pressure::iteration_metrics(header, &with_loop_ids(header, delta), excludes, now)))
 }
 
 /// `onUsageDelta(delta)` for one model call: `delta` is the call's `usageDeltaEvent`
 /// (`live_rows::usage_delta`), `outgoing` the transcript its request carried and `send_tools` its tools.
-pub(crate) fn usage_change(header: &Header, delta: &Value, outgoing: &[AgentMessage], send_tools: &[ToolDefinition], books: Option<&Books>, sent_at: f64, now: f64) -> Option<HeaderChange> {
+/// `excludes` is the convention of the adapter that produced the call's usage, carried on its report.
+pub(crate) fn usage_change(header: &Header, excludes: bool, delta: &Value, outgoing: &[AgentMessage], send_tools: &[ToolDefinition], books: Option<&Books>, sent_at: f64, now: f64) -> Option<HeaderChange> {
     let provider = provider_of(header);
-    let excludes = input_excludes_cache(provider);
     let delta = &with_loop_ids(header, delta);
     let patch = match books {
         Some(books) => with_books(books, provider, |books| pressure::usage_change(header, delta, outgoing, send_tools, Some(books), excludes, sent_at, now)),
@@ -101,7 +99,7 @@ pub(crate) fn pass_change(header: &Header, pass: &CompactPass, books: &Books, no
 /// `incremental`: some call of the ask already counted its own usage.
 pub(crate) fn settled_change(header: &Header, settled: &Settled, incremental: bool, books: Option<&Books>, now: f64) -> Option<HeaderChange> {
     let provider = provider_of(header);
-    let excludes = input_excludes_cache(provider);
+    let excludes = settled.input_excludes_cache;
     let ask = pressure::Settled {
         transcript: &settled.transcript,
         usage: &settled.usage,
@@ -149,6 +147,42 @@ pub(crate) fn stream_heartbeat(header: &Header, now: f64) -> Option<HeaderChange
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Usage is read by the convention of the adapter that produced it, which travels on its report: a run that falls back
+    /// from an inclusive adapter to an exclusive one (and the reverse), on a provider name no list holds, persists the whole
+    /// prompt (1,205) of each call, not the first adapter's reading of the second's usage.
+    #[test]
+    fn a_fallback_run_persists_each_adapters_usage_by_that_adapters_convention() {
+        let mut header = Header::new();
+        header.insert("provider".into(), json!("my-gateway"));
+        // The same 1,205-token prompt as each adapter reports it: inclusive input holds the cache, exclusive input leaves it out.
+        let call = |excludes: bool| {
+            let input_tokens = if excludes { 5 } else { 1205 };
+            let usage = mixdog_core_api::domain::provider::Usage { input_tokens, cache_read_tokens: 1000, cache_write_tokens: 200, ..Default::default() };
+            let report = super::super::run::UsageReport {
+                iteration: 1,
+                usage,
+                model: "m".into(),
+                requested_model: "m".into(),
+                delta_tool_calls: 0,
+                request_ms: 0,
+                delta_prompt: 1205,
+                send_tools: Vec::new(),
+                reasoning_tokens: None,
+                reasoning_tokens_complete: false,
+                outgoing: Vec::new(),
+                sent_at_ms: 0,
+                input_excludes_cache: excludes,
+            };
+            let delta = super::super::live_rows::usage_delta("s", &report, 1);
+            let change = usage_change(&header, report.input_excludes_cache, &delta, &[], &[], None, 0.0, 1.0).expect("a change");
+            change.set.get("lastContextTokens").and_then(Value::as_f64).expect("a reading")
+        };
+        for (first, second) in [(false, true), (true, false)] {
+            assert_eq!(call(first), 1205.0, "the first adapter's usage, excludes={first}");
+            assert_eq!(call(second), 1205.0, "the fallback adapter's usage, excludes={second}");
+        }
+    }
 
     /// Node's own `markSessionStreamDelta` / `markSessionToolCall` over a run of events with the clock moved across the
     /// 60 s boundary (`fixtures/agent/compact/record_usage.mjs` -> `golden/heartbeat.json`). The semantic kinds ask for

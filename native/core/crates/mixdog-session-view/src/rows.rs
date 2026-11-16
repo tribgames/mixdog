@@ -486,7 +486,11 @@ fn flush(run: Option<Run<'_>>, merged: &mut Vec<Value>, live_cards: &mut Vec<(us
     }
     // A restore merges two or more finished cards (`mergeRestoredToolItems`); a live turn's tool cards put every call of a bucket on an aggregate, even one.
     if members.len() >= 2 || live {
-        merged.push(aggregate_row_steps(&members, live, yield_point));
+        let mut card = aggregate_row_steps(&members, live, yield_point);
+        if members.iter().all(|member| member.row.value.get("archived") == Some(&Value::Bool(true))) {
+            card["archived"] = json!(true);
+        }
+        merged.push(card);
     } else {
         merged.extend(members.iter().map(|member| member.row.value.clone()));
     }
@@ -1047,7 +1051,19 @@ fn user_row(item: &Value, meta: Opt) -> Map<String, Value> {
     let details = fld(item_ref, "details");
     put_text(&mut row, "sender", fld(details, "sender"));
     put_text(&mut row, "fromAgent", fld(details, "fromAgent"));
+    // restore.mjs `restoredTranscriptMetadata`: the stored attachments (`meta.transcript.attachments`, the core's
+    // `details.attachments`) the pasted-text and file chips read and open from the store.
+    let mut attachments = attachments;
+    if let Some(Value::Array(stored)) = fld(details, "attachments") {
+        attachments.extend(stored.iter().cloned());
+    }
     put_attachments(&mut row, Some(&Value::Array(attachments)));
+    // restore.mjs: each `[Image: …]` line's stored original, which the transcript chip draws its picture from.
+    if let Some(Value::Array(refs)) = fld(details, "imageRefs")
+        && !refs.is_empty()
+    {
+        row.insert("imageRefs".to_owned(), Value::Array(refs.clone()));
+    }
     if let Some(Value::Array(skills)) = fld(item_ref, "appliedSkills")
         && !skills.is_empty()
     {
@@ -1234,6 +1250,24 @@ mod tests {
         assert_eq!(row["attachments"][0]["id"], digest);
         assert_eq!(row["attachments"][0]["attachmentRef"], digest);
         assert_eq!(row["attachments"][0]["size"], 12);
+    }
+
+    #[test]
+    fn a_user_row_carries_the_stored_attachments_and_image_refs_its_details_state() {
+        let (paste, image) = ("a".repeat(64), "e".repeat(64));
+        let line = "[Image: source: image.png, 893x258, displayed at 893x258]";
+        let stored = json!({ "id": paste, "attachmentRef": paste, "kind": "text", "name": "Pasted text #1", "mimeType": "text/plain", "size": 40 });
+        let item = json!({
+            "type": "userMessage", "id": "u",
+            "content": [{ "type": "text", "text": format!("look\n{line}") }],
+            "details": { "attachments": [stored], "imageRefs": [{ "line": line, "ref": image }] },
+            "meta": { "at": 1 }
+        });
+        let row = row_of(&item).unwrap().value;
+        assert_eq!(row["attachments"], json!([stored]));
+        assert_eq!(row["imageRefs"], json!([{ "line": line, "ref": image }]));
+        let plain = row_of(&json!({ "type": "userMessage", "id": "p", "content": [{ "type": "text", "text": "hi" }], "meta": {} })).unwrap().value;
+        assert!(plain.get("imageRefs").is_none() && plain.get("attachments").is_none());
     }
 
     #[test]

@@ -6,9 +6,8 @@
 //! - not installed: no vector, so the recall runs on its text lanes. Installing
 //!   is a separate, progress-driven step ([`EmbeddingProvider::install`]) the
 //!   host starts; a recall never waits for a download;
-//! - failed: the load failed; the failure is remembered for this instance (a
-//!   new instance, after an install or repair, is the retry) and recall runs on
-//!   its text lanes.
+//! - failed: the load failed and recall runs on its text lanes; the next
+//!   request starts a fresh host.
 //!
 //! A loaded model is released after an idle window (`IDLE_TIMEOUT`, the worker's idle dispose): a
 //! disposed model costs a reload, so the window is long, and a backlog being worked holds it warm
@@ -28,7 +27,8 @@ use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
 use crate::memory::embed::config;
-use crate::memory::embed::engine::{EmbedConfig, Embedder};
+use crate::memory::embed::engine::EmbedConfig;
+use crate::memory::embed::host::Embedder;
 use crate::memory::embed::{compress, install};
 use crate::model_install::{InstallError, ProgressSink};
 use crate::tool_state::{StateTick, onnx_runtime_supported};
@@ -69,12 +69,18 @@ async fn release_when_idle(loaded: Weak<std::sync::Mutex<Loaded>>, usage: Arc<Us
         if now < last + idle {
             continue;
         }
-        // An embed in flight keeps the model (`_embedInFlight`): nothing is released, and the next use arms the timer again.
-        let busy = locked(&loaded).get().and_then(|outcome| outcome.as_ref().ok()).is_some_and(Embedder::in_use);
-        usage.armed.store(false, Ordering::Release);
+        // An embed in flight keeps the host; re-arm even if no later request arrives.
+        let busy = {
+            let cell = locked(&loaded);
+            // The load future owns the cell until startup ends; releasing it earlier could start
+            // another host while the first is still loading.
+            Arc::strong_count(&cell) > 1 || cell.get().and_then(|outcome| outcome.as_ref().ok()).is_some_and(Embedder::in_use)
+        };
         if busy {
-            return;
+            *locked(&usage.last_use) = now;
+            continue;
         }
+        usage.armed.store(false, Ordering::Release);
         *locked(&loaded) = Loaded::default();
         tick.bump();
         // Asked for while it was released: the new load needs its own timer.
@@ -88,7 +94,7 @@ async fn release_when_idle(loaded: Weak<std::sync::Mutex<Loaded>>, usage: Arc<Us
 pub struct EmbeddingProvider {
     config: EmbedConfig,
     hub: String,
-    /// The load, shared by every caller; a failure stays until a dispose. Shared with the task that runs
+    /// The load, shared by every caller; a failure is retried on the next request. Shared with the task that runs
     /// it, so a recall that stops waiting does not end it; a dispose puts a fresh cell in its place.
     loaded: Arc<std::sync::Mutex<Loaded>>,
     usage: Arc<Usage>,
@@ -183,7 +189,7 @@ impl EmbeddingProvider {
     }
 
     pub fn is_ready(&self) -> bool {
-        matches!(self.current().get(), Some(Ok(_)))
+        matches!(self.current().get(), Some(Ok(model)) if model.alive())
     }
 
     /// The current load's cell.
@@ -219,11 +225,20 @@ impl EmbeddingProvider {
     }
 
     /// Loads the model, once however many callers ask. `Ok(None)` when it is
-    /// not installed; `Err` is the remembered load failure.
+    /// not installed; `Err` is this host's load failure.
     pub async fn warmup(&self) -> Result<Option<Embedder>, String> {
         self.touched();
-        if let Some(loaded) = self.current().get() {
-            return loaded.clone().map(Some);
+        {
+            let mut cell = locked(&self.loaded);
+            if let Some(loaded) = cell.get() {
+                if let Ok(model) = loaded
+                    && model.alive()
+                {
+                    return Ok(Some(model.clone()));
+                }
+                // A dead host or interrupted load is retried by the next request, never in-process.
+                *cell = Loaded::default();
+            }
         }
         if !self.is_installed().await.map_err(|e| e.to_string())? {
             return Ok(None);

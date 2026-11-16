@@ -132,6 +132,8 @@ import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
 import { coreLocalPages, createCoreLocalPages, setCoreLocalPages } from './core-local-pages';
 import { CorePortRelay } from './core-port/relay';
+import { windowIdFor } from './core-port/window-ids';
+import { createLinkLog } from '../../../../packages/protocol-client/src/link-log.mjs';
 import { readComputerPermissions, requestComputerPermissions } from './computer/host/permission-reads';
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
@@ -183,6 +185,7 @@ import {
   normalizeRendererDiagnostic,
   normalizeRendererLongTaskDiagnostic,
   normalizeRendererWhatsNewDiagnostic,
+  normalizeRendererCoreLinkDiagnostic,
   rendererRecoveryDecision,
 } from './renderer-recovery';
 import { acknowledgeAnnouncement, LAUNCH_VERSION_FILE, recordLaunchVersion } from './launch-version';
@@ -507,6 +510,13 @@ const connectionDependencies: DesktopConnectionDependencies = {
   createProtocol: (connection) => {
     // This PC's core reads the discovery file; a server's core is where this PC's core says the server's tunnel ends
     // (`connections/endpoint`, asked on every dial). Both use the header token and re-resolve on every dial.
+    // This connection's lines in the diagnostics log: one helper (`link-log.mjs`) for its socket, client, replacement and
+    // core-watch lines. `ownerKey` is the hash this connection's own files use; it is merged last into every line.
+    const linkLog = createLinkLog(writeBootDiagnostic, {
+      link: 'main',
+      owner: connection.kind === 'local' ? 'local' : 'ssh',
+      ownerKey: connectionStorageKey(connection),
+    });
     const resolve =
       connection.kind === 'local'
         ? resolveLocalCore({
@@ -521,6 +531,8 @@ const connectionDependencies: DesktopConnectionDependencies = {
                 readDiscovery: () => readCoreState(resolveRuntimeRoot()),
                 ownedPid: () => localCoreProcess?.pid ?? null,
                 log: (line: string) => console.error(line),
+                // The one automatic kill of a core: why, in the diagnostics log beside the link lines.
+                onEnding: (ending: Record<string, unknown>) => linkLog('core-ended-by-watch', ending),
               });
             },
           })
@@ -532,8 +544,11 @@ const connectionDependencies: DesktopConnectionDependencies = {
     if (connection.kind === 'local') coreEndpoints.set(connection.id, resolve);
     // Only this PC's core separates this PC's defaults; Node recorded it for the local profile alone.
     const reportsDefaults = connection.kind === 'local';
+    // Socket and link life-cycle lines of this connection's own (main-process) link to its core.
     return createProtocolConnection({
+      log: linkLog,
       open: openCore({
+        log: linkLog,
         resolve,
         version: app.getVersion(),
         capabilities: { approvalsInbox: true, host: HOST_CAPABILITIES },
@@ -603,6 +618,7 @@ const ipcRouter = createConnectionIpcRouter({
 // Every window's renderer talks to its core directly: main opens the socket (headers, no Origin) and hands the window a
 // MessagePort over it. A server window gets its server's core (`primary`) and this PC's (`pc`), both under its role.
 const corePortRelay = new CorePortRelay({
+  diagnostic: writeBootDiagnostic,
   endpointFor: async (webContentsId) => {
     const connectionId = windowRoutes.connectionIdFor(webContentsId);
     if (connectionId === undefined) {
@@ -1815,7 +1831,18 @@ function installRendererSessionPolicy(target: Electron.Session): void {
 /** Renderer-reported diagnostics, accepted only from this window's main frame:
  *  transcript reads, composer actions and long tasks each have their own
  *  record, and anything else is an error report. */
-function rendererDiagnosticListener(window: BrowserWindow): (event: Electron.IpcMainEvent, payload: unknown) => void {
+function rendererDiagnosticListener(
+  window: BrowserWindow,
+  connection: ConnectionIdentity
+): (event: Electron.IpcMainEvent, payload: unknown) => void {
+  // Who is speaking comes from the validated sender, merged last, so the renderer's own fields cannot replace it. The window
+  // id is the one the relay's `core-link-*` lines carry, so a window's two views of its link join.
+  const coreLinkLog = createLinkLog(writeBootDiagnostic, {
+    link: 'renderer',
+    window: windowIdFor(window.webContents),
+    owner: connection.kind === 'local' ? 'local' : 'ssh',
+    ownerKey: connectionStorageKey(connection),
+  });
   return (event, payload) => {
     if (
       window.isDestroyed() ||
@@ -1826,6 +1853,11 @@ function rendererDiagnosticListener(window: BrowserWindow): (event: Electron.Ipc
     const transcriptRead = normalizeTranscriptReadDiagnostic(payload);
     if (transcriptRead) {
       diagnostics?.write('renderer-transcript-read', { ...transcriptRead });
+      return;
+    }
+    const coreLink = normalizeRendererCoreLinkDiagnostic(payload);
+    if (coreLink) {
+      coreLinkLog(coreLink.event, coreLink.fields);
       return;
     }
     const whatsNew = normalizeRendererWhatsNewDiagnostic(payload);
@@ -2482,7 +2514,7 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
     if (quitAfterDispose || window.isDestroyed() || window.webContents.isDestroyed()) return;
     window.webContents.reload();
   };
-  const onRendererDiagnostic = rendererDiagnosticListener(window);
+  const onRendererDiagnostic = rendererDiagnosticListener(window, connection);
   ipcMain.on(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
   // The renderer's notice was on screen: retire the pending update announcement.
   if (local) {

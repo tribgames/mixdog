@@ -295,6 +295,8 @@ pub(crate) enum Inbox {
 /// A route move waiting for its new route's context status: applied, with those figures, when the read returns.
 struct PendingMove {
     seq: u64,
+    /// The status pass its read is ([`SessionActor::next_status_pass`]).
+    pass: u64,
     apply: MoveApply,
 }
 
@@ -324,6 +326,45 @@ pub(crate) enum UnwindAt {
     /// As the actor takes the next `Ctl::Delete`, before it answers it.
     #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     Delete,
+}
+
+/// One compaction of a run shows one divider: the `compacted` record's, which restored views and model-switch boundaries
+/// anchor on, carrying the pass's duration and token move (Node's one `doneItem` made the divider). The record and the
+/// pass's event reach the actor from separate tasks, so whichever comes first waits here for the other.
+///
+/// Ordering contract: a pass that changed the context emits exactly one record and one event, and each stream is
+/// delivered in the order its passes ran (the run's serial job queue, the run's event channel). So the n-th record of a
+/// turn pairs with its n-th event, counted apart on each side. A record the encoder rejects is counted too: its pair is
+/// marked `lost`, so its event is dropped when it comes (or its detail went with the record's divider), the live view is
+/// the same in either arrival order, and later pairs stay aligned. A record whose write fails after encoding is kept and
+/// shown unsaved, so it pairs as usual. The pairs end with the turn's run (`run_ended`).
+struct CompactPairs {
+    turn: TurnId,
+    /// Records seen so far this turn, and events.
+    records: u64,
+    events: u64,
+    /// Events that came first, by their number: the detail waits for its record's divider.
+    details: std::collections::BTreeMap<u64, String>,
+    /// Dividers that came first, by their record's number, shown without a detail: the event fills it in through a view
+    /// change standing on the record's outbox entry, so the record's rejection takes the patch with it.
+    dividers: std::collections::BTreeMap<u64, WaitingDivider>,
+    /// Records rejected before their event came.
+    lost: std::collections::BTreeSet<u64>,
+}
+
+struct WaitingDivider {
+    cid: String,
+    entry: u64,
+    item: ThreadItem,
+}
+
+impl CompactPairs {
+    fn of<'a>(slot: &'a mut Option<Self>, turn: &TurnId) -> &'a mut Self {
+        if slot.as_ref().is_none_or(|pairs| pairs.turn != *turn) {
+            *slot = Some(Self { turn: turn.clone(), records: 0, events: 0, details: Default::default(), dividers: Default::default(), lost: Default::default() });
+        }
+        slot.as_mut().expect("just set")
+    }
 }
 
 /// What waits on a scheduled compaction: the requests asked meanwhile, in arrival order, and
@@ -438,7 +479,8 @@ pub(crate) enum JobDone {
     /// status listener's read (see `read_agent_status`).
     AgentStatus { agents: mixdog_app_protocol::v2::thread::ThreadAgents, listener: bool },
     /// The context status the load's status pass read (`read_context_display`), `null` for none.
-    ContextStatus(Value),
+    /// `pass` numbers the status pass that read it ([`SessionActor::next_status_pass`]).
+    ContextStatus(u64, Value),
     /// The new route's context status a pending route move `seq` read ([`SessionActor::start_route_move`]); `None` when the read
     /// failed or missed its deadline.
     RouteStatus { seq: u64, status: Option<Value> },
@@ -867,7 +909,11 @@ pub(crate) struct SessionActor {
     held_display: Option<ThreadContext>,
     /// What a route move read for the header it is about to write ([`Self::route_status_read`]), taken by the step that accepts the
     /// move: the new route's status, or `None` when the read failed.
-    route_status: Option<Option<Value>>,
+    route_status: Option<Option<(u64, Value)>>,
+    /// The status passes started, and the newest pass whose result was applied: a result older than that is dropped, whatever its
+    /// arrival order.
+    status_passes: u64,
+    status_applied: u64,
     /// The route move whose new figures are being read off the actor ([`Self::start_route_move`]).
     route_move: Option<PendingMove>,
     /// The header writes that arrived while a route move was pending, in order: they follow it, as Node's route writes queue behind
@@ -1010,6 +1056,8 @@ pub(crate) struct SessionActor {
     compact_scheduled: bool,
     /// The scheduled compaction runs (`createCompactionGate`'s tail).
     after_compaction: Option<AfterCompaction>,
+    /// The run's compaction divider and the pass's event, whichever came first.
+    compact_pairs: Option<CompactPairs>,
     /// A retry the compaction held, released while another turn it held ran: it is the next turn
     /// (Node's retry ask waits on the ask lock behind that turn).
     pending_retry: Option<super::quota_lane::RetryTurn>,
@@ -1141,6 +1189,20 @@ impl Taken {
             files,
         }
     }
+}
+
+/// The prompt a hand-back returns to its composer (`thread/promptRestore`), named by the submissions it answers: the id a
+/// composer recognises as its own (`wasSubmittedHere`). Every hand-back (a stop's, a queued prompt's, a refused one's) is built here.
+fn prompt_restore(ids: Vec<String>, text: String, device: String, at: i64) -> PromptRestore {
+    PromptRestore { id: format!("restore-{at}-{}", ids.join(",")), ids, text, device, at }
+}
+
+/// The submission each queue entry answers (`options.clientSubmissionId`, which the sender registered), else its queue id.
+fn submissions_of(queued: &[Queued]) -> Vec<String> {
+    queued
+        .iter()
+        .map(|entry| entry.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()).unwrap_or(&entry.qid).to_owned())
+        .collect()
 }
 
 /// The entries `restoreQueued(_, selectedId)` takes: the one named, or every one without a name.
@@ -1366,6 +1428,8 @@ impl SessionActor {
             restored_queue: false,
             held_display: None,
             route_status: None,
+            status_passes: 0,
+            status_applied: 0,
             route_move: None,
             route_queue: Default::default(),
             route_moves: 0,
@@ -1433,6 +1497,7 @@ impl SessionActor {
             compactions: 0,
             compact_scheduled: false,
             after_compaction: None,
+            compact_pairs: None,
             pending_retry: None,
             retry_hidden: false,
             transcript_rewritten: false,
@@ -1922,7 +1987,7 @@ impl SessionActor {
         };
         let memory = self.deps.memory.clone();
         let cwd = self.cwd();
-        if super::session_options::memory_off(&self.projected.header) {
+        if super::session_options::memory_ingest_off(&self.projected.header) {
             return Box::pin(async {});
         }
         Box::pin(async move {
@@ -1976,7 +2041,7 @@ impl SessionActor {
         // The session's list moved (`commitPhases` / `clearTodo` of `todo-list.mjs` write `session.todo`).
         let todo_moved = moved(&["todo"]);
         let cwd_moved = moved(&["cwd"]);
-        let route_moved = moved(&["provider", "model"]) || cwd_moved || held_moved;
+        let route_moved = moved(&["provider", "model", "effort", "autoEffort"]) || cwd_moved || held_moved;
         let window_before = (self.projected.header.get("contextWindow").cloned(), self.projected.header.get("rawContextWindow").cloned());
         let change = Change::Record {
             record: record.clone(),
@@ -1998,7 +2063,10 @@ impl SessionActor {
         // A route move read its new figures before this step (`syncContextStats` before `publishRoute`, routes-write.mjs:133-142):
         // they go out with it, ahead of the route, so no state shows the new model with the old figures.
         let figures = match self.route_status.take().filter(|_| window_moved) {
-            Some(Some(status)) => Some(self.display_figures(&status)),
+            Some(Some((pass, status))) => {
+                self.apply_measurement(pass, &status);
+                Some(self.display_figures(&status))
+            }
             Some(None) => Some(self.unread_figures(&window_before)),
             None => None,
         };
@@ -2594,7 +2662,7 @@ impl SessionActor {
                 self.show_live(turn, item, None);
             }
             JobDone::AgentStatus { agents, listener } => self.agent_status(agents, listener),
-            JobDone::ContextStatus(status) => self.context_display(&status),
+            JobDone::ContextStatus(pass, status) => self.context_display(pass, &status),
             JobDone::RouteStatus { seq, status } => self.route_status_read(seq, status),
             JobDone::LiveWorkspace(read, workspace) => {
                 if read == self.live_workspace_reads
@@ -3254,7 +3322,22 @@ impl SessionActor {
         }
     }
 
+    /// A compaction record the encoder rejected leaves no divider: its pair, if its event has not come, is dropped with it.
+    fn compact_record_failed(&mut self, cid: &str) {
+        if let Some(pairs) = &mut self.compact_pairs
+            && let Some(seq) = pairs.dividers.iter().find(|(_, waiting)| waiting.cid == cid).map(|(seq, _)| *seq)
+        {
+            pairs.dividers.remove(&seq);
+            pairs.lost.insert(seq);
+        }
+    }
+
     fn fail_entry(&mut self, entry: Entry, error: &CoreError) {
+        if let Change::Record { record, .. } = &entry.change
+            && let Record::Compacted(compacted) = &**record
+        {
+            self.compact_record_failed(compacted.cid.as_str());
+        }
         #[cfg(any(test, feature = "test-support"))]
         if let Some(durable) = &entry.durable {
             self.outbox.note_failed(durable, format!("{error:?}"));
@@ -3940,6 +4023,7 @@ impl SessionActor {
         let Some(mut slot) = self.run.take_if(|run| run.turn == turn) else {
             return;
         };
+        self.compact_pairs = None;
         self.release_step_hold(false);
         // The turn's terminal save writes the books still waiting, before its end.
         self.save_usage();
@@ -4276,7 +4360,7 @@ impl SessionActor {
         }
         if let Some(device) = &reclaim.handoff {
             let at = self.deps.clock.now_ms();
-            let restore = PromptRestore { id: format!("restore-{at}-{}", reclaim.ids.join(",")), ids: reclaim.ids.clone(), text: reclaim.text.clone(), device: device.clone(), at };
+            let restore = prompt_restore(reclaim.ids.clone(), reclaim.text.clone(), device.clone(), at);
             self.accept_view(Change::Section(Section::PromptRestore(Some(restore))), Vec::new());
         }
     }
@@ -4477,6 +4561,16 @@ impl SessionActor {
             self.start_completion(next);
             return;
         }
+        // A user prompt that cannot be delivered is handed back, never recorded as delivered; the next entry is tried.
+        let goal = super::goal_lane::is_goal_entry(&next.entry);
+        let delivered = if goal { Ok(next.entry.clone()) } else { self.deliverable_entry(&next.entry) };
+        let entry = match delivered {
+            Ok(entry) => entry,
+            Err(why) => {
+                self.refuse_queued(&next.qid, &next.entry, &why);
+                return self.start_next_queued();
+            }
+        };
         self.accept_record(
             dequeue(&next.qid),
             Class::Control,
@@ -4486,11 +4580,11 @@ impl SessionActor {
         );
         // An automatic Goal turn runs only if `shouldRunGoalContinuation` still agrees; a dropped
         // entry stays dropped (`drain.mjs`).
-        if super::goal_lane::is_goal_entry(&next.entry) {
+        if goal {
             self.check_goal_entry(next.entry);
             return;
         }
-        let next = super::state::Queued { entry: self.late_delivery(&next.entry), ..next };
+        let next = super::state::Queued { entry, ..next };
         let input = TurnInput {
             prompt: serde_json::from_value(next.entry["message"].clone())
                 .unwrap_or(PromptContent::Text(String::new())),
@@ -4540,6 +4634,29 @@ impl SessionActor {
     fn late_delivery(&self, entry: &Value) -> Value {
         let now = self.deps.clock.now_ms();
         pending::late_delivery(entry, now, pending::owner_started_ms(now))
+    }
+
+    /// [`Self::late_delivery`] with the prompt held to the one rule for what a model message may carry
+    /// ([`super::prompt_submission::deliverable`]): every delivery of a queue entry, restored or fresh, passes here.
+    fn deliverable_entry(&self, entry: &Value) -> Result<Value, String> {
+        let mut entry = self.late_delivery(entry);
+        if let Some(message) = entry.get("message") {
+            entry["message"] = super::prompt_submission::deliverable(message)?;
+        }
+        Ok(entry)
+    }
+
+    /// A queued prompt that cannot be delivered leaves the queue as cancelled, not delivered, and goes back to its
+    /// composer as a hand-back does (`PromptRestore`).
+    fn refuse_queued(&mut self, qid: &str, entry: &Value, why: &str) {
+        tracing::warn!(thread = %self.id, queued = qid, "a queued prompt was handed back undelivered: {why}");
+        let queued = super::state::Queued { qid: qid.to_owned(), entry: entry.clone(), display: Value::Null };
+        let text = Taken::of(&queued).text;
+        let device = entry.pointer("/transcriptMeta/device").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let record = Record::Queue(QueueRecord { qid: id(qid), action: QueueAction::Dequeue, reason: Some(DequeueReason::Cancelled), op: None, entry: None });
+        self.accept_record(record, Class::Control, Display::None, Vec::new(), Vec::new());
+        let restore = prompt_restore(submissions_of(&[queued]), text, device, self.deps.clock.now_ms());
+        self.accept_view(Change::Section(Section::PromptRestore(Some(restore))), Vec::new());
     }
 
     /// A route saved while a turn runs is held for the next turn (`pendingRoute`, written
@@ -5088,14 +5205,21 @@ impl SessionActor {
                 // `compaction-archive-capture.mjs:798`; `ask-turn-loop-options.mjs:202`). A compaction the session tool
                 // scheduled runs after the turn with no host listening (`session.compact()`, `compaction-gate.mjs`): it shows
                 // nothing live either.
-                let agent_mode = {
-                    let mut header = self.acked.header.clone();
-                    header.entry("id").or_insert_with(|| Value::String(self.id.as_str().to_owned()));
-                    mixdog_store::agent_mode::session_mode_of(&header) == "agent"
-                };
+                let agent_mode = self.agent_mode();
                 let shown_live = !agent_mode && !(turn.as_str().is_empty() && self.after_compaction.is_some());
                 // The divider shows live where the compaction happened (`compactionDivider`).
-                let divider = super::transcript::divider_item(&cid, Some(compaction.at));
+                let mut divider = super::transcript::divider_item(&cid, Some(compaction.at));
+                // The record's number among its turn's, when its event has not come: the divider waits for it.
+                let mut waiting = None;
+                if shown_live && !turn.as_str().is_empty() {
+                    let pairs = CompactPairs::of(&mut self.compact_pairs, &turn);
+                    let seq = pairs.records;
+                    pairs.records += 1;
+                    match pairs.details.remove(&seq) {
+                        Some(detail) => super::view::meta_mut(&mut divider).detail = Some(detail),
+                        None => waiting = Some((seq, divider.clone())),
+                    }
+                }
                 let note = Note::new(
                     "item/completed",
                     &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn.clone(), item: divider.clone() },
@@ -5129,7 +5253,10 @@ impl SessionActor {
                 let ack = if turn.as_str().is_empty() { Effect::MarkAck(ack) } else { Effect::ItemAck(ack) };
                 let (compaction_ack, header_ack) = if header.is_some() { (Vec::new(), vec![ack]) } else { (vec![ack], Vec::new()) };
                 let (display, notes) = if shown_live { (Display::Items(vec![Shown::Item(divider)]), vec![note]) } else { (Display::None, Vec::new()) };
-                self.accept_record(record, Class::Normal, display, notes, compaction_ack);
+                let entry = self.accept_record_entry(record, Class::Normal, display, notes, compaction_ack);
+                if let Some((seq, item)) = waiting {
+                    CompactPairs::of(&mut self.compact_pairs, &turn).dividers.insert(seq, WaitingDivider { cid, entry, item });
+                }
                 if let Some(header) = header {
                     let change = header(&self.projected.header);
                     self.accept_record(Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) }), Class::Normal, Display::None, Vec::new(), header_ack);
@@ -5272,13 +5399,22 @@ impl SessionActor {
             else {
                 continue;
             };
+            let delivered = if super::goal_lane::is_goal_entry(&entry) { Ok(self.late_delivery(&entry)) } else { self.deliverable_entry(&entry) };
+            let delivered = match delivered {
+                Ok(delivered) => delivered,
+                Err(why) => {
+                    self.refuse_queued(qid.as_str(), &entry, &why);
+                    self.steer_marked.retain(|marked| marked.as_str() != qid.as_str());
+                    continue;
+                }
+            };
             // `raiseTurnHop(opts.session, merged.transcriptMeta)` (`steering.mjs:145`): a
             // bot's message at a higher hop makes the running turn bot-descended at that hop.
             self.cell.turn_chain.raise(pending::steered_meta(&entry));
             if let Some(meta) = pending::steered_meta(&entry) {
                 self.steered_meta.insert(qid.as_str().to_owned(), meta.clone());
             }
-            let entry = self.late_delivery(&entry);
+            let entry = delivered;
             out.push(pending::steered(qid.clone(), &entry));
             taken.push(qid);
         }
@@ -5327,10 +5463,25 @@ impl SessionActor {
                     .partition(|(qid, entry)| !super::goal_lane::is_goal_entry(entry) || checked.get(qid.as_str()) == Some(&true));
                 dropped.extend(gone.into_iter().map(|(qid, _)| qid));
                 // A stale user entry is delivered under its late-delivery header (`hydratePendingMessages`).
+                let mut refused: Vec<(QueuedId, Value, String)> = Vec::new();
                 let deliver: Vec<(QueuedId, Value)> = deliver
                     .into_iter()
-                    .map(|(qid, entry)| if super::goal_lane::is_goal_entry(&entry) { (qid, entry) } else { let entry = self.late_delivery(&entry); (qid, entry) })
+                    .filter_map(|(qid, entry)| {
+                        if super::goal_lane::is_goal_entry(&entry) {
+                            return Some((qid, entry));
+                        }
+                        match self.deliverable_entry(&entry) {
+                            Ok(delivered) => Some((qid, delivered)),
+                            Err(why) => {
+                                refused.push((qid, entry, why));
+                                None
+                            }
+                        }
+                    })
                     .collect();
+                for (qid, entry, why) in refused {
+                    self.refuse_queued(qid.as_str(), &entry, &why);
+                }
                 let groups = pending::groups(&deliver);
                 // Nothing that carries content is released back to the queue.
                 if !groups.is_empty() {
@@ -5505,7 +5656,7 @@ impl SessionActor {
                 // `onUsageDelta`: the call's metrics and the provider's reading go to the header.
                 self.usage_incremental = true;
                 let books = self.deps.compaction.books(&self.id, &self.projected.header);
-                let change = super::usage_books::usage_change(&self.projected.header, &usage, &report.outgoing, &report.send_tools, books.as_ref(), report.sent_at_ms as f64, now as f64);
+                let change = super::usage_books::usage_change(&self.projected.header, report.input_excludes_cache, &usage, &report.outgoing, &report.send_tools, books.as_ref(), report.sent_at_ms as f64, now as f64);
                 // The request's reading goes out with the run's next draft write, as Node's checkpoint carries the session's
                 // context-pressure baseline (`turn-checkpoint-context.mjs` `contextCheckpointState`); recovery restores it.
                 if let (Some(run), Some(tokens)) = (self.run.as_mut(), change.as_ref().and_then(|change| change.set.get("lastContextTokens")).and_then(Value::as_u64)) {
@@ -5623,13 +5774,12 @@ impl SessionActor {
                 };
                 self.accept_view(Change::Barrier, vec![Note::new("thread/toolBatch/updated", &params)]);
             }
-            RunShown::ToolStream => self.stream_heartbeat(),
-            RunShown::CompactUsage(report) => {
+            RunShown::ToolStream => self.stream_heartbeat(),            RunShown::CompactUsage(report) => {
                 let now = self.deps.clock.now_ms();
                 let usage = super::live_rows::compact_usage_delta(self.id.as_str(), &report, now);
                 // `persistIterationMetrics` marks the turn's usage incremental, as for any call.
                 self.usage_incremental = true;
-                let change = super::usage_books::compact_usage_change(&self.projected.header, &usage, now as f64);
+                let change = super::usage_books::compact_usage_change(&self.projected.header, report.input_excludes_cache, &usage, now as f64);
                 self.accept_header(change);
                 let mut usage = usage;
                 usage["usageMetricsTurnId"] = self.projected.header.get("usageMetricsTurnId").cloned().unwrap_or(json!(0));
@@ -5646,6 +5796,30 @@ impl SessionActor {
             RunShown::Compact(event) => {
                 let label = super::live_rows::compact_event_label(&event);
                 let detail = super::live_rows::compact_event_detail(&event);
+                // A pass that changed the context writes the compaction record, whose divider is the one row it shows.
+                if super::live_rows::compact_changed(&event) && !self.agent_mode() {
+                    let found = {
+                        let pairs = CompactPairs::of(&mut self.compact_pairs, &turn);
+                        let seq = pairs.events;
+                        pairs.events += 1;
+                        if pairs.lost.remove(&seq) {
+                            // Its record was rejected: the divider it would have filled is gone.
+                            None
+                        } else if let Some(waiting) = pairs.dividers.remove(&seq) {
+                            Some(waiting)
+                        } else {
+                            pairs.details.insert(seq, detail.clone());
+                            None
+                        }
+                    };
+                    if let Some(WaitingDivider { entry, mut item, .. }) = found {
+                        super::view::meta_mut(&mut item).detail = Some(detail.clone());
+                        let note = Note::new("item/completed", &ItemNotificationParams { thread_id: self.id.clone(), turn_id: turn, item: item.clone() });
+                        // Stands on the record's entry: if the encoder rejects the record, the patch goes with it.
+                        self.accept_view_after(Some(entry), Change::Detail { item: item.id().clone(), detail }, vec![note], Vec::new());
+                    }
+                    return;
+                }
                 let item = super::transcript::compact_marker_item(&new_id(), turn.as_str(), label, &detail);
                 // A pass that changed the context marks where the turn began: the rows above it
                 // are what the compaction took (`archiveItemsForCompaction`).
@@ -5653,6 +5827,13 @@ impl SessionActor {
                 self.show_live(turn, item, before);
             }
         }
+    }
+
+    /// An agent-mode session compacts silently (`isAgentModeSession`).
+    fn agent_mode(&self) -> bool {
+        let mut header = self.acked.header.clone();
+        header.entry("id").or_insert_with(|| Value::String(self.id.as_str().to_owned()));
+        mixdog_store::agent_mode::session_mode_of(&header) == "agent"
     }
 
     /// A live-only row of the run, before the row `before` when it is in view, else last.
@@ -6392,13 +6573,7 @@ impl SessionActor {
             };
             let present = |text: &&String| !mixdog_js::js_trim(text).is_empty();
             let text = taken.iter().map(|entry| &entry.text).filter(present).cloned().collect::<Vec<_>>().join("\n");
-            extra.push(Change::Section(Section::PromptRestore(Some(PromptRestore {
-                id: queued[0].qid.clone(),
-                ids: queued.iter().map(|entry| entry.qid.clone()).collect(),
-                text,
-                device,
-                at: self.deps.clock.now_ms(),
-            }))));
+            extra.push(Change::Section(Section::PromptRestore(Some(prompt_restore(submissions_of(&queued), text, device, self.deps.clock.now_ms())))));
             extra.extend(taken.into_iter().map(|entry| Change::PromptWithout(entry.text)));
         }
         Ok(Plan {
@@ -6860,13 +7035,32 @@ impl SessionActor {
 
     /// The load's status pass also runs `syncContextStats` (local-session-runtime.mjs createRuntimePulse): the context status of
     /// the thread, read off the actor one settle beat later, fills the display fields.
-    fn read_context_display(&self) {
+    fn read_context_display(&mut self) {
+        let pass = self.next_status_pass();
         let (jobs, gauge, thread) = (self.jobs_tx.clone(), self.deps.context_status.clone(), self.id.clone());
         tokio::spawn(async move {
             mixdog_rt::time::sleep(STATUS_SETTLE).await;
             let status = gauge.context_status(Some(thread), None).await.unwrap_or(Value::Null);
-            let _ = jobs.send(JobDone::ContextStatus(status));
+            let _ = jobs.send(JobDone::ContextStatus(pass, status));
         });
+    }
+
+    /// The number of a status pass about to start: results are ordered by it, not by arrival.
+    fn next_status_pass(&mut self) -> u64 {
+        self.status_passes += 1;
+        self.status_passes
+    }
+
+    /// Until the session folds a model call of its own, the status's `measurement` is the context reading, pending included; a pass
+    /// older than one already applied changes nothing.
+    fn apply_measurement(&mut self, pass: u64, status: &Value) {
+        if pass < self.status_applied {
+            return;
+        }
+        self.status_applied = pass;
+        if status.get("measurement").is_some_and(|m| self.stats.restore_measurement(m)) {
+            self.publish_stats();
+        }
     }
 
     /// The workspace `routeState` publishes (`getLiveWorkspace`), read off the actor: at load and whenever the header's `cwd`,
@@ -6926,10 +7120,12 @@ impl SessionActor {
     /// `syncContextDisplayFields(status)` (context-state.mjs:116-136): the window the status shows, the compaction boundary and
     /// the auto-compact trigger (`compaction.triggerTokens || compaction.autoCompactTokenLimit || session.autoCompactTokenLimit`),
     /// each only once known (> 0).
-    fn context_display(&mut self, status: &Value) {
-        if self.tombstoned || self.cell.closed.load(SeqCst) || !status.is_object() {
+    fn context_display(&mut self, pass: u64, status: &Value) {
+        if self.tombstoned || self.cell.closed.load(SeqCst) || !status.is_object() || pass < self.status_applied {
             return;
         }
+        // The reading is part of the restored state: it shows without waiting for the next model response.
+        self.apply_measurement(pass, status);
         let context = self.display_figures(status);
         if context != ThreadContext::default() {
             self.on_context_section(context);
@@ -7003,6 +7199,7 @@ impl SessionActor {
     /// accepted with its figures in one step ([`Self::accept_record_entry`]) and answered after it.
     fn start_route_move(&mut self, apply: MoveApply, header: Header) {
         self.route_moves += 1;
+        let pass = self.next_status_pass();
         let (seq, jobs, gauge, thread) = (self.route_moves, self.jobs_tx.clone(), self.deps.context_status.clone(), self.id.clone());
         tokio::spawn(async move {
             let status = match mixdog_rt::time::timeout(ROUTE_STATUS_DEADLINE,gauge.context_status_for(thread.clone(), header)).await {
@@ -7019,13 +7216,13 @@ impl SessionActor {
             };
             let _ = jobs.send(JobDone::RouteStatus { seq, status });
         });
-        self.route_move = Some(PendingMove { seq, apply });
+        self.route_move = Some(PendingMove { seq, pass, apply });
     }
 
     /// The pending route move `seq` read its figures (`None`: the read failed): the move is written now, with them.
     fn route_status_read(&mut self, seq: u64, status: Option<Value>) {
         let Some(pending) = self.route_move.take_if(|pending| pending.seq == seq) else { return };
-        self.route_status = Some(status);
+        self.route_status = Some(status.map(|status| (pending.pass, status)));
         match pending.apply {
             MoveApply::Request { req, tx } => self.on_inbox(Inbox::Request { req, tx }),
             MoveApply::Change { change, tx } => self.write_header_change(change, tx),
@@ -7145,7 +7342,20 @@ impl SessionActor {
         if self.listened.remove(&task_id) {
             entry["suppressDisplay"] = Value::Bool(true);
         }
-        // The same completion queued twice is one entry (`pendingIdStillQueued`); its waiter hears when that one is durable.
+        // A receipt can be projected by a result released unsaved. A durable marker must
+        // follow that result: unlike a view barrier it cannot pass held records, and its
+        // MarkAck fails rather than reporting an unsaved receipt as consumed.
+        if mixdog_store::completion_receipts::contains(&self.projected.header, &qid) {
+            if let Some(durable) = durable {
+                let marker = Record::Meta(MetaRecord {
+                    op: None,
+                    change: Slot::Inline(HeaderChange { set: Default::default(), unset: Vec::new() }),
+                });
+                self.accept_record(marker, Class::Control, Display::None, Vec::new(), vec![Effect::MarkAck(durable)]);
+            }
+            return;
+        }
+        // The same completion queued twice is one entry; its waiter follows that enqueue.
         if self.projected.queue.iter().any(|q| q.qid == qid) {
             if durable.is_some() {
                 self.outbox.push(None, Change::Barrier, Vec::new(), acks(durable));

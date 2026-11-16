@@ -134,9 +134,8 @@ pub fn send(events: &[StreamEvent], requested: &str) -> Send {
         // The paused clock: the output starts and completes at the same instant.
         result.push(entry("generationMs", num(0)));
     }
-    // The core's input is inclusive (fresh + cache read + cache write, Node's `promptTokens`); Node's `inputTokens`
-    // is the fresh part.
-    let fresh = usage.input_tokens - usage.cache_read_tokens - usage.cache_write_tokens;
+    // The core's input is Node's `inputTokens`, the fresh part; `promptTokens` adds the cache read and write.
+    let fresh = usage.input_tokens;
     let mut slots = vec![
         entry("inputTokens", num(fresh)),
         entry("outputTokens", num(usage.output_tokens)),
@@ -146,7 +145,7 @@ pub fn send(events: &[StreamEvent], requested: &str) -> Send {
     if usage.cache_write_1h_tokens > 0 {
         slots.push(entry("cacheWrite1hTokens", num(usage.cache_write_1h_tokens)));
     }
-    slots.push(entry("promptTokens", num(usage.input_tokens)));
+    slots.push(entry("promptTokens", num(usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens)));
     if let Some(raw) = &usage.raw {
         slots.push(entry("raw", plain(raw)));
     }

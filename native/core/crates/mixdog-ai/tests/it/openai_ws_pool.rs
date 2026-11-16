@@ -4,6 +4,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -35,6 +36,7 @@ use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::RequestOptions;
+use mixdog_core_api::domain::provider::RequestThread;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::TransportFault;
@@ -126,6 +128,7 @@ enum Dialed {
 struct Dial {
     script: Mutex<VecDeque<Dialed>>,
     sent: Arc<Mutex<Vec<String>>>,
+    headers: Mutex<Vec<tokio_tungstenite::tungstenite::http::HeaderMap>>,
     dials: Mutex<u32>,
     /// The dials begun so far, as an event a test can wait for.
     began: tokio::sync::watch::Sender<u32>,
@@ -136,6 +139,7 @@ impl Dial {
         Arc::new(Self {
             script: Mutex::new(script.into()),
             sent: Arc::default(),
+            headers: Mutex::default(),
             dials: Mutex::new(0),
             began: tokio::sync::watch::channel(0).0,
         })
@@ -146,8 +150,9 @@ impl Dial {
 impl WsDial for Dial {
     async fn dial(
         &self,
-        _: tokio_tungstenite::tungstenite::handshake::client::Request,
+        request: tokio_tungstenite::tungstenite::handshake::client::Request,
     ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
+        self.headers.lock().unwrap().push(request.headers().clone());
         *self.dials.lock().unwrap() += 1;
         self.began.send_modify(|n| *n += 1);
         let next = self.script.lock().unwrap().pop_front().expect("a scripted dial");
@@ -178,7 +183,10 @@ impl CredentialSource for Creds {
 }
 
 fn adapter(codex: bool, http: Arc<Http>, dial: Arc<Dial>) -> OpenAiAdapter {
-    let context = Arc::new(SessionContext::new());
+    // Every clock read advances, so accidental turn re-stamping cannot pass
+    // merely because encoding and sending happened in the same millisecond.
+    let clock = AtomicU64::new(1_790_000_000_000);
+    let context = Arc::new(SessionContext::with_sources(move || clock.fetch_add(1, Ordering::Relaxed), || "request-id".into()));
     let config = if codex {
         let identity = CodexIdentity {
             installation_id: "i".into(),
@@ -209,6 +217,12 @@ fn request(messages: Vec<ChatMessage>) -> Arc<ModelRequest> {
         options: RequestOptions {
             session_id: Some("session-1".into()),
             prompt_cache_key: Some("lane".into()),
+            thread: Some(RequestThread {
+                id: "thread".into(),
+                window: 0,
+                turn: Some("turn".into()),
+                turn_started_at_ms: Some(1_789_999_000_000),
+            }),
             ..Default::default()
         },
     })
@@ -244,6 +258,264 @@ async fn drain(adapter: &OpenAiAdapter, request: Arc<ModelRequest>) -> Result<()
 
 fn frames(dial: &Dial) -> Vec<Value> {
     dial.sent.lock().unwrap().iter().map(|f| serde_json::from_str(f).unwrap()).collect()
+}
+
+fn assert_same_request(first: &Value, retry: &Value) {
+    let mut first = first.clone();
+    let mut retry = retry.clone();
+    if let Some(metadata) = first.get_mut("client_metadata").and_then(Value::as_object_mut) {
+        let before = metadata.remove("x-codex-ws-stream-request-start-ms").unwrap();
+        let after = retry["client_metadata"].as_object_mut().unwrap().remove("x-codex-ws-stream-request-start-ms").unwrap();
+        assert!(after.as_str().unwrap().parse::<u64>().unwrap() > before.as_str().unwrap().parse::<u64>().unwrap(),
+            "Node re-stamps the stream start on each attempt");
+    }
+    assert_eq!(first, retry, "same model, request and logical turn identity");
+}
+
+fn connection_limit() -> Result<Message, TransportFault> {
+    Ok(Message::text(r#"{"type":"error","status":400,"error":{"code":"websocket_connection_limit_reached","type":"invalid_request_error","message":"connection retired"}}"#))
+}
+
+#[tokio::test]
+async fn connection_limit_typed_400_legacy_verdict_retries_on_a_fresh_socket() {
+    use mixdog_core_api::domain::retry::{JitterSamples, RetryClass, RetryDecider, RetryState, Verdict};
+
+    let dial = Dial::with(vec![Dialed::Socket(vec![connection_limit()]), Dialed::Socket(answer("resp_new", "continued"))]);
+    let adapter = adapter(true, Arc::default(), dial.clone());
+    let request = request(vec![say(Role::User, "hi")]);
+    // The pre-change path: a single exchange returns the decoder's error to
+    // the agent's StandardRetryDecider, without provider-owned recovery.
+    let mut stream = adapter.ws_attempt_once(request.clone()).await.unwrap();
+    let error = stream.next().await.unwrap().unwrap_err();
+    assert_eq!(error.status, Some(400));
+    assert_eq!(error.kind, mixdog_core_api::domain::provider::ErrorKind::Transient);
+    let decision = mixdog_ai::retry::StandardRetryDecider.verdict(
+        &error,
+        &RetryState::new(RetryClass::Midstream, request.model.clone()),
+        adapter.retry_policy(),
+        JitterSamples { step: 0.5, advice: 0.5 },
+    );
+    assert!(matches!(decision.verdict, Verdict::Retry { .. }), "typed 400 alone did not deny this retry");
+    drop(stream);
+    let mut retry = adapter.ws_attempt_once(request).await.unwrap();
+    let mut text = String::new();
+    while let Some(event) = retry.next().await {
+        if let StreamEvent::TextDelta(delta) = event.unwrap() {
+            text.push_str(&delta);
+        }
+    }
+    assert_eq!(text, "continued");
+    assert_eq!(*dial.dials.lock().unwrap(), 2);
+    assert_eq!(frames(&dial)[1].get("previous_response_id"), None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn connection_limit_before_output_and_midstream_renews_inside_one_attempt() {
+    for codex in [true, false] {
+        for midstream in [false, true] {
+            let mut retired = Vec::new();
+            if midstream {
+                retired.push(Ok(Message::text(r#"{"type":"response.created","response":{"id":"expired_response"}}"#)));
+                retired.push(Ok(Message::text(r#"{"type":"codex.rate_limits"}"#)));
+            }
+            retired.push(if midstream {
+                Ok(Message::text(r#"{"type":"error","status":400,"error":{"code":"invalid_request_error","type":"websocket_connection_limit_reached"}}"#))
+            } else {
+                connection_limit()
+            });
+            let dial = Dial::with(vec![Dialed::Socket(retired), Dialed::Socket(answer("resp_new", "continued"))]);
+            let http = Arc::new(Http::default());
+            let adapter = adapter(codex, http.clone(), dial.clone());
+            // One caller attempt, as used by a fork: no caller retry or fallback
+            // can hide an escaped error. The same is true at the agent boundary.
+            let mut stream = adapter.attempt(request(vec![say(Role::User, "continue the task")])).await.unwrap();
+            let mut text = String::new();
+            let mut completed = 0;
+            while let Some(event) = stream.next().await {
+                match event.expect("connection retirement must not reach fallback") {
+                    StreamEvent::TextDelta(delta) => text.push_str(&delta),
+                    StreamEvent::Completed { .. } => completed += 1,
+                    _ => {}
+                }
+            }
+            assert_eq!(text, "continued");
+            assert_eq!(completed, 1);
+            assert_eq!(*dial.dials.lock().unwrap(), 2, "the retry opens a different connection");
+            assert!(http.seen.lock().unwrap().is_empty(), "no transport fallback");
+            let sent = frames(&dial);
+            assert_eq!(sent.len(), 2);
+            assert_same_request(&sent[0], &sent[1]);
+            assert_eq!(sent[1].get("previous_response_id"), None);
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn connection_limit_between_tool_calls_replays_history_without_the_old_chain() {
+    let call = serde_json::json!({
+        "type": "function_call", "id": "fc_1", "call_id": "call_1",
+        "name": "read", "arguments": "{}"
+    });
+    let mut retired: Vec<_> = [
+        serde_json::json!({"type":"response.created","response":{"id":"resp_tools"}}),
+        serde_json::json!({"type":"response.output_item.added","output_index":0,"item":call}),
+        serde_json::json!({"type":"response.output_item.done","output_index":0,"item":call}),
+        serde_json::json!({"type":"response.completed","response":{
+            "id":"resp_tools","status":"completed","output":[call],
+            "usage":{"input_tokens":1,"output_tokens":1}
+        }}),
+    ].into_iter().map(|event| Ok(Message::text(event.to_string()))).collect();
+    retired.push(connection_limit());
+    let dial = Dial::with(vec![Dialed::Socket(retired), Dialed::Socket(answer("resp_new", "used the result"))]);
+    let http = Arc::new(Http::default());
+    let adapter = adapter(true, http.clone(), dial.clone());
+    drain(&adapter, request(vec![say(Role::User, "read then answer")])).await.unwrap();
+    let mut assistant = say(Role::Assistant, "");
+    assistant.tool_calls.push(mixdog_core_api::domain::provider::ToolCall {
+        id: "call_1".into(), name: "read".into(), arguments: serde_json::json!({}), native_type: None,
+    });
+    let mut result = say(Role::Tool, "already executed");
+    result.tool_call_id = Some("call_1".into());
+    let history = request(vec![say(Role::User, "read then answer"), assistant, result]);
+    drain(&adapter, history).await.expect("continue the same request, not a model fallback");
+    assert_eq!(*dial.dials.lock().unwrap(), 2);
+    assert!(http.seen.lock().unwrap().is_empty());
+    let sent = frames(&dial);
+    assert_eq!(sent.len(), 3);
+    assert_eq!(sent[1]["previous_response_id"], "resp_tools", "the retired connection held the chain");
+    assert_eq!(sent[2].get("previous_response_id"), None);
+    let input = sent[2]["input"].as_array().unwrap();
+    assert_eq!(input.len(), 3);
+    assert_eq!(input[0]["content"][0]["text"], "read then answer");
+    assert_eq!(input[1]["type"], "function_call");
+    assert_eq!(input[1]["call_id"], "call_1");
+    assert_eq!(input[1]["name"], "read");
+    assert_eq!(input[1]["arguments"], "{}");
+    assert_eq!(input[2]["type"], "function_call_output");
+    assert_eq!(input[2]["call_id"], "call_1");
+    assert_eq!(input[2]["output"], "already executed", "the completed tool result is replayed, not executed again");
+    assert_eq!(sent[2]["model"], sent[1]["model"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn connection_limit_in_a_fork_does_not_replace_the_leads_connection() {
+    let mut lead_frames = answer("resp_lead", "first");
+    lead_frames.extend(answer("resp_lead_next", "second"));
+    let dial = Dial::with(vec![
+        Dialed::Socket(lead_frames),
+        Dialed::Socket(vec![connection_limit()]),
+        Dialed::Socket(answer("resp_fork", "summary")),
+    ]);
+    let adapter = adapter(true, Arc::default(), dial.clone());
+    drain(&adapter, request(vec![say(Role::User, "hi")])).await.unwrap();
+    let mut fork = (*request(vec![say(Role::User, "summarize")])).clone();
+    fork.options.transport_scope = Some("session-1#compact:fork".into());
+    drain(&adapter, Arc::new(fork)).await.unwrap();
+    adapter.release_transport_scope("session-1#compact:fork");
+    drain(&adapter, request(vec![say(Role::User, "hi"), say(Role::Assistant, "first"), say(Role::User, "more")])).await.unwrap();
+    assert_eq!(*dial.dials.lock().unwrap(), 3);
+    let sent = frames(&dial);
+    assert_same_request(&sent[1], &sent[2]);
+    assert_eq!(sent[3]["previous_response_id"], "resp_lead", "the lead still owns its original chain");
+}
+
+#[tokio::test(start_paused = true)]
+async fn websocket_retries_keep_turn_metadata_and_restamp_each_frame() {
+    let dial = Dial::with(vec![
+        Dialed::Reset,
+        Dialed::Socket(vec![connection_limit()]),
+        Dialed::Socket(vec![Err(TransportFault::Reset)]),
+        Dialed::Rejected(404),
+    ]);
+    let http = Arc::new(Http::default());
+    let adapter = adapter(true, http.clone(), dial.clone());
+    drain(&adapter, request(vec![say(Role::User, "continue")])).await.unwrap();
+    assert_eq!(*dial.dials.lock().unwrap(), 4);
+    let sent = frames(&dial);
+    assert_eq!(sent.len(), 2);
+    assert_same_request(&sent[0], &sent[1]);
+    for frame in &sent {
+        let turn: Value = serde_json::from_str(frame["client_metadata"]["x-codex-turn-metadata"].as_str().unwrap()).unwrap();
+        assert_eq!(turn["turn_started_at_unix_ms"], 1_789_999_000_000u64, "the turn's start, not the encode/attempt clock");
+    }
+    let handshakes = dial.headers.lock().unwrap();
+    for headers in handshakes.iter() {
+        for name in ["session-id", "thread-id", "x-client-request-id", "x-codex-window-id", "x-codex-turn-metadata", "x-codex-routing-hint"] {
+            assert_eq!(headers[name], handshakes[0][name], "handshake retries reuse {name}");
+        }
+        let turn: Value = serde_json::from_str(headers["x-codex-turn-metadata"].to_str().unwrap()).unwrap();
+        assert!(turn.get("turn_started_at_unix_ms").is_none());
+        assert!(!headers.contains_key("x-codex-ws-stream-request-start-ms"));
+    }
+    let posts = http.seen.lock().unwrap();
+    assert_eq!(posts.len(), 1);
+    let body: Value = serde_json::from_slice(&posts[0].body).unwrap();
+    assert_eq!(body["model"], sent[0]["model"]);
+    assert_eq!(body["input"], sent[0]["input"]);
+    assert!(body.get("client_metadata").is_none(), "HTTP does not carry the WS identity block");
+    assert!(posts[0].headers.iter().all(|(name, _)| !matches!(name.as_str(),
+        "x-codex-turn-metadata" | "x-codex-ws-stream-request-start-ms")));
+}
+
+#[tokio::test(start_paused = true)]
+async fn connection_limit_after_five_handshake_failures_surfaces_the_current_retirement() {
+    let mut script: Vec<_> = (0..5).map(|_| Dialed::Rejected(503)).collect();
+    script.push(Dialed::Socket(vec![connection_limit()]));
+    let dial = Dial::with(script);
+    let http = Arc::new(Http::default());
+    let provider = adapter(true, http.clone(), dial.clone());
+    let error = drain(&provider, request(vec![say(Role::User, "hi")])).await.unwrap_err();
+    assert_eq!(*dial.dials.lock().unwrap(), 6);
+    assert!(http.seen.lock().unwrap().is_empty(), "retirement is not a transport-switch reason");
+    assert_eq!(error.status, Some(400), "no stale 503 for the route fallback to admit");
+    assert_eq!(error.code.as_deref(), Some("websocket_connection_limit_reached"));
+    assert!(error.message.contains("connection retired"), "the retirement's message, not the remembered handshake: {}", error.message);
+    assert!(error.recovery_exhausted);
+    assert_eq!(error.should_retry, Some(false));
+}
+
+#[tokio::test(start_paused = true)]
+async fn connection_limit_recovery_is_bounded_and_preserves_other_failures() {
+    let repeated = (0..6).map(|_| Dialed::Socket(vec![connection_limit()])).collect();
+    let dial = Dial::with(repeated);
+    let http = Arc::new(Http::default());
+    let provider = adapter(true, http.clone(), dial.clone());
+    let error = drain(&provider, request(vec![say(Role::User, "hi")])).await.unwrap_err();
+    assert_eq!(error.code.as_deref(), Some("websocket_connection_limit_reached"));
+    assert!(error.recovery_exhausted);
+    assert_eq!(error.should_retry, Some(false), "the caller must not multiply the five retries");
+    assert_eq!(*dial.dials.lock().unwrap(), 6);
+    assert!(http.seen.lock().unwrap().is_empty());
+
+    let quota = Ok(Message::text(r#"{"type":"error","status":429,"error":{"code":"usage_limit_reached"}}"#));
+    let dial = Dial::with(vec![Dialed::Socket(vec![connection_limit()]), Dialed::Socket(vec![quota])]);
+    let adapter = adapter(true, Arc::default(), dial.clone());
+    let error = drain(&adapter, request(vec![say(Role::User, "hi")])).await.unwrap_err();
+    assert_eq!(error.code.as_deref(), Some("usage_limit_reached"), "the replacement's real failure must not be hidden by the retirement");
+    assert_eq!(*dial.dials.lock().unwrap(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn connection_limit_does_not_replay_exposed_output_or_match_message_text() {
+    for prefix in [
+        vec![r#"{"type":"response.output_text.delta","output_index":0,"item_id":"msg_1","delta":"visible"}"#],
+        vec![r#"{"type":"response.reasoning_summary_text.delta","delta":"thinking"}"#],
+        vec![r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":""}}"#],
+    ] {
+        let mut events: Vec<_> = prefix.into_iter().map(|event| Ok(Message::text(event))).collect();
+        events.push(connection_limit());
+        let dial = Dial::with(vec![Dialed::Socket(events)]);
+        let adapter = adapter(true, Arc::default(), dial.clone());
+        let error = drain(&adapter, request(vec![say(Role::User, "hi")])).await.unwrap_err();
+        assert_eq!(error.code.as_deref(), Some("websocket_connection_limit_reached"));
+        assert_eq!(*dial.dials.lock().unwrap(), 1, "Node's replay safety gate still applies");
+    }
+    let not_a_limit = Ok(Message::text(r#"{"type":"error","status":400,"error":{"code":"invalid_request_error","message":"websocket_connection_limit_reached"}}"#));
+    let dial = Dial::with(vec![Dialed::Socket(vec![not_a_limit])]);
+    let adapter = adapter(true, Arc::default(), dial.clone());
+    let error = drain(&adapter, request(vec![say(Role::User, "hi")])).await.unwrap_err();
+    assert_eq!(error.code.as_deref(), Some("invalid_request_error"));
+    assert_eq!(*dial.dials.lock().unwrap(), 1);
 }
 
 #[tokio::test]
@@ -351,24 +623,21 @@ async fn the_pinned_modes_do_not_fall_back() {
     assert!(http.seen.lock().unwrap().is_empty());
 }
 
-#[tokio::test]
-async fn a_spent_websocket_budget_sends_the_sixth_attempt_over_http() {
+#[tokio::test(start_paused = true)]
+async fn a_spent_websocket_send_budget_switches_to_http_inside_the_send() {
     let http = Arc::new(Http::default());
     let mut script = Vec::new();
-    for _ in 0..5 {
+    for _ in 0..6 {
         script.push(Dialed::Socket(vec![Err(TransportFault::Reset)]));
     }
     let dial = Dial::with(script);
     let adapter = adapter(true, http.clone(), dial.clone());
-    for n in 0..5 {
-        assert!(drain(&adapter, request(vec![say(Role::User, "hi")])).await.is_err(), "attempt {n}");
-    }
     drain(&adapter, request(vec![say(Role::User, "hi")])).await.unwrap();
-    assert_eq!(*dial.dials.lock().unwrap(), 5);
+    assert_eq!(*dial.dials.lock().unwrap(), 6);
     assert_eq!(http.seen.lock().unwrap().len(), 1);
     // The session stays on HTTP/SSE.
     drain(&adapter, request(vec![say(Role::User, "again")])).await.unwrap();
-    assert_eq!(*dial.dials.lock().unwrap(), 5);
+    assert_eq!(*dial.dials.lock().unwrap(), 6);
 }
 
 #[tokio::test]
@@ -376,10 +645,10 @@ async fn a_server_close_1009_keeps_the_session_on_http() {
     let http = Arc::new(Http::default());
     let dial = Dial::with(vec![Dialed::Socket(vec![Err(TransportFault::WsClose { code: Some(1009) })])]);
     let adapter = adapter(false, http.clone(), dial.clone());
-    assert!(drain(&adapter, request(vec![say(Role::User, "hi")])).await.is_err());
     drain(&adapter, request(vec![say(Role::User, "hi")])).await.unwrap();
+    drain(&adapter, request(vec![say(Role::User, "again")])).await.unwrap();
     assert_eq!(*dial.dials.lock().unwrap(), 1);
-    assert_eq!(http.seen.lock().unwrap().len(), 1);
+    assert_eq!(http.seen.lock().unwrap().len(), 2);
 }
 
 /// Node's acquires of one socket (`fixtures/provider-ws-connect`, recorded by `record-ws-connect.mjs`): which dials
@@ -424,7 +693,7 @@ async fn a_stuck_upgrade_is_hedged_and_an_acquire_ends_as_nodes_does() {
         tokio::spawn({
             let adapter = adapter.clone();
             async move {
-                let outcome = adapter.attempt(request(vec![say(Role::User, "hi")])).await.map(|_| ());
+                let outcome = adapter.ws_attempt_once(request(vec![say(Role::User, "hi")])).await.map(|_| ());
                 let _ = done_tx.send(outcome);
             }
         });

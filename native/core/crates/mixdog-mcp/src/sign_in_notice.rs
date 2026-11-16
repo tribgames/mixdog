@@ -32,6 +32,10 @@ impl NoticingAuthorizer {
 
 #[async_trait]
 impl Authorizer for NoticingAuthorizer {
+    fn sign_in_required(&self) -> bool {
+        self.inner.sign_in_required()
+    }
+
     async fn token(&self) -> Result<Option<String>, TransportError> {
         self.inner.token().await
     }

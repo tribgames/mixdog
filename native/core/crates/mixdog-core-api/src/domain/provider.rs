@@ -318,6 +318,15 @@ pub struct SendIdentity {
     stages: std::sync::Arc<std::sync::Mutex<Vec<RaisedStage>>>,
     /// Whether this send raised its once-per-send `requesting` yet.
     requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// The first-output window of this send as one logical request (`first-output-window.mjs`): its absolute deadline and
+    /// whether it produced output, whatever attempts or transports served it.
+    first_output: std::sync::Arc<std::sync::Mutex<FirstOutput>>,
+}
+
+#[derive(Default, Debug)]
+struct FirstOutput {
+    deadline: Option<mixdog_rt::Deadline>,
+    output_seen: bool,
 }
 
 /// A display stage an adapter raised, with the payload Node's `onStageChange(stage, payload)` carried.
@@ -377,6 +386,19 @@ impl SendIdentity {
     /// runs its request loop anew).
     pub fn restart_attempts(&self) {
         self.attempts.store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The send's first-output deadline (started by the first attempt that asks, `window` from then) and whether the send
+    /// already produced output. Every later attempt inherits both.
+    pub fn first_output(&self, window: std::time::Duration) -> (mixdog_rt::Deadline, bool) {
+        let mut state = self.first_output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let deadline = *state.deadline.get_or_insert_with(|| mixdog_rt::Deadline::after(window));
+        (deadline, state.output_seen)
+    }
+
+    /// The send produced output: its later attempts run under the idle window from their opening.
+    pub fn note_output(&self) {
+        self.first_output.lock().unwrap_or_else(std::sync::PoisonError::into_inner).output_seen = true;
     }
 
     /// The send's id, minted with `mint` by the first caller.
@@ -1337,8 +1359,9 @@ pub trait ProviderAdapter: Send + Sync {
         self.retry_line(&request.model)
     }
     fn keepalive(&self) -> &KeepaliveSchedule;
-    /// Exactly one attempt; never retries internally. Dropping the future
-    /// aborts the attempt.
+    /// One provider send. A provider-owned recovery (such as Responses WS)
+    /// marks a surfaced failure `should_retry: Some(false)` so callers never
+    /// multiply its budget. Dropping the future aborts the send.
     async fn attempt(
         &self,
         request: Arc<ModelRequest>,

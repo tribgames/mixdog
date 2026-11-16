@@ -12,7 +12,6 @@ import {
 import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../packages/protocol-client/src/actions/action-overrides.mjs';
 import { resolveAction } from '../../../../../packages/protocol-client/src/actions/action-route.mjs';
 import { METHOD_ARGS } from '../../../../../packages/protocol-client/src/actions/method-args.generated.mjs';
-import { SESSION_READ_ACTION_SET } from '../../../../../packages/protocol-client/src/actions/session-protocol.mjs';
 import type {
   DesktopCapability,
   DesktopCapabilityReadRequest,
@@ -49,6 +48,10 @@ export interface CapabilityProtocol {
       | { readonly error: { readonly code: number; readonly message: string; readonly data?: unknown } }
   ): void;
   pendingServerRequests(): ReadonlyArray<{ readonly id: string | number; readonly method: string; readonly params: unknown }>;
+  /** The client open now (null while none is), as the connection wrappers expose it. The library holds a control thread its
+   *  client started (`threadSubscription(id).held`) and subscribes it again after every redial, so the lane keeps the thread's id
+   *  for as long as the current client holds it; a replaced client does not hold it. */
+  client?(): object | null;
 }
 
 export interface CapabilityRoute {
@@ -253,42 +256,50 @@ export function createCapabilityLane({
   // it resolves the ask, all dropped with the socket; a capability's request, `host/*`, is never held), read when needed: nothing
   // is cached here, so a request of a closed or replaced connection is never offered and an answer never crosses connections.
   const pendingApprovals = (): readonly unknown[] => protocol.pendingServerRequests();
+  // The core keeps a control thread loaded only while a connection is subscribed to it, and deletes the blank record an hour after
+  // the last one left. The client that started it owns that subscription (`threadSubscription(id).held`): it subscribes it again
+  // after every redial, and a request naming it waits for that. So the cached id is good for as long as the current client holds it;
+  // a replaced client, or one that lost the thread (the core no longer has it), does not, and the next call starts a new one.
   let control: Promise<string> | null = null;
-  const controlThread = (): Promise<string> => {
-    if (control) return control;
-    const pending = request('thread/start', { kind: 'control' }).then(startedThreadId);
-    control = pending;
-    // A failed start is tried again by the next call; this one still rejects to its caller.
-    pending.catch(() => {
-      if (control === pending) control = null;
-    });
-    return pending;
+  type HeldClient = {
+    threadSubscription?(threadId: string): { readonly held: boolean };
+    whenHeldSettled?(threadId: string): Promise<void>;
   };
-  /** A call of the control session (`invokeControlResult`, session-host-transport.ts): one that fails drops the control thread, and
-   *  a read (the session read set) is sent once more on a new one; a mutation is not (it may have committed before its reply failed). */
-  const send = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
-    if (sessionId || capability === 'noteUserInput' || !usesCallSession(capability, args)) return sendOnce(capability, args, sessionId);
-    for (let attempt = 0; ; attempt += 1) {
-      // The thread's creation is outside the retry, as Node's `ensureControlSession` is: a failed start goes to the caller at once.
-      const thread = await controlThread();
-      try {
-        return await sendOnce(capability, args, thread);
-      } catch (error) {
-        control = null;
-        if (!SESSION_READ_ACTION_SET.has(capability) || attempt > 0) throw error;
+  const heldClient = (): HeldClient | null | undefined => protocol.client?.() as HeldClient | null | undefined;
+  /** The control thread's id, settled before any capability names it: the client's resume of it after a redial has ended and the
+   *  current client holds it. One it does not hold is not named; a new one is started and that one is named. */
+  const controlThread = async (): Promise<string> => {
+    for (;;) {
+      if (!control) {
+        const mine = request('thread/start', { kind: 'control' }).then(startedThreadId);
+        control = mine;
+        // A failed start is tried again by the next call; this one still rejects to its caller.
+        mine.catch(() => {
+          if (control === mine) control = null;
+        });
       }
+      const mine = control;
+      const id = await mine;
+      // A client closed or replaced while waiting is answered by the check below, against the client current then.
+      await heldClient()?.whenHeldSettled?.(id).catch(() => undefined);
+      if (heldClient()?.threadSubscription?.(id).held ?? true) return id;
+      if (control === mine) control = null;
     }
   };
-  const sendOnce = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
+  /** A call of the control session (`invokeControlResult`, session-host-transport.ts): it names a control thread the client holds,
+   *  whatever happened to the socket since the thread was started; one that fails is that call's failure and nothing more. */
+  const send = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
+    if (sessionId || capability === 'noteUserInput' || !usesCallSession(capability, args)) return sendOnce(capability, args, sessionId);
+    return sendOnce(capability, args, await controlThread());
+  };  const sendOnce = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
     // `noteUserInput(at)` is the `client/activity {at}` notification (rate-limited by the connection), not a request; Node's
     // session-api wrapper answers it `{ ok: true }`.
     if (capability === 'noteUserInput') {
       protocol.noteUserInput(args[0] as number);
       return { ok: true };
     }
-    let thread = sessionId;
-    // An action with no op fails in `usesCallSession`, before a thread is started for it.
-    if (!thread && usesCallSession(capability, args)) thread = await controlThread();
+    // A call without a session reaches here only with its control thread (`send`); one whose op has no thread names none.
+    const thread = sessionId;
     // `retryFailedTurn(sessionId, turnKey)` names its thread as its first argument; left out, it is the one addressed.
     const named = capability === 'retryFailedTurn' && !args[0] ? [thread, ...args.slice(1)] : args;
     const { method, params } = routeCapability(capability, named, thread);

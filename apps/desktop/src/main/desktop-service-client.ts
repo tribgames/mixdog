@@ -29,6 +29,7 @@ import type { OperationLane } from './protocol/desktop-operation-route';
 import type { ServiceLane } from './protocol/service-route';
 import type { SessionLane } from './protocol/session-lane';
 import { filterSessionIds } from './desktop-state';
+import { modelRouteWrite } from '../shared/model-route-write';
 import { DESKTOP_NOTICE_EVENT, type DesktopNotice, readDesktopNotice } from '../shared/desktop-notice';
 
 interface DesktopServiceClientOptions {
@@ -359,8 +360,8 @@ export class DesktopServiceClient implements DesktopService {
   async listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
     return (await this.options.sessionLane.chat()).listProviderModels(options);
   }
-  setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot> {
-    return this.invoke('setModelRoute', [selection, sessionId]);
+  async setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot> {
+    return (await this.options.capabilityLane.invoke('setRoute', [modelRouteWrite(selection, sessionId)], sessionId)).snapshot;
   }
   setFast(enabled: boolean, sessionId?: string): Promise<SessionSnapshot> {
     return this.invoke('setFast', [enabled, sessionId]);
@@ -400,6 +401,8 @@ export class DesktopServiceClient implements DesktopService {
     if (this.disposed) return;
     this.disposed = true;
     this.listeners.clear();
+    // The visible threads' retries and listeners end with the client: none sends another request after this.
+    this.options.serviceLane.dispose();
     this.options.sessionLane.dispose();
     this.agentPoolListeners.clear();
     this.desktopEventListeners.clear();

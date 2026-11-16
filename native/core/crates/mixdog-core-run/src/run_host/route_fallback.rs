@@ -85,6 +85,11 @@ pub fn kind_name(kind: ErrorKind) -> &'static str {
 /// `routeFallbackVerdict`. Nothing may have been produced: no visible output, no tool call
 /// started or dispatched, nothing marked unsafe to replay.
 pub fn route_fallback_verdict(error: &ProviderError) -> RouteVerdict {
+    // A connection's retirement cannot be cured by changing the model, even
+    // when its bounded reconnect recovery ended without a usable replacement.
+    if error.ws_phase.is_some() && mixdog_ai::providers::openai::error::connection_limit(error) {
+        return RouteVerdict::Stay;
+    }
     let exposure = error.exposure;
     if exposure.text_emitted || exposure.tool_dispatched || exposure.tool_input_cut || error.unsafe_to_retry {
         return RouteVerdict::Stay;
@@ -579,6 +584,20 @@ mod tests {
         error.status = Some(status);
         error.message = message.to_owned();
         error
+    }
+
+    #[tokio::test]
+    async fn a_websocket_retirement_never_advances_the_model_route() {
+        let host = Arc::new(host(vec![]));
+        let hop = RouteHop::new(host.clone());
+        let mut error = failure(ErrorKind::Transient, 400, "connection retired");
+        error.code = Some("websocket_connection_limit_reached".into());
+        error.ws_phase = Some(mixdog_core_api::domain::provider::WsPhase::Stream);
+        error.recovery_exhausted = true;
+        assert!(unchanged(hop.advance(error.clone(), None).await, "connection retired"));
+        assert!(host.writes.lock().unwrap().is_empty());
+        error.code = Some("server_error".into());
+        assert_eq!(route_fallback_verdict(&error), RouteVerdict::Hop);
     }
 
     /// Node's `routeFallbackVerdict` on 24 failures, and `namesUnavailableModel` on 16 texts.

@@ -294,6 +294,79 @@ mod tests {
         }
     }
 
+    /// A loaded session whose header is the one a model call's usage leaves (`usage_books::usage_change`, the producer of the persisted
+    /// reading), with a conversation in it.
+    struct StoredWorld(Map<String, Value>);
+
+    #[async_trait]
+    impl ContextWorld for StoredWorld {
+        async fn snapshot(&self, _: Option<&ThreadId>) -> Result<Option<ContextSnapshot>, CoreError> {
+            Ok(Some(ContextSnapshot {
+                header: self.0.clone(),
+                provider: "openai".into(),
+                model: "m".into(),
+                context_window: json!(200_000),
+                cwd: Value::Null,
+                mode: Value::Null,
+                messages: Vec::new(),
+                active: true,
+                request_native: Vec::new(),
+                request_defined: Vec::new(),
+                session_defined: Vec::new(),
+                agent_mode: false,
+                annotations: HashMap::new(),
+                media: Arc::new(TextOnly),
+                images: Arc::new(TextOnly),
+                rows: Arc::new(TextOnly),
+                replay_owner: ProviderId::from("openai"),
+            }))
+        }
+
+        fn lowering(&self, _: &ThreadId, _: &str) -> (Arc<dyn MediaMeter>, Arc<dyn ImageIdentities>) {
+            let media: Arc<dyn MediaMeter> = Arc::new(TextOnly);
+            let images: Arc<dyn ImageIdentities> = Arc::new(TextOnly);
+            (media, images)
+        }
+    }
+
+    /// The reading a model response recorded is in the stored header, and the real gauge turns that header into the measurement a
+    /// restored thread shows: the last measured prompt, not pending.
+    #[tokio::test]
+    async fn the_gauge_reads_the_stored_reading_of_a_session_whose_response_recorded_usage() {
+        let mut header = Map::new();
+        for (key, value) in [("id", json!("s")), ("provider", json!("openai")), ("model", json!("m")), ("contextWindow", json!(200_000))] {
+            header.insert(key.into(), value);
+        }
+        let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 1200, output_tokens: 24, ..Default::default() };
+        let delta = super::super::live_rows::usage_delta(
+            "s",
+            &super::super::run::UsageReport {
+                iteration: 1,
+                usage,
+                model: "m".into(),
+                requested_model: "m".into(),
+                delta_tool_calls: 0,
+                request_ms: 10,
+                delta_prompt: 1200,
+                send_tools: Vec::new(),
+                reasoning_tokens: None,
+                reasoning_tokens_complete: false,
+                outgoing: Vec::new(),
+                sent_at_ms: 4_000,
+                input_excludes_cache: false,
+            },
+            5_000,
+        );
+        let change = super::super::usage_books::usage_change(&header, false, &delta, &[], &[], None, 4_000.0, 5_000.0).expect("the call's header change");
+        header.extend(change.set);
+        let stored = header["lastContextTokens"].as_f64().expect("the response's reading is stored");
+        assert!(stored >= 1200.0, "the reading holds the prompt: {stored}");
+        let status = LiveContextStatus::new(Arc::new(StoredWorld(header.clone()))).context_status(Some(ThreadId::from("s".to_owned())), None).await.expect("status");
+        assert_eq!(status["measurement"]["source"], "last_api_request");
+        assert_eq!(status["measurement"]["tokens"].as_f64(), Some(stored));
+        assert_eq!(status["measurement"]["updatedAt"], header["lastContextTokensUpdatedAt"]);
+    }
+
     /// The gauge over a loaded session equals Node's for every golden case whose transcript is
     /// empty (the cases with messages are compared in `mixdog-agent`'s `compact_context_status`);
     /// a session that is not loaded is `null`.

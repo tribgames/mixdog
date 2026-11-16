@@ -486,10 +486,28 @@ async fn replay(case: &JsonValue, hidden_name: &str) -> JsonValue {
                 out.insert(key.into(), JsonValue::Array(list));
             }
         }
+        if let (Some(list), true) = (&todo_list, case["watchTodo"] == true) {
+            out.insert("todoAfter".into(), json!(list.0.lock().unwrap().render()));
+        }
         outs.push(JsonValue::Object(out));
     }
     let requests: Vec<JsonValue> = provider.requests.lock().unwrap().iter().map(|r| request_json(r)).collect();
     json!({"runs": outs, "requests": requests})
+}
+
+/// Ending a turn is not a todo operation: the step in progress stays current and the pending one stays pending.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_ending_in_a_plain_text_reply_leaves_the_list_as_it_is() {
+    let case = json!({
+        "session": {"id": "sess_turn_end_1", "owner": "cli", "agent": "main"},
+        "todo": ["First", "Second"],
+        "watchTodo": true,
+        "repeatLast": true,
+        "messages": [{"role": "user", "content": "do the work"}],
+        "script": [{"content": "Credentials are missing; please supply them.", "toolCalls": [], "stopReason": "end_turn"}],
+    });
+    let got = replay(&case, "<hidden>").await;
+    assert_eq!(got["runs"][0]["todoAfter"], "0/2\nTasks\n  [>] First\n  [ ] Second", "{got}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

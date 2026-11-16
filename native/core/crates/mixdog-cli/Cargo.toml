@@ -12,6 +12,8 @@ path = "src/main.rs"
 workspace = true
 
 [features]
+# Opt-in allocation diagnostics; absent from ordinary binaries.
+alloc-profile = ["windows-sys/Win32_System_Diagnostics_Debug", "windows-sys/Win32_System_ProcessStatus", "windows-sys/Win32_System_Threading"]
 # The controls a replay drives a spawned core with. Each is off until its environment variable switches it on, and is
 # for development builds only (build.rs fails a release-profile build with one; native/core/build-support/dev_only.rs).
 # The phone terminal replay (apps/desktop/src/renderer/remote-protocol-terminal.scenario.mjs): the terminal size leases

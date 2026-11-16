@@ -36,6 +36,8 @@ pub const FORK_TOOL_STUB: &str = "Result omitted from this summary request; the 
 pub fn fork_options(saved: &RequestOptions) -> RequestOptions {
     let mut options = saved.clone();
     options.send_group = None;
+    // A fork is its own logical request: it shares no ids, deadlines or output state with the send it was saved from.
+    options.send_identity = Default::default();
     options.max_output_tokens_override = None;
     if options.tool_choice.as_deref() != Some("none") {
         options.tool_choice = None;
@@ -79,8 +81,9 @@ pub fn prompt_tokens(request: &ModelRequest, meter: &MessageMeter<'_>) -> u64 {
     meter.messages(&messages) + estimate_request_reserve_tokens(&RequestTools { native: &[], defined: &request.tools })
 }
 
-/// One attempt of `request` on `provider`, folded into the whole response. No retry: a fork that fails
-/// falls back to the isolated summary request.
+/// One provider send, folded into the whole response. Responses WebSocket recovery
+/// belongs to the provider, just as for the main loop; no second caller retry
+/// precedes the isolated summary request when that recovery fails.
 #[allow(clippy::result_large_err, reason = "Preserve the canonical structured provider/tool/run failure by value without boxing or changing this API")]
 pub async fn send_forked(
     provider: &Arc<dyn ProviderAdapter>,
@@ -140,6 +143,19 @@ mod tests {
         assert_eq!(fork.options.send_group, None);
         assert_eq!(fork.options.max_output_tokens_override, None);
         assert_eq!(fork.options.tool_choice, None);
+    }
+
+    #[test]
+    fn a_fork_after_parent_output_runs_under_its_own_first_output_window() {
+        let window = std::time::Duration::from_secs(600);
+        let parent = saved();
+        let (parent_deadline, _) = parent.options.send_identity.first_output(window);
+        parent.options.send_identity.note_output();
+        let fork = forked_request(&parent, None, "summarize");
+        let (fork_deadline, output_seen) = fork.options.send_identity.first_output(window);
+        assert!(!output_seen, "the fork has produced no output of its own");
+        assert!(fork_deadline >= parent_deadline,"its deadline starts at its own first attempt");
+        assert!(parent.options.send_identity.first_output(window).1, "the parent's state is untouched");
     }
 
     #[test]

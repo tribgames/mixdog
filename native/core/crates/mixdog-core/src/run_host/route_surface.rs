@@ -150,7 +150,32 @@ pub fn route_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &H
             session[key] = Value::Array(filter_model_edit_tool_names(&names, &model).into_iter().map(Value::String).collect());
         }
     }
-    exposure_change(surface, clock, header, session, hidden_agent)
+    if is_agent_owner(&session) {
+        return exposure_change(surface, clock, header, session, hidden_agent);
+    }
+    // The manager reset resolves the full catalog. Node's Lead route controller then
+    // reselects its deferred surface before the next request (set-route / route-fallback).
+    let blocks = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(header);
+    session["messages"] = Value::Array(blocks.node_messages());
+    let provider = clean(session.get("provider"));
+    let migrating = super::tool_exposure::tool_exposure_migration_needed(&session, Some(&provider), &load_tool_def(surface.host));
+    surface.rebuild_for_provider(&mut session, &provider);
+    let messages = session.as_object_mut().expect("session object").shift_remove("messages").expect("system messages");
+    let mut after = session.as_object().expect("session object").clone();
+    let mut rebuilt = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_node_messages(messages.as_array().expect("system messages"))
+        .expect("surface preserves system blocks");
+    rebuilt.combined = blocks.combined;
+    if rebuilt != blocks {
+        rebuilt.write(&mut after);
+    }
+    if migrating {
+        let marked = mark_tool_surface_migrated(clock, None, None).change;
+        for key in marked.unset {
+            after.shift_remove(&key);
+        }
+        after.extend(marked.set);
+    }
+    header_diff(header, &after)
 }
 
 /// `_refreshResumedTools(session, sessionId, preset)` (`session-lifecycle.mjs:598-620`): the
@@ -415,8 +440,7 @@ mod tests {
                 continue;
             }
             let header = row["before"].as_object().unwrap().clone();
-            let previous = Route::from_iter([("provider".to_owned(), json!("previous")), ("model".to_owned(), json!("previous"))]);
-            let change = route_surface_change(&surface, &Fixed, &header, &previous, None, false);
+            let change = exposure_change(&surface, &Fixed, &header, Value::Object(header.clone()), false);
             let mut got = header.clone();
             for key in &change.unset {
                 got.shift_remove(key);
@@ -426,6 +450,35 @@ mod tests {
             }
             assert_eq!(without_messages(&Value::Object(got)), without_messages(&row["after"]), "{} {}", row["name"], row["before"]["owner"]);
         }
+    }
+
+    #[test]
+    fn a_lead_route_change_reselects_the_catalog_without_exposing_the_pool() {
+        let host = Host(Vec::new());
+        let surface = ToolSurface { host: &host, clock: &Fixed };
+        let tool = |name: &str| json!({"name": name, "description": name, "inputSchema": {"type": "object"}});
+        let catalog = vec![tool("read"), tool("load_tool"), tool("computer"), tool("mcp__gmail__search_emails")];
+        let mut session = json!({"provider": "anthropic-oauth", "model": "claude", "tools": catalog});
+        surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
+        session["deferredDiscoveredTools"] = json!(["computer"]);
+        session["provider"] = json!("openai-oauth");
+        session["model"] = json!("gpt-5");
+        let header = session.as_object().unwrap().clone();
+        let previous = Route::from_iter([("provider".into(), json!("anthropic-oauth")), ("model".into(), json!("claude"))]);
+        let change = route_surface_change(
+            &surface, &Fixed, &header, &previous,
+            Some(PreparedTools { tools: json!(catalog), tool_spec: json!("full") }), false,
+        );
+        let mut after = header;
+        for key in change.unset {
+            after.shift_remove(&key);
+        }
+        after.extend(change.set);
+        let after = Value::Object(after);
+        let eager: Vec<_> = after["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert_eq!(eager, ["read", "load_tool"]);
+        assert_eq!(after["deferredDiscoveredTools"], json!(["computer"]));
+        assert_eq!(surface.pool_tool_names(&after), vec!["mcp__gmail__search_emails".to_owned()]);
     }
 
     /// Node's `_refreshSessionRuleVariantsForModel` over every route pair, with the block untagged

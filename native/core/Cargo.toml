@@ -94,6 +94,7 @@ members = [
     "crates/mixdog-xlsx-formula",
     "crates/mixdog-pdf",
     "crates/mixdog-cli",
+    "crates/mixdog-alloc-report",
     "crates/mixdog-workspace-hack",
 ]
 # Inside the root but not members, as the tools were before (see the header): a member is selected by `--workspace`

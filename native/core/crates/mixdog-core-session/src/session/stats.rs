@@ -110,6 +110,28 @@ impl SessionStats {
         self.readout = Some(readout);
     }
 
+    /// The reading the context status's `measurement` states (`sessionContextMeasurement`: known, unavailable or pending), which is
+    /// the session's reading until it folds a model call of its own; after that the live reading stands. Returns whether the
+    /// stats changed.
+    pub(crate) fn restore_measurement(&mut self, measurement: &Value) -> bool {
+        if self.readout.is_some() {
+            return false;
+        }
+        let at = measurement.get("updatedAt").and_then(Value::as_i64).unwrap_or(0);
+        let restored = match measurement.get("source").and_then(Value::as_str) {
+            Some("last_api_request") => match measurement.get("tokens").and_then(Value::as_f64) {
+                Some(tokens) if tokens > 0.0 => Measurement::Known(tokens, at),
+                _ => Measurement::Pending,
+            },
+            Some("unavailable") => Measurement::Unavailable(at),
+            Some("pending") => Measurement::Pending,
+            _ => return false,
+        };
+        let changed = self.measurement != restored;
+        self.measurement = restored;
+        changed
+    }
+
     /// The running input and output token totals (`stats.inputTokens`, `stats.outputTokens`).
     /// The spinner counts whole non-negative tokens, so a fraction or a net negative total reads as its floor or 0.
     pub(crate) fn tokens(&self) -> (u64, u64) {
