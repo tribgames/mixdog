@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use mixdog_rt::DurabilityIo;
 use serde_json::Value;
 use serde_json::json;
-use tokio::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
+use tokio::sync::Semaphore;
 
 use crate::paths::ConnectionsPaths;
 use crate::paths::StoreError;
@@ -39,29 +40,36 @@ fn parsed(value: Option<&Value>) -> RestoreState {
 pub struct WindowRestoreStore {
     io: DurabilityIo,
     file: PathBuf,
-    /// `None` until the file was read; held across a change from its read to the end of its write.
+    /// `None` until a successful read; the transaction permit spans read, edit and write.
+    turn: Semaphore,
     state: Mutex<Option<RestoreState>>,
 }
 
 impl WindowRestoreStore {
     pub fn new(paths: &ConnectionsPaths, io: DurabilityIo) -> Self {
-        Self { io, file: paths.server_windows(), state: Mutex::new(None) }
+        Self { io, file: paths.server_windows(), state: Mutex::new(None), turn: Semaphore::new(1) }
     }
 
-    async fn loaded<'a>(&self, state: &'a mut Option<RestoreState>) -> Result<&'a mut RestoreState, StoreError> {
-        if state.is_none() {
+    // Called only while holding the transaction permit. Never hold data across I/O.
+    async fn loaded(&self) -> Result<(), StoreError> {
+        let missing = self.state.lock().unwrap_or_else(PoisonError::into_inner).is_none();
+        if missing {
             let document = read_state(self.io, self.file.clone(), None).await?;
-            *state = Some(parsed(document.as_ref()));
+            *self.state.lock().unwrap_or_else(PoisonError::into_inner) = Some(parsed(document.as_ref()));
         }
-        Ok(state.get_or_insert_with(|| parsed(None)))
+        Ok(())
     }
 
     /// Writes the new state (without a backup copy), keeping it in memory first.
     async fn change(&self, change: impl FnOnce(&mut RestoreState)) -> Result<RestoreState, StoreError> {
-        let mut state = self.state.lock().await;
-        let current = self.loaded(&mut state).await?;
-        change(current);
-        let next = current.clone();
+        let _turn = self.turn.acquire().await.expect("store transaction gate is never closed");
+        self.loaded().await?;
+        let next = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let current = state.as_mut().expect("state loaded under transaction permit");
+            change(current);
+            current.clone()
+        };
         let document = json!({ "version": 1, "enabled": next.enabled, "open": next.open });
         write_state(self.io, self.file.clone(), document, false).await?;
         Ok(next)
@@ -69,8 +77,10 @@ impl WindowRestoreStore {
 
     /// Whether the windows are reopened at launch (on unless the file says otherwise).
     pub async fn enabled(&self) -> Result<bool, StoreError> {
-        let mut state = self.state.lock().await;
-        Ok(self.loaded(&mut state).await?.enabled)
+        let _turn = self.turn.acquire().await.expect("store transaction gate is never closed");
+        self.loaded().await?;
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        Ok(state.as_ref().expect("state loaded under transaction permit").enabled)
     }
 
     pub async fn set_enabled(&self, enabled: bool) -> Result<bool, StoreError> {
@@ -104,8 +114,10 @@ impl WindowRestoreStore {
 
     /// The remembered server ids, in the order their windows opened.
     pub async fn list(&self) -> Result<Vec<String>, StoreError> {
-        let mut state = self.state.lock().await;
-        Ok(self.loaded(&mut state).await?.open.clone())
+        let _turn = self.turn.acquire().await.expect("store transaction gate is never closed");
+        self.loaded().await?;
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        Ok(state.as_ref().expect("state loaded under transaction permit").open.clone())
     }
 
     /// Forgets the remembered ids `keep` does not name: a server removed from the saved list is not remembered.

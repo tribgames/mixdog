@@ -434,7 +434,7 @@ impl InputAccessProbe for FakeMachine {
 async fn the_uinput_rule_is_installed_once_and_only_when_needed() {
     let ask = |machine: &Arc<FakeMachine>| {
         let machine = Arc::clone(machine);
-        async move { InputAccessRequests::default().request(machine).await }
+        async move { InputAccessRequests::default().request(machine, mixdog_rt::testing::tokens().durability_io).await }
     };
     let mut other = FakeMachine::new(PkexecStatus::Exit(0));
     Arc::get_mut(&mut other).unwrap().platform = "darwin";
@@ -470,9 +470,38 @@ async fn the_uinput_rule_is_installed_once_and_only_when_needed() {
 async fn two_requests_in_flight_share_one_prompt() {
     let machine = FakeMachine::new(PkexecStatus::Exit(0));
     let requests = InputAccessRequests::default();
-    let (first, second) = futures::join!(requests.request(machine.clone()), requests.request(machine.clone()));
+    let lane = mixdog_rt::testing::tokens().durability_io;
+    let (first, second) = futures::join!(requests.request(machine.clone(), lane), requests.request(machine.clone(), lane));
     assert_eq!((first, second), (json!({ "ok": true }), json!({ "ok": true })));
     assert_eq!(machine.pkexec_runs.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn concurrent_requests_share_the_pending_lane_probe_without_holding_the_state_lock() {
+    let lane = mixdog_rt::testing::tokens().durability_io;
+    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::DurabilityIo);
+    let machine = FakeMachine::new(PkexecStatus::Exit(0));
+    let requests = InputAccessRequests::default();
+    let first = requests.request(machine.clone(), lane);
+    let second = requests.request(machine.clone(), lane);
+    futures::pin_mut!(first, second);
+    assert!(futures::poll!(&mut first).is_pending());
+    assert!(futures::poll!(&mut second).is_pending());
+    assert!(requests.in_flight.try_lock().is_ok(), "no state lock may span the lane wait");
+    assert_eq!(machine.pkexec_runs.load(Ordering::SeqCst), 0, "a queued probe is not a permission denial");
+    drop(full);
+    let (first, second) = futures::join!(first, second);
+    assert_eq!((first, second), (json!({ "ok": true }), json!({ "ok": true })));
+    assert_eq!(machine.pkexec_runs.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_probe_lane_failure_never_starts_an_authorization_prompt() {
+    let lane = mixdog_rt::testing::tokens().durability_io;
+    let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+    let machine = FakeMachine::new(PkexecStatus::Exit(0));
+    assert_eq!(InputAccessRequests::default().request(machine.clone(), lane).await, json!({ "ok": false, "reason": "failed" }));
+    assert_eq!(machine.pkexec_runs.load(Ordering::SeqCst), 0);
 }
 
 #[test]

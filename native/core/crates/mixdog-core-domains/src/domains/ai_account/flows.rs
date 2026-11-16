@@ -203,10 +203,9 @@ impl OAuthFlows {
         let session: Arc<dyn LoginSession> = Arc::from(session);
         let (id, status) = {
             let mut reg = self.lock();
-            if let Some(prior) = reg.active_by_provider.get(&provider).cloned() {
-                if reg.finish(&prior, State::Cancelled, Some("Superseded by a newer OAuth login.".into()), Ending::None) {
-                    reg.flows[&prior].session.cancel();
-                }
+            if let Some(prior) = reg.active_by_provider.get(&provider).cloned()
+                && reg.finish(&prior, State::Cancelled, Some("Superseded by a newer OAuth login.".into()), Ending::None) {
+                reg.flows[&prior].session.cancel();
             }
             reg.sequence += 1;
             let now = chrono::Utc::now().timestamp_millis().max(0) as u64;

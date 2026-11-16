@@ -63,10 +63,9 @@ impl SshMachine for EnvMachine {
         // Mixdog's ssh runs with what ssh resolves for this server, minus every forward; when that cannot be built faithfully the
         // user's config applies and its forwards are listed.
         let resolved = self.configs.resolve_for_target(&self.env, &AttemptContext::default(), target).await;
-        if let (Err(unresolved), Some(summary)) = (resolved, inspection.summary.as_mut()) {
-            if !unresolved.forwards.is_empty() {
-                summary.forwards = Some(unresolved.forwards);
-            }
+        if let (Err(unresolved), Some(summary)) = (resolved, inspection.summary.as_mut())
+            && !unresolved.forwards.is_empty() {
+            summary.forwards = Some(unresolved.forwards);
         }
         Ok(inspection)
     }
@@ -408,10 +407,9 @@ impl Connect {
         .await;
         // A daemon outside proxy mode, or one of another version, is the failure the attempt outlives: the user may restart exactly
         // that connection.
-        if let SshConnectResult::Failed(failure) = &result {
-            if matches!(failure.failure.kind, SshFailureKind::DaemonRunning { .. } | SshFailureKind::DaemonBusy { .. }) && !attempt.cancelled() {
-                attempt.run().state = AttemptState::Restartable;
-            }
+        if let SshConnectResult::Failed(failure) = &result
+            && matches!(failure.failure.kind, SshFailureKind::DaemonRunning { .. } | SshFailureKind::DaemonBusy { .. }) && !attempt.cancelled() {
+            attempt.run().state = AttemptState::Restartable;
         }
         self.saved(result, &record).await
     }
@@ -497,20 +495,20 @@ impl Connect {
 /// A lock per target: held from the check to the end of the save.
 #[derive(Default)]
 struct TargetLocks {
-    held: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    held: Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>,
 }
 
 struct TargetTurn<'a> {
     locks: &'a TargetLocks,
     key: String,
-    mutex: Arc<tokio::sync::Mutex<()>>,
-    guard: Option<tokio::sync::OwnedMutexGuard<()>>,
+    mutex: Arc<tokio::sync::Semaphore>,
+    guard: Option<tokio::sync::OwnedSemaphorePermit>,
 }
 
 impl TargetLocks {
     async fn lock(&self, key: &str) -> TargetTurn<'_> {
-        let mutex = self.held.lock().unwrap_or_else(PoisonError::into_inner).entry(key.to_owned()).or_default().clone();
-        let guard = mutex.clone().lock_owned().await;
+        let mutex = self.held.lock().unwrap_or_else(PoisonError::into_inner).entry(key.to_owned()).or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(1))).clone();
+        let guard = mutex.clone().acquire_owned().await.expect("target gate is never closed");
         TargetTurn { locks: self, key: key.to_owned(), mutex, guard: Some(guard) }
     }
 }

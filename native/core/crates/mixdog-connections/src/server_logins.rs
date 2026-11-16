@@ -510,13 +510,12 @@ impl ServerLogins {
             forward = inner.forwarder.open(&host, port).await.ok();
         }
         // The login ended while the forward was being made (a disconnect, a quit): that forward is closed at once.
-        if let Some(login) = &own {
-            if !locked(&inner.state).pending.get(&key).is_some_and(|current| Arc::ptr_eq(current, login)) {
-                if let Some(forward) = forward {
-                    forward.close().await;
-                }
-                return Ok(SshServerLoginFlow { state: SshServerLoginFlowState::Cancelled, url: None, forwarded: false, ..started.public });
+        if let Some(login) = &own
+            && !locked(&inner.state).pending.get(&key).is_some_and(|current| Arc::ptr_eq(current, login)) {
+            if let Some(forward) = forward {
+                forward.close().await;
             }
+            return Ok(SshServerLoginFlow { state: SshServerLoginFlowState::Cancelled, url: None, forwarded: false, ..started.public });
         }
         let forwarded = forward.is_some();
         if let Some(forward) = forward {
@@ -869,10 +868,9 @@ impl Inner {
 
     /// Ends a login (`only`: that very login, not a later one reusing its id); true when a login was ended.
     async fn end_login(&self, key: &Key, only: Option<&Arc<Pending>>) -> bool {
-        if let Some(only) = only {
-            if !locked(&self.state).pending.get(key).is_some_and(|current| Arc::ptr_eq(current, only)) {
-                return false;
-            }
+        if let Some(only) = only
+            && !locked(&self.state).pending.get(key).is_some_and(|current| Arc::ptr_eq(current, only)) {
+            return false;
         }
         let login = self.forget_login(key);
         self.close_forward(key).await;

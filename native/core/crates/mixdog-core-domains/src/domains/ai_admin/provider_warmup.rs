@@ -90,6 +90,7 @@ impl ProviderWarmup {
     }
 
     /// Binds what the warm runs and the runtime's gates; once.
+    #[allow(clippy::result_unit_err, reason = "existing one-time binding API: unit means already bound, with no public diagnostic payload")]
     pub fn bind(&self, init: Arc<dyn ProviderInit>, gates: Arc<dyn WarmupGates>) -> Result<(), ()> {
         self.bound.set(Bindings { init, gates }).map_err(|_| ())
     }

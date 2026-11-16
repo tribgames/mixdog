@@ -529,14 +529,13 @@ impl ProviderAdmin {
             self.refresh.release_admission_cooldowns();
             // The switch makes every later request use another credential: its quota is fetched
             // right away, not when the surface next asks.
-            if let Some(id) = result["selectedId"].as_str().filter(|s| !s.is_empty()) {
-                if self.registry.registered(provider).is_some() {
-                    let oauth = self.oauth_usage.clone();
-                    let route = RouteInfo { provider: provider.to_owned(), model: String::new(), account_id: id.to_owned() };
-                    tokio::spawn(async move {
-                        oauth.fetch_snapshot(&route, true).await;
-                    });
-                }
+            if let Some(id) = result["selectedId"].as_str().filter(|s| !s.is_empty())
+                && self.registry.registered(provider).is_some() {
+                let oauth = self.oauth_usage.clone();
+                let route = RouteInfo { provider: provider.to_owned(), model: String::new(), account_id: id.to_owned() };
+                tokio::spawn(async move {
+                    oauth.fetch_snapshot(&route, true).await;
+                });
             }
         }
         Ok(result)

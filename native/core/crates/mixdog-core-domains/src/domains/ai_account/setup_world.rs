@@ -217,11 +217,10 @@ impl SetupGatherer {
                 continue;
             }
             world.oauth_ids.insert(id);
-            if options.check_secrets {
-                if let Some(provider) = self.providers.iter().find(|p| p.id() == id) {
-                    let account = self.account_of(id).await?;
-                    world.oauth_described.insert(id, provider.describe(&account).await);
-                }
+            if options.check_secrets
+                && let Some(provider) = self.providers.iter().find(|p| p.id() == id) {
+                let account = self.account_of(id).await?;
+                world.oauth_described.insert(id, provider.describe(&account).await);
             }
         }
         if options.detect_local {

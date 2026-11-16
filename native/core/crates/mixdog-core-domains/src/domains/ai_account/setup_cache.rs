@@ -125,10 +125,9 @@ impl CachedProviderSetup {
         if inner.host.model_proxy_client() {
             return inner.builder.proxy(force).await;
         }
-        if !force {
-            if let Some(setup) = self.state().setup.clone() {
-                return Ok(setup);
-            }
+        if !force
+            && let Some(setup) = self.state().setup.clone() {
+            return Ok(setup);
         }
         if quick {
             return self.quick(force).await;
@@ -162,10 +161,9 @@ impl CachedProviderSetup {
     }
 
     async fn quick(&self, force: bool) -> Result<Value, Failure> {
-        if !force {
-            if let Some(quick) = self.state().quick.clone() {
-                return Ok(quick);
-            }
+        if !force
+            && let Some(quick) = self.state().quick.clone() {
+            return Ok(quick);
         }
         let (request, generation) = {
             let mut state = self.state();

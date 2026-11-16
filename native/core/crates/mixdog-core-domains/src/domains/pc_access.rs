@@ -326,8 +326,9 @@ struct Inner {
     installer: Arc<dyn PcAccessInstaller>,
     roster: Arc<dyn PcAccessRoster>,
     /// One step at a time (a fair queue): an Approve, a password request, a delivery, an unpair and a revoke
-    /// never overlap.
-    queue: Arc<tokio::sync::Mutex<()>>,
+    /// never overlap. This is a FIFO admission permit, not protected mutable state; cancellation
+    /// while queued abandons admission, and dropping the held permit releases the next step.
+    queue: Arc<tokio::sync::Semaphore>,
     /// The Approve running now: a second one joins it (one prompt, one answer).
     running: Mutex<Option<(u64, Shared<BoxFuture<'static, Approval>>)>>,
     runs: AtomicU64,
@@ -444,7 +445,7 @@ impl Drop for CredentialLatch<'_> {
 impl Inner {
     /// Runs `work` as the one step of the access queue.
     async fn serial<T>(&self, work: impl Future<Output = T>) -> T {
-        let _step = self.queue.lock().await;
+        let _step = self.queue.acquire().await.expect("the private PC access queue is never closed");
         work.await
     }
 
@@ -643,7 +644,7 @@ impl PcAccessService {
             inner: Arc::new(Inner {
                 installer,
                 roster,
-                queue: Arc::new(tokio::sync::Mutex::new(())),
+                queue: Arc::new(tokio::sync::Semaphore::new(1)),
                 running: Mutex::new(None),
                 runs: AtomicU64::new(0),
                 needs_elevation: Mutex::new(HashSet::new()),

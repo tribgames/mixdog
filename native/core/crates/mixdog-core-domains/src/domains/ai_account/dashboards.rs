@@ -103,12 +103,10 @@ impl Dashboards {
                 return Ok(self.cached(&cache));
             }
             let scope = scope_key(options);
-            if refresh_usage && !force_setup && scope.is_empty() {
-                if let (Some(_), Some(live)) = (&cache.dashboard, cache.live_at) {
-                    if now - live < USAGE_REFRESH_REUSE_MS {
-                        return Ok(self.cached(&cache));
-                    }
-                }
+            if refresh_usage && !force_setup && scope.is_empty()
+                && let (Some(_), Some(live)) = (&cache.dashboard, cache.live_at)
+                && now - live < USAGE_REFRESH_REUSE_MS {
+                return Ok(self.cached(&cache));
             }
         }
         let dashboard = self.build(options, refresh_usage, force_setup, sources, accounts, now).await?;
