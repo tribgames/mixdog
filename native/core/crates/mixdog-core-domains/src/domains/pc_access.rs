@@ -724,7 +724,7 @@ impl PcAccessService {
     /// its answer returns, and, still in the queue, the revoke is tried before any delivery runs. A failed `unpair`
     /// keeps what the roster owes.
     pub async fn unpair<T, E>(&self, unpair: impl Future<Output = Result<T, E>> + Send) -> Result<T, E> {
-        let step = self.inner.queue.clone().lock_owned().await;
+        let step = self.inner.queue.clone().acquire_owned().await.expect("the private PC access gate is never closed");
         let result = unpair.await;
         if result.is_ok() {
             let inner = self.inner.clone();
