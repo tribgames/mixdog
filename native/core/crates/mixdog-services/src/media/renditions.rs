@@ -486,6 +486,7 @@ impl Inner {
 /// The generation of one key, run under the scheduler; its answer goes to every waiter. A failure
 /// of the asset (no rendition, or the cache write) starts the cooldown; a host that could not
 /// answer says nothing about the asset, so it does not.
+#[allow(clippy::disallowed_methods, reason = "The existing rendition scheduler bounds this bridge; rustc cannot prove the poster lane future Send, and filesystem work still uses DurabilityIo")]
 async fn generate_shared(inner: Arc<Inner>, key: String, request: Request) {
     let permit = inner.scheduler.enqueue(request.priority).permit().await;
     // A video's poster takes owned values only (the future borrows nothing of `inner` or the request across an await).
@@ -493,10 +494,10 @@ async fn generate_shared(inner: Arc<Inner>, key: String, request: Request) {
         let parts = inner.posters.get().map(|posters| (posters.run.clone(), posters.ffmpeg.clone()));
         match parts {
             Some((run, resolve)) => {
-                // Keep the owned job and join boundary: a caller dropping its waiter never aborts shared generation,
-                // and a panicked poster still maps to no rendition. File operations inside poster remain lane jobs.
-                let (lane, cache, variant, id, source) = (inner.lane, inner.cache_dir.clone(), request.variant, request.id.clone(), request.source.clone());
-                let made = mixdog_rt::spawn("media.poster.generate", TaskClass::Work, poster(run, resolve, lane, cache, variant, id, source));
+                // Keep the existing bounded bridge: the poster's higher-ranked lane future cannot satisfy Send,
+                // even through an explicit boxed boundary. Its file operations remain separate durability-lane jobs.
+                let (runtime, lane, cache, variant, id, source) = (tokio::runtime::Handle::current(), inner.lane, inner.cache_dir.clone(), request.variant, request.id.clone(), request.source.clone());
+                let made = tokio::task::spawn_blocking(move || runtime.block_on(poster(run, resolve, lane, cache, variant, id, source)));
                 made.await.unwrap_or(Ok(None))
             }
             None => Ok(None),
@@ -602,17 +603,8 @@ fn parse_duration_seconds(text: &str) -> i64 {
 /// `generate` for a video: only the tile-sized poster is worth extracting (a "display" frame would
 /// be a still pretending to be a clip). No ffmpeg, a clip ffmpeg cannot read, a run past its limit or
 /// a frame over the cap is no rendition.
-type PosterFuture = std::pin::Pin<Box<dyn std::future::Future<Output = Outcome> + Send>>;
-
-// State the Send boundary explicitly, as memory::transcript::rewrite_lines_file does:
-// inferring it through the lane's higher-ranked job closure fails at the spawning caller.
-// Every captured argument is owned; no filesystem work runs while constructing this future.
-fn poster(run: PosterRun, resolve: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>, lane: DurabilityIo, cache_root: PathBuf, variant: RenditionVariant, id: String, source: PathBuf) -> PosterFuture {
-    Box::pin(async move { poster_job(run, resolve, lane, cache_root, variant, id, source).await })
-}
-
 #[allow(clippy::disallowed_methods, reason = "its file work runs as durability-lane jobs")]
-async fn poster_job(run: PosterRun, resolve: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>, lane: DurabilityIo, cache_root: PathBuf, variant: RenditionVariant, id: String, source: PathBuf) -> Outcome {
+async fn poster(run: PosterRun, resolve: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>, lane: DurabilityIo, cache_root: PathBuf, variant: RenditionVariant, id: String, source: PathBuf) -> Outcome {
     if variant != RenditionVariant::Thumb {
         return Ok(None);
     }
