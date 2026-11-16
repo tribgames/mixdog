@@ -602,7 +602,7 @@ impl Worktrees {
         if items.is_empty() {
             return Ok(Vec::new());
         }
-        Ok(on_lane(self.scm().lane, cancel, move || modified_include_copies(&items)).await?)
+        on_lane(self.scm().lane, cancel, move || modified_include_copies(&items)).await
     }
 
     /// The local env files of the main checkout a new worktree starts with, with nothing to
@@ -627,7 +627,7 @@ impl Worktrees {
         }
         let listed: Vec<String> = nul_records(&out.stdout_text()).map(str::to_owned).collect();
         let base = root.to_path_buf();
-        Ok(on_lane(self.scm().lane, cancel, move || {
+        on_lane(self.scm().lane, cancel, move || {
             listed
                 .into_iter()
                 .filter(|rel| {
@@ -635,7 +635,7 @@ impl Worktrees {
                 })
                 .collect()
         })
-        .await?)
+        .await
     }
 
     /// `paths` minus those a `!` pattern explicitly excludes, by gitignore order.

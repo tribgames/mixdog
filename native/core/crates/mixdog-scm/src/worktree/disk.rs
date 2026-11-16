@@ -262,6 +262,7 @@ impl Worktrees {
     /// Refuses a worktree the volume cannot hold (`WORKTREE_DISK_INSUFFICIENT`) and one over the
     /// size threshold until the user confirmed (`WORKTREE_LARGE_REPO_CONFIRM`). Returns the
     /// tracked sizes and the bytes needed.
+    #[allow(clippy::too_many_arguments, reason = "preserve the established public checkout admission API and its independent size/confirmation inputs")]
     pub async fn assert_checkout_fits(
         &self,
         cwd: &Path,

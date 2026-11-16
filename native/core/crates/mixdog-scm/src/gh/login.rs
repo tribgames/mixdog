@@ -311,14 +311,15 @@ async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent
                     output = output.chars().skip(skip).collect();
                 }
                 url = url.or_else(|| find_device_url(&output));
-                if matches!(*shared.state.borrow(), LoginState::Starting) {
-                    if let Some(code) = find_device_code(&output) {
-                        shared.advance(LoginState::DeviceCode {
-                            user_code: code,
-                            verification_uri: url.clone().unwrap_or_else(|| DEFAULT_DEVICE_URL.into()),
-                            expires_at: None,
-                        });
-                    }
+                // End the watch read guard before advance may publish a new state.
+                let starting = matches!(*shared.state.borrow(), LoginState::Starting);
+                if starting
+                    && let Some(code) = find_device_code(&output) {
+                    shared.advance(LoginState::DeviceCode {
+                        user_code: code,
+                        verification_uri: url.clone().unwrap_or_else(|| DEFAULT_DEVICE_URL.into()),
+                        expires_at: None,
+                    });
                 }
             }
             Some(ProcessEvent::Exited { exit, .. }) => {
