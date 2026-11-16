@@ -87,7 +87,7 @@ impl Inner {
     /// `expiredProjection`: an active Goal whose time reached its cap ends as duration_reached.
     fn expired_projection(goal: Option<&mut Goal>, at: f64) -> bool {
         let Some(goal) = goal else { return false };
-        if string(goal, "status") != "active" || !(number(goal, "timeLimitMs") > 0.0) || active_elapsed_ms(goal, at) < number(goal, "timeLimitMs") {
+        if string(goal, "status") != "active" || number(goal, "timeLimitMs").partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) || active_elapsed_ms(goal, at) < number(goal, "timeLimitMs") {
             return false;
         }
         stop_active_clock(goal, at);
@@ -158,7 +158,7 @@ impl Inner {
 
     fn warning_state(&self, slot: &Slot, id: &str, goal: Option<&mut Goal>, at: f64) -> Option<Warnings> {
         let goal = goal?;
-        if string(goal, "status") != "active" || !truthy(goal.get("lastStartedAt")) || !(number(goal, "timeLimitMs") > 0.0) {
+        if string(goal, "status") != "active" || !truthy(goal.get("lastStartedAt")) || number(goal, "timeLimitMs").partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
             return None;
         }
         self.drop_suspended(slot, id, goal, at);
@@ -263,10 +263,9 @@ impl Inner {
         let running = goal.as_ref().is_some_and(|g| string(g, "status") == "active" && truthy(g.get("lastStartedAt")));
         if running {
             let needs_anchor = slot.mem().anchor.is_none();
-            if needs_anchor {
-                if let Some(goal) = &goal {
-                    self.observe(slot, id, self.now(), goal);
-                }
+            if needs_anchor
+                && let Some(goal) = &goal {
+                self.observe(slot, id, self.now(), goal);
             }
             if slot.mem().heartbeat.is_none() {
                 self.start_heartbeat(slot, id);
@@ -277,7 +276,7 @@ impl Inner {
             mem.anchor = None;
         }
         let Some(goal) = goal.as_mut() else { return };
-        if !running || !(number(goal, "timeLimitMs") > 0.0) {
+        if !running || number(goal, "timeLimitMs").partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
             return;
         }
         let at = self.now();

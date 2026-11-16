@@ -113,13 +113,12 @@ impl Tx<'_> {
             let started = if record.is_some() { at } else { self.slot.mem().turn_started_at.filter(|t| *t != 0.0).unwrap_or(at) };
             put_num(&mut goal, "lastStartedAt", started);
         }
-        if replaced {
-            if let Some(old) = record.as_mut() {
-                put(old, "status", "stopped");
-                put_num(old, "stoppedAt", at);
-                put_num(old, "archivedAt", at);
-                put_num(old, "updatedAt", at);
-            }
+        if replaced
+            && let Some(old) = record.as_mut() {
+            put(old, "status", "stopped");
+            put_num(old, "stoppedAt", at);
+            put_num(old, "archivedAt", at);
+            put_num(old, "updatedAt", at);
         }
         if let Some(old) = &record {
             self.archive_finished_goal(old)?;
