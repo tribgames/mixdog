@@ -272,7 +272,7 @@ fn normalize_url_args(raw: &Value) -> Value {
                     Value::String(text) => Value::String(mixdog_js::js_trim(text).to_string()),
                     other => other.clone(),
                 })
-                .filter(|item| truthy(item))
+                .filter(truthy)
                 .collect();
             if kept.is_empty() {
                 args.shift_remove("url");
@@ -290,6 +290,7 @@ fn whole(value: &Value, key: &str) -> Option<u64> {
 }
 
 /// `urlArgsSchema.parse(normalizeUrlArgs(rawArgs || {}))` for `web_fetch`, `local_fetch` and `image_fetch`.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 pub(super) fn fetch_args(raw: &Value) -> Result<FetchArgs, ToolError> {
     let empty = json!({});
     let args = normalize_url_args(if truthy(raw) { raw } else { &empty });
@@ -362,6 +363,7 @@ fn normalize_search_args(raw: &Value) -> Value {
 pub(super) const PATTERN_ONLY: &str = "Error: web search requires query; use glob(pattern=...) for file paths.";
 
 /// `handleToolCall('web_search')` up to the schema: the `query` alias, then `webSearchArgsSchema`.
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 pub(super) fn search_args(raw: &Value) -> Result<SearchInput, ToolError> {
     let mut raw = raw.clone();
     if let Value::Object(map) = &mut raw {

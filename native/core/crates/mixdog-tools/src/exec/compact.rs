@@ -180,17 +180,13 @@ fn jest_vitest_success_summary(text: &str) -> Option<String> {
     }
     let jest_suites = lazy_re!(r"Test Suites:\s+(\d+)\s+passed,\s+(\d+)\s+total", "i").captures(text);
     let jest_tests = lazy_re!(r"Tests:\s+(\d+)\s+passed,\s+(\d+)\s+total", "i").captures(text);
-    if let (Some(s), Some(t)) = (&jest_suites, &jest_tests) {
-        if s.get(1) == s.get(2) && t.get(1) == t.get(2) {
-            return Some(format!("Jest: {} passed in {} suites", t.get(1)?, s.get(1)?));
-        }
+    if let (Some(s), Some(t)) = (&jest_suites, &jest_tests) && s.get(1) == s.get(2) && t.get(1) == t.get(2) {
+        return Some(format!("Jest: {} passed in {} suites", t.get(1)?, s.get(1)?));
     }
     let files = lazy_re!(r"Test Files\s+(\d+)\s+passed\s+\((\d+)\)", "i").captures(text);
     let tests = lazy_re!(r"Tests\s+(\d+)\s+passed\s+\((\d+)\)", "i").captures(text);
-    if let (Some(f), Some(t)) = (&files, &tests) {
-        if f.get(1) == f.get(2) && t.get(1) == t.get(2) {
-            return Some(format!("Vitest: {} passed in {} files", t.get(1)?, f.get(1)?));
-        }
+    if let (Some(f), Some(t)) = (&files, &tests) && f.get(1) == f.get(2) && t.get(1) == t.get(2) {
+        return Some(format!("Vitest: {} passed in {} files", t.get(1)?, f.get(1)?));
     }
     None
 }
@@ -320,15 +316,11 @@ pub fn plan(command: &str, stdout: &str, stderr: &str, outcome: &Outcome) -> Opt
         return None;
     }
     if js_trim(stderr).is_empty() {
-        if let Some(json) = compact_structured_json(stdout) {
-            if worthwhile(stdout, stderr, &json, "") {
-                return Some(Plan { kind: "structured-json", stdout: json, stderr: String::new() });
-            }
+        if let Some(json) = compact_structured_json(stdout) && worthwhile(stdout, stderr, &json, "") {
+            return Some(Plan { kind: "structured-json", stdout: json, stderr: String::new() });
         }
-        if let Some(summary) = test_success_summary(command, stdout).or_else(|| build_success_summary(command, stdout)) {
-            if worthwhile(stdout, stderr, &summary, "") {
-                return Some(Plan { kind: "command-success", stdout: summary, stderr: String::new() });
-            }
+        if let Some(summary) = test_success_summary(command, stdout).or_else(|| build_success_summary(command, stdout)) && worthwhile(stdout, stderr, &summary, "") {
+            return Some(Plan { kind: "command-success", stdout: summary, stderr: String::new() });
         }
     }
     if has_diagnostic_hazard(&format!("{stdout}\n{stderr}")) {

@@ -262,6 +262,7 @@ impl Pipeline {
 
     /// Runs the stages within `budget`. A caller cancel or the total deadline cuts the running attempt, which is
     /// traced with the cut (Node aborts the stage with the abort reason); the run then fails with that reason.
+    #[allow(clippy::result_large_err, reason = "PipelineFailure retains the existing fetch failure trace; avoid boxing solely for this lint.")]
     pub async fn run(&self, url: &Url, budget: Duration, cancel: &CancelView) -> Result<Page, PipelineFailure> {
         let cut = Cut { deadline: Instant::now() + budget, budget, cancel };
         let mut trace = Trace::default();

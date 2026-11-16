@@ -287,10 +287,12 @@ impl HandoffUserTool {
         value.is_object().then_some(value)
     }
 
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn record(&self, thread: &ThreadId, gate: &GateRecord, response: &str, device: &str) -> Result<(), ToolError> {
         self.env.record_decision(thread, gate, response, device).await.map_err(|message| action_failed("handoff", message))
     }
 
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn secret(&self, ctx: &ToolContext, h: &Handoff, gate: &GateRecord) -> Result<String, ToolError> {
         let thread = &ctx.thread_id;
         let request_id = (self.ids)();
@@ -367,6 +369,7 @@ impl HandoffUserTool {
         Ok(outcome)
     }
 
+    #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn takeover(&self, ctx: &ToolContext, h: &Handoff, gate: &GateRecord) -> Result<String, ToolError> {
         let thread = &ctx.thread_id;
         let tab_input = |mut base: Value| {

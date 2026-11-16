@@ -54,6 +54,9 @@ use super::hosted_usage::usage_delta;
 
 const SOURCE_TYPE: &str = "native-web-search";
 
+/// Resolves the provider's shared admission lane without changing its ownership.
+pub type ProviderLane = Arc<dyn Fn(&str) -> Arc<Lane> + Send + Sync>;
+
 /// What the send needs besides the host: the broker, the ledger and its prices,
 /// and the sinks of the asking turns.
 pub struct SenderDeps {
@@ -63,7 +66,7 @@ pub struct SenderDeps {
     pub ledger: Option<Arc<dyn UsageSink>>,
     pub sinks: Arc<NativeSearchUsageSinks>,
     /// The admission lane of a provider, shared with the main sends.
-    pub lane: Arc<dyn Fn(&str) -> Arc<Lane> + Send + Sync>,
+    pub lane: ProviderLane,
     /// The account each row of the send is recorded under (`currentProviderAccountId`, read where
     /// the row is written, as the main sends' accounting reads it); empty for a provider with no
     /// accounts. An error is the lookup's failure, which fails the recording of the send's rows
@@ -75,7 +78,7 @@ pub struct SenderDeps {
 
 impl SenderDeps {
     /// The lane of the model proxy's runner: the provider's default account.
-    pub fn default_lane(broker: &Arc<ModelBroker>) -> Arc<dyn Fn(&str) -> Arc<Lane> + Send + Sync> {
+    pub fn default_lane(broker: &Arc<ModelBroker>) -> ProviderLane {
         let broker = Arc::clone(broker);
         Arc::new(move |provider| {
             let key = LaneKey::new(provider.into(), "default");

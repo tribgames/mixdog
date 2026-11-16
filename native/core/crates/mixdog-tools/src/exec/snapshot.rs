@@ -225,13 +225,11 @@ impl Snapshots {
             time_limit: Some(SNAPSHOT_TIMEOUT),
         };
         let mut finished_ok = false;
-        if request.processes.spawn(spawn).await.is_ok() {
-            if let Ok(mut source) = request.processes.subscribe(&handle, Some(0)) {
-                while let Some(event) = source.next().await {
-                    if let ProcessEvent::Exited { exit, .. } = event {
-                        finished_ok = exit.killed.is_none() && exit.status == ExitStatus::Code(0);
-                        break;
-                    }
+        if request.processes.spawn(spawn).await.is_ok() && let Ok(mut source) = request.processes.subscribe(&handle, Some(0)) {
+            while let Some(event) = source.next().await {
+                if let ProcessEvent::Exited { exit, .. } = event {
+                    finished_ok = exit.killed.is_none() && exit.status == ExitStatus::Code(0);
+                    break;
                 }
             }
         }

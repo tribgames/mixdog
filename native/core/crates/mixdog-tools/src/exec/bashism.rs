@@ -306,7 +306,7 @@ fn collect_edits(text: &[char], mask: &[bool], notes: &mut Vec<String>) -> Vec<E
         edits.push(Edit { start: char_at_byte(&code, m.start), end: char_at_byte(&code, m.end), text: String::new() });
         notes.push("[rewritten: \"</dev/null\" → \"\" (stdin is already at EOF)]".to_owned());
     }
-    edits.sort_by(|a, b| b.start.cmp(&a.start));
+    edits.sort_by_key(|edit| std::cmp::Reverse(edit.start));
     edits
 }
 

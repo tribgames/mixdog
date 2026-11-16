@@ -6,7 +6,7 @@
 pub fn fold_carriage_return_frames(value: &str) -> Option<String> {
     let has_bare_cr = value
         .char_indices()
-        .any(|(i, c)| c == '\r' && value[i + 1..].chars().next() != Some('\n'));
+        .any(|(i, c)| c == '\r' && !value[i + 1..].starts_with('\n'));
     if !has_bare_cr {
         return None;
     }
