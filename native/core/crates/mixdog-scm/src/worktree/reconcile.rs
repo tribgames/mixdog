@@ -262,28 +262,35 @@ impl Worktrees {
                     Ok(opened) => opened,
                     Err(_) => self.scm().open(Path::new(&common), cancel).await?,
                 };
-                let mut candidates: Vec<(WorktreeRecord, bool)> = Vec::new();
+                let mut candidates: Vec<(WorktreeRecord, bool, usize)> = Vec::new();
+                // Node 1.4.5 reported each record in registry encounter order. Keep that
+                // wire order while the slow removal checks still run outside the lock.
+                let mut kept_by_record: Vec<Vec<Value>> = Vec::new();
                 {
                     let _lock = opened.lock_repository().await?;
                     let records: Vec<WorktreeRecord> =
                         self.all_records(cancel).await?.into_iter().filter(|r| path_key(Path::new(&r.repo_common_dir)) == key).collect();
                     for mut record in records {
+                        let slot = kept_by_record.len();
+                        let kept_start = report.kept.len();
                         match self.reconcile_record(&mut record, options, &mut report, cancel).await {
                             Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
                             Err(error) => report.errors.push(json!({ "id": record.id, "error": describe(&error) })),
-                            Ok(Some(budgeted)) => candidates.push((record, budgeted)),
+                            Ok(Some(budgeted)) => candidates.push((record, budgeted, slot)),
                             Ok(None) => {}
                         }
+                        kept_by_record.push(report.kept.split_off(kept_start));
                     }
                 }
                 // Checked outside the lock, which each removal takes for itself (`remove_automatically`).
-                for (mut record, budgeted) in candidates {
+                for (mut record, budgeted, slot) in candidates {
                     // Count, age and archive removals share one budget per pass.
                     if budgeted && budget_used >= options.max_removals {
-                        report.kept.push(json!({ "id": record.id, "reason": "budget" }));
+                        kept_by_record[slot].push(json!({ "id": record.id, "reason": "budget" }));
                         continue;
                     }
                     let auto = AutoOptions { in_use: options.in_use.clone(), preserve_branch: options.preserve_branch, final_check_timeout: options.final_check_timeout };
+                    let kept_start = report.kept.len();
                     match self.remove_automatically(&mut record, &auto, cancel).await {
                         Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
                         Err(error) => report.errors.push(json!({ "id": record.id, "error": describe(&error) })),
@@ -298,7 +305,9 @@ impl Worktrees {
                             }
                         }
                     }
+                    kept_by_record[slot].extend(report.kept.drain(kept_start..));
                 }
+                report.kept.extend(kept_by_record.into_iter().flatten());
                 let pruned = {
                     let _lock = opened.lock_repository().await?;
                     self.prune_stale_registrations(&common, cancel).await?
