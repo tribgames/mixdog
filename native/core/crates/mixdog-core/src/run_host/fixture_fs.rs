@@ -47,6 +47,7 @@ pub fn exists(path: impl AsRef<Path>) -> io::Result<bool> {
 }
 
 /// Every file under `root` with its bytes, by its path relative to `root` (`/`-separated).
+#[cfg(test)]
 pub(crate) fn files_under(root: impl AsRef<Path>) -> std::collections::BTreeMap<String, Vec<u8>> {
     fn walk(lane: &InLane<DurabilityIo>, dir: &Path, prefix: &str, out: &mut std::collections::BTreeMap<String, Vec<u8>>) -> io::Result<()> {
         for name in mixdog_statefile::list_dir(lane, dir)? {
@@ -69,6 +70,7 @@ pub(crate) fn files_under(root: impl AsRef<Path>) -> std::collections::BTreeMap<
 
 /// `readdirSync(root, { recursive: true, withFileTypes: true }).filter(isFile)` as relative paths: Node's order, each
 /// directory's entries as the OS lists them, the subdirectories walked after, breadth first.
+#[cfg(test)]
 pub(crate) fn list_files(root: impl AsRef<Path>) -> Vec<String> {
     let root = root.as_ref().to_owned();
     on_lane(move |lane| {

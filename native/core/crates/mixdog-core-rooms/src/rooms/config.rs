@@ -211,10 +211,10 @@ pub fn room_mention_of(text: &str, members: &[MemberName], self_id: &str) -> Opt
     for found in MENTION.find_iter(&value) {
         let rest = &value[found.end..];
         let boundary = |u: u16| unit_is(u, |c| is_js_space(c) || ".,:;!?)]}…".contains(c));
-        if let Some((id, _)) = member_at(rest, members, boundary) {
-            if id != self_id {
-                return Some(id);
-            }
+        if let Some((id, _)) = member_at(rest, members, boundary)
+            && id != self_id
+        {
+            return Some(id);
         }
     }
     None

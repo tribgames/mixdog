@@ -2,6 +2,9 @@
 //! maps and the threads' headers, and [`PoolLive`] over the directory, the run progress cells, the
 //! usage ledger's group tokens and the stall thresholds.
 
+// Transparent callback/state names; existing ownership and call signatures are unchanged.
+type EnvironmentLookup = dyn Fn(&str) -> Option<String> + Send + Sync;
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -72,7 +75,7 @@ pub struct DirectoryPoolLive {
     shells: Arc<dyn AwaitedShells>,
     tokens: Arc<GroupUsageTokens>,
     /// `process.env` (`STALL_TIMEOUT_S`).
-    env: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
+    env: Arc<EnvironmentLookup>,
 }
 
 impl DirectoryPoolLive {
@@ -83,7 +86,7 @@ impl DirectoryPoolLive {
         clock: Arc<dyn Clock>,
         shells: Arc<dyn AwaitedShells>,
         tokens: Arc<GroupUsageTokens>,
-        env: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
+        env: Arc<EnvironmentLookup>,
     ) -> Self {
         Self { directory, liveness, jobs, clock, shells, tokens, env }
     }

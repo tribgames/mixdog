@@ -8,6 +8,9 @@
 //! committed since the tokens were asked for (or the groups changed), asks again in the background
 //! and wakes the pool once they differ.
 
+// Transparent callback/state names; existing ownership and call signatures are unchanged.
+type QueuedLedgerWrites = (Arc<dyn TokenLedger>, Vec<(String, Vec<String>)>);
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -65,7 +68,7 @@ struct State {
     /// What the tokens were last asked for: the ledger's stamp and the groups' shape.
     asked: (Option<String>, String),
     in_flight: bool,
-    queued: Option<(Arc<dyn TokenLedger>, Vec<(String, Vec<String>)>)>,
+    queued: Option<QueuedLedgerWrites>,
 }
 
 pub struct GroupUsageTokens {

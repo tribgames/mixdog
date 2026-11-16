@@ -143,6 +143,7 @@ impl ToolSurface<'_> {
     /// `reconcileDeferredMcpToolCatalog(session, liveMcpTools)` (the part after its unchanged-input
     /// cache): the late pool, the connected names and the pending deferred-tools delta follow the live
     /// registry. The names announced or removed, or `None` when nothing was.
+    #[allow(clippy::cmp_owned, reason = "MCP relinking compares the serialized tool surface including nested JSON key order; structural Value equality would change refresh behavior")]
     pub fn reconcile_mcp_catalog(&self, session: &mut Value, live_mcp: &[Value]) -> Option<Vec<String>> {
         if !session.get("tools").is_some_and(Value::is_array) {
             return None;

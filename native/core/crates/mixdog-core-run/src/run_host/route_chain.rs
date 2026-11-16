@@ -112,15 +112,15 @@ pub fn route_leaf(route: Option<&Value>) -> Obj {
 /// `sessionRoutePrimary`: the route the session ran on before its first hop; its own while it
 /// has not hopped.
 pub fn session_route_primary(session: &Value) -> Value {
-    if let Some(primary) = session.get("routeFallbackPrimary") {
-        if truthy(primary.get("provider")).is_some() {
-            return primary.clone();
-        }
+    if let Some(primary) = session.get("routeFallbackPrimary")
+        && truthy(primary.get("provider")).is_some()
+    {
+        return primary.clone();
     }
-    if let Some(first) = session.get("routeFallbackFailures").and_then(Value::as_array).and_then(|f| f.first()) {
-        if truthy(first.get("provider")).is_some() && truthy(first.get("model")).is_some() {
-            return json!({ "provider": first["provider"], "model": first["model"] });
-        }
+    if let Some(first) = session.get("routeFallbackFailures").and_then(Value::as_array).and_then(|f| f.first())
+        && truthy(first.get("provider")).is_some() && truthy(first.get("model")).is_some()
+    {
+        return json!({ "provider": first["provider"], "model": first["model"] });
     }
     Value::Object(route_leaf(Some(session)))
 }
@@ -287,10 +287,10 @@ pub async fn route_fallback_position(session: &Value, config: &Obj, bots: &dyn B
 /// `primaryRoute`: the route a reset returns `session` to — the one it left at its first hop,
 /// else its settings' route when that is still its primary.
 pub async fn primary_route(session: &Value, config: &Obj, bots: &dyn BotRoutes) -> Result<Obj, RouteReadUnavailable> {
-    if let Some(primary) = session.get("routeFallbackPrimary") {
-        if truthy(primary.get("provider")).is_some() {
-            return Ok(route_leaf(Some(primary)));
-        }
+    if let Some(primary) = session.get("routeFallbackPrimary")
+        && truthy(primary.get("provider")).is_some()
+    {
+        return Ok(route_leaf(Some(primary)));
     }
     let primary = session_route_primary(session);
     Ok(match session_chain_source(session, config, bots).await? {

@@ -94,6 +94,8 @@ use mixdog_core_rooms::rooms::home::Presence;
 use mixdog_core_rooms::rooms::service::KnownAgent;
 use mixdog_core_rooms::rooms::sessions::AgentCatalog;
 
+type AgentStoreBackup = Arc<dyn Fn(&mixdog_rt::InLane<DurabilityIo>, &str) + Send + Sync>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum AgentsError {
     #[error("{0}")]
@@ -572,7 +574,7 @@ impl AgentDefinitions {
     /// The one-time `kind: agent` stamp, then the bot split and its re-sync (`migrateAgentKindMarkers`, `migrateBotStore`):
     /// the stamp runs first so a workflow agent is never copied to `bots/`. `backup(lane, reason)` is the user-data backup of
     /// `agents/` and `bots/` that precedes the first write. Each step reports its own failure and is retried at the next start.
-    pub async fn migrate_agent_store(&self, backup: Arc<dyn Fn(&mixdog_rt::InLane<DurabilityIo>, &str) + Send + Sync>) -> Result<(store_migration::KindReport, store_migration::SplitReport), AgentsError> {
+    pub async fn migrate_agent_store(&self, backup: AgentStoreBackup) -> Result<(store_migration::KindReport, store_migration::SplitReport), AgentsError> {
         let writes = self.writes()?;
         let facts = Arc::new(self.store_facts().await?);
         let data = self.folders.data.clone();
@@ -584,11 +586,11 @@ impl AgentDefinitions {
         // A restored bot's own route goes where a workflow agent's lives (the config), before `bots/<id>` goes.
         let mut stage = stage;
         for (id, route) in &stage.restore {
-            if let Some(route) = route {
-                if let Err(error) = self.routes.set_config_route(id, route.clone()).await {
-                    tracing::warn!("[agent-kind] the route of {id} could not be restored; it is retried next start: {error}");
-                    stage.failed = true;
-                }
+            if let Some(route) = route
+                && let Err(error) = self.routes.set_config_route(id, route.clone()).await
+            {
+                tracing::warn!("[agent-kind] the route of {id} could not be restored; it is retried next start: {error}");
+                stage.failed = true;
             }
         }
         let kinds = if stage.skipped || stage.failed {

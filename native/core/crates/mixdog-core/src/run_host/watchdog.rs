@@ -30,6 +30,7 @@ pub fn registration_id() -> String {
 
 /// The `ctx` of `abortAgentProgressWatchdog` for a stop judged at `now` on `snapshot` with `message`, armed at `anchor_ts`
 /// (the fields `mixdog_trace::watchdog_abort_records` reads).
+#[allow(clippy::too_many_arguments, reason = "Preserve the public watchdog-context API and its independent provenance, policy, timing and snapshot inputs")]
 pub fn stall_abort_ctx(session_id: &str, agent: Option<&str>, site: &StallSite, policy: &WatchdogPolicy, anchor_ts: i64, snapshot: &Snapshot, message: &str, now: i64) -> Map<String, Value> {
     let mut ctx = Map::new();
     ctx.insert("sessionId".into(), json!(session_id));

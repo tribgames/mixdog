@@ -65,7 +65,7 @@ impl WiringSource for ProcessWiring {
         };
         ProviderFacts {
             config,
-            protocol: custom.map(|(protocol, _)| serde_json::to_value(protocol).ok().and_then(|v| v.as_str().map(str::to_owned))).flatten(),
+            protocol: custom.and_then(|(protocol, _)| serde_json::to_value(protocol).ok().and_then(|v| v.as_str().map(str::to_owned))),
             cached_model: cached,
             gates: AnthropicEffortGates::for_model(model, self.caps.caps(model).as_ref()),
             wire,

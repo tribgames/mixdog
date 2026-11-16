@@ -6,6 +6,9 @@
 //! source, `transcript.roomRow`, `synthetic`, `fromAgent`, `routineTrigger`) comes from the
 //! session through [`MessageFacts`], keyed by the message id.
 
+// Transparent callback/state names; existing ownership and call signatures are unchanged.
+type ReactionCacheState = (HashMap<(String, String), (String, bool)>, VecDeque<(String, String)>);
+
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -99,7 +102,7 @@ impl MessageFacts for StoredRows {
 /// the react tool and every turn's [`LoopReactions`].
 #[derive(Default)]
 pub struct ReactionTargets {
-    inner: Mutex<(HashMap<(String, String), (String, bool)>, VecDeque<(String, String)>)>,
+    inner: Mutex<ReactionCacheState>,
 }
 
 impl ReactionTargets {

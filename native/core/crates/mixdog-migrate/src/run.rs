@@ -200,6 +200,7 @@ impl Waiting {
 }
 
 /// Where [`Migrator::front`] left the migration.
+#[allow(clippy::large_enum_variant, reason = "Keep the public migration result and ownership of pending work without an extra allocation")]
 pub enum Front {
     /// Complete, now or by an earlier run.
     Complete(Complete),
@@ -381,7 +382,7 @@ impl Migrator {
     fn front_inner(&self) -> Result<Front> {
         let data = &self.roots.data;
         // A publication a kill cut leaves its tmp file here (the main and the late pass publish into this directory); it goes before the marker is read, and the run publishes the name again under a new tmp.
-        durable::sweep_tmp(&data.join(MANIFEST_PATH).parent().expect("the migration dir"))?;
+        durable::sweep_tmp(data.join(MANIFEST_PATH).parent().expect("the migration dir"))?;
         let Some(bytes) = durable::read_optional(&data.join(COMPLETE_PATH))? else {
             self.supplement(self.roots.profile.clone())?;
             return self.begin(self.roots.clone(), Pass::First);

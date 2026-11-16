@@ -58,8 +58,8 @@ fn normalize(path: &str) -> String {
             if after.starts_with('/') { (format!("{}/", &text[..2]), &text[3..]) } else { (text[..2].to_owned(), after) }
         } else if cfg!(windows) && text.starts_with("//") {
             ("//".to_owned(), &text[2..])
-        } else if text.starts_with('/') {
-            ("/".to_owned(), &text[1..])
+        } else if let Some(rest) = text.strip_prefix('/') {
+            ("/".to_owned(), rest)
         } else {
             (String::new(), text.as_str())
         }

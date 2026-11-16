@@ -14,6 +14,9 @@
 //!   surface rebuilt (`applyToolDenials`). The prompt half of Node's reconcile (BP1/BP2/BP3) is
 //!   not part of what the status reads and is not done here.
 
+// Transparent callback/state names; existing ownership and call signatures are unchanged.
+type HiddenAgentLookup = dyn Fn(Option<&str>) -> bool + Send + Sync;
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -199,7 +202,7 @@ pub struct SurfaceSources {
     /// `configuredOrchestrationMode(config)`.
     pub orchestration_mode: Arc<dyn Fn() -> String + Send + Sync>,
     /// getHiddenAgent(agent): only a hidden agent's session honors a caller's schema allowlist.
-    pub hidden_agent: Arc<dyn Fn(Option<&str>) -> bool + Send + Sync>,
+    pub hidden_agent: Arc<HiddenAgentLookup>,
     /// The prompt of an empty thread composed again.
     pub prompt: Arc<dyn PromptRebuild>,
     /// Whether skills are listed for a folder: a new thread carries `Skill` only then.

@@ -5,6 +5,9 @@
 //! The session is its header with the freshly prepared tools; the result is the header diff.
 //! Rewriting the prompt's own messages (manifest block, rules variant) stays with the adapter.
 
+// Transparent callback/state names; existing ownership and call signatures are unchanged.
+type HiddenAgentLookup = dyn Fn(Option<&str>) -> bool + Send + Sync;
+
 use std::sync::Arc;
 
 use mixdog_agent::env::Clock;
@@ -246,7 +249,7 @@ pub struct AiRouteFacts {
     /// `_prepareResumeTools` for the header's new route (`resume_tools::ResumeTools`).
     pub prepare_tools: Arc<dyn PrepareTools>,
     /// `getHiddenAgent(agent)`.
-    pub hidden_agent: Arc<dyn Fn(Option<&str>) -> bool + Send + Sync>,
+    pub hidden_agent: Arc<HiddenAgentLookup>,
     /// The MCP scope a resumed thread takes (`resumeSession`'s `mcpScopeId` option).
     pub scopes: Arc<dyn McpScopes>,
     /// `restoreResumedToolSurface` after a resumed thread's manager step.
