@@ -44,31 +44,30 @@ impl Inner {
                 () = cancel.cancelled() => Err(GoalError::new("Goal title generation superseded.")),
             };
             timer.cancel();
-            if let Ok(raw) = raw {
-                if !superseded(&inner) {
-                    let title = compact_session_title(&raw);
-                    if !title.is_empty() && title != shown_title {
-                        let (task_slot, task_goal_id, task_objective) = (slot.clone(), goal_id.clone(), objective.clone());
-                        let guard_cancel = cancel.clone();
-                        let _ = inner
-                            .with_mutation(&id, move |tx| {
-                                let stale = guard_cancel.is_cancelled()
-                                    || tx.inner.is_closed()
-                                    || task_slot.mem().title_job.as_ref().map(|j| j.id) != Some(job_id);
-                                if stale {
-                                    return Ok(());
-                                }
-                                let Some(mut current) = tx.read_record()? else { return Ok(()) };
-                                if clean(current.get("id")) != task_goal_id || string(&current, "objective") != task_objective {
-                                    return Ok(());
-                                }
-                                put(&mut current, "title", Value::String(title));
-                                let now = tx.now();
-                                put_num(&mut current, "updatedAt", now);
-                                tx.commit(Some(current), None).map(drop)
-                            })
-                            .await;
-                    }
+            if let Ok(raw) = raw
+                && !superseded(&inner) {
+                let title = compact_session_title(&raw);
+                if !title.is_empty() && title != shown_title {
+                    let (task_slot, task_goal_id, task_objective) = (slot.clone(), goal_id.clone(), objective.clone());
+                    let guard_cancel = cancel.clone();
+                    let _ = inner
+                        .with_mutation(&id, move |tx| {
+                            let stale = guard_cancel.is_cancelled()
+                                || tx.inner.is_closed()
+                                || task_slot.mem().title_job.as_ref().map(|j| j.id) != Some(job_id);
+                            if stale {
+                                return Ok(());
+                            }
+                            let Some(mut current) = tx.read_record()? else { return Ok(()) };
+                            if clean(current.get("id")) != task_goal_id || string(&current, "objective") != task_objective {
+                                return Ok(());
+                            }
+                            put(&mut current, "title", Value::String(title));
+                            let now = tx.now();
+                            put_num(&mut current, "updatedAt", now);
+                            tx.commit(Some(current), None).map(drop)
+                        })
+                        .await;
                 }
             }
             let mut mem = slot.mem();

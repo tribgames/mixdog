@@ -209,10 +209,9 @@ pub fn list_active_session_ids<L: WriteLane>(lane: &InLane<L>, data_dir: &str, a
             delete_stored_goal_file(&root, id);
             continue;
         }
-        if let Some(goal) = goal {
-            if string(&goal, "status") == "active" && !super::js::truthy(goal.get("archivedAt")) {
-                ids.push(id.to_owned());
-            }
+        if let Some(goal) = goal
+            && string(&goal, "status") == "active" && !super::js::truthy(goal.get("archivedAt")) {
+            ids.push(id.to_owned());
         }
     }
     ids.sort();

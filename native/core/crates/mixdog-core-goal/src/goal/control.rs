@@ -133,18 +133,17 @@ impl Tx<'_> {
                 ),
             }));
         }
-        if replace {
-            if let Some(existing) = &existing {
-                let expected = clean(arg(args, "expectedGoalId"));
-                if goal_stalled(Some(existing)) && expected.is_empty() {
-                    return Err(GoalError::new(format!(
-                        "a replace must name the stalled Goal to retire (--replace={})",
-                        string(existing, "id")
-                    )));
-                }
-                if !expected.is_empty() {
-                    assert_expected_goal(existing, &expected, "replace")?;
-                }
+        if replace
+            && let Some(existing) = &existing {
+            let expected = clean(arg(args, "expectedGoalId"));
+            if goal_stalled(Some(existing)) && expected.is_empty() {
+                return Err(GoalError::new(format!(
+                    "a replace must name the stalled Goal to retire (--replace={})",
+                    string(existing, "id")
+                )));
+            }
+            if !expected.is_empty() {
+                assert_expected_goal(existing, &expected, "replace")?;
             }
         }
         let goal = self.create_goal(CreateArgs {
