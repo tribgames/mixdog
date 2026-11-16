@@ -19,6 +19,7 @@
 )]
 
 mod config_values;
+pub mod connection_adoption;
 mod error;
 mod fsx;
 mod jsvalue;
