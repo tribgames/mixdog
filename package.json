@@ -36,6 +36,7 @@
     "NOTICE.md",
     "LICENSES/",
     "scripts/",
+    "!scripts/**/target/**",
     "!scripts/bench/",
     "!scripts/recall-bench-*.txt",
     "!scripts/*-test.mjs",
