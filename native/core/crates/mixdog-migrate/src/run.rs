@@ -373,6 +373,12 @@ impl Migrator {
     /// Runs (or resumes) the part of the migration a core waits for before it serves: the plan, and every wave before the
     /// sessions (settings, stores, the ledger, the profile's tables). What is left is the returned [`Back`].
     pub fn front(&self) -> Result<Front> {
+        let result = self.front_inner()?;
+        crate::desktop_profile::connection_adoption::run_with(&self.roots.data, &|point| self.fault(point))?;
+        Ok(result)
+    }
+
+    fn front_inner(&self) -> Result<Front> {
         let data = &self.roots.data;
         // A publication a kill cut leaves its tmp file here (the main and the late pass publish into this directory); it goes before the marker is read, and the run publishes the name again under a new tmp.
         durable::sweep_tmp(&data.join(MANIFEST_PATH).parent().expect("the migration dir"))?;
