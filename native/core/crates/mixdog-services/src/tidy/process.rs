@@ -292,7 +292,9 @@ mod tests {
         options.timeout = Duration::from_millis(300);
         let started = std::time::Instant::now();
         let result = Processes::for_tests().run(bin, &args, options).await;
-        assert!(result.timed_out && started.elapsed() < Duration::from_secs(10));
+        assert!(result.timed_out && started.elapsed() < Duration::from_secs(10),
+            "command={bin:?} args={args:?} elapsed={:?} result={result:?} environment={:?}", started.elapsed(),
+            std::env::vars_os().filter(|(key, _)| ["PATH", "ComSpec", "SystemRoot", "TEMP"].iter().any(|allowed| key.eq_ignore_ascii_case(allowed))).collect::<Vec<_>>());
         let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "echo 0123456789".into()]) } else { ("sh", vec!["-c".into(), "echo 0123456789".into()]) };
         let mut options = RunOptions::new(dir.path());
         options.max_capture = 4;
