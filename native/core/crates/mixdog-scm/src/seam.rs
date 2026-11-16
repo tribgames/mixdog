@@ -274,7 +274,7 @@ pub(crate) fn file_identity(path: &std::path::Path, real: (i128, i128, u64)) -> 
         if text.len() > root.len() && text[..root.len()].eq_ignore_ascii_case(&root) {
             let fnv = |bytes: &[u8]| bytes.iter().fold(0x811c_9dc5_u64, |hash, byte| ((hash ^ u64::from(*byte)).wrapping_mul(0x0100_0193)) & 0xffff_ffff);
             let time = 1_767_323_045_000_000_000_i128 + i128::from(fnv(&content));
-            return (time, time, fnv(text[root.len()..].as_bytes()));
+            return (time, time, fnv(&text.as_bytes()[root.len()..]));
         }
     }
     #[cfg(not(debug_assertions))]

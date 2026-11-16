@@ -82,10 +82,9 @@ pub struct SnapshotLease {
 
 impl Drop for SnapshotLease {
     fn drop(&mut self) {
-        if let Some((ledger, id)) = self.ledger.take() {
-            if let Some(held) = ledger.held.lock().expect("snapshot ledger").get_mut(&id) {
-                held.leases = held.leases.saturating_sub(1);
-            }
+        if let Some((ledger, id)) = self.ledger.take()
+            && let Some(held) = ledger.held.lock().expect("snapshot ledger").get_mut(&id) {
+            held.leases = held.leases.saturating_sub(1);
         }
     }
 }
@@ -119,6 +118,7 @@ impl SnapshotLedger {
 
     /// A lease for a command running in `repo`; `Err` while that snapshot is being removed.
     /// Outside any snapshot the lease holds nothing.
+    #[allow(clippy::result_unit_err, reason = "existing opaque admission API: unit means removing/not admitted, with no public diagnostic payload")]
     pub fn admit(self: &Arc<Self>, repo: &Path) -> Result<SnapshotLease, ()> {
         let Some((id, _)) = self.containing(repo) else {
             return Ok(SnapshotLease { ledger: None });

@@ -86,10 +86,9 @@ fn claim_status(
     key: &InspectorKey,
 ) -> (Slot<StatusScan>, Option<Sender<StatusScan>>) {
     let mut guard = cell.lock().expect("status lock");
-    if let Some((cached, slot)) = guard.as_ref() {
-        if cached == key {
-            return (slot.clone(), None);
-        }
+    if let Some((cached, slot)) = guard.as_ref()
+        && cached == key {
+        return (slot.clone(), None);
     }
     let (sender, receiver) = watch::channel(None);
     let slot = Slot::Running(receiver);

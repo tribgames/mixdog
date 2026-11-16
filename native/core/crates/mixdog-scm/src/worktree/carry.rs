@@ -16,6 +16,7 @@
 //!   3. write it into the fresh worktree and verify the worktree snapshots identically;
 //!   4. re-snapshot the project checkout (unchanged since 2, else refuse), then clear it:
 //!      `reset --hard` and delete exactly its untracked files; verify it is clean.
+//!
 //! A failure restores the project checkout from the snapshot and reports `WORKTREE_DIRTY`
 //! (`carry-failed`) with the kept ref. A success returns the ref too: the caller drops it once
 //! the whole session move is committed, and restores from it if anything after the carry fails.

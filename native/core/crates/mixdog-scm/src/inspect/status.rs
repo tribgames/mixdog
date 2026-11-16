@@ -507,9 +507,8 @@ pub async fn scan(
         git.text(cancel, &root, &["--no-optional-locks", "rev-parse", "--show-toplevel"], &read),
     );
     let (porcelain, staged, unstaged, remotes) = (porcelain?, staged?, unstaged?, remotes?);
-    match top_level {
-        Err(failure @ (ScmFailure::Unavailable { .. } | ScmFailure::TimedOut { .. })) => return Err(failure),
-        _ => {}
+    if let Err(failure @ (ScmFailure::Unavailable { .. } | ScmFailure::TimedOut { .. })) = top_level {
+        return Err(failure);
     }
     let mut parsed = parse_porcelain(&porcelain);
     let staged = parse_numstat(&staged);

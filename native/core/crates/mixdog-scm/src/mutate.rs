@@ -325,10 +325,9 @@ impl Repo {
             .unwrap_or_default();
         if shadow.trim().is_empty() {
             let peeled = format!("{hash}^{{commit}}");
-            if let Ok(resolved) = self.run(&["rev-parse", "--verify", "--quiet", &peeled]).await {
-                if !resolved.trim().is_empty() {
-                    return Ok(resolved.trim().to_owned());
-                }
+            if let Ok(resolved) = self.run(&["rev-parse", "--verify", "--quiet", &peeled]).await
+                && !resolved.trim().is_empty() {
+                return Ok(resolved.trim().to_owned());
             }
         }
         let disambiguate = format!("--disambiguate={hash}");
