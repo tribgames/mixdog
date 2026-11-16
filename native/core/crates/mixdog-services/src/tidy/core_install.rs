@@ -6,6 +6,9 @@
 //! [`run_core_install`] touches the network, through `install`. Status is a pure resolution against
 //! the manifest, PATH and the managed tools dir.
 
+// The unchanged module-cache record, named without adding a wrapper or changing ownership.
+type HostModules = HashMap<String, (String, Option<Instant>, bool)>;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -70,7 +73,7 @@ pub struct SystemEngineResolver {
     plugin_data: PathBuf,
     manifest: Value,
     env: Option<HashMap<String, String>>,
-    host_modules: Arc<Mutex<HashMap<String, (String, Option<Instant>, bool)>>>,
+    host_modules: Arc<Mutex<HostModules>>,
 }
 
 impl SystemEngineResolver {

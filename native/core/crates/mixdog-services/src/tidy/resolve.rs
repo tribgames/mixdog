@@ -113,10 +113,10 @@ async fn project_local_binary(lane: DurabilityIo, cwd: &Path, entry: &'static En
 fn project_local_binary_blocking(cwd: &Path, entry: &EngineEntry) -> Option<PathBuf> {
     let venv_bins: [&str; 2] = if cfg!(windows) { ["Scripts", "bin"] } else { ["bin", "Scripts"] };
     for root in &entry.project_local {
-        if root == "node" {
-            if let Some(f) = first_existing(&cwd.join("node_modules").join(".bin"), &entry.bin) {
-                return Some(f);
-            }
+        if root == "node"
+            && let Some(f) = first_existing(&cwd.join("node_modules").join(".bin"), &entry.bin)
+        {
+            return Some(f);
         }
         if root == "venv" {
             for venv in [".venv", "venv"] {
@@ -232,20 +232,21 @@ fn installable(entry: &EngineEntry, manifest: &Value) -> bool {
     entry.managed && manifest_asset(manifest, &entry.id).is_some()
 }
 
-async fn resolve_one(processes: &Processes, cwd: &Path, entry: &'static EngineEntry, config: &TidyConfig, env: Option<&HashMap<String, String>>, manifest: &Value, plugin_data: &Path, index: &Arc<PathIndex>) -> Resolved {
+async fn resolve_one(processes: &Processes, cwd: &Path, entry: &'static EngineEntry, config: &TidyConfig, env: Option<&HashMap<String, String>>, managed: (&Value, &Path), index: &Arc<PathIndex>) -> Resolved {
+    let (manifest, plugin_data) = managed;
     let lane = processes.durability();
     let base = Resolved { id: entry.id.clone(), kind: entry.kind.clone(), languages: entry.languages.clone(), install_hint: entry.install_hint.clone(), ..Default::default() };
-    if let Some(configured) = config.engines.get(&entry.id).and_then(Value::as_object) {
-        if let Some(command) = configured.get("command").and_then(Value::as_str).filter(|c| !c.is_empty()) {
-            return Resolved {
-                source: "project-config".into(),
-                path: command.into(),
-                command: command.into(),
-                args: configured.get("args").and_then(Value::as_array).map(|a| a.iter().map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned)).collect()).unwrap_or_default(),
-                cwd: configured.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty()).map(str::to_owned),
-                ..base
-            };
-        }
+    if let Some(configured) = config.engines.get(&entry.id).and_then(Value::as_object)
+        && let Some(command) = configured.get("command").and_then(Value::as_str).filter(|c| !c.is_empty())
+    {
+        return Resolved {
+            source: "project-config".into(),
+            path: command.into(),
+            command: command.into(),
+            args: configured.get("args").and_then(Value::as_array).map(|a| a.iter().map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned)).collect()).unwrap_or_default(),
+            cwd: configured.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty()).map(str::to_owned),
+            ..base
+        };
     }
     match project_local_binary(processes.durability(), cwd, entry).await {
         Ok(Some(local)) => {
@@ -268,11 +269,11 @@ async fn resolve_one(processes: &Processes, cwd: &Path, entry: &'static EngineEn
             Err(why) => return unavailable(base, why),
         };
         let host_path = host.to_string_lossy().into_owned();
-        if entry.managed && !plugin_data.as_os_str().is_empty() {
-            if let Some((module, version)) = managed_engine_binary(processes, &entry.id, manifest, plugin_data).await {
-                let module = module.to_string_lossy().into_owned();
-                return Resolved { source: "managed".into(), path: module.clone(), command: host_path, version, module_path: Some(module), ..base };
-            }
+        if entry.managed && !plugin_data.as_os_str().is_empty()
+            && let Some((module, version)) = managed_engine_binary(processes, &entry.id, manifest, plugin_data).await
+        {
+            let module = module.to_string_lossy().into_owned();
+            return Resolved { source: "managed".into(), path: module.clone(), command: host_path, version, module_path: Some(module), ..base };
         }
         return Resolved { source: "missing".into(), path: host_path.clone(), command: host_path, missing: true, installable: installable(entry, manifest), ..base };
     }
@@ -284,11 +285,11 @@ async fn resolve_one(processes: &Processes, cwd: &Path, entry: &'static EngineEn
         Ok(None) => {}
         Err(why) => return unavailable(base, why),
     }
-    if entry.managed && !plugin_data.as_os_str().is_empty() {
-        if let Some((path, version)) = managed_engine_binary(processes, &entry.id, manifest, plugin_data).await {
-            let p = path.to_string_lossy().into_owned();
-            return Resolved { source: "managed".into(), path: p.clone(), command: p, version, ..base };
-        }
+    if entry.managed && !plugin_data.as_os_str().is_empty()
+        && let Some((path, version)) = managed_engine_binary(processes, &entry.id, manifest, plugin_data).await
+    {
+        let p = path.to_string_lossy().into_owned();
+        return Resolved { source: "managed".into(), path: p.clone(), command: p, version, ..base };
     }
     Resolved { source: "missing".into(), missing: true, installable: installable(entry, manifest), ..base }
 }
@@ -425,7 +426,7 @@ pub async fn resolve_engines(processes: &Processes, cwd: &Path, options: Resolve
     let index = Arc::new(PathIndex::new(options.env.as_ref()));
     let mut resolved = Vec::new();
     for entry in requested {
-        let mut r = resolve_one(processes, cwd, entry, &config, options.env.as_ref(), &manifest, &options.plugin_data, &index).await;
+        let mut r = resolve_one(processes, cwd, entry, &config, options.env.as_ref(), (&manifest, &options.plugin_data), &index).await;
         match project_config_file_for(processes.durability(), cwd, entry).await {
             Ok(file) => r.config_file = file,
             Err(why) => {

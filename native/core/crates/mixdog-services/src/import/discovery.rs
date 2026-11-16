@@ -121,12 +121,11 @@ pub fn resolve_source_cwd(raw: Option<&str>, cache: &mut HashMap<String, CwdInfo
         return hit.clone();
     }
     let mut result = CwdInfo { exists: false, path: Some(raw.to_owned()) };
-    if Path::new(raw).is_absolute() && !(is_unc_path(raw) || is_windows_device_path(raw)) {
-        if let Ok(real) = real_path(Path::new(raw)) {
-            if !(is_unc_path(&real.to_string_lossy()) || is_windows_device_path(&real.to_string_lossy())) && real.is_dir() {
-                result = CwdInfo { exists: true, path: Some(real.to_string_lossy().into_owned()) };
-            }
-        }
+    if Path::new(raw).is_absolute() && !(is_unc_path(raw) || is_windows_device_path(raw))
+        && let Ok(real) = real_path(Path::new(raw))
+        && !(is_unc_path(&real.to_string_lossy()) || is_windows_device_path(&real.to_string_lossy())) && real.is_dir()
+    {
+        result = CwdInfo { exists: true, path: Some(real.to_string_lossy().into_owned()) };
     }
     cache.insert(raw.to_owned(), result.clone());
     result
@@ -200,20 +199,20 @@ fn superseded_base_ids(entries: &[(Candidate, Option<Meta>)]) -> HashSet<String>
     };
     let mut by_rollout: HashMap<String, String> = HashMap::new();
     for (c, meta) in entries {
-        if let (Some(m), Some(rollout)) = (meta, rollout_of(c)) {
-            if let Some(session) = &m.foreign_session_id {
-                by_rollout.insert(format!("{session}\0{rollout}"), c.id.clone());
-            }
+        if let (Some(m), Some(rollout)) = (meta, rollout_of(c))
+            && let Some(session) = &m.foreign_session_id
+        {
+            by_rollout.insert(format!("{session}\0{rollout}"), c.id.clone());
         }
     }
     let mut hidden: HashSet<String> = HashSet::new();
     for (c, meta) in entries {
         let Some(m) = meta else { continue };
         let (Some(base_id), Some(session)) = (&m.history_base_id, &m.foreign_session_id) else { continue };
-        if let Some(base) = by_rollout.get(&format!("{session}\0{base_id}")) {
-            if *base != c.id {
-                hidden.insert(base.clone());
-            }
+        if let Some(base) = by_rollout.get(&format!("{session}\0{base_id}"))
+            && *base != c.id
+        {
+            hidden.insert(base.clone());
         }
     }
     // A cycle of revisions must not hide a thread entirely: its newest one (first in order) stays.
@@ -404,11 +403,11 @@ fn read_prefix_meta(candidate: &Candidate, scan_max_bytes: u64, codex_home: &Pat
         .map_err(|_| ImportError::new("unreadable"))?
     };
     // The stored title records sit near the end of a transcript.
-    if claude && !read.eof {
-        if let Opened::Plain(file) = &mut opened {
-            for line in read_tail_lines(file, candidate.size) {
-                converter.borrow_mut().push_title_line(&line);
-            }
+    if claude && !read.eof
+        && let Opened::Plain(file) = &mut opened
+    {
+        for line in read_tail_lines(file, candidate.size) {
+            converter.borrow_mut().push_title_line(&line);
         }
     }
     let conversion = converter.borrow_mut().result();
@@ -435,14 +434,14 @@ fn read_prefix_meta(candidate: &Candidate, scan_max_bytes: u64, codex_home: &Pat
         return Ok(listing(meta_from_conversion(&conversion, true)));
     }
     let mut meta = listing(meta_from_conversion(&conversion, false));
-    if candidate.source == Source::Codex && (meta.foreign_session_id.is_none() || meta.cwd.is_none()) {
-        if let Some(partial) = &read.first_partial {
-            // A session_meta line longer than the prefix still names its id/cwd.
-            if let Some(from_line) = codex_meta_from_truncated_line(partial.strip_prefix('\u{feff}').unwrap_or(partial)) {
-                meta.foreign_session_id = meta.foreign_session_id.or(from_line.foreign_session_id);
-                meta.cwd = meta.cwd.or(from_line.cwd);
-                meta.internal_kind = meta.internal_kind.or(from_line.internal_kind);
-            }
+    if candidate.source == Source::Codex && (meta.foreign_session_id.is_none() || meta.cwd.is_none())
+        && let Some(partial) = &read.first_partial
+    {
+        // A session_meta line longer than the prefix still names its id/cwd.
+        if let Some(from_line) = codex_meta_from_truncated_line(partial.strip_prefix('\u{feff}').unwrap_or(partial)) {
+            meta.foreign_session_id = meta.foreign_session_id.or(from_line.foreign_session_id);
+            meta.cwd = meta.cwd.or(from_line.cwd);
+            meta.internal_kind = meta.internal_kind.or(from_line.internal_kind);
         }
     }
     Ok(meta)

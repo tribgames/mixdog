@@ -39,10 +39,10 @@ pub fn find_rollout_by_id(home: &Path, rollout_id: &str) -> Option<Candidate> {
                 continue;
             }
             let Some(real) = super::candidate::contained_real_path(&root, &path) else { continue };
-            if let Ok(meta) = std::fs::metadata(&real) {
-                if meta.is_file() {
-                    return Some(Candidate::for_file(Source::Codex, Some(root), real, meta.len()));
-                }
+            if let Ok(meta) = std::fs::metadata(&real)
+                && meta.is_file()
+            {
+                return Some(Candidate::for_file(Source::Codex, Some(root), real, meta.len()));
             }
         }
     }

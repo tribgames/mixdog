@@ -59,10 +59,10 @@ fn candidates_for(entry: &super::catalog::EngineEntry, engine: &Resolved, env: &
     let mut found = Vec::new();
     let host_hits: Vec<String> = std::iter::once(&entry.bin).chain(entry.alt_bins.iter()).filter_map(|n| which(n, Some(env), None)).map(|p| p.to_string_lossy().into_owned()).collect();
     let used_on_path = host_hits.iter().any(|h| uses_path(engine, h));
-    if !used_on_path {
-        if let Some(first) = host_hits.first() {
-            found.push(Candidate { via: "path", path: first.clone() });
-        }
+    if !used_on_path
+        && let Some(first) = host_hits.first()
+    {
+        found.push(Candidate { via: "path", path: first.clone() });
     }
     for dir in npx_dirs {
         if let Some(hit) = first_existing(dir, &entry.bin).map(|p| p.to_string_lossy().into_owned()).filter(|h| !uses_path(engine, h)) {
