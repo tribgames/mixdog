@@ -393,10 +393,10 @@ fn judge(endpoint: &Endpoint, scanned: &[HostKeyLine], known: &[KnownEntry]) -> 
             return Verdict::Changed { old: old.clone(), current: line.clone() };
         }
     }
-    if plain.is_empty() {
-        if let Some(authority) = matching.iter().find(|candidate| candidate.entry.marker == KnownHostMarker::CertAuthority) {
-            return Verdict::Trusted { authority: Some(key_fingerprint(&authority.entry.key)) };
-        }
+    if plain.is_empty()
+        && let Some(authority) = matching.iter().find(|candidate| candidate.entry.marker == KnownHostMarker::CertAuthority)
+    {
+        return Verdict::Trusted { authority: Some(key_fingerprint(&authority.entry.key)) };
     }
     Verdict::Unknown { best: first.clone() }
 }

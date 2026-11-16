@@ -219,10 +219,10 @@ fn parse_remote_output(stdout: &str) -> Result<ParsedOutput, RemoteBootstrapErro
     };
     let lines: Vec<&str> = stdout.lines().collect();
     for line in lines.iter().rev() {
-        if let Some(rest) = line.strip_prefix("MIXDOG_ERROR ") {
-            if let Some((code, message)) = rest.split_once(' ').filter(|(code, _)| !code.is_empty() && !code.contains(char::is_whitespace)) {
-                return Err(RemoteBootstrapError::from_wire(code, message, parse_drain_line(&lines)));
-            }
+        if let Some(rest) = line.strip_prefix("MIXDOG_ERROR ")
+            && let Some((code, message)) = rest.split_once(' ').filter(|(code, _)| !code.is_empty() && !code.contains(char::is_whitespace))
+        {
+            return Err(RemoteBootstrapError::from_wire(code, message, parse_drain_line(&lines)));
         }
         let Some(result) = line.strip_prefix("MIXDOG_RESULT ") else { continue };
         // A torn result line is no result.
