@@ -365,7 +365,7 @@ impl SessionDirectory {
                 tools_of: current.cloned(),
                 source: id.clone().map(ThreadId::from),
             };
-            self.deps().inherit.basis(target, &carried).await
+            self.deps().inherit.basis(&target, &carried).await
         };
         // `inheritanceFit`: the base names the target's route, empty when it has none.
         let (name, tag) = if provider.is_empty() || model.is_empty() { (String::new(), String::new()) } else { (provider, model) };
