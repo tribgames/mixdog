@@ -143,6 +143,7 @@ fn live(screens: Arc<Screens>) -> (Arc<ScreenLive>, Arc<Env>) {
 }
 
 /// The events are applied by a task of their own: waits until `ready` holds.
+#[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
 async fn until<T>(mut ready: impl FnMut() -> Option<T>) -> T {
     for _ in 0..3_000 {
         if let Some(found) = ready() {

@@ -24,6 +24,7 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::failed;
+use mixdog_core_base::support::on_lane_wait;
 use mixdog_core_base::support::wrong_method;
 use mixdog_core_session::session::gateway_routes;
 use mixdog_core_session::session::gateway_usage::GatewayUsage;
@@ -44,6 +45,8 @@ use mixdog_core_session::session::statusline_status::load_gateway_status;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
+use mixdog_rt::InteractiveIo;
+use tokio_util::sync::CancellationToken;
 
 pub const STATUSLINE_READ: &str = "statusline/read";
 
@@ -66,13 +69,15 @@ struct Inner {
 
 pub struct StatuslineService {
     inner: Arc<Inner>,
+    io: InteractiveIo,
 }
 
 impl StatuslineService {
     /// `data_dir`: the core's data directory; `claude_config_dir`: the status files' ([`Self::claude_config_dir`]); `usage`: the
     /// gateway usage writer whose route section the footer's route spend shares; `started_ms`: this process's start.
-    pub fn new(data_dir: PathBuf, claude_config_dir: PathBuf, catalog: Arc<CatalogService>, usage: GatewayUsage, started_ms: f64) -> Self {
-        Self { inner: Arc::new(Inner { data_dir, claude_dir: claude_config_dir, catalog, usage, started_ms, events: Mutex::new(UsageView::default()) }) }
+    /// `io` bounds the footer's filesystem reads on the composed interactive lane.
+    pub fn new(data_dir: PathBuf, claude_config_dir: PathBuf, catalog: Arc<CatalogService>, usage: GatewayUsage, started_ms: f64, io: InteractiveIo) -> Self {
+        Self { inner: Arc::new(Inner { data_dir, claude_dir: claude_config_dir, catalog, usage, started_ms, events: Mutex::new(UsageView::default()) }), io }
     }
 
     /// The directory of the status files (`claudeConfigDir` of the statusline's `claude-current`): `MIXDOG_CONFIG_DIR`, else `.mixdog` of the home directory.
@@ -81,11 +86,13 @@ impl StatuslineService {
     }
 }
 
+#[allow(clippy::disallowed_methods, reason = "StatuslineService::call runs this private file reader inside its awaited InteractiveIo job.")]
 fn read_json(path: &Path) -> Option<Value> {
     mixdog_js::json_parse(&std::fs::read_to_string(path).ok()?).ok()
 }
 
 /// A status file with its modification time (epoch ms).
+#[allow(clippy::disallowed_methods, reason = "StatuslineService::call runs this private metadata reader inside its awaited InteractiveIo job.")]
 fn read_aged(path: &Path) -> Option<(Value, f64)> {
     let value = read_json(path)?;
     let modified = std::fs::metadata(path).ok()?.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
@@ -137,6 +144,7 @@ impl StatusWorld for World<'_> {
 
 impl Inner {
     /// The usage log's events: the file's identity is its path and creation time, so a replaced log is read from its start.
+    #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "The incremental usage-file read and its short data lock execute inside StatuslineService's awaited InteractiveIo job.")]
     fn usage_events(&self, now: f64) -> Vec<Value> {
         let path = self.data_dir.join(USAGE_FILE);
         let mut view = self.events.lock().unwrap_or_else(PoisonError::into_inner);
@@ -204,7 +212,9 @@ impl DomainService for StatuslineService {
         }
         let params: StatuslineReadParams = decode(&request)?;
         let inner = self.inner.clone();
-        let answer = tokio::task::spawn_blocking(move || inner.read(&params)).await.map_err(|error| failed("statusline", format!("statusline/read failed: {error}")))?;
+        // A submitted read finishes as the old spawn_blocking read did; request cancellation does not abandon its cache update.
+        let answer = on_lane_wait(self.io, &CancellationToken::new(), move |_| inner.read(&params))
+            .await.map_err(|error| failed("statusline", format!("statusline/read failed: {error}")))?;
         Ok(Reply::Value(json!(answer)))
     }
 

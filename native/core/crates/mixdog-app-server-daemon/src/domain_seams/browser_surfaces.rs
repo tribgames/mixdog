@@ -64,7 +64,7 @@ mod tests {
             .cloned()
             .map(|mut params| {
                 assert_eq!(params["kind"], "browser");
-                params.as_object_mut().unwrap().remove("kind");
+                params.as_object_mut().unwrap().shift_remove("kind");
                 params
             })
             .collect();

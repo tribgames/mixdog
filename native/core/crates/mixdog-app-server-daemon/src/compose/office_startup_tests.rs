@@ -4,6 +4,7 @@ use std::time::Duration;
 
 /// The binary of `mixdog-exthost-worker --features test-support --bin ext_worker_dev`: Cargo names a binary only to the tests of
 /// its own package, so it is found next to this test binary's `deps` directory.
+#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 fn worker_binary() -> PathBuf {
     let exe = std::env::current_exe().expect("the test binary's path");
     let dir = exe.parent().and_then(Path::parent).expect("the target directory");
@@ -35,6 +36,7 @@ fn tree(dir: &Path, prefix: &str) -> Vec<Value> {
 /// worker the session start asks, at the clock the recording was taken at (`--clock-ms`): the folder holds what Node left.
 #[tokio::test(flavor = "multi_thread")]
 #[allow(clippy::disallowed_methods, reason = "test setup writes the recorded folder on the test thread")]
+#[allow(clippy::disallowed_types, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 async fn session_start_sweeps_the_complete_recorded_office_subject() {
     use base64::Engine as _;
     let dir = tempfile::tempdir().unwrap();

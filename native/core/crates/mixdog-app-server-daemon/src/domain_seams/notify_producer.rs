@@ -866,8 +866,8 @@ impl Notifier {
         let key = update.approval.as_ref().map(approval_key).unwrap_or_default();
         let previous = (if key.is_empty() { self.waits.remove(session_id) } else { self.waits.insert(session_id.to_owned(), key.clone()) })
             .unwrap_or_default();
-        if previous != key {
-            if let Some(delivery) = self.waits_live.remove(session_id) { delivery.invalidate(); }
+        if previous != key && let Some(delivery) = self.waits_live.remove(session_id) {
+            delivery.invalidate();
         }
         // An approval no session shows any more is done with; its id is forgotten.
         if !previous.is_empty() && previous != key && !self.waits.values().any(|shown| *shown == previous) {

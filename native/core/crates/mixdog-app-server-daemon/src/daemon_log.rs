@@ -14,6 +14,7 @@
 //! - No `flushSync`/`installRedirect`: Rust has no `process.exit` path that skips the lane (the
 //!   stop procedure awaits [`DaemonLog::flush`]), and stdout/stderr/console capture is a Node
 //!   mechanism. [`DaemonLog::raw`] is what the redirect did with one chunk.
+//!
 //! The rotation rewrite goes through the atomic publisher instead of `writeFileSync` truncation:
 //! the resulting bytes are the same.
 

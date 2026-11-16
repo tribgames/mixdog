@@ -337,7 +337,7 @@ impl Client {
             loop {
                 match self.socket.next().await.expect("the server ended the connection").expect("the socket failed") {
                     Message::Text(text) => {
-                        let frame: Value = serde_json::from_str(&text.to_string()).unwrap();
+                        let frame: Value = serde_json::from_str(text.as_str()).unwrap();
                         if frame["id"] == json!(id) && frame.get("method").is_none() {
                             return frame;
                         }

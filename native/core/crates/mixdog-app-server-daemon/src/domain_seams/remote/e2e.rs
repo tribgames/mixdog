@@ -307,6 +307,7 @@ fn listed() -> Value {
     json!({ "threads": [{ "id": "t1", "title": "Fix the build" }] })
 }
 
+#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 fn identity_in(path: std::path::PathBuf) -> ServerIdentity {
     std::fs::create_dir_all(&path).unwrap();
     on_lane(move |lane| load_or_create_e2ee_identity(lane, &path).unwrap())
@@ -319,6 +320,7 @@ impl Harness {
     }
 
     /// [`Harness::start`] where `displays` says whether a window supplies the display list.
+    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
     async fn start_with(revoke_ok: bool, displays: bool) -> Self {
         let tokens = mixdog_rt::testing::tokens();
         let dir = tempfile::tempdir().unwrap();
@@ -955,7 +957,7 @@ fn download_call(name: &str, n: usize, method: &str) -> Value {
     let step = scenario["steps"].as_array().unwrap().iter().filter(|step| step["op"] == "call").nth(n).unwrap_or_else(|| panic!("{name}: no call {n}"));
     assert_eq!(step["method"], method, "{name}: call {n}");
     let mut frame = step["frame"].clone();
-    frame.as_object_mut().unwrap().remove("id");
+    frame.as_object_mut().unwrap().shift_remove("id");
     frame
 }
 
@@ -963,7 +965,7 @@ fn download_call(name: &str, n: usize, method: &str) -> Value {
 async fn download_frame(phone: &mut Phone, id: u64, method: &str, params: Value) -> Value {
     phone.send(&json!({ "id": id, "method": method, "params": params }).to_string());
     let mut frame = node_of(&answer(phone, id).await);
-    frame.as_object_mut().unwrap().remove("id");
+    frame.as_object_mut().unwrap().shift_remove("id");
     frame
 }
 
@@ -971,6 +973,7 @@ async fn download_frame(phone: &mut Phone, id: u64, method: &str, params: Value)
 /// `fileDownloads.revokeAll`): a phone that pairs again once remote access is back finds its unbegun grant and its transfer gone, as Node's
 /// phone did after the same revoke (`revoke all`: the begin of the unbegun grant, then the range of the transfer).
 #[tokio::test(flavor = "multi_thread")]
+#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 async fn switching_remote_access_off_ends_every_download_of_the_phones() {
     let mut h = Harness::start(true).await;
     let (mut phone, connection) = h.connect("p1", CRED).await;
@@ -1030,13 +1033,13 @@ const SCREEN_ACCESS: &str = include_str!("../../../../../fixtures/screen-access/
 /// two shapes is not equal to what the server writes.
 fn wire_of(node: &Value) -> Value {
     let mut frame = node.as_object().unwrap().clone();
-    match frame.remove("ok").unwrap().as_bool().unwrap() {
+    match frame.shift_remove("ok").unwrap().as_bool().unwrap() {
         true => {
-            let value = frame.remove("value").unwrap();
+            let value = frame.shift_remove("value").unwrap();
             frame.insert("result".to_owned(), value);
         }
         false => {
-            let text = frame.remove("error").unwrap();
+            let text = frame.shift_remove("error").unwrap();
             let body = json!({ "code": -32600, "message": "domainError", "data": { "reason": "domainError", "domain": "remote", "message": text } });
             frame.insert("error".to_owned(), body);
         }
@@ -1239,11 +1242,11 @@ impl Canon {
 /// The frame Node's phone received for the core's wire frame: the inverse of `wire_of`, with the error code Node's frame carries.
 fn node_of(wire: &Value) -> Value {
     let mut frame = wire.as_object().unwrap().clone();
-    if let Some(result) = frame.remove("result") {
+    if let Some(result) = frame.shift_remove("result") {
         frame.insert("ok".to_owned(), json!(true));
         frame.insert("value".to_owned(), result);
     } else {
-        let error = frame.remove("error").unwrap();
+        let error = frame.shift_remove("error").unwrap();
         frame.insert("ok".to_owned(), json!(false));
         frame.insert("error".to_owned(), error["data"]["message"].clone());
         if let Some(code) = error["data"].get("code") {
@@ -1373,6 +1376,8 @@ fn the_remap_is_by_exact_path_and_keeps_what_the_values_mean() {
 ///
 /// What is not replayed is in `NOT_REPLAYED`, with its owners; the test fails when a recorded frame is neither replayed nor named there.
 #[tokio::test(flavor = "multi_thread")]
+#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
+#[allow(clippy::disallowed_types, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_desktop_did() {
     let all: Value = serde_json::from_str(UNPAIR_ACCESS).unwrap();
     let token = all["token"].as_str().unwrap();

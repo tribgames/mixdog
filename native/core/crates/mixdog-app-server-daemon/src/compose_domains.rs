@@ -423,7 +423,7 @@ pub async fn compose_domains_post(inputs: &DomainInputs, post: PostSeams, pre: P
     let rows = rows::build(inputs, &config, state.publisher.clone(), tool_modules.clone(), post.session_attachments).await?;
     update_cell.bind(rows.update.clone());
     // Node starts its self-update controller's boot check with the runtime (`wireSelfUpdate`).
-    let _ = rows.update.start_boot_check();
+    drop(rows.update.start_boot_check());
     services.extend(rows.services);
     transfer_sources.extend(rows.transfer_sources);
     // `import/*`: built over the session layer's side of an import, which exists only now.

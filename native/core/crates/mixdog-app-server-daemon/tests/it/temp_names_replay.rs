@@ -64,6 +64,8 @@ async fn every_temp_name_node_wrote_is_recognised_as_the_temp_of_its_target() {
 const TEN_MINUTES: Duration = Duration::from_secs(10 * 60);
 
 /// A temp file of the summary index whose last write is `modified`.
+#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
+#[allow(clippy::disallowed_types, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 fn summary_temp_modified(dir: &std::path::Path, modified: SystemTime) -> std::path::PathBuf {
     let temp = dir.join("session-summaries.json.mixdog-tmp-0123456789abcdef");
     mixdog_testkit::write(&temp, "{");
@@ -71,6 +73,7 @@ fn summary_temp_modified(dir: &std::path::Path, modified: SystemTime) -> std::pa
     temp
 }
 
+#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 fn written_at(path: &std::path::Path) -> SystemTime {
     std::fs::metadata(path).and_then(|meta| meta.modified()).expect("the write time")
 }
@@ -101,6 +104,7 @@ async fn a_summary_temp_goes_at_ten_minutes_and_not_a_millisecond_before() {
 /// A writer holds `session-summaries.json.lock` for its whole write: while another holds it, nothing is swept, however old the
 /// temp, and the holder's lock is left as it is (Node: ELOCKCONTENDED, swallowed).
 #[tokio::test]
+#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 async fn a_summary_temp_is_not_swept_while_a_writer_holds_the_index_lock() {
     let data = tempfile::tempdir().expect("data folder");
     let modified = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);

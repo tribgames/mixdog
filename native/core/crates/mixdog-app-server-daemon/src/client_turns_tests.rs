@@ -176,7 +176,7 @@ fn recorded(scenario: &Value) -> Vec<Value> {
         .map(|step| {
             let mut step = step.clone();
             let fields = step.as_object_mut().unwrap();
-            fields.remove("patches");
+            fields.shift_remove("patches");
             if let Some(messages) = fields.get_mut("toolMessages") {
                 for message in messages.as_array_mut().unwrap() {
                     if !message.as_str().unwrap().starts_with("Error: tool") {
@@ -465,7 +465,7 @@ async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
     let want: Vec<Value> = recorded(scenario)
         .into_iter()
         .map(|mut step| {
-            step.as_object_mut().unwrap().remove("waiting");
+            step.as_object_mut().unwrap().shift_remove("waiting");
             step
         })
         .collect();

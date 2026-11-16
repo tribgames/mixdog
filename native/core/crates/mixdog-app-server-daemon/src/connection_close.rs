@@ -68,6 +68,7 @@ pub struct ConnectionOwners {
 }
 
 impl ConnectionOwners {
+    #[allow(clippy::too_many_arguments, reason = "Keep the existing composed connection-owner boundary and explicit owner lifetimes unchanged.")]
     pub fn new(
         terminal: Arc<TerminalService>,
         screen: Arc<ScreenSessions>,
