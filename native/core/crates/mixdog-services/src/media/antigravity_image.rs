@@ -80,16 +80,16 @@ pub fn antigravity_image_parts(sse_text: &str) -> StreamParts {
             usage_metadata = meta.clone();
         }
         let blocked = chunk.get("promptFeedback").and_then(|f| f.get("blockReason")).filter(|b| truthy(Some(b)));
-        if let Some(reason) = blocked {
-            if failure.as_deref().is_none_or(str::is_empty) {
-                failure = Some(format!("prompt blocked ({})", value_to_string(reason)));
-            }
+        if let Some(reason) = blocked
+            && failure.as_deref().is_none_or(str::is_empty) {
+            failure = Some(format!("prompt blocked ({})", value_to_string(reason)));
         }
     }
     StreamParts { parts, failure, usage: gemini_usage(&usage_metadata) }
 }
 
 /// `generateImage({ model, prompt, options, references, signal })`.
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 pub async fn generate_image(http: &dyn JsonPost, session: &dyn AntigravitySession, model: &str, prompt: &str, options: &Value, references: &[ImageReference], cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
     let auth = session.auth().await?;
     let mut request = match gemini_image_request_body(prompt, options, references) {

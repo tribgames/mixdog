@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use mixdog_core_api::domain::ext::ExtError;
 use mixdog_exthost::{ExtImageCodec, RenditionVariant};
 use mixdog_protocol::ThreadId;
-use mixdog_rt::DurabilityIo;
+use mixdog_rt::{DurabilityIo, TaskClass};
 use tokio::sync::oneshot;
 
 use crate::tidy::process::{Processes, RunOptions};
@@ -316,10 +316,9 @@ pub fn write_rendition(cache_dir: &Path, variant: RenditionVariant, id: &str, ex
     }
     let Some((_, mime)) = EXTENSION_MIME.iter().find(|(known, _)| *known == extension) else { return Ok(None) };
     let path = rendition_path(cache_dir, variant, id, extension);
-    if let Err(error) = write_atomic(&path, bytes, false) {
-        if !path.exists() {
-            return Err(error);
-        }
+    if let Err(error) = write_atomic(&path, bytes, false)
+        && !path.exists() {
+        return Err(error);
     }
     let size = fs::metadata(&path).map_or(bytes.len() as u64, |m| m.len());
     prune_cache(cache_dir, cache_max_bytes(), &path);
@@ -381,8 +380,7 @@ type PosterRun = Arc<dyn Fn(String, Vec<String>, PathBuf) -> tokio::task::JoinHa
 
 /// What a video poster is made with: the ffmpeg run and where ffmpeg is now.
 struct Posters {
-    /// Runs ffmpeg with the arguments in the folder, on a blocking thread (the process runner is kept behind this function: a state
-    /// that held it directly kept the rendition task's future from being `Send`).
+    /// Runs ffmpeg as a work task. Processes owns spawn-lane admission, async event collection and kill-on-drop cleanup.
     run: PosterRun,
     ffmpeg: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>,
 }
@@ -416,13 +414,11 @@ impl StillRenditions {
     /// it is not installed), `processes` runs it. Set once; a second call changes nothing.
     pub fn enable_video_posters(&self, processes: Processes, ffmpeg: impl Fn() -> Option<PathBuf> + Send + Sync + 'static) {
         let run: PosterRun = Arc::new(move |program: String, arguments: Vec<String>, dir: PathBuf| {
-            let (processes, runtime) = (processes.clone(), tokio::runtime::Handle::current());
-            tokio::task::spawn_blocking(move || {
-                runtime.block_on(async move {
-                    let mut options = RunOptions::new(&dir);
-                    options.timeout = POSTER_TIMEOUT;
-                    processes.run(&program, &arguments, options).await
-                })
+            let processes = processes.clone();
+            mixdog_rt::spawn("media.poster.process", TaskClass::Work, async move {
+                let mut options = RunOptions::new(&dir);
+                options.timeout = POSTER_TIMEOUT;
+                processes.run(&program, &arguments, options).await
             })
         });
         let _ = self.0.posters.set(Posters { run, ffmpeg: Arc::new(ffmpeg) });
@@ -497,9 +493,10 @@ async fn generate_shared(inner: Arc<Inner>, key: String, request: Request) {
         let parts = inner.posters.get().map(|posters| (posters.run.clone(), posters.ffmpeg.clone()));
         match parts {
             Some((run, resolve)) => {
-                // The poster's future is made and driven on a blocking thread, so this task's future holds only its join handle.
-                let (runtime, lane, cache, variant, id, source) = (tokio::runtime::Handle::current(), inner.lane, inner.cache_dir.clone(), request.variant, request.id.clone(), request.source.clone());
-                let made = tokio::task::spawn_blocking(move || runtime.block_on(poster(run, resolve, lane, cache, variant, id, source)));
+                // Keep the owned job and join boundary: a caller dropping its waiter never aborts shared generation,
+                // and a panicked poster still maps to no rendition. File operations inside poster remain lane jobs.
+                let (lane, cache, variant, id, source) = (inner.lane, inner.cache_dir.clone(), request.variant, request.id.clone(), request.source.clone());
+                let made = mixdog_rt::spawn("media.poster.generate", TaskClass::Work, poster(run, resolve, lane, cache, variant, id, source));
                 made.await.unwrap_or(Ok(None))
             }
             None => Ok(None),

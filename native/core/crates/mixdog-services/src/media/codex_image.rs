@@ -162,6 +162,7 @@ fn with_usage(mut error: AdapterError, usage: Option<Value>) -> AdapterError {
     error
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 async fn via_images_endpoint(
     http: &dyn JsonPost,
     session: &dyn CodexSession,
@@ -236,21 +237,19 @@ fn collect_image(event: &Value, state: &mut StreamState) {
         }
         return;
     }
-    if kind == Some("response.image_generation_call.partial_image") {
-        if let Some(partial) = event.get("partial_image_b64").and_then(Value::as_str) {
-            if partial.encode_utf16().count() > state.partial.encode_utf16().count() {
-                state.partial = partial.to_owned();
-            }
-        }
+    if kind == Some("response.image_generation_call.partial_image")
+        && let Some(partial) = event.get("partial_image_b64").and_then(Value::as_str)
+        && partial.encode_utf16().count() > state.partial.encode_utf16().count() {
+        state.partial = partial.to_owned();
     }
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 async fn via_responses(
     http: &dyn JsonPost,
     session: &dyn CodexSession,
     auth: &CodexAuth,
-    model: &str,
-    prompt: &str,
+    (model, prompt): (&str, &str),
     options: &Value,
     references: &[ImageReference],
     cancel: &CancellationToken,
@@ -324,6 +323,7 @@ async fn via_responses(
 }
 
 /// `generateImage({ model, prompt, options, references, signal })`.
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 pub async fn generate_image(http: &dyn JsonPost, session: &dyn CodexSession, model: &str, prompt: &str, options: &Value, references: &[ImageReference], cancel: &CancellationToken) -> Result<CodexImage, AdapterError> {
     let unsupported = |message: &str| AdapterError::from(LaneError { message: message.to_owned(), code: "MEDIA_OPTION_UNSUPPORTED", status: 400 });
     if ["size", "quality", "resolution", "aspectRatio"].iter().any(|key| truthy(options.get(*key)) && options[*key] != "auto") {
@@ -339,7 +339,7 @@ pub async fn generate_image(http: &dyn JsonPost, session: &dyn CodexSession, mod
     if let Some(image) = via_images_endpoint(http, session, &auth, prompt, options, references, cancel).await? {
         return Ok(image);
     }
-    via_responses(http, session, &auth, model, prompt, options, references, cancel).await
+    via_responses(http, session, &auth, (model, prompt), options, references, cancel).await
 }
 
 // ── chatgpt-usage.mjs ─────────────────────────────────────────────────────

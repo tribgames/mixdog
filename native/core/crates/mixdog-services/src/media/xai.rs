@@ -94,6 +94,7 @@ fn size_params(options: &Value, body: &mut Map<String, Value>) {
 
 /// `generateImage({ lane, model, prompt, options, references, signal })`.
 #[allow(clippy::too_many_arguments, reason = "the adapter's own parameters, one per field of Node's call")]
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 pub async fn generate_image(http: &dyn JsonPost, auth: &Auth, model: &str, prompt: &str, options: &Value, references: &[ImageReference], cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
     let refs: Vec<Value> = references.iter().map(|r| json!({ "type": "image_url", "url": reference_url(r) })).collect();
     let mut body = Map::new();
@@ -125,6 +126,7 @@ pub async fn generate_image(http: &dyn JsonPost, auth: &Auth, model: &str, promp
 
 /// `generateVideo({ lane, model, prompt, options, references, signal, onProgress })`.
 #[allow(clippy::too_many_arguments, reason = "the adapter's own parameters, one per field of Node's call")]
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 pub async fn generate_video(
     http: &dyn JsonPost,
     public: &dyn PublicFetch,
@@ -141,10 +143,7 @@ pub async fn generate_video(
     let wanted = to_number_of(options.get("duration"));
     let wanted = if wanted.is_nan() || wanted == 0.0 { 5.0 } else { wanted };
     let duration = wanted.trunc().clamp(1.0, 15.0) as i64;
-    let resolution = match options.get("resolution").and_then(Value::as_str) {
-        Some(r @ ("480p" | "720p" | "1080p")) => r,
-        _ => "480p",
-    };
+    let resolution = options.get("resolution").and_then(Value::as_str).filter(|r| matches!(*r, "480p" | "720p" | "1080p")).unwrap_or("480p");
     let mut body = Map::new();
     body.insert("model".into(), json!(model));
     body.insert("prompt".into(), json!(prompt));
