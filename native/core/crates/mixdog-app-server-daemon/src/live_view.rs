@@ -222,12 +222,15 @@ struct Inner {
     pub(crate) seams: Mutex<Seams>,
 }
 
+#[cfg(test)]
+type PushOnItsWay = Arc<dyn Fn(u64, &str) + Send + Sync>;
+
 /// Test-only points of a push to a phone and of an unpair's cleanup, where a test holds one side while the other runs.
 #[cfg(test)]
 #[derive(Default)]
 pub(crate) struct Seams {
     /// A push on its way, before the view gate, with its method.
-    pub(crate) on_its_way: Option<Arc<dyn Fn(u64, &str) + Send + Sync>>,
+    pub(crate) on_its_way: Option<PushOnItsWay>,
     /// A push that passed its check, before its `notify`, the view gate held.
     pub(crate) checked: Option<Arc<dyn Fn(u64) + Send + Sync>>,
     /// An unpair's cleanup that found the view gate held by a push and waits for it.
@@ -1060,11 +1063,13 @@ mod tests {
         }
     }
 
+    type SenderListener = Box<dyn Fn(SenderEvent) + Send + Sync>;
+
     #[derive(Default)]
     pub(super) struct Scripted {
         log: Mutex<Vec<Value>>,
         logged: tokio::sync::Notify,
-        events: Mutex<HashMap<String, Box<dyn Fn(SenderEvent) + Send + Sync>>>,
+        events: Mutex<HashMap<String, SenderListener>>,
         ids: AtomicU64,
     }
 
@@ -1175,9 +1180,9 @@ mod tests {
     /// Without what differs by design: the ICE servers (the relay's in the core, the test's in Node's recording).
     fn without_ice(mut value: Value) -> Value {
         if let Some(object) = value.as_object_mut() {
-            object.remove("iceServers");
-            object.remove("sourceKey");
-            object.remove("iceTransportPolicy");
+            object.shift_remove("iceServers");
+            object.shift_remove("sourceKey");
+            object.shift_remove("iceTransportPolicy");
         }
         value
     }

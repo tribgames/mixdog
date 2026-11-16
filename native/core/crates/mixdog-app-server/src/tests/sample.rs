@@ -143,6 +143,7 @@ impl Samples {
     /// `method`'s minimal params with `text` at `pattern` (a free-text pattern: `*` is index 0 of an array or key `k` of a
     /// map, a last `**` the value there), with every member the schema requires on the way; where the schema leaves a value
     /// untyped, objects (arrays for `*`).
+    #[allow(dead_code, reason = "Shared schema fixture: free-text cases use this helper, while daemon includes only the valid-payload subset.")]
     pub(crate) fn with_text(&self, method: &str, pattern: &str, text: &str) -> Value {
         let row = &self.schema["methods"][method]["params"];
         let mut params = self.valid(method, Some(pattern));
@@ -152,12 +153,14 @@ impl Samples {
 
     /// A payload no schema types (a notification's or an answer's, which the server passes on unread) with `text` at
     /// `pattern`.
+    #[allow(dead_code, reason = "Shared schema fixture: notification free-text cases use this helper outside the daemon's subset.")]
     pub(crate) fn untyped_with_text(&self, pattern: &str, text: &str) -> Value {
         let mut payload = Value::Null;
         self.put(&mut payload, None, &segments(pattern), text);
         payload
     }
 
+    #[allow(dead_code, reason = "Part of the shared free-text fixture traversal retained for its other test consumers.")]
     fn resolve<'a>(&'a self, schema: &'a Value) -> &'a Value {
         match schema.get("$ref").and_then(Value::as_str) {
             Some(reference) => self.resolve(&self.schema["definitions"][reference.rsplit('/').next().expect("ref has a name")]),
@@ -167,6 +170,7 @@ impl Samples {
 
     /// The part of `schema` that holds `segment`, and whether it is one alternative of a choice (the value is then that
     /// alternative's sample).
+    #[allow(dead_code, reason = "Part of the shared free-text fixture traversal retained for its other test consumers.")]
     fn holding<'a>(&'a self, schema: &'a Value, segment: &str) -> Option<(&'a Value, bool)> {
         let schema = self.resolve(schema);
         for choice in ["allOf", "oneOf", "anyOf"] {
@@ -183,6 +187,7 @@ impl Samples {
         fits.then_some((schema, false))
     }
 
+    #[allow(dead_code, reason = "Part of the shared free-text fixture traversal retained for its other test consumers.")]
     fn put(&self, at: &mut Value, schema: Option<&Value>, segments: &[&str], text: &str) {
         let Some((&segment, rest)) = segments.split_first() else {
             *at = json!(text);
@@ -224,10 +229,12 @@ impl Samples {
     }
 }
 
+#[allow(dead_code, reason = "Shared free-text schema fixture helper, unused by the daemon's valid-payload subset.")]
 fn segments(pattern: &str) -> Vec<&str> {
     pattern.split('/').skip(1).collect()
 }
 
+#[allow(dead_code, reason = "Shared free-text schema fixture helper, unused by the daemon's valid-payload subset.")]
 fn is_array(schema: &Value) -> bool {
     schema.get("type") == Some(&json!("array")) || schema.get("items").is_some()
 }

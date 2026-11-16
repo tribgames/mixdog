@@ -74,6 +74,7 @@ fn a_stop_request_cuts_a_new_task_held_in_its_draft_step_and_the_core_releases()
     body.join().expect("the body");
 }
 
+#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 fn body(step: &Step) {
     let at = |name: &'static str| *step.lock().unwrap() = name;
     let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("runtime");
@@ -129,7 +130,7 @@ fn body(step: &Step) {
     let recorded = golden["cases"]["quit-in-set-route"]["recorded"][0]["receipts"].as_object().expect("receipts").clone();
     let unsigned = |text: &str| {
         let mut receipt: Value = serde_json::from_str(text).expect("a receipt");
-        receipt.as_object_mut().expect("object").remove("signature");
+        receipt.as_object_mut().expect("object").shift_remove("signature");
         receipt
     };
     let key: String = sha2::Sha256::digest(b"s-quit-route").iter().map(|byte| format!("{byte:02x}")).collect();

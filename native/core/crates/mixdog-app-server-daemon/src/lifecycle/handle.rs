@@ -420,7 +420,8 @@ impl Lifecycle {
         // Before any step: the stop steps (run inside `closeDataHandles`) abort the agent runs with Node's text of this stop.
         let node_reason = locked(&self.trigger).take().unwrap_or_else(|| cause.node_text());
         core.release_started(&node_reason);
-        let closing: [(&'static str, Duration, fn(&dyn CorePort)); 3] = [
+        type ClosingStep = (&'static str, Duration, fn(&dyn CorePort));
+        let closing: [ClosingStep; 3] = [
             ("finalBarriers", budgets.final_barriers, |core| core.final_barriers()),
             ("closeConnections", budgets.close_connections, |core| core.close_connections()),
             ("closeExtHost", budgets.close_ext_host, |core| core.close_ext_host()),

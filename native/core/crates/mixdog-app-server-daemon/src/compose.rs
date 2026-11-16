@@ -876,7 +876,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     let built = crate::compose_flip::Built {
         host_media: host_media.clone(),
         acquired: acquired.clone(),
-        tokens: tokens.clone(),
+        tokens: *tokens,
         data_dir: data_dir.to_path_buf(),
         user_data_dir,
         runtime_root,
@@ -1105,6 +1105,7 @@ mod tests {
     /// held (one poll joins the run in progress) waits for that same cleanup, which runs once. The whole run has one bound, `BUDGET`.
     #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    #[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
     fn overlapping_stops_wait_for_the_same_cleanup_as_node_recorded() {
         crate::compose_test_support::in_child(module_path!(), "overlapping_stops_wait_for_the_same_cleanup_as_node_recorded", { let mut runtime = tokio::runtime::Builder::new_multi_thread(); runtime.worker_threads(2); runtime }, |dir| async move {
             use std::sync::atomic::{AtomicU64, Ordering};
@@ -1211,6 +1212,7 @@ mod tests {
                 fn close_data_handles(&self) {
                     self.inner.close_data_handles();
                 }
+                #[allow(clippy::disallowed_methods, reason = "Test-only blocking watchdog/exit wait; its owned completion signal is released by the fixture, not product work.")]
                 fn flush_log(&self) {
                     self.inner.flush_log();
                 }

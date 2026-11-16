@@ -338,10 +338,8 @@ pub fn record_exit(code: i32) {
         Some(pending) => (format!("{} ({})", pending.reason, describe_exit(Some(code))), pending.error),
         None => (describe_exit(Some(code)), None),
     };
-    if wait {
-        if let Some(recorder) = RECORDER.get() {
-            recorder.wait_for_sidecar(SIDECAR_WAIT);
-        }
+    if wait && let Some(recorder) = RECORDER.get() {
+        recorder.wait_for_sidecar(SIDECAR_WAIT);
     }
     write(&reason, code, error.as_deref());
 }

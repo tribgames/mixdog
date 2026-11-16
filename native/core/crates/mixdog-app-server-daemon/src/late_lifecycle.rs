@@ -375,7 +375,7 @@ mod tests {
         let in_daemon = |step: &serde_json::Value| {
             let mut step = step.clone();
             step["connectionCount"] = serde_json::json!(step["connectionCount"].as_u64().unwrap() - 1);
-            step.as_object_mut().unwrap().remove("step");
+            step.as_object_mut().unwrap().shift_remove("step");
             step
         };
         let steps = node["result"]["steps"].as_array().unwrap();

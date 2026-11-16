@@ -58,7 +58,7 @@ pub fn reclaim_dead_capture_temps(dir: &Path, alive: &dyn Fn(u32) -> bool) -> us
     let mut removed = 0;
     for entry in entries.flatten() {
         let Some(writer) = entry.file_name().to_str().and_then(capture_temp_writer) else { continue };
-        if writer == 0 || u32::try_from(writer).map_or(true, |pid| alive(pid)) {
+        if writer == 0 || u32::try_from(writer).map_or(true, alive) {
             continue;
         }
         if std::fs::remove_file(entry.path()).is_ok() {

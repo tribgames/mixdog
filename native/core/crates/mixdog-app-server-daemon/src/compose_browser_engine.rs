@@ -110,6 +110,7 @@ pub struct EngineFiles {
 
 #[async_trait]
 impl FilePort for EngineFiles {
+    #[allow(clippy::disallowed_methods, reason = "All blocking filesystem operations in this method run inside its awaited on_lane_wait InteractiveIo closure.")]
     async fn stat(&self, path: &Path) -> FileFacts {
         let path = path.to_path_buf();
         on_lane_wait(self.lane, &CancellationToken::new(), move |_| match std::fs::metadata(&path) {
@@ -131,6 +132,8 @@ impl FilePort for EngineFiles {
 
 #[async_trait]
 impl mixdog_browser_engine::reply::downloads_text::DownloadFiles for EngineFiles {
+    #[allow(clippy::disallowed_methods, reason = "All blocking filesystem operations in this method run inside its awaited on_lane_wait InteractiveIo closure.")]
+    #[allow(clippy::disallowed_types, reason = "All blocking filesystem operations in this method run inside its awaited on_lane_wait InteractiveIo closure.")]
     async fn read_file(&self, path: &Path, limit: u64) -> std::io::Result<Bytes> {
         let path = path.to_path_buf();
         on_lane_wait(self.lane, &CancellationToken::new(), move |_| {
@@ -330,7 +333,7 @@ impl crate::browser_engine_service::BrowserToolRunner for EngineToolRunner {
         };
         // The request is validated as the bridge validates a command before it runs (the tool's own contract: an unknown action, a
         // field the action does not take, a missing target); `turn_id` is the runtime's, beside the tool's fields.
-        let turn = input.remove("turn_id");
+        let turn = input.shift_remove("turn_id");
         let mut command = input;
         command.insert("action".to_owned(), serde_json::Value::String(action.to_owned()));
         let (action, mut input) = match mixdog_tools::desktop::browser_bridge_run::validated_command(command) {

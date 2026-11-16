@@ -45,12 +45,14 @@ use serde_json::Value;
 
 use crate::pair_code::ComposedPairCodeEffects;
 
+type LatePublishState = (Option<Arc<dyn StatePublisher>>, Vec<(SectionName, Option<String>, SectionChange)>);
+
 /// The `StatePublisher` of `compose_domains` (`ComposedDomains::state.publisher`), which exists
 /// only after the runtime did: publications made before [`bind`](Self::bind) are kept and
 /// delivered in order when it is bound.
 #[derive(Default)]
 pub struct LatePublisher {
-    state: Mutex<(Option<Arc<dyn StatePublisher>>, Vec<(SectionName, Option<String>, SectionChange)>)>,
+    state: Mutex<LatePublishState>,
 }
 
 impl LatePublisher {

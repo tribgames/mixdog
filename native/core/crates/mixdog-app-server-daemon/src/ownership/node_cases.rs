@@ -10,6 +10,7 @@ use std::io::Read as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
+#[allow(clippy::disallowed_types, reason = "Test-only owned contender process launcher; its lifetime is managed by Contender.")]
 use std::process::Command;
 use std::process::Stdio;
 
@@ -48,6 +49,7 @@ struct Contender {
 const VERDICT_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 
 impl Contender {
+    #[allow(clippy::disallowed_types, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
     fn start(data: &Path) -> Self {
         let mut child = Command::new(std::env::current_exe().unwrap())
             .args(["ownership::node_cases::contender", "--exact", "--nocapture", "--test-threads=1"])
@@ -120,6 +122,7 @@ fn holders(data: &Path) -> Value {
     json!(racers.iter_mut().map(Contender::verdict).filter(|verdict| verdict["held"] == true).count())
 }
 
+#[allow(clippy::disallowed_types, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
 fn replay(name: &str, fx: &mut Fixtures) -> Vec<Value> {
     let mut seen = Vec::new();
     let mut see = |what: &str, value: Value| seen.push(json!({ "what": what, "value": value }));

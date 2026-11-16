@@ -105,6 +105,7 @@ impl Inbox {
     }
 }
 
+#[allow(clippy::disallowed_types, reason = "Shared test inbox owns one receiver across take().await; do not hold a synchronous data mutex across that wait.")]
 type SharedInbox = Arc<tokio::sync::Mutex<Inbox>>;
 
 /// A scripted relay: it accepts the desktop's legs one after another, declares the capabilities on
@@ -127,6 +128,8 @@ pub async fn driven_relay(clients: Value) -> Relay {
 }
 
 /// [`driven_relay`] whose answer to `revoke-client` is `revoke_ok` (a relay that fails to unpair a device).
+#[allow(clippy::result_large_err, reason = "Test fixture preserves the existing structured protocol/error response without boxing solely for lint.")]
+#[allow(clippy::disallowed_types, reason = "Test-only single stream receiver ownership spans recv().await; a synchronous mutex would block the executor.")]
 pub async fn driven_relay_with(clients: Value, revoke_ok: bool) -> Relay {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();

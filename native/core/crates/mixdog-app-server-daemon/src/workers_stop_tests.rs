@@ -54,7 +54,7 @@ impl ThreadState for RefusingHeaders {
         Ok(Map::new())
     }
     async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
-        let refused = self.0.fetch_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok();
+        let refused = self.0.try_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok();
         if refused { Err(PortError::Invalid { field: "worker".into(), reason: "disk full".into() }) } else { Ok(()) }
     }
     async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
@@ -82,6 +82,7 @@ fn capturing_log(dir: &std::path::Path, tokens: &mixdog_rt::LaneTokens) -> (crat
 /// A write the headers refuse through every attempt is logged by the stop step, which then ends; a write that failed and was put by
 /// a later attempt is not (the step's drain is Node's `flushAllIndexWrites`, which rejects only while a batch still fails).
 #[tokio::test(start_paused = true)]
+#[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
 async fn a_row_write_the_headers_refused_is_logged_by_the_stop_step_until_it_recovers() {
     let dir = tempfile::tempdir().expect("temp dir");
     let tokens = mixdog_rt::testing::tokens();
@@ -119,6 +120,7 @@ async fn a_row_write_the_headers_refused_is_logged_by_the_stop_step_until_it_rec
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
 async fn the_stop_step_ends_only_once_a_queued_agent_row_write_is_on_the_headers() {
     let dir = tempfile::tempdir().expect("temp dir");
     let tokens = mixdog_rt::testing::tokens();
