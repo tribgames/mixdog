@@ -338,10 +338,10 @@ impl ApprovalBook {
 
     /// A request record failed its barrier: it never existed.
     pub fn forget(&mut self, aid: ApprovalId) {
-        if let Some(open) = self.open.remove(&aid) {
-            if let Some(deadline) = open.deadline {
-                self.deadlines.remove(&(deadline, aid));
-            }
+        if let Some(open) = self.open.remove(&aid)
+            && let Some(deadline) = open.deadline
+        {
+            self.deadlines.remove(&(deadline, aid));
         }
     }
 }
