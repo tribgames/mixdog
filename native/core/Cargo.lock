@@ -4675,6 +4675,7 @@ dependencies = [
  "mixdog-core-api",
  "mixdog-core-base",
  "mixdog-core-domains",
+ "mixdog-migrate",
  "mixdog-protocol",
  "mixdog-rt",
  "mixdog-services",
