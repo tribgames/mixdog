@@ -67,10 +67,10 @@ impl Inner {
         previous: &Workspace,
         name: Option<String>,
         options: &Options,
-        tx_id: &str,
-        journal: &mut Journal,
+        transaction: (&str, &mut Journal),
         cancel: &CancellationToken,
     ) -> Result<JsonValue, ScmFailure> {
+        let (tx_id, journal) = transaction;
         let project_path = previous.project_path.clone();
         let project = self.ops.inspect(&project_path, cancel).await?;
         let (entry, changes) = match self.ops.session_worktree(session, cancel).await? {
@@ -140,13 +140,13 @@ impl Inner {
         self: &Arc<Self>,
         session: &str,
         previous: &Workspace,
-        branch: &str,
-        create: bool,
+        branch_choice: (&str, bool),
         options: &Options,
-        tx_id: &str,
-        journal: &mut Journal,
+        transaction: (&str, &mut Journal),
         cancel: &CancellationToken,
     ) -> Result<JsonValue, ScmFailure> {
+        let (tx_id, journal) = transaction;
+        let (branch, create) = branch_choice;
         let project_path = previous.project_path.clone();
         let project = self.ops.inspect(&project_path, cancel).await?;
         let resolved = self.ops.resolve_branch(&project_path, branch, create, TxScope { session, tx_id }, options.confirm_large, cancel).await?;
@@ -342,10 +342,10 @@ impl Inner {
             self.assert_lead_idle(session, options.own_turn).await?;
             match &target {
                 Target::Worktree { name } => {
-                    self.enter_worktree(session, &previous, name.clone(), &options, &tx_id, &mut journal, cancel).await
+                    self.enter_worktree(session, &previous, name.clone(), &options, (&tx_id, &mut journal), cancel).await
                 }
                 Target::Branch { branch, create } => {
-                    self.enter_project_branch(session, &previous, branch, *create, &options, &tx_id, &mut journal, cancel).await
+                    self.enter_project_branch(session, &previous, (branch, *create), &options, (&tx_id, &mut journal), cancel).await
                 }
                 Target::Remove { force } => self.remove_retained(session, &previous, *force, &mut journal, cancel).await,
             }

@@ -277,10 +277,10 @@ impl SessionState {
                     self.remerge_prompts();
                 }
                 let mut messages = u32::from(item.model);
-                if item.role.as_ref().is_some_and(|role| role.as_str() == "user") &&(!item.visible || !matches!(display, Display::Items(shown) if shown.iter().any(|shown| matches!(shown, Shown::Item(_))))) {
-                    if let Some(ordinal) = ordinal {
-                        self.hidden_prompt = Some((item.iid.as_str().to_owned(), ordinal));
-                    }
+                if item.role.as_ref().is_some_and(|role| role.as_str() == "user") &&(!item.visible || !matches!(display, Display::Items(shown) if shown.iter().any(|shown| matches!(shown, Shown::Item(_)))))
+                    && let Some(ordinal) = ordinal
+                {
+                    self.hidden_prompt = Some((item.iid.as_str().to_owned(), ordinal));
                 }
                 let Display::Items(shown) = display else {
                     if let Some(last) = self.window.back_mut() {

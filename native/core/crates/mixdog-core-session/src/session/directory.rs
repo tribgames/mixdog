@@ -4,6 +4,9 @@
 //! one decode on cpu-interactive (SPEC R28) — and every concurrent opener waits on the same
 //! result. The load runs as its own task, so a waiter that is cancelled stops waiting only.
 
+// Transparent names for existing callback/record shapes; no ownership or ordering change.
+type ThreadWriteVersions = (ThreadId, [(Arc<mixdog_rt::WriteMarks>, u64); 2]);
+
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -230,7 +233,7 @@ pub(crate) struct CreateSpec {
 #[cfg(any(test, feature = "test-support"))]
 #[derive(Clone)]
 pub struct DurabilitySettling {
-    threads: Vec<(ThreadId, [(Arc<mixdog_rt::WriteMarks>, u64); 2])>,
+    threads: Vec<ThreadWriteVersions>,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -801,8 +804,8 @@ impl SessionDirectory {
         }
         let refused = |message: String| mixdog_core_base::support::failed("route", message);
         let routes = &self.inner.deps.new_route;
-        routes.adopt(id, None).await.map_err(&refused)?;
-        routes.seat(id).await.map_err(&refused)
+        routes.adopt(id, None).await.map_err(refused)?;
+        routes.seat(id).await.map_err(refused)
     }
 
     /// The thread's committed messages hold a user conversation message (`hasUserConversationMessage(session.messages)`): a
@@ -2001,7 +2004,7 @@ impl SessionDirectory {
                 header,
                 base: None,
                 op: req.op.clone(),
-                method: req.method.clone(),
+                method: req.method,
                 params: req.params.clone(),
                 seed: Some(seeded),
                 settings,

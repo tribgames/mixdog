@@ -10,6 +10,9 @@
 //! What only the v2 protocol names (`searchTerm`, `sortKey`, `sortDirection`) is decided in
 //! `decisions.md` (D-list-*).
 
+// Transparent names for existing callback/record shapes; no ownership or ordering change.
+type ThreadRowHook = dyn Fn(&ThreadSummary) + Send + Sync;
+
 use std::sync::Arc;
 use std::sync::OnceLock;
 
@@ -244,7 +247,7 @@ pub struct ThreadListService {
     /// The index writes still queued behind the barriers already acknowledged (see [`ListFence`]).
     fence: OnceLock<Arc<dyn ListFence>>,
     /// Told of every row sent on the app feed, after the dedupe and before the notification (the session notification producer).
-    on_row: OnceLock<Arc<dyn Fn(&ThreadSummary) + Send + Sync>>,
+    on_row: OnceLock<Arc<ThreadRowHook>>,
     /// Node's `sessionCatalogLoaded` (`session-host.ts:146,807`): set once a listing has been answered.
     loaded: std::sync::atomic::AtomicBool,
     /// The row last sent on the app feed per thread: Node hands a catalog only when it differs from the one its listener holds
@@ -304,7 +307,7 @@ impl ThreadListService {
     }
 
     /// Connects what is told each row sent on the app feed. Set once.
-    pub fn on_row(&self, hook: Arc<dyn Fn(&ThreadSummary) + Send + Sync>) {
+    pub fn on_row(&self, hook: Arc<ThreadRowHook>) {
         let _ = self.on_row.set(hook);
     }
 

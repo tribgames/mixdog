@@ -8,6 +8,9 @@
 //! hold copies whose answer is forwarded to that owner, and every copy is withdrawn when the owner
 //! settles. Registry calls never run a queue callback under the lock: a queue may call back in.
 
+// Transparent names for existing callback/record shapes; no ownership or ordering change.
+type DelegatedHandoff = (CopyFor, Vec<(String, Delegated, u64)>);
+
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use async_trait::async_trait;
@@ -67,7 +70,7 @@ struct Pending {
     serial: u64,
     asked: Delegated,
     /// `delegateToHandoffs`: the request as each chat shows it, and the copies now held.
-    handoff: Option<(CopyFor, Vec<(String, Delegated, u64)>)>,
+    handoff: Option<DelegatedHandoff>,
 }
 
 #[derive(Default)]

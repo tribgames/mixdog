@@ -74,10 +74,10 @@ pub(crate) fn takeover_hold<'a>(asks: impl Iterator<Item = (ApprovalId, &'a Appr
 /// its instructions, on one line and cut to 160 characters.
 fn takeover_step(takeover: Option<&Value>) -> String {
     let field = |key: &str| takeover.and_then(|takeover| takeover.get(key));
-    if field("purpose").and_then(Value::as_str) == Some("login") {
-        if let Some(url) = field("url").and_then(Value::as_str).and_then(|url| url::Url::parse(url).ok()) {
-            return format!("sign-in on {}", url.host_str().unwrap_or_default());
-        }
+    if field("purpose").and_then(Value::as_str) == Some("login")
+        && let Some(url) = field("url").and_then(Value::as_str).and_then(|url| url::Url::parse(url).ok())
+    {
+        return format!("sign-in on {}", url.host_str().unwrap_or_default());
     }
     let text = ["target", "instructions"]
         .into_iter()

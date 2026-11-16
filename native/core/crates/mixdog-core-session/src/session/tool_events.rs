@@ -151,7 +151,7 @@ async fn drain(path: PathBuf, io: MaintenanceIo, queue: Arc<Mutex<Queue>>) {
     let mut restat = {
         let mut state = lock(&queue);
         state.drains += 1;
-        state.drains % RESTAT_EVERY_DRAINS == 0
+        state.drains.is_multiple_of(RESTAT_EVERY_DRAINS)
     };
     loop {
         let (chunk, known) = {

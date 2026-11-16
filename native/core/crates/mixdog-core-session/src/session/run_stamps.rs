@@ -111,10 +111,10 @@ fn legacy_run_of(id: &str, record: &Header, depth: usize) -> Backfill {
         };
         return Backfill::Run(run_stamp(run.get("kind"), owner.as_ref(), run.get("name")));
     }
-    if !agent_owned(record) && clean(record.get("sourceType")) == "lead" {
-        if let Some(bot) = task_source_bot(&clean(record.get("sourceName"))) {
-            return Backfill::Run(run_stamp(Some(&Value::from("schedule")), Some(&Value::from(bot)), None));
-        }
+    if !agent_owned(record) && clean(record.get("sourceType")) == "lead"
+        && let Some(bot) = task_source_bot(&clean(record.get("sourceName")))
+    {
+        return Backfill::Run(run_stamp(Some(&Value::from("schedule")), Some(&Value::from(bot)), None));
     }
     let parent = parent_of(record);
     if parent.is_empty() || parent == id || old.is_some_and(Value::is_object) || depth >= MAX_PATH {

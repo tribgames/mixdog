@@ -347,7 +347,7 @@ impl<'a> Hook<'a> {
             Self::Question => "question",
             Self::Secret => "secret",
             Self::Takeover => "takeover",
-            Self::Gate(kind) => *kind,
+            Self::Gate(kind) => kind,
         }
     }
 }
@@ -519,6 +519,7 @@ impl SessionDirectory {
     /// `approval_id` is not the approval the thread shows (Node refuses then), or when another
     /// decision resolved it first (Node's `result.approved` of the serialized answer). `decision` is the
     /// response's result (`{ approved, reason?, answers?, reply?, remember?, ... }`).
+    #[allow(clippy::too_many_arguments, reason = "Preserve the established approval-answer API and its independent provenance and decision inputs")]
     pub async fn answer_member_approval(
         &self,
         thread: &ThreadId,
