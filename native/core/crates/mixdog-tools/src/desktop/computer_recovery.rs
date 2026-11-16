@@ -128,6 +128,11 @@ fn foreground_recovery(code: &str, target: &str) -> Option<Recovery> {
 fn recovery_for_code(code: &str, args: &Value) -> Option<Recovery> {
     let target = target_label(args);
     match code {
+        // An admission/worker-budget refusal, before this request dispatches input.
+        // Node's error-recovery.mjs leaves it unadorned: the original message says
+        // which capacity was exhausted. Do not invent cleanup, takeover, or a new
+        // capture request while the command/worker/user-wait budget is already full.
+        "computer_capacity_exhausted" => return None,
         "computer_background_cleanup_unconfirmed" => return recovery(code, "user", "The worker stopped, but release of target-local window-message input is unconfirmed. Do not replay input, change delivery, or clear the guard. Ask the user to inspect and recover the affected window; a host restart requires approval and does not itself prove that the application input was released."),
         "ambiguous_window_target" | "window_stale" | "window_target_not_found" => return recovery(code, "list", "List windows and retry with one current exact window_id."),
         "stale_frame" | "stale_target" | "target_mismatch" => return recovery(code, "capture", format!("Capture {target} again and use only the fresh ref, OCR mark, or frame_id.")),
@@ -280,7 +285,7 @@ mod tests {
     /// (`capture_*`, `privileged_worker_*`, `msaa_*`, `focus_required`, ...) belong here because `error-recovery.mjs` never named them.
     /// So do the remote screen's input codes (`cursor_unavailable`, `out_of_bounds`, `protocol_error`: `--screen-input` answers the
     /// desktop, never the model) and the JPEG encoder's own `wic` failure, which falls back to PNG and never reaches a reply.
-    const WITHOUT_RECOVERY: [&str; 54] = [
+    const WITHOUT_RECOVERY: [&str; 55] = [
         "a11y_action_failed",
         "a11y_value_failed",
         "accessibility_blocked_by_integrity",
@@ -300,6 +305,9 @@ mod tests {
         "capture_wgc_unavailable",
         "capture_withheld",
         "clipboard_unavailable",
+        // The native elevation pipe now emits the same pre-dispatch capacity
+        // refusal as Node's worker pool; Node gives it no recovery action.
+        "computer_capacity_exhausted",
         "computer_policy_denied",
         "computer_policy_expired",
         "cursor_unavailable",
@@ -336,6 +344,27 @@ mod tests {
         "winrt_timeout",
         "x11_unavailable",
     ];
+
+    #[test]
+    fn capacity_refusals_keep_the_original_message_without_recovery_advice() {
+        let messages = [
+            "computer_capacity_exhausted: worker request budget exceeded; input was not dispatched",
+            "computer_capacity_exhausted: pending command limit reached; no input was queued",
+            "computer_capacity_exhausted: 8 workers are still live; release an idle session before retrying",
+            "computer_capacity_exhausted: too many active requests",
+            "computer_capacity_exhausted: user wait already active or full",
+        ];
+        assert!(WITHOUT_RECOVERY.contains(&"computer_capacity_exhausted"));
+        for message in messages {
+            for action in ["act", "capture", "wait_for_user"] {
+                let input = json!({ "window_id": "hwnd:0x1" });
+                let args = json!({ "action": action, "input": input.clone() });
+                assert_eq!(tool_error_recovery(message, &args), None, "{action}: {message}");
+                assert_eq!(format_tool_error(message, &args), format!("Error: {message}"));
+                assert_eq!(recapture_window(action, &input, message), None);
+            }
+        }
+    }
 
     /// Every classification is the TS module's, code by code.
     #[test]
