@@ -373,15 +373,14 @@ impl LocalProvider {
                 this.save_context(&entry, tokens).await?;
                 let _ = this.refresh_installed().await;
                 this.signal.notify();
-                if reload {
-                    if let Err(e) = this.ensure_server(&id, Some(cancel)).await {
-                        // `server.mjs:52-56`: the restoring save is bare in the `catch`, so its failure is thrown in
-                        // place of the reload's error.
-                        this.save_context(&entry, previous).await?;
-                        let _ = this.refresh_installed().await;
-                        this.signal.notify();
-                        return Err(e);
-                    }
+                if reload
+                    && let Err(e) = this.ensure_server(&id, Some(cancel)).await {
+                    // `server.mjs:52-56`: the restoring save is bare in the `catch`, so its failure is thrown in
+                    // place of the reload's error.
+                    this.save_context(&entry, previous).await?;
+                    let _ = this.refresh_installed().await;
+                    this.signal.notify();
+                    return Err(e);
                 }
                 Ok(())
             })

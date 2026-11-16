@@ -82,6 +82,7 @@ fn media(message: String, code: &'static str, status: u16) -> AdapterError {
 
 /// `generateImage({ lane, model, prompt, options, references, signal })`.
 #[allow(clippy::too_many_arguments, reason = "the adapter's own parameters, one per field of Node's call")]
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 pub async fn generate_image(http: &dyn JsonPost, public: &dyn PublicFetch, auth: &Auth, lane: &str, model: &str, prompt: &str, options: &Value, references: &[ImageReference], cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
     let label = label_of(lane);
     let mut body = Map::new();

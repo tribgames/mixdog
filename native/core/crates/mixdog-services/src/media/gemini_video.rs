@@ -57,6 +57,7 @@ fn key_headers(key: &str) -> Vec<(String, String)> {
     vec![("Content-Type".to_owned(), "application/json".to_owned()), ("x-goog-api-key".to_owned(), key.to_owned())]
 }
 
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 async fn via_omni(http: &dyn JsonPost, key: &str, model: &str, prompt: &str, options: &Value, references: &[ImageReference], cancel: &CancellationToken) -> Result<GeminiVideo, AdapterError> {
     // Omni takes a multimodal input array; a reference image switches the task from
     // text-to-video to image-to-video.
@@ -99,6 +100,7 @@ async fn via_omni(http: &dyn JsonPost, key: &str, model: &str, prompt: &str, opt
 }
 
 #[allow(clippy::too_many_arguments, reason = "the adapter's own parameters, one per field of Node's call")]
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 async fn via_veo(
     http: &dyn JsonPost,
     public: &dyn PublicFetch,
@@ -195,6 +197,7 @@ async fn via_veo(
 /// `generateVideo({ model, prompt, options, references, signal, onProgress })`; `key` is the
 /// Gemini API key.
 #[allow(clippy::too_many_arguments, reason = "the adapter's own parameters, one per field of Node's call")]
+#[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
 pub async fn generate_video(
     http: &dyn JsonPost,
     public: &dyn PublicFetch,

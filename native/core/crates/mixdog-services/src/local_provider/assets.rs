@@ -435,7 +435,7 @@ pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, desti
     }
     .await;
     if let Some(open) = file.take() {
-        let _ = settled(lane, move || Ok(drop(open))).await;
+        let _ = settled(lane, move || { drop(open); Ok(()) }).await;
     }
     streamed?;
     if total != size {

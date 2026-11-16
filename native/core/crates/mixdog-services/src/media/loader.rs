@@ -129,16 +129,14 @@ impl ModelLoader {
     ) -> Result<CatalogRows, CatalogFailure> {
         if cached {
             // A lane that fell back is not asked again until its window ends.
-            if let Some((_, error)) = retry.filter(|(at, _)| now() < *at) {
-                if let Some(previous) = cache.load(key, true).await {
-                    return Ok(stale(previous, &error));
-                }
+            if let Some((_, error)) = retry.filter(|(at, _)| now() < *at)
+                && let Some(previous) = cache.load(key, true).await {
+                return Ok(stale(previous, &error));
             }
-            if !changed {
-                if let Some(rows) = cache.load(key, false).await {
-                    shared.lock().unwrap().revisions.insert(key.to_owned(), revision);
-                    return Ok(CatalogRows { rows, warning: None });
-                }
+            if !changed
+                && let Some(rows) = cache.load(key, false).await {
+                shared.lock().unwrap().revisions.insert(key.to_owned(), revision);
+                return Ok(CatalogRows { rows, warning: None });
             }
         }
         // The request starts on the next turn (`Promise.resolve().then(fetch)`), so a call made
