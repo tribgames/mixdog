@@ -13,7 +13,7 @@ use mixdog_core_base::rooms::ids::room_id_of_session;
 use mixdog_js::js_trim;
 use serde_json::{Map, Value, json};
 
-use super::calls::{CallFollow, CallRunner, Request, RoomCall, RoomCalls, Settled};
+use super::calls::{CallFollow, CallRunner, Request, RoomCall, RoomCalls, SettledObserver};
 use super::config::{MemberName, parse_room_ask, room_member_named};
 use super::ready::RoomsReady;
 use super::turn_host::MemberLabel;
@@ -39,7 +39,7 @@ pub struct Ask {
     pub from_agent: String,
     pub id: String,
     pub hop: u32,
-    pub on_settled: Option<Arc<dyn Fn(&Settled) + Send + Sync>>,
+    pub on_settled: Option<SettledObserver>,
     pub follow: Option<Arc<dyn CallFollow>>,
 }
 

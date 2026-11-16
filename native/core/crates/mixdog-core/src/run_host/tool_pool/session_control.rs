@@ -481,7 +481,7 @@ fn first_text(values: &[Option<&Value>]) -> String {
 
 /// `displayToolPath(path)`: the last path segment, else the text as given.
 fn display_tool_path(path: &str) -> String {
-    path.replace('\\', "/").split('/').filter(|part| !part.is_empty()).last().map_or_else(|| path.to_owned(), str::to_owned)
+    path.replace('\\', "/").split('/').filter(|part| !part.is_empty()).next_back().map_or_else(|| path.to_owned(), str::to_owned)
 }
 
 /// `summarizeToolResult(name, args, '', isError)` (`tool-result-summary.mjs`): the line a tool row

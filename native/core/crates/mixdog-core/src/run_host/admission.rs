@@ -193,12 +193,12 @@ impl Controller {
 
     /// Stop counting a lease against its pool (suspension or release).
     fn uncount(state: &mut State, id: u64) {
-        if let Some(lease) = state.leases.get_mut(&id) {
-            if lease.counted {
-                lease.counted = false;
-                let p = idx(lease.pool);
-                state.active[p] = state.active[p].saturating_sub(1);
-            }
+        if let Some(lease) = state.leases.get_mut(&id)
+            && lease.counted
+        {
+            lease.counted = false;
+            let p = idx(lease.pool);
+            state.active[p] = state.active[p].saturating_sub(1);
         }
     }
 
@@ -316,12 +316,11 @@ impl Controller {
             let lease = state.leases.get(&id)?;
             let (parent, restore) = (lease.parent, lease.restore);
             let mut restore_txs = Vec::new();
-            if let Some(wid) = restore {
-                if let Some(at) = state.queue.iter().position(|w| w.id == wid) {
-                    if let Entry::Restore { txs, .. } = state.queue.remove(at).entry {
-                        restore_txs = txs;
-                    }
-                }
+            if let Some(wid) = restore
+                && let Some(at) = state.queue.iter().position(|w| w.id == wid)
+                && let Entry::Restore { txs, .. } = state.queue.remove(at).entry
+            {
+                restore_txs = txs;
             }
             Self::uncount(&mut state, id);
             state.leases.remove(&id);
@@ -352,12 +351,11 @@ impl Controller {
             index = fired => {
                 let deliveries = {
                     let mut state = self.lock();
-                    if let Some(at) = state.queue.iter().position(|w| w.id == wid) {
-                        if let Entry::Restore { lease, .. } = state.queue.remove(at).entry {
-                            if let Some(l) = state.leases.get_mut(&lease) {
-                                l.restore = None;
-                            }
-                        }
+                    if let Some(at) = state.queue.iter().position(|w| w.id == wid)
+                        && let Entry::Restore { lease, .. } = state.queue.remove(at).entry
+                        && let Some(l) = state.leases.get_mut(&lease)
+                    {
+                        l.restore = None;
                     }
                     self.drain(&mut state)
                 };
@@ -441,10 +439,10 @@ impl Slot {
             let restoring = c.resume(&mut state, self.id, succeeded);
             (restoring, pool_full, c.drain(&mut state))
         };
-        if pool_full {
-            if let Some(hint) = on_restore_wait {
-                hint();
-            }
+        if pool_full
+            && let Some(hint) = on_restore_wait
+        {
+            hint();
         }
         c.deliver(deliveries);
         c.await_restore(restoring, cancel).await?;
@@ -554,10 +552,10 @@ impl ResourceAdmission {
         }
         let deliveries = {
             let mut state = c.lock();
-            if let Some(at) = state.queue.iter().position(|w| w.id == id) {
-                if let Entry::New { parent: Some(p), .. } = state.queue.remove(at).entry {
-                    drop(c.resume(&mut state, p, false));
-                }
+            if let Some(at) = state.queue.iter().position(|w| w.id == id)
+                && let Entry::New { parent: Some(p), .. } = state.queue.remove(at).entry
+            {
+                drop(c.resume(&mut state, p, false));
             }
             c.drain(&mut state)
         };

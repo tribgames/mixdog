@@ -199,6 +199,7 @@ impl FailureWriter {
 
     /// `replay-controls`: the count of rows queued while held, written whole to the report file (temp file, then rename).
     #[cfg(feature = "replay-controls")]
+    #[allow(clippy::disallowed_methods, reason = "Replay-only synchronous observation barrier; production builds do not expose this counter report")]
     fn report_held(&self) {
         if let Some((file, queued)) = &self.held_report {
             let count = queued.fetch_add(1, Ordering::AcqRel) + 1;

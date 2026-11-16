@@ -7,51 +7,91 @@
 //! agent results and the background agent tasks (Node `store-agent-worker-rows.mjs`, `pending-messages.mjs`,
 //! `background-tasks.mjs`, read by `taskSessionPendingWork`) have no store here yet and count as none.
 
+#[cfg(test)]
 use std::cmp::Ordering;
+#[cfg(test)]
 use std::collections::HashMap;
+#[cfg(test)]
 use std::collections::HashSet;
 
 use async_trait::async_trait;
+#[cfg(test)]
 use mixdog_core_api::ids::ThreadId;
+#[cfg(test)]
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
+#[cfg(test)]
 use mixdog_core_base::rooms::ids::agent_home_session_id;
+#[cfg(test)]
 use mixdog_core_base::rooms::ids::agent_id_of_home_session;
+#[cfg(test)]
 use mixdog_core_base::rooms::ids::room_member_of_session;
+#[cfg(test)]
 use mixdog_core_config::workflow::ids::truthy;
+#[cfg(test)]
 use mixdog_js::js_trim;
+#[cfg(test)]
 use mixdog_js::js_trim_end;
+#[cfg(test)]
 use mixdog_js::js_words;
+#[cfg(test)]
 use mixdog_js::slice_utf16;
+#[cfg(test)]
 use mixdog_js::time::date_parse;
+#[cfg(test)]
 use mixdog_js::utf16_len;
+#[cfg(test)]
 use mixdog_js::value_to_string;
+#[cfg(test)]
 use mixdog_tools::exec::escape_harness_tags;
+#[cfg(test)]
 use mixdog_tools::orch::session::ControlCall;
+#[cfg(test)]
 use mixdog_tools::orch::util::PortError;
+#[cfg(test)]
 use serde_json::Map;
 use serde_json::Value;
+#[cfg(test)]
 use serde_json::json;
 
 use super::DirectorySessionPort;
+#[cfg(test)]
 use super::actions;
+#[cfg(test)]
 use super::failed;
+#[cfg(test)]
 use super::super::session_output::PAGE_BYTES;
+#[cfg(test)]
 use super::super::session_output::UNTRUSTED_NOTE;
+#[cfg(test)]
 use super::super::session_output::number_of;
+#[cfg(test)]
 use super::super::session_output::quoted_title;
+#[cfg(test)]
 use super::super::session_output::session_bot_of;
 
+#[cfg(test)]
 const BOT_LINE_LIMIT: i64 = 170;
+#[cfg(test)]
 const SCAN_PAGE_ROWS: usize = 2000;
+#[cfg(test)]
 const PREVIEW_LIMIT: usize = 100;
+#[cfg(test)]
 const MIN_PREVIEW: i64 = 16;
+#[cfg(test)]
 const MAX_BOTS: usize = 30;
+#[cfg(test)]
 const MAX_ROUTINES: usize = 20;
+#[cfg(test)]
 const MAX_HELD: usize = 10;
+#[cfg(test)]
 const ERROR_LIMIT: usize = 200;
+#[cfg(test)]
 const DEFAULT_SESSIONS: f64 = 10.0;
+#[cfg(test)]
 const READ_HINT: &str = "session action=read session_id=<id> reads one.";
+#[cfg(test)]
 const DETAIL_HINT: &str = "session action=bots session_id=<bot id or chat id>: its routines and recent sessions; session action=read session_id=<id> reads one.";
+#[cfg(test)]
 const SCAN_NOTE: &str = "older sessions were not scanned (newest 2000 only)";
 
 /// A bot as `listBots` gives it: a contact agent with its display name, off the roster or not.
@@ -75,6 +115,7 @@ pub trait BotWorld: Send + Sync {
 }
 
 #[derive(Clone)]
+#[cfg(test)]
 struct Bot {
     id: String,
     name: String,
@@ -82,12 +123,14 @@ struct Bot {
     is_self: bool,
 }
 
+#[cfg(test)]
 struct Task {
     id: String,
     title: String,
     at: f64,
 }
 
+#[cfg(test)]
 struct BotState {
     bot: Bot,
     home_id: String,
@@ -102,6 +145,7 @@ struct BotState {
     last_at: f64,
 }
 
+#[cfg(test)]
 struct Gathered {
     bots: Vec<Bot>,
     own: String,
@@ -116,6 +160,7 @@ struct Gathered {
     at: f64,
 }
 
+#[cfg(test)]
 fn text(value: Option<&Value>) -> String {
     match value {
         None | Some(Value::Null) => String::new(),
@@ -124,32 +169,39 @@ fn text(value: Option<&Value>) -> String {
 }
 
 /// `a || b` over stored values.
+#[cfg(test)]
 fn either<'a>(first: Option<&'a Value>, second: Option<&'a Value>) -> Option<&'a Value> {
     if truthy(first) { first } else { second }
 }
 
+#[cfg(test)]
 fn one_line(value: &str) -> String {
     js_words(value).collect::<Vec<_>>().join(" ")
 }
 
+#[cfg(test)]
 fn cut(value: &str, max: usize) -> String {
     if utf16_len(value) > max { format!("{}…", js_trim_end(&slice_utf16(value, max.saturating_sub(1)))) } else { value.to_owned() }
 }
 
 /// `quotedText(value, max)`: text a bot or session wrote, one line, tag-shaped text escaped, bounded.
+#[cfg(test)]
 fn quoted(value: &str, max: usize) -> String {
     cut(&escape_harness_tags(&one_line(value)), max)
 }
 
+#[cfg(test)]
 fn plural(count: usize, word: &str) -> String {
     format!("{count} {word}{}", if count == 1 { "" } else { "s" })
 }
 
+#[cfg(test)]
 fn is_working(row: Option<&Value>) -> bool {
     row.is_some_and(|row| row.get("working") == Some(&Value::Bool(true)) || row.get("agentWorking") == Some(&Value::Bool(true)))
 }
 
 /// `activityOf(row)`: the last activity, epoch ms, 0 when unknown.
+#[cfg(test)]
 fn activity_of(row: Option<&Value>) -> f64 {
     let Some(row) = row else { return 0.0 };
     let at = number_of(row.get("lastUsedAt"));
@@ -157,6 +209,7 @@ fn activity_of(row: Option<&Value>) -> f64 {
 }
 
 /// Epoch ms of a number or ISO string; 0 when absent or invalid.
+#[cfg(test)]
 fn epoch(value: Option<&Value>) -> f64 {
     let at = match value {
         Some(Value::Number(number)) => number.as_f64().unwrap_or(f64::NAN),
@@ -165,10 +218,12 @@ fn epoch(value: Option<&Value>) -> f64 {
     if at.is_finite() && at > 0.0 { at } else { 0.0 }
 }
 
+#[cfg(test)]
 fn round(value: f64) -> f64 {
     (value + 0.5).floor()
 }
 
+#[cfg(test)]
 fn span(ms: f64) -> String {
     let minutes = round(ms.abs() / 60_000.0);
     if minutes < 1.0 {
@@ -181,20 +236,24 @@ fn span(ms: f64) -> String {
     if hours < 48.0 { format!("{hours}h") } else { format!("{}d", round(hours / 24.0)) }
 }
 
+#[cfg(test)]
 fn ago(at: f64, now: f64) -> String {
     format!("{} ago", span(now - at))
 }
 
+#[cfg(test)]
 fn until(at: f64, now: f64) -> String {
     if at <= now { "due now".to_owned() } else { format!("in {}", span(at - now)) }
 }
 
 /// JavaScript's `<` over strings: UTF-16 code units.
+#[cfg(test)]
 fn compare(left: &str, right: &str) -> Ordering {
     left.encode_utf16().cmp(right.encode_utf16())
 }
 
 /// Routine health words: why it is paused, failing, or holding results.
+#[cfg(test)]
 fn routine_trouble(routine: &Value) -> Vec<String> {
     let mut words = Vec::new();
     let failures = number_of(routine.get("consecutiveFailures"));
@@ -211,6 +270,7 @@ fn routine_trouble(routine: &Value) -> Vec<String> {
     words
 }
 
+#[cfg(test)]
 fn routine_detail(routine: &Value, now: f64) -> String {
     let mut parts: Vec<String> = Vec::new();
     let enabled = routine.get("enabled") != Some(&Value::Bool(false));
@@ -252,12 +312,14 @@ fn routine_detail(routine: &Value, now: f64) -> String {
     cut(&format!("{} {}: {}", text(routine.get("kind")), quoted(&text(routine.get("name")), 64), parts.join(", ")), 240)
 }
 
+#[cfg(test)]
 fn owner_of(routine: &Value) -> String {
     let owner = either(routine.get("owner"), None);
     if truthy(owner) { text(owner) } else { MIXY_AGENT_ID.to_owned() }
 }
 
 impl DirectorySessionPort {
+    #[cfg(test)]
     fn handed_by(&self, row: &Value) -> Vec<String> {
         match row.get("handedBy").and_then(Value::as_array) {
             Some(bots) => bots.iter().map(|bot| text(Some(bot))).collect(),
@@ -265,15 +327,18 @@ impl DirectorySessionPort {
         }
     }
 
+    #[cfg(test)]
     fn sent_work(&self, bot: &str, row: Option<&Value>) -> bool {
         row.is_some_and(|row| is_working(Some(row)) && self.handed_by(row).iter().any(|handed| handed == bot))
     }
 
+    #[cfg(test)]
     fn awaiting_approval(&self, id: &str) -> bool {
         self.parts.catalog.work_of(id).awaiting_approval
     }
 
     /// Everything known about one bot, from the gathered state.
+    #[cfg(test)]
     fn bot_state(&self, bot: &Bot, ctx: &Gathered) -> BotState {
         let home_id = agent_home_session_id(&bot.id).unwrap_or_default();
         let owned = ctx.owned.get(&bot.id).cloned().unwrap_or_default();
@@ -322,6 +387,7 @@ impl DirectorySessionPort {
         BotState { bot: bot.clone(), home_id, home, owned, running, held, approvals, routines, flags, working, last_at }
     }
 
+    #[cfg(test)]
     fn bot_line(&self, state: &BotState, now: f64) -> String {
         let bot = &state.bot;
         let mut parts = vec![format!("{} ({})", quoted(&bot.name, 40), bot.id), format!("chat {}", state.home_id)];
@@ -353,6 +419,7 @@ impl DirectorySessionPort {
     }
 
     /// The bots the caller sees: every bot then Mixy when she has something to show, or just the caller's own bot.
+    #[cfg(test)]
     fn visible_states(&self, ctx: &Gathered) -> Vec<BotState> {
         if !ctx.own.is_empty() {
             let bot = if ctx.own == MIXY_AGENT_ID { Some(ctx.mixy.clone()) } else { ctx.bots.first().cloned() };
@@ -372,6 +439,7 @@ impl DirectorySessionPort {
         states
     }
 
+    #[cfg(test)]
     async fn gather(&self, own: &str) -> Result<Gathered, PortError> {
         let world = &self.parts.world;
         let all = world.bots().await.map_err(failed)?;
@@ -408,6 +476,7 @@ impl DirectorySessionPort {
         })
     }
 
+    #[cfg(test)]
     async fn overview(&self, own: &str) -> Result<Value, PortError> {
         let ctx = self.gather(own).await?;
         let states = self.visible_states(&ctx);
@@ -433,6 +502,7 @@ impl DirectorySessionPort {
         fit_page(result, &[("bots", "more", states.len(), 1)])
     }
 
+    #[cfg(test)]
     async fn detail(&self, target: &str, own: &str, limit: usize) -> Result<Value, PortError> {
         let id = agent_id_of_home_session(target).filter(|id| !id.is_empty()).unwrap_or_else(|| target.to_owned());
         if !own.is_empty() && id != own {
@@ -519,6 +589,7 @@ impl DirectorySessionPort {
     }
 
     /// `session action=bots` for the caller's scope (`scheduleCallerScope`): every bot's line, or one bot's detail.
+    #[cfg(test)]
     pub(super) async fn bots(&self, call: &ControlCall) -> Result<Value, PortError> {
         actions::caller_required(call)?;
         let Some(own) = self.scoped_bot(&call.caller_thread).await else {
@@ -533,6 +604,7 @@ impl DirectorySessionPort {
     }
 
     /// `session action=status` of another session (`readSessionStatus`): its route, busy state and the work it waits on.
+    #[cfg(test)]
     pub(super) async fn session_status(&self, call: &ControlCall) -> Result<Value, PortError> {
         let request = actions::target_request(call, "status")?;
         let target = ThreadId::from(request.id.as_str());
@@ -558,6 +630,7 @@ impl DirectorySessionPort {
 
 /// Drops from the end of each `(key, more key, total, keep)` list in turn until the result fits one output page, counting what
 /// was dropped in the more key.
+#[cfg(test)]
 fn fit_page(mut result: Map<String, Value>, lists: &[(&str, &str, usize, usize)]) -> Result<Value, PortError> {
     let bytes = |result: &Map<String, Value>| serde_json::to_string(result).map_or(usize::MAX, |text| text.len());
     for (key, more, total, keep) in lists {

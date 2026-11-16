@@ -7,6 +7,11 @@
 //! the commit sink, the steering queue, the observer, progress and live-turn publishing, and the
 //! outcome.
 
+// Transparent callback/state names; existing ownership and call signatures are unchanged.
+type ToolResultCallback = dyn Fn(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage) + Send + Sync;
+type SinkState = (Arc<Mutex<Option<ItemId>>>, Arc<Mutex<Observed>>);
+type SinkServices = (Arc<dyn Clock>, Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>);
+
 use std::collections::HashMap;
 use super::failed_turn_rewind;
 use std::future::Future;
@@ -484,7 +489,7 @@ struct PortSink {
     clock: Arc<dyn Clock>,
     blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
     /// A worker's turn hook (`onToolResult`): called with each tool result the turn gains.
-    on_tool_result: Option<Arc<dyn Fn(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage) + Send + Sync>>,
+    on_tool_result: Option<Arc<ToolResultCallback>>,
     /// What the turn's input row says of the turn, which its assistant rows repeat; `None` for an input row
     /// without transcript metadata.
     stamp: Option<TurnStamp>,
@@ -604,14 +609,14 @@ impl PortSink {
         port: RunPort,
         rows: Arc<StoredRows>,
         live: LiveTurnPublisher,
-        streaming: Arc<Mutex<Option<ItemId>>>,
-        observed: Arc<Mutex<Observed>>,
-        clock: Arc<dyn Clock>,
-        blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
-        on_tool_result: Option<Arc<dyn Fn(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage) + Send + Sync>>,
-        stamp: Option<TurnStamp>,
-        applied: AppliedSkills,
+        state: SinkState,
+        services: SinkServices,
+        on_tool_result: Option<Arc<ToolResultCallback>>,
+        initial: (Option<TurnStamp>, AppliedSkills),
     ) -> Arc<Self> {
+        let (streaming, observed) = state;
+        let (clock, blobs) = services;
+        let (stamp, applied) = initial;
         let (jobs, mut queue) = mpsc::unbounded_channel::<Job>();
         let (done_tx, done) = watch::channel(0u64);
         let worker = port.clone();
@@ -1339,13 +1344,13 @@ async fn close_cancelled(
     sink: &PortSink,
     rows: &StoredRows,
     history: &[(ItemId, AgentMessage)],
-    input_item: &ItemId,
-    input_text: &str,
+    input: (&ItemId, &str),
     observed: &Mutex<Observed>,
     reason: mixdog_agent::interrupt::AbortReason,
 ) {
     use mixdog_agent::compact::execution_tail::MessageRows as _;
     use mixdog_agent::interrupt::{finalize_interrupted_turn, Interrupted, Phase};
+    let (input_item, input_text) = input;
     let seen = std::mem::take(&mut *lock(observed));
     let mut known: Vec<(ItemId, AgentMessage)> = history.to_vec();
     for (index, message) in lock(&sink.turn).iter().enumerate() {
@@ -1671,7 +1676,7 @@ async fn drive(
     let stamp = TurnStamp::of(&input_body, verb, clock.now_ms());
     let observed = Arc::new(Mutex::new(Observed::default()));
     let applied = AppliedSkills { parts: parts.clone(), thread: thread.clone(), input: (input.message_id.clone(), input_item.clone()) };
-    let sink = PortSink::spawn(port.clone(), rows.clone(), live.clone(), streaming.clone(), observed.clone(), clock.clone(), blobs, on_tool_result, stamp, applied);
+    let sink = PortSink::spawn(port.clone(), rows.clone(), live.clone(), (streaming.clone(), observed.clone()), (clock.clone(), blobs), on_tool_result, (stamp, applied));
     // The system messages are the header's prompt fields, in Node's order and tiers (WP-PROMPT).
     let mut messages = system_messages(&header);
     // The context before the input row with the item each message is, for the rewrite a cancelled turn ends with.
@@ -1915,7 +1920,7 @@ async fn drive(
             }
             if matches!(failure.error, AgentError::Aborted) || cancel.is_cancelled() {
                 progress.cancelling();
-                close_cancelled(&end_port, &sink, &rows, &history, &input_item, &input_text, &observed, signal.close_reason()).await;
+                close_cancelled(&end_port, &sink, &rows, &history, (&input_item, &input_text), &observed, signal.close_reason()).await;
                 return RunOutcome::Interrupted;
             }
             // The turn's terminal error: a provider timeout or stall that ended it (a retry the turn recovered from never

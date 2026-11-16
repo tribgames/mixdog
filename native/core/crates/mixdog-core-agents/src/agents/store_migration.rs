@@ -249,13 +249,13 @@ fn folder_hash(dir: &Path) -> String {
     let mut hash = Sha256::new();
     for file in folder_files(dir) {
         let mut bytes = std::fs::read(&file).unwrap_or_default();
-        if file.file_name().is_some_and(|name| name == "agent.json") && file.parent() == Some(dir) {
-            if let Some(mut manifest) = read_json(&file) {
-                for key in SPLIT_STORE_ONLY_KEYS {
-                    manifest.shift_remove(key);
-                }
-                bytes = serde_json::to_vec(&canonical(&Value::Object(manifest))).unwrap_or_default();
+        if file.file_name().is_some_and(|name| name == "agent.json") && file.parent() == Some(dir)
+            && let Some(mut manifest) = read_json(&file)
+        {
+            for key in SPLIT_STORE_ONLY_KEYS {
+                manifest.shift_remove(key);
             }
+            bytes = serde_json::to_vec(&canonical(&Value::Object(manifest))).unwrap_or_default();
         }
         let relative = file.strip_prefix(dir).unwrap_or(&file);
         hash.update(relative.to_string_lossy().as_bytes());

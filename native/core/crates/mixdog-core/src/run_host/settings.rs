@@ -2,6 +2,9 @@
 //! route, the provider and the turn itself decide. One function, [`merge_settings`], so every field has
 //! one origin (`compose-seams.md`, "RunSettings: origins").
 
+// Transparent callback/state names; existing ownership and call signatures are unchanged.
+type MediaTextFactory = dyn Fn(&Value) -> Arc<dyn mixdog_agent::text_only::MediaText> + Send + Sync;
+
 use std::sync::Arc;
 
 use mixdog_agent::attachments::AttachmentText;
@@ -62,7 +65,7 @@ pub struct SettingsSources {
     pub wiring: Arc<dyn HopWiring>,
     pub attachments: Arc<dyn AttachmentText>,
     /// The media layer of a session (`updated`: its row), whose extraction every route's files are lowered through.
-    pub media: Option<Arc<dyn Fn(&Value) -> Arc<dyn mixdog_agent::text_only::MediaText> + Send + Sync>>,
+    pub media: Option<Arc<MediaTextFactory>>,
     pub heartbeats: Arc<dyn HeartbeatMarks>,
     pub ceilings: Arc<dyn OutputCeilingSource>,
     pub auto_effort: Arc<dyn AutoEffortSource>,

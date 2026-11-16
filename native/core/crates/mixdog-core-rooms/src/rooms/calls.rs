@@ -14,6 +14,9 @@ use async_trait::async_trait;
 use mixdog_rt::TaskClass;
 use tokio::sync::oneshot;
 
+pub type SettledObserver = Arc<dyn Fn(&Settled) + Send + Sync>;
+pub type RouteObserver = Arc<dyn Fn(&str, &Request) + Send + Sync>;
+
 /// The caller's durable record follows the turn that answers (`follow(submissionId)`): the turn
 /// is submitted under another id than the call's own.
 #[async_trait]
@@ -40,7 +43,7 @@ pub struct RoomCall {
     settled: Arc<Mutex<Option<oneshot::Sender<String>>>>,
     detail: Arc<Mutex<Option<Settled>>>,
     /// `onSettled(detail)`: told once, when the call ends.
-    pub on_settled: Option<Arc<dyn Fn(&Settled) + Send + Sync>>,
+    pub on_settled: Option<SettledObserver>,
 }
 
 /// How a call's turn ended, in a session turn's shape (`AgentRoomTurnDetail`): `done` with the
@@ -207,7 +210,7 @@ pub struct RoomCalls<R: CallRunner> {
     /// Hears every request as `route` takes it, before it starts or joins an exchange (a replay's record of what the
     /// scheduler was asked, as Node's recorder records `scheduler.route`).
     #[cfg(any(test, feature = "test-support"))]
-    routed: std::sync::OnceLock<Arc<dyn Fn(&str, &Request) + Send + Sync>>,
+    routed: std::sync::OnceLock<RouteObserver>,
     /// Called by [`RoomCalls::quiet`] right before it takes the intakes' lock: a test's handshake with the observer, so what
     /// it holds back there is held after any read the observation made before it.
     #[cfg(test)]
@@ -321,7 +324,7 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
 
     /// Binds the observer of every request `route` takes (once).
     #[cfg(any(test, feature = "test-support"))]
-    pub fn observe_routes(&self, observer: Arc<dyn Fn(&str, &Request) + Send + Sync>) {
+    pub fn observe_routes(&self, observer: RouteObserver) {
         let _ = self.routed.set(observer);
     }
 

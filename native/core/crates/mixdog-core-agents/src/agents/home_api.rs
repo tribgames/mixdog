@@ -306,11 +306,11 @@ async fn resolve(deps: &dyn HomeDeps, agent_id: &str) -> Result<String, CoreErro
         Ok(snapshot) => {
             // An existing thread follows its definition's current model and effort from its next
             // turn. A route the runtime refuses (provider signed out) never blocks opening.
-            if route_changed(&route, &snapshot) {
-                if let Err(error) = deps.set_route(&session_id, &Value::Object(route)).await {
-                    // `agent-home-sessions.ts:141`: warned, never blocks opening.
-                    tracing::warn!("[mixdog-session] Could not refresh the agent thread route: {error:?}");
-                }
+            if route_changed(&route, &snapshot)
+                && let Err(error) = deps.set_route(&session_id, &Value::Object(route)).await
+            {
+                // `agent-home-sessions.ts:141`: warned, never blocks opening.
+                tracing::warn!("[mixdog-session] Could not refresh the agent thread route: {error:?}");
             }
             return Ok(session_id);
         }

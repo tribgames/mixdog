@@ -27,6 +27,7 @@ pub enum HaltOutcome {
 
 /// What the wait for a member's answer ended with.
 #[derive(Debug, PartialEq)]
+#[allow(clippy::large_enum_variant, reason = "Retain the public by-value session answer and snapshot without adding per-answer allocation")]
 pub enum Polled {
     Answered { answer: SessionAnswer, snapshot: Value },
     Halted(HaltOutcome),
