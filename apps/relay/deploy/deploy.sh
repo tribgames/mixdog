@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # One-shot relay deploy: run ON the VPS (Ubuntu 22.04+, as root).
-#   curl -fsSL <raw url>/deploy.sh | bash -s relay.example.com
-# or: scp -r apps/relay root@vps: && bash relay/deploy/deploy.sh relay.example.com
+# Stage a verified Linux mixdog-relay binary beside deploy/, then upload that directory.
+#   bash <uploaded-payload>/deploy/deploy.sh relay.example.com
+# The installer must be a file inside the uploaded payload; a curl pipe or bare source
+# checkout does not supply the required native binary.
 #
 # The uploaded directory holds the relay binary (mixdog-relay), deploy/, the
 # optional renderer/ and the optional mobile-release.json: no runtime is installed.
