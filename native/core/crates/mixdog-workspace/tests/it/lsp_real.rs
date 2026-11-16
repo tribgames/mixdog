@@ -21,6 +21,82 @@ use mixdog_workspace::lsp::LspSink;
 use serde_json::Value;
 use serde_json::json;
 
+// Test-only observation: forward the real process manager and its one event stream unchanged.
+// Keep raw stderr because cmd diagnostics can use the OEM code page and the public status keeps only its last line.
+use async_trait::async_trait;
+use mixdog_core_api::domain::common::EventSource;
+use mixdog_core_api::domain::process::*;
+use mixdog_protocol::ProcessHandle;
+
+#[derive(Default, Debug)]
+struct LaunchDiagnostics {
+    requests: Vec<String>,
+    stderr: Vec<u8>,
+    exits: Vec<String>,
+}
+
+struct ObservedProcesses {
+    inner: mixdog_spawn::LocalProcessManager,
+    diagnostics: Arc<Mutex<LaunchDiagnostics>>,
+}
+
+impl ObservedProcesses {
+    fn record(&self, request: &SpawnRequest) {
+        let allowed = |key: &str| ["PATH", "ComSpec", "SystemRoot", "TEMP"].iter().any(|name| key.eq_ignore_ascii_case(name));
+        let inherited: Vec<_> = std::env::vars_os().filter(|(key, _)| allowed(&key.to_string_lossy())).collect();
+        let set: Vec<_> = request.env.set.iter().filter(|(key, _)| allowed(key)).collect();
+        let remove: Vec<_> = request.env.remove.iter().filter(|key| allowed(key)).collect();
+        self.diagnostics.lock().unwrap().requests.push(format!("command={:?} cwd={:?} inherit={} set={set:?} remove={remove:?} parent={inherited:?}", request.command, request.cwd, request.env.inherit));
+    }
+
+    fn observe(&self, inner: Box<dyn EventSource<ProcessEvent>>) -> Box<dyn EventSource<ProcessEvent>> {
+        Box::new(ObservedEvents { inner, diagnostics: self.diagnostics.clone() })
+    }
+}
+
+struct ObservedEvents {
+    inner: Box<dyn EventSource<ProcessEvent>>,
+    diagnostics: Arc<Mutex<LaunchDiagnostics>>,
+}
+
+#[async_trait]
+impl EventSource<ProcessEvent> for ObservedEvents {
+    async fn next(&mut self) -> Option<ProcessEvent> {
+        let event = self.inner.next().await;
+        match &event {
+            Some(ProcessEvent::Output { stream: OutputStream::Stderr, bytes, .. }) => self.diagnostics.lock().unwrap().stderr.extend_from_slice(bytes),
+            Some(ProcessEvent::Exited { exit, .. }) => self.diagnostics.lock().unwrap().exits.push(format!("{exit:?}")),
+            _ => {}
+        }
+        event
+    }
+    async fn close(&mut self) { self.inner.close().await; }
+}
+
+#[async_trait]
+impl ProcessManager for ObservedProcesses {
+    async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+        self.record(&request);
+        self.inner.spawn(request).await
+    }
+    async fn spawn_subscribed(&self, request: SpawnRequest) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+        self.record(&request);
+        let (spawned, events) = self.inner.spawn_subscribed(request).await?;
+        Ok((spawned, self.observe(events)))
+    }
+    fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        self.inner.subscribe(handle, from_seq).map(|events| self.observe(events))
+    }
+    async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> { self.inner.write_stdin(handle, bytes).await }
+    async fn write_stdin_whole(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> { self.inner.write_stdin_whole(handle, bytes).await }
+    fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError> { self.inner.close_stdin(handle) }
+    fn resize_pty(&self, handle: &ProcessHandle, size: PtySize) -> Result<(), ProcessError> { self.inner.resize_pty(handle, size) }
+    fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> { self.inner.kill(handle) }
+    fn terminate(&self, handle: &ProcessHandle) -> Result<(), ProcessError> { self.inner.terminate(handle) }
+    fn list(&self) -> Vec<ProcessInfo> { self.inner.list() }
+    fn claim(&self, handle: &ProcessHandle, owner: ProcessOwner, time_limit: Option<Duration>) -> Result<(), ProcessError> { self.inner.claim(handle, owner, time_limit) }
+}
+
 #[derive(Default)]
 struct Events {
     statuses: Mutex<Vec<Value>>,
@@ -108,13 +184,15 @@ async fn real_typescript_server_matches_the_recorded_node_behavior() {
     std::fs::write(project.join("src/a.ts"), "import { twice } from \"./util\";\nconst x: number = twice(2);\n").unwrap();
 
     let events = Arc::new(Events::default());
-    let manager = LspManager::new(Arc::new(mixdog_spawn::LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, mixdog_spawn::ProcessConfig::default())), events.clone(), mixdog_rt::testing::tokens().maintenance_io);
+    let diagnostics = Arc::new(Mutex::new(LaunchDiagnostics::default()));
+    let observed = ObservedProcesses { inner: mixdog_spawn::LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, mixdog_spawn::ProcessConfig::default()), diagnostics: diagnostics.clone() };
+    let manager = LspManager::new(Arc::new(observed), events.clone(), mixdog_rt::testing::tokens().maintenance_io);
     let project_path = project.to_string_lossy().into_owned();
     let bad = "import { twice } from \"./util\";\nconst x: number = twice(\"2\");\n";
     let fixed = "import { twice } from \"./util\";\nconst x: number = twice(2);\nconst y: string = x;\n";
 
     let opened = manager.document(&project_path, &project, doc("open", 1, bad)).await.unwrap();
-    assert_eq!(opened, entry(&golden, "document(open)")["result"], "capabilities after open");
+    assert_eq!(opened, entry(&golden, "document(open)")["result"], "capabilities after open; launch diagnostics: {:?}", diagnostics.lock().unwrap());
     let after_open = settled(&events, "src/a.ts", |l| !l.is_empty(), Duration::from_millis(1200)).await;
     assert_eq!(brief(after_open), sorted(&entry(&golden, "diagnostics(after open)")["result"]));
 
