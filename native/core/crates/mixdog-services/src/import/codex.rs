@@ -289,10 +289,10 @@ fn record_fields(text: &str) -> (Fields, Fields) {
             while bytes.get(j).is_some_and(u8::is_ascii_whitespace) {
                 j += 1;
             }
-            if key == "payload" && bytes.get(j) == Some(&b'{') {
-                if let Some(p) = payload.take() {
-                    return walk(text, bytes, j, p, None);
-                }
+            if key == "payload" && bytes.get(j) == Some(&b'{')
+                && let Some(p) = payload.take()
+            {
+                return walk(text, bytes, j, p, None);
             }
             let Some(end) = scan_value(bytes, j) else { return };
             target.insert(key, text[j..end].to_owned());

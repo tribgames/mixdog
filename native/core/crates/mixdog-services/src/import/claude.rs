@@ -65,8 +65,7 @@ fn slash_command_envelope(text: &str) -> bool {
 pub fn unwrap_claude_pastes(text: &str) -> String {
     let mut pieces: Vec<&str> = Vec::new();
     let (mut cursor, mut search) = (0usize, 0usize);
-    loop {
-        let Some(found) = text[search..].find(PASTE_OPEN) else { break };
+    while let Some(found) = text[search..].find(PASTE_OPEN) {
         let open = search + found;
         let id_start = open + PASTE_OPEN.len();
         let body_start = id_start + 7; // past `hhhh">\n`
@@ -200,10 +199,10 @@ fn active_chain(entries: &[Entry]) -> (Vec<usize>, HashSet<usize>) {
         } else {
             None
         };
-        if logical.is_some() {
-            if let Some(s) = summary.take() {
-                replaced.insert(s);
-            }
+        if logical.is_some()
+            && let Some(s) = summary.take()
+        {
+            replaced.insert(s);
         }
         current = parent.or(logical);
     }

@@ -140,10 +140,10 @@ impl Converter {
     /// Feeds a line for the stored title only (Claude Code's tail window).
     pub fn push_title_line(&mut self, raw: &str) {
         let Ok(value) = serde_json::from_str::<Value>(mixdog_js::js_trim(raw)) else { return };
-        if value.is_object() {
-            if let Reducer::Claude(r) = &mut self.reducer {
-                r.push_title(&value);
-            }
+        if value.is_object()
+            && let Reducer::Claude(r) = &mut self.reducer
+        {
+            r.push_title(&value);
         }
     }
 

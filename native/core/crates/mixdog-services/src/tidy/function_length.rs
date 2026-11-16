@@ -60,7 +60,7 @@ pub async fn summarize_function_lengths(source: &dyn OutlineSource, cwd: &Path, 
     let over = |limit: i64| functions.iter().filter(|f| f.2 > limit).count();
     let total = functions.len();
     let (o50, o100, o150) = (over(50), over(100), over(150));
-    functions.sort_by(|a, b| b.2.cmp(&a.2));
+    functions.sort_by_key(|function| std::cmp::Reverse(function.2));
     let mut out = json!({
         "measured": true, "functions": total, "over50": o50, "over100": o100, "over150": o150,
         "longest": functions.iter().take(LONGEST_COUNT).map(|f| json!({"path": f.0, "name": f.1, "lines": f.2})).collect::<Vec<_>>(),

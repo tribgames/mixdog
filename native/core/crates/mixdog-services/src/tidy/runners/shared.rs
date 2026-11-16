@@ -111,6 +111,7 @@ impl RunnerResult {
 /// Process spawning behind a seam, so chunking behaviour is testable without real engines.
 #[async_trait]
 pub trait Spawn: Send + Sync {
+    #[allow(clippy::too_many_arguments, reason = "Preserve the public process-runner port and its independent timeout, cancellation, environment and input arguments for existing implementers")]
     async fn run(&self, bin: &str, args: &[String], cwd: &Path, timeout: Duration, cancel: Option<&CancellationToken>, env: Option<&HashMap<String, String>>, input: Option<Vec<u8>>) -> ProcessResult;
 }
 

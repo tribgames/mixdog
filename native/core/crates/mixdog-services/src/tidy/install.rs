@@ -454,6 +454,7 @@ pub async fn install_engine(processes: &Processes, target: &Target, plugin_data:
 
 /// Plans and executes installs for `ids`. Never fails for a single engine: each failure lands
 /// in `errors` so the report can show the rest.
+#[allow(clippy::too_many_arguments, reason = "Preserve the established public installer boundary with independent policy, approval, cancellation and progress controls rather than redesign its API for this lint")]
 pub async fn install_engines(processes: &Processes, ids: &[String], manifest: Option<&Value>, plugin_data: &Path, policy: &str, approve_downloads: bool, fetcher: &dyn Fetcher, cancel: &CancellationToken, on_progress: Option<OnProgress>, stall: Option<Duration>) -> Value {
     let loaded = manifest.cloned().unwrap_or_else(read_engines_manifest);
     let plan = plan_install(processes, ids, &loaded, plugin_data, policy, approve_downloads).await;

@@ -59,10 +59,10 @@ fn read_state_titles(home: &Path, titles: &mut HashMap<String, String>) -> rusql
     // `title` first, then `name`: a rename overrides.
     for (column, _) in wanted.iter().enumerate() {
         for (id, values) in &rows {
-            if let (Some(id), Some(Some(text))) = (id, values.get(column)) {
-                if let Some(title) = title_from_text(text) {
-                    titles.insert(id.clone(), title);
-                }
+            if let (Some(id), Some(Some(text))) = (id, values.get(column))
+                && let Some(title) = title_from_text(text)
+            {
+                titles.insert(id.clone(), title);
             }
         }
     }
