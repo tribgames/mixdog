@@ -390,6 +390,8 @@ pub struct Tree {
     /// Folders given but never read: those named here, and dotted ones when `bare_dotted`.
     bare: Vec<String>,
     bare_dotted: bool,
+    /// The caller's name rule (`Descent::guard`), compiled: a folder it fails is given and not read.
+    guard: Option<Guard>,
     started: bool,
     /// The folders the walk is in, each its entries not yet given, in path order.
     stack: Vec<std::vec::IntoIter<io::Result<Listed>>>,
@@ -397,7 +399,7 @@ pub struct Tree {
 
 impl Tree {
     pub fn new(root: &Path, rules: Rules, max_depth: Option<usize>, dirs: Box<dyn Dirs>, volumes: super::SharedVolumes) -> Self {
-        Self { dirs, volumes, root: root.to_path_buf(), rules, max_depth, bare: Vec::new(), bare_dotted: false, started: false, stack: Vec::new() }
+        Self { dirs, volumes, root: root.to_path_buf(), rules, max_depth, bare: Vec::new(), bare_dotted: false, guard: None, started: false, stack: Vec::new() }
     }
 
     /// The walk gives, and does not read, the folders named `names` (and the dotted ones when `dotted`).
@@ -407,9 +409,16 @@ impl Tree {
         self
     }
 
+    /// The walk keeps to `guard`: a folder below which it keeps nothing is given and not read. A rule whose patterns do not
+    /// compile is the caller's error.
+    pub fn guard(mut self, guard: Option<&mixdog_core_api::domain::fs::NameGuard>) -> Result<Self, regex::Error> {
+        self.guard = guard.map(Guard::of).transpose()?;
+        Ok(self)
+    }
+
     fn is_bare(&self, dir: &Decision) -> bool {
         let Some(name) = dir.path().file_name().map(|n| n.to_string_lossy()) else { return false };
-        (self.bare_dotted && name.starts_with('.')) || self.bare.iter().any(|b| *b == *name)
+        (self.bare_dotted && name.starts_with('.')) || self.bare.iter().any(|b| *b == *name) || self.guard.as_ref().is_some_and(|guard| guard.fails(&self.root, dir.path()))
     }
 
     fn probe(&mut self, decision: &mut Decision, call: Call) -> io::Result<Told> {
@@ -437,6 +446,39 @@ impl Tree {
         let Some(mut decision) = gate::judge(&mut self.rules, listed) else { return Ok(None) };
         let Told::Kind(kind) = self.probe(&mut decision, Call::Kind)? else { unreachable!("a type is told a type") };
         Ok(gate::decide(&mut self.rules, decision).map(|decision| (decision, kind)))
+    }
+}
+
+/// [`mixdog_core_api::domain::fs::NameGuard`] with its patterns compiled.
+struct Guard {
+    whole: Option<regex::Regex>,
+    rest: Option<regex::Regex>,
+    fragment: Option<String>,
+    path: bool,
+    noise: Vec<String>,
+    dotted: bool,
+}
+
+impl Guard {
+    fn of(rule: &mixdog_core_api::domain::fs::NameGuard) -> Result<Self, regex::Error> {
+        let compile = |source: &Option<String>| source.as_deref().map(regex::Regex::new).transpose();
+        Ok(Self { whole: compile(&rule.whole)?, rest: compile(&rule.rest)?, fragment: rule.fragment.clone(), path: rule.path, noise: rule.noise.clone(), dotted: rule.dotted })
+    }
+
+    /// Whether the folder at `dir` fails the ancestor rule, read over its components below `root` as the caller reads them.
+    fn fails(&self, root: &Path, dir: &Path) -> bool {
+        let Ok(rel) = dir.strip_prefix(root) else { return false };
+        let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+        let Some(own) = parts.last() else { return false };
+        let subject = if self.path { parts.join("/") } else { own.clone() };
+        let named = match (&self.whole, &self.fragment) {
+            (Some(whole), _) => whole.is_match(&subject) || self.rest.as_ref().is_some_and(|rest| rest.is_match(&subject)),
+            (None, Some(fragment)) => subject.to_lowercase().contains(fragment.as_str()),
+            (None, None) => false,
+        };
+        let inside_noise = parts[..parts.len() - 1].iter().any(|part| self.noise.iter().any(|noise| noise == part));
+        let hidden = self.dotted && own.starts_with('.');
+        !named && (inside_noise || hidden)
     }
 }
 

@@ -1,5 +1,5 @@
 //! The cells of a worksheet as the reader sees them: a COM value as the PowerShell value the host wrote (`Cell-Value`,
-//! `Matrix-Item`, `Excel-MatrixValue`), column letters, a range's cell address, and where a chart or a picture sits on the
+//! `Excel-MatrixValue`), column letters, a range's cell address, and where a chart or a picture sits on the
 //! grid (`Excel-DrawingAnchor`, `Excel-FrozenSplit`), with the casts the host's code applies to what a property answers.
 //!
 //! A VT_ERROR cell (`#N/A` and the rest) reads as the Int32 of its scode and a VT_NULL as `DBNull`, as PowerShell
@@ -171,18 +171,6 @@ pub(super) fn matrix_value(matrix: &Com, row: i32, column: i32) -> Com {
     if row == 1 && column == 1 { matrix.clone() } else { Com::Empty }
 }
 
-/// `Matrix-Item`: like [`matrix_value`], and a one-dimensional array answers its element by the row.
-pub(super) fn matrix_item(matrix: &Com, row: i32, column: i32) -> Com {
-    if let Com::Array(array) = matrix {
-        return if array.rank() == 2 {
-            matrix_value(matrix, row, column)
-        } else {
-            array.get(&[array.lower_bound(0).unwrap_or(0) + row - 1]).cloned().unwrap_or(Com::Empty)
-        };
-    }
-    if row == 1 && column == 1 { matrix.clone() } else { Com::Empty }
-}
-
 /// `Excel-ColumnLetters`: `A` for 1, `AA` for 27; nothing for a column below 1.
 pub(crate) fn column_letters(column: i32) -> String {
     let mut column = column;
@@ -323,8 +311,6 @@ mod tests {
         let scalar = Com::Str("x".to_owned());
         assert_eq!(matrix_value(&scalar, 1, 1), scalar);
         assert_eq!(matrix_value(&scalar, 1, 2), Com::Empty);
-        let line = Com::Array(SafeArray::one_d(1, vec![Com::I4(1), Com::I4(2)]));
-        assert_eq!(matrix_item(&line, 2, 9), Com::I4(2));
     }
 
     #[test]

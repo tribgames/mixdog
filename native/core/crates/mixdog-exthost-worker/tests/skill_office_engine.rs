@@ -1,7 +1,6 @@
 //! The pptx skill scripts (`source-extract`, `qc-pages`) through the REAL office engine of this crate on real files: the decks,
-//! document and workbook are authored by the engine itself, the scripts' output carries the locators
-//! `fixtures/skill-scripts-office/golden.json` records Node's scripts printing (`[slide n]`, `[Sheet!B2]`, block text), and the
-//! calls the scripts make are the recorded ones (`open` portable without a snapshot, `snapshot`, `close`).
+//! document and workbook are authored by the engine itself, the scripts' output carries the locators (`[slide n]`, `[Sheet!B2]`,
+//! block text), and the calls the scripts make are `open` portable without a snapshot, `snapshot`, `close`.
 
 use std::path::Path;
 
@@ -16,8 +15,6 @@ use mixdog_skill_scripts::source_extract::OfficeHost;
 use mixdog_skill_scripts::source_extract::run_source_extract;
 use serde_json::Value;
 use serde_json::json;
-
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/skill-scripts-office/golden.json");
 
 struct NoExec;
 
@@ -57,31 +54,6 @@ fn run_extract(engine: &SkillOfficeEngine, dir: &Path, args: &[&str]) -> mixdog_
     let host = OfficeHost { engine: Some(engine), exec: &NoExec, cwd: dir };
     let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
     run_source_extract(&Unlaned, &args, &host)
-}
-
-#[test]
-fn the_calls_the_golden_records_are_answered_with_a_session_a_document_and_a_close() {
-    let recording: Value = serde_json::from_str(&GOLDEN).expect("golden.json is JSON");
-    let recorded: Vec<Value> = recording["cases"]["extract"]
-        .as_array()
-        .expect("extract cases")
-        .iter()
-        .find(|case| case["case"] == "a deck without its page chrome")
-        .expect("the deck case")["observed"]["office"]
-        .as_array()
-        .expect("office calls")
-        .clone();
-    let actions: Vec<&str> = recorded.iter().map(|call| call["action"].as_str().expect("an action")).collect();
-    assert_eq!(actions, ["open", "snapshot", "close"]);
-
-    let dir = tempfile::tempdir().expect("temp dir");
-    let engine = engine();
-    let path = deck(&engine, dir.path());
-    let opened = engine.call(&json!({ "action": "open", "path": path, "mode": "portable", "snapshotAfter": false }), dir.path()).expect("open");
-    assert!(opened["session"].is_string(), "{opened}");
-    let snapshot = engine.call(&json!({ "action": "snapshot", "session": opened["session"], "limit": 200, "maxChars": 100000 }), dir.path()).expect("snapshot");
-    assert_eq!(snapshot["document"]["slides"].as_array().map(Vec::len), Some(2), "{snapshot}");
-    engine.call(&json!({ "action": "close", "session": opened["session"], "save": false }), dir.path()).expect("close");
 }
 
 #[test]
@@ -148,4 +120,18 @@ fn qc_pages_measures_a_real_deck_and_asks_no_model_when_nothing_is_wrong() {
     assert_eq!(out.code, 0, "{} {}", out.stdout, out.stderr);
     let report: Value = serde_json::from_slice(&mixdog_testkit::read(&output)).expect("the report is JSON");
     assert_eq!(report["pages"].as_array().map(Vec::len), Some(2), "{report}");
+}
+
+
+#[test]
+fn a_session_is_opened_snapshotted_and_closed_over_a_real_deck() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let engine = engine();
+    let path = deck(&engine, dir.path());
+    // The calls a script makes: open without a snapshot, snapshot, close.
+    let opened = engine.call(&json!({ "action": "open", "path": path, "mode": "portable", "snapshotAfter": false }), dir.path()).expect("open");
+    assert!(opened["session"].is_string(), "{opened}");
+    let snapshot = engine.call(&json!({ "action": "snapshot", "session": opened["session"], "limit": 200, "maxChars": 100000 }), dir.path()).expect("snapshot");
+    assert_eq!(snapshot["document"]["slides"].as_array().map(Vec::len), Some(2), "{snapshot}");
+    engine.call(&json!({ "action": "close", "session": opened["session"], "save": false }), dir.path()).expect("close");
 }

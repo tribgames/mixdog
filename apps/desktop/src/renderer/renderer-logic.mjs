@@ -283,13 +283,24 @@ function parseFileSection(section) {
   };
 }
 
-function hasLeadingDiffContent(prefix) {
+export function hasLeadingDiffContent(prefix) {
   const normalized = prefix.replace(/\r\n?/g, '\n');
   if (/^@@(?:\s|$)/m.test(normalized)) return true;
   return /^---\s.+\n\+\+\+\s.+$/m.test(normalized);
 }
 
 export function parseUnifiedDiff(patch) {
+  return splitUnifiedDiff(patch).map(parseFileSection);
+}
+
+/** One file section of a unified diff (see splitUnifiedDiff) as parsed parts. */
+export function parseUnifiedDiffSection(section) {
+  return parseFileSection(section);
+}
+
+/** A unified diff cut into its file sections, unparsed: a caller can parse
+ *  them one at a time. */
+export function splitUnifiedDiff(patch) {
   const normalized = String(patch || '').replace(/\r\n?/g, '\n');
   const starts = [];
   const marker = /^diff --git .+$/gm;
@@ -299,11 +310,11 @@ export function parseUnifiedDiff(patch) {
     for (let match = plainHeader.exec(normalized); match; match = plainHeader.exec(normalized))
       starts.push(match.index);
   }
-  if (starts.length === 0) return [parseFileSection(normalized)];
+  if (starts.length === 0) return [normalized];
   const sections = starts.map((start, index) => normalized.slice(start, starts[index + 1] ?? normalized.length));
   const lead = normalized.slice(0, starts[0]);
   if (starts[0] > 0 && hasLeadingDiffContent(lead)) sections.unshift(lead);
-  return sections.map(parseFileSection);
+  return sections;
 }
 
 // Lines a patch adds and removes, counted inside its hunks only, so file

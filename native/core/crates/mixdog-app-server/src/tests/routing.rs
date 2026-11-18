@@ -8,7 +8,7 @@ use serde_json::json;
 use super::Inbound;
 use super::Rig;
 use super::reason;
-use super::sample::Samples;
+use super::samples::Samples;
 use super::settle;
 
 #[tokio::test(start_paused = true)]

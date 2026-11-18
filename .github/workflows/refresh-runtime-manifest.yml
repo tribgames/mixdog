@@ -1,0 +1,93 @@
+name: Refresh Runtime Manifest
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: PostgreSQL runtime tag to refresh or rebuild
+        required: true
+        type: string
+        default: runtime-v0.4.1
+      force_rebuild:
+        description: Build and smoke a new runtime set even when the shipped set is unchanged
+        type: boolean
+        default: false
+      refresh_manifest:
+        description: If not forcing a build, regenerate the manifest from the existing public runtime
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.ref.outputs.sha }}
+    steps:
+      - name: Authorize the default branch dispatch commit
+        id: ref
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH"
+          echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+  coverage-gate:
+    needs: authorize
+    uses: ./.github/workflows/release-gate.yml
+    permissions:
+      contents: read
+      actions: read
+    with:
+      ref: ${{ needs.authorize.outputs.sha }}
+      gate: runtime-refresh
+
+  refresh:
+    needs: [authorize, coverage-gate]
+    uses: ./.github/workflows/build-runtime.yml
+    permissions:
+      contents: write # ceiling required by the worker's normal build mode; refresh mode performs no release writes
+    with:
+      sha: ${{ needs.authorize.outputs.sha }}
+      tag: ${{ inputs.tag }}
+      force_rebuild: ${{ inputs.force_rebuild }}
+      refresh_manifest: ${{ inputs.refresh_manifest }}
+
+  handoff:
+    name: Stage the verified manifest at its runtime consumer path
+    needs: refresh
+    if: needs.refresh.outputs.mode != 'skip'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      MANIFEST_ID: ${{ needs.refresh.outputs.manifest_id }}
+      RUNTIME_TAG: ${{ needs.refresh.outputs.tag }}
+    steps:
+      - name: Require the artifact from the successful worker
+        shell: bash
+        run: '[[ "$MANIFEST_ID" =~ ^[0-9]+$ ]]'
+      - name: Download the verified manifest by artifact ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.refresh.outputs.manifest_id }}
+          digest-mismatch: error
+          path: verified
+      - name: Preserve the exact manifest at the bundled path
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./verified/runtime-manifest.json').release_tag")" = "$RUNTIME_TAG"
+          install -D -m 0644 verified/runtime-manifest.json handoff/src/runtime/memory/data/runtime-manifest.json
+      - name: Upload the manifest handoff in repository layout
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runtime-manifest-handoff-${{ github.run_attempt }}
+          path: handoff/
+          if-no-files-found: error

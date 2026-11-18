@@ -1,5 +1,5 @@
-//! The interactive runs: the terminal interface (`runTui`) and the line-based REPL of `--plain` (`runRepl`). The ledger, the swap and
-//! the live-session mark that Node's `cli.mjs` did before them are `dispatch`'s; this file maps the classified options onto the two
+//! The interactive runs: the terminal interface (`runTui`) and the line-based REPL of `--plain` (`runRepl`). The ledger and the
+//! live-session mark that Node's `cli.mjs` did before them are `dispatch`'s; this file maps the classified options onto the two
 //! runs and builds what the REPL's statusline needs of the process.
 
 use std::process::ExitCode;
@@ -21,15 +21,6 @@ pub enum Mode {
     Tui,
     /// The line-based REPL (`mixdog --plain`).
     Plain,
-}
-
-/// Runs the interactive session with `options` and returns the process's exit code.
-pub fn run_interactive(mode: Mode, options: &Options) -> i32 {
-    let code = match mode {
-        Mode::Tui => mixdog_tui::run::run_tui(tui_options(options)),
-        Mode::Plain => mixdog_repl::run(repl_options(options), Arc::new(process_renderer())),
-    };
-    exit_code_of(code)
 }
 
 /// `worktree` of the session options: `--worktree [name]` is `{ mode: 'worktree', name }`, `--no-worktree` is `{ mode: 'branch' }`;
@@ -128,4 +119,14 @@ mod tests {
         assert_eq!(config_dir_of(&empty, Some(PathBuf::from("/home/u"))), PathBuf::from("/home/u").join(".mixdog"));
         assert_eq!(config_dir_of(&|_| None, Some(PathBuf::from("/home/u"))), PathBuf::from("/home/u").join(".mixdog"));
     }
+}
+
+
+/// Runs the interactive session with `options` and returns the process's exit code.
+pub fn run_interactive(mode: Mode, options: &Options) -> i32 {
+    let code = match mode {
+        Mode::Tui => mixdog_tui::run::run_tui(tui_options(options)),
+        Mode::Plain => mixdog_repl::run(repl_options(options), Arc::new(process_renderer())),
+    };
+    exit_code_of(code)
 }

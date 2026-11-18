@@ -81,7 +81,7 @@ export type DesktopSshHostKeyCheck =
       hops?: DesktopSshHopKey[];
     }
   | { status: 'revoked'; fingerprint: string; host: string }
-  | { status: 'unreachable'; message: string; sshMissing?: { command: string | null } };
+  | { status: 'unreachable'; message: string; notice?: SshMessage; sshMissing?: { command: string | null } };
 
 /** State of the ssh-agent on this PC, for the login guidance. */
 export interface DesktopSshAgentStatus {
@@ -90,8 +90,17 @@ export interface DesktopSshAgentStatus {
   command?: string;
 }
 
+/** A sentence of the connection code by stable code: the window words it in its own language by `code`, filling `params`; the
+ *  English the sender also has is only the fallback for a code this window does not know. */
+export interface SshMessage {
+  code: string;
+  params?: Record<string, string>;
+}
+
 /** Why a connection stopped; each kind has its own guidance view. */
 export type DesktopSshFailure = DesktopSshFailureKind & {
+  /** The words of the failure by code; the kind's `message` is their English fallback. */
+  notice?: SshMessage;
   /** The error code behind the view (a bootstrap code such as `install-failed`, or the view's own name); shown in the details line. */
   code?: string;
 };
@@ -190,10 +199,25 @@ export interface DesktopSshCleanupProgress {
   operationId: string;
   phase: 'connect' | 'stop' | 'remove' | 'done';
   detail?: string;
+  detailNotice?: SshMessage;
 }
 
+/** The local half of a cleanup that also forgets the server; when it failed the server stays saved. */
+export interface DesktopSshLocalForget {
+  ok: boolean;
+  error?: string;
+  notice?: SshMessage;
+}
+
+/** `sshForgetHost`: the saved servers that remain once the saved entry is removed. */
+export type DesktopSshForgetResult =
+  | { ok: true; hosts: DesktopSshHost[] }
+  /** It could not finish: the server stays saved. `message` is the English; `notice` the same by code. */
+  | { ok: false; message: string; notice?: SshMessage };
+
 export type DesktopSshCleanupResult =
-  | { ok: true; hosts: DesktopSshHost[]; detail?: string }
+  /** `forget` is present when the request asked to forget the server: the remote cleanup finished either way. */
+  | { ok: true; hosts: DesktopSshHost[]; detail?: string; detailNotice?: SshMessage; forget?: DesktopSshLocalForget }
   | { ok: false; failure: DesktopSshFailure };
 
 export interface DesktopSshProgress {

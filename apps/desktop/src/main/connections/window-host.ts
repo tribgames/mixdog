@@ -25,7 +25,7 @@ const FOCUS_DEBOUNCE_MS = 100;
 
 export interface WindowHostDeps {
   /** Opens or focuses the server's window (joins one being created); false when it could not be made. */
-  open(params: { connectionId: string; kind: HostWindowOpenParams['kind']; name: string }): Promise<boolean>;
+  open(params: HostWindowOpenParams): Promise<boolean | HostWindowOpenResult>;
   close(connectionId: string): void;
   /** `local` is the main window; `sessionId` shows that session in it. */
   focus(connectionId: string, sessionId?: string): void;
@@ -39,7 +39,7 @@ export interface WindowHost {
   /** A window the core asked for is gone: `byUser` unless the app is quitting. Sent only for a window the core opened
    *  through `host/window/open` on this connection: a core that does not drive the server windows never opens one, so it is
    *  never told (it does not take `host/window/closed`), and a window the person opened is not the core's to hear about. */
-  windowClosed(connectionId: string, byUser: boolean): void;
+  windowClosed(connectionId: string, byUser: boolean, windowToken?: string): void;
   /** The current state of every window; reported to the core once the burst settles, and only when it changed. */
   publishFocus(windows: WindowFocusEntry[]): void;
   dispose(): void;
@@ -63,7 +63,7 @@ function windowsKey(windows: readonly WindowFocusEntry[]): string {
 export function createWindowHost(deps: WindowHostDeps): WindowHost {
   const opening = new Map<string, Promise<HostWindowOpenResult>>();
   /** The windows the core asked for (an open it was answered `opened: true`); what `windowClosed` reports. */
-  const asked = new Set<string>();
+  const asked = new Map<string, string | undefined>();
   const debounceMs = deps.debounceMs ?? FOCUS_DEBOUNCE_MS;
   let pending: WindowFocusEntry[] | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -87,13 +87,18 @@ export function createWindowHost(deps: WindowHostDeps): WindowHost {
       if (p.kind !== 'ssh' || typeof p.name !== 'string') {
         throw new HostRpcError(HOST_INVALID_PARAMS, 'host/window/open needs kind "ssh" and a name.');
       }
+      const windowToken = p.windowToken;
+      if (windowToken !== undefined && (typeof windowToken !== 'string' || !windowToken)) {
+        throw new HostRpcError(HOST_INVALID_PARAMS, 'host/window/open needs a nonempty window token when provided.');
+      }
       const inflight = opening.get(connectionId);
       if (inflight) return inflight;
       const request = deps
-        .open({ connectionId, kind: p.kind, name: p.name })
+        .open({ connectionId, kind: p.kind, name: p.name, ...(windowToken ? { windowToken } : {}) })
         .then((opened): HostWindowOpenResult => {
-          if (opened) asked.add(connectionId);
-          return { opened };
+          const result = typeof opened === 'boolean' ? { opened } : opened;
+          if (result.opened) asked.set(connectionId, windowToken);
+          return result;
         })
         .catch((): HostWindowOpenResult => ({ opened: false }))
         .finally(() => {
@@ -116,9 +121,10 @@ export function createWindowHost(deps: WindowHostDeps): WindowHost {
 
   return {
     handlers,
-    windowClosed: (connectionId, byUser) => {
-      if (!asked.delete(connectionId)) return;
-      deps.report(WINDOW_HOST_METHOD.closed, { connectionId, byUser });
+    windowClosed: (connectionId, byUser, windowToken) => {
+      if (!asked.has(connectionId) || asked.get(connectionId) !== windowToken) return;
+      asked.delete(connectionId);
+      deps.report(WINDOW_HOST_METHOD.closed, { connectionId, byUser, ...(windowToken ? { windowToken } : {}) });
     },
     publishFocus: (windows) => {
       pending = windows;

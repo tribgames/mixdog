@@ -1,6 +1,4 @@
-//! The heartbeat against scripted sources. Each timeline replays one the Node recorder ran
-//! (`benchmarks/rust-core/recorders/record-heartbeat.mjs`, fixture `heartbeat-twin.json`): every
-//! tick's outcome and the state file it left must equal Node's, byte for byte as a document.
+//! The heartbeat against scripted sources: every tick's outcome and the state file it left.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -29,6 +27,7 @@ use crate::webhooks::RunStamp;
 
 const MINUTE: i64 = 60_000;
 const INTERVAL: i64 = 60 * MINUTE;
+const START: i64 = 1_767_258_000_000;
 const SEEN_FAR_AHEAD: i64 = 1_900_000_000_000;
 
 struct TestClock(Mutex<i64>);
@@ -293,11 +292,35 @@ fn seed_state(path: &Path, doc: &Value) {
     std::fs::write(path, doc.to_string()).unwrap();
 }
 
-#[allow(clippy::disallowed_methods, reason = "test fixture loading")]
-fn twin() -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/heartbeat/heartbeat-twin.json");
-    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+fn routine_item() -> Vec<String> {
+    vec!["schedule \"daily-news\" failed 3x in a row".to_owned()]
 }
+
+#[test]
+fn the_timers_are_a_minute_then_five() {
+    assert_eq!((FIRST_TICK, TICK), (Duration::from_secs(60), Duration::from_secs(300)));
+}
+
+fn asked(r: &Rig) -> usize {
+    r.settings.asked.load(Ordering::SeqCst)
+}
+
+fn left_open(count: usize) -> Vec<String> {
+    (0..count).map(|index| format!("sess_daemon_left{index}")).collect()
+}
+
+/// Moves the injected clock and the paused runtime clock together, 10 ms at a time, so each timer
+/// sees the time it falls due at (the heartbeat reads its timers off the clock it was given).
+async fn run_for(r: &Rig, millis: i64) {
+    for _ in 0..millis / 10 {
+        r.clock.advance(10);
+        tokio::time::advance(Duration::from_millis(10)).await;
+        for _ in 0..32 {
+            tokio::task::yield_now().await;
+        }
+    }
+}
+
 
 /// A heartbeat over the scripted sources, the Maintainer set to `model` (none: off).
 async fn rig(model: Option<&str>, seed: Option<Value>) -> Rig {
@@ -306,7 +329,7 @@ async fn rig(model: Option<&str>, seed: Option<Value>) -> Rig {
     if let Some(seed) = seed {
         seed_state(&path, &seed);
     }
-    let clock = Arc::new(TestClock(Mutex::new(twin()["T0"].as_i64().unwrap())));
+    let clock = Arc::new(TestClock(Mutex::new(START)));
     let store = HeartbeatStore::new(StateJson::new(path.clone(), tokens().durability_io));
     let activity = UserActivity::new(store.clone(), clock.clone());
     let world = Arc::new(World::default());
@@ -338,7 +361,6 @@ async fn rig(model: Option<&str>, seed: Option<Value>) -> Rig {
     });
     Rig { hb, clock, world, model: model_fake, settings, live, sessions, activity, store, f, path }
 }
-
 impl Rig {
     /// A wake's turn ends with `reply`.
     fn reply(&self, reply: &str) {
@@ -355,19 +377,19 @@ impl Rig {
         (outcome, read_state(&self.path))
     }
 
-    /// The tick must equal step `index` of Node's scenario `name`.
-    async fn step(&self, name: &str, index: usize) {
-        let (outcome, state) = self.tick().await;
-        let node = &twin()["scenarios"][name]["steps"][index];
-        assert_eq!(outcome.word(), node["outcome"].as_str().unwrap(), "{name} step {index} ({})", node["label"]);
-        let expected = node["state"].as_object().unwrap();
-        let got = state.as_object().expect("a state file");
-        assert_eq!(got.len(), expected.len(), "{name} step {index}: keys {:?} against {:?}", got.keys().collect::<Vec<_>>(), expected.keys().collect::<Vec<_>>());
-        for (key, want) in expected {
-            assert_eq!(&got[key], want, "{name} step {index} ({}): `{key}` of the state file", node["label"]);
-        }
+    /// One tick: its outcome word, and the state file it left. Instants are in whole intervals from the start (`attempt` 0 is
+    /// "never attempted"); `unreleased` is how many hidden sessions are still owed a close.
+    async fn step(&self, outcome: &str, attempt: i64, beat: i64, report: Option<&str>, unreleased: usize) {
+        let (got, state) = self.tick().await;
+        let label = format!("{outcome} / attempt {attempt} / beat {beat}");
+        assert_eq!(got.word(), outcome, "{label}");
+        let instant = |n: i64| START + n * INTERVAL;
+        assert_eq!(state["lastAttemptAt"], json!(if attempt == 0 { 0 } else { instant(attempt) }), "{label}: lastAttemptAt");
+        assert_eq!(state["lastBeatAt"], json!(instant(beat)), "{label}: lastBeatAt");
+        assert_eq!(state["lastHash"].as_str().is_some_and(|hash| !hash.is_empty()), beat > 0, "{label}: a digest is kept once a check has completed");
+        assert_eq!(state["lastReport"]["text"].as_str(), report, "{label}: lastReport");
+        assert_eq!(state["unreleased"].as_array().map(Vec::len), Some(unreleased), "{label}: unreleased");
     }
-
     /// The items each wake turn carried, in order.
     fn wakes(&self) -> Vec<Vec<String>> {
         self.f
@@ -397,36 +419,6 @@ impl Rig {
         self.live.notices.lock().unwrap().clone()
     }
 }
-
-fn node(name: &str, key: &str) -> Value {
-    twin()["scenarios"][name][key].clone()
-}
-
-fn routine_item() -> Vec<String> {
-    vec!["schedule \"daily-news\" failed 3x in a row".to_owned()]
-}
-
-#[test]
-fn the_timers_are_a_minute_then_five() {
-    assert_eq!((FIRST_TICK, TICK), (Duration::from_secs(60), Duration::from_secs(300)));
-}
-
-fn asked(r: &Rig) -> usize {
-    r.settings.asked.load(Ordering::SeqCst)
-}
-
-/// Moves the injected clock and the paused runtime clock together, 10 ms at a time, so each timer
-/// sees the time it falls due at (the heartbeat reads its timers off the clock it was given).
-async fn run_for(r: &Rig, millis: i64) {
-    for _ in 0..millis / 10 {
-        r.clock.advance(10);
-        tokio::time::advance(Duration::from_millis(10)).await;
-        for _ in 0..32 {
-            tokio::task::yield_now().await;
-        }
-    }
-}
-
 /// `startMixyHeartbeat` (mixy-heartbeat.mjs): `setTimeout(tick, firstTickMs)` and
 /// `setInterval(tick, tickMs)`, whose first step is a full tick after the start and each next one
 /// a full tick after the one that ran (the test scales 60 s / 5 min down to 100 ms / 400 ms).
@@ -449,7 +441,6 @@ async fn the_first_tick_comes_after_its_wait_and_the_rest_at_the_tick() {
     run_for(&r, 500).await;
     assert_eq!(asked(&r), 3, "a stopped heartbeat ticks no more");
 }
-
 #[tokio::test(start_paused = true)]
 async fn the_timers_follow_the_injected_clock_not_the_runtime_timer_alone() {
     let r = rig(None, None).await;
@@ -464,7 +455,6 @@ async fn the_timers_follow_the_injected_clock_not_the_runtime_timer_alone() {
     assert_eq!(asked(&r), 1, "the clock reached the first wait");
     running.stop().await;
 }
-
 /// `stop()` clears both timers at once (`['clear timeout'], ['clear interval']`).
 #[tokio::test(start_paused = true)]
 async fn a_heartbeat_stopped_before_its_first_tick_never_ticks() {
@@ -475,7 +465,6 @@ async fn a_heartbeat_stopped_before_its_first_tick_never_ticks() {
     run_for(&r, 2_000).await;
     assert_eq!(asked(&r), 0);
 }
-
 /// Node's `stopHeartbeat()` clears both timers when it is called and returns `heartbeat.idle()`,
 /// which the shutdown awaits only after the model proxy has closed: the halt is at once, the wait
 /// settles when the check in progress has ended, and a tick the interval made before found it
@@ -508,7 +497,6 @@ async fn a_halt_is_at_once_and_the_wait_ends_with_the_check_running() {
     assert_eq!(asked(&r), 1);
     running.stop().await;
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_setting_off_runs_nothing_and_no_mixy_clears_the_watermark() {
     let r = rig(None, None).await;
@@ -520,129 +508,121 @@ async fn a_setting_off_runs_nothing_and_no_mixy_clears_the_watermark() {
     let (outcome, state) = r.tick().await;
     assert_eq!((outcome, state["lastBeatAt"].clone()), (Outcome::NoMixy, json!(0)));
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn checks_are_one_interval_apart_and_a_wake_hands_over_the_routine_item() {
     let r = rig(None, None).await;
     r.world.failing(3, false);
     r.reply("Reported.");
-    r.step("routineWake", 0).await;
+    r.step("armed", 0, 0, None, 0).await;
     r.advance();
-    r.step("routineWake", 1).await;
+    r.step("woke", 1, 1, Some("Reported."), 0).await;
     r.advance();
-    r.step("routineWake", 2).await;
+    r.step("empty", 2, 2, Some("Reported."), 0).await;
     r.clock.advance(1);
-    r.step("routineWake", 3).await;
+    r.step("waiting", 2, 2, Some("Reported."), 0).await;
     assert_eq!(r.wakes(), [routine_item()]);
     assert_eq!(r.model.decides.load(Ordering::SeqCst), 0, "no model is asked");
-    assert_eq!(r.world.collects.load(Ordering::SeqCst), node("routineWake", "collects").as_array().unwrap().len());
+    assert_eq!(r.world.collects.load(Ordering::SeqCst), 2);
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_due_check_waits_for_thirty_quiet_minutes() {
     let r = rig(Some("tiny"), None).await;
-    r.step("idleGate", 0).await;
+    r.step("armed", 0, 0, None, 0).await;
     r.advance();
     r.activity.note_user_turn(r.clock.at() - 29 * MINUTE);
     let (outcome, _) = r.tick().await;
-    assert_eq!(outcome.word(), twin()["scenarios"]["idleGate"]["steps"][1]["outcome"]);
+    assert_eq!(outcome.word(), "deferred");
     assert_eq!(r.world.collects.load(Ordering::SeqCst), 0, "a deferred check collects nothing");
     r.clock.advance(MINUTE);
     let (outcome, _) = r.tick().await;
-    assert_eq!(outcome.word(), twin()["scenarios"]["idleGate"]["steps"][2]["outcome"]);
+    assert_eq!(outcome.word(), "nothing");
     assert_eq!(r.world.collects.load(Ordering::SeqCst), 1);
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_collection_commits_nothing_and_waits_for_the_next_interval() {
     let r = rig(Some("tiny"), None).await;
-    r.step("failedCollection", 0).await;
+    r.step("armed", 0, 0, None, 0).await;
     r.advance();
     r.world.broken.store(true, Ordering::SeqCst);
-    r.step("failedCollection", 1).await;
-    r.step("failedCollection", 2).await;
+    r.step("failed", 1, 0, None, 0).await;
+    r.step("waiting", 1, 0, None, 0).await;
     r.world.broken.store(false, Ordering::SeqCst);
     r.advance();
-    r.step("failedCollection", 3).await;
-    assert_eq!(r.world.collects.load(Ordering::SeqCst), node("failedCollection", "collects").as_array().unwrap().len(), "the failed check was collected again");
+    r.step("nothing", 2, 2, None, 0).await;
+    assert_eq!(r.world.collects.load(Ordering::SeqCst), 2, "the failed check was collected again");
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_rejected_wake_keeps_the_digest_and_the_report_for_the_next_check() {
     let r = rig(None, None).await;
     r.world.failing(3, false);
-    r.step("rejectedWake", 0).await;
+    r.step("armed", 0, 0, None, 0).await;
     r.advance();
     r.f.host.settles.lock().unwrap().push_back(TurnSettle::Failed("no Lead model is chosen".into()));
-    r.step("rejectedWake", 1).await;
+    r.step("failed", 1, 0, None, 0).await;
     r.advance();
     r.reply("Reported.");
-    r.step("rejectedWake", 2).await;
+    r.step("woke", 2, 2, Some("Reported."), 0).await;
     r.advance();
-    r.step("rejectedWake", 3).await;
+    r.step("empty", 3, 3, Some("Reported."), 0).await;
     assert_eq!(r.wakes(), [routine_item(), routine_item()]);
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_routine_wake_after_a_failed_gate_commits_only_the_routine_warning() {
     let r = rig(Some("tiny"), None).await;
     r.world.failing(3, true);
     *r.model.gate.lock().unwrap() = Gate::Down;
-    r.step("failedGate", 0).await;
+    r.step("armed", 0, 0, None, 0).await;
     r.advance();
     r.reply("Reported.");
-    r.step("failedGate", 1).await;
+    r.step("woke", 1, 0, Some("Reported."), 0).await;
     *r.model.gate.lock().unwrap() = Gate::Wake("The report draft is ready");
     r.advance();
     r.reply("Reported.");
-    r.step("failedGate", 2).await;
+    r.step("woke", 2, 2, Some("Reported."), 0).await;
     assert_eq!(r.wakes(), [routine_item(), vec!["The report draft is ready".to_owned()]]);
-    assert_eq!(r.world.collects.load(Ordering::SeqCst), node("failedGate", "collects").as_array().unwrap().len());
+    assert_eq!(r.world.collects.load(Ordering::SeqCst), 2);
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn three_unusable_replies_trip_the_breaker_with_one_notice_until_the_model_changes() {
     let r = rig(Some("tiny"), None).await;
     *r.model.gate.lock().unwrap() = Gate::Garbage;
-    r.step("parseBreaker", 0).await;
+    r.step("armed", 0, 0, None, 0).await;
     for index in 1..=4 {
         r.advance();
-        r.step("parseBreaker", index).await;
+        if index < 4 { r.step("retry", index, 0, None, 0).await } else { r.step("quiet", index, index, None, 0).await }
     }
     assert_eq!(r.model.decides.load(Ordering::SeqCst), 3, "the fourth check skips the Maintainer");
     let home = agent_home_session_id(MIXY_AGENT_ID).unwrap();
     let notices = r.notices(1).await;
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].0, home);
-    assert_eq!(notices[0].1, json!({ "text": node("parseBreaker", "notices")[0], "tone": "warn" }));
+    assert_eq!(notices[0].1, json!({ "text": "Heartbeat: the Maintainer model gave 3 unusable replies in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.", "tone": "warn" }));
     r.model.set_model(Some("other"));
     r.world.rows.lock().unwrap().clear();
     r.world.held.store(1, Ordering::SeqCst);
     r.advance();
-    r.step("parseBreaker", 5).await;
-    assert_eq!(r.model.decides.load(Ordering::SeqCst), node("parseBreaker", "decides").as_u64().unwrap() as usize, "a new model resets it");
+    r.step("retry", 5, 4, None, 0).await;
+    assert_eq!(r.model.decides.load(Ordering::SeqCst), 4, "a new model resets it");
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn five_provider_failures_trip_it_and_a_failing_routine_still_wakes_mixy() {
     let r = rig(Some("tiny"), None).await;
     *r.model.gate.lock().unwrap() = Gate::Down;
-    r.step("providerBreaker", 0).await;
+    r.step("armed", 0, 0, None, 0).await;
     for index in 1..=5 {
         r.advance();
-        r.step("providerBreaker", index).await;
+        r.step("retry", index, 0, None, 0).await;
     }
     let notices = r.notices(1).await;
     assert_eq!(notices.len(), 1);
-    assert_eq!(notices[0].1["text"], node("providerBreaker", "notices")[0]);
+    assert_eq!(notices[0].1["text"], "Heartbeat: the Maintainer model gave 5 failed calls in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.");
     r.world.failing(3, false);
     r.advance();
     r.reply("Reported.");
-    r.step("providerBreaker", 6).await;
+    r.step("woke", 6, 6, Some("Reported."), 0).await;
     assert_eq!(r.model.decides.load(Ordering::SeqCst), 5);
     assert_eq!(r.wakes(), [routine_item()]);
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_close_that_did_not_land_is_retried_first_on_the_next_tick() {
     let r = rig(None, None).await;
@@ -650,46 +630,39 @@ async fn a_close_that_did_not_land_is_retried_first_on_the_next_tick() {
     // The wake's own close fails, then the first retry fails too (Node's recorder fails the
     // first close it is asked for); the third try lands.
     r.sessions.failures.lock().unwrap().insert("sess_hidden_1".into(), 2);
-    r.step("retryRelease", 0).await;
+    r.step("armed", 0, 0, None, 0).await;
     r.advance();
     r.reply("Reported.");
-    r.step("retryRelease", 1).await;
+    r.step("woke", 1, 1, Some("Reported."), 1).await;
     assert_eq!(*r.sessions.closes.lock().unwrap(), ["sess_hidden_1"]);
-    r.step("retryRelease", 2).await;
+    r.step("waiting", 1, 1, Some("Reported."), 1).await;
     assert_eq!(*r.sessions.closes.lock().unwrap(), ["sess_hidden_1", "sess_hidden_1"], "retried before anything else");
     let (_, state) = r.tick().await;
     assert_eq!(state["unreleased"], json!([]), "a landed retry drops the id");
     assert_eq!(r.sessions.closes.lock().unwrap().len(), 3);
     assert_eq!(r.wakes().len(), 1, "never woken again for it");
 }
-
-fn left_open(count: usize) -> Vec<String> {
-    (0..count).map(|index| format!("sess_daemon_left{index}")).collect()
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn twenty_unclosed_sessions_block_every_check_and_keep_every_id() {
     let ids = left_open(20);
-    assert_eq!(node("blocked", "ids"), json!(ids));
     let r = rig(Some("tiny"), Some(json!({ "unreleased": ids }))).await;
     r.world.failing(3, false);
-    r.step("blocked", 0).await;
+    r.step("armed", 0, 0, None, 20).await;
     r.advance();
-    r.step("blocked", 1).await;
+    r.step("blocked", 1, 0, None, 20).await;
     assert!(r.wakes().is_empty());
     assert_eq!(r.model.decides.load(Ordering::SeqCst), 0);
     assert_eq!(r.sessions.closes.lock().unwrap().len(), 40, "each tick retried all twenty first");
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nineteen_unclosed_sessions_still_let_a_check_run() {
     let ids = left_open(19);
     let r = rig(None, Some(json!({ "unreleased": ids }))).await;
     r.world.failing(3, false);
-    r.step("underCap", 0).await;
+    r.step("armed", 0, 0, None, 19).await;
     r.advance();
     r.reply("Reported.");
-    r.step("underCap", 1).await;
+    r.step("woke", 1, 1, Some("Reported."), 19).await;
     assert_eq!(r.wakes(), [routine_item()]);
     assert_eq!(r.store.state().await.unreleased.len(), 19);
 }

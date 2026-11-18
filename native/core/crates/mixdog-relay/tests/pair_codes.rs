@@ -1,5 +1,4 @@
-//! The cases of `apps/relay/lib/pair-codes.test.mjs` that exercise `PairCodes` directly, on an explicit clock. The cases that
-//! drive the relay over a WebSocket are twin scenarios of nr-relay-twin-identity (see the ledger).
+//! `PairCodes` on an explicit clock: single-use codes, expiry, tickets, lockouts and the shared guess budget.
 
 use mixdog_relay::js;
 use mixdog_relay::pairing::codes::{
@@ -244,7 +243,7 @@ fn the_answer_to_a_code_request_is_ok_with_the_code_or_not_ok_without_it() {
 }
 
 #[test]
-fn a_name_is_cleaned_trimmed_and_cut_as_node_does() {
+fn a_name_is_cleaned_trimmed_and_cut() {
     assert_eq!(clean_name(None), "");
     assert_eq!(clean_name(Some("  Home\u{0}\u{7}\u{7f} PC \n")), "Home PC");
     let long = "n".repeat(100);

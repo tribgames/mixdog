@@ -64,6 +64,34 @@ async fn thread_with_toast(rig: &Rig) -> (SessionDirectory, Arc<SessionHandle>, 
     (directory, handle, shown)
 }
 
+/// The turn's close does not take the toast: the queue is the session's own and leaves with its timer, so the runtime frame that
+/// follows `turn/completed` (and the state a client reads then) still holds the failure's toast.
+#[tokio::test(start_paused = true)]
+async fn the_turns_close_leaves_its_toast_in_the_runtime_state() {
+    let rig = failing_rig();
+    let (_directory, handle, shown) = thread_with_toast(&rig).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || {
+        rig.feeds.frames(handle.id.as_str()).iter().any(|(_, method, _)| method == "turn/completed").then_some(())
+    })
+    .await;
+    assert_eq!(published_toasts(&rig, &handle.id), Some(shown.clone()), "the frame after turn/completed holds the toast");
+    let held = handle.cell.view.load_full().state.runtime.clone().expect("runtime").toasts;
+    assert_eq!(held, shown);
+}
+
+const TEXT: &str = "mcp sign-in started: linear";
+
+/// The runtime frames of `thread`'s whole publication history that carry the sign-in toast.
+fn toast_frames(rig: &Rig, thread: &ThreadId) -> Vec<Value> {
+    rig.feeds
+        .history(thread.as_str())
+        .into_iter()
+        .map(|(_, frame)| frame)
+        .filter(|frame| frame["params"]["value"]["toasts"].as_array().is_some_and(|toasts| toasts.iter().any(|toast| toast["text"] == TEXT)))
+        .collect()
+}
+
 /// A failed turn's toast is in the runtime section for 3 s: 2999 ms in it is still there, 1 ms later it is removed and
 /// the removal is published.
 #[tokio::test(start_paused = true)]
@@ -83,46 +111,6 @@ async fn a_toast_stays_three_seconds_then_is_removed_and_published() {
     let gone = eventually_on!(&[&handle.cell.stepped], || published_toasts(&rig, &handle.id).filter(|toasts| toasts.is_empty())).await;
     assert!(gone.is_empty(), "at 3000 ms the removal is published");
 }
-
-/// The turn's close does not take the toast: the queue is the session's own and leaves with its timer, so the runtime frame that
-/// follows `turn/completed` (and the state a client reads then) still holds the failure's toast.
-#[tokio::test(start_paused = true)]
-async fn the_turns_close_leaves_its_toast_in_the_runtime_state() {
-    let rig = failing_rig();
-    let (_directory, handle, shown) = thread_with_toast(&rig).await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    eventually_on!(&[&handle.cell.stepped], || {
-        rig.feeds.frames(handle.id.as_str()).iter().any(|(_, method, _)| method == "turn/completed").then_some(())
-    })
-    .await;
-    assert_eq!(published_toasts(&rig, &handle.id), Some(shown.clone()), "the frame after turn/completed holds the toast");
-    let held = handle.cell.view.load_full().state.runtime.clone().expect("runtime").toasts;
-    assert_eq!(held, shown);
-}
-/// The notice a sign-in or sign-out posts (`pushNotice(text, 'info')` of the session extensions API) is a toast of the session it
-/// was made on, with the text polished as Node's surface polished it (`fixtures/mcp-login-notices`); a thread no loaded session
-/// hosts shows nothing.
-#[tokio::test(start_paused = true)]
-async fn a_posted_notice_is_the_toast_node_showed() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/mcp-login-notices/golden.json")).expect("fixture");
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
-    let mut posted = 0;
-    for flow in golden["flows"].as_array().expect("flows") {
-        let Some(notice) = flow["events"].as_array().expect("events").iter().find_map(|event| event.get("notice")) else { continue };
-        let handle = start_thread(&directory).await;
-        let session = directory.hosting(&handle.id).expect("hosted");
-        session.push_toast(notice["text"].as_str().unwrap(), notice["tone"].as_str().unwrap()).await.unwrap_or_else(|cause| panic!("{}: {cause}", flow["name"]));
-        let shown = published_toasts(&rig, &handle.id).expect("published");
-        let without_ids: Vec<Value> = shown.iter().map(|toast| json!({ "text": toast["text"], "tone": toast["tone"] })).collect();
-        assert_eq!(Value::Array(without_ids), flow["toasts"], "{}", flow["name"]);
-        assert!(shown.iter().all(|toast| toast["id"].as_str().is_some_and(|id| !id.is_empty()) && toast.get("owner").is_none()));
-        posted += 1;
-    }
-    assert!(posted > 0, "the recording holds notices");
-    assert!(directory.hosting(&ThreadId::from("not-loaded")).is_none(), "a cold session has no incarnation");
-}
-
 /// An earlier record the store has not acknowledged holds the outbox, and with it the toast: `push_toast` (the sign-in notice
 /// that MCP's reply waits for, as Node posted it before returning) answers only once the toast's runtime frame is published,
 /// never while the record before it is still held.
@@ -177,19 +165,6 @@ async fn a_toast_behind_an_unacknowledged_record_answers_only_when_it_is_publish
     assert_eq!(toasts.iter().map(|toast| (toast["text"].clone(), toast["tone"].clone())).collect::<Vec<_>>(), [(json!(TEXT), json!("info"))]);
     renamed.await.expect("joined").expect("name/set");
 }
-
-const TEXT: &str = "mcp sign-in started: linear";
-
-/// The runtime frames of `thread`'s whole publication history that carry the sign-in toast.
-fn toast_frames(rig: &Rig, thread: &ThreadId) -> Vec<Value> {
-    rig.feeds
-        .history(thread.as_str())
-        .into_iter()
-        .map(|(_, frame)| frame)
-        .filter(|frame| frame["params"]["value"]["toasts"].as_array().is_some_and(|toasts| toasts.iter().any(|toast| toast["text"] == TEXT)))
-        .collect()
-}
-
 /// `thread/clear` empties the queue and cancels the timers: past the toast's 3 s nothing more is published.
 #[tokio::test(start_paused = true)]
 async fn a_cleared_session_publishes_no_expiry() {
@@ -210,7 +185,6 @@ async fn a_cleared_session_publishes_no_expiry() {
     caught_up(&handle).await;
     assert_eq!(runtime_frames(&rig, &handle.id), published, "no timer of the cleared queue publishes");
 }
-
 /// A closed thread cancels its timers: past the toast's 3 s nothing more is published.
 #[tokio::test(start_paused = true)]
 async fn a_closed_session_publishes_no_expiry() {
@@ -227,4 +201,30 @@ async fn a_closed_session_publishes_no_expiry() {
     // The actor has ended, so nothing it owned can publish again.
     tokio::time::advance(Duration::from_millis(3000)).await;
     assert_eq!(runtime_frames(&rig, &handle.id), published, "no timer of the closed thread publishes");
+}
+
+
+#[cfg(node_twin)]
+/// The notice a sign-in or sign-out posts (`pushNotice(text, 'info')` of the session extensions API) is a toast of the session it
+/// was made on, with the text polished as Node's surface polished it (`fixtures/mcp-login-notices`); a thread no loaded session
+/// hosts shows nothing.
+#[tokio::test(start_paused = true)]
+async fn a_posted_notice_is_the_toast_node_showed() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/mcp-login-notices/golden.json")).expect("fixture");
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let mut posted = 0;
+    for flow in golden["flows"].as_array().expect("flows") {
+        let Some(notice) = flow["events"].as_array().expect("events").iter().find_map(|event| event.get("notice")) else { continue };
+        let handle = start_thread(&directory).await;
+        let session = directory.hosting(&handle.id).expect("hosted");
+        session.push_toast(notice["text"].as_str().unwrap(), notice["tone"].as_str().unwrap()).await.unwrap_or_else(|cause| panic!("{}: {cause}", flow["name"]));
+        let shown = published_toasts(&rig, &handle.id).expect("published");
+        let without_ids: Vec<Value> = shown.iter().map(|toast| json!({ "text": toast["text"], "tone": toast["tone"] })).collect();
+        assert_eq!(Value::Array(without_ids), flow["toasts"], "{}", flow["name"]);
+        assert!(shown.iter().all(|toast| toast["id"].as_str().is_some_and(|id| !id.is_empty()) && toast.get("owner").is_none()));
+        posted += 1;
+    }
+    assert!(posted > 0, "the recording holds notices");
+    assert!(directory.hosting(&ThreadId::from("not-loaded")).is_none(), "a cold session has no incarnation");
 }

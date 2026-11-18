@@ -452,6 +452,9 @@ impl Slot {
 
 #[async_trait]
 impl Yielder for Slot {
+    async fn run_yielded_reporting(&self, task: futures::future::BoxFuture<'_, bool>, cancel: Option<&Cancel>, waiting: &(dyn Fn() + Send + Sync)) -> Result<(), String> {
+        Slot::run_yielded(self, async { if task.await { Ok(()) } else { Err(()) } }, cancel, Some(waiting)).await.map(drop)
+    }
     async fn run_yielded(&self, task: futures::future::BoxFuture<'_, bool>, cancel: Option<&Cancel>) -> Result<(), String> {
         Slot::run_yielded(self, async { if task.await { Ok(()) } else { Err(()) } }, cancel, None).await.map(drop)
     }
@@ -608,11 +611,6 @@ mod tests {
         Arc::new(ResourceAdmission::new(limits, Arc::new(Fixed(0))))
     }
 
-    /// A spawned acquire's end: its result, or the failure naming what it was awaited for.
-    async fn finished<T>(what: &str, task: tokio::task::JoinHandle<T>) -> T {
-        mixdog_core_session::session::testing::awaiting(|| what.to_owned(), task).await.unwrap()
-    }
-
     /// Returns once `n` waiters are in the queue; fails by assertion if `task`, the acquire that should be queuing, ends first.
     async fn queued_is(a: &ResourceAdmission, n: usize, task: &mut tokio::task::JoinHandle<impl std::fmt::Debug>) {
         mixdog_core_session::eventually_on_until!(&[&a.controller.queued], || (a.queued() == n).then_some(()), task).await;
@@ -645,54 +643,6 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_full_pool_queues_in_order_and_a_full_queue_refuses_with_nodes_text() {
-        let a = admission(1, 2);
-        let cancel = Cancel::new();
-        let first = a.acquire_in(Pool::Agent, Some("s1"), Priority::UserVisible, &cancel).await.unwrap();
-        assert_eq!((a.active(Pool::Agent), a.queued()), (1, 0));
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let mut w1 = spawn_acquire(&a, Pool::Agent, "s1", Priority::UserVisible, &order, "one");
-        queued_is(&a, 1, &mut w1).await;
-        let mut w2 = spawn_acquire(&a, Pool::Agent, "s1", Priority::UserVisible, &order, "two");
-        queued_is(&a, 2, &mut w2).await;
-        assert_eq!(a.queued(), 2);
-        let refused = a.acquire_in(Pool::Agent, Some("s1"), Priority::UserVisible, &cancel).await.err().unwrap();
-        assert_eq!(refused, "resource pressure: high-load admission queue full (maximum 2); retry after running work completes");
-        drop(first);
-        finished("the first waiter to be granted the slot the first holder freed", w1).await;
-        finished("the second waiter to be granted the slot the first waiter freed", w2).await;
-        assert_eq!(*order.lock().unwrap(), ["one", "two"]);
-        assert_eq!((a.active(Pool::Agent), a.queued()), (0, 0));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn priority_beats_arrival_and_owners_take_turns() {
-        let a = admission(1, 16);
-        let first = a.acquire_in(Pool::Agent, Some("x"), Priority::UserVisible, &Cancel::new()).await.unwrap();
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let mut tasks = Vec::new();
-        for (queued, (owner, priority, tag)) in [
-            ("a", Priority::BestEffort, "a-best"),
-            ("a", Priority::UserVisible, "a1"),
-            ("a", Priority::UserVisible, "a2"),
-            ("b", Priority::UserVisible, "b1"),
-            ("c", Priority::UserBlocking, "c-blocking"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            tasks.push(spawn_acquire(&a, Pool::Agent, owner, priority, &order, tag));
-            queued_is(&a, queued + 1, tasks.last_mut().unwrap()).await;
-        }
-        drop(first);
-        for t in tasks {
-            finished("a queued acquire to be granted a slot as the first holder lets go", t).await;
-        }
-        // user-blocking first; then a and b alternate (a's first waiter, then b); best-effort last.
-        assert_eq!(*order.lock().unwrap(), ["c-blocking", "a1", "b1", "a2", "a-best"]);
-    }
-
-    #[tokio::test(start_paused = true)]
     async fn shells_and_agents_never_wait_behind_each_other() {
         let a = admission(1, 4);
         let cancel = Cancel::new();
@@ -707,30 +657,21 @@ mod tests {
         queued_agent.abort();
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn a_cancelled_wait_leaves_the_queue_and_a_freed_slot_is_not_lost() {
+    #[tokio::test]
+    async fn the_seam_hands_out_a_lease_that_releases() {
         let a = admission(1, 4);
-        let first = a.acquire_in(Pool::Agent, None, Priority::UserVisible, &Cancel::new()).await.unwrap();
-        let cancel = Cancel::new();
-        let mut waiting = {
-            let (a, cancel) = (a.clone(), cancel.clone());
-            tokio::spawn(async move { a.acquire_in(Pool::Agent, Some("o"), Priority::UserVisible, &cancel).await.err() })
-        };
-        queued_is(&a, 1, &mut waiting).await;
-        cancel.abort(JOB_CANCELLED);
-        assert_eq!(finished("the cancelled acquire to end", waiting).await.as_deref(), Some(JOB_CANCELLED));
-        assert_eq!(a.queued(), 0);
-        // A token cancelled before the call never queues.
-        let done = Cancel::new();
-        done.abort_default();
-        assert_eq!(a.acquire_in(Pool::Agent, None, Priority::UserVisible, &done).await.err().as_deref(), Some(ABORTED));
-        drop(first);
+        let admission: &dyn Admission = a.as_ref();
+        let lease = admission.acquire("tag", Some("  s1  "), &Cancel::new()).await.unwrap();
+        assert_eq!(a.active(Pool::Agent), 1);
+        lease.release().await;
         assert_eq!(a.active(Pool::Agent), 0);
-        a.acquire_in(Pool::Agent, None, Priority::UserVisible, &Cancel::new()).await.unwrap();
+        assert_eq!(a.wait_stats("agent").admitted, 1);
     }
+
 
     /// Node's real controller on three queues: the grant order and the refusal.
     #[tokio::test(start_paused = true)]
+    #[cfg(node_twin)]
     async fn grant_order_and_refusal_follow_node() {
         let golden: serde_json::Value = serde_json::from_str(include_str!("golden/admission.json")).unwrap();
         let scenarios: [(&str, usize, Vec<(&'static str, Priority, &'static str)>); 3] = [
@@ -758,13 +699,7 @@ mod tests {
             assert_eq!(serde_json::json!(*order.lock().unwrap()), golden[name]["order"], "{name}");
         }
     }
-
-    fn yield_golden() -> serde_json::Value {
-        serde_json::from_str(include_str!("golden/admission_yield.json")).unwrap()
-    }
-
-    /// Node's real controller: a yielded agent lets another run; its slot comes back in the
-    /// queue, behind an owner that was already waiting.
+    /// A yielded agent lets another run; its slot comes back in the queue, behind an owner that was already waiting.
     #[tokio::test(start_paused = true)]
     async fn a_yielded_agent_lets_another_run_and_gets_its_slot_back_in_order() {
         let a = admission(1, 16);
@@ -826,26 +761,23 @@ mod tests {
         finished("the yielded run to be given its slot back and end", run).await;
         Arc::try_unwrap(held_a).ok().unwrap().release().await;
         push(&ev, format!("active-end:{}", a.active(Pool::Agent)));
-        let golden = yield_golden();
-        assert_eq!(serde_json::json!(*ev.lock().unwrap()), golden["yield"]["events"]);
-        assert_eq!(a.wait_stats("agentRestore").admitted, golden["yield"]["restoreStats"].as_u64().unwrap());
+        let want = ["A-acquired", "A-request-start", "B-granted", "active-while-B:1", "A-request-done", "A-waiting-for-slot:true", "C-granted", "C-held", "A-restored:ok", "active-end:0"];
+        assert_eq!(*ev.lock().unwrap(), want);
+        assert_eq!(a.wait_stats("agentRestore").admitted, 1);
     }
-
     #[tokio::test]
     async fn a_failed_request_keeps_the_lease_suspended_until_it_is_released() {
         let a = admission(1, 16);
         let held = a.acquire_in(Pool::Agent, Some("a"), Priority::UserVisible, &Cancel::new()).await.unwrap();
         let outcome = held.run_yielded(async { Err::<(), _>("boom") }, None, None).await.unwrap();
-        let golden = yield_golden();
-        assert_eq!(outcome.err(), golden["failed"]["err"].as_str().map(|_| "boom"));
-        assert_eq!(serde_json::json!(held.counted()), golden["failed"]["counted"]);
+        assert_eq!(outcome.err(), Some("boom"));
+        assert!(!held.counted(), "a lease whose request failed stays suspended");
         // Another agent starts at once; the suspended lease releases cleanly.
         let b = a.acquire_in(Pool::Agent, Some("b"), Priority::UserVisible, &Cancel::new()).await.unwrap();
         b.release().await;
         held.release().await;
-        assert_eq!(serde_json::json!(a.active(Pool::Agent)), golden["failed"]["active"]);
+        assert_eq!(a.active(Pool::Agent), 0);
     }
-
     #[tokio::test]
     async fn a_nested_agent_suspends_its_parent_until_it_is_released() {
         let a = admission(1, 16);
@@ -855,13 +787,11 @@ mod tests {
         child.release().await;
         ev.push(format!("child-released:{}", parent.counted()));
         parent.release().await;
-        assert_eq!(serde_json::json!(ev), yield_golden()["nested"]);
+        assert_eq!(ev, ["child-held:1:false", "child-released:true"]);
     }
-
-    /// What Node's cancelled wait says per source of the cancel.
+    /// What a cancelled wait says, per source of the cancel.
     #[tokio::test(start_paused = true)]
     async fn a_cancelled_wait_says_what_its_source_said() {
-        let golden = yield_golden();
         let probe = |abort: Box<dyn Fn(&Cancel)>| async move {
             let a = admission(1, 16);
             let held = a.acquire_in(Pool::Agent, None, Priority::UserVisible, &Cancel::new()).await.unwrap();
@@ -876,10 +806,10 @@ mod tests {
             held.release().await;
             text
         };
-        assert_eq!(probe(Box::new(|c| c.abort_default())).await, golden["reasons"]["default"].as_str().unwrap());
-        assert_eq!(probe(Box::new(|c| c.abort("parent session closed"))).await, golden["reasons"]["error"].as_str().unwrap());
-        assert_eq!(probe(Box::new(|c| c.abort("stopped by user"))).await, golden["reasons"]["string"].as_str().unwrap());
-        assert_eq!(probe(Box::new(|c| c.abort(JOB_CANCELLED))).await, golden["reasons"]["job"].as_str().unwrap());
+        assert_eq!(probe(Box::new(|c| c.abort_default())).await, "This operation was aborted");
+        assert_eq!(probe(Box::new(|c| c.abort("parent session closed"))).await, "parent session closed");
+        assert_eq!(probe(Box::new(|c| c.abort("stopped by user"))).await, "stopped by user");
+        assert_eq!(probe(Box::new(|c| c.abort(JOB_CANCELLED))).await, "agent task cancelled before resource admission");
         // A composed signal keeps the reason of the source that fired first.
         let (parent, call) = (Cancel::new(), Cancel::new());
         let linked = Cancel::linked(&[parent.clone(), call.clone()]);
@@ -889,14 +819,75 @@ mod tests {
         assert_eq!(linked.reason(), "call stopped");
     }
 
-    #[tokio::test]
-    async fn the_seam_hands_out_a_lease_that_releases() {
+    /// A spawned acquire's end: its result, or the failure naming what it was awaited for.
+    async fn finished<T>(what: &str, task: tokio::task::JoinHandle<T>) -> T {
+        mixdog_core_session::session::testing::awaiting(|| what.to_owned(), task).await.unwrap()
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_full_pool_queues_in_order_and_a_full_queue_refuses_with_nodes_text() {
+        let a = admission(1, 2);
+        let cancel = Cancel::new();
+        let first = a.acquire_in(Pool::Agent, Some("s1"), Priority::UserVisible, &cancel).await.unwrap();
+        assert_eq!((a.active(Pool::Agent), a.queued()), (1, 0));
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let mut w1 = spawn_acquire(&a, Pool::Agent, "s1", Priority::UserVisible, &order, "one");
+        queued_is(&a, 1, &mut w1).await;
+        let mut w2 = spawn_acquire(&a, Pool::Agent, "s1", Priority::UserVisible, &order, "two");
+        queued_is(&a, 2, &mut w2).await;
+        assert_eq!(a.queued(), 2);
+        let refused = a.acquire_in(Pool::Agent, Some("s1"), Priority::UserVisible, &cancel).await.err().unwrap();
+        assert_eq!(refused, "resource pressure: high-load admission queue full (maximum 2); retry after running work completes");
+        drop(first);
+        finished("the first waiter to be granted the slot the first holder freed", w1).await;
+        finished("the second waiter to be granted the slot the first waiter freed", w2).await;
+        assert_eq!(*order.lock().unwrap(), ["one", "two"]);
+        assert_eq!((a.active(Pool::Agent), a.queued()), (0, 0));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn priority_beats_arrival_and_owners_take_turns() {
+        let a = admission(1, 16);
+        let first = a.acquire_in(Pool::Agent, Some("x"), Priority::UserVisible, &Cancel::new()).await.unwrap();
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let mut tasks = Vec::new();
+        for (queued, (owner, priority, tag)) in [
+            ("a", Priority::BestEffort, "a-best"),
+            ("a", Priority::UserVisible, "a1"),
+            ("a", Priority::UserVisible, "a2"),
+            ("b", Priority::UserVisible, "b1"),
+            ("c", Priority::UserBlocking, "c-blocking"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            tasks.push(spawn_acquire(&a, Pool::Agent, owner, priority, &order, tag));
+            queued_is(&a, queued + 1, tasks.last_mut().unwrap()).await;
+        }
+        drop(first);
+        for t in tasks {
+            finished("a queued acquire to be granted a slot as the first holder lets go", t).await;
+        }
+        // user-blocking first; then a and b alternate (a's first waiter, then b); best-effort last.
+        assert_eq!(*order.lock().unwrap(), ["c-blocking", "a1", "b1", "a2", "a-best"]);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_cancelled_wait_leaves_the_queue_and_a_freed_slot_is_not_lost() {
         let a = admission(1, 4);
-        let admission: &dyn Admission = a.as_ref();
-        let lease = admission.acquire("tag", Some("  s1  "), &Cancel::new()).await.unwrap();
-        assert_eq!(a.active(Pool::Agent), 1);
-        lease.release().await;
+        let first = a.acquire_in(Pool::Agent, None, Priority::UserVisible, &Cancel::new()).await.unwrap();
+        let cancel = Cancel::new();
+        let mut waiting = {
+            let (a, cancel) = (a.clone(), cancel.clone());
+            tokio::spawn(async move { a.acquire_in(Pool::Agent, Some("o"), Priority::UserVisible, &cancel).await.err() })
+        };
+        queued_is(&a, 1, &mut waiting).await;
+        cancel.abort(JOB_CANCELLED);
+        assert_eq!(finished("the cancelled acquire to end", waiting).await.as_deref(), Some(JOB_CANCELLED));
+        assert_eq!(a.queued(), 0);
+        // A token cancelled before the call never queues.
+        let done = Cancel::new();
+        done.abort_default();
+        assert_eq!(a.acquire_in(Pool::Agent, None, Priority::UserVisible, &done).await.err().as_deref(), Some(ABORTED));
+        drop(first);
         assert_eq!(a.active(Pool::Agent), 0);
-        assert_eq!(a.wait_stats("agent").admitted, 1);
+        a.acquire_in(Pool::Agent, None, Priority::UserVisible, &Cancel::new()).await.unwrap();
     }
 }

@@ -285,10 +285,12 @@ mod tests {
         }
     }
 
+    #[cfg(all(test, node_twin))]
     fn string_list(v: &Value) -> Vec<String> {
         v.as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default()
     }
 
+    #[cfg(all(test, node_twin))]
     fn tool(doc: &Value) -> StatusTool {
         StatusTool {
             name: doc["name"].as_str().unwrap_or_default().to_owned(),
@@ -299,6 +301,7 @@ mod tests {
     }
 
     /// Node's own `surface` object (as `activeToolSurface()` returns it) as a [`StatusSurface`].
+    #[cfg(all(test, node_twin))]
     fn surface_of(mode: &str, node: &Value) -> StatusSurface {
         let tools = node["tools"].as_array().cloned().unwrap_or_default();
         let catalog = node["deferredToolCatalog"].as_array().cloned().unwrap_or(tools.clone());
@@ -310,17 +313,6 @@ mod tests {
             active,
             discovered: string_list(&node["deferredDiscoveredTools"]),
             listed: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn status_equals_the_recorded_node_readout() {
-        let golden: Vec<Value> = serde_json::from_str(include_str!("golden/tools_status.json")).expect("golden");
-        assert!(golden.len() >= 7);
-        for case in golden {
-            let surface = surface_of(case["mode"].as_str().unwrap(), &case["surface"]);
-            let got = tools_status(&surface, case["query"].as_str().unwrap());
-            assert_eq!(got.to_string(), case["result"].to_string(), "case {}", case["label"]);
         }
     }
 
@@ -426,6 +418,48 @@ mod tests {
             let mut req = from(Origin::Local, json!({"threadId": "t1", "snapshot": true}));
             req.ctx = req.ctx.with_window(Some(WindowScope { id: "w1".into(), role: role.clone() }));
             assert!(service.call(req).await.is_ok(), "{role:?}: a local window is given the snapshot");
+        }
+    }
+
+
+    #[test]
+    fn the_readout_counts_regular_and_mcp_tools_separately_and_filters_by_query() {
+        let tool = |name: &str, description: &str| StatusTool { name: name.into(), description: description.into(), ..StatusTool::default() };
+        let long = "y".repeat(300);
+        let surface = StatusSurface {
+            mode: "full".into(),
+            catalog: vec![tool("read", "Read files.\n  Lines   and  ranges."), tool(" shell ", "Run commands"), tool("mcp__srv__ping", &long), tool("zeta", "Z tool")],
+            active: vec!["shell".into(), "read".into(), "mcp__srv__ping".into(), String::new()],
+            discovered: vec!["zeta".into()],
+            listed: Vec::new(),
+        };
+        let all = tools_status(&surface, "");
+        assert_eq!((all["mode"].as_str(), all["count"].as_u64(), all["activeCount"].as_u64()), (Some("full"), Some(3), Some(2)));
+        assert_eq!((all["mcpToolCount"].as_u64(), all["activeMcpToolCount"].as_u64()), (Some(1), Some(1)));
+        // Active tools follow the route order, then the rest; discovered ones are named apart.
+        assert_eq!(all["activeTools"], json!(["read", "shell", "mcp__srv__ping"]));
+        assert_eq!(all["discoveredTools"], json!(["zeta"]));
+        let rows = all["tools"].as_array().unwrap();
+        assert_eq!(rows[0]["description"], "Read files. Lines and ranges.", "white space is folded");
+        assert_eq!((rows[1]["name"].as_str(), rows[1]["kind"].as_str(), rows[1]["active"].as_bool()), (Some("shell"), Some("mutation"), Some(true)));
+        assert_eq!((rows[2]["kind"].as_str(), rows[2]["description"].as_str().unwrap().chars().count()), (Some("mcp"), 220), "a long description is cut to 220 with an ellipsis");
+        assert!(rows[2]["description"].as_str().unwrap().ends_with('…'));
+        // The query matches the name or the description, ignoring case.
+        let found = tools_status(&surface, "  RANGES ");
+        assert_eq!(found["tools"].as_array().unwrap().len(), 1);
+        assert_eq!(found["tools"][0]["name"], "read");
+        assert_eq!(found["count"], 3, "the counts are of the whole catalog, not of the filter");
+    }
+
+    #[cfg(node_twin)]
+    #[test]
+    fn status_equals_the_recorded_node_readout() {
+        let golden: Vec<Value> = serde_json::from_str(include_str!("golden/tools_status.json")).expect("golden");
+        assert!(golden.len() >= 7);
+        for case in golden {
+            let surface = surface_of(case["mode"].as_str().unwrap(), &case["surface"]);
+            let got = tools_status(&surface, case["query"].as_str().unwrap());
+            assert_eq!(got.to_string(), case["result"].to_string(), "case {}", case["label"]);
         }
     }
 }

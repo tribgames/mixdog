@@ -16,6 +16,8 @@ use mixdog_agent::agent_tool::progress::Snapshot;
 use mixdog_agent::agent_tool::progress::ToolSilence;
 use mixdog_agent::agent_tool::views::WorkerLive;
 use mixdog_agent::env::Clock;
+use mixdog_core_api::domain::provider::AttemptPhase;
+use mixdog_core_api::domain::provider::Boundary;
 use mixdog_core_api::domain::tool::ToolProgress;
 use mixdog_protocol::ProcessHandle;
 use serde_json::Value;
@@ -104,6 +106,14 @@ struct Entry {
     last_keepalive_at: i64,
     ask_started_at: i64,
     model_request_started_at: i64,
+    /// The submission the send loop is in (`RunEvent::SubmissionStarted`), and within it the active attempt (`SendIdentity`'s attempt
+    /// clock): its id and phase, `None` once it ended. Set only by the current submission's own boundaries.
+    submission: u64,
+    attempt: u64,
+    phase: Option<AttemptPhase>,
+    /// When the scheduled retry of the failed request runs; `0` once the next submission or attempt began.
+    retry_at: i64,
+    local_wait: Option<&'static str>,
     request_transport_at: i64,
     request_first_semantic_at: i64,
     model_response_accepted: bool,
@@ -153,7 +163,7 @@ impl RunProgress {
 
     /// `runtime.stage`.
     pub fn stage(&self) -> Option<String> {
-        self.entry.as_ref().map(|e| e.stage.clone())
+        self.entry.as_ref().map(|e| e.local_wait.unwrap_or(&e.stage).to_owned())
     }
 
     /// `_evictTerminalSessionRuntime`: askSession drops a settled (`done` / `error`) entry once its turn has unwound, so a
@@ -201,6 +211,61 @@ impl RunProgress {
         e.last_progress_at = now;
         if stage != "tool_running" {
             e.heartbeat_from = None;
+        }
+    }
+
+    /// The send loop began a unit of provider work (`RunEvent::SubmissionStarted`): a logical request, a route's first work or one
+    /// exchange with the provider, for every provider whether or not it goes through the driver. What an earlier submission owned is
+    /// no longer current, so no attempt of it exempts the watchdog and none of its late boundaries is accepted; the new submission's
+    /// own wait is timed from here, by the driven attempt it begins or, for a provider outside the driver, by the watchdog.
+    pub fn submission_started(&mut self, id: u64, now: i64) {
+        let Some(e) = self.entry.as_mut().filter(|e| e.live()) else { return };
+        e.submission = id;
+        e.attempt = 0;
+        e.phase = None;
+        e.retry_at = 0;
+        e.local_wait = None;
+        e.set_logical_request(now);
+    }
+
+    /// The failed request's retry was scheduled to run at `retry_at` (epoch ms): until then the turn waits on the retry
+    /// schedule, which no watchdog reads as silence, and its status says when the retry runs.
+    pub fn retry_scheduled(&mut self, retry_at: i64, now: i64) {
+        let Some(e) = self.entry.as_mut().filter(|e| e.live()) else { return };
+        e.retry_at = retry_at;
+        e.phase = None;
+        e.last_progress_at = now;
+    }
+
+    /// A boundary of an attempt's response, observed at `now` (`RunEvent::Boundary`). It counts only if it carries the current
+    /// submission: the late event of an older one, its attempt's start included, changes nothing. An attempt's start gives it fresh
+    /// state, and every later boundary moves the phase of that attempt only. The phase is the *active* attempt: a failed or ended
+    /// attempt leaves none (the next wait begins when the next submission or attempt does). Transport, metadata and keepalives are
+    /// not boundaries and never restart a deadline.
+    pub fn boundary(&mut self, submission: u64, attempt: u64, boundary: Boundary, now: i64) {
+        let Some(e) = self.entry.as_mut().filter(|e| e.live()) else { return };
+        if e.submission != submission {
+            return;
+        }
+        match boundary {
+            Boundary::AttemptStarted => {
+                e.attempt = attempt;
+                e.retry_at = 0;
+                e.local_wait = None;
+                e.set_logical_request(now);
+                e.phase = Some(AttemptPhase::Head);
+            }
+            _ if e.attempt != attempt || e.phase.is_none() => {}
+            // Connecting and awaiting the head are one wait for this record: both are waits for transport.
+            Boundary::Connected => {}
+            Boundary::HeadReceived => e.phase = Some(AttemptPhase::Payload),
+            Boundary::FirstProtocolPayload => e.phase = Some(AttemptPhase::FirstOutput),
+            Boundary::FirstSemanticOutput => e.phase = Some(AttemptPhase::Idle),
+            Boundary::AttemptFailed | Boundary::AttemptEnded => {
+                e.phase = None;
+                // The wait of the attempt that ended is over: a retry's back-off is not part of it.
+                e.model_request_started_at = now;
+            }
         }
     }
 
@@ -353,6 +418,8 @@ impl RunProgress {
         let e = self.touch();
         e.stage = stage.to_owned();
         e.ask_started_at = 0;
+        e.local_wait = None;
+        e.retry_at = 0;
         e.tool_started_at = 0;
         e.last_progress_at = now;
         e.task_waits = 0;
@@ -371,6 +438,8 @@ impl RunProgress {
     pub fn cancelling(&mut self) {
         let e = self.touch();
         e.stage = "cancelling".to_owned();
+        e.local_wait = None;
+        e.retry_at = 0;
         e.aborted = true;
         e.heartbeat_from = None;
     }
@@ -388,22 +457,31 @@ impl RunProgress {
     /// `getSessionProgressSnapshot` at `now`; `None` before the first marker.
     pub fn snapshot(&self, now: i64) -> Option<Snapshot> {
         let e = self.entry.as_ref()?;
-        let active = matches!(e.stage.as_str(), "connecting" | "requesting" | "streaming");
+        let active = e.local_wait.is_none() && matches!(e.stage.as_str(), "connecting" | "requesting" | "streaming");
         let in_ask = |at: i64| at != 0 && (e.ask_started_at == 0 || at >= e.ask_started_at);
         Some(Snapshot {
-            stage: Some(e.stage.clone()),
+            stage: self.stage(),
             last_progress_at: e.last_progress_at.max(Self::heartbeat_tick(e, now)),
             last_stream_delta_at: e.last_stream_delta_at,
             tool_started_at: e.tool_started_at,
             ask_started_at: e.ask_started_at,
             first_activity_at: e.first_semantic_at,
             model_request_started_at: e.model_request_started_at,
+            attempt_phase: e.phase,
+            retry_at: e.retry_at,
             last_keepalive_at: e.last_keepalive_at,
             last_visible_text_at: e.last_visible_text_at,
             // `awaitingModelResponse`: sent, and no transport since.
-            awaiting_model_response: e.stage == "requesting" && e.request_sent_at > 0 && e.last_transport_at < e.request_sent_at,
-            waiting_for_transport: e.model_request_started_at != 0 && active && e.request_transport_at == 0,
-            waiting_for_first_semantic: e.model_request_started_at != 0 && active && e.request_first_semantic_at == 0,
+            awaiting_model_response: active && e.stage == "requesting" && e.request_sent_at > 0 && e.last_transport_at < e.request_sent_at,
+            // With an attempt clock the phase says it; without one (a provider that published no boundary) the stamps do.
+            waiting_for_transport: match e.phase {
+                Some(phase) => active && matches!(phase, AttemptPhase::Connect | AttemptPhase::Head | AttemptPhase::Recovery),
+                None => e.model_request_started_at != 0 && active && e.request_transport_at == 0,
+            },
+            waiting_for_first_semantic: match e.phase {
+                Some(phase) => active && matches!(phase, AttemptPhase::Connect | AttemptPhase::Head | AttemptPhase::Payload | AttemptPhase::FirstOutput | AttemptPhase::Recovery),
+                None => e.model_request_started_at != 0 && active && e.request_first_semantic_at == 0,
+            },
             has_first_semantic: in_ask(e.first_semantic_at),
             awaiting_user: e.approval_waits > 0,
             last_semantic_kind: e.last_semantic_kind,
@@ -466,6 +544,27 @@ impl ProgressPublisher {
 
     pub fn stream_delta(&self, kind: StreamKind) {
         self.apply(|p, now| p.stream_delta(kind, now));
+    }
+
+    pub fn boundary(&self, submission: u64, attempt: u64, boundary: Boundary) {
+        self.apply(|p, now| p.boundary(submission, attempt, boundary, now));
+    }
+
+    pub fn submission_started(&self, id: u64) {
+        self.apply(|p, now| p.submission_started(id, now));
+    }
+
+    pub fn retry_scheduled(&self, retry_at: i64) {
+        self.apply(|p, now| p.retry_scheduled(retry_at, now));
+    }
+
+    pub fn local_wait(&self, phase: Option<&'static str>) {
+        self.apply(|p, now| {
+            if let Some(e) = p.entry.as_mut().filter(|e| e.live()) {
+                e.local_wait = phase;
+                e.last_progress_at = now;
+            }
+        });
     }
 
     pub fn tool_call(&self, name: Option<&str>) {
@@ -536,6 +635,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 0,
                 model_request_started_at: 0,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 0,
                 last_visible_text_at: 0,
                 awaiting_model_response: false,
@@ -565,6 +666,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 0,
                 model_request_started_at: 1100,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 0,
                 last_visible_text_at: 0,
                 awaiting_model_response: false,
@@ -594,6 +697,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 0,
                 model_request_started_at: 1100,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 0,
                 last_visible_text_at: 0,
                 awaiting_model_response: true,
@@ -623,6 +728,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 0,
                 model_request_started_at: 1100,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 0,
                 last_visible_text_at: 0,
                 awaiting_model_response: false,
@@ -652,6 +759,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 0,
                 model_request_started_at: 1100,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 0,
                 last_visible_text_at: 0,
                 awaiting_model_response: false,
@@ -681,6 +790,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 1500,
                 model_request_started_at: 1100,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 0,
                 last_visible_text_at: 0,
                 awaiting_model_response: false,
@@ -710,6 +821,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 1500,
                 model_request_started_at: 1100,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 1550,
                 last_visible_text_at: 0,
                 awaiting_model_response: false,
@@ -739,6 +852,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 1500,
                 model_request_started_at: 1100,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 1550,
                 last_visible_text_at: 1600,
                 awaiting_model_response: false,
@@ -768,6 +883,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 1500,
                 model_request_started_at: 1100,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 1550,
                 last_visible_text_at: 1600,
                 awaiting_model_response: false,
@@ -797,6 +914,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 1500,
                 model_request_started_at: 1100,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 1550,
                 last_visible_text_at: 1600,
                 awaiting_model_response: false,
@@ -826,6 +945,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 1500,
                 model_request_started_at: 1100,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 1550,
                 last_visible_text_at: 1600,
                 awaiting_model_response: false,
@@ -855,6 +976,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 1500,
                 model_request_started_at: 1100,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 1550,
                 last_visible_text_at: 1600,
                 awaiting_model_response: false,
@@ -884,6 +1007,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 1500,
                 model_request_started_at: 2000,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 1550,
                 last_visible_text_at: 1600,
                 awaiting_model_response: false,
@@ -913,6 +1038,8 @@ mod tests {
                 ask_started_at: 1000,
                 first_activity_at: 1500,
                 model_request_started_at: 2000,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 1550,
                 last_visible_text_at: 1600,
                 awaiting_model_response: true,
@@ -942,6 +1069,8 @@ mod tests {
                 ask_started_at: 0,
                 first_activity_at: 1500,
                 model_request_started_at: 2000,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 1550,
                 last_visible_text_at: 1600,
                 awaiting_model_response: false,
@@ -971,6 +1100,8 @@ mod tests {
                 ask_started_at: 0,
                 first_activity_at: 1500,
                 model_request_started_at: 2000,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 1550,
                 last_visible_text_at: 1600,
                 awaiting_model_response: false,
@@ -1000,6 +1131,8 @@ mod tests {
                 ask_started_at: 0,
                 first_activity_at: 0,
                 model_request_started_at: 3000,
+                attempt_phase: None,
+                retry_at: 0,
                 last_keepalive_at: 1550,
                 last_visible_text_at: 0,
                 awaiting_model_response: false,
@@ -1092,8 +1225,177 @@ mod tests {
         }
     }
 
+    /// What the run's watchdog sees of the send loop and its attempts: the boundaries published on the `SendIdentity`, observed at the
+    /// fake time `at`, as the send future delivers them.
+    fn deliver(p: &mut RunProgress, identity: &mixdog_core_api::domain::provider::SendIdentity, at: i64) {
+        for (submission, attempt, boundary) in identity.take_published() {
+            p.boundary(submission, attempt, boundary, at);
+        }
+    }
+
+    /// The send loop begins a submission at `at`: the identity's and the run's record of it.
+    fn submit(p: &mut RunProgress, identity: &mixdog_core_api::domain::provider::SendIdentity, at: i64) -> u64 {
+        let id = identity.begin_submission();
+        p.submission_started(id, at);
+        id
+    }
+
+    fn agent_120() -> mixdog_agent::agent_tool::progress::WatchdogPolicy {
+        mixdog_agent::agent_tool::progress::WatchdogPolicy { first_transport_ms: 120_000, first_semantic_ms: 120_000, idle_stale_ms: 120_000 }
+    }
+
+    fn watched() -> (RunProgress, mixdog_core_api::domain::provider::SendIdentity, mixdog_agent::agent_tool::progress::WatchdogPolicy) {
+        let mut p = RunProgress::default();
+        p.ask_start(0);
+        p.stage_change("requesting", 0);
+        // A Gemini-like provider: it declared a 285 s window, so the watchdog's first-transport deadline is that plus a tick.
+        let policy = mixdog_agent::agent_tool::progress::WatchdogPolicy { first_transport_ms: 300_000, first_semantic_ms: 600_000, idle_stale_ms: 300_000 };
+        (p, mixdog_core_api::domain::provider::SendIdentity::default(), policy)
+    }
+
+    fn stale(p: &RunProgress, now: i64, policy: &mixdog_agent::agent_tool::progress::WatchdogPolicy) -> Option<String> {
+        mixdog_agent::agent_tool::progress::stale_report(&p.snapshot(now).unwrap(), now, policy)
+    }
+
+    /// A provider whose requests do not pass through the driver publishes no attempt: its waits are still timed from the
+    /// request's start by the watchdog.
     #[test]
-    fn a_running_tool_keeps_its_progress_stamp_fresh_without_a_timer() {
+    fn a_provider_without_a_driven_attempt_keeps_the_request_start_deadlines() {
+        let mut p = RunProgress::default();
+        p.ask_start(1_000);
+        p.stage_change("requesting", 1_000);
+        let policy = mixdog_agent::agent_tool::progress::WatchdogPolicy { first_transport_ms: 300_000, first_semantic_ms: 600_000, idle_stale_ms: 300_000 };
+        assert_eq!(stale(&p, 1_000 + 299_999, &policy), None);
+        assert!(stale(&p, 1_000 + 300_001, &policy).is_some_and(|s| s.contains("first transport stale")));
+    }
+
+    /// A driven provider fails and the fallback runs outside the driver: the retirement exempts nothing, and the fallback's stall is
+    /// timed from its own submission, whatever the failed attempt had used.
+    #[test]
+    fn a_stalled_fallback_outside_the_driver_is_supervised_from_its_own_submission() {
+        use mixdog_core_api::domain::provider::Boundary;
+        let agent = agent_120();
+        let (mut p, identity, _) = watched();
+        submit(&mut p, &identity, 1_000);
+        let attempt = identity.begin_attempt(Default::default(), false);
+        deliver(&mut p, &identity, 1_000);
+        attempt.observe(Boundary::AttemptFailed);
+        deliver(&mut p, &identity, 100_000);
+        assert_eq!(p.snapshot(100_000).unwrap().attempt_phase, None, "a retired attempt is no active one");
+        assert_eq!(stale(&p, 100_000 + 119_999, &agent), None);
+        assert!(stale(&p, 100_000 + 120_001, &agent).is_some_and(|s| s.contains("first transport stale")), "no exemption after retirement");
+        // The route switches: a new submission that makes no attempt at all.
+        submit(&mut p, &identity, 400_000);
+        assert_eq!(stale(&p, 400_000 + 119_999, &agent), None);
+        assert!(stale(&p, 400_000 + 120_001, &agent).is_some_and(|s| s.contains("first transport stale")), "timed from the new submission");
+    }
+
+    /// Retirement, then the preparation of the next exchange: no stale exemption until a driven attempt of the new submission begins.
+    #[test]
+    fn retirement_then_preparation_grants_no_exemption_before_the_next_driven_attempt() {
+        use mixdog_core_api::domain::provider::Boundary;
+        let agent = agent_120();
+        let (mut p, identity, _) = watched();
+        submit(&mut p, &identity, 1_000);
+        let first = identity.begin_attempt(Default::default(), false);
+        first.observe(Boundary::AttemptFailed);
+        deliver(&mut p, &identity, 50_000);
+        submit(&mut p, &identity, 60_000);
+        assert!(stale(&p, 60_000 + 120_001, &agent).is_some(), "preparing the next exchange is supervised");
+        let _second = identity.begin_attempt(Default::default(), false);
+        deliver(&mut p, &identity, 100_000);
+        assert_eq!(stale(&p, 100_000 + 500_000, &agent), None, "the new attempt is live and exempt");
+    }
+
+    /// A new logical request clears what the previous one owned.
+    #[test]
+    fn a_new_logical_request_clears_ownership() {
+        let agent = agent_120();
+        let (mut p, identity, _) = watched();
+        submit(&mut p, &identity, 1_000);
+        let _attempt = identity.begin_attempt(Default::default(), false);
+        deliver(&mut p, &identity, 1_000);
+        assert_eq!(stale(&p, 1_000 + 500_000, &agent), None);
+        p.submission_started(mixdog_core_api::domain::provider::next_submission_id(), 600_000);
+        assert_eq!(p.snapshot(600_000).unwrap().attempt_phase, None);
+        assert!(stale(&p, 600_000 + 120_001, &agent).is_some(), "the old attempt exempts nothing of the new request");
+    }
+
+    /// The late start, output and end of an older submission change nothing: its start included.
+    #[test]
+    fn late_events_of_an_old_submission_change_nothing() {
+        use mixdog_core_api::domain::provider::Boundary;
+        let agent = agent_120();
+        let (mut p, identity, _) = watched();
+        submit(&mut p, &identity, 1_000);
+        let old = identity.begin_attempt(Default::default(), false);
+        // The new submission begins before the old attempt's events were delivered.
+        let newer = mixdog_core_api::domain::provider::next_submission_id();
+        p.submission_started(newer, 2_000);
+        deliver(&mut p, &identity, 3_000);
+        assert_eq!(p.snapshot(3_000).unwrap().attempt_phase, None, "a late start restores nothing");
+        old.observe(Boundary::FirstSemanticOutput);
+        deliver(&mut p, &identity, 4_000);
+        old.observe(Boundary::AttemptEnded);
+        deliver(&mut p, &identity, 5_000);
+        assert_eq!(p.snapshot(5_000).unwrap().attempt_phase, None, "late output and end change nothing");
+        assert!(stale(&p, 2_000 + 120_001, &agent).is_some(), "the thresholds apply from the newer submission");
+    }
+
+    /// A live attempt of the current submission stays exempt, and ordinary `requesting` notifications do not reset it.
+    #[test]
+    fn a_live_attempt_stays_exempt_and_requesting_notifications_do_not_reset_it() {
+        use mixdog_core_api::domain::provider::AttemptPhase;
+        let agent = agent_120();
+        let (mut p, identity, _) = watched();
+        submit(&mut p, &identity, 1_000);
+        let _attempt = identity.begin_attempt(Default::default(), false);
+        deliver(&mut p, &identity, 1_000);
+        p.stage_change("requesting", 400_000);
+        p.stage_change("requesting", 800_000);
+        assert_eq!(p.snapshot(800_000).unwrap().attempt_phase, Some(AttemptPhase::Head));
+        assert_eq!(stale(&p, 1_000 + 900_000, &agent), None);
+    }
+
+    /// A payload that carries output makes both transitions at once; a role-only one is a payload and not output.
+    #[test]
+    fn output_makes_both_transitions_and_a_role_only_payload_is_not_output() {
+        use mixdog_core_api::domain::provider::{AttemptPhase, Boundary};
+        let (mut p, identity, _) = watched();
+        let attempt = identity.begin_attempt(Default::default(), false);
+        attempt.observe(Boundary::FirstProtocolPayload);
+        deliver(&mut p, &identity, 10_000);
+        assert_eq!(p.snapshot(10_000).unwrap().attempt_phase, Some(AttemptPhase::FirstOutput));
+        attempt.observe(Boundary::FirstSemanticOutput);
+        deliver(&mut p, &identity, 20_000);
+        assert_eq!(p.snapshot(20_000).unwrap().attempt_phase, Some(AttemptPhase::Idle));
+        let (_, identity, _) = watched();
+        let attempt = identity.begin_attempt(Default::default(), false);
+        attempt.observe(Boundary::FirstSemanticOutput);
+        let published: Vec<Boundary> = identity.take_boundaries().into_iter().map(|(_, b)| b).collect();
+        assert_eq!(published, [Boundary::AttemptStarted, Boundary::HeadReceived, Boundary::FirstProtocolPayload, Boundary::FirstSemanticOutput]);
+    }
+
+    /// The late event of a replaced attempt changes nothing of its successor: not at the adapter's handle, not at the progress
+    /// record.
+    #[test]
+    fn a_stale_attempts_events_move_nothing() {
+        use mixdog_core_api::domain::provider::{AttemptPhase, Boundary};
+        let (mut p, identity, _) = watched();
+        let old = identity.begin_attempt(Default::default(), false);
+        let new = identity.begin_attempt(Default::default(), false);
+        deliver(&mut p, &identity, 5_000);
+        old.observe(Boundary::FirstSemanticOutput);
+        assert!(identity.take_boundaries().is_empty(), "a replaced attempt publishes nothing");
+        // The record ignores an older id even when one reaches it.
+        p.boundary(0, old.id(), Boundary::FirstSemanticOutput, 6_000);
+        assert_eq!(p.snapshot(6_000).unwrap().attempt_phase, Some(AttemptPhase::Head));
+        new.observe(Boundary::HeadReceived);
+        deliver(&mut p, &identity, 7_000);
+        assert_eq!(p.snapshot(7_000).unwrap().attempt_phase, Some(AttemptPhase::Payload));
+    }
+
+    #[test]    fn a_running_tool_keeps_its_progress_stamp_fresh_without_a_timer() {
         let mut p = RunProgress::default();
         p.ask_start(1000);
         p.stage_change("requesting", 1000);
@@ -1176,6 +1478,79 @@ mod tests {
         let seen = rx.borrow().snapshot(500).unwrap();
         assert_eq!((seen.ask_started_at, seen.model_request_started_at), (500, 500));
         assert_eq!(rx.borrow().stage().as_deref(), Some("requesting"));
+    }
+
+
+    /// A scheduled retry is the retry schedule's wait, not the provider's silence: no threshold cuts it, the status says when the
+    /// retry runs, and the next submission times its own wait from its start.
+    #[test]
+    fn a_scheduled_retry_is_no_silence_and_the_status_says_when_it_runs() {
+        use mixdog_agent::agent_tool::progress::{ProgressInput, progress_fields};
+        use mixdog_core_api::domain::provider::Boundary;
+        let agent = agent_120();
+        let (mut p, identity, _) = watched();
+        submit(&mut p, &identity, 1_000);
+        let attempt = identity.begin_attempt(Default::default(), false);
+        attempt.observe(Boundary::AttemptFailed);
+        deliver(&mut p, &identity, 2_000);
+        p.retry_scheduled(302_000, 2_000);
+        let now = 301_500;
+        assert_eq!(stale(&p, now, &agent), None, "300 s of back-off is past every 120 s threshold and still no stall");
+        let snapshot = p.snapshot(now).unwrap();
+        assert_eq!(snapshot.retry_at, 302_000);
+        let fields = progress_fields(&ProgressInput { now, snapshot: Some(&snapshot), runtime_stage: Some("requesting"), policy: Some(agent), ..ProgressInput::default() });
+        assert_eq!((fields.last_progress.as_str(), fields.diagnostic.as_str()), ("model request failed; retrying in 1s", "provider retry scheduled in 1s"));
+        submit(&mut p, &identity, 302_000);
+        assert_eq!(p.snapshot(302_000).unwrap().retry_at, 0);
+        assert!(stale(&p, 302_000 + 120_001, &agent).is_some(), "the retried request's own wait is supervised from its start");
+    }
+
+    /// A tool owns its time and a wait for execution capacity is the pool's: however long either is quiet, and with no heartbeat at
+    /// all, neither is read as a silent model. The model's own silence still is.
+    #[test]
+    fn a_quiet_tool_or_capacity_wait_is_never_read_as_a_silent_model() {
+        use mixdog_agent::agent_tool::progress::{WatchdogPolicy, stale_report};
+        let policy = WatchdogPolicy { first_transport_ms: 0, first_semantic_ms: 0, idle_stale_ms: 60_000 };
+        let mut p = RunProgress::default();
+        p.ask_start(1_000);
+        p.stage_change("tool_running", 2_000);
+        let hour = 3_600_000;
+        assert_eq!(stale_report(&p.snapshot(2_000 + hour).unwrap(), 2_000 + hour, &policy), None, "a quiet tool");
+        p.stage_change("resource_wait", 10_000);
+        assert_eq!(stale_report(&p.snapshot(10_000 + hour).unwrap(), 10_000 + hour, &policy), None, "a wait for a slot");
+        p.stage_change("streaming", 20_000);
+        assert!(stale_report(&p.snapshot(20_000 + 60_001).unwrap(), 20_000 + 60_001, &policy).is_some(), "a silent model");
+    }
+
+    /// A model wait is the driver's: whatever phase a live driven attempt of the current submission is in, however long it has run
+    /// and whatever the agent's own thresholds say, the watchdog only observes it, and a recovery's total is no head allowance.
+    #[test]
+    fn the_watchdog_only_observes_a_live_attempt_of_the_current_submission_in_every_phase() {
+        use mixdog_core_api::domain::provider::{Boundary, PhaseWindows};
+        let secs285 = Some(std::time::Duration::from_secs(285));
+        let windows = PhaseWindows { head: secs285, payload: secs285, recovery: secs285, ..PhaseWindows::default() };
+        let agent = agent_120();
+        let (mut p, identity, _) = watched();
+        submit(&mut p, &identity, 1_000);
+        let attempt = identity.begin_attempt(windows, false);
+        deliver(&mut p, &identity, 1_000);
+        assert_eq!(stale(&p, 1_000 + 200_000, &agent), None, "head");
+        attempt.observe(Boundary::HeadReceived);
+        deliver(&mut p, &identity, 250_000);
+        assert_eq!(stale(&p, 250_000 + 200_000, &agent), None, "payload");
+        attempt.observe(Boundary::FirstProtocolPayload);
+        deliver(&mut p, &identity, 500_000);
+        // Transport, keepalives and a tool-less chunk moving bytes are no progress and no deadline of this watchdog.
+        for at in [700_000, 900_000] {
+            p.stream_delta(StreamKind::Transport, at);
+            p.stream_delta(StreamKind::Keepalive, at);
+        }
+        assert_eq!(stale(&p, 1_100_000, &agent), None, "first output");
+        submit(&mut p, &identity, 1_600_000);
+        let recovery = identity.begin_attempt(windows, true);
+        deliver(&mut p, &identity, 1_600_000);
+        assert_eq!(stale(&p, 1_600_000 + 200_000, &agent), None, "the recovery's generation total is no head allowance");
+        recovery.observe(Boundary::AttemptEnded);
     }
 }
 

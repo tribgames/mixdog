@@ -65,6 +65,264 @@ const STDIN_CHUNK: usize = 64 * 1024;
 #[derive(Clone)]
 pub struct Processes(Arc<dyn ProcessManager>, DurabilityIo);
 
+fn spawn_failure(error: ProcessError, program: &str) -> ProcessResult {
+    let (message, kind) = match error {
+        ProcessError::ProgramNotFound { .. } => (format!("{program}: program not found"), "NotFound"),
+        ProcessError::PermissionDenied => (format!("{program}: permission denied"), "PermissionDenied"),
+        other => (format!("{program}: could not start ({other:?})"), "Other"),
+    };
+    ProcessResult { code: -1, error: message, error_code: kind.to_owned(), ..Default::default() }
+}
+
+/// The child's owner for one run. Unless the run saw the child's exit or a kill take, dropping it
+/// (an early return, a dropped future, a runtime shutdown) kills the child inline: a queued kill
+/// task cannot promise that, as a shutdown drops it before it submits its job.
+struct KillOnDrop {
+    processes: Arc<dyn ProcessManager>,
+    handle: ProcessHandle,
+    settled: bool,
+}
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        if !self.settled {
+            let _ = self.processes.kill(&self.handle);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp() -> tempfile::TempDir {
+        tempfile::tempdir().unwrap()
+    }
+
+    #[tokio::test]
+    async fn output_is_captured_and_a_missing_binary_is_reported_not_thrown() {
+        let dir = temp();
+        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "echo hi & echo err 1>&2 & exit 3".into()]) } else { ("sh", vec!["-c".into(), "echo hi; echo err >&2; exit 3".into()]) };
+        let result = Processes::for_tests().run(bin, &args, RunOptions::new(dir.path())).await;
+        assert_eq!(result.code, 3);
+        assert_eq!(result.stdout.trim(), "hi");
+        assert_eq!(result.stderr.trim(), "err");
+        let missing = Processes::for_tests().run("definitely-not-a-binary-xyz", &[], RunOptions::new(dir.path())).await;
+        assert_eq!((missing.code, missing.error_code.as_str()), (-1, "NotFound"));
+    }
+    /// A runtime shutdown drops the queued kill task before it submits its lane job, and the run's
+    /// future with it. The child must still end: the run's owner kills it as it drops.
+    #[test]
+    fn dropping_the_run_before_its_kill_job_is_submitted_still_kills_the_child() {
+        use futures::FutureExt;
+        let dir = temp();
+        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 60 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 60".into()]) };
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let mut options = RunOptions::new(dir.path());
+        options.cancel = Some(&cancel);
+        let processes = Processes::for_tests();
+        let manager = processes.manager();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let entered = rt.enter();
+        let mut run = Box::pin(processes.run(bin, &args, options));
+        // Polled by hand and the runtime never driven: once the child is up, the cancel has queued
+        // the kill task, and nothing can run it. (The test backend runs the spawn inline, so the
+        // run owns the child as soon as it is listed; the spawn still in flight is the test below.)
+        while manager.list().is_empty() {
+            assert!(run.as_mut().now_or_never().is_none());
+        }
+        assert!(run.as_mut().now_or_never().is_none());
+        let child = manager.list().remove(0);
+        assert!(child.exit.is_none(), "the child is still running");
+        let mut events = manager.subscribe(&child.handle, Some(0)).unwrap();
+        drop(entered);
+        drop(rt);
+        drop(run);
+        let exit = futures::executor::block_on(async {
+            loop {
+                if let ProcessEvent::Exited { exit, .. } = events.next().await.expect("the child's exit is published") {
+                    break exit;
+                }
+            }
+        });
+        assert_eq!(exit.killed, Some(KillReason::Requested));
+        assert!(manager.list()[0].exit.is_some());
+    }
+
+
+    #[tokio::test]
+    async fn a_timeout_kills_the_child_and_output_is_capped() {
+        let dir = temp();
+        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 30 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 30".into()]) };
+        let mut options = RunOptions::new(dir.path());
+        options.timeout = Duration::from_millis(300);
+        let started = std::time::Instant::now();
+        let result = Processes::for_tests().run(bin, &args, options).await;
+        assert!(result.timed_out && started.elapsed() < Duration::from_secs(10),
+            "command={bin:?} args={args:?} elapsed={:?} result={result:?} environment={:?}", started.elapsed(),
+            std::env::vars_os().filter(|(key, _)| ["PATH", "ComSpec", "SystemRoot", "TEMP"].iter().any(|allowed| key.eq_ignore_ascii_case(allowed))).collect::<Vec<_>>());
+        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "echo 0123456789".into()]) } else { ("sh", vec!["-c".into(), "echo 0123456789".into()]) };
+        let mut options = RunOptions::new(dir.path());
+        options.max_capture = 4;
+        let capped = Processes::for_tests().run(bin, &args, options).await;
+        assert_eq!((capped.stdout.as_str(), capped.truncated), ("0123", true));
+    }
+    /// Cancelling kills the child through the real manager, and neither the kill nor the wait
+    /// for the exit may hold the runtime's only thread. The manager's two test seams hold the
+    /// kill (tree signalled, kill not yet returned) and then the exit finalizer (exit fixed, not
+    /// yet published); at each hold a task spawned meanwhile has to run before the hold is
+    /// released. A cancel path that runs the kill, or waits for it or for the exit, on the
+    /// runtime thread never lets that task run, so the hold is never released and the test
+    /// hangs. The lane backend is the real pooled one (the test backend runs lane jobs inline on
+    /// the submitting thread, which would put the kill back on the runtime thread). The seams and
+    /// the installed backend are process-wide, so this test needs a process of its own (nextest).
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancelling_kills_the_child_without_stalling_the_runtime() {
+        async fn a_task_runs() {
+            let (ran, saw) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                let _ = ran.send(());
+            });
+            saw.await.unwrap();
+        }
+        let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(2)).unwrap();
+        let lane = tokens.durability_io;
+        let dir = temp();
+        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 60 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 60".into()]) };
+        mixdog_spawn::testing::arm_kill_window();
+        mixdog_spawn::testing::arm_exit_window();
+        let cancel = CancellationToken::new();
+        let mut options = RunOptions::new(dir.path());
+        options.cancel = Some(&cancel);
+        let processes = Processes::new(Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default())), lane);
+        let run = processes.run(bin, &args, options);
+        let drive = async {
+            cancel.cancel();
+            crate::lane::on_lane(lane, mixdog_spawn::testing::wait_kill_window_entered).await.unwrap();
+            a_task_runs().await;
+            mixdog_spawn::testing::release_kill_window();
+            crate::lane::on_lane(lane, mixdog_spawn::testing::wait_exit_window_entered).await.unwrap();
+            a_task_runs().await;
+            mixdog_spawn::testing::release_exit_window();
+        };
+        let (result, ()) = tokio::join!(run, drive);
+        assert!(!result.timed_out);
+    }
+    /// A lane that refuses the kill job must not lose the cancel: the kill is then issued inline,
+    /// so the run returns having ended the child (a non-zero status), not hung on a child that runs out its own 60 s.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_kill_the_lane_refuses_is_issued_inline_and_the_run_returns() {
+        let dir = temp();
+        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 60 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 60".into()]) };
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let mut options = RunOptions::new(dir.path());
+        options.cancel = Some(&cancel);
+        let tokens = mixdog_rt::testing::tokens();
+        let manager = Arc::new(RefusesAfterSpawn { inner: mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()), refusing: std::sync::Mutex::new(None) });
+        let result = Processes::new(manager, tokens.durability_io).run(bin, &args, options).await;
+        assert_ne!(result.code, 0, "the child must end by the kill, not by its own exit: {result:?}");
+        assert!(result.error.is_empty() && !result.timed_out, "{result:?}");
+    }
+    /// The real manager, except that once a child is spawned the lane refuses every job from this
+    /// thread (a full or wedged lane): only the cancel's kill job meets the refusal.
+    struct RefusesAfterSpawn {
+        inner: mixdog_spawn::LocalProcessManager,
+        refusing: std::sync::Mutex<Option<mixdog_rt::testing::RefuseJobs>>,
+    }
+    #[async_trait::async_trait]
+    impl ProcessManager for RefusesAfterSpawn {
+        async fn spawn(&self, request: SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, ProcessError> {
+            let spawned = self.inner.spawn(request).await?;
+            *self.refusing.lock().unwrap() = Some(mixdog_rt::testing::refuse_jobs_on_this_thread());
+            Ok(spawned)
+        }
+        fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<ProcessEvent>>, ProcessError> {
+            self.inner.subscribe(handle, from_seq)
+        }
+        async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+            self.inner.write_stdin(handle, bytes).await
+        }
+        fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+            self.inner.close_stdin(handle)
+        }
+        fn resize_pty(&self, handle: &ProcessHandle, size: mixdog_core_api::domain::process::PtySize) -> Result<(), ProcessError> {
+            self.inner.resize_pty(handle, size)
+        }
+        fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+            self.inner.kill(handle)
+        }
+        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+            self.inner.list()
+        }
+    }
+    /// A run dropped while its spawn is in flight on a lane thread (a caller that goes away, a
+    /// runtime shutdown) must not leave the child it creates running with nobody holding it. The
+    /// spawn is parked at two seams, so each side of the commit is hit exactly, with no timing:
+    /// - `before_launch`: the run is dropped before the child exists, so only the launch job, which
+    ///   looks after committing whether the requester is still there, can kill it.
+    /// - otherwise: the run is dropped after that look, with the child committed and the requester
+    ///   not yet told, so only the spawn's own drop can kill it.
+    /// The lane backend is the real pooled one (the test backend runs the spawn inline), and the
+    /// seams and backend are process-wide, so each of these needs a process of its own (nextest).
+    fn the_child_ends_when_the_run_is_dropped_during_its_spawn(before_launch: bool) {
+        use futures::FutureExt;
+        use mixdog_spawn::testing as seam;
+        let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(2)).unwrap();
+        let dir = temp();
+        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 30 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 30".into()]) };
+        let manager: Arc<dyn ProcessManager> = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
+        let processes = Processes::new(manager.clone(), tokens.durability_io);
+        seam::arm_answer_window();
+        if before_launch {
+            seam::arm_launch_window();
+        }
+        let mut run = Box::pin(processes.run(bin, &args, RunOptions::new(dir.path())));
+        assert!(run.as_mut().now_or_never().is_none(), "the spawn is in flight");
+        let mut run = Some(run);
+        if before_launch {
+            seam::wait_launch_window_entered();
+            assert!(manager.list().is_empty(), "no child is committed yet");
+            run = None;
+            seam::release_launch_window();
+            seam::wait_answer_window_entered();
+        } else {
+            seam::wait_answer_window_entered();
+        }
+        let child = manager.list().remove(0);
+        let mut events = manager.subscribe(&child.handle, Some(0)).unwrap();
+        drop(run);
+        seam::release_answer_window();
+        let exit = futures::executor::block_on(async {
+            loop {
+                if let ProcessEvent::Exited { exit, .. } = events.next().await.expect("the child's exit is published") {
+                    break exit;
+                }
+            }
+        });
+        assert_eq!(exit.killed, Some(KillReason::Requested));
+    }
+    #[test]
+    fn a_run_dropped_before_its_child_is_committed_still_ends_the_child() {
+        the_child_ends_when_the_run_is_dropped_during_its_spawn(true);
+    }
+    #[test]
+    fn a_run_dropped_after_its_child_is_committed_still_ends_the_child() {
+        the_child_ends_when_the_run_is_dropped_during_its_spawn(false);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn map_limit_keeps_input_order() {
+        let out = map_limit(vec![3u64, 1, 2], 2, |n| async move {
+            mixdog_rt::time::sleep(Duration::from_millis(n * 10)).await;
+            n * 2
+        })
+        .await;
+        assert_eq!(out, vec![6, 2, 4]);
+    }
+}
+
+
 impl Processes {
     pub fn new(manager: Arc<dyn ProcessManager>, durability: DurabilityIo) -> Self {
         Self(manager, durability)
@@ -103,16 +361,6 @@ impl Processes {
         run_process(&self.0, self.1, bin, args, options).await
     }
 }
-
-fn spawn_failure(error: ProcessError, program: &str) -> ProcessResult {
-    let (message, kind) = match error {
-        ProcessError::ProgramNotFound { .. } => (format!("{program}: program not found"), "NotFound"),
-        ProcessError::PermissionDenied => (format!("{program}: permission denied"), "PermissionDenied"),
-        other => (format!("{program}: could not start ({other:?})"), "Other"),
-    };
-    ProcessResult { code: -1, error: message, error_code: kind.to_owned(), ..Default::default() }
-}
-
 /// Feeds `input` to the child's stdin in bounded writes, then closes it. A child that exits
 /// without reading its input reports through its exit status.
 async fn feed_stdin(processes: Arc<dyn ProcessManager>, handle: ProcessHandle, input: Vec<u8>) {
@@ -127,24 +375,6 @@ async fn feed_stdin(processes: Arc<dyn ProcessManager>, handle: ProcessHandle, i
     }
     let _ = processes.close_stdin(&handle);
 }
-
-/// The child's owner for one run. Unless the run saw the child's exit or a kill take, dropping it
-/// (an early return, a dropped future, a runtime shutdown) kills the child inline: a queued kill
-/// task cannot promise that, as a shutdown drops it before it submits its job.
-struct KillOnDrop {
-    processes: Arc<dyn ProcessManager>,
-    handle: ProcessHandle,
-    settled: bool,
-}
-
-impl Drop for KillOnDrop {
-    fn drop(&mut self) {
-        if !self.settled {
-            let _ = self.processes.kill(&self.handle);
-        }
-    }
-}
-
 async fn run_process(processes: &Arc<dyn ProcessManager>, lane: DurabilityIo, bin: &str, args: &[String], options: RunOptions<'_>) -> ProcessResult {
     let (program, argv) = spawn_form(bin, args);
     let Some(cwd) = AbsPath::new(std::path::absolute(options.cwd).unwrap_or_else(|_| options.cwd.to_owned())) else {
@@ -253,7 +483,6 @@ async fn run_process(processes: &Arc<dyn ProcessManager>, lane: DurabilityIo, bi
         error_code: String::new(),
     }
 }
-
 /// Bounded-concurrency map that preserves input order and never rejects early.
 pub async fn map_limit<T, R, F, Fut>(items: Vec<T>, limit: usize, worker: F) -> Vec<R>
 where
@@ -262,238 +491,4 @@ where
 {
     use futures::stream::{self, StreamExt};
     stream::iter(items.into_iter().map(worker)).buffered(limit.max(1)).collect().await
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn temp() -> tempfile::TempDir {
-        tempfile::tempdir().unwrap()
-    }
-
-    #[tokio::test]
-    async fn output_is_captured_and_a_missing_binary_is_reported_not_thrown() {
-        let dir = temp();
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "echo hi & echo err 1>&2 & exit 3".into()]) } else { ("sh", vec!["-c".into(), "echo hi; echo err >&2; exit 3".into()]) };
-        let result = Processes::for_tests().run(bin, &args, RunOptions::new(dir.path())).await;
-        assert_eq!(result.code, 3);
-        assert_eq!(result.stdout.trim(), "hi");
-        assert_eq!(result.stderr.trim(), "err");
-        let missing = Processes::for_tests().run("definitely-not-a-binary-xyz", &[], RunOptions::new(dir.path())).await;
-        assert_eq!((missing.code, missing.error_code.as_str()), (-1, "NotFound"));
-    }
-
-    #[tokio::test]
-    async fn a_timeout_kills_the_child_and_output_is_capped() {
-        let dir = temp();
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 30 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 30".into()]) };
-        let mut options = RunOptions::new(dir.path());
-        options.timeout = Duration::from_millis(300);
-        let started = std::time::Instant::now();
-        let result = Processes::for_tests().run(bin, &args, options).await;
-        assert!(result.timed_out && started.elapsed() < Duration::from_secs(10),
-            "command={bin:?} args={args:?} elapsed={:?} result={result:?} environment={:?}", started.elapsed(),
-            std::env::vars_os().filter(|(key, _)| ["PATH", "ComSpec", "SystemRoot", "TEMP"].iter().any(|allowed| key.eq_ignore_ascii_case(allowed))).collect::<Vec<_>>());
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "echo 0123456789".into()]) } else { ("sh", vec!["-c".into(), "echo 0123456789".into()]) };
-        let mut options = RunOptions::new(dir.path());
-        options.max_capture = 4;
-        let capped = Processes::for_tests().run(bin, &args, options).await;
-        assert_eq!((capped.stdout.as_str(), capped.truncated), ("0123", true));
-    }
-
-    /// Cancelling kills the child through the real manager, and neither the kill nor the wait
-    /// for the exit may hold the runtime's only thread. The manager's two test seams hold the
-    /// kill (tree signalled, kill not yet returned) and then the exit finalizer (exit fixed, not
-    /// yet published); at each hold a task spawned meanwhile has to run before the hold is
-    /// released. A cancel path that runs the kill, or waits for it or for the exit, on the
-    /// runtime thread never lets that task run, so the hold is never released and the test
-    /// hangs. The lane backend is the real pooled one (the test backend runs lane jobs inline on
-    /// the submitting thread, which would put the kill back on the runtime thread). The seams and
-    /// the installed backend are process-wide, so this test needs a process of its own (nextest).
-    #[tokio::test(flavor = "current_thread")]
-    async fn cancelling_kills_the_child_without_stalling_the_runtime() {
-        async fn a_task_runs() {
-            let (ran, saw) = tokio::sync::oneshot::channel();
-            tokio::spawn(async move {
-                let _ = ran.send(());
-            });
-            saw.await.unwrap();
-        }
-        let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(2)).unwrap();
-        let lane = tokens.durability_io;
-        let dir = temp();
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 60 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 60".into()]) };
-        mixdog_spawn::testing::arm_kill_window();
-        mixdog_spawn::testing::arm_exit_window();
-        let cancel = CancellationToken::new();
-        let mut options = RunOptions::new(dir.path());
-        options.cancel = Some(&cancel);
-        let processes = Processes::new(Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default())), lane);
-        let run = processes.run(bin, &args, options);
-        let drive = async {
-            cancel.cancel();
-            crate::lane::on_lane(lane, mixdog_spawn::testing::wait_kill_window_entered).await.unwrap();
-            a_task_runs().await;
-            mixdog_spawn::testing::release_kill_window();
-            crate::lane::on_lane(lane, mixdog_spawn::testing::wait_exit_window_entered).await.unwrap();
-            a_task_runs().await;
-            mixdog_spawn::testing::release_exit_window();
-        };
-        let (result, ()) = tokio::join!(run, drive);
-        assert!(!result.timed_out);
-    }
-
-    /// A lane that refuses the kill job must not lose the cancel: the kill is then issued inline,
-    /// so the run returns having ended the child (a non-zero status), not hung on a child that runs out its own 60 s.
-    #[tokio::test(flavor = "current_thread")]
-    async fn a_kill_the_lane_refuses_is_issued_inline_and_the_run_returns() {
-        let dir = temp();
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 60 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 60".into()]) };
-        let cancel = CancellationToken::new();
-        cancel.cancel();
-        let mut options = RunOptions::new(dir.path());
-        options.cancel = Some(&cancel);
-        let tokens = mixdog_rt::testing::tokens();
-        let manager = Arc::new(RefusesAfterSpawn { inner: mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()), refusing: std::sync::Mutex::new(None) });
-        let result = Processes::new(manager, tokens.durability_io).run(bin, &args, options).await;
-        assert_ne!(result.code, 0, "the child must end by the kill, not by its own exit: {result:?}");
-        assert!(result.error.is_empty() && !result.timed_out, "{result:?}");
-    }
-
-    /// The real manager, except that once a child is spawned the lane refuses every job from this
-    /// thread (a full or wedged lane): only the cancel's kill job meets the refusal.
-    struct RefusesAfterSpawn {
-        inner: mixdog_spawn::LocalProcessManager,
-        refusing: std::sync::Mutex<Option<mixdog_rt::testing::RefuseJobs>>,
-    }
-
-    #[async_trait::async_trait]
-    impl ProcessManager for RefusesAfterSpawn {
-        async fn spawn(&self, request: SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, ProcessError> {
-            let spawned = self.inner.spawn(request).await?;
-            *self.refusing.lock().unwrap() = Some(mixdog_rt::testing::refuse_jobs_on_this_thread());
-            Ok(spawned)
-        }
-        fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<ProcessEvent>>, ProcessError> {
-            self.inner.subscribe(handle, from_seq)
-        }
-        async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
-            self.inner.write_stdin(handle, bytes).await
-        }
-        fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
-            self.inner.close_stdin(handle)
-        }
-        fn resize_pty(&self, handle: &ProcessHandle, size: mixdog_core_api::domain::process::PtySize) -> Result<(), ProcessError> {
-            self.inner.resize_pty(handle, size)
-        }
-        fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
-            self.inner.kill(handle)
-        }
-        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
-            self.inner.list()
-        }
-    }
-    /// A runtime shutdown drops the queued kill task before it submits its lane job, and the run's
-    /// future with it. The child must still end: the run's owner kills it as it drops.
-    #[test]
-    fn dropping_the_run_before_its_kill_job_is_submitted_still_kills_the_child() {
-        use futures::FutureExt;
-        let dir = temp();
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 60 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 60".into()]) };
-        let cancel = CancellationToken::new();
-        cancel.cancel();
-        let mut options = RunOptions::new(dir.path());
-        options.cancel = Some(&cancel);
-        let processes = Processes::for_tests();
-        let manager = processes.manager();
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let entered = rt.enter();
-        let mut run = Box::pin(processes.run(bin, &args, options));
-        // Polled by hand and the runtime never driven: once the child is up, the cancel has queued
-        // the kill task, and nothing can run it. (The test backend runs the spawn inline, so the
-        // run owns the child as soon as it is listed; the spawn still in flight is the test below.)
-        while manager.list().is_empty() {
-            assert!(run.as_mut().now_or_never().is_none());
-        }
-        assert!(run.as_mut().now_or_never().is_none());
-        let child = manager.list().remove(0);
-        assert!(child.exit.is_none(), "the child is still running");
-        let mut events = manager.subscribe(&child.handle, Some(0)).unwrap();
-        drop(entered);
-        drop(rt);
-        drop(run);
-        let exit = futures::executor::block_on(async {
-            loop {
-                if let ProcessEvent::Exited { exit, .. } = events.next().await.expect("the child's exit is published") {
-                    break exit;
-                }
-            }
-        });
-        assert_eq!(exit.killed, Some(KillReason::Requested));
-        assert!(manager.list()[0].exit.is_some());
-    }
-    /// A run dropped while its spawn is in flight on a lane thread (a caller that goes away, a
-    /// runtime shutdown) must not leave the child it creates running with nobody holding it. The
-    /// spawn is parked at two seams, so each side of the commit is hit exactly, with no timing:
-    /// - `before_launch`: the run is dropped before the child exists, so only the launch job, which
-    ///   looks after committing whether the requester is still there, can kill it.
-    /// - otherwise: the run is dropped after that look, with the child committed and the requester
-    ///   not yet told, so only the spawn's own drop can kill it.
-    /// The lane backend is the real pooled one (the test backend runs the spawn inline), and the
-    /// seams and backend are process-wide, so each of these needs a process of its own (nextest).
-    fn the_child_ends_when_the_run_is_dropped_during_its_spawn(before_launch: bool) {
-        use futures::FutureExt;
-        use mixdog_spawn::testing as seam;
-        let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(2)).unwrap();
-        let dir = temp();
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 30 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 30".into()]) };
-        let manager: Arc<dyn ProcessManager> = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
-        let processes = Processes::new(manager.clone(), tokens.durability_io);
-        seam::arm_answer_window();
-        if before_launch {
-            seam::arm_launch_window();
-        }
-        let mut run = Box::pin(processes.run(bin, &args, RunOptions::new(dir.path())));
-        assert!(run.as_mut().now_or_never().is_none(), "the spawn is in flight");
-        let mut run = Some(run);
-        if before_launch {
-            seam::wait_launch_window_entered();
-            assert!(manager.list().is_empty(), "no child is committed yet");
-            run = None;
-            seam::release_launch_window();
-            seam::wait_answer_window_entered();
-        } else {
-            seam::wait_answer_window_entered();
-        }
-        let child = manager.list().remove(0);
-        let mut events = manager.subscribe(&child.handle, Some(0)).unwrap();
-        drop(run);
-        seam::release_answer_window();
-        let exit = futures::executor::block_on(async {
-            loop {
-                if let ProcessEvent::Exited { exit, .. } = events.next().await.expect("the child's exit is published") {
-                    break exit;
-                }
-            }
-        });
-        assert_eq!(exit.killed, Some(KillReason::Requested));
-    }
-    #[test]
-    fn a_run_dropped_before_its_child_is_committed_still_ends_the_child() {
-        the_child_ends_when_the_run_is_dropped_during_its_spawn(true);
-    }
-    #[test]
-    fn a_run_dropped_after_its_child_is_committed_still_ends_the_child() {
-        the_child_ends_when_the_run_is_dropped_during_its_spawn(false);
-    }
-    #[tokio::test(start_paused = true)]
-    async fn map_limit_keeps_input_order() {
-        let out = map_limit(vec![3u64, 1, 2], 2, |n| async move {
-            mixdog_rt::time::sleep(Duration::from_millis(n * 10)).await;
-            n * 2
-        })
-        .await;
-        assert_eq!(out, vec![6, 2, 4]);
-    }
 }

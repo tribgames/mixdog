@@ -10,31 +10,23 @@ use mixdog_store::schema::record::Header;
 use mixdog_tools::state::goal::GoalPort;
 use mixdog_tools::state::todo::TodoStore;
 
-use crate::run_host::guards::{HostTodoView, RunningWork, UserCycles};
+use crate::run_host::guards::{HostTodoView, RunningWork};
 
 /// What every session's guards read from, built once.
 pub struct TodoViews {
     todos: Arc<dyn TodoStore>,
     goals: Arc<dyn GoalPort>,
     work: Arc<dyn RunningWork>,
-    cycles: Arc<UserCycles>,
 }
 
 impl TodoViews {
-    /// `cycles` is the one the session deps carry: the turn guards begin it at each genuine prompt.
-    pub fn new(todos: Arc<dyn TodoStore>, goals: Arc<dyn GoalPort>, work: Arc<dyn RunningWork>, cycles: Arc<UserCycles>) -> Self {
-        Self { todos, goals, work, cycles }
+    pub fn new(todos: Arc<dyn TodoStore>, goals: Arc<dyn GoalPort>, work: Arc<dyn RunningWork>) -> Self {
+        Self { todos, goals, work }
     }
 
     /// The seam: `todo_view(&ThreadId, &Header)`. The header names nothing the guards read.
     pub fn todo_view(&self, thread: &ThreadId, _header: &Header) -> Arc<dyn TodoView> {
-        Arc::new(HostTodoView::new(
-            thread.clone(),
-            self.todos.clone(),
-            self.goals.clone(),
-            self.work.clone(),
-            self.cycles.clone(),
-        ))
+        Arc::new(HostTodoView::new(thread.clone(), self.todos.clone(), self.goals.clone(), self.work.clone()))
     }
 }
 
@@ -94,7 +86,7 @@ mod tests {
 
     #[async_trait]
     impl RunningWork for Work {
-        async fn has_active(&self, session_id: &str, surface: &str, _: bool, _: Option<u64>) -> bool {
+        async fn has_active(&self, session_id: &str, surface: &str, _: bool) -> bool {
             self.0.iter().any(|(s, sf)| *s == session_id && *sf == surface)
         }
     }
@@ -105,7 +97,7 @@ mod tests {
             "updated_at_ms": 0,
         }))
         .unwrap();
-        TodoViews::new(Arc::new(Todos(Mutex::new(list))), Arc::new(Goal(goal)), Arc::new(work), Arc::new(UserCycles::default()))
+        TodoViews::new(Arc::new(Todos(Mutex::new(list))), Arc::new(Goal(goal)), Arc::new(work))
     }
 
     #[tokio::test]

@@ -44,6 +44,7 @@
                   },
                   "description": {
                     "type": "string",
+                    "maxLength": 200,
                     "description": "One-sentence tradeoff."
                   }
                 },
@@ -60,17 +61,20 @@
             "recommended": {
               "type": "integer",
               "minimum": 0,
-              "description": "Recommended option index."
+              "maximum": 3,
+              "description": "Zero-based recommended option index; must be below the number of options."
             }
           },
           "required": [
             "question",
             "header",
             "options"
-          ]
+          ],
+          "additionalProperties": false
         }
       }
     },
+    "required": ["questions"],
     "additionalProperties": false
   },
   "trigger": "Ask the user 1–4 multiple-choice questions and wait; when a plan needs the user to pick between clear options, instead of listing them in chat."

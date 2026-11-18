@@ -1,11 +1,4 @@
-//! The SMTP client against a scripted local server: implicit TLS, STARTTLS (offered and not), the AUTH methods, a silent
-//! server at every phase, 4xx and 5xx at every step, multi-line replies, PIPELINING, dot-stuffing and the failures of
-//! the connection itself. Each failure is checked by the `code` nodemailer would have given it, which is all the relay
-//! logs (`[relay] feedback send failed id=<id> code=<code>`).
-//!
-//! The server trusts nothing and verifies nothing: it answers from a table of replies keyed by phase and records the
-//! command lines and the messages it received. Certificates come from `rcgen` and are trusted through
-//! `send_trusting`, the test-only root.
+//! The SMTP client against a scripted server: implicit TLS, STARTTLS, authentication mechanisms, pipelining, dot-stuffing, attachments, timeouts and the failure code of each step.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -354,34 +347,6 @@ async fn start(script: Script) -> Fixture {
     Fixture { addr, seen, root, secure }
 }
 
-impl Fixture {
-    fn config(&self) -> MailConfig {
-        let mut config = MailConfig::new("localhost", self.addr.port(), "bot@example.com", "s3cret");
-        config.secure = self.secure;
-        config.timeout = Duration::from_secs(10);
-        config
-    }
-
-    async fn send(&self, message: &Message) -> Result<(), MailError> {
-        mail::send_trusting(&self.config(), message, &[self.root.clone()]).await
-    }
-
-    async fn send_with(&self, config: &MailConfig, message: &Message) -> Result<(), MailError> {
-        mail::send_trusting(config, message, &[self.root.clone()]).await
-    }
-
-    /// The commands the server received, once the client's QUIT has arrived (bounded wait).
-    async fn log(&self) -> Vec<String> {
-        for _ in 0..60 {
-            if self.seen.log.lock().unwrap().last().is_some_and(|last| last == "QUIT") {
-                break;
-            }
-            mixdog_rt::time::sleep(Duration::from_millis(50)).await;
-        }
-        self.seen.log.lock().unwrap().clone()
-    }
-}
-
 fn sample() -> Message {
     Message {
         from: "bot@example.com".to_owned(),
@@ -623,7 +588,7 @@ const REFUSALS: &[(&str, &str, MailCode, &str, u16)] = &[
 ];
 
 #[tokio::test]
-async fn a_refusal_at_each_step_is_the_code_nodemailer_gives_it() {
+async fn a_refusal_at_each_step_has_its_own_error_code() {
     for pipelined in [false, true] {
         for &(phase, reply, code, message, response_code) in REFUSALS {
             // `auth_user` is only reached by the LOGIN method.
@@ -710,4 +675,33 @@ async fn the_password_is_not_in_the_debug_text_of_the_config_or_of_an_error() {
     let fixture = start(Script::new(TlsMode::StartTls).ehlo(&["AUTH PLAIN"]).reply("auth", "535 5.7.8 bad credentials")).await;
     let error = failure(&fixture).await;
     assert!(!format!("{:?} {error:?} {error}", fixture.config()).contains("s3cret"));
+}
+
+
+impl Fixture {
+    fn config(&self) -> MailConfig {
+        let mut config = MailConfig::new("localhost", self.addr.port(), "bot@example.com", "s3cret");
+        config.secure = self.secure;
+        config.timeout = Duration::from_secs(10);
+        config
+    }
+
+    async fn send(&self, message: &Message) -> Result<(), MailError> {
+        mail::send_trusting(&self.config(), message, &[self.root.clone()]).await
+    }
+
+    async fn send_with(&self, config: &MailConfig, message: &Message) -> Result<(), MailError> {
+        mail::send_trusting(config, message, &[self.root.clone()]).await
+    }
+
+    /// The commands the server received, once the client's QUIT has arrived (bounded wait).
+    async fn log(&self) -> Vec<String> {
+        for _ in 0..60 {
+            if self.seen.log.lock().unwrap().last().is_some_and(|last| last == "QUIT") {
+                break;
+            }
+            mixdog_rt::time::sleep(Duration::from_millis(50)).await;
+        }
+        self.seen.log.lock().unwrap().clone()
+    }
 }

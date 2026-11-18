@@ -101,13 +101,32 @@ impl std::fmt::Display for ConvertError {
     }
 }
 
-impl std::error::Error for ConvertError {}
-
 /// How a scratch folder is removed and what is said of one that stays; the driver's own when none is given.
 #[derive(Default)]
 pub struct ScratchHooks<'a> {
     pub remove: Option<&'a dyn Fn(&Path) -> std::io::Result<()>>,
     pub log: Option<&'a dyn Fn(&str)>,
+}
+
+/// `removeDirectoryWithRetry(dir, { remove, log })` with the hooks' removal and log where given: a busy folder is retried, a failure
+/// that persists is logged and never raised.
+pub fn remove_scratch_with<P: WriteProof>(proof: &P, dir: &Path, hooks: &ScratchHooks) {
+    match hooks {
+        ScratchHooks { remove: None, log: None } => remove_scratch(proof, dir),
+        ScratchHooks { remove, log } => profile::remove_directory_with_retry(
+            proof,
+            dir,
+            &|dir: &Path| match remove {
+                Some(remove) => remove(dir),
+                None => mixdog_fsio::remove_dir_all(proof, dir),
+            },
+            &|line: &str| match log {
+                Some(log) => log(line),
+                None => drop(std::io::stderr().write_all(line.as_bytes())),
+            },
+            Duration::from_millis(100),
+        ),
+    }
 }
 
 /// The picture a document is rendered to.
@@ -564,22 +583,7 @@ impl Soffice {
         let output_dir = make_temp_dir(proof, &self.host.temp_dir, "mixdog-office-legacy-")
             .map_err(|error| ConvertError::Failed(os_message(&error, "mkdtemp", &self.host.temp_dir)))?;
         let outcome = self.convert_legacy_in(proof, &program, path, output, &extension, cancel, &output_dir);
-        match hooks {
-            ScratchHooks { remove: None, log: None } => remove_scratch(proof, &output_dir),
-            ScratchHooks { remove, log } => profile::remove_directory_with_retry(
-                proof,
-                &output_dir,
-                &|dir: &Path| match remove {
-                    Some(remove) => remove(dir),
-                    None => mixdog_fsio::remove_dir_all(proof, dir),
-                },
-                &|line: &str| match log {
-                    Some(log) => log(line),
-                    None => drop(std::io::stderr().write_all(line.as_bytes())),
-                },
-                Duration::from_millis(100),
-            ),
-        }
+        remove_scratch_with(proof, &output_dir, hooks);
         outcome
     }
 
@@ -774,3 +778,6 @@ mod tests {
         assert_eq!(*lock(&served), [1, 2, 3]);
     }
 }
+
+
+impl std::error::Error for ConvertError {}

@@ -8,16 +8,22 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::WireRequest;
+#[cfg(node_twin)]
 use serde_json::Value;
 
 use super::AccessToken;
 use super::CLIENT_VERSION_FLOOR;
 use super::CursorAdapter;
+#[cfg(node_twin)]
 use super::models::ParameterAsk;
+#[cfg(node_twin)]
 use super::models::decode_available_models;
+#[cfg(node_twin)]
 use super::models::resolve_selection;
 use crate::providers::listing_row::testing::Replay;
+#[cfg(node_twin)]
 use crate::providers::listing_row::testing::fixture;
+#[cfg(node_twin)]
 use crate::providers::listing_row::testing::unhex;
 use crate::transport::http::BidiOpen;
 use crate::transport::http::FrameSink;
@@ -47,6 +53,148 @@ impl BidiOpen for NoRun {
     }
 }
 
+fn adapter(answer: Vec<u8>) -> (Arc<Replay>, CursorAdapter) {
+    let http = Arc::new(Replay::new(move |_request: &WireRequest| (200, answer.clone())));
+    let adapter = CursorAdapter::new("cursor-api", None, Some(CLIENT_VERSION_FLOOR.into()), http.clone(), Arc::new(NoRun), Arc::new(Token));
+    (http, adapter)
+}
+
+/// What a turn sends for each requested id and ask equals what Node's
+/// `_resolveCursorModel` sent: the parameterized variants, the aliases, and
+/// the id-named variants chosen by suffix.
+#[cfg(node_twin)]
+#[test]
+fn every_recorded_resolution_equals_nodes() {
+    let recorded = fixture("cursor-models/cases.json");
+    let mut checked = 0;
+    for (name, case) in recorded["cases"].as_object().unwrap() {
+        let Some(resolutions) = case.get("resolutions") else { continue };
+        let catalog = decode_available_models(&unhex(case["response"].as_str().unwrap())).unwrap();
+        for entry in resolutions.as_array().unwrap() {
+            let ask = &entry["ask"];
+            let route = ask.get("modelParameters").and_then(Value::as_object);
+            let got = resolve_selection(
+                &catalog,
+                entry["model"].as_str().unwrap(),
+                &ParameterAsk {
+                    effort: ask["effort"].as_str(),
+                    fast: ask["fast"].as_bool().unwrap_or(false),
+                    route,
+                    selected_context_window: ask["selectedContextWindow"].as_u64(),
+                },
+            );
+            let label = format!("{name}: {} {ask}", entry["model"]);
+            match (got, entry.get("ok")) {
+                (Ok(got), Some(want)) => {
+                    assert_eq!(got.model_id, want["modelId"].as_str().unwrap(), "{label}");
+                    let parameters: Vec<Value> =
+                        got.parameters.iter().map(|(id, value)| serde_json::json!({"id": id, "value": value})).collect();
+                    assert_eq!(Value::Array(parameters), want["parameters"], "{label}");
+                    assert_eq!(got.max_mode, want["maxMode"].as_bool().unwrap_or(false), "{label}");
+                }
+                (Err(got), None) => assert_eq!(got.message, entry["error"].as_str().unwrap(), "{label}"),
+                (got, _) => panic!("{label}: Rust {got:?}, Node {entry}"),
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked > 500, "the recording has the resolutions ({checked})");
+}
+
+/// What a turn sends equals Node's: the model on the chat body and the
+/// `pricingModel` a pinned suffix id bills as, including `auto` against a
+/// server that lists no Auto (Node sends `auto` for it).
+#[cfg(node_twin)]
+#[test]
+fn every_recorded_send_has_nodes_model_and_pricing_model() {
+    let recorded = fixture("cursor-models/cases.json");
+    let mut checked = 0;
+    for (name, case) in recorded["cases"].as_object().unwrap() {
+        let Some(sends) = case.get("sends") else { continue };
+        let catalog = decode_available_models(&unhex(case["response"].as_str().unwrap())).unwrap();
+        for entry in sends.as_array().unwrap() {
+            let model = entry["model"].as_str().unwrap();
+            let got = resolve_selection(
+                &catalog,
+                model,
+                &ParameterAsk { effort: entry["ask"]["effort"].as_str(), ..ParameterAsk::default() },
+            );
+            match (got, entry.get("ok")) {
+                (Ok(got), Some(want)) => {
+                    assert_eq!(got.model_id, want["sentModel"].as_str().unwrap(), "{name}: {model}");
+                    assert_eq!(got.pricing_model.as_deref(), want["pricingModel"].as_str(), "{name}: {model}");
+                }
+                (Err(got), None) => assert_eq!(got.message, entry["error"].as_str().unwrap(), "{name}: {model}"),
+                (got, _) => panic!("{name}: {model}: Rust {got:?}, Node {entry}"),
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked > 150, "the recording has the sends ({checked})");
+}
+
+#[cfg(node_twin)]
+#[test]
+fn a_server_without_auto_still_lists_it_first() {
+    let recorded = fixture("cursor-models/cases.json");
+    let case = &recorded["cases"]["no-auto-bare"];
+    let catalog = decode_available_models(&unhex(case["response"].as_str().unwrap())).unwrap();
+    assert!(catalog.iter().any(|m| m.id == "auto" && m.name == "Auto"));
+    let auto = case["expected"].as_array().unwrap().iter().find(|row| row["id"] == "auto").expect("Node lists Auto");
+    assert_eq!(auto["display"], "Auto");
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_answer_without_parameterized_models_falls_to_the_static_list() {
+    // `getCursorModels`: no row from either call after the retries answers `FALLBACK_MODELS`, not an error.
+    let (_http, adapter) = adapter(Vec::new());
+    let records = adapter.models().unwrap().list_models().await.unwrap();
+    assert_eq!(records[0].id, "auto");
+    assert!(records.iter().any(|r| r.id == "composer-2.5"));
+}
+
+fn lists_with(answer: impl Fn(&WireRequest) -> (u16, Vec<u8>) + Send + Sync + 'static) -> (Arc<Replay>, CursorAdapter) {
+    let http = Arc::new(Replay::new(answer));
+    let adapter = CursorAdapter::new("cursor-api", None, Some(CLIENT_VERSION_FLOOR.into()), http.clone(), Arc::new(NoRun), Arc::new(Token));
+    (http, adapter)
+}
+
+/// `AvailableModels` answering no rows falls to the legacy `GetUsableModels` (`fetchCursorModelsOnce`).
+#[tokio::test]
+async fn an_empty_available_models_falls_to_the_legacy_call() {
+    let (http, adapter) = lists_with(|request| {
+        if request.url.ends_with("/GetUsableModels") {
+            // ModelDetails { modelId: "m1", displayName: "Model One" }
+            (200, vec![0x0A, 0x0F, 0x0A, 0x02, b'm', b'1', 0x22, 0x09, b'M', b'o', b'd', b'e', b'l', b' ', b'O', b'n', b'e'])
+        } else {
+            (200, Vec::new())
+        }
+    });
+    let records = adapter.models().expect("lists").list_models().await.unwrap();
+    let ids: Vec<&str> = records.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids, ["auto", "m1"]);
+    assert_eq!(records[1].display_name.as_deref(), Some("Model One"));
+    assert_eq!(http.requests.lock().unwrap().len(), 2);
+}
+/// Three failed rounds (0.5, 1.5, 3 s apart) answer the static list and keep nothing.
+#[tokio::test(start_paused = true)]
+async fn a_catalog_that_never_answers_lists_the_static_models() {
+    let (http, adapter) = lists_with(|_| (500, Vec::new()));
+    let records = adapter.models().expect("lists").list_models().await.unwrap();
+    assert_eq!(records[0].id, "auto");
+    assert!(records.iter().any(|r| r.id == "composer-2.5"));
+    // Four rounds of the two calls.
+    assert_eq!(http.requests.lock().unwrap().len(), 8);
+    assert!(adapter.catalog.load_full().is_none());
+    // Neither the catalog nor the cached-model-info rows keep the static list.
+    use crate::catalog::CachedModelInfo;
+    assert!(adapter.cached_row("composer-2.5").is_none());
+    let (_, cached) = lists_with(|_| (500, Vec::new()));
+    assert!(cached.cached_models("t").await.unwrap().iter().any(|m| m.id == "composer-2.5"));
+    assert!(cached.catalog.load_full().is_none(), "a send's catalog read keeps no fallback either");
+}
+
+
 /// The model list that outlives its timer reads as the real Node call did (`sites.cursorModelsCall`): `callCursorUnary`'s
 /// own timer, labelled `Cursor request`.
 #[tokio::test(start_paused = true)]
@@ -59,13 +207,7 @@ async fn a_model_list_that_outlives_its_timer_reads_as_nodes() {
     assert_window("cursorModelsCall", &transport);
     assert_thrown("cursorModelsCall", &error.message);
 }
-
-fn adapter(answer: Vec<u8>) -> (Arc<Replay>, CursorAdapter) {
-    let http = Arc::new(Replay::new(move |_request: &WireRequest| (200, answer.clone())));
-    let adapter = CursorAdapter::new("cursor-api", None, Some(CLIENT_VERSION_FLOOR.into()), http.clone(), Arc::new(NoRun), Arc::new(Token));
-    (http, adapter)
-}
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn every_recorded_case_gives_node_rows_and_request() {
     let recorded = fixture("cursor-models/cases.json");
@@ -120,92 +262,4 @@ async fn every_recorded_case_gives_node_rows_and_request() {
             assert_eq!(serde_json::to_value(&record.picker.reasoning_options).unwrap(), Value::Array(ladder));
         }
     }
-}
-
-/// What a turn sends for each requested id and ask equals what Node's
-/// `_resolveCursorModel` sent: the parameterized variants, the aliases, and
-/// the id-named variants chosen by suffix.
-#[test]
-fn every_recorded_resolution_equals_nodes() {
-    let recorded = fixture("cursor-models/cases.json");
-    let mut checked = 0;
-    for (name, case) in recorded["cases"].as_object().unwrap() {
-        let Some(resolutions) = case.get("resolutions") else { continue };
-        let catalog = decode_available_models(&unhex(case["response"].as_str().unwrap())).unwrap();
-        for entry in resolutions.as_array().unwrap() {
-            let ask = &entry["ask"];
-            let route = ask.get("modelParameters").and_then(Value::as_object);
-            let got = resolve_selection(
-                &catalog,
-                entry["model"].as_str().unwrap(),
-                &ParameterAsk {
-                    effort: ask["effort"].as_str(),
-                    fast: ask["fast"].as_bool().unwrap_or(false),
-                    route,
-                    selected_context_window: ask["selectedContextWindow"].as_u64(),
-                },
-            );
-            let label = format!("{name}: {} {ask}", entry["model"]);
-            match (got, entry.get("ok")) {
-                (Ok(got), Some(want)) => {
-                    assert_eq!(got.model_id, want["modelId"].as_str().unwrap(), "{label}");
-                    let parameters: Vec<Value> =
-                        got.parameters.iter().map(|(id, value)| serde_json::json!({"id": id, "value": value})).collect();
-                    assert_eq!(Value::Array(parameters), want["parameters"], "{label}");
-                    assert_eq!(got.max_mode, want["maxMode"].as_bool().unwrap_or(false), "{label}");
-                }
-                (Err(got), None) => assert_eq!(got.message, entry["error"].as_str().unwrap(), "{label}"),
-                (got, _) => panic!("{label}: Rust {got:?}, Node {entry}"),
-            }
-            checked += 1;
-        }
-    }
-    assert!(checked > 500, "the recording has the resolutions ({checked})");
-}
-
-/// What a turn sends equals Node's: the model on the chat body and the
-/// `pricingModel` a pinned suffix id bills as, including `auto` against a
-/// server that lists no Auto (Node sends `auto` for it).
-#[test]
-fn every_recorded_send_has_nodes_model_and_pricing_model() {
-    let recorded = fixture("cursor-models/cases.json");
-    let mut checked = 0;
-    for (name, case) in recorded["cases"].as_object().unwrap() {
-        let Some(sends) = case.get("sends") else { continue };
-        let catalog = decode_available_models(&unhex(case["response"].as_str().unwrap())).unwrap();
-        for entry in sends.as_array().unwrap() {
-            let model = entry["model"].as_str().unwrap();
-            let got = resolve_selection(
-                &catalog,
-                model,
-                &ParameterAsk { effort: entry["ask"]["effort"].as_str(), ..ParameterAsk::default() },
-            );
-            match (got, entry.get("ok")) {
-                (Ok(got), Some(want)) => {
-                    assert_eq!(got.model_id, want["sentModel"].as_str().unwrap(), "{name}: {model}");
-                    assert_eq!(got.pricing_model.as_deref(), want["pricingModel"].as_str(), "{name}: {model}");
-                }
-                (Err(got), None) => assert_eq!(got.message, entry["error"].as_str().unwrap(), "{name}: {model}"),
-                (got, _) => panic!("{name}: {model}: Rust {got:?}, Node {entry}"),
-            }
-            checked += 1;
-        }
-    }
-    assert!(checked > 150, "the recording has the sends ({checked})");
-}
-
-#[test]
-fn a_server_without_auto_still_lists_it_first() {
-    let recorded = fixture("cursor-models/cases.json");
-    let case = &recorded["cases"]["no-auto-bare"];
-    let catalog = decode_available_models(&unhex(case["response"].as_str().unwrap())).unwrap();
-    assert!(catalog.iter().any(|m| m.id == "auto" && m.name == "Auto"));
-    let auto = case["expected"].as_array().unwrap().iter().find(|row| row["id"] == "auto").expect("Node lists Auto");
-    assert_eq!(auto["display"], "Auto");
-}
-
-#[tokio::test]
-async fn an_answer_without_parameterized_models_is_an_error_not_a_list() {
-    let (_http, adapter) = adapter(Vec::new());
-    assert!(adapter.models().unwrap().list_models().await.is_err());
 }

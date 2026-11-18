@@ -1,10 +1,9 @@
-//! The shared ground of the relay: JavaScript string and JSON rules, the rate limiter, routing ids, close codes, the
-//! configuration defaults and the log lines. Expectations are literals recorded from Node (`JSON.stringify` output, the
-//! tests of `apps/relay/security.test.mjs`); the close codes are also compared with the Node sources read as text.
+//! The shared ground of the relay: JavaScript-compatible string and JSON rules, the rate limiter, routing ids, close codes, the configuration defaults and the log lines.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+#[cfg(node_twin)]
 use mixdog_fsio::Unlaned;
 use mixdog_relay::close_codes as codes;
 use mixdog_relay::config::Config;
@@ -13,6 +12,7 @@ use mixdog_relay::logline::{self, LoopDelay, SocketBuffer, Stream};
 use mixdog_relay::rate_limit::RateLimiter;
 use mixdog_relay::{js, tools};
 
+#[cfg(node_twin)]
 fn relay_source(file: &str) -> String {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../apps/relay");
     mixdog_fsio::read_to_string(&Unlaned, root.join(file)).unwrap_or_else(|e| panic!("read apps/relay/{file}: {e}"))
@@ -75,7 +75,7 @@ fn trim_uses_the_javascript_white_space_set() {
     assert_eq!(js::js_trim("\u{feff} a b \u{a0}\n"), "a b");
 }
 
-// ---- rate_limit.rs (the RateLimiter case of security.test.mjs and the cap) ----
+// ---- rate_limit.rs (the limiter and its cap) ----
 
 #[test]
 fn a_key_is_admitted_up_to_its_limit_in_a_window() {
@@ -134,7 +134,7 @@ fn a_full_table_first_drops_the_keys_whose_hits_expired() {
 #[test]
 fn routing_id_predicate_shared_everywhere() {
     assert!(is_routing_id("12345678-abcd-4321-abcd-1234567890ab"));
-    assert!(is_routing_id("12345678")); // Node coerces the number 12345678
+    assert!(is_routing_id("12345678")); // a numeric id is the same id as its text
     assert!(is_routing_id("00000001"));
     assert!(!is_routing_id("0000001"));
     assert!(!is_routing_id(""));
@@ -160,6 +160,29 @@ fn registrable_device_ids_are_a_uuid_or_long_hex() {
 
 // ---- close_codes.rs ----
 
+/// Peers act on these numbers and read these reasons, so they are part of the wire contract.
+#[test]
+fn every_close_a_peer_can_receive_has_its_published_code_and_reason() {
+    let published = [
+        (codes::MESSAGE_TOO_BIG, 1009, codes::MESSAGE_TOO_BIG_REASON, "Max payload size exceeded"),
+        (codes::SUPERSEDED, 4000, codes::SUPERSEDED_REASON, "superseded"),
+        (codes::DESKTOP_OFFLINE, 4002, codes::DESKTOP_OFFLINE_REASON, "desktop offline"),
+        (codes::REVOKED, 4003, codes::PAIRING_REVOKED_REASON, "pairing revoked"),
+        (codes::REVOKED, 4003, codes::DEVICE_REVOKED_REASON, "device revoked"),
+        (codes::DESKTOP_REJECTED_CLIENT, 4004, codes::DESKTOP_REJECTED_CLIENT_REASON, "desktop rejected client"),
+        (codes::PAIRING_RESCAN_REQUIRED, 4005, codes::PAIRING_RESCAN_REQUIRED_REASON, "pairing rescan required"),
+        (codes::SLOW_PEER, 4008, codes::SLOW_CONSUMER_REASON, "slow consumer"),
+        (codes::SLOW_PEER, 4008, codes::SLOW_PRODUCER_REASON, "slow producer"),
+        (codes::RELAY_BUSY, 4009, codes::RELAY_BUSY_REASON, "relay busy"),
+        (codes::DESKTOP_HANDSHAKE_STALLED, 4010, codes::DESKTOP_HANDSHAKE_STALLED_REASON, "desktop leg unresponsive"),
+    ];
+    for (code, want_code, reason, want_reason) in published {
+        assert_eq!((code, reason), (want_code, want_reason));
+    }
+    assert_eq!(codes::DESKTOP_REJECTED_CLIENT_REASON_MAX, 120);
+}
+
+#[cfg(node_twin)]
 #[test]
 fn close_codes_match_the_node_sources() {
     let table = relay_source("lib/relay-close-codes.mjs");
@@ -237,7 +260,7 @@ fn the_defaults_are_those_of_the_cli_block() {
 }
 
 #[test]
-fn empty_values_take_the_defaults_like_node_or() {
+fn empty_values_take_the_defaults() {
     let config = Config::from_env(env(&[("PORT", ""), ("DATA_DIR", ""), ("RENDERER_DIR", ""), ("TLS_CERT", "c"), ("TLS_KEY", "k")]), PathBuf::new());
     assert_eq!(config.listen_port(), Ok(9800));
     assert_eq!(config.data_dir, "./data");
@@ -245,7 +268,7 @@ fn empty_values_take_the_defaults_like_node_or() {
 }
 
 #[test]
-fn a_port_is_a_javascript_number_and_listen_rejects_what_node_rejects() {
+fn a_port_is_a_javascript_number_and_listen_rejects_what_is_out_of_range() {
     let port = |text: &str| Config::from_env(env(&[("PORT", text)]), PathBuf::new()).listen_port();
     assert_eq!(port("8080"), Ok(8080));
     assert_eq!(port(" 8080 "), Ok(8080));
@@ -286,7 +309,7 @@ fn the_whole_environment_is_kept_for_the_groups_that_parse_their_own_names() {
 // ---- logline.rs ----
 
 #[test]
-fn lines_keep_their_node_text_and_stream() {
+fn log_lines_keep_their_text_and_stream() {
     let line = logline::listening("http", 9800, "");
     assert_eq!((line.stream, line.text.as_str()), (Stream::Out, "[relay] http listening on :9800 (renderer: none)"));
     assert_eq!(logline::listening("https", 443, "/srv/r").text, "[relay] https listening on :443 (renderer: /srv/r)");
@@ -340,11 +363,12 @@ fn the_sockets_line_lists_the_largest_and_sums_the_rest() {
     assert!(text.contains(" +2 more=1B loop-p50="), "{text}");
 }
 
+
 // ---- the operator tools ----
 
 #[test]
-fn the_verifier_with_no_origin_fails_with_exit_1_as_node_does() {
-    // verify-release.mjs: new URL("") throws "Invalid URL", the catch prints "[deploy] verification failed" and exits 1.
+fn the_verifier_with_no_origin_fails_with_exit_1() {
+    // The verifier parses the origin as a URL: an empty one throws "Invalid URL", the catch prints "[deploy] verification failed" and exits 1.
     let code = format!("{:?}", tools::verify_release::main(&[]));
     assert_eq!(code, format!("{:?}", std::process::ExitCode::from(1)));
 }

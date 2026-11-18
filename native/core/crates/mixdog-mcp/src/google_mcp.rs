@@ -168,7 +168,7 @@ impl Calls<'_> {
             .fetch
             .fetch(GoogleRequest { method: call.method, url: url.to_owned(), authorization: Some(format!("Bearer {}", self.token)), content_type: call.content_type, body: call.body })
             .await
-            .map_err(Failure::Fetch)?;
+            .map_err(Failure::Tool)?;
         if reply.status == 401 {
             return Err(Failure::Unauthorized);
         }
@@ -444,6 +444,11 @@ fn tool_defs(service: &str) -> Value {
 }
 
 async fn run_tool(service: &str, name: &str, args: &Value, calls: &Calls<'_>) -> Option<Result<String, Failure>> {
+    let defs = tool_defs(service);
+    let tool = defs.as_array()?.iter().find(|tool| tool["name"].as_str() == Some(name))?;
+    if let Err(error) = validate_tool_args(&tool["inputSchema"], args) {
+        return Some(Err(error));
+    }
     Some(match (service, name) {
         ("gmail", "send_email") => send_email(args, calls).await,
         ("calendar", "list_events") => list_events(args, calls).await,
@@ -455,6 +460,38 @@ async fn run_tool(service: &str, name: &str, args: &Value, calls: &Calls<'_>) ->
         ("drive", "create_file") => create_file(args, calls).await,
         _ => return None,
     })
+}
+
+fn validate_tool_args(schema: &Value, args: &Value) -> Result<(), Failure> {
+    fn matches_type(schema: &Value, value: &Value) -> bool {
+        match schema["type"].as_str() {
+            Some("string") => value.is_string(),
+            Some("number") => value.is_number(),
+            Some("boolean") => value.is_boolean(),
+            Some("array") => value.as_array().is_some_and(|items| items.iter().all(|item| matches_type(&schema["items"], item))),
+            _ => false,
+        }
+    }
+
+    for key in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        if args.get(key).is_none() {
+            return Err(Failure::Tool(format!("{key} is required")));
+        }
+    }
+    for (key, property) in schema["properties"].as_object().into_iter().flatten() {
+        if args.get(key).is_some_and(|value| !matches_type(property, value)) {
+            return Err(Failure::Tool(format!("{key} has the wrong type")));
+        }
+    }
+    Ok(())
+}
+
+fn collection<'a>(response: &'a Value, key: &str) -> Result<&'a [Value], Failure> {
+    if response.is_object() && response.get(key).is_none() {
+        return Ok(&[]);
+    }
+    response.get(key).and_then(Value::as_array).filter(|items| items.iter().all(Value::is_object)).map(Vec::as_slice)
+        .ok_or_else(|| Failure::Tool(format!("Google returned an invalid {key} collection")))
 }
 
 async fn send_email(args: &Value, calls: &Calls<'_>) -> Result<String, Failure> {
@@ -476,7 +513,7 @@ async fn list_events(args: &Value, calls: &Calls<'_>) -> Result<String, Failure>
         }
     }
     let list = calls.json(&format!("{EVENTS}?{}", form(&pairs)), Call::get()).await?;
-    let items = list.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
+    let items = collection(&list, "items")?;
     Ok(if items.is_empty() { "No events.".to_owned() } else { items.iter().map(event_line).collect::<Vec<_>>().join("\n") })
 }
 
@@ -506,7 +543,7 @@ async fn search_files(args: &Value, calls: &Calls<'_>) -> Result<String, Failure
     }
     let pairs = [("q", terms.join(" and ")), ("fields", format!("files({FILE_FIELDS})")), ("orderBy", "modifiedTime desc".to_owned()), ("pageSize", page_size(args.get("pageSize")))];
     let list = calls.json(&format!("{DRIVE}?{}", form(&pairs)), Call::get()).await?;
-    let files = list.get("files").and_then(Value::as_array).cloned().unwrap_or_default();
+    let files = collection(&list, "files")?;
     Ok(if files.is_empty() { "No files.".to_owned() } else { files.iter().map(Value::to_string).collect::<Vec<_>>().join("\n") })
 }
 
@@ -592,9 +629,11 @@ async fn rpc(service: &str, calls: &Calls<'_>, message: &Value) -> Result<Value,
     let id = message.get("id").cloned().unwrap_or(Value::Null);
     let reply = |result: Value| json!({ "jsonrpc": "2.0", "id": id, "result": result });
     let fail = |code: i64, message: String| json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } });
-    let method = message.get("method").map(mixdog_js::value_to_string).unwrap_or_else(|| "undefined".to_owned());
-    let params = message.get("params").cloned().unwrap_or(Value::Null);
-    match method.as_str() {
+    let Some(method) = message.get("method").and_then(Value::as_str) else {
+        return Ok(fail(-32600, "method must be a string".to_owned()));
+    };
+    let params = message.get("params").unwrap_or(&Value::Null);
+    match method {
         "initialize" => {
             let email = token_info(calls).await?;
             let version = Some(text(params.get("protocolVersion"))).filter(|v| !v.is_empty()).unwrap_or_else(|| PROTOCOL_VERSION.to_owned());
@@ -611,13 +650,15 @@ async fn rpc(service: &str, calls: &Calls<'_>, message: &Value) -> Result<Value,
         "ping" => Ok(reply(json!({}))),
         "tools/list" => Ok(reply(json!({ "tools": tool_defs(service) }))),
         "tools/call" => {
-            let name = params.get("name").map(mixdog_js::value_to_string).unwrap_or_else(|| "undefined".to_owned());
-            let args = params.get("arguments").filter(|a| truthy(a)).cloned().unwrap_or_else(|| json!({}));
-            let known = tool_defs(service).as_array().is_some_and(|tools| tools.iter().any(|tool| tool["name"] == name.as_str()));
-            if !known {
-                return Ok(fail(-32602, format!("Unknown tool: {name}")));
+            let Some(name) = params.get("name").and_then(Value::as_str) else {
+                return Ok(fail(-32602, "tool name must be a string".to_owned()));
+            };
+            let empty = json!({});
+            let args = params.get("arguments").unwrap_or(&empty);
+            if !args.is_object() {
+                return Ok(fail(-32602, "tool arguments must be an object".to_owned()));
             }
-            match run_tool(service, &name, &args, calls).await {
+            match run_tool(service, name, args, calls).await {
                 Some(Ok(output)) => Ok(reply(json!({ "content": [{ "type": "text", "text": output }] }))),
                 Some(Err(Failure::Tool(message))) => Ok(reply(json!({ "content": [{ "type": "text", "text": message }], "isError": true }))),
                 Some(Err(other)) => Err(other),

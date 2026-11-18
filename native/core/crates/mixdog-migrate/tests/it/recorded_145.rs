@@ -120,31 +120,30 @@ fn the_settings_read_back_as_1_4_5_answered() {
     let answers = answers();
     let now: Value = serde_json::from_slice(&durable::read(&copy.roots().data.join("mixdog-config.json")).expect("config")).expect("json");
     let was = answers["config"]["file"].as_object().expect("the recorded config");
+    // Every setting, the quota switch (`quotaResume.autoResume`) included, stays where 1.4.5 kept it.
     for (key, value) in was {
-        if key != "quotaResume" {
-            assert_eq!(&now[key], value, "setting {key}");
-        }
+        assert_eq!(&now[key], value, "setting {key}");
     }
-    // The switch moved from quotaResume.autoResume to the registered quotaAutoResume, with the value 1.4.5 acted on.
-    assert_eq!(now["quotaAutoResume"], answers["config"]["quotaAutoResume"]);
-    assert!(now["quotaResume"]["autoResume"].is_null(), "the 1.4.5 key was left");
 }
 
 /// What the migration removes from the 1.4.5 tree (store-migration §11.2): converted sessions, spool and checkpoints,
 /// derived indexes and caches, the legacy usage input the ledger already imported, and the interrupted writes the
 /// recorder produced by killing each 1.4.5 writer (`answers.leftovers`) and the set-aside it kept (`answers.setAside`,
-/// moved to quarantine). Nothing here asks the migration's own classifier.
+/// moved to quarantine). Nothing here asks the migration's own classifier. 1.4.5's attachment tree is never touched: it
+/// stays whole for a rollback, its census files and cut writes included.
 fn removed_by_contract(rel: &str, answers: &Value) -> bool {
     let listed = |key: &str| answers[key].as_array().expect(key).iter().any(|w| w["rel"].as_str() == Some(rel));
-    listed("leftovers")
-        || listed("setAside")
-        || (rel.starts_with("data/sessions/") && rel.ends_with(".json"))
-        || rel.starts_with("data/session-pending/")
-        || rel.starts_with("data/turn-checkpoints/")
-        || rel.starts_with("data/media/renditions/")
-        || ["data/session-summaries.log", "data/prompt-attachments/gc-last-run", "data/prompt-attachments/gc-reference-cache.json"]
-            .contains(&rel)
+    !rel.starts_with(LEGACY_ATTACHMENTS)
+        && (listed("leftovers")
+            || listed("setAside")
+            || (rel.starts_with("data/sessions/") && rel.ends_with(".json"))
+            || rel.starts_with("data/session-pending/")
+            || rel.starts_with("data/turn-checkpoints/")
+            || rel.starts_with("data/media/renditions/")
+            || rel == "data/session-summaries.log")
 }
+
+const LEGACY_ATTACHMENTS: &str = "data/prompt-attachments/";
 
 #[test]
 fn the_1_4_5_files_left_behind_are_the_ones_the_decisions_name() {
@@ -173,8 +172,9 @@ fn the_1_4_5_files_left_behind_are_the_ones_the_decisions_name() {
     }
 }
 
-/// Every writer the recorder killed left a temp file in the recording, and the migration retires each; every format of
-/// `temp_files` has such a recorded file, and every store directory its writers publish through.
+/// Every writer the recorder killed left a temp file in the recording, and the migration retires each outside 1.4.5's
+/// attachment tree (which it leaves as it is); every format of `temp_files` has such a recorded file, and every store
+/// directory its writers publish through.
 #[test]
 fn every_temp_file_format_a_killed_1_4_5_writer_left_is_retired() {
     let (copy, _) = migrated();
@@ -184,7 +184,8 @@ fn every_temp_file_format_a_killed_1_4_5_writer_left_is_retired() {
     let leftovers = answers["leftovers"].as_array().expect("leftovers");
     for leftover in leftovers {
         let rel = leftover["rel"].as_str().expect("rel");
-        assert!(recorded.contains_key(rel) && !after.contains_key(rel), "{} ({}): {rel}", leftover["format"], leftover["writer"]);
+        let left = if rel.starts_with(LEGACY_ATTACHMENTS) { after.get(rel) == recorded.get(rel) } else { !after.contains_key(rel) };
+        assert!(recorded.contains_key(rel) && left, "{} ({}): {rel}", leftover["format"], leftover["writer"]);
     }
     let formats: std::collections::BTreeSet<&str> = leftovers.iter().map(|l| l["format"].as_str().expect("format")).collect();
     for format in ["atomic-publish", "compaction-publish", "session-save", "lock-stage", "owner-refresh"] {
@@ -244,35 +245,6 @@ fn the_migration_runs_once_and_a_later_start_changes_nothing() {
     assert!(durable::is_file(&copy.roots().data.join("quota-resume.json.late")));
 }
 
-/// `fixtures/archived-agent`: Node b6f10295a read each reaped child's result through the parents its links name. After
-/// the migration the same child reads back, from the section its parents carry, as the same view Node answered; a child
-/// Node answered nothing for has no entry in any parent and, when none of its parents migrated, is retired, counted.
-/// A second run changes nothing.
-#[test]
-fn every_reaped_agent_child_reads_back_as_node_answered() {
-    let recorded = archived_agent();
-    let dir = tempfile::tempdir().expect("scratch dir");
-    let roots = archived_agent_at(dir.path());
-    let complete = migrate(&roots);
-    let folded = mixdog_migrate::session::target::read_sessions(&roots, &complete.manifest_sha256).expect("fold");
-    for child in recorded["children"].as_array().expect("children").iter().map(|c| c.as_str().expect("id")) {
-        let entries: Vec<&Value> =
-            folded.values().filter_map(|s| mixdog_store::archived_agent::entry(&s.header, child)).collect();
-        let got = mixdog_store::archived_agent::view(child, &entries).unwrap_or(Value::Null);
-        assert_eq!(got, recorded["answers"][child]["transcript"]["value"], "{child}");
-    }
-    // A session kept only to host a worker row whose record is gone (the pool lists it) is no session of Node's.
-    let mut left: Vec<&String> = folded.iter().filter(|(_, s)| !s.header.contains_key(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY)).map(|(id, _)| id).collect();
-    left.sort();
-    let want: Vec<String> = recorded["sessionsLeft"].as_array().expect("left").iter().map(|n| n.as_str().expect("name").trim_end_matches(".json").to_owned()).collect();
-    assert_eq!(left, want.iter().collect::<Vec<_>>(), "no session is made for a child");
-    // `sess_child_orphan`, whose one parent is gone: dropped, counted.
-    assert_eq!((complete.kinds.data.retired, complete.kinds.data.quarantined_unexpected), (1, 0), "{:?}", complete.kinds.data);
-    let tree = tree_digest(&roots);
-    assert_eq!(migrate(&roots), complete);
-    assert_eq!(tree_digest(&roots), tree, "a second run rewrote the data");
-}
-
 // ── Crash safety ──────────────────────────────────────────────────────────────────────────────────────────────
 //
 // A real kill, not an error returned to the run: the migration runs in a child process (this test binary, started
@@ -308,6 +280,44 @@ fn on_step(step: Step, path: &Path, _bytes: &[u8]) {
         None => LOG.lock().expect("log").push(format!("{step:?} {rel}")),
     }
 }
+
+/// A directory the crash matrix runs over, written under a root.
+type Prepare = fn(&Path) -> MigrationRoots;
+
+/// The crash matrix is split by step index: step `i` is killed in chunk `i % CRASH_CHUNKS`, so the chunks run side by side.
+const CRASH_CHUNKS: usize = 16;
+/// Threads within one chunk, each killing and resuming in its own directory.
+const CHUNK_WORKERS: usize = 3;
+
+
+/// `fixtures/archived-agent`: Node b6f10295a read each reaped child's result through the parents its links name. After
+/// the migration the same child reads back, from the section its parents carry, as the same view Node answered; a child
+/// Node answered nothing for has no entry in any parent and, when none of its parents migrated, is retired, counted.
+/// A second run changes nothing.
+#[test]
+fn every_reaped_agent_child_reads_back_as_node_answered() {
+    let recorded = archived_agent();
+    let dir = tempfile::tempdir().expect("scratch dir");
+    let roots = archived_agent_at(dir.path());
+    let complete = migrate(&roots);
+    let folded = mixdog_migrate::session::target::read_sessions(&roots, &complete.manifest_sha256).expect("fold");
+    for child in recorded["children"].as_array().expect("children").iter().map(|c| c.as_str().expect("id")) {
+        let entries: Vec<&Value> =
+            folded.values().filter_map(|s| mixdog_store::archived_agent::entry(&s.header, child)).collect();
+        let got = mixdog_store::archived_agent::view(child, &entries).unwrap_or(Value::Null);
+        assert_eq!(got, recorded["answers"][child]["transcript"]["value"], "{child}");
+    }
+    // A session kept only to host a worker row whose record is gone (the pool lists it) is no session of Node's.
+    let mut left: Vec<&String> = folded.iter().filter(|(_, s)| !s.header.contains_key(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY)).map(|(id, _)| id).collect();
+    left.sort();
+    let want: Vec<String> = recorded["sessionsLeft"].as_array().expect("left").iter().map(|n| n.as_str().expect("name").trim_end_matches(".json").to_owned()).collect();
+    assert_eq!(left, want.iter().collect::<Vec<_>>(), "no session is made for a child");
+    // `sess_child_orphan`, whose one parent is gone: dropped, counted.
+    assert_eq!((complete.kinds.data.retired, complete.kinds.data.quarantined_unexpected), (1, 0), "{:?}", complete.kinds.data);
+    let tree = tree_digest(&roots);
+    assert_eq!(migrate(&roots), complete);
+    assert_eq!(tree_digest(&roots), tree, "a second run rewrote the data");
+}
 /// The child of the crash tests: a no-op unless the parent set `MIG145_BASE`.
 #[test]
 fn crash_child() {
@@ -325,10 +335,6 @@ fn crash_child() {
         std::fs::write(log, LOG.lock().expect("log").join("\n")).expect("step log");
     }
 }
-
-/// A directory the crash matrix runs over, written under a root.
-type Prepare = fn(&Path) -> MigrationRoots;
-
 fn child(base: &Path, stop: Option<usize>, log: Option<&Path>) -> Option<i32> {
     let mut command = Command::new(std::env::current_exe().expect("this test binary"));
     command
@@ -344,17 +350,10 @@ fn child(base: &Path, stop: Option<usize>, log: Option<&Path>) -> Option<i32> {
     }
     command.status().expect("spawn the child").code()
 }
-
-/// The crash matrix is split by step index: step `i` is killed in chunk `i % CRASH_CHUNKS`, so the chunks run side by side.
-const CRASH_CHUNKS: usize = 16;
-/// Threads within one chunk, each killing and resuming in its own directory.
-const CHUNK_WORKERS: usize = 3;
-
 /// The steps of an unstopped run over the recorded directory, as the hook of its child logged them.
 fn recorded_steps(scratch: &Path) -> Vec<String> {
     steps_of(scratch, copy_at)
 }
-
 fn steps_of(scratch: &Path, prepare: Prepare) -> Vec<String> {
     let log = scratch.join("steps.log");
     let probe = scratch.join("probe");
@@ -362,7 +361,6 @@ fn steps_of(scratch: &Path, prepare: Prepare) -> Vec<String> {
     assert_eq!(child(&probe, None, Some(&log)), Some(0), "the unstopped child completes");
     std::fs::read_to_string(&log).expect("step log").lines().map(str::to_owned).collect()
 }
-
 /// Every boundary kind is a step of the recorded run: a kill at each is in the crash matrix.
 #[test]
 fn the_recorded_run_reaches_every_boundary_kind() {
@@ -379,7 +377,6 @@ fn the_recorded_run_reaches_every_boundary_kind() {
     }
     assert!(steps.len() >= CRASH_CHUNKS, "every crash chunk holds a step ({} recorded)", steps.len());
 }
-
 mixdog_rt::replay_chunks!(CRASH_TESTS, #[test] crash_points_chunk; [
     every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_00 = 0,
     every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_01 = 1,
@@ -398,25 +395,21 @@ mixdog_rt::replay_chunks!(CRASH_TESTS, #[test] crash_points_chunk; [
     every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_14 = 14,
     every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_15 = 15,
 ]);
-
 #[test]
 fn every_crash_chunk_has_its_test() {
     mixdog_rt::testing::assert_chunks_registered(CRASH_TESTS, CRASH_CHUNKS, 1);
 }
-
 /// A kill at every mutating step of chunk `chunk` of a run over the recorded directory, then a resume in a fresh run: the
 /// whole tree, the journal and the completion marker included, is the one an uninterrupted run leaves.
 fn crash_points_chunk(chunk: usize) {
     crash_points(chunk, CRASH_CHUNKS, copy_at);
 }
-
 /// The crash matrix over the archived results of reaped agent children (`fixtures/archived-agent`): their section in
 /// each parent survives a kill at every step, and the resumed tree is the uninterrupted one.
 #[test]
 fn every_crash_point_resumes_to_the_same_tree_with_archived_agent_results() {
     crash_points(0, 1, archived_agent_at);
 }
-
 fn crash_points(chunk: usize, chunks: usize, prepare: Prepare) {
     // The trees compared are read back from the running OS; a flush to the device changes none of them.
     mixdog_store::fsio::elide_syncs();

@@ -41,26 +41,6 @@ const STOP_GRACE: Duration = Duration::from_secs(5);
 const LOG_TAIL_BYTES: usize = 4000;
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
-struct Running {
-    process: Arc<dyn RunningProcess>,
-    contract: ServerContract,
-    port: u16,
-    log: Arc<StdMutex<String>>,
-    lane: DurabilityIo,
-    /// Where the pid file of this child lives.
-    pid_file: PathBuf,
-    /// Set by teardown: the child's exit is then no longer this record's business, so the exit
-    /// watcher must not touch a pid file a replacement may own.
-    detached: Arc<AtomicBool>,
-}
-
-impl Running {
-    /// Whether the child has exited, without waiting.
-    fn exited(&self) -> bool {
-        self.process.wait().now_or_never().is_some()
-    }
-}
-
 /// What the lifecycle actor is told, in arrival order. Each command that has an answer carries
 /// its own reply channel.
 enum Command {
@@ -93,35 +73,12 @@ impl TeardownIfDropped {
     }
 }
 
-impl Drop for TeardownIfDropped {
-    fn drop(&mut self) {
-        let Some(commands) = self.0.take() else { return };
-        let (reply, _) = oneshot::channel();
-        if let Err(mpsc::error::TrySendError::Full(teardown)) = commands.try_send(Command::Teardown(reply)) {
-            tokio::spawn(async move {
-                let _ = commands.send(teardown).await;
-            });
-        }
-    }
-}
-
 /// A ready child for one request. The actor makes the guard, so a reply nobody receives (the
 /// caller was dropped while it waited) releases the request's usage when the reply is dropped.
 struct Handle {
     host: String,
     port: u16,
     _in_flight: InFlight,
-}
-
-impl Drop for InFlight {
-    fn drop(&mut self) {
-        if let Err(mpsc::error::TrySendError::Full(done)) = self.0.try_send(Command::Done) {
-            let commands = self.0.clone();
-            tokio::spawn(async move {
-                let _ = commands.send(done).await;
-            });
-        }
-    }
 }
 
 /// Use counters the actor reads when an idle timer fires.
@@ -140,24 +97,6 @@ struct Shared {
     core: StdMutex<Option<Core>>,
 }
 
-impl Shared {
-    fn sender(&self) -> &mpsc::Sender<Command> {
-        self.commands.get_or_init(|| {
-            let (tx, rx) = mpsc::channel(16);
-            let core = self.core.lock().unwrap().take().expect("the actor core is taken once");
-            tokio::spawn(run_actor(core, self.usage.clone(), tx.downgrade(), rx));
-            tx
-        })
-    }
-
-    /// Sends a command and waits for its answer; the actor outlives every caller.
-    async fn ask<T>(&self, command: impl FnOnce(oneshot::Sender<T>) -> Command) -> T {
-        let (reply, answer) = oneshot::channel();
-        self.sender().send(command(reply)).await.expect("the whisper actor runs while a sender exists");
-        answer.await.expect("the whisper actor answers every command")
-    }
-}
-
 /// What the actor needs to start a child.
 struct Core {
     preferred_port: u16,
@@ -167,202 +106,10 @@ struct Core {
     processes: Processes,
 }
 
-impl Core {
-    /// Node's `armIdleTimer`: any earlier timer is void (the generation moves on), and a new one
-    /// runs only for a resting child with nothing in flight. The timer holds the actor's weak
-    /// sender, so it never keeps the actor alive.
-    fn arm_idle_release(&self, usage: &Usage, commands: &mpsc::WeakSender<Command>, resting: bool) {
-        let Some(after) = self.idle_timeout else { return };
-        let armed = usage.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        if !resting || usage.inflight.load(Ordering::SeqCst) > 0 {
-            return;
-        }
-        let commands = commands.clone();
-        tokio::spawn(async move {
-            mixdog_rt::time::sleep(after).await;
-            if let Some(commands) = commands.upgrade() {
-                let _ = commands.send(Command::IdleRelease(armed)).await;
-            }
-        });
-    }
-}
-
-/// The one task that owns the `Running` record. Commands run one at a time in the order they
-/// arrived, so a start in flight holds back a stop or a release exactly as a lock would, without
-/// any lock held across an await.
-async fn run_actor(core: Core, usage: Arc<Usage>, weak: mpsc::WeakSender<Command>, mut commands: mpsc::Receiver<Command>) {
-    let mut running: Option<Running> = None;
-    while let Some(command) = commands.recv().await {
-        match command {
-            Command::Start(contract, reply) => {
-                let alive = running.as_mut().is_some_and(|r| r.contract == contract && !r.exited());
-                let result = if alive {
-                    Ok(())
-                } else {
-                    teardown(&mut running).await;
-                    core.start(&contract).await.map(|started| running = Some(started))
-                };
-                // Armed here, not by the caller: a start nobody waits for any more still must not
-                // pin the model (Node's startup `finally`).
-                if result.is_ok() {
-                    core.arm_idle_release(&usage, &weak, running.is_some());
-                }
-                let _ = reply.send(result);
-            }
-            Command::Handle(reply) => {
-                let handle = match (running.as_ref(), weak.upgrade()) {
-                    (Some(r), Some(commands)) => {
-                        usage.generation.fetch_add(1, Ordering::SeqCst);
-                        usage.inflight.fetch_add(1, Ordering::SeqCst);
-                        Ok(Handle { host: r.contract.host.clone(), port: r.port, _in_flight: InFlight(commands) })
-                    }
-                    _ => Err(VoiceError("transcribe: whisper-server not READY (state=STOPPED)".into())),
-                };
-                let _ = reply.send(handle);
-            }
-            Command::Done => {
-                usage.inflight.fetch_sub(1, Ordering::SeqCst);
-                core.arm_idle_release(&usage, &weak, running.is_some());
-            }
-            Command::Stop(reply) | Command::Teardown(reply) => {
-                teardown(&mut running).await;
-                let _ = reply.send(());
-            }
-            Command::IdleRelease(armed) => {
-                if usage.generation.load(Ordering::SeqCst) == armed && usage.inflight.load(Ordering::SeqCst) == 0 {
-                    teardown(&mut running).await;
-                }
-            }
-        }
-    }
-    teardown(&mut running).await;
-}
-
 #[derive(Clone)]
 pub struct WhisperServer {
     shared: Arc<Shared>,
     processes: Processes,
-}
-
-impl WhisperServer {
-    /// The default port and idle release, `MIXDOG_WHISPER_SERVER_PORT` and
-    /// `MIXDOG_WHISPER_IDLE_TIMEOUT_MS` (0 disables the release) overriding them; the child runs
-    /// under the shared process manager.
-    pub fn with_defaults(processes: &Processes) -> Self {
-        let port = std::env::var("MIXDOG_WHISPER_SERVER_PORT").ok().and_then(|raw| port_from_env(&raw)).unwrap_or(PREFERRED_PORT);
-        let idle = match std::env::var("MIXDOG_WHISPER_IDLE_TIMEOUT_MS").map(|raw| mixdog_js::string_to_number(&raw)) {
-            Ok(ms) if ms.is_finite() && ms >= 0.0 => Some(Duration::from_millis(ms as u64)).filter(|d| !d.is_zero()),
-            _ => Some(IDLE_TIMEOUT),
-        };
-        Self::new(port, idle, processes)
-    }
-
-    /// `idle_timeout: None` never releases an idle child.
-    pub fn new(preferred_port: u16, idle_timeout: Option<Duration>, processes: &Processes) -> Self {
-        let core = Core { preferred_port, idle_timeout, launcher: Arc::new(SystemLauncher::new(processes)), processes: processes.clone() };
-        Self {
-            shared: Arc::new(Shared {
-                usage: Arc::default(),
-                commands: OnceLock::new(),
-                core: StdMutex::new(Some(core)),
-            }),
-            processes: processes.clone(),
-        }
-    }
-
-    pub async fn stop(&self) {
-        self.shared.ask(Command::Stop).await;
-    }
-}
-
-impl Core {
-    async fn start(&self, contract: &ServerContract) -> Result<Running, VoiceError> {
-        let lane = self.processes.durability();
-        let pid_path = pid_file(&contract.server_cmd);
-        let cwd = contract.server_cmd.parent().unwrap_or(Path::new(".")).to_owned();
-        // Reclaim only a child the pid file proves is ours; a foreign listener is never touched.
-        // A pid file that cannot be read stops the start: a stale child would be orphaned when
-        // the new pid file replaces its record.
-        let recorded = read_pid_file(lane, pid_path.clone()).await.map_err(|e| VoiceError(format!("the whisper-server pid file could not be read: {e}")))?;
-        if let Some(meta) = recorded
-            && reclaim_stale(&self.processes, &meta, &contract.model_path.to_string_lossy(), self.preferred_port, &cwd).await
-        {
-            clear_pid_file(lane, pid_path.clone()).await;
-        }
-        let port = select_port(&contract.host, self.preferred_port).map_err(VoiceError)?;
-        let args = [
-            "--model".to_owned(),
-            contract.model_path.to_string_lossy().into_owned(),
-            "--host".to_owned(),
-            contract.host.clone(),
-            "--port".to_owned(),
-            port.to_string(),
-            "-t".to_owned(),
-            contract.thread_count.to_string(),
-        ];
-        let log = Arc::new(StdMutex::new(String::new()));
-        let sink: LogSink = {
-            let log = log.clone();
-            Arc::new(move |text: &str| append_tail(&mut log.lock().unwrap(), text))
-        };
-        let process = self
-            .launcher
-            .launch(&contract.server_cmd.to_string_lossy(), &args, &cwd.to_string_lossy(), &[], sink)
-            .await
-            .map_err(|e| VoiceError(format!("whisper-server failed to start: {e}")))?;
-        let pid = process.pid();
-        let detached = Arc::new(AtomicBool::new(false));
-        let running = Running { process: process.clone(), contract: contract.clone(), port, log, lane, pid_file: pid_path.clone(), detached: detached.clone() };
-        // A child that dies on its own takes its pid file with it (Node's `exit` handler).
-        tokio::spawn({
-            let pid_path = pid_path.clone();
-            async move {
-                process.wait().await;
-                if !detached.load(Ordering::SeqCst) {
-                    clear_pid_file(lane, pid_path).await;
-                }
-            }
-        });
-        if let Some(pid) = pid {
-            raise_priority(pid);
-            let meta = PidMeta { pid, server_cmd: &contract.server_cmd, model_path: &contract.model_path, thread_count: contract.thread_count, host: &contract.host, port, started_at_ms: crate::media::store::now_ms() };
-            write_pid_file(lane, pid_path, &meta).await;
-        }
-        // The ownership queries end with the readiness budget.
-        let readiness = CancellationToken::new();
-        let _end = readiness.clone().drop_guard();
-        tokio::spawn({
-            let readiness = readiness.clone();
-            async move {
-                tokio::select! {
-                    () = mixdog_rt::time::sleep(READY_TIMEOUT) => readiness.cancel(),
-                    () = readiness.cancelled() => {}
-                }
-            }
-        });
-        let deadline = tokio::time::Instant::now() + READY_TIMEOUT;
-        let addr = format!("{}:{port}", contract.host);
-        while tokio::time::Instant::now() < deadline {
-            if running.exited() {
-                let tail = utf16_tail(&running.log.lock().unwrap(), 1000);
-                teardown_running(running).await;
-                return Err(VoiceError(format!("whisper-server died during startup:\n{tail}")));
-            }
-            // The printed bound port must be the one selected.
-            let printed = printed_port(&running.log.lock().unwrap());
-            if let Some(printed) = printed.filter(|p| *p != u64::from(port)) {
-                teardown_running(running).await;
-                return Err(VoiceError(format!("whisper-server bound port {printed} but contract requires {port}")));
-            }
-            let bound = matches!(mixdog_rt::time::timeout(PROBE_CONNECT, TcpStream::connect(&addr)).await, Ok(Ok(_)));
-            if bound && pid.is_some_and(|pid| pid > 0) && listener_owned(&self.processes, &contract.host, port, pid.unwrap_or(0), &cwd, &readiness).await && !running.exited() {
-                return Ok(running);
-            }
-            mixdog_rt::time::sleep(READY_POLL).await;
-        }
-        teardown_running(running).await;
-        Err(VoiceError(format!("whisper-server did not become ready within {}ms", READY_TIMEOUT.as_millis())))
-    }
 }
 
 #[async_trait]
@@ -488,20 +235,6 @@ fn append_tail(log: &mut String, text: &str) {
     }
 }
 
-/// Stops the recorded child, if any.
-async fn teardown(slot: &mut Option<Running>) {
-    if let Some(running) = slot.take() {
-        teardown_running(running).await;
-    }
-}
-
-async fn teardown_running(running: Running) {
-    running.detached.store(true, Ordering::SeqCst);
-    clear_pid_file(running.lane, running.pid_file.clone()).await;
-    running.process.kill();
-    let _ = mixdog_rt::time::timeout(STOP_GRACE, running.process.wait()).await;
-}
-
 /// ffmpeg and ffprobe as children of the shared process manager.
 pub struct ProcessAudioTools(pub Processes);
 
@@ -558,6 +291,35 @@ impl AudioTools for ProcessAudioTools {
 mod tests {
     use super::*;
 
+    use crate::voice::whisper_test_support::Scripted;
+
+    #[test]
+    fn multipart_carries_format_language_and_file() {
+        let body = multipart_body("B", "a.wav", b"RIFF", Some("ko"));
+        let text = String::from_utf8(body).unwrap();
+        assert!(text.contains("name=\"response_format\"\r\n\r\njson\r\n"));
+        assert!(text.contains("name=\"language\"\r\n\r\nko\r\n"));
+        assert!(text.starts_with("--B\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\nContent-Type: audio/wav\r\n\r\nRIFF\r\n--B\r\n"));
+        assert!(text.ends_with("name=\"language\"\r\n\r\nko\r\n--B--\r\n"));
+        assert!(!String::from_utf8(multipart_body("B", "a.wav", b"", None)).unwrap().contains("language"));
+    }
+
+    #[test]
+    fn inference_response_needs_a_text_field() {
+        assert_eq!(parse_inference(200, r#"{"text":" hi"}"#).unwrap(), " hi");
+        assert!(parse_inference(500, "boom").unwrap_err().0.contains("HTTP 500: boom"));
+        assert!(parse_inference(200, "{}").unwrap_err().0.contains("no text field"));
+    }
+
+    #[test]
+    fn the_printed_port_and_log_tail_read_like_node() {
+        assert_eq!(printed_port("x\nwhisper server Listening AT http://127.0.0.1:8771\n"), Some(8771));
+        assert_eq!(printed_port("no line"), None);
+        assert_eq!(utf16_tail("abcdef", 3), "def");
+        assert_eq!(utf16_tail("ab", 9), "ab");
+    }
+
+
     /// Start, stop, teardown, handle requests and idle releases fired at once all get an answer in
     /// order, none deadlocks, and the record ends empty and usable.
     #[tokio::test]
@@ -585,7 +347,6 @@ mod tests {
         assert!(outcome.is_ok(), "the actor stopped answering");
     }
 
-    use crate::voice::whisper_twin_tests::Scripted;
 
     /// A server whose children are the twin tests' scripted whisper-server (it binds the port,
     /// answers the listener query) and the contract that starts it.
@@ -598,7 +359,6 @@ mod tests {
         let contract = ServerContract { server_cmd: dir.path().join(format!("whisper-server{ext}")), model_path: dir.path().join("m.bin"), thread_count: 1, host: "127.0.0.1".into() };
         (dir, manager, server, contract)
     }
-
     /// A release queued right behind a handle request, armed before it, must not take the child
     /// from the request's caller.
     #[tokio::test]
@@ -615,7 +375,6 @@ mod tests {
         assert_eq!(manager.servers.lock().unwrap().len(), 1);
         server.stop().await;
     }
-
     /// `transcribe` dropped while it waits for the handle reply: the actor has already counted the
     /// request, and the unreceived reply must give the count back so the idle release still runs.
     #[tokio::test(start_paused = true)]
@@ -642,7 +401,6 @@ mod tests {
         }
         panic!("the cancelled request kept the child pinned");
     }
-
     /// The idle timer belongs to the actor: a start whose caller gave up still ends in a release.
     #[tokio::test(start_paused = true)]
     async fn an_abandoned_start_still_arms_the_idle_release() {
@@ -661,7 +419,6 @@ mod tests {
         }
         panic!("the abandoned start's child (seen: {seen}) was never released");
     }
-
     /// A transcribe dropped while the child is still working on it (its last waiter left) kills the
     /// child, so a wedged one does not stay behind for the next request.
     #[tokio::test]
@@ -683,30 +440,262 @@ mod tests {
         manager.killed.notified().await;
         assert!(manager.servers.lock().unwrap().is_empty(), "the child outlived its abandoned request");
     }
+}
 
-    #[test]
-    fn multipart_carries_format_language_and_file() {
-        let body = multipart_body("B", "a.wav", b"RIFF", Some("ko"));
-        let text = String::from_utf8(body).unwrap();
-        assert!(text.contains("name=\"response_format\"\r\n\r\njson\r\n"));
-        assert!(text.contains("name=\"language\"\r\n\r\nko\r\n"));
-        assert!(text.starts_with("--B\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\nContent-Type: audio/wav\r\n\r\nRIFF\r\n--B\r\n"));
-        assert!(text.ends_with("name=\"language\"\r\n\r\nko\r\n--B--\r\n"));
-        assert!(!String::from_utf8(multipart_body("B", "a.wav", b"", None)).unwrap().contains("language"));
+
+struct Running {
+    process: Arc<dyn RunningProcess>,
+    contract: ServerContract,
+    port: u16,
+    log: Arc<StdMutex<String>>,
+    lane: DurabilityIo,
+    /// Where the pid file of this child lives.
+    pid_file: PathBuf,
+    /// Set by teardown: the child's exit is then no longer this record's business, so the exit
+    /// watcher must not touch a pid file a replacement may own.
+    detached: Arc<AtomicBool>,
+}
+impl Running {
+    /// Whether the child has exited, without waiting.
+    fn exited(&self) -> bool {
+        self.process.wait().now_or_never().is_some()
+    }
+}
+impl Drop for TeardownIfDropped {
+    fn drop(&mut self) {
+        let Some(commands) = self.0.take() else { return };
+        let (reply, _) = oneshot::channel();
+        if let Err(mpsc::error::TrySendError::Full(teardown)) = commands.try_send(Command::Teardown(reply)) {
+            tokio::spawn(async move {
+                let _ = commands.send(teardown).await;
+            });
+        }
+    }
+}
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        if let Err(mpsc::error::TrySendError::Full(done)) = self.0.try_send(Command::Done) {
+            let commands = self.0.clone();
+            tokio::spawn(async move {
+                let _ = commands.send(done).await;
+            });
+        }
+    }
+}
+impl Shared {
+    fn sender(&self) -> &mpsc::Sender<Command> {
+        self.commands.get_or_init(|| {
+            let (tx, rx) = mpsc::channel(16);
+            let core = self.core.lock().unwrap().take().expect("the actor core is taken once");
+            tokio::spawn(run_actor(core, self.usage.clone(), tx.downgrade(), rx));
+            tx
+        })
     }
 
-    #[test]
-    fn inference_response_needs_a_text_field() {
-        assert_eq!(parse_inference(200, r#"{"text":" hi"}"#).unwrap(), " hi");
-        assert!(parse_inference(500, "boom").unwrap_err().0.contains("HTTP 500: boom"));
-        assert!(parse_inference(200, "{}").unwrap_err().0.contains("no text field"));
+    /// Sends a command and waits for its answer; the actor outlives every caller.
+    async fn ask<T>(&self, command: impl FnOnce(oneshot::Sender<T>) -> Command) -> T {
+        let (reply, answer) = oneshot::channel();
+        self.sender().send(command(reply)).await.expect("the whisper actor runs while a sender exists");
+        answer.await.expect("the whisper actor answers every command")
+    }
+}
+impl Core {
+    /// Node's `armIdleTimer`: any earlier timer is void (the generation moves on), and a new one
+    /// runs only for a resting child with nothing in flight. The timer holds the actor's weak
+    /// sender, so it never keeps the actor alive.
+    fn arm_idle_release(&self, usage: &Usage, commands: &mpsc::WeakSender<Command>, resting: bool) {
+        let Some(after) = self.idle_timeout else { return };
+        let armed = usage.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        if !resting || usage.inflight.load(Ordering::SeqCst) > 0 {
+            return;
+        }
+        let commands = commands.clone();
+        tokio::spawn(async move {
+            mixdog_rt::time::sleep(after).await;
+            if let Some(commands) = commands.upgrade() {
+                let _ = commands.send(Command::IdleRelease(armed)).await;
+            }
+        });
+    }
+}
+/// The one task that owns the `Running` record. Commands run one at a time in the order they
+/// arrived, so a start in flight holds back a stop or a release exactly as a lock would, without
+/// any lock held across an await.
+async fn run_actor(core: Core, usage: Arc<Usage>, weak: mpsc::WeakSender<Command>, mut commands: mpsc::Receiver<Command>) {
+    let mut running: Option<Running> = None;
+    while let Some(command) = commands.recv().await {
+        match command {
+            Command::Start(contract, reply) => {
+                let alive = running.as_mut().is_some_and(|r| r.contract == contract && !r.exited());
+                let result = if alive {
+                    Ok(())
+                } else {
+                    teardown(&mut running).await;
+                    core.start(&contract).await.map(|started| running = Some(started))
+                };
+                // Armed here, not by the caller: a start nobody waits for any more still must not
+                // pin the model (Node's startup `finally`).
+                if result.is_ok() {
+                    core.arm_idle_release(&usage, &weak, running.is_some());
+                }
+                let _ = reply.send(result);
+            }
+            Command::Handle(reply) => {
+                let handle = match (running.as_ref(), weak.upgrade()) {
+                    (Some(r), Some(commands)) => {
+                        usage.generation.fetch_add(1, Ordering::SeqCst);
+                        usage.inflight.fetch_add(1, Ordering::SeqCst);
+                        Ok(Handle { host: r.contract.host.clone(), port: r.port, _in_flight: InFlight(commands) })
+                    }
+                    _ => Err(VoiceError("transcribe: whisper-server not READY (state=STOPPED)".into())),
+                };
+                let _ = reply.send(handle);
+            }
+            Command::Done => {
+                usage.inflight.fetch_sub(1, Ordering::SeqCst);
+                core.arm_idle_release(&usage, &weak, running.is_some());
+            }
+            Command::Stop(reply) | Command::Teardown(reply) => {
+                teardown(&mut running).await;
+                let _ = reply.send(());
+            }
+            Command::IdleRelease(armed) => {
+                if usage.generation.load(Ordering::SeqCst) == armed && usage.inflight.load(Ordering::SeqCst) == 0 {
+                    teardown(&mut running).await;
+                }
+            }
+        }
+    }
+    teardown(&mut running).await;
+}
+impl WhisperServer {
+    /// The default port and idle release, `MIXDOG_WHISPER_SERVER_PORT` and
+    /// `MIXDOG_WHISPER_IDLE_TIMEOUT_MS` (0 disables the release) overriding them; the child runs
+    /// under the shared process manager.
+    pub fn with_defaults(processes: &Processes) -> Self {
+        let port = std::env::var("MIXDOG_WHISPER_SERVER_PORT").ok().and_then(|raw| port_from_env(&raw)).unwrap_or(PREFERRED_PORT);
+        let idle = match std::env::var("MIXDOG_WHISPER_IDLE_TIMEOUT_MS").map(|raw| mixdog_js::string_to_number(&raw)) {
+            Ok(ms) if ms.is_finite() && ms >= 0.0 => Some(Duration::from_millis(ms as u64)).filter(|d| !d.is_zero()),
+            _ => Some(IDLE_TIMEOUT),
+        };
+        Self::new(port, idle, processes)
     }
 
-    #[test]
-    fn the_printed_port_and_log_tail_read_like_node() {
-        assert_eq!(printed_port("x\nwhisper server Listening AT http://127.0.0.1:8771\n"), Some(8771));
-        assert_eq!(printed_port("no line"), None);
-        assert_eq!(utf16_tail("abcdef", 3), "def");
-        assert_eq!(utf16_tail("ab", 9), "ab");
+    /// `idle_timeout: None` never releases an idle child.
+    pub fn new(preferred_port: u16, idle_timeout: Option<Duration>, processes: &Processes) -> Self {
+        let core = Core { preferred_port, idle_timeout, launcher: Arc::new(SystemLauncher::new(processes)), processes: processes.clone() };
+        Self {
+            shared: Arc::new(Shared {
+                usage: Arc::default(),
+                commands: OnceLock::new(),
+                core: StdMutex::new(Some(core)),
+            }),
+            processes: processes.clone(),
+        }
     }
+
+    pub async fn stop(&self) {
+        self.shared.ask(Command::Stop).await;
+    }
+}
+impl Core {
+    async fn start(&self, contract: &ServerContract) -> Result<Running, VoiceError> {
+        let lane = self.processes.durability();
+        let pid_path = pid_file(&contract.server_cmd);
+        let cwd = contract.server_cmd.parent().unwrap_or(Path::new(".")).to_owned();
+        // Reclaim only a child the pid file proves is ours; a foreign listener is never touched.
+        // A pid file that cannot be read stops the start: a stale child would be orphaned when
+        // the new pid file replaces its record.
+        let recorded = read_pid_file(lane, pid_path.clone()).await.map_err(|e| VoiceError(format!("the whisper-server pid file could not be read: {e}")))?;
+        if let Some(meta) = recorded
+            && reclaim_stale(&self.processes, &meta, &contract.model_path.to_string_lossy(), self.preferred_port, &cwd).await
+        {
+            clear_pid_file(lane, pid_path.clone()).await;
+        }
+        let port = select_port(&contract.host, self.preferred_port).map_err(VoiceError)?;
+        let args = [
+            "--model".to_owned(),
+            contract.model_path.to_string_lossy().into_owned(),
+            "--host".to_owned(),
+            contract.host.clone(),
+            "--port".to_owned(),
+            port.to_string(),
+            "-t".to_owned(),
+            contract.thread_count.to_string(),
+        ];
+        let log = Arc::new(StdMutex::new(String::new()));
+        let sink: LogSink = {
+            let log = log.clone();
+            Arc::new(move |text: &str| append_tail(&mut log.lock().unwrap(), text))
+        };
+        let process = self
+            .launcher
+            .launch(&contract.server_cmd.to_string_lossy(), &args, &cwd.to_string_lossy(), &[], sink)
+            .await
+            .map_err(|e| VoiceError(format!("whisper-server failed to start: {e}")))?;
+        let pid = process.pid();
+        let detached = Arc::new(AtomicBool::new(false));
+        let running = Running { process: process.clone(), contract: contract.clone(), port, log, lane, pid_file: pid_path.clone(), detached: detached.clone() };
+        // A child that dies on its own takes its pid file with it (Node's `exit` handler).
+        tokio::spawn({
+            let pid_path = pid_path.clone();
+            async move {
+                process.wait().await;
+                if !detached.load(Ordering::SeqCst) {
+                    clear_pid_file(lane, pid_path).await;
+                }
+            }
+        });
+        if let Some(pid) = pid {
+            raise_priority(pid);
+            let meta = PidMeta { pid, server_cmd: &contract.server_cmd, model_path: &contract.model_path, thread_count: contract.thread_count, host: &contract.host, port, started_at_ms: crate::media::store::now_ms() };
+            write_pid_file(lane, pid_path, &meta).await;
+        }
+        // The ownership queries end with the readiness budget.
+        let readiness = CancellationToken::new();
+        let _end = readiness.clone().drop_guard();
+        tokio::spawn({
+            let readiness = readiness.clone();
+            async move {
+                tokio::select! {
+                    () = mixdog_rt::time::sleep(READY_TIMEOUT) => readiness.cancel(),
+                    () = readiness.cancelled() => {}
+                }
+            }
+        });
+        let deadline = tokio::time::Instant::now() + READY_TIMEOUT;
+        let addr = format!("{}:{port}", contract.host);
+        while tokio::time::Instant::now() < deadline {
+            if running.exited() {
+                let tail = utf16_tail(&running.log.lock().unwrap(), 1000);
+                teardown_running(running).await;
+                return Err(VoiceError(format!("whisper-server died during startup:\n{tail}")));
+            }
+            // The printed bound port must be the one selected.
+            let printed = printed_port(&running.log.lock().unwrap());
+            if let Some(printed) = printed.filter(|p| *p != u64::from(port)) {
+                teardown_running(running).await;
+                return Err(VoiceError(format!("whisper-server bound port {printed} but contract requires {port}")));
+            }
+            let bound = matches!(mixdog_rt::time::timeout(PROBE_CONNECT, TcpStream::connect(&addr)).await, Ok(Ok(_)));
+            if bound && pid.is_some_and(|pid| pid > 0) && listener_owned(&self.processes, &contract.host, port, pid.unwrap_or(0), &cwd, &readiness).await && !running.exited() {
+                return Ok(running);
+            }
+            mixdog_rt::time::sleep(READY_POLL).await;
+        }
+        teardown_running(running).await;
+        Err(VoiceError(format!("whisper-server did not become ready within {}ms", READY_TIMEOUT.as_millis())))
+    }
+}
+/// Stops the recorded child, if any.
+async fn teardown(slot: &mut Option<Running>) {
+    if let Some(running) = slot.take() {
+        teardown_running(running).await;
+    }
+}
+async fn teardown_running(running: Running) {
+    running.detached.store(true, Ordering::SeqCst);
+    clear_pid_file(running.lane, running.pid_file.clone()).await;
+    running.process.kill();
+    let _ = mixdog_rt::time::timeout(STOP_GRACE, running.process.wait()).await;
 }

@@ -6,6 +6,8 @@ use serde_json::json;
 
 use super::*;
 
+mod service;
+
 #[derive(Default)]
 struct Surface {
     attached: bool,
@@ -130,12 +132,14 @@ async fn a_cancelled_call_loses_its_request() {
     assert_eq!(broker.complete(&id, "desktop", &json!({ "result": { "saved": true } })).unwrap(), false);
 }
 
+#[cfg(node_twin)]
 /// A surface that records each notice and answers as the world says the next one is attached.
 struct Scripted {
     attach: Mutex<bool>,
     seen: Mutex<Vec<String>>,
 }
 
+#[cfg(node_twin)]
 #[async_trait]
 impl SetupUiSurface for Scripted {
     async fn notify(&self, _thread: &ThreadId, request_id: &str, _window: Duration) -> bool {
@@ -146,12 +150,14 @@ impl SetupUiSurface for Scripted {
     async fn settled(&self, _thread: &ThreadId, _request_id: &str) {}
 }
 
+#[cfg(node_twin)]
 async fn settle() {
     for _ in 0..20 {
         tokio::task::yield_now().await;
     }
 }
 
+#[cfg(node_twin)]
 fn state_of(answer: &Result<DesktopAnswer, PortError>) -> Value {
     match answer {
         Ok(DesktopAnswer::Done(value)) => json!({ "ok": value }),
@@ -161,16 +167,49 @@ fn state_of(answer: &Result<DesktopAnswer, PortError>) -> Value {
     }
 }
 
+#[cfg(node_twin)]
 struct Open {
     state: Arc<Mutex<Option<Value>>>,
     task: tokio::task::JoinHandle<()>,
     id: String,
 }
 
+#[cfg(node_twin)]
 fn states(opened: &[Open]) -> Value {
     Value::Array(opened.iter().map(|open| open.state.lock().unwrap().clone().unwrap_or_else(|| json!("pending"))).collect())
 }
 
+/// The session shows a request until it can no longer be claimed: the broker settles it once,
+/// when a window claims it or when it ends unclaimed, and never settles one nobody took.
+#[tokio::test]
+async fn a_request_is_settled_once_when_claimed_or_when_it_ends_unclaimed() {
+    let thread = ThreadId::from("s");
+    let (broker, surface) = requests(true, CLAIM_TIMEOUT);
+    let pending = tokio::spawn({
+        let (broker, thread) = (broker.clone(), thread.clone());
+        async move { broker.request(&thread, &json!({})).await }
+    });
+    let id = first_id(&surface).await;
+    assert!(surface.settled.lock().unwrap().is_empty(), "claimable until claimed");
+    broker.claim(&thread, &id, "desktop").unwrap();
+    while surface.settled.lock().unwrap().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    broker.complete(&id, "desktop", &json!({ "result": { "ok": true } })).unwrap();
+    pending.await.unwrap().unwrap();
+    assert_eq!(*surface.settled.lock().unwrap(), [id.clone()], "settled at the claim, not again at the end");
+
+    let (expiring, surface) = requests(true, Duration::from_millis(10));
+    expiring.request(&thread, &json!({})).await.unwrap();
+    assert_eq!(*surface.settled.lock().unwrap(), surface.seen.lock().unwrap().clone(), "an unclaimed request ends settled");
+
+    let (absent, surface) = requests(false, CLAIM_TIMEOUT);
+    absent.request(&thread, &json!({})).await.unwrap();
+    assert!(surface.settled.lock().unwrap().is_empty(), "a request nobody took is never shown");
+}
+
+
+#[cfg(node_twin)]
 /// The recorded answers of Node's `createSetupUiRequests` (`record-setup-requests.mjs`) to 160
 /// scripted worlds of request / claim / isActive / complete / abort / wait / dispose.
 #[tokio::test(start_paused = true)]
@@ -260,33 +299,4 @@ async fn the_requests_answer_what_the_recorded_node_broker_answered() {
         assert_eq!(states(&opened), world["final"], "world {w} final");
     }
     assert!(steps > 1000);
-}
-
-/// The session shows a request until it can no longer be claimed: the broker settles it once,
-/// when a window claims it or when it ends unclaimed, and never settles one nobody took.
-#[tokio::test]
-async fn a_request_is_settled_once_when_claimed_or_when_it_ends_unclaimed() {
-    let thread = ThreadId::from("s");
-    let (broker, surface) = requests(true, CLAIM_TIMEOUT);
-    let pending = tokio::spawn({
-        let (broker, thread) = (broker.clone(), thread.clone());
-        async move { broker.request(&thread, &json!({})).await }
-    });
-    let id = first_id(&surface).await;
-    assert!(surface.settled.lock().unwrap().is_empty(), "claimable until claimed");
-    broker.claim(&thread, &id, "desktop").unwrap();
-    while surface.settled.lock().unwrap().is_empty() {
-        tokio::task::yield_now().await;
-    }
-    broker.complete(&id, "desktop", &json!({ "result": { "ok": true } })).unwrap();
-    pending.await.unwrap().unwrap();
-    assert_eq!(*surface.settled.lock().unwrap(), [id.clone()], "settled at the claim, not again at the end");
-
-    let (expiring, surface) = requests(true, Duration::from_millis(10));
-    expiring.request(&thread, &json!({})).await.unwrap();
-    assert_eq!(*surface.settled.lock().unwrap(), surface.seen.lock().unwrap().clone(), "an unclaimed request ends settled");
-
-    let (absent, surface) = requests(false, CLAIM_TIMEOUT);
-    absent.request(&thread, &json!({})).await.unwrap();
-    assert!(surface.settled.lock().unwrap().is_empty(), "a request nobody took is never shown");
 }

@@ -29,8 +29,8 @@ use mixdog_rt::{CancellationToken, CpuBulk, DurabilityIo, InLane, InteractiveIo}
 use serde_json::{Map, Value, json};
 
 use super::cache::{
-    DOCUMENT_CACHE_DIRECTORY, Identity, PREVIEW_PDF_NAME, UnlockedEntry, cache_key, file_size, identity_of, prune_cache,
-    stat_error, touch_directory,
+    DOCUMENT_CACHE_DIRECTORY, Identity, PREVIEW_PDF_NAME, StagingOwner, UnlockedEntry, cache_key, file_size, identity_of, prune_cache,
+    publish, reclaim_staging, stat_error, touch_directory,
 };
 use super::scratch::{create_scratch, remove_scratch};
 use super::{
@@ -391,7 +391,20 @@ async fn render_unlocked(
     Ok(PdfPreview { path: output, format: format.to_owned(), mtime_ms: identity.mtime_ms, size: identity.size, cached: false })
 }
 
-/// The conversion of a document that is not cached: its PDF written in the cache directory.
+/// The name of one conversion's staging directory: unique among all conversions of the cache root, which is all the name is for
+/// (who owns a directory is its lock, never its name).
+fn staging_name(directory: &Path) -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_nanos());
+    format!(
+        "{}-{}-{nanos}-{}",
+        directory.file_name().unwrap_or_default().to_string_lossy(),
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    )
+}
+
+/// The conversion of a document that is not cached: its PDF made in a staging directory and published in the cache directory.
 async fn convert(
     preview: &DocumentPreview,
     path: &Path,
@@ -401,15 +414,41 @@ async fn convert(
     identity: &Identity,
     cancel: &CancellationToken,
 ) -> Result<PdfPreview, PreviewError> {
-    let target = directory.to_path_buf();
-    job(preview.lanes.durability_io, move |lane: &InLane<DurabilityIo>| mixdog_fsio::create_dir_all(lane, &target))
-        .await?
-        .map_err(|error| PreviewError::plain(error.to_string()))?;
-    if let Err(error) = render_preview_pdf(preview, path, output, format, cancel, "").await {
-        let target = directory.to_path_buf();
-        let _ = job(preview.lanes.durability_io, move |lane: &InLane<DurabilityIo>| mixdog_fsio::remove_dir_all(lane, &target)).await;
-        return Err(error);
-    }
+    // Workers are processes that share the cache directory and nothing else, and a document can be asked for on several of them
+    // at once. The conversion therefore writes into a staging directory of its own and publishes the finished PDF in one rename;
+    // a failed or cancelled conversion removes only its own staging, never the cache directory another conversion may be
+    // publishing into, and the cache's eviction never sees a conversion that has not finished.
+    // The staging directory is owned through a file lock its conversion holds from before the directory exists until after it is
+    // removed (`cache::StagingOwner`); the system drops the lock if the process dies, which is what lets the next conversion
+    // reclaim what a killed one left (`reclaim_staging`) without guessing from names or times.
+    let (name, documents) = (staging_name(directory), directory.parent().map(Path::to_path_buf));
+    let cache_root = documents.as_deref().and_then(Path::parent).unwrap_or(directory).to_path_buf();
+    let owner = job(preview.lanes.durability_io, move |lane: &InLane<DurabilityIo>| {
+        // The folder of cached documents exists once a conversion was tried, as it did when the conversion wrote into it.
+        if let Some(documents) = &documents {
+            mixdog_fsio::create_dir_all(lane, documents)?;
+        }
+        reclaim_staging(lane, &cache_root);
+        StagingOwner::claim(lane, &cache_root, &name)
+    })
+    .await?
+    .map_err(|error| PreviewError::plain(error.to_string()))?;
+    let made = owner.directory().join(PREVIEW_PDF_NAME);
+    let rendered = render_preview_pdf(preview, path, &made, format, cancel, "").await;
+    let published = match rendered {
+        Ok(()) => {
+            let (to, target) = (output.to_path_buf(), directory.to_path_buf());
+            job(preview.lanes.durability_io, {
+                let from = made.clone();
+                move |lane: &InLane<DurabilityIo>| publish(lane, &from, &to, &target)
+            })
+            .await?
+            .map_err(|error| PreviewError::plain(error.to_string()))
+        }
+        Err(error) => Err(error),
+    };
+    let _ = job(preview.lanes.durability_io, move |lane: &InLane<DurabilityIo>| owner.release(lane)).await;
+    published?;
     if let Some(root) = directory.parent() {
         let root = root.to_path_buf();
         job(preview.lanes.durability_io, move |lane: &InLane<DurabilityIo>| prune_cache(lane, &root)).await?;
@@ -451,12 +490,17 @@ pub(super) async fn preview_pdf(preview: &DocumentPreview, path: &Path, options:
     if cached {
         return Ok(result(output, true));
     }
-    let cell = preview.state.conversions.of(&output);
-    cell.get_or_init(|| async {
-        let converted = convert(preview, path, format, &directory, &output, &identity, &options.cancel).await;
-        preview.state.conversions.done(&output);
-        converted
-    })
-    .await
-    .clone()
+    preview
+        .state
+        .conversions
+        .run(
+            &output,
+            || async {
+                let ready = output.clone();
+                let present = job(preview.lanes.durability_io, move |lane: &InLane<DurabilityIo>| file_size(lane, &ready).is_some_and(|size| size > 0)).await?;
+                Ok(present.then(|| result(output.clone(), true)))
+            },
+            || convert(preview, path, format, &directory, &output, &identity, &options.cancel),
+        )
+        .await
 }

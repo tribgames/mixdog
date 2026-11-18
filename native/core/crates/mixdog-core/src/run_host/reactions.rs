@@ -63,7 +63,7 @@ impl MessageFacts for StoredRows {
     /// `roomRowOf` (`no-tool-turn.mjs`): `meta.transcript.roomRow`.
     fn room_row(&self, message_id: &str) -> Option<String> {
         self.with_body(message_id, |body| {
-            body.pointer("/meta/transcript/roomRow").and_then(Value::as_str).map(str::to_owned)
+            body.get("meta").and_then(|meta| meta.pointer("/transcript/roomRow")).and_then(Value::as_str).map(str::to_owned)
         })
         .flatten()
     }

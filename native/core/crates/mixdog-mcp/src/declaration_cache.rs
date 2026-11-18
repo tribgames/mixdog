@@ -1,29 +1,23 @@
-//! Digest cache for plugin MCP declarations: a plugin's declaration is re-read only when a file
-//! it was built from (or could have been built from) changed. The digest covers the manifests,
-//! `.mcp.json`, every file the manifest points at and every file a result came from, so adding,
-//! editing or removing any of them invalidates the entry.
+//! Digest cache for plugin MCP declarations. Each fill fingerprints the exact file observations
+//! used by the parser, including missing files that could change precedence or resolve an error.
 
-use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use mixdog_rt::InLane;
 use mixdog_rt::MaintenanceIo;
-use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
 
-use crate::plugins::MANIFEST_FILES;
+use crate::plugins::DeclarationFile;
 use crate::plugins::PluginMcpDeclarations;
-use crate::plugins::load_declarations;
-use crate::plugins::manifest;
-use crate::plugins::resolve_contained;
+use crate::plugins::load_declarations_from;
 
 struct Entry {
-    files: Vec<PathBuf>,
-    digest: [u8; 32],
+    files: HashMap<PathBuf, [u8; 32]>,
     value: PluginMcpDeclarations,
 }
 
@@ -32,38 +26,20 @@ pub struct DeclarationCache {
     entries: Mutex<HashMap<PathBuf, Entry>>,
 }
 
-#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-fn digest_of(files: &[PathBuf]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    for file in files {
-        hasher.update(file.to_string_lossy().as_bytes());
-        match std::fs::read(file) {
-            Ok(bytes) => {
-                hasher.update([1]);
-                hasher.update(bytes);
-            }
-            Err(_) => hasher.update([0]),
+fn digest(file: &DeclarationFile) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    match file {
+        DeclarationFile::Missing => hash.update([0]),
+        DeclarationFile::Unreadable(error) => {
+            hash.update([1]);
+            hash.update(error.as_bytes());
+        }
+        DeclarationFile::Bytes(bytes) => {
+            hash.update([2]);
+            hash.update(bytes);
         }
     }
-    hasher.finalize().into()
-}
-
-/// The files a declaration for `root` depends on, whether or not they exist yet.
-fn candidate_files(lane: &InLane<MaintenanceIo>, root: &Path) -> BTreeSet<PathBuf> {
-    let mut files: BTreeSet<PathBuf> = MANIFEST_FILES.iter().map(|f| root.join(f)).collect();
-    files.insert(root.join(".mcp.json"));
-    let (_, doc) = manifest(lane, root);
-    let pointed: Vec<&Value> = match doc.get("mcpServers") {
-        Some(Value::Array(members)) => members.iter().collect(),
-        Some(single) => vec![single],
-        None => Vec::new(),
-    };
-    for text in pointed.into_iter().filter_map(Value::as_str) {
-        if let Some(path) = resolve_contained(root, text) {
-            files.insert(path);
-        }
-    }
-    files
+    hash.finalize().into()
 }
 
 impl DeclarationCache {
@@ -71,26 +47,65 @@ impl DeclarationCache {
         Self::default()
     }
 
-    /// The declarations of the plugin at `root`, re-read only when its digest changed.
     pub fn load(&self, lane: &InLane<MaintenanceIo>, root: &Path) -> PluginMcpDeclarations {
+        self.load_with(root, |path| DeclarationFile::read(lane, path))
+    }
+
+    fn load_with(&self, root: &Path, mut read: impl FnMut(&Path) -> DeclarationFile) -> PluginMcpDeclarations {
         let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        let mut observed = HashMap::<PathBuf, Arc<DeclarationFile>>::new();
+        let mut file = |path: &Path| {
+            if let Some(snapshot) = observed.get(path) {
+                return Arc::clone(snapshot);
+            }
+            let snapshot = Arc::new(read(path));
+            observed.insert(path.to_path_buf(), Arc::clone(&snapshot));
+            snapshot
+        };
         if let Some(entry) = entries.get(root)
-            && digest_of(&entry.files) == entry.digest
+            && entry.files.iter().all(|(path, expected)| digest(&file(path)) == *expected)
         {
             return entry.value.clone();
         }
-        let value = load_declarations(lane, root);
-        let mut files = candidate_files(lane, root);
-        files.extend(value.servers.iter().map(|s| s.source.clone()));
-        files.extend(value.errors.iter().map(|e| e.source.clone()));
-        let files: Vec<PathBuf> = files.into_iter().collect();
-        let digest = digest_of(&files);
-        entries.insert(root.to_path_buf(), Entry { files, digest, value: value.clone() });
+        // Parse the same observations used for validation, and record only paths actually consulted by the parser.
+        let mut files = HashMap::new();
+        let value = load_declarations_from(root, |path| {
+            let snapshot = file(path);
+            files.entry(path.to_path_buf()).or_insert_with(|| digest(&snapshot));
+            snapshot
+        });
+        entries.insert(root.to_path_buf(), Entry { files, value: value.clone() });
         value
     }
 
     /// Forgets a plugin that was removed.
     pub fn forget(&self, root: &Path) {
         self.entries.lock().unwrap_or_else(|e| e.into_inner()).remove(root);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_edit_during_a_fill_cannot_cache_an_old_declaration_under_new_bytes() {
+        let cache = DeclarationCache::new();
+        let root = Path::new("plugin");
+        let mut edited = false;
+        let mut read = |path: &Path| match path.file_name().and_then(|name| name.to_str()) {
+            Some("plugin.json") if path.parent() == Some(root) => {
+                DeclarationFile::Bytes(br#"{"mcpServers":"servers.json"}"#.to_vec())
+            }
+            Some("servers.json") if !edited => {
+                edited = true;
+                DeclarationFile::Bytes(br#"{"before":{"command":"old"}}"#.to_vec())
+            }
+            Some("servers.json") => DeclarationFile::Bytes(br#"{"after":{"command":"new"}}"#.to_vec()),
+            _ => DeclarationFile::Missing,
+        };
+
+        assert_eq!(cache.load_with(root, &mut read).servers[0].key, "before");
+        assert_eq!(cache.load_with(root, &mut read).servers[0].key, "after");
     }
 }

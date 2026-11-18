@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
@@ -190,9 +189,14 @@ pub struct McpServer {
     gmail: std::sync::OnceLock<Arc<crate::gmail_app_password::GmailMcp>>,
     accounts: std::sync::OnceLock<Arc<crate::connector_transport::AccountGroup>>,
     generation: AtomicU64,
-    connecting: AtomicBool,
+    connecting: tokio::sync::Mutex<()>,
     opening: Mutex<Option<Arc<RpcClient>>>,
     shutdown: CancellationToken,
+    stopped: CancellationToken,
+    /// Ownership barriers inherited by a same-name replacement, including any skipped generations.
+    pub(crate) predecessors: std::sync::OnceLock<Vec<CancellationToken>>,
+    /// Completion of a hub-scheduled startup, independent of later connection state changes.
+    pub(crate) scheduled_start: Mutex<Option<CancellationToken>>,
     /// The folder of the server's scope now, which a server that follows its scope advertises as its root
     /// (`_scopeRoots`, mcp/client.mjs:79); empty: none set.
     scope_root: Arc<Mutex<String>>,
@@ -213,14 +217,6 @@ struct CallDelivery {
     account: Option<mixdog_core_api::domain::tool::ConnectorAccountBinding>,
     progress: Option<Arc<dyn Fn(Value) + Send + Sync>>,
     unlisted: bool,
-}
-
-struct ConnectingGuard<'a>(&'a AtomicBool);
-
-impl Drop for ConnectingGuard<'_> {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
-    }
 }
 
 fn sanitize_schema(schema: Option<&Value>) -> Value {
@@ -400,6 +396,88 @@ fn roots_result(follow: bool, fixed: Option<&str>, scope_root: &Mutex<String>) -
     json!({"roots": [{"uri": uri, "name": name}]})
 }
 
+#[cfg(test)]
+mod catalog_tests {
+    use serde_json::json;
+
+    use super::Feature;
+    use super::MAX_TOOL_PAGES;
+    use super::ToolPages;
+    use super::build_catalog;
+
+    /// `listAllMcpTools`: a cursor already followed ends the walk with the tools gathered so far, and so does the
+    /// hundredth page whatever cursor it names.
+    #[test]
+    fn a_listing_ends_on_a_repeated_cursor_and_at_the_page_bound() {
+        let page = |tool: &str, next: Option<&str>| (vec![json!({"name": tool})], next.map(str::to_owned));
+        let mut walk = ToolPages::default();
+        assert!(walk.take(page("a", Some("c1"))));
+        assert_eq!(walk.cursor.as_deref(), Some("c1"));
+        assert!(walk.take(page("b", Some("c2"))));
+        assert!(!walk.take(page("c", Some("c1"))), "c1 was followed already");
+        assert_eq!(walk.tools.len(), 3, "the repeated page's tools are kept");
+
+        let mut walk = ToolPages::default();
+        assert!(!walk.take(page("only", None)));
+        assert!(!ToolPages::default().take(page("blank", None)));
+
+        let mut walk = ToolPages::default();
+        for n in 1..MAX_TOOL_PAGES {
+            assert!(walk.take(page("t", Some(&format!("c{n}")))), "page {n} is followed");
+        }
+        assert!(!walk.take(page("t", Some("one more"))), "the hundredth page is the last");
+        assert_eq!(walk.tools.len(), MAX_TOOL_PAGES);
+    }
+
+    /// Node's `mcpServerTools` keeps an external tool's name, description, `inputSchema` and
+    /// `annotations` (the title only inside them) and nothing else: a top-level `title` or
+    /// `trigger` a server lists is not sent to the model, so the entry has nowhere to hold one.
+    #[test]
+    fn an_external_tool_keeps_what_nodes_session_list_keeps() {
+        let listed = [json!({
+            "name": "lookup", "title": "Lookup", "trigger": "when asked",
+            "description": "d", "inputSchema": {"type": "object"}, "annotations": {"title": "Lookup", "readOnlyHint": true},
+        })];
+        let catalog = build_catalog("srv", &listed, &json!({}));
+        let entry = &catalog.entries[0];
+        assert_eq!((entry.description.as_str(), &entry.input_schema), ("d", &json!({"type": "object"})));
+        assert_eq!((entry.annotations.title.as_deref(), entry.annotations.read_only_hint), (Some("Lookup"), Some(true)));
+    }
+
+    /// Node's `mcpFeatureTools` (`features.test.mjs`): a server that advertises resources and prompts lists their five
+    /// requests after its own tools, under Node's names and schemas; a name one of its own tools holds is taken with `_`
+    /// appended. A server that advertises neither lists none.
+    #[test]
+    fn advertised_resources_and_prompts_are_listed_after_the_servers_tools() {
+        let listed = [json!({"name": "mixdog_read_resource"})];
+        let catalog = build_catalog("catalog", &listed, &json!({"resources": {}, "prompts": {}}));
+        let names: Vec<&str> = catalog.entries.iter().map(|entry| entry.qualified.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "mcp__catalog__mixdog_read_resource",
+                "mcp__catalog__mixdog_list_resources",
+                "mcp__catalog__mixdog_list_resource_templates",
+                "mcp__catalog__mixdog_read_resource_",
+                "mcp__catalog__mixdog_list_prompts",
+                "mcp__catalog__mixdog_get_prompt",
+            ]
+        );
+        assert_eq!((catalog.entries[0].feature, catalog.entries[3].feature), (None, Some(Feature::ReadResource)));
+        assert_eq!(
+            catalog.entries[3].input_schema,
+            json!({
+                "type": "object",
+                "properties": {"uri": {"type": "string", "description": "Resource URI returned by the server."}},
+                "required": ["uri"],
+                "additionalProperties": false,
+            })
+        );
+        assert!(build_catalog("catalog", &[], &json!({"tools": {}})).entries.is_empty());
+    }
+}
+
+
 impl McpServer {
     pub fn new(
         config: McpServerConfig,
@@ -424,9 +502,12 @@ impl McpServer {
             gmail: std::sync::OnceLock::new(),
             accounts: std::sync::OnceLock::new(),
             generation: AtomicU64::new(0),
-            connecting: AtomicBool::new(false),
+            connecting: tokio::sync::Mutex::new(()),
             opening: Mutex::new(None),
             shutdown: CancellationToken::new(),
+            stopped: CancellationToken::new(),
+            predecessors: std::sync::OnceLock::new(),
+            scheduled_start: Mutex::new(None),
             scope_root: Arc::default(),
             died: ArcSwapOption::empty(),
             reconnecting: tokio::sync::Semaphore::new(1),
@@ -517,10 +598,10 @@ impl McpServer {
 
     /// Connects, handshakes and lists tools. Concurrent callers share one attempt.
     pub async fn connect(self: &Arc<Self>) -> Result<(), ConnectError> {
-        if self.shutdown.is_cancelled() {
+        if !self.wait_for_predecessors().await {
             return Err(ConnectError::Closed);
         }
-        if self.connecting.swap(true, Ordering::AcqRel) {
+        let Ok(_attempt) = self.connecting.try_lock() else {
             let mut rx = self.subscribe();
             let settled = match rx.wait_for(|s| !matches!(**s, ServerState::Starting)).await {
                 Ok(state) => Arc::clone(&*state),
@@ -531,9 +612,10 @@ impl McpServer {
                 ServerState::Failed { cause } => Err(ConnectError::Failed(cause.clone())),
                 _ => Err(ConnectError::Closed),
             };
+        };
+        if self.shutdown.is_cancelled() {
+            return Err(ConnectError::Closed);
         }
-        // Clears the single-flight flag on every exit, including this future being dropped.
-        let _attempt = ConnectingGuard(&self.connecting);
         // `missingEnvWarnings` logs what the configuration could not resolve at every connect.
         for warning in &self.config.warnings {
             crate::config::mcp_log(&format!("[mcp-client] \"{}\": {warning}", self.config.name));
@@ -542,6 +624,7 @@ impl McpServer {
         self.state.send_replace(Arc::new(ServerState::Starting));
         if let Some(cause) = &self.config.blocked {
             let cause = scrub(cause, &self.secrets);
+            crate::config::daemon_line(&format!("[mcp-server] name={} connect failed (blocked by config): {cause}", self.name()));
             self.died.store(None);
             self.publish(generation, ServerState::Failed { cause: cause.clone() });
             return Err(ConnectError::Failed(cause));
@@ -585,6 +668,7 @@ impl McpServer {
                     client.close().await;
                 }
                 let cause = scrub(&message, &self.secrets);
+                crate::config::daemon_line(&format!("[mcp-server] name={} connect failed: {cause}", self.name()));
                 self.publish(generation, ServerState::Failed { cause: cause.clone() });
                 Err(ConnectError::Failed(cause))
             }
@@ -718,6 +802,9 @@ impl McpServer {
             let cause = append_stderr_tail(&format!("MCP server \"{}\" closed", server.name()), &tail);
             let cause = scrub(&cause, &server.secrets);
             if server.generation.load(Ordering::Acquire) == generation {
+                crate::config::daemon_line(&format!("[mcp-server] name={} connection ended: {cause}", server.name()));
+            }
+            if server.generation.load(Ordering::Acquire) == generation {
                 server.died.store(server.connection());
             }
             server.publish(generation, ServerState::Failed { cause });
@@ -788,7 +875,28 @@ impl McpServer {
     }
 
     pub async fn close(&self) {
+        self.close_because("closed by a caller that gave no reason").await;
+    }
+
+    pub(crate) fn stopped(&self) -> CancellationToken {
+        self.stopped.clone()
+    }
+
+    async fn wait_for_predecessors(&self) -> bool {
+        let predecessors = self.predecessors.get().into_iter().flatten();
+        tokio::select! {
+            biased;
+            () = self.shutdown.cancelled() => false,
+            _ = futures::future::join_all(predecessors.map(|stopped| stopped.cancelled())) => true,
+        }
+    }
+
+    /// [`close`](Self::close), leaving one `daemon.log` line that says what closed the server.
+    pub async fn close_because(&self, why: &str) {
+        crate::config::daemon_line(&format!("[mcp-server] name={} closed: {why}", self.name()));
         self.shutdown.cancel();
+        // Startup owns the opening client until it publishes it or shuts it down on failure.
+        let _attempt = self.connecting.lock().await;
         self.generation.fetch_add(1, Ordering::AcqRel);
         let previous = self.state.send_replace(Arc::new(ServerState::Closed));
         // A closed server lists nothing: the connection that ended by itself goes too.
@@ -798,7 +906,7 @@ impl McpServer {
             client.close().await;
         }
         for account in self.account_servers() {
-            Box::pin(account.close()).await;
+            Box::pin(account.close_because(&format!("its connector {} closed ({why})", self.name()))).await;
         }
         let reason = format!("MCP {} closed", self.name());
         self.gate.close(&reason);
@@ -809,6 +917,7 @@ impl McpServer {
         if let ServerState::Ready(ready) = &*previous {
             ready.client.close().await;
         }
+        self.stopped.cancel();
     }
 
     fn ready(&self) -> Result<Arc<Ready>, CallError> {
@@ -1221,86 +1330,5 @@ impl McpServer {
     /// Removes model-visible secrets from a message about this server.
     pub fn scrub(&self, text: &str) -> String {
         scrub(text, &self.secrets)
-    }
-}
-
-#[cfg(test)]
-mod catalog_tests {
-    use serde_json::json;
-
-    use super::Feature;
-    use super::MAX_TOOL_PAGES;
-    use super::ToolPages;
-    use super::build_catalog;
-
-    /// `listAllMcpTools`: a cursor already followed ends the walk with the tools gathered so far, and so does the
-    /// hundredth page whatever cursor it names.
-    #[test]
-    fn a_listing_ends_on_a_repeated_cursor_and_at_the_page_bound() {
-        let page = |tool: &str, next: Option<&str>| (vec![json!({"name": tool})], next.map(str::to_owned));
-        let mut walk = ToolPages::default();
-        assert!(walk.take(page("a", Some("c1"))));
-        assert_eq!(walk.cursor.as_deref(), Some("c1"));
-        assert!(walk.take(page("b", Some("c2"))));
-        assert!(!walk.take(page("c", Some("c1"))), "c1 was followed already");
-        assert_eq!(walk.tools.len(), 3, "the repeated page's tools are kept");
-
-        let mut walk = ToolPages::default();
-        assert!(!walk.take(page("only", None)));
-        assert!(!ToolPages::default().take(page("blank", None)));
-
-        let mut walk = ToolPages::default();
-        for n in 1..MAX_TOOL_PAGES {
-            assert!(walk.take(page("t", Some(&format!("c{n}")))), "page {n} is followed");
-        }
-        assert!(!walk.take(page("t", Some("one more"))), "the hundredth page is the last");
-        assert_eq!(walk.tools.len(), MAX_TOOL_PAGES);
-    }
-
-    /// Node's `mcpServerTools` keeps an external tool's name, description, `inputSchema` and
-    /// `annotations` (the title only inside them) and nothing else: a top-level `title` or
-    /// `trigger` a server lists is not sent to the model, so the entry has nowhere to hold one.
-    #[test]
-    fn an_external_tool_keeps_what_nodes_session_list_keeps() {
-        let listed = [json!({
-            "name": "lookup", "title": "Lookup", "trigger": "when asked",
-            "description": "d", "inputSchema": {"type": "object"}, "annotations": {"title": "Lookup", "readOnlyHint": true},
-        })];
-        let catalog = build_catalog("srv", &listed, &json!({}));
-        let entry = &catalog.entries[0];
-        assert_eq!((entry.description.as_str(), &entry.input_schema), ("d", &json!({"type": "object"})));
-        assert_eq!((entry.annotations.title.as_deref(), entry.annotations.read_only_hint), (Some("Lookup"), Some(true)));
-    }
-
-    /// Node's `mcpFeatureTools` (`features.test.mjs`): a server that advertises resources and prompts lists their five
-    /// requests after its own tools, under Node's names and schemas; a name one of its own tools holds is taken with `_`
-    /// appended. A server that advertises neither lists none.
-    #[test]
-    fn advertised_resources_and_prompts_are_listed_after_the_servers_tools() {
-        let listed = [json!({"name": "mixdog_read_resource"})];
-        let catalog = build_catalog("catalog", &listed, &json!({"resources": {}, "prompts": {}}));
-        let names: Vec<&str> = catalog.entries.iter().map(|entry| entry.qualified.as_str()).collect();
-        assert_eq!(
-            names,
-            [
-                "mcp__catalog__mixdog_read_resource",
-                "mcp__catalog__mixdog_list_resources",
-                "mcp__catalog__mixdog_list_resource_templates",
-                "mcp__catalog__mixdog_read_resource_",
-                "mcp__catalog__mixdog_list_prompts",
-                "mcp__catalog__mixdog_get_prompt",
-            ]
-        );
-        assert_eq!((catalog.entries[0].feature, catalog.entries[3].feature), (None, Some(Feature::ReadResource)));
-        assert_eq!(
-            catalog.entries[3].input_schema,
-            json!({
-                "type": "object",
-                "properties": {"uri": {"type": "string", "description": "Resource URI returned by the server."}},
-                "required": ["uri"],
-                "additionalProperties": false,
-            })
-        );
-        assert!(build_catalog("catalog", &[], &json!({"tools": {}})).entries.is_empty());
     }
 }

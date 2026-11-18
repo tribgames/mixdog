@@ -237,15 +237,12 @@ mod stall_tests;
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use serde_json::Value;
 
     use super::*;
 
-    /// What real Node answered (`benchmarks/rust-core/recorders/record-agent-watchdog.mjs`).
-    fn golden() -> Value {
-        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-watchdog/golden.json")).unwrap()
-    }
-
+    #[cfg(node_twin)]
     fn overrides_of(recorded: &Value) -> Overrides {
         let ms = |key: &str| recorded.get(key).and_then(Value::as_i64);
         Overrides {
@@ -257,6 +254,27 @@ mod tests {
         }
     }
 
+    /// A provider that declares per-phase windows is not cut sooner than they: the first-transport deadline sits one tick above the
+    /// declared head window (an attempt's 285 s first-byte window), and the first-output one above a declared window longer than
+    /// the 600 s default; one that declares none keeps the 120 s and 600 s defaults.
+    #[test]
+    fn a_declared_provider_window_floors_the_first_response_deadlines() {
+        let none = resolve_policy(AgentKind::default(), Overrides::default(), &|_| None);
+        assert_eq!((none.first_transport_ms, none.first_semantic_ms), (120_000, 600_000));
+        let declared = Overrides { provider_first_byte_timeout_ms: Some(285_000), provider_first_output_timeout_ms: Some(285_000), ..Overrides::default() };
+        let policy = resolve_policy(AgentKind::default(), declared, &|_| None);
+        assert_eq!((policy.first_transport_ms, policy.first_semantic_ms), (285_000 + STALL_TICK_MS, 600_000), "a payload window under the default leaves it");
+        let longer = Overrides { provider_first_byte_timeout_ms: Some(285_000), provider_first_output_timeout_ms: Some(900_000), ..Overrides::default() };
+        assert_eq!(resolve_policy(AgentKind::default(), longer, &|_| None).first_semantic_ms, 900_000 + STALL_TICK_MS);
+    }
+
+
+    #[cfg(node_twin)]
+    /// What real Node answered (`benchmarks/rust-core/recorders/record-agent-watchdog.mjs`).
+    fn golden() -> Value {
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-watchdog/golden.json")).unwrap()
+    }
+    #[cfg(node_twin)]
     #[test]
     fn the_policy_is_what_node_resolved_under_each_environment() {
         let golden = golden();
@@ -285,7 +303,7 @@ mod tests {
         }
         assert!(checked > 0);
     }
-
+    #[cfg(node_twin)]
     #[test]
     fn only_the_abort_texts_node_calls_a_stall_are_one() {
         for case in golden()["abortTexts"].as_array().unwrap() {
@@ -293,7 +311,7 @@ mod tests {
             assert_eq!(is_watchdog_abort(message), case["stall"].as_bool().unwrap(), "{message:?}");
         }
     }
-
+    #[cfg(node_twin)]
     #[test]
     fn the_handoff_is_the_text_node_built() {
         let golden = golden();

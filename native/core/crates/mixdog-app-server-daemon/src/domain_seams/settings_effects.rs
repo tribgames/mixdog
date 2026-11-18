@@ -171,23 +171,12 @@ impl SettingsEffects for DaemonSettingsEffects {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain_seams::golden;
     use mixdog_core_config::config::ConfigLanes;
     use mixdog_tools::exec::ShellSource;
     use serde_json::json;
 
     /// The system shell Windows and every other platform accept.
     const STORED: &str = "pwsh";
-
-    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
-    async fn open_config(dir: &std::path::Path, shell: Option<&str>) -> Config {
-        let tokens = mixdog_rt::testing::tokens();
-        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let path = dir.join("mixdog-config.json");
-        let agent = shell.map_or(json!({}), |command| json!({ "shell": { "command": command } }));
-        std::fs::write(&path, serde_json::to_vec(&json!({ "agent": agent })).unwrap()).unwrap();
-        Config::open(path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap().0
-    }
 
     /// The owner of the shell the way the daemon's effects hold it.
     struct HoldsShell(Arc<ConfiguredShell>);
@@ -204,6 +193,69 @@ mod tests {
         async fn sync_developer_option(&self, _id: &str) {}
     }
 
+    #[test]
+    fn the_configured_shell_is_the_trimmed_command_and_reports_a_change() {
+        let shell = ConfiguredShell::default();
+        let mut previous = String::new();
+        for (set, expected) in [
+            ("   ", ""),
+            ("  pwsh.exe ", "pwsh.exe"),
+            ("pwsh.exe", "pwsh.exe"),
+            ("", ""),
+            (" C:\\Program Files\\Git\\bin\\bash.exe", "C:\\Program Files\\Git\\bin\\bash.exe"),
+            ("zsh", "zsh"),
+        ] {
+            let changed = shell.set(set);
+            assert_eq!(shell.get(), expected, "{set:?}");
+            assert_eq!(changed, expected != previous, "{set:?}");
+            previous = expected.to_owned();
+        }
+    }
+
+    #[test]
+    fn a_developer_option_gates_the_provider_its_table_names() {
+        let options = [
+            ("allowAllActions", None),
+            ("antigravityOAuth", Some("antigravity-oauth")),
+            ("cursorOAuth", Some("cursor-oauth")),
+            ("devinOAuth", Some("devin-oauth")),
+            ("mimoOAuth", Some("mimo-oauth")),
+        ];
+        let mut gated = Vec::new();
+        for (id, provider) in options {
+            assert_eq!(provider_of_option(id), provider, "{id}");
+            gated.extend(provider);
+            let stored = [
+                (json!({}), false),
+                (json!(null), false),
+                (json!([]), false),
+                (json!("x"), false),
+                (json!({ id: true }), true),
+                (json!({ id: false }), false),
+                (json!({ id: "true" }), false),
+                (json!({ id: 1 }), false),
+                (json!({ "other": true }), false),
+            ];
+            for (stored, enabled) in stored {
+                assert_eq!(developer_option_enabled(id, &stored), enabled, "{id} {stored}");
+            }
+        }
+        gated.sort_unstable();
+        let mut known = DEV_PROVIDERS.to_vec();
+        known.sort_unstable();
+        assert_eq!(gated, known);
+    }
+
+
+    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
+    async fn open_config(dir: &std::path::Path, shell: Option<&str>) -> Config {
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let path = dir.join("mixdog-config.json");
+        let agent = shell.map_or(json!({}), |command| json!({ "shell": { "command": command } }));
+        std::fs::write(&path, serde_json::to_vec(&json!({ "agent": agent })).unwrap()).unwrap();
+        Config::open(path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap().0
+    }
     /// A restart: the composition builds an empty `ConfiguredShell` and follows the config it opened, so the shell a person
     /// saved last run is the one the next spawn reads (`ShellSource::configured`), before any setter ran in this process.
     #[tokio::test]
@@ -225,7 +277,6 @@ mod tests {
         let _follow = ShellFollow::start(&edited, &by_hand);
         assert_eq!(by_hand.configured(), "/usr/bin/bash");
     }
-
     /// An outside edit of the config file (an editor, another process) is adopted by the reload the file watch runs, and the
     /// shell follows it at once; a document that no longer names one clears it, and a boot probe kept for the old
     /// command is dropped with it.
@@ -247,7 +298,6 @@ mod tests {
         config.reload().await.unwrap();
         assert_eq!(shell.configured(), "");
     }
-
     /// `getSystemShell` answers the command every spawn reads, not only what the file stores.
     #[tokio::test]
     async fn the_reported_system_shell_is_the_one_in_use() {
@@ -261,39 +311,5 @@ mod tests {
         shell.set(STORED);
         assert_eq!(settings.system_shell()["command"], STORED);
         assert_eq!(settings.system_shell()["source"], "config");
-    }
-
-    #[test]
-    fn the_configured_shell_follows_nodes_set_and_get() {
-        let shell = ConfiguredShell::default();
-        let mut previous = String::new();
-        for step in golden()["shell"].as_array().unwrap() {
-            // `String(value || '')`: undefined, null and 0 are the empty command.
-            let command = step["set"].as_str().unwrap_or_default();
-            let changed = shell.set(command);
-            let expected = step["get"].as_str().unwrap();
-            assert_eq!(shell.get(), expected, "{}", step["set"]);
-            assert_eq!(changed, expected != previous, "{}", step["set"]);
-            previous = expected.to_owned();
-        }
-    }
-
-    #[test]
-    fn a_developer_option_gates_the_provider_nodes_table_names() {
-        let developer = golden()["developer"].as_array().unwrap().clone();
-        let mut gated = Vec::new();
-        for option in &developer {
-            let id = option["id"].as_str().unwrap();
-            let provider = option["provider"].as_str();
-            assert_eq!(provider_of_option(id), provider, "{id}");
-            gated.extend(provider);
-            for case in option["enabled"].as_array().unwrap() {
-                assert_eq!(developer_option_enabled(id, &case["stored"]), case["enabled"].as_bool().unwrap(), "{id} {}", case["stored"]);
-            }
-        }
-        gated.sort_unstable();
-        let mut known = DEV_PROVIDERS.to_vec();
-        known.sort_unstable();
-        assert_eq!(gated, known);
     }
 }

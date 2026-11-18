@@ -41,7 +41,8 @@ impl UsageLedger {
         self.refresher
             .refresh(&self.writer, &self.reader, clock())
             .await?;
-        self.reader.usage_stats(options, clock()).await
+        let stamp = self.writer.commit_stamp().await?;
+        self.reader.stamped_stats(stamp, options, clock()).await
     }
 
     /// `getUsageRequests`: settle, then read one page.

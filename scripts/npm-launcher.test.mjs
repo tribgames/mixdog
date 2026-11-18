@@ -210,7 +210,7 @@ test('a package with no program for the platform says what to do and exits 1', (
   const dir = scratch();
   try {
     mkdirSync(join(dir, 'bin'));
-    for (const file of ['mixdog.mjs', 'native-layout.mjs']) writeFileSync(join(dir, 'bin', file), readFileSync(join(root, 'bin', file)));
+    for (const file of ['mixdog.mjs', 'native-layout.mjs', 'staged-swap.mjs', 'invocation.mjs']) writeFileSync(join(dir, 'bin', file), readFileSync(join(root, 'bin', file)));
     writeFileSync(join(dir, 'package.json'), '{"type":"module"}');
     const run = spawnSync(process.execPath, [join(dir, 'bin', 'mixdog.mjs'), '--help'], { encoding: 'utf8' });
     assert.equal(run.status, 1);
@@ -221,16 +221,21 @@ test('a package with no program for the platform says what to do and exits 1', (
   }
 });
 
-test('the launcher starts the program of the installed platform package with its arguments and ends with its exit code', () => {
+test('the launcher starts the program of the installed platform package with its arguments and ends with its exit code', (t) => {
   const dir = scratch();
   try {
     const modules = join(dir, 'node_modules');
     const main = join(modules, 'mixdog');
     mkdirSync(join(main, 'bin'), { recursive: true });
-    for (const file of ['mixdog.mjs', 'native-layout.mjs']) writeFileSync(join(main, 'bin', file), readFileSync(join(root, 'bin', file)));
+    for (const file of ['mixdog.mjs', 'native-layout.mjs', 'staged-swap.mjs', 'invocation.mjs']) writeFileSync(join(main, 'bin', file), readFileSync(join(root, 'bin', file)));
     writeFileSync(join(main, 'package.json'), '{"type":"module","name":"mixdog"}');
     const candidate = PLATFORMS.find(({ key }) => nativeCandidates().includes(key));
-    if (!candidate) return;
+    // A release target with no candidate is a defect (the launcher would never run here); only a host mixdog does not ship for is skipped.
+    if (!candidate) {
+      assert.ok(!nativeCandidates().some((key) => SUPPORTED_KEYS.includes(key)), `${process.platform}-${process.arch} is a supported release target and has no native candidate`);
+      t.skip(`${process.platform}-${process.arch} is not a platform mixdog supports`);
+      return;
+    }
     const platform = join(modules, `mixdog-${candidate.key}`);
     mkdirSync(join(platform, 'bin'), { recursive: true });
     writeFileSync(join(platform, 'package.json'), JSON.stringify({ name: `mixdog-${candidate.key}`, version: '1.0.0' }));
@@ -244,6 +249,12 @@ test('the launcher starts the program of the installed platform package with its
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('every supported release key has a platform entry the launcher test can run, so a missing candidate can only be an unsupported host', () => {
+  for (const key of SUPPORTED_KEYS) assert.ok(PLATFORMS.some((platform) => platform.key === key), `${key} is supported and has no PLATFORMS entry`);
+  assert.deepEqual(nativeCandidates('freebsd', 'x64').filter((key) => SUPPORTED_KEYS.includes(key)), []);
+  for (const [platform, arch] of [['linux', 'x64'], ['darwin', 'arm64'], ['win32', 'x64'], ['win32', 'arm64']]) assert.ok(PLATFORMS.some(({ key }) => nativeCandidates(platform, arch).includes(key)), `${platform}-${arch}`);
 });
 
 test('the package declares the command and the launcher, ships no native program itself, and keeps its tools out of the tarball', () => {

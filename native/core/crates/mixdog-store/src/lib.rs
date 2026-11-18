@@ -1,5 +1,6 @@
 pub mod agent_mode;
 mod archive_index;
+pub mod archive_state;
 pub mod archived_agent;
 pub mod blobs;
 pub mod compaction_view;
@@ -21,6 +22,7 @@ pub mod framing;
 mod framing_o1;
 pub mod fsio;
 pub mod log;
+pub mod log_epoch;
 pub mod log_rewrite;
 pub mod paths;
 pub mod projection;
@@ -34,10 +36,19 @@ pub mod state_rebuild;
 pub mod summary;
 pub mod title;
 pub mod worker;
+pub mod work_stops;
 
 #[cfg(test)]
 mod state_set_aside_tests;
 #[cfg(test)]
 mod store_tests;
+#[cfg(test)]
+mod summary_tests;
+#[cfg(test)]
+mod lost_blob_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod summary_replay_tests;

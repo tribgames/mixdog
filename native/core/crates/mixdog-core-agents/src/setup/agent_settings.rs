@@ -6,12 +6,12 @@
 //! without asking. The one exception is a connector tool's widening, which waits on an approval
 //! card only a person answers ([`WidenCards`]).
 //!
-//! Node's approved change (`withApprovedConnectorToolChange`) is set around a write whose
-//! widening check runs later, in the editor's write queue, after the flag is already cleared. So
-//! in Node's product an approved widening is checked as a plain no-widen write and is refused with
-//! the no-widen message; only an answer that turns out to be a narrowing by then is applied. The
-//! golden (`fixtures/desktop/settings/agent-settings-setup-twin.json`) records exactly that, and
-//! this owner does the same: it writes with the plain no-widen rule.
+//! What the person approved is applied: the approved change travels with the write
+//! ([`Approval`], which only a card's answer makes), so exactly that tool goes to exactly that level and nothing else may
+//! widen under it. (Node set a flag around the write that its asynchronous editor read after it
+//! was cleared, so there an approval was refused; the design, the card and the tool description
+//! all say it is applied.) A restriction that landed between the approval and the write wins, and
+//! a tool already at the level or more is left alone; the receipt tells the person which.
 
 use std::sync::Arc;
 
@@ -24,7 +24,7 @@ use mixdog_tools::orch::util::PortError;
 use mixdog_tools::policy::{AuditEntry, GrantStore};
 use serde_json::{Map, Value, json};
 
-use crate::agents::{AgentConnectors, AgentPermissions, AgentsError, NO_WIDEN};
+use crate::agents::{AgentConnectors, AgentPermissions, AgentsError, NO_WIDEN, TOOL_ALREADY, TOOL_NARROWED};
 
 /// The action names this owner serves.
 pub const ACTIONS: &[&str] = &[
@@ -73,6 +73,39 @@ pub struct CardAnswer {
     /// `response`: what they pressed (`approve`, `deny`).
     pub response: Option<String>,
     pub device: Option<String>,
+}
+
+/// A widening a person approved on a card: the agent, the connector account, the tool, the level
+/// the card showed and the level the person picked. Only [`Self::from_answer`] makes one, from an
+/// answer that approved a level the card offered; it is neither `Clone` nor loose, and the one write
+/// that takes it spends it.
+#[derive(Debug)]
+pub struct Approval {
+    agent: String,
+    server: String,
+    tool: String,
+    from: Permission,
+    to: Permission,
+}
+
+impl Approval {
+    fn from_answer(agent: &str, server: &str, tool: &str, from: Permission, choices: &[Permission], answer: Option<&CardAnswer>) -> Option<Self> {
+        let to = answer
+            .filter(|answer| answer.approved)
+            .and_then(|answer| answer.scope.as_deref())
+            .and_then(Permission::parse)
+            .filter(|scope| choices.contains(scope))?;
+        Some(Self { agent: agent.to_owned(), server: server.to_owned(), tool: tool.to_owned(), from, to })
+    }
+
+    fn level(&self) -> Permission {
+        self.to
+    }
+
+    /// Spent by the write: agent, account, tool, the level shown and the level picked.
+    pub(crate) fn into_parts(self) -> (String, String, String, Permission, Permission) {
+        (self.agent, self.server, self.tool, self.from, self.to)
+    }
 }
 
 /// What came of showing a card.
@@ -235,56 +268,70 @@ impl AgentSettingsSetup {
             choices: choices.clone(),
             args: json!({ "action": "set_agent_connector_tool", "agent": agent, "name": server, "tool": tool, "permission": requested }),
             reason: format!(
-                "Bot \"{agent}\" asks to change the permission of {tool} ({group}) from {} to {}.",
+                // A tool's permission is stored once for the connector and governs every account of it.
+                "Bot \"{agent}\" asks to change the permission of {tool} ({group}, all its accounts) from {} to {}.",
                 from.name(),
                 requested_text
             ),
         };
         // Nobody can be shown a card here: the person makes the change in the desktop app.
         let CardOutcome::Settled(answer) = self.cards.ask(call.thread, &card).await else { return Err(failed(NO_WIDEN)) };
-        let level = answer
-            .as_ref()
-            .filter(|answer| answer.approved)
-            .and_then(|answer| answer.scope.as_deref())
-            .and_then(Permission::parse)
-            .filter(|scope| choices.contains(scope));
-        // Audited with the answering device; no grant is ever stored (no action kind).
         let decision = match &answer {
             Some(answer) if answer.timed_out => "timeout".to_owned(),
             Some(answer) => answer.response.clone().filter(|response| !response.is_empty()).unwrap_or_else(|| if answer.approved { "approve" } else { "deny" }.to_owned()),
             None => "deny".to_owned(),
         };
-        let target = format!("{}>{}", from.name(), level.map_or_else(|| requested_text.clone(), |level| level.name().to_owned()));
+        // Only a card's own answer makes an approval, and the write spends it.
+        let approval = Approval::from_answer(agent, server, tool, from, &choices, answer.as_ref());
+        let picked = approval.as_ref().map(Approval::level);
+        let mut applied = "none";
+        let mut not_applied = None;
+        let mut write_error = None;
+        if let Some(approval) = approval {
+            match self.connectors.set_approved_tool_permission(approval).await {
+                Ok(_) => applied = "applied",
+                Err(AgentsError::Refused(why)) if why == TOOL_NARROWED => (applied, not_applied) = ("kept", Some(why)),
+                Err(AgentsError::Refused(why)) if why == TOOL_ALREADY => (applied, not_applied) = ("already", Some(why)),
+                Err(error) => (applied, write_error) = ("failed", Some(error)),
+            }
+        }
+        // What is in force now, whatever came of the write.
+        let now = self.connectors.tool_permission(agent, server, tool).await.map_err(refused)?;
+        // Audited with the answer, the answering device, whether the write applied and the levels
+        // that were in force before and after; no grant is ever stored (no action kind).
         self.audit
             .record_audit(AuditEntry {
                 agent_id: agent.to_owned(),
                 kind: "connector".into(),
+                action: applied.into(),
                 tool: format!("{server}/{tool}"),
-                target,
+                target: format!("{}>{}", from.name(), now.name()),
                 decision,
                 device: answer.as_ref().and_then(|answer| answer.device.clone()).unwrap_or_default(),
                 ..AuditEntry::default()
             })
             .await
             .map_err(|error| failed(error.0))?;
-        let Some(level) = level else {
+        if let Some(error) = write_error {
+            return Err(refused(error));
+        }
+        receipt.insert("permission".into(), now.name().into());
+        let Some(level) = picked else {
             let why = if answer.as_ref().is_some_and(|answer| answer.timed_out) { "The approval card timed out" } else { "The user did not approve this change" };
             receipt.insert("saved".into(), false.into());
             receipt.insert("approved".into(), false.into());
-            receipt.insert("permission".into(), from.name().into());
             receipt.insert("note".into(), format!("{why}; nothing changed.").into());
             return Ok(Value::Object(receipt));
         };
-        self.connectors
-            .set_tool_permission(agent, &Value::String(server.to_owned()), &Value::String(tool.to_owned()), &Value::String(level.name().to_owned()), true)
-            .await
-            .map_err(refused)?;
         receipt.insert("approved".into(), true.into());
-        receipt.insert("permission".into(), level.name().into());
+        if let Some(why) = not_applied {
+            receipt.insert("saved".into(), false.into());
+            receipt.insert("note".into(), format!("The user approved {}, but it was not applied: {why}", level.name()).into());
+            return Ok(Value::Object(receipt));
+        }
         receipt.insert("note".into(), format!("The user approved on the card; {tool} is now {}.", level.name()).into());
         Ok(Value::Object(receipt))
     }
-
     async fn set_agent_connector_tool(&self, call: &SetupCall<'_>) -> Result<Value, PortError> {
         let args = call.args;
         let agent = require_text(args, "agent", "agent")?;
@@ -355,4 +402,4 @@ impl SetupActions for AgentSettingsSetup {
 }
 
 #[cfg(test)]
-mod tests;
+mod feature_tests;

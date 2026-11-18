@@ -38,6 +38,150 @@ pub fn git(cwd: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
 
+struct KeepAll;
+
+impl Retention for KeepAll {
+    fn owner_live(&self, _record: &WorktreeRecord) -> bool {
+        false
+    }
+
+    fn retained(&self, _record: &WorktreeRecord) -> bool {
+        true
+    }
+}
+
+/// The store keeps the Lead, so its worktrees are retained (never removable as orphans);
+/// nothing else is stored, a favorite, archived or running a job.
+struct StoresLead;
+
+#[async_trait]
+impl SessionSource for StoresLead {
+    async fn stored_session_ids(&self) -> Result<std::collections::HashSet<String>, ScmFailure> {
+        Ok(["lead".to_owned()].into())
+    }
+    async fn favorites(&self) -> Option<std::collections::HashSet<String>> {
+        None
+    }
+    async fn archived(&self) -> Option<std::collections::HashSet<String>> {
+        None
+    }
+    async fn activity(&self, _: &[String]) -> HashMap<String, SessionActivity> {
+        HashMap::new()
+    }
+    async fn running_jobs(&self) -> Result<Vec<ShellJob>, ScmFailure> {
+        Ok(Vec::new())
+    }
+}
+
+/// The default settings, with `autoCleanup` switchable by the test.
+struct Defaults(Arc<AtomicBool>);
+
+#[async_trait]
+impl SettingsSource for Defaults {
+    async fn worktree_settings(&self) -> WorktreeSettings {
+        WorktreeSettings { auto_cleanup: self.0.load(Ordering::SeqCst), ..WorktreeSettings::default() }
+    }
+}
+
+/// A directory link: a junction on Windows (it needs no privilege), a symlink elsewhere.
+pub fn link_dir(target: &Path, link: &Path) {
+    #[cfg(windows)]
+    assert!(std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(link).arg(target).output().unwrap().status.success());
+    #[cfg(not(windows))]
+    std::os::unix::fs::symlink(target, link).unwrap();
+}
+
+/// `dir/repo`: a repository on `main` whose one commit holds `f.txt`.
+pub fn repo_with_one_commit(dir: &Path) -> PathBuf {
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "core.autocrlf", "false"]);
+    std::fs::write(repo.join("f.txt"), "a\nb\nc\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "init"]);
+    repo
+}
+
+pub fn enter(name: &str, call: &str) -> SessionOp {
+    SessionOp::Enter {
+        session_id: None,
+        name: Some(name.into()),
+        branch: None,
+        create: false,
+        carry: None,
+        confirm_large: false,
+        tx_id: format!("{call}:enter"),
+    }
+}
+
+fn code(result: &Result<Value, ScmFailure>) -> Option<&'static str> {
+    result.as_ref().err().and_then(ScmFailure::code)
+}
+
+/// Another process (or the user) touching the project folder between the carry and its restore:
+/// the first `rev-parse <ref>^1` of the restore finds an untracked file there.
+struct DirtiesBeforeRestore {
+    inner: Arc<dyn mixdog_core_api::domain::process::ProcessManager>,
+    armed: AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl mixdog_core_api::domain::process::ProcessManager for DirtiesBeforeRestore {
+    async fn spawn(&self, request: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+        if let mixdog_core_api::domain::process::CommandSpec::Argv { args, .. } = &request.command
+            && args.iter().any(|a| a == "rev-parse")
+            && args.last().is_some_and(|a| a.starts_with("refs/mixdog/") && a.ends_with("^1"))
+            && self.armed.swap(false, Ordering::SeqCst)
+        {
+            std::fs::write(request.cwd.as_path().join("changed-meanwhile.txt"), "x").unwrap();
+        }
+        self.inner.spawn(request).await
+    }
+    fn subscribe(
+        &self,
+        handle: &mixdog_protocol::ProcessHandle,
+        from_seq: Option<u64>,
+    ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+        self.inner.subscribe(handle, from_seq)
+    }
+    async fn write_stdin(&self, handle: &mixdog_protocol::ProcessHandle, bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        self.inner.write_stdin(handle, bytes).await
+    }
+    fn close_stdin(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        self.inner.close_stdin(handle)
+    }
+    fn resize_pty(&self, handle: &mixdog_protocol::ProcessHandle, size: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        self.inner.resize_pty(handle, size)
+    }
+    fn kill(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        self.inner.kill(handle)
+    }
+    fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+        self.inner.list()
+    }
+}
+
+fn busy_reason(result: &Result<Value, ScmFailure>) -> String {
+    match result.as_ref().err().and_then(ScmFailure::detail) {
+        Some(mixdog_protocol::DomainErrorDetail::WorktreeBusyJobs { reason, .. }) => reason.clone(),
+        other => panic!("not a busy refusal: {other:?}"),
+    }
+}
+
+struct Stuck;
+
+/// Settings whose size threshold every checkout is over.
+struct OverThreshold;
+
+#[async_trait]
+impl SettingsSource for OverThreshold {
+    async fn worktree_settings(&self) -> WorktreeSettings {
+        WorktreeSettings { size_warn_bytes: 1, ..WorktreeSettings::default() }
+    }
+}
+
+
 #[derive(Default)]
 pub struct HostState {
     pub workspace: Option<Value>,
@@ -52,12 +196,14 @@ pub struct HostState {
     pub desktop: Option<Value>,
     /// The sessions `ensure_session` was asked to create, in order.
     pub ensured: Vec<String>,
+    /// The running background shells owned by the sessions a folder check names.
+    pub sharing_shell_jobs: u64,
+    /// The workers moved with the Lead, as `(worker, cwd)`.
+    pub retargeted: Vec<(String, String)>,
 }
-
 struct FakeHost {
     state: Arc<Mutex<HostState>>,
 }
-
 #[async_trait]
 impl WorkspaceHost for FakeHost {
     async fn is_lead(&self, session_id: &str) -> bool {
@@ -109,7 +255,12 @@ impl WorkspaceHost for FakeHost {
     }
 
     async fn shell_job_count(&self, _session_ids: &[String]) -> u64 {
-        0
+        self.state.lock().unwrap().sharing_shell_jobs
+    }
+
+    async fn retarget_worker(&self, worker_id: &str, cwd: &str, _moved: Option<Move>) -> Result<Undo, ScmFailure> {
+        self.state.lock().unwrap().retargeted.push((worker_id.to_owned(), cwd.to_owned()));
+        Ok(undo(async { Ok(()) }))
     }
 
     async fn apply(&self, _session_id: &str, change: WorkspaceChange) -> Result<Undo, ScmFailure> {
@@ -139,52 +290,6 @@ impl WorkspaceHost for FakeHost {
         Ok(())
     }
 }
-
-struct KeepAll;
-
-impl Retention for KeepAll {
-    fn owner_live(&self, _record: &WorktreeRecord) -> bool {
-        false
-    }
-
-    fn retained(&self, _record: &WorktreeRecord) -> bool {
-        true
-    }
-}
-
-/// The store keeps the Lead, so its worktrees are retained (never removable as orphans);
-/// nothing else is stored, a favorite, archived or running a job.
-struct StoresLead;
-
-#[async_trait]
-impl SessionSource for StoresLead {
-    async fn stored_session_ids(&self) -> Result<std::collections::HashSet<String>, ScmFailure> {
-        Ok(["lead".to_owned()].into())
-    }
-    async fn favorites(&self) -> Option<std::collections::HashSet<String>> {
-        None
-    }
-    async fn archived(&self) -> Option<std::collections::HashSet<String>> {
-        None
-    }
-    async fn activity(&self, _: &[String]) -> HashMap<String, SessionActivity> {
-        HashMap::new()
-    }
-    async fn running_jobs(&self) -> Result<Vec<ShellJob>, ScmFailure> {
-        Ok(Vec::new())
-    }
-}
-
-/// The default settings, with `autoCleanup` switchable by the test.
-struct Defaults(Arc<AtomicBool>);
-
-#[async_trait]
-impl SettingsSource for Defaults {
-    async fn worktree_settings(&self) -> WorktreeSettings {
-        WorktreeSettings { auto_cleanup: self.0.load(Ordering::SeqCst), ..WorktreeSettings::default() }
-    }
-}
-
 pub struct Rig {
     pub _dir: tempfile::TempDir,
     pub repo: PathBuf,
@@ -194,42 +299,23 @@ pub struct Rig {
     pub ws: SessionWorkspaces,
     pub worktrees: Arc<Worktrees>,
 }
-
-/// A directory link: a junction on Windows (it needs no privilege), a symlink elsewhere.
-pub fn link_dir(target: &Path, link: &Path) {
-    #[cfg(windows)]
-    assert!(std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(link).arg(target).output().unwrap().status.success());
-    #[cfg(not(windows))]
-    std::os::unix::fs::symlink(target, link).unwrap();
-}
-
-/// `dir/repo`: a repository on `main` whose one commit holds `f.txt`.
-pub fn repo_with_one_commit(dir: &Path) -> PathBuf {
-    let repo = dir.join("repo");
-    std::fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "-q", "-b", "main"]);
-    git(&repo, &["config", "core.autocrlf", "false"]);
-    std::fs::write(repo.join("f.txt"), "a\nb\nc\n").unwrap();
-    git(&repo, &["add", "."]);
-    git(&repo, &["commit", "-q", "-m", "init"]);
-    repo
-}
-
 /// The processes the daemon spawns.
 fn local_processes() -> Arc<LocalProcessManager> {
     Arc::new(LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default()))
 }
-
 /// The managed store kept in `data`, whose git runs through `processes`.
 fn store(processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager>, data: &Path) -> Worktrees {
     Worktrees::new(Scm::new(processes, mixdog_rt::testing::tokens().maintenance_io, data.join("scratch")), data.to_path_buf())
 }
-
 pub fn rig() -> Rig {
+    rig_over(|worktrees| worktrees)
+}
+/// [`rig`] over a managed store that `shape` has changed (a host cleanup added).
+fn rig_over(shape: impl FnOnce(Worktrees) -> Worktrees) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let repo = repo_with_one_commit(dir.path());
     let data = dir.path().join("data");
-    let worktrees = Arc::new(store(local_processes(), &data));
+    let worktrees = Arc::new(shape(store(local_processes(), &data)));
     let state = Arc::new(Mutex::new(HostState { cwd: repo.to_string_lossy().into_owned(), ..HostState::default() }));
     let auto_cleanup = Arc::new(AtomicBool::new(true));
     let ws = SessionWorkspaces::new(
@@ -242,27 +328,9 @@ pub fn rig() -> Rig {
     );
     Rig { _dir: dir, repo, data, state, auto_cleanup, ws, worktrees }
 }
-
-pub fn enter(name: &str, call: &str) -> SessionOp {
-    SessionOp::Enter {
-        session_id: None,
-        name: Some(name.into()),
-        branch: None,
-        create: false,
-        carry: None,
-        confirm_large: false,
-        tx_id: format!("{call}:enter"),
-    }
-}
-
 pub async fn run(rig: &Rig, op: SessionOp) -> Result<Value, ScmFailure> {
     rig.ws.run(op, "lead", &CancellationToken::new()).await
 }
-
-fn code(result: &Result<Value, ScmFailure>) -> Option<&'static str> {
-    result.as_ref().err().and_then(ScmFailure::code)
-}
-
 #[tokio::test]
 async fn a_session_enters_returns_merges_and_removes_its_worktree() {
     let rig = rig();
@@ -312,7 +380,21 @@ async fn a_session_enters_returns_merges_and_removes_its_worktree() {
     let rows = rig.worktrees.list(None, &KeepAll, &CancellationToken::new()).await.unwrap();
     assert!(rows.is_empty());
 }
-
+/// A list read while the favorite and archive marks are unavailable does not decide what they would say: the row carries no
+/// `ownerArchived` (not `false`) and no `cleanupReason` (not `null`), both optional in `DesktopManagedWorktreeRow`.
+#[tokio::test]
+async fn a_row_listed_while_the_marks_are_unavailable_carries_no_archive_state_or_cleanup_reason() {
+    let rig = rig();
+    run(&rig, enter("feat", "u1")).await.unwrap();
+    rig.auto_cleanup.store(true, Ordering::SeqCst);
+    let sessions: Arc<dyn SessionSource> = Arc::new(StoresLead);
+    let rows = rig.worktrees.list_with_retention(&sessions, &Default::default(), true, 0, &CancellationToken::new()).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    for key in ["ownerArchived", "cleanupReason"] {
+        assert!(rows[0].get(key).is_none(), "{key} is absent when the marks could not be read: {}", rows[0]);
+    }
+    assert!(rows[0].get("ownerTitle").is_some(), "what could be read is still there");
+}
 #[tokio::test]
 async fn a_stale_revision_and_a_running_turn_refuse_and_leave_the_session_alone() {
     let rig = rig();
@@ -341,7 +423,6 @@ async fn a_stale_revision_and_a_running_turn_refuse_and_leave_the_session_alone(
     assert_eq!(own["workspace"]["branch"], "x");
     assert!(own["workspace"]["worktreeId"].is_string());
 }
-
 /// `ensureSession` (`session-view.mjs`): `selectBranch` and a `requestWorktree` that provisions create the runtime's session
 /// before acting on it; a `requestWorktree` that only arms the intent for the next message does not.
 #[tokio::test]
@@ -357,7 +438,6 @@ async fn only_select_branch_and_a_provisioning_request_create_the_session() {
     rig.ws.request_worktree("lead", RequestWorktree { provision: true, ..RequestWorktree::default() }, false, &cancel).await.unwrap();
     assert_eq!(ensured(), ["lead", "lead"]);
 }
-
 #[tokio::test]
 async fn uncommitted_changes_must_be_decided_before_a_worktree_is_made() {
     let rig = rig();
@@ -390,7 +470,6 @@ async fn uncommitted_changes_must_be_decided_before_a_worktree_is_made() {
     // Already bound: the request returns the current workspace without examining changes.
     assert_eq!(carry.unwrap()["pending"], false);
 }
-
 #[tokio::test]
 async fn a_failed_save_rolls_the_move_back_and_keeps_the_created_worktree_retained() {
     let rig = rig();
@@ -410,7 +489,6 @@ async fn a_failed_save_rolls_the_move_back_and_keeps_the_created_worktree_retain
     let rows = rig.worktrees.list(None, &KeepAll, &CancellationToken::new()).await.unwrap();
     assert_eq!(rows.len(), 1);
 }
-
 #[tokio::test]
 async fn a_dirty_worktree_refuses_removal_and_the_session_stays_in_it() {
     let rig = rig();
@@ -424,7 +502,6 @@ async fn a_dirty_worktree_refuses_removal_and_the_session_stays_in_it() {
     assert_eq!(state.workspace.as_ref().unwrap()["revision"], 1);
     assert_eq!(state.workspace.as_ref().unwrap()["transition"]["state"], "idle");
 }
-
 #[tokio::test]
 async fn a_cancel_after_the_folder_was_deleted_records_the_removal_instead_of_restoring_it() {
     let rig = rig();
@@ -447,14 +524,12 @@ async fn a_cancel_after_the_folder_was_deleted_records_the_removal_instead_of_re
     assert!(!cwd.exists());
     assert_ne!(state.workspace.as_ref().unwrap()["cwd"], json!(cwd.to_string_lossy()));
 }
-
 #[tokio::test]
 async fn a_byte_order_mark_is_not_a_session_id() {
     let rig = rig();
     let refused = rig.ws.gate().begin_transition("\u{feff}", "tx").err().unwrap();
     assert_eq!(thrown_message(&refused), "workspace transition requires a session id.");
 }
-
 #[tokio::test]
 async fn project_branch_admission_refuses_folders_other_sessions_use() {
     let rig = rig();
@@ -477,7 +552,6 @@ async fn project_branch_admission_refuses_folders_other_sessions_use() {
     assert!(admission.admit(&folders, false).await.is_ok());
     assert!(admission.admit(&folders, true).await.is_err());
 }
-
 #[tokio::test]
 async fn a_recovery_session_refuses_its_turn_and_a_creation_intent_provisions_at_the_first_turn() {
     let rig = rig();
@@ -498,50 +572,6 @@ async fn a_recovery_session_refuses_its_turn_and_a_creation_intent_provisions_at
     let refused = rig.ws.prepare_turn_workspace("lead", TurnStart::default(), &cancel).await;
     assert_eq!(refused.err().and_then(|e| e.code()), Some("WORKTREE_MISSING"));
 }
-
-/// Another process (or the user) touching the project folder between the carry and its restore:
-/// the first `rev-parse <ref>^1` of the restore finds an untracked file there.
-struct DirtiesBeforeRestore {
-    inner: Arc<dyn mixdog_core_api::domain::process::ProcessManager>,
-    armed: AtomicBool,
-}
-
-#[async_trait::async_trait]
-impl mixdog_core_api::domain::process::ProcessManager for DirtiesBeforeRestore {
-    async fn spawn(&self, request: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
-        if let mixdog_core_api::domain::process::CommandSpec::Argv { args, .. } = &request.command
-            && args.iter().any(|a| a == "rev-parse")
-            && args.last().is_some_and(|a| a.starts_with("refs/mixdog/") && a.ends_with("^1"))
-            && self.armed.swap(false, Ordering::SeqCst)
-        {
-            std::fs::write(request.cwd.as_path().join("changed-meanwhile.txt"), "x").unwrap();
-        }
-        self.inner.spawn(request).await
-    }
-    fn subscribe(
-        &self,
-        handle: &mixdog_protocol::ProcessHandle,
-        from_seq: Option<u64>,
-    ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
-        self.inner.subscribe(handle, from_seq)
-    }
-    async fn write_stdin(&self, handle: &mixdog_protocol::ProcessHandle, bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
-        self.inner.write_stdin(handle, bytes).await
-    }
-    fn close_stdin(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
-        self.inner.close_stdin(handle)
-    }
-    fn resize_pty(&self, handle: &mixdog_protocol::ProcessHandle, size: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
-        self.inner.resize_pty(handle, size)
-    }
-    fn kill(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
-        self.inner.kill(handle)
-    }
-    fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
-        self.inner.list()
-    }
-}
-
 /// A worktree made with the project's changes carried, whose claim then fails (the lease directory is a
 /// file): returns what the undo left, with the folder that holds it (dropped, it is gone).
 /// `dirty`: the project folder changes before the restore.
@@ -569,7 +599,6 @@ async fn claim_fails_after_a_carry(dirty: bool) -> (tempfile::TempDir, Result<()
     let folder = std::fs::read_to_string(repo.join("f.txt")).unwrap();
     (dir, result, rows, carry_refs, folder)
 }
-
 /// Node's undo (`transition-steps.mjs:294-300`) restores the carried changes, then removes the worktree,
 /// then drops the recovery ref.
 #[tokio::test]
@@ -580,7 +609,6 @@ async fn a_failed_claim_puts_the_carried_changes_back_then_removes_the_worktree_
     assert!(rows.is_empty(), "the worktree is gone");
     assert_eq!(carry_refs, "", "and the recovery ref is dropped");
 }
-
 /// A restore that is refused stops the undo there: the worktree and the recovery ref stay (before this the
 /// worktree was removed first, so nothing but the ref held the carried changes).
 #[tokio::test]
@@ -591,7 +619,95 @@ async fn a_refused_restore_keeps_the_worktree_and_the_recovery_ref() {
     assert!(std::path::Path::new(rows[0]["path"].as_str().unwrap()).exists());
     assert!(carry_refs.contains("refs/mixdog/carry"), "{carry_refs}");
 }
+/// A carry clears the project folder, so another session working in it (a running turn, or a background shell) refuses it before
+/// anything moves (`withProjectFolder` + `assertCheckoutQuiet`); once the folder is quiet the carry goes through.
+#[tokio::test]
+async fn a_carry_refuses_while_another_session_works_in_the_project_folder() {
+    let rig = rig();
+    std::fs::write(rig.repo.join("f.txt"), "changed\n").unwrap();
+    let carry = |call: &str| SessionOp::Enter {
+        session_id: None,
+        name: Some("feat".into()),
+        branch: None,
+        create: false,
+        carry: Some("carry".into()),
+        confirm_large: false,
+        tx_id: format!("{call}:enter"),
+    };
+    let other = |active: bool| {
+        vec![LiveSession { id: "other".into(), cwd: Some(rig.repo.to_string_lossy().into_owned()), active, ..LiveSession::default() }]
+    };
+    rig.state.lock().unwrap().live = other(true);
+    assert_eq!(busy_reason(&run(&rig, carry("c1")).await), "folder-in-use");
+    {
+        let mut state = rig.state.lock().unwrap();
+        state.live = other(false);
+        state.sharing_shell_jobs = 1;
+    }
+    assert_eq!(busy_reason(&run(&rig, carry("c2")).await), "folder-shell-jobs");
+    assert!(rig.worktrees.list(None, &KeepAll, &CancellationToken::new()).await.unwrap().is_empty());
+    assert_eq!(std::fs::read_to_string(rig.repo.join("f.txt")).unwrap(), "changed\n", "nothing moved");
+    rig.state.lock().unwrap().sharing_shell_jobs = 0;
+    let carried = run(&rig, carry("c3")).await.unwrap();
+    assert_eq!(carried["changes"]["mode"], "carried");
+    assert_eq!(std::fs::read_to_string(rig.repo.join("f.txt")).unwrap(), "a\nb\nc\n");
+}
+/// `retargetWorkers`: the Lead's open workers move into the worktree with it (not a closed one, nor another session's).
+#[tokio::test]
+async fn the_leads_workers_move_with_it_into_the_worktree() {
+    let rig = rig();
+    let repo = rig.repo.to_string_lossy().into_owned();
+    let session = |id: &str| LiveSession { id: id.into(), cwd: Some(repo.clone()), ..LiveSession::default() };
+    let agent = Some("agent".to_owned());
+    rig.state.lock().unwrap().live = vec![
+        LiveSession { owner_session_id: Some("lead".into()), owner: agent.clone(), ..session("w1") },
+        LiveSession { parent_session_id: Some("lead".into()), closed: true, owner: agent, ..session("w2") },
+        LiveSession { owner_session_id: Some("lead".into()), ..session("not-a-worker") },
+        session("elsewhere"),
+    ];
+    let entered = run(&rig, enter("feat", "c1")).await.unwrap();
+    let cwd = entered["workspace"]["cwd"].as_str().unwrap().to_owned();
+    assert_eq!(rig.state.lock().unwrap().retargeted, [("w1".to_owned(), cwd)]);
+}
+/// Removing another session's orphan worktree reads its retention again (`removeOrphanedWorktree`): a session the store
+/// still keeps protects it.
+#[tokio::test]
+async fn removing_an_orphan_worktree_still_honours_the_sessions_the_store_keeps() {
+    let rig = rig();
+    let cancel = CancellationToken::new();
+    let entered = run(&rig, enter("feat", "c1")).await.unwrap();
+    let cwd = PathBuf::from(entered["workspace"]["cwd"].as_str().unwrap());
+    run(&rig, SessionOp::Return { session_id: None, tx_id: "c2:return".into() }).await.unwrap();
+    let row = rig.ws.inner.list_rows(&cancel).await.unwrap().remove(0);
+    let refused = rig.ws.inner.remove_orphan(&row, false, &cancel).await;
+    assert_eq!(busy_reason(&refused), "workspace-retained");
+    assert!(cwd.exists());
+}
+#[async_trait]
+impl mixdog_scm::worktree::removal::RootCleanup for Stuck {
+    fn name(&self) -> &str {
+        "terminal"
+    }
 
+    async fn run(&self, _root: &Path, _entry_id: &str) -> Result<(), String> {
+        Err("still open".into())
+    }
+}
+/// A removal that ends partly removed reports what is left and whether to retry (`remaining`, `retryable`).
+#[tokio::test]
+async fn a_partly_removed_worktree_reports_what_is_left() {
+    let rig = rig_over(|worktrees| worktrees.with_root_cleanup(Arc::new(Stuck)));
+    run(&rig, enter("feat", "c1")).await.unwrap();
+    run(&rig, SessionOp::Return { session_id: None, tx_id: "c2:return".into() }).await.unwrap();
+    let failure = run(&rig, SessionOp::Remove { session_id: None, branch: None, force: false, tx_id: "c3:remove".into() }).await.unwrap_err();
+    assert_eq!(failure.code(), Some("WORKTREE_REMOVAL_INCOMPLETE"));
+    let Some(mixdog_protocol::DomainErrorDetail::WorktreeRemovalIncomplete { remaining, retryable, .. }) = failure.detail() else {
+        panic!("{failure:?}")
+    };
+    assert!(*retryable);
+    assert_eq!(remaining.len(), 1);
+    assert_eq!((remaining[0].kind.as_str(), remaining[0].name.as_deref(), remaining[0].error.as_deref()), ("cleanup", Some("terminal"), Some("still open")));
+}
 /// A repository with one commit, and the session layer's worktree operations over a fresh managed store whose settings (the
 /// store's own and the session layer's) are `settings`: returns the folder that holds both, the repository and the operations.
 fn ops_over_a_fresh_store(settings: Arc<dyn SettingsSource>) -> (tempfile::TempDir, PathBuf, super::worktree_ops::Ops) {
@@ -601,7 +717,6 @@ fn ops_over_a_fresh_store(settings: Arc<dyn SettingsSource>) -> (tempfile::TempD
     let ops = super::worktree_ops::Ops { wt: Arc::new(worktrees), settings, runtime_token: "rt".into() };
     (dir, repo, ops)
 }
-
 /// A managed worktree is found by its checkout spelled through a link (a junction on Windows), at it or inside it: Node's
 /// `getWorktreeByPath` and `findWorktreeContaining` compare canonical paths (`pathKey`), and the records hold real ones.
 #[tokio::test]
@@ -620,17 +735,6 @@ async fn a_worktree_is_found_by_its_checkout_spelled_through_a_link() {
     assert!(ops.worktree_containing(&repo.to_string_lossy(), &cancel).await.unwrap().is_none(), "the project folder is no managed worktree");
     assert!(ops.worktree_by_path(" ", &cancel).await.unwrap().is_none(), "a blank path names no worktree (`getWorktreeByPath('')`)");
 }
-
-/// Settings whose size threshold every checkout is over.
-struct OverThreshold;
-
-#[async_trait]
-impl SettingsSource for OverThreshold {
-    async fn worktree_settings(&self) -> WorktreeSettings {
-        WorktreeSettings { size_warn_bytes: 1, ..WorktreeSettings::default() }
-    }
-}
-
 /// A checkout over the size threshold is refused until the user confirmed it, and made once they did, whether the session asks
 /// for a new worktree or for a branch's (`createManagedWorktree`'s `confirmLarge`): the store's own check hears the confirmation
 /// too.
@@ -648,7 +752,6 @@ async fn a_confirmed_large_checkout_is_made() {
     let resolved = ops.resolve_branch(&repo.to_string_lossy(), "side", true, branch, true, &cancel).await;
     assert!(resolved.is_ok_and(|resolved| resolved.entry.is_some()), "a new branch's worktree made once confirmed");
 }
-
 /// The agent tool's spawn admission is this runtime's gate: a spawn for a Lead whose workspace is
 /// changing is refused with Node's thrown text, one after it settles is held, and a worktree-bound
 /// Lead's root is the workers' lock.

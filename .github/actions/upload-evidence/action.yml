@@ -1,0 +1,21 @@
+name: Upload the evidence of this leg
+description: >-
+  Uploads the receipts this job's test invocations left (scripts/ci/receipt.mjs) as one artifact named by gate invocation (GATE_KEY of release-gate.yml) and
+  leg. The release reconciler (scripts/ci/coverage/reconcile.mjs) reads these artifacts and compares them with the leg and slot plan;
+  an absent artifact is a missing leg, never a skip.
+inputs:
+  name:
+    description: "The leg id with every / replaced by - (an artifact name cannot hold a slash), e.g. linux-root-fast-1of1"
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Upload the receipts
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: evidence-${{ env.GATE_KEY }}-${{ inputs.name }}
+        overwrite: true
+        path: ${{ runner.temp }}/receipts
+        if-no-files-found: error
+        include-hidden-files: true
+        retention-days: 14

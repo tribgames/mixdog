@@ -250,10 +250,13 @@ export function DesktopLoadingSurface({
   delayed = !brand,
   className = '',
   onCancel,
+  progress,
 }: {
   label: string;
   overlay?: boolean;
   brand?: boolean;
+  /** The core's index rebuild, `done` of `total` sessions: a thin bar under the brand mark, drawn only while it is given. */
+  progress?: { done: number; total: number } | null;
   /** Hold the indicator invisible for the shared delay, so a warm/short load
    *  never flashes one. The cold-boot cover opts out: it owns the window from
    *  the first frame and has nothing to flash against. */
@@ -280,10 +283,46 @@ export function DesktopLoadingSurface({
       ) : (
         <ProgressSpinner size={24} className="desktop-loading-spinner" aria-hidden="true" />
       )}
+      {brand && progress && (
+        <div
+          className="desktop-loading-progress"
+          role="progressbar"
+          aria-label={t('Organizing your conversation history')}
+          aria-valuemin={0}
+          aria-valuemax={progress.total}
+          aria-valuenow={progress.done}
+        >
+          <div className="desktop-loading-progress-fill" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+        </div>
+      )}
     </div>
   );
 }
 
+/** The first screen of a window whose core ends at boot the same way each time it is started: what happened in plain words, the
+ *  cause on request, and a way to try again (the window loads again, which asks main to start the core once more). */
+export function DesktopBootFailure({ failure }: { failure: { message: string; stderrPath: string | null } }) {
+  const detail = [failure.message, failure.stderrPath].filter(Boolean).join('\n');
+  return (
+    <div className="desktop-loading-surface desktop-boot-failure" role="alert">
+      <div className="desktop-boot-failure-card">
+        <h2 className="desktop-boot-failure-title">{t('Could not start')}</h2>
+        <p className="desktop-boot-failure-body">{t('Try again, or close the app and reopen it.')}</p>
+        <details className="desktop-boot-failure-details">
+          <summary>{t('Error details')}</summary>
+          <pre>{detail}</pre>
+        </details>
+        <button type="button" className="desktop-boot-failure-retry" onClick={() => {
+            // Main launches the core again only once told to; then the window loads again and asks for it.
+            const bridge = (window as { mixdogCorePort?: { retry?: () => Promise<void> } }).mixdogCorePort;
+            void Promise.resolve(bridge?.retry?.()).finally(() => window.location.reload());
+          }}>
+          {t('Try again')}
+        </button>
+      </div>
+    </div>
+  );
+}
 /** What the recovery card says. Only a render failure reaches it (a lost
  *  connection is retried silently and never throws): on a paired phone (or
  *  any remote page) the work runs on the PC, not "the desktop host". */

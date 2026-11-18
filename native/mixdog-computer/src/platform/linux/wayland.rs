@@ -108,6 +108,7 @@ impl Desktop for WaylandDesktop {
             if self.foreground() == handle {
                 return true;
             }
+            // The wait holds nothing.
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
         false
@@ -154,6 +155,7 @@ impl Desktop for WaylandDesktop {
         width: i32,
         height: i32,
     ) -> Result<(), String> {
+        // Each compositor request is one operation of the executor's port, handed over (`port::compositor_command`).
         self.compositor.move_window(handle, x, y, width, height)
     }
 
@@ -163,6 +165,10 @@ impl Desktop for WaylandDesktop {
 
     fn close_window(&self, handle: Wid) -> Result<bool, String> {
         self.compositor.close(handle)
+    }
+
+    fn terminate(&self, pid: i64) -> Result<(), String> {
+        crate::port::linux::terminate(pid)
     }
 
     fn is_responding(&self, handle: Wid) -> bool {
@@ -311,7 +317,7 @@ impl Accessibility for WaylandDesktop {
         &self,
         window: &WindowInfo,
         path: &[String],
-        authorize: &dyn Fn() -> Result<(), String>,
+        authorize: crate::platform::Authorize<'_>,
     ) -> Result<MenuOutcome, String> {
         self.atspi()?.invoke_menu(window, path, authorize)
     }

@@ -29,12 +29,6 @@ export function displayProjectFolder(path: string): string {
 type ProjectEditTarget = { path: string | null; title: string };
 type MemoryControl = (input: Record<string, unknown>) => Promise<unknown>;
 
-/** Memory address: the common store has no project, every other memory is
- *  addressed by its project folder. */
-function memoryScope(path: string | null) {
-  return path === null ? { project_id: 'common' } : { cwd: path };
-}
-
 /** One memory write: a result that reports a failure rejects, and a success
  *  rereads the open editor's catalog. */
 function writeMemory(
@@ -55,11 +49,13 @@ function memoryScopeSelect({
   value,
   disabled,
   projects,
+  memoryCatalog,
   onChange,
 }: {
   value: string;
   disabled: boolean;
   projects: DesktopProjectSummary[];
+  memoryCatalog: ProjectMemoryCatalog;
   onChange(value: string): void;
 }) {
   return (
@@ -73,7 +69,7 @@ function memoryScopeSelect({
       >
         <option value="">{t('Common')}</option>
         {projects.map((project) => (
-          <option key={project.path} value={project.path}>
+          <option key={project.path} value={project.path} disabled={!memoryCatalog.has(project.path)}>
             {project.alias || project.name || displayProjectFolder(project.path)}
           </option>
         ))}
@@ -155,8 +151,8 @@ function memoryAddRow({
   addMemoryDraft,
   addMemoryScope,
   memoryBusy,
-  editTarget,
   projects,
+  memoryCatalog,
   onMemoryControl,
   refreshMemories,
   setAddMemoryDraft,
@@ -168,16 +164,17 @@ function memoryAddRow({
   addMemoryDraft: string;
   addMemoryScope: string;
   memoryBusy: boolean;
-  editTarget: ProjectEditTarget | null;
   projects: DesktopProjectSummary[];
+  memoryCatalog: ProjectMemoryCatalog;
   onMemoryControl: MemoryControl;
-  refreshMemories(path: string | null): Promise<void>;
+  refreshMemories(afterWrite?: boolean): Promise<void>;
   setAddMemoryDraft(value: string): void;
   setAddMemoryScope(value: string): void;
   setAddingMemory(value: boolean): void;
   setEditError(value: string): void;
   setMemoryBusy(value: boolean): void;
 }) {
+  const target = memoryCatalog.get(addMemoryScope || null);
   return (
     <div className="projects-memory-add-row">
       <textarea
@@ -195,22 +192,28 @@ function memoryAddRow({
           value: addMemoryScope,
           disabled: memoryBusy,
           projects,
+          memoryCatalog,
           onChange: setAddMemoryScope,
         })}
         <div className="core-memory-actions">
           <button
             type="button"
-            disabled={memoryBusy || !addMemoryDraft.trim()}
+            disabled={memoryBusy || !target || !addMemoryDraft.trim()}
             onClick={() => {
-              if (!editTarget) return;
-              const summary = addMemoryDraft.trim();
-              const target = addMemoryScope === '' ? null : addMemoryScope;
+              if (!target) return;
               setMemoryBusy(true);
               setEditError('');
               void writeMemory(
                 onMemoryControl,
-                { action: 'core', op: 'add', summary, verbatim: true, ...memoryScope(target) },
-                () => refreshMemories(editTarget.path)
+                {
+                  action: 'core',
+                  op: 'add',
+                  summary: addMemoryDraft.trim(),
+                  verbatim: true,
+                  project_id: target.projectId ?? 'common',
+                  ...(addMemoryScope ? { destination_cwd: addMemoryScope } : {}),
+                },
+                () => refreshMemories(true)
               )
                 .then(() => {
                   setAddingMemory(false);
@@ -247,8 +250,9 @@ function memoryEditRow({
   memoryBusy,
   memoriesLoading,
   confirmDeleteMemory,
-  editTarget,
+  sourceProjectId,
   projects,
+  memoryCatalog,
   onMemoryControl,
   refreshMemories,
   setMemoryDrafts,
@@ -263,10 +267,11 @@ function memoryEditRow({
   memoryBusy: boolean;
   memoriesLoading: boolean;
   confirmDeleteMemory: number | null;
-  editTarget: ProjectEditTarget | null;
+  sourceProjectId: string | null;
   projects: DesktopProjectSummary[];
+  memoryCatalog: ProjectMemoryCatalog;
   onMemoryControl: MemoryControl;
-  refreshMemories(path: string | null): Promise<void>;
+  refreshMemories(afterWrite?: boolean): Promise<void>;
   setMemoryDrafts: Dispatch<SetStateAction<Record<number, string>>>;
   setMoveTargets: Dispatch<SetStateAction<Record<number, string>>>;
   setConfirmDeleteMemory(value: number | null): void;
@@ -274,6 +279,8 @@ function memoryEditRow({
   setMemoryBusy(value: boolean): void;
 }) {
   const draft = memoryDrafts[entry.id] ?? entry.summary;
+  const target = memoryCatalog.get(moveTarget || null);
+  const source = sourceProjectId ?? 'common';
   return (
     <div className="core-memory-edit" key={entry.id}>
       <div className="projects-memory-row-head">
@@ -282,6 +289,7 @@ function memoryEditRow({
           value: moveTarget,
           disabled: memoryBusy || memoriesLoading,
           projects,
+          memoryCatalog,
           onChange: (value) => setMoveTargets((current) => ({ ...current, [entry.id]: value })),
         })}
       </div>
@@ -302,10 +310,13 @@ function memoryEditRow({
         <button
           type="button"
           disabled={
-            memoryBusy || !draft.trim() || (draft.trim() === entry.summary && moveTarget === (editTarget?.path ?? ''))
+            memoryBusy ||
+            !target ||
+            !draft.trim() ||
+            (draft.trim() === entry.summary && target.projectId === sourceProjectId)
           }
           onClick={() => {
-            if (!editTarget) return;
+            if (!target) return;
             setMemoryBusy(true);
             setEditError('');
             const summary = draft.trim();
@@ -319,10 +330,11 @@ function memoryEditRow({
                 element: entry.singleSentence ? summary : entry.element,
                 summary,
                 verbatim: true,
-                ...memoryScope(editTarget.path),
-                ...(moveTarget === '' ? { target_project_id: 'common' } : { target_cwd: moveTarget }),
+                project_id: source,
+                target_project_id: target.projectId ?? 'common',
+                ...(moveTarget ? { destination_cwd: moveTarget } : {}),
               },
-              () => refreshMemories(editTarget.path)
+              () => refreshMemories(true)
             )
               .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
               .finally(() => setMemoryBusy(false));
@@ -339,7 +351,6 @@ function memoryEditRow({
               setConfirmDeleteMemory(entry.id);
               return;
             }
-            if (!editTarget) return;
             setMemoryBusy(true);
             setEditError('');
             void writeMemory(
@@ -349,9 +360,9 @@ function memoryEditRow({
                 op: 'delete',
                 id: entry.id,
                 index_revision: entry.indexRevision,
-                ...memoryScope(editTarget.path),
+                project_id: source,
               },
-              () => refreshMemories(editTarget.path)
+              () => refreshMemories(true)
             )
               .then(() => setConfirmDeleteMemory(null))
               .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
@@ -398,7 +409,7 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
     const [editConfirmRemove, setEditConfirmRemove] = useState(false);
     const editOpenRequestRef = useRef(0);
     const memoriesCache = useRef(new ProjectEditorCache<ProjectMemoryCatalog>()).current;
-    const [memories, setMemories] = useState<CoreMemoryEntry[]>([]);
+    const [memoryCatalog, setMemoryCatalog] = useState<ProjectMemoryCatalog>();
     const [memoriesLoading, setMemoriesLoading] = useState(false);
     const [memoryBusy, setMemoryBusy] = useState(false);
     const [memoryDrafts, setMemoryDrafts] = useState<Record<number, string>>({});
@@ -408,36 +419,44 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
     const [confirmDeleteMemory, setConfirmDeleteMemory] = useState<number | null>(null);
     const [moveTargets, setMoveTargets] = useState<Record<number, string>>({});
     const projectPathsKey = JSON.stringify(projects.map((project) => project.path));
-    const memoriesSupported = Boolean(onMemoryControl);
-    const readMemories = async (path: string | null, refresh = false): Promise<CoreMemoryEntry[]> => {
-      if (!onMemoryControl) return [];
-      const catalog = await memoriesCache.read(
+    const memoryScope = editTarget && memoryCatalog?.get(editTarget.path);
+    const memories = memoryScope?.entries ?? [];
+    const readMemories = (control: MemoryControl, refresh = false) =>
+      memoriesCache.read(
         projectPathsKey,
-        () => readProjectMemories(JSON.parse(projectPathsKey), onMemoryControl),
+        () => readProjectMemories(JSON.parse(projectPathsKey), control),
         refresh
       );
-      return catalog.get(path) ?? [];
-    };
-    const refreshMemories = async (path: string | null) => {
-      const requestId = editOpenRequestRef.current;
+    const refreshMemories = async (afterWrite = false) => {
+      if (!onMemoryControl) return;
+      const requestId = ++editOpenRequestRef.current;
       // A completed write must not join a pre-write background read. Reload the
-      // whole catalog so moves also refresh their destination immediately.
+      // whole catalog for whichever scope is open; don't show old rows if
+      // readback fails after the write committed.
       memoriesCache.invalidate(projectPathsKey);
-      const entries = await readMemories(path);
-      if (editOpenRequestRef.current !== requestId) return;
-      setMemories(entries);
-      setMemoryDrafts(Object.fromEntries(entries.map((entry) => [entry.id, entry.summary])));
-      setMoveTargets({});
-      setConfirmDeleteMemory(null);
+      try {
+        const catalog = await readMemories(onMemoryControl);
+        if (editOpenRequestRef.current !== requestId) return;
+        setMemoryCatalog(catalog);
+        setMemoryDrafts({});
+        setMoveTargets({});
+        setConfirmDeleteMemory(null);
+      } catch (reason) {
+        if (editOpenRequestRef.current !== requestId) return;
+        if (afterWrite) setMemoryCatalog(undefined);
+        throw reason;
+      } finally {
+        if (editOpenRequestRef.current === requestId) setMemoriesLoading(false);
+      }
     };
     const openEdit = (path: string | null, title: string) => {
       const requestId = ++editOpenRequestRef.current;
-      const cachedMemories = memoriesCache.peek(projectPathsKey)?.get(path);
+      const cachedCatalog = memoriesCache.peek(projectPathsKey);
       setEditName(title);
       setEditError('');
       setEditConfirmRemove(false);
-      setMemories(cachedMemories ?? []);
-      setMemoryDrafts(Object.fromEntries((cachedMemories ?? []).map((entry) => [entry.id, entry.summary])));
+      setMemoryCatalog(cachedCatalog);
+      setMemoryDrafts({});
       setAddingMemory(false);
       setConfirmDeleteMemory(null);
       setMoveTargets({});
@@ -448,13 +467,12 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
         const message = reason instanceof Error ? reason.message : String(reason);
         setEditError((previous) => (previous ? `${previous}\n${message}` : message));
       };
-      setMemoriesLoading(memoriesSupported && cachedMemories === undefined);
+      setMemoriesLoading(Boolean(onMemoryControl) && cachedCatalog === undefined);
       if (onMemoryControl) {
-        void readMemories(path)
-          .then((entries) => {
+        void readMemories(onMemoryControl)
+          .then((catalog) => {
             if (!current()) return;
-            setMemories(entries);
-            setMemoryDrafts(Object.fromEntries(entries.map((entry) => [entry.id, entry.summary])));
+            setMemoryCatalog(catalog);
           })
           .catch(reportError)
           .finally(() => {
@@ -468,7 +486,7 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
       setEditName('');
       setEditError('');
       setEditConfirmRemove(false);
-      setMemories([]);
+      setMemoryCatalog(undefined);
       setMemoryDrafts({});
       setAddingMemory(false);
       setAddMemoryDraft('');
@@ -492,7 +510,7 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
         if (options?.confirmRemove) setEditConfirmRemove(true);
       },
       warm() {
-        if (memoriesSupported) void readMemories(null, true).catch(() => {});
+        if (onMemoryControl) void readMemories(onMemoryControl, true).catch(() => {});
       },
     }));
     // Hidden panel, no body portal: collapsing the sidebar or presenting another
@@ -579,7 +597,7 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
                     setEditError('');
                     setMoveTargets({});
                     setConfirmDeleteMemory(null);
-                    void refreshMemories(editTarget.path)
+                    void refreshMemories()
                       .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
                       .finally(() => setMemoryBusy(false));
                   }}
@@ -589,7 +607,7 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
                 <button
                   type="button"
                   className="extensions-action"
-                  disabled={memoriesLoading || memoryBusy || addingMemory}
+                  disabled={memoriesLoading || memoryBusy || addingMemory || !memoryScope}
                   aria-label={t('Add memory')}
                   onClick={() => {
                     setAddingMemory(true);
@@ -609,12 +627,15 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
                 {/* Add row and saved rows share one vertical shape: text on top,
                 then scope + actions on one line (user: 추가 UI 정리). */}
                 {addingMemory &&
+                  !memoriesLoading &&
+                  memoryCatalog &&
+                  memoryScope &&
                   memoryAddRow({
                     addMemoryDraft,
                     addMemoryScope,
                     memoryBusy,
-                    editTarget,
                     projects,
+                    memoryCatalog,
                     onMemoryControl,
                     refreshMemories,
                     setAddMemoryDraft,
@@ -624,7 +645,7 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
                     setMemoryBusy,
                   })}
                 {memoriesLoading && <p className="projects-memory-empty">{t('Loading…')}</p>}
-                {!memoriesLoading && memories.length > 0 && (
+                {!memoriesLoading && memoryCatalog && memoryScope && memories.length > 0 && (
                   <div className="core-memory-list">
                     {memories.map((entry) =>
                       memoryEditRow({
@@ -634,8 +655,9 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
                         memoryBusy,
                         memoriesLoading,
                         confirmDeleteMemory,
-                        editTarget,
+                        sourceProjectId: memoryScope.projectId,
                         projects,
+                        memoryCatalog,
                         onMemoryControl,
                         refreshMemories,
                         setMemoryDrafts,
@@ -647,7 +669,10 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
                     )}
                   </div>
                 )}
-                {!memoriesLoading && memories.length === 0 && (
+                {!memoriesLoading && memoryCatalog && !memoryScope && (
+                  <p className="projects-memory-empty">{t('Memory is temporarily unavailable.')}</p>
+                )}
+                {!memoriesLoading && memoryScope && memories.length === 0 && (
                   <p className="projects-memory-empty">{t('No memories yet.')}</p>
                 )}
               </div>

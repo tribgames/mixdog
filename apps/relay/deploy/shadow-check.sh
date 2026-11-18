@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The shadow check of the Node -> binary switch (handover.md, step 3), and the TLS
-# suite probe that step 1 and step 3 share.
+# The shadow check of the Node -> binary switch, and the TLS suite probe that the
+# switch's first step (the Node listener's suites) and the shadow check share.
 #
 #   shadow-check.sh run <binary> <domain> <port> [data-dir]
 #   shadow-check.sh tls <host> <port> [connect-address]
@@ -346,7 +346,7 @@ run_shadow() {
 			if [[ -z "$lost" ]]; then
 				pass "the shadow port accepts every protocol and suite the Node listener accepted"
 			else
-				info "accepted by Node, refused by the shadow port (the owner decides whether that is acceptable, handover.md step 3):"
+				info "accepted by Node, refused by the shadow port (the owner decides whether that is acceptable):"
 				printf '%s\n' "$lost" | sed 's/^/      /'
 			fi
 		else

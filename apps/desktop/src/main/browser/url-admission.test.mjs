@@ -101,10 +101,8 @@ test('browser URL admission rechecks completed DNS answers and coalesces only co
   );
 });
 
-/** The corpus the Rust crate mixdog-browser-policy replays as well (native/core/fixtures/browser-parity). */
-const corpus = JSON.parse(
-  readFileSync(new URL('../../../../../native/core/fixtures/browser-parity/url-admission.json', import.meta.url), 'utf8')
-);
+/** fixtures/url-admission.json: the corpus the Rust crate mixdog-browser-policy replays as well. */
+const corpus = JSON.parse(readFileSync(new URL('./fixtures/url-admission.json', import.meta.url), 'utf8'));
 
 test('every case of the shared corpus gets the same verdict as the Rust twin', async () => {
   assert.ok(corpus.length > 40);

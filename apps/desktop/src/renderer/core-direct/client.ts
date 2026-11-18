@@ -4,6 +4,7 @@
 // PC's core (role `server:<id>`); `pcCoreClient()` answers with the one that is this PC's.
 import {
   connect,
+  DEFAULT_FIRST_CONNECT_DEADLINE_MS,
   sessionReducer,
   type ProtocolClient,
   type SessionFold,
@@ -31,6 +32,8 @@ export interface CoreWindowInfo {
 
 const clients = new Map<PortSlot, ProtocolClient<SessionFold>>();
 const windows = new Map<PortSlot, CoreWindowInfo | undefined>();
+// A transferred port belongs to one mailbox, even when both slots are opening or a client is replaced.
+const connectors = new WeakMap<CorePortBridge, ReturnType<typeof createPortConnector>>();
 let warnedWindowScope = false;
 // Only a server window opens slot `pc` (its link to this PC's core, role `server:<id>`): set when that open is asked for,
 // so the server's own primary client is never taken for this PC's while the pc client is still opening.
@@ -59,9 +62,14 @@ export const reportCoreLink = createLinkLog((event, fields) => {
 export async function openDirectClient(o: OpenDirectClientOptions): Promise<ProtocolClient<SessionFold>> {
   const slot: PortSlot = o.slot ?? 'primary';
   if (slot === 'pc') serverWindow = true;
+  let connector = connectors.get(o.bridge);
+  if (!connector) {
+    connector = createPortConnector(o.bridge);
+    connectors.set(o.bridge, connector);
+  }
   const client = await connect<SessionFold>({
     target: { id: slot === 'pc' ? 'pc' : 'core' },
-    connector: createPortConnector(o.bridge),
+    connector,
     clientInfo: {
       name: 'mixdog-desktop-window',
       title: CLIENT_TITLE,
@@ -73,6 +81,9 @@ export async function openDirectClient(o: OpenDirectClientOptions): Promise<Prot
     threadReducer: sessionReducer,
     clock: { sleep: (ms) => new Promise((done) => setTimeout(done, ms)) },
     random: Math.random,
+    // A first connection that fails (the core still starting, its port late) is tried again on the client's own ladder.
+    firstConnectDeadlineMs: DEFAULT_FIRST_CONNECT_DEADLINE_MS,
+    keepTryingFirstConnect: slot === 'pc',
     onDiagnostic: (event, fields) => reportCoreLink(event, { slot, ...fields }),
   });
   clients.set(slot, client);
@@ -91,6 +102,20 @@ export function pcCoreClient(): ProtocolClient<SessionFold> | null {
   const isServer =
     serverWindow || [...windows.values()].some((w) => typeof w?.role === 'string' && w.role.startsWith('server:'));
   return clients.get(isServer ? 'pc' : 'primary') ?? null;
+}
+
+let firstPcOpen: Promise<unknown> | null = null;
+/** The first open to this PC's core, on primary for a local window and pc for a server window. */
+export function noteFirstPcCoreOpen(run: Promise<unknown>): void {
+  firstPcOpen = run;
+  const settled = (): void => {
+    if (firstPcOpen === run) firstPcOpen = null;
+  };
+  run.then(settled, settled);
+}
+/** The first PC open while it is in flight; null before it starts and once it has settled. */
+export function firstPcCoreOpen(): Promise<unknown> | null {
+  return firstPcOpen;
 }
 
 /** Forgets a slot's client (it was closed, or replaced by a reopen). */

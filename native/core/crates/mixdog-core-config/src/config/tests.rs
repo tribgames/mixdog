@@ -15,15 +15,6 @@ fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
         .block_on(future)
 }
 
-/// The inline test executors run lane jobs on the submitting thread.
-fn lanes() -> ConfigLanes {
-    let tokens = mixdog_rt::testing::tokens();
-    ConfigLanes {
-        read: tokens.interactive_io,
-        write: tokens.durability_io,
-    }
-}
-
 /// A synchronous view of `Config` for the tests; reads pass through to the handle.
 #[derive(Clone)]
 struct Blocking(Config);
@@ -32,34 +23,6 @@ impl Deref for Blocking {
     type Target = Config;
     fn deref(&self) -> &Config {
         &self.0
-    }
-}
-
-impl Blocking {
-    fn open(
-        path: impl Into<PathBuf>,
-        publisher: Arc<dyn StatePublisher>,
-    ) -> Result<(Self, Vec<ConfigWarning>), ConfigError> {
-        block_on(Config::open(path, publisher, lanes())).map(|(config, warnings)| (Self(config), warnings))
-    }
-
-    fn write(&self, path: &str, value: Value, mode: ConfigWriteMode) -> Result<Applied, ConfigError> {
-        block_on(self.0.write(path, value, mode))
-    }
-
-    fn batch_write(&self, edits: &[ConfigEdit]) -> Result<Applied, ConfigError> {
-        block_on(self.0.batch_write(edits))
-    }
-
-    fn update(
-        &self,
-        change: impl FnOnce(&mut Doc) -> Result<(), ConfigError> + Send + 'static,
-    ) -> Result<Applied, ConfigError> {
-        block_on(self.0.update(change))
-    }
-
-    fn reload(&self) -> Result<Applied, ConfigError> {
-        block_on(self.0.reload())
     }
 }
 
@@ -104,6 +67,21 @@ fn writes_keep_the_whole_document_secrets_included() {
     assert!(published(&publisher).iter().all(|k| k != "providers"));
     let sent = format!("{:?}", publisher.published());
     assert!(!sent.contains("sk-secret"));
+}
+
+#[test]
+fn an_unconfirmed_transaction_cannot_enable_allow_all_actions() {
+    let dir = tempfile::tempdir().unwrap();
+    let initial = json!({ "agent": { "developer": { "allowAllActions": false } } });
+    let (config, _) = open(&dir, Some(initial.clone()));
+
+    let result = block_on(config.update_agent(|agent| {
+        agent.insert("developer".into(), json!({ "allowAllActions": true, "cursorOAuth": true }));
+        Ok(())
+    }));
+    assert!(matches!(result, Err(ConfigError::Rejected(CoreError::DomainError { code: Some(code), .. }))
+        if code.as_ref() == "RISK_CONFIRMATION_REQUIRED"));
+    assert_eq!(on_disk(&dir), initial, "the whole transaction is refused");
 }
 
 #[test]
@@ -327,27 +305,6 @@ fn unreadable_file_is_an_error_and_is_never_overwritten() {
     assert!(config.full().contains_key("desktop"));
 }
 
-/// The boot's recovery before its migration reads the file: a malformed config is kept aside as Node's first read keeps it,
-/// and an intact one is left byte for byte.
-#[test]
-fn recover_malformed_keeps_a_damaged_file_aside_and_leaves_an_intact_one() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mixdog-config.json");
-    fs::write(&path, "{\"agent\": {},\n}").unwrap();
-    block_on(Config::recover_malformed(&path, lanes())).unwrap();
-    assert!(!path.exists());
-    let kept: Vec<_> = fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
-    assert_eq!(kept.len(), 1);
-    assert!(kept[0].starts_with("mixdog-config.json.corrupt-"));
-
-    let intact = tempfile::tempdir().unwrap();
-    let path = intact.path().join("mixdog-config.json");
-    fs::write(&path, "{\"agent\":{\"x\":1}}").unwrap();
-    block_on(Config::recover_malformed(&path, lanes())).unwrap();
-    assert_eq!(fs::read_to_string(&path).unwrap(), "{\"agent\":{\"x\":1}}");
-    assert_eq!(fs::read_dir(intact.path()).unwrap().count(), 1);
-}
-
 #[test]
 fn initialize_if_missing_has_one_winner() {
     let dir = tempfile::tempdir().unwrap();
@@ -434,38 +391,6 @@ fn browser_permissions_follow_the_node_rules() {
     assert!(config.get("desktop.browserPermissions").is_none());
 }
 
-fn owner_only(path: &Path) -> bool {
-    let path = path.to_path_buf();
-    block_on(on_lane(lanes().read, move |lane| mixdog_statefile::is_owner_only(lane, &path))).unwrap().unwrap()
-}
-
-/// `writeJsonAtomicSync(configPath(), data, { mode: 0o600, secret: true })`: the published config is owner-only (Unix mode
-/// 0600, Windows the protected single-entry DACL Node's ACL helper sets on the temp file before it is renamed into place).
-#[test]
-fn the_config_file_written_through_write_is_owner_only() {
-    let dir = tempfile::tempdir().unwrap();
-    let (config, _) = open(&dir, None);
-    config.write("desktop.keepAwake", json!(true), replace()).unwrap();
-    assert!(owner_only(&dir.path().join("mixdog-config.json")));
-    // A rewrite of the published file keeps it so.
-    config.write("desktop.keepAwake", json!(false), replace()).unwrap();
-    assert!(owner_only(&dir.path().join("mixdog-config.json")));
-}
-
-/// `mkdirSync(dirname(configPath()), { recursive: true, mode: 0o700 })` sets no ACL on Windows (the mode is advisory): a
-/// config folder the write creates inherits its parent's ACL and has no protected owner-only DACL of its own.
-#[cfg(windows)]
-#[test]
-fn a_config_folder_the_write_creates_has_no_owner_only_acl_of_its_own() {
-    let parent = tempfile::tempdir().unwrap();
-    let folder = parent.path().join("missing").join("data");
-    let (config, _) = Blocking::open(folder.join("mixdog-config.json"), Arc::new(MockStatePublisher::default())).unwrap();
-    config.write("desktop.keepAwake", json!(true), replace()).unwrap();
-    assert!(folder.join("mixdog-config.json").is_file());
-    assert!(!owner_only(&folder));
-    assert!(!owner_only(folder.parent().unwrap()));
-}
-
 #[test]
 fn writes_keep_the_users_key_order() {
     let dir = tempfile::tempdir().unwrap();
@@ -482,153 +407,40 @@ fn writes_keep_the_users_key_order() {
     assert_eq!(keys(&saved["alpha"]), ["b", "a"]);
 }
 
-/// DS-CFG-1: Node's `desktopSettingsFromConfig` and `DesktopSettingsStore` writes, recorded over
-/// 200 config files (`record-desktop-settings.mjs`).
+/// `storedPreferences` / `storedOverride` (notification-preferences.ts): a bad field takes its own default and a malformed
+/// override alone is dropped, and a volume stored as a float (`50.0`) is the integer Node read.
 #[test]
-fn ds_cfg_1_matches_the_recorded_node_store() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/desktop/settings/config-twin.json");
-    let twin: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-    let entries = twin["entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 200);
-
-    // `agent` and `desktop` are created empty by Node's writes; an empty one carries no setting.
-    let canon = |mut config: Value| {
-        for key in ["agent", "desktop"] {
-            if config.get(key) == Some(&json!({})) {
-                config.as_object_mut().unwrap().remove(key);
+fn notification_preferences_are_read_field_by_field() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(
+        &dir,
+        Some(json!({
+            "desktop": { "notificationVolume": 50.0 },
+            "notifications": {
+                "migratedAt": 1,
+                "devices": { "pc": {
+                    "scope": "sometimes",
+                    "automaticRuns": false,
+                    "quietHours": { "enabled": true, "start": "25:00", "end": "07:30", "days": "weekends" }
+                } },
+                "overrides": [
+                    { "target": { "kind": "agent", "id": "writer" }, "setting": { "mode": "muted", "until": null } },
+                    { "target": { "kind": "agent", "id": "not valid!" }, "setting": { "mode": "always" } },
+                    { "target": { "kind": "room", "id": "r1" }, "setting": { "mode": "muted", "until": 0 } },
+                    { "target": { "kind": "session", "id": "s1" }, "setting": { "mode": "always" } }
+                ]
             }
-        }
-        config
-    };
-    let retention = |c: &Config| {
-        c.session_retention().map_or(Value::Null, |r| {
-            json!({ "sessionAutoArchiveDays": r.auto_archive_days, "sessionAutoDeleteDays": r.auto_delete_days })
-        })
-    };
-    let pins = |c: &Config| {
-        c.activity_rail_pins()
-            .map_or(Value::Null, |p| json!({ "pins": p.pins, "revision": p.revision }))
-    };
-    for entry in entries {
-        let id = &entry["id"];
-        let dir = tempfile::tempdir().unwrap();
-        let (config, _) = open(&dir, Some(entry["config"].clone()));
-        let want = &entry["expect"];
-        assert_eq!(
-            serde_json::to_value(config.desktop_settings()).unwrap(),
-            want["settings"],
-            "view of {id}"
-        );
-        assert_eq!(retention(&config), want["retention"], "retention of {id}");
-        assert_eq!(pins(&config), want["pins"], "pins of {id}");
-        let (enabled, profile) = browser_cookie_auto_import(&config.full());
-        assert_eq!(
-            json!({ "enabled": enabled, "profileId": profile }),
-            want["cookieAutoImport"],
-            "cookie import of {id}"
-        );
-
-        let args = entry["write"]["args"].as_array().unwrap();
-        let (path, value, mode) = match entry["write"]["op"].as_str().unwrap() {
-            "update" => {
-                let path = match args[0].as_str().unwrap() {
-                    "autoClear" => "agent.autoClear.enabled".to_owned(),
-                    "autoCompact" => "agent.compaction.auto".to_owned(),
-                    flag => format!("desktop.{flag}"),
-                };
-                (path, args[1].clone(), replace())
-            }
-            "updateNotificationVolume" => ("desktop.notificationVolume".into(), args[0].clone(), replace()),
-            "updateSessionRetention" => (format!("desktop.{}", args[0].as_str().unwrap()), args[1].clone(), replace()),
-            "updateBrowserPermissions" => ("desktop.browserPermissions".into(), args[0].clone(), replace()),
-            "updateZoom" => ("desktop.zoom".into(), args[0].clone(), replace()),
-            "updateActivityRailPins" => {
-                let mode = if args[1] == true { ConfigWriteMode::InitializeIfMissing } else { replace() };
-                ("desktop.activityRailPins".into(), args[0].clone(), mode)
-            }
-            op => panic!("{op}"),
-        };
-        let outcome = config.write(&path, value, mode);
-        let after = &entry["after"];
-        if after.get("error").is_some() {
-            assert!(outcome.is_err(), "{id}: Node rejected {path}");
-            continue;
-        }
-        outcome.unwrap_or_else(|e| panic!("{id}: {path}: {e}"));
-        // The recorder's store is an in-memory stand-in; the real config module (`updateConfigAsync`,
-        // `withFreshDefaultsVersion`) stamps the first write into an empty config as born separated.
-        let mut want_config = canon(after["config"].clone());
-        if entry["config"] == json!({}) {
-            want_config.as_object_mut().unwrap().insert("defaultsVersion".into(), json!(2));
-        }
-        assert_eq!(
-            canon(Value::Object((*config.full()).clone())),
-            want_config,
-            "config after write of {id}"
-        );
-        assert_eq!(
-            serde_json::to_value(config.desktop_settings()).unwrap(),
-            after["settings"],
-            "view after write of {id}"
-        );
-        assert_eq!(pins(&config), after["pins"], "pins after write of {id}");
-    }
-}
-
-/// What the desktop's refused settings writes threw in Node, and the saved config its locked update returned
-/// (`record-desktop-write-errors.mjs`): the wire's `expected` is Node's message, and the write answers the saved
-/// `agent` / `desktop` from inside the same update.
-#[test]
-fn desktop_write_errors_and_saved_config_match_node() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/write-errors-twin.json");
-    let twin: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-    let entries = twin["entries"].as_array().unwrap();
-    assert_eq!(entries.len(), 23);
-    let canon = |mut map: Map<String, Value>| {
-        map.retain(|key, value| matches!(key.as_str(), "agent" | "desktop") && *value != json!({}));
-        Value::Object(map)
-    };
-    for entry in entries {
-        let name = entry["name"].as_str().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let (config, _) = open(&dir, Some(entry["config"].clone()));
-        let args = entry["write"]["args"].as_array().unwrap();
-        let (path, value, mode) = match entry["write"]["op"].as_str().unwrap() {
-            "update" => {
-                let path = match args[0].as_str().unwrap() {
-                    "autoClear" => "agent.autoClear.enabled".to_owned(),
-                    flag => format!("desktop.{flag}"),
-                };
-                (path, args[1].clone(), replace())
-            }
-            "updateNotificationVolume" => ("desktop.notificationVolume".into(), args[0].clone(), replace()),
-            "updateSessionRetention" => (format!("desktop.{}", args[0].as_str().unwrap()), args[1].clone(), replace()),
-            "updateBrowserPermissions" => ("desktop.browserPermissions".into(), args[0].clone(), replace()),
-            "updateBrowserCookieAutoImport" => ("desktop.browserCookieAutoImport".into(), args[0].clone(), replace()),
-            "updateActivityRailPins" => {
-                let mode = if args[1] == true { ConfigWriteMode::InitializeIfMissing } else { replace() };
-                ("desktop.activityRailPins".into(), args[0].clone(), mode)
-            }
-            op => panic!("{op}"),
-        };
-        let edit = ConfigEdit { path: path.clone(), value, mode };
-        let outcome = block_on(config.batch_write_saved(&[edit], service::SAVED_SUBTREES, None));
-        let after = &entry["after"];
-        if let Some(error) = after.get("error") {
-            match outcome {
-                Err(ConfigError::InvalidParams { path: at, expected }) => {
-                    assert_eq!(expected, error["message"].as_str().unwrap(), "{name}: Node's text");
-                    assert_eq!(at, path, "{name}");
-                }
-                other => panic!("{name}: Node threw {error}, got {other:?}"),
-            }
-            continue;
-        }
-        let (_, saved) = outcome.unwrap_or_else(|e| panic!("{name}: {e}"));
-        assert_eq!(canon(saved.clone()), canon(after["config"].as_object().unwrap().clone()), "{name}: the saved config");
-        assert_eq!(serde_json::to_value(desktop_settings(&saved)).unwrap(), after["settings"], "{name}: the saved settings");
-    }
+        })),
+    );
+    let pc = config.notification_device("pc");
+    assert_eq!(pc.scope, mixdog_protocol::config::NotificationScope::All);
+    assert!(!pc.automatic_runs);
+    assert!(pc.quiet_hours.enabled);
+    assert_eq!((pc.quiet_hours.start.as_str(), pc.quiet_hours.end.as_str()), ("23:00", "07:30"));
+    assert_eq!(pc.quiet_hours.days, mixdog_protocol::config::NotificationQuietDays::Weekends);
+    let kept: Vec<String> = config.notification_overrides_at(1).into_iter().map(|entry| entry.target.id).collect();
+    assert_eq!(kept, ["writer", "s1"]);
+    assert_eq!(config.desktop_settings().notification_volume, 50);
 }
 
 #[test]
@@ -714,45 +526,6 @@ fn notifications_have_one_typed_shape() {
     assert_eq!(config.get("notifications").unwrap()["devices"][""]["scope"], "all");
 }
 
-/// What a write stores equals what Node's `storedPreferences` / `storedOverride` store for the
-/// same input (`record-notification-store.mjs`): unknown fields dropped, missing ones defaulted.
-#[test]
-fn notifications_store_what_node_stores() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/desktop/settings/notification-store-twin.json");
-    let twin: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-    for (i, entry) in twin["entries"].as_array().unwrap().iter().enumerate() {
-        let dir = tempfile::tempdir().unwrap();
-        let (config, _) = open(&dir, None);
-        let input = &entry["input"];
-        config.write("notifications.devices", input["devices"].clone(), replace()).unwrap();
-        config.write("notifications.overrides", input["overrides"].clone(), replace()).unwrap();
-        config.write("notifications", input.clone(), replace()).unwrap();
-        let stored = config.get("notifications").unwrap();
-        assert_eq!(stored["devices"], entry["stored"]["devices"], "devices of {i}");
-        assert_eq!(stored["overrides"], entry["stored"]["overrides"], "overrides of {i}");
-        assert_eq!(stored["migratedAt"], 5);
-    }
-}
-
-/// The readers push delivery uses answer what Node's store answers (`record-notification-readers.mjs`).
-#[test]
-fn notification_readers_match_the_recorded_node_store() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/desktop/settings/notification-readers-twin.json");
-    let twin: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-    for (i, entry) in twin["entries"].as_array().unwrap().iter().enumerate() {
-        let dir = tempfile::tempdir().unwrap();
-        let (config, _) = open(&dir, Some(json!({ "notifications": entry["input"] })));
-        for (id, expected) in entry["devices"].as_object().unwrap() {
-            let got = serde_json::to_value(config.notification_device(id)).unwrap();
-            assert_eq!(&got, expected, "device {id} of {i}");
-        }
-        let overrides = serde_json::to_value(config.notification_overrides_at(entry["now"].as_i64().unwrap())).unwrap();
-        assert_eq!(overrides, entry["overrides"], "overrides of {i}");
-    }
-}
-
 #[test]
 fn the_stored_instruction_files_setting_is_read_as_written() {
     let dir = tempfile::tempdir().unwrap();
@@ -760,30 +533,6 @@ fn the_stored_instruction_files_setting_is_read_as_written() {
     assert_eq!(config.stored_instruction_files(), None);
     let (config, _) = open(&tempfile::tempdir().unwrap(), Some(json!({ "agent": { "instructionFiles": "claude" } })));
     assert_eq!(config.stored_instruction_files(), Some(json!("claude")));
-}
-
-/// Node's saves write `canonicalizeUnifiedConfig` of the whole document
-/// (`benchmarks/rust-core/recorders/record-config-canonical.mjs`), whatever the edit put back.
-#[test]
-fn a_save_leaves_the_canonical_document_on_disk_as_node_does() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/config/canonical/golden.json")).unwrap();
-    for case in golden["cases"].as_array().unwrap().iter().filter(|case| case.get("write").is_some()) {
-        let dir = tempfile::tempdir().unwrap();
-        let (config, _) = open(&dir, Some(case["config"].clone()));
-        let write = case["write"].clone();
-        config
-            .update(move |doc| {
-                if write["kind"] == "section" {
-                    doc.insert(write["section"].as_str().unwrap().to_owned(), write["value"].clone());
-                } else {
-                    doc.extend(write["patch"].as_object().unwrap().clone());
-                }
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(on_disk(&dir), case["written"], "{}", case["name"]);
-        assert_eq!(Value::Object((*config.full()).clone()), case["written"], "{}: the installed document", case["name"]);
-    }
 }
 
 #[test]
@@ -811,4 +560,307 @@ fn reads_do_not_wait_for_a_writer() {
     assert!(!config.desktop_settings().keep_awake);
     assert_eq!(config.get("desktop.keepAwake"), Some(json!(false)));
     drop(held);
+}
+
+/// The inline test executors run lane jobs on the submitting thread.
+fn lanes() -> ConfigLanes {
+    let tokens = mixdog_rt::testing::tokens();
+    ConfigLanes {
+        read: tokens.interactive_io,
+        write: tokens.durability_io,
+    }
+}
+impl Blocking {
+    fn open(
+        path: impl Into<PathBuf>,
+        publisher: Arc<dyn StatePublisher>,
+    ) -> Result<(Self, Vec<ConfigWarning>), ConfigError> {
+        block_on(Config::open(path, publisher, lanes())).map(|(config, warnings)| (Self(config), warnings))
+    }
+
+    fn write(&self, path: &str, value: Value, mode: ConfigWriteMode) -> Result<Applied, ConfigError> {
+        block_on(self.0.write(path, value, mode))
+    }
+
+    fn batch_write(&self, edits: &[ConfigEdit]) -> Result<Applied, ConfigError> {
+        block_on(self.0.batch_write(edits))
+    }
+
+    fn update(
+        &self,
+        change: impl FnOnce(&mut Doc) -> Result<(), ConfigError> + Send + 'static,
+    ) -> Result<Applied, ConfigError> {
+        block_on(self.0.update(change))
+    }
+
+    fn reload(&self) -> Result<Applied, ConfigError> {
+        block_on(self.0.reload())
+    }
+}
+/// The boot's recovery before its migration reads the file: a malformed config is kept aside as Node's first read keeps it,
+/// and an intact one is left byte for byte.
+#[test]
+fn recover_malformed_keeps_a_damaged_file_aside_and_leaves_an_intact_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mixdog-config.json");
+    fs::write(&path, "{\"agent\": {},\n}").unwrap();
+    block_on(Config::recover_malformed(&path, lanes())).unwrap();
+    assert!(!path.exists());
+    let kept: Vec<_> = fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    assert_eq!(kept.len(), 1);
+    assert!(kept[0].starts_with("mixdog-config.json.corrupt-"));
+
+    let intact = tempfile::tempdir().unwrap();
+    let path = intact.path().join("mixdog-config.json");
+    fs::write(&path, "{\"agent\":{\"x\":1}}").unwrap();
+    block_on(Config::recover_malformed(&path, lanes())).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), "{\"agent\":{\"x\":1}}");
+    assert_eq!(fs::read_dir(intact.path()).unwrap().count(), 1);
+}
+fn owner_only(path: &Path) -> bool {
+    let path = path.to_path_buf();
+    block_on(on_lane(lanes().read, move |lane| mixdog_statefile::is_owner_only(lane, &path))).unwrap().unwrap()
+}
+/// `writeJsonAtomicSync(configPath(), data, { mode: 0o600, secret: true })`: the published config is owner-only (Unix mode
+/// 0600, Windows the protected single-entry DACL Node's ACL helper sets on the temp file before it is renamed into place).
+#[test]
+fn the_config_file_written_through_write_is_owner_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    config.write("desktop.keepAwake", json!(true), replace()).unwrap();
+    assert!(owner_only(&dir.path().join("mixdog-config.json")));
+    // A rewrite of the published file keeps it so.
+    config.write("desktop.keepAwake", json!(false), replace()).unwrap();
+    assert!(owner_only(&dir.path().join("mixdog-config.json")));
+}
+/// `mkdirSync(dirname(configPath()), { recursive: true, mode: 0o700 })` sets no ACL on Windows (the mode is advisory): a
+/// config folder the write creates inherits its parent's ACL and has no protected owner-only DACL of its own.
+#[cfg(windows)]
+#[test]
+fn a_config_folder_the_write_creates_has_no_owner_only_acl_of_its_own() {
+    let parent = tempfile::tempdir().unwrap();
+    let folder = parent.path().join("missing").join("data");
+    let (config, _) = Blocking::open(folder.join("mixdog-config.json"), Arc::new(MockStatePublisher::default())).unwrap();
+    config.write("desktop.keepAwake", json!(true), replace()).unwrap();
+    assert!(folder.join("mixdog-config.json").is_file());
+    assert!(!owner_only(&folder));
+    assert!(!owner_only(folder.parent().unwrap()));
+}
+
+
+/// DS-CFG-1: Node's `desktopSettingsFromConfig` and `DesktopSettingsStore` writes, recorded over
+/// 200 config files (`record-desktop-settings.mjs`).
+#[cfg(node_twin)]
+#[test]
+fn ds_cfg_1_matches_the_recorded_node_store() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/desktop/settings/config-twin.json");
+    let twin: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    let entries = twin["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 200);
+
+    // `agent` and `desktop` are created empty by Node's writes; an empty one carries no setting.
+    let canon = |mut config: Value| {
+        for key in ["agent", "desktop"] {
+            if config.get(key) == Some(&json!({})) {
+                config.as_object_mut().unwrap().remove(key);
+            }
+        }
+        // Node 1.4.5 kept `channels.discord`; the channel is retired and its key is dropped on read.
+        if let Some(channels) = config.get_mut("channels").and_then(Value::as_object_mut) {
+            channels.remove("discord");
+        }
+        config
+    };
+    let retention = |c: &Config| {
+        c.session_retention().map_or(Value::Null, |r| {
+            json!({ "sessionAutoArchiveDays": r.auto_archive_days, "sessionAutoDeleteDays": r.auto_delete_days })
+        })
+    };
+    let pins = |c: &Config| {
+        c.activity_rail_pins()
+            .map_or(Value::Null, |p| json!({ "pins": p.pins, "revision": p.revision }))
+    };
+    for entry in entries {
+        let id = &entry["id"];
+        let dir = tempfile::tempdir().unwrap();
+        let (config, _) = open(&dir, Some(entry["config"].clone()));
+        let want = &entry["expect"];
+        assert_eq!(
+            serde_json::to_value(config.desktop_settings()).unwrap(),
+            want["settings"],
+            "view of {id}"
+        );
+        assert_eq!(retention(&config), want["retention"], "retention of {id}");
+        assert_eq!(pins(&config), want["pins"], "pins of {id}");
+        let (enabled, profile) = browser_cookie_auto_import(&config.full());
+        assert_eq!(
+            json!({ "enabled": enabled, "profileId": profile }),
+            want["cookieAutoImport"],
+            "cookie import of {id}"
+        );
+
+        let args = entry["write"]["args"].as_array().unwrap();
+        let (path, value, mode) = match entry["write"]["op"].as_str().unwrap() {
+            "update" => {
+                let path = match args[0].as_str().unwrap() {
+                    "autoClear" => "agent.autoClear.enabled".to_owned(),
+                    "autoCompact" => "agent.compaction.auto".to_owned(),
+                    flag => format!("desktop.{flag}"),
+                };
+                (path, args[1].clone(), replace())
+            }
+            "updateNotificationVolume" => ("desktop.notificationVolume".into(), args[0].clone(), replace()),
+            "updateSessionRetention" => (format!("desktop.{}", args[0].as_str().unwrap()), args[1].clone(), replace()),
+            "updateBrowserPermissions" => ("desktop.browserPermissions".into(), args[0].clone(), replace()),
+            "updateZoom" => ("desktop.zoom".into(), args[0].clone(), replace()),
+            "updateActivityRailPins" => {
+                let mode = if args[1] == true { ConfigWriteMode::InitializeIfMissing } else { replace() };
+                ("desktop.activityRailPins".into(), args[0].clone(), mode)
+            }
+            op => panic!("{op}"),
+        };
+        let outcome = config.write(&path, value, mode);
+        let after = &entry["after"];
+        if after.get("error").is_some() {
+            assert!(outcome.is_err(), "{id}: Node rejected {path}");
+            continue;
+        }
+        outcome.unwrap_or_else(|e| panic!("{id}: {path}: {e}"));
+        // The recorder's store is an in-memory stand-in; the real config module (`updateConfigAsync`,
+        // `withFreshDefaultsVersion`) stamps the first write into an empty config as born separated.
+        let mut want_config = canon(after["config"].clone());
+        if entry["config"] == json!({}) {
+            want_config.as_object_mut().unwrap().insert("defaultsVersion".into(), json!(2));
+        }
+        assert_eq!(
+            canon(Value::Object((*config.full()).clone())),
+            want_config,
+            "config after write of {id}"
+        );
+        assert_eq!(
+            serde_json::to_value(config.desktop_settings()).unwrap(),
+            after["settings"],
+            "view after write of {id}"
+        );
+        assert_eq!(pins(&config), after["pins"], "pins after write of {id}");
+    }
+}
+/// What the desktop's refused settings writes threw in Node, and the saved config its locked update returned
+/// (`record-desktop-write-errors.mjs`): the wire's `expected` is Node's message, and the write answers the saved
+/// `agent` / `desktop` from inside the same update.
+#[cfg(node_twin)]
+#[test]
+fn desktop_write_errors_and_saved_config_match_node() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/write-errors-twin.json");
+    let twin: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    let entries = twin["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 23);
+    let canon = |mut map: Map<String, Value>| {
+        map.retain(|key, value| matches!(key.as_str(), "agent" | "desktop") && *value != json!({}));
+        Value::Object(map)
+    };
+    for entry in entries {
+        let name = entry["name"].as_str().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let (config, _) = open(&dir, Some(entry["config"].clone()));
+        let args = entry["write"]["args"].as_array().unwrap();
+        let (path, value, mode) = match entry["write"]["op"].as_str().unwrap() {
+            "update" => {
+                let path = match args[0].as_str().unwrap() {
+                    "autoClear" => "agent.autoClear.enabled".to_owned(),
+                    flag => format!("desktop.{flag}"),
+                };
+                (path, args[1].clone(), replace())
+            }
+            "updateNotificationVolume" => ("desktop.notificationVolume".into(), args[0].clone(), replace()),
+            "updateSessionRetention" => (format!("desktop.{}", args[0].as_str().unwrap()), args[1].clone(), replace()),
+            "updateBrowserPermissions" => ("desktop.browserPermissions".into(), args[0].clone(), replace()),
+            "updateBrowserCookieAutoImport" => ("desktop.browserCookieAutoImport".into(), args[0].clone(), replace()),
+            "updateActivityRailPins" => {
+                let mode = if args[1] == true { ConfigWriteMode::InitializeIfMissing } else { replace() };
+                ("desktop.activityRailPins".into(), args[0].clone(), mode)
+            }
+            op => panic!("{op}"),
+        };
+        let edit = ConfigEdit { path: path.clone(), value, mode };
+        let outcome = block_on(config.batch_write_saved(&[edit], service::SAVED_SUBTREES, None));
+        let after = &entry["after"];
+        if let Some(error) = after.get("error") {
+            match outcome {
+                Err(ConfigError::InvalidParams { path: at, expected }) => {
+                    assert_eq!(expected, error["message"].as_str().unwrap(), "{name}: Node's text");
+                    assert_eq!(at, path, "{name}");
+                }
+                other => panic!("{name}: Node threw {error}, got {other:?}"),
+            }
+            continue;
+        }
+        let (_, saved) = outcome.unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(canon(saved.clone()), canon(after["config"].as_object().unwrap().clone()), "{name}: the saved config");
+        assert_eq!(serde_json::to_value(desktop_settings(&saved)).unwrap(), after["settings"], "{name}: the saved settings");
+    }
+}
+/// What a write stores equals what Node's `storedPreferences` / `storedOverride` store for the
+/// same input (`record-notification-store.mjs`): unknown fields dropped, missing ones defaulted.
+#[cfg(node_twin)]
+#[test]
+fn notifications_store_what_node_stores() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/desktop/settings/notification-store-twin.json");
+    let twin: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    for (i, entry) in twin["entries"].as_array().unwrap().iter().enumerate() {
+        let dir = tempfile::tempdir().unwrap();
+        let (config, _) = open(&dir, None);
+        let input = &entry["input"];
+        config.write("notifications.devices", input["devices"].clone(), replace()).unwrap();
+        config.write("notifications.overrides", input["overrides"].clone(), replace()).unwrap();
+        config.write("notifications", input.clone(), replace()).unwrap();
+        let stored = config.get("notifications").unwrap();
+        assert_eq!(stored["devices"], entry["stored"]["devices"], "devices of {i}");
+        assert_eq!(stored["overrides"], entry["stored"]["overrides"], "overrides of {i}");
+        assert_eq!(stored["migratedAt"], 5);
+    }
+}
+/// The readers push delivery uses answer what Node's store answers (`record-notification-readers.mjs`).
+#[cfg(node_twin)]
+#[test]
+fn notification_readers_match_the_recorded_node_store() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/desktop/settings/notification-readers-twin.json");
+    let twin: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    for (i, entry) in twin["entries"].as_array().unwrap().iter().enumerate() {
+        let dir = tempfile::tempdir().unwrap();
+        let (config, _) = open(&dir, Some(json!({ "notifications": entry["input"] })));
+        for (id, expected) in entry["devices"].as_object().unwrap() {
+            let got = serde_json::to_value(config.notification_device(id)).unwrap();
+            assert_eq!(&got, expected, "device {id} of {i}");
+        }
+        let overrides = serde_json::to_value(config.notification_overrides_at(entry["now"].as_i64().unwrap())).unwrap();
+        assert_eq!(overrides, entry["overrides"], "overrides of {i}");
+    }
+}
+/// Node's saves write `canonicalizeUnifiedConfig` of the whole document
+/// (`benchmarks/rust-core/recorders/record-config-canonical.mjs`), whatever the edit put back.
+#[cfg(node_twin)]
+#[test]
+fn a_save_leaves_the_canonical_document_on_disk_as_node_does() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/config/canonical/golden.json")).unwrap();
+    for case in golden["cases"].as_array().unwrap().iter().filter(|case| case.get("write").is_some()) {
+        let dir = tempfile::tempdir().unwrap();
+        let (config, _) = open(&dir, Some(case["config"].clone()));
+        let write = case["write"].clone();
+        config
+            .update(move |doc| {
+                if write["kind"] == "section" {
+                    doc.insert(write["section"].as_str().unwrap().to_owned(), write["value"].clone());
+                } else {
+                    doc.extend(write["patch"].as_object().unwrap().clone());
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(on_disk(&dir), case["written"], "{}", case["name"]);
+        assert_eq!(Value::Object((*config.full()).clone()), case["written"], "{}: the installed document", case["name"]);
+    }
 }

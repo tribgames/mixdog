@@ -82,6 +82,10 @@ impl BodyStream for LeasedBody {
     fn hold_connection(&mut self) {
         self.inner.hold_connection();
     }
+
+    fn connection(&self) -> Option<mixdog_core_api::domain::provider::ConnectionInfo> {
+        self.inner.connection()
+    }
 }
 
 #[async_trait]
@@ -113,6 +117,10 @@ impl BodyStream for RedactedBody {
 
     fn hold_connection(&mut self) {
         self.inner.hold_connection();
+    }
+
+    fn connection(&self) -> Option<mixdog_core_api::domain::provider::ConnectionInfo> {
+        self.inner.connection()
     }
 }
 
@@ -149,6 +157,10 @@ impl<T: HttpSend> HttpSend for Guarded<T> {
             Ok(response) => Ok(clean_response(response, &matcher, grant, lease)),
             Err(error) => Err(matcher.redact_error(error)),
         }
+    }
+
+    fn reports_connection(&self) -> bool {
+        self.0.reports_connection()
     }
 }
 
@@ -500,40 +512,6 @@ mod tests {
         assert_eq!(body_of(response).await, "previous key [REDACTED]");
     }
 
-    /// Two accounts, one origin and one header (review 1124m/n P1): account A's key is configured (read through the key
-    /// variable every send reads it from) and sent once; account B rotates its token 32,769 times, each read out of its
-    /// credential file and sent in the same origin's `authorization`. A is still configured: a later answer quoting it is
-    /// redacted. (The registry named a carried value by origin and position: each of B's sends retired A, and the 32,769th
-    /// retirement after it forgot A.)
-    #[tokio::test]
-    async fn a_configured_key_outlives_the_rotations_of_another_account_on_its_origin_and_header() {
-        use crate::providers::key_source::ApiKeySource as _;
-        use crate::registry::keys::ApiKeyStore;
-        use crate::registry::keys::KeyConfig;
-        use crate::registry::keys::MemoryVault;
-        use crate::registry::keys::ProviderKey;
-
-        struct Configured;
-        impl crate::registry::keys::Environment for Configured {
-            fn var(&self, name: &str) -> Option<String> {
-                (name == "XAI_API_KEY").then(|| "configured-key-of-account-a-5f3c".to_owned())
-            }
-        }
-        let keys = ApiKeyStore::new(Arc::new(MemoryVault::default()), Arc::new(Configured), false);
-        let key_a = ProviderKey::primary(keys, "xai", KeyConfig::default()).key().await.expect("configured");
-        let quiet = Guarded(Echo { chunks: vec![b"ok"], location: "", fail_with: None, content_type: "text/plain", status: 200 });
-        let bearer = |token: &str| format!("Bearer {token}");
-        body_of(quiet.send(request("https://api.x.ai/v1/chat/completions", &[("authorization", &bearer(&key_a))]), TOKEN_EXCHANGE).await.expect("answered")).await;
-        for i in 0..32_769 {
-            let token = format!("rotated-token-of-account-b-{i:05}");
-            carried::keep("file account-b.json", &[&token]);
-            body_of(quiet.send(request("https://api.x.ai/v1/chat/completions", &[("authorization", &bearer(&token))]), TOKEN_EXCHANGE).await.expect("answered")).await;
-        }
-        let echo = Guarded(Echo { chunks: vec![b"the key configured-key-of-account-a-5f3c is over its quota"], location: "", fail_with: None, content_type: "text/plain", status: 429 });
-        let response = echo.send(request("https://api.x.ai/v1/chat/completions", &[]), TOKEN_EXCHANGE).await.expect("answered");
-        assert_eq!(body_of(response).await, "the key [REDACTED] is over its quota");
-    }
-
     /// A stream keeps scrubbing the credential its request carried after the credential's source replaced it, however many
     /// values retire meanwhile; once the stream is over, the replaced value retires like any other.
     #[tokio::test]
@@ -586,37 +564,6 @@ mod tests {
             rest.extend_from_slice(&chunk.expect("no fault"));
         }
         assert_eq!(String::from_utf8(rest).unwrap(), "data: the other key [REDACTED] leaked\n\n");
-    }
-
-    /// What `send` builds on the executor thread before the request goes out: the index entries of the forms of the one new
-    /// credential it carries (a 1.2 KiB JWT: 28), however many the registry holds (here 2,000 JWT-sized ones more), within
-    /// a stated bound of 50 ms on a debug build; the old version rebuilt the whole automaton there (3.4 s at 512 values).
-    #[tokio::test]
-    async fn a_send_builds_only_its_own_credentials_entries_on_the_executor_thread() {
-        let mut state = 0x9E37_79B9_7F4A_7C15_u64;
-        let mut part = |len: usize| -> String {
-            const URL: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-            (0..len)
-                .map(|_| {
-                    state ^= state << 13;
-                    state ^= state >> 7;
-                    state ^= state << 17;
-                    char::from(URL[(state % 64) as usize])
-                })
-                .collect()
-        };
-        for _ in 0..2000 {
-            carried::keep("an account refreshed 2,000 times (the executor test)", &[&format!("eyJ{}.{}.{}", part(36), part(800), part(340))]);
-        }
-        let bearer = format!("Bearer eyJ{}.{}.{}", part(36), part(800), part(340));
-        let quiet = Guarded(Echo { chunks: vec![b"ok"], location: "", fail_with: None, content_type: "text/plain", status: 200 });
-        let before = carried::touched();
-        let started = std::time::Instant::now();
-        let response = quiet.send(request("https://executor.example.test/v1", &[("authorization", &bearer)]), TOKEN_EXCHANGE).await.expect("answered");
-        let spent = started.elapsed();
-        assert_eq!(carried::touched() - before, 28, "the forms of the one credential the request carries");
-        assert!(spent < std::time::Duration::from_millis(50), "{spent:?}");
-        assert_eq!(body_of(response).await, "ok");
     }
 
     /// A compressed refusal is decoded below the guard and redacted after: the real link, over TLS, with a gzip body.
@@ -743,5 +690,70 @@ mod tests {
         let link = std::fs::read_to_string(src.join("transport/link.rs")).unwrap();
         assert_eq!(link.matches("Guarded(Bare(self))").count(), 3);
         assert!(link.contains("\nstruct Bare<"));
+    }
+
+
+    /// Two accounts, one origin and one header (review 1124m/n P1): account A's key is configured (read through the key
+    /// variable every send reads it from) and sent once; account B rotates its token 32,769 times, each read out of its
+    /// credential file and sent in the same origin's `authorization`. A is still configured: a later answer quoting it is
+    /// redacted. (The registry named a carried value by origin and position: each of B's sends retired A, and the 32,769th
+    /// retirement after it forgot A.)
+    #[tokio::test]
+    async fn a_configured_key_outlives_the_rotations_of_another_account_on_its_origin_and_header() {
+        use crate::providers::key_source::ApiKeySource as _;
+        use crate::registry::keys::ApiKeyStore;
+        use crate::registry::keys::KeyConfig;
+        use crate::registry::keys::MemoryVault;
+        use crate::registry::keys::ProviderKey;
+
+        struct Configured;
+        impl crate::registry::keys::Environment for Configured {
+            fn var(&self, name: &str) -> Option<String> {
+                (name == "XAI_API_KEY").then(|| "configured-key-of-account-a-5f3c".to_owned())
+            }
+        }
+        let keys = ApiKeyStore::new(Arc::new(MemoryVault::default()), Arc::new(Configured), false);
+        let key_a = ProviderKey::primary(keys, "xai", KeyConfig::default()).key().await.expect("configured");
+        let quiet = Guarded(Echo { chunks: vec![b"ok"], location: "", fail_with: None, content_type: "text/plain", status: 200 });
+        let bearer = |token: &str| format!("Bearer {token}");
+        body_of(quiet.send(request("https://api.x.ai/v1/chat/completions", &[("authorization", &bearer(&key_a))]), TOKEN_EXCHANGE).await.expect("answered")).await;
+        for i in 0..32_769 {
+            let token = format!("rotated-token-of-account-b-{i:05}");
+            carried::keep("file account-b.json", &[&token]);
+            body_of(quiet.send(request("https://api.x.ai/v1/chat/completions", &[("authorization", &bearer(&token))]), TOKEN_EXCHANGE).await.expect("answered")).await;
+        }
+        let echo = Guarded(Echo { chunks: vec![b"the key configured-key-of-account-a-5f3c is over its quota"], location: "", fail_with: None, content_type: "text/plain", status: 429 });
+        let response = echo.send(request("https://api.x.ai/v1/chat/completions", &[]), TOKEN_EXCHANGE).await.expect("answered");
+        assert_eq!(body_of(response).await, "the key [REDACTED] is over its quota");
+    }
+    /// What `send` builds on the executor thread before the request goes out: the index entries of the forms of the one new
+    /// credential it carries (a 1.2 KiB JWT: 28), however many the registry holds (here 2,000 JWT-sized ones more), within
+    /// a stated bound of 50 ms on a debug build; the old version rebuilt the whole automaton there (3.4 s at 512 values).
+    #[tokio::test]
+    async fn a_send_builds_only_its_own_credentials_entries_on_the_executor_thread() {
+        let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+        let mut part = |len: usize| -> String {
+            const URL: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+            (0..len)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    char::from(URL[(state % 64) as usize])
+                })
+                .collect()
+        };
+        for _ in 0..2000 {
+            carried::keep("an account refreshed 2,000 times (the executor test)", &[&format!("eyJ{}.{}.{}", part(36), part(800), part(340))]);
+        }
+        let bearer = format!("Bearer eyJ{}.{}.{}", part(36), part(800), part(340));
+        let quiet = Guarded(Echo { chunks: vec![b"ok"], location: "", fail_with: None, content_type: "text/plain", status: 200 });
+        let before = carried::touched();
+        let started = std::time::Instant::now();
+        let response = quiet.send(request("https://executor.example.test/v1", &[("authorization", &bearer)]), TOKEN_EXCHANGE).await.expect("answered");
+        let spent = started.elapsed();
+        assert_eq!(carried::touched() - before, 28, "the forms of the one credential the request carries");
+        assert!(spent < std::time::Duration::from_millis(50), "{spent:?}");
+        assert_eq!(body_of(response).await, "ok");
     }
 }

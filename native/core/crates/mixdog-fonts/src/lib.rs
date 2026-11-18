@@ -31,4 +31,9 @@ pub mod registry;
 pub mod shape;
 
 pub use face::{Face, FontError, Slant};
+
+/// What measuring or drawing text answers when the process has no font at all. It reaches the model through the office and
+/// canvas tools, so it names the two ways a font gets there: one installed in a system font folder, or the Noto faces the app
+/// provisions once after the LibreOffice install (`document.installLibreOffice`, `mixdog_fonts::install`).
+pub const NO_FONT_REGISTERED: &str = "no font is registered: none was found in the system font folders, and the Office fonts the app provisions have not been installed. Install a system font (for example Noto Sans) or run the LibreOffice install (document.installLibreOffice), which also provisions the Office fonts, then retry.";
 pub use registry::{FaceId, Registry};

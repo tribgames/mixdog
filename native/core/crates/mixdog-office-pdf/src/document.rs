@@ -54,8 +54,6 @@ impl fmt::Display for AnalysisError {
     }
 }
 
-impl std::error::Error for AnalysisError {}
-
 /// Where the document comes from: a path reads the file; bytes let a batch measure a document it is editing before
 /// anything reaches the disk.
 #[derive(Debug, Clone, Copy)]
@@ -209,3 +207,6 @@ mod tests {
         assert_eq!(cancelled.message, "PDF layout extraction was cancelled");
     }
 }
+
+
+impl std::error::Error for AnalysisError {}

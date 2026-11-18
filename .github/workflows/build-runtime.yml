@@ -1,8 +1,9 @@
 # Build PG 16.4 + pgvector 0.8.2 runtime tarballs per supported OS.
-# Triggers: workflow_dispatch or workflow_call from Deploy (default tag runtime-v0.4.1).
+# Call-only worker: Deploy and Refresh Runtime Manifest each run the full gate
+# before calling it (scripts/ci/coverage/wiring.mjs).
 # Linux job runs in ubuntu:20.04 container so produced binaries link against
 # glibc 2.31 — works on every distro from Ubuntu 20.04 / Debian 11 forward.
-# Output: per-OS tarballs + manifest uploaded to the release.
+# The full matrix smokes the exact tarballs before the aggregate job may publish them.
 
 name: Build Runtime
 
@@ -14,13 +15,17 @@ on:
         required: false
         type: string
         default: "runtime-v0.4.1"
+      sha:
+        description: "The gated commit every job checks out and every release and tag is made at"
+        required: true
+        type: string
       force_rebuild:
         description: "Force rebuild even if content-hash marker exists"
         required: false
         type: boolean
         default: false
       refresh_manifest:
-        description: "Regenerate the manifest even when every platform is unchanged"
+        description: "Unless forcing a build, regenerate the manifest artifact for a public runtime after re-verifying all five platforms"
         required: false
         type: boolean
         default: false
@@ -33,23 +38,12 @@ on:
       has_builds:
         description: "true when at least one platform was built"
         value: ${{ jobs.gate.outputs.has_builds }}
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag (e.g. runtime-v0.4.1)"
-        required: false
-        default: "runtime-v0.4.1"
-      force_rebuild:
-        description: "Force rebuild even if content-hash marker exists"
-        type: boolean
-        required: false
-        default: false
-      refresh_manifest:
-        description: "Regenerate the manifest even when every platform is unchanged"
-        type: boolean
-        required: false
-        default: false
-
+      manifest_id:
+        description: "Immutable manifest artifact from the verified runtime set (empty on a no-op)"
+        value: ${{ jobs.aggregate.outputs.manifest_id }}
+      mode:
+        description: "Worker disposition: build, recover, refresh, or skip"
+        value: ${{ jobs.gate.outputs.mode }}
 permissions:
   contents: read
 
@@ -65,109 +59,66 @@ jobs:
     permissions:
       contents: read
     env:
-      PG_VER: "16.4"
-      PGVEC_VER: "0.8.2"
-      TAG: ${{ inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_REF: ${{ inputs.sha }}
+      FORCE_REBUILD: ${{ inputs.force_rebuild }}
+      REFRESH_MANIFEST: ${{ inputs.refresh_manifest }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     outputs:
-      matrix:     ${{ steps.check.outputs.matrix }}
       has_builds: ${{ steps.check.outputs.has_builds }}
-      # The tag every later step publishes under; differs from the requested
-      # tag when the requested one is shipped (see plan-runtime-release-tag.mjs).
-      tag:        ${{ steps.check.outputs.tag }}
+      tag: ${{ steps.check.outputs.tag }}
+      mode: ${{ steps.check.outputs.mode }}
+      refresh_commit: ${{ steps.check.outputs.refresh_commit }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          ref: ${{ inputs.sha }}
           persist-credentials: false
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.sha }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
 
-      - name: Check content-hash markers
+      - name: Plan a new release, resume a release, or keep the shipped runtime
         id: check
-        run: |
-          set -euo pipefail
-
-          FORCE="${{ inputs.force_rebuild }}"
-          SHIPPED_TAG=$(node -p "JSON.parse(require('fs').readFileSync('src/runtime/memory/data/runtime-manifest.json', 'utf8')).release_tag")
-
-          # linux-arm64 uses ubuntu-22.04-arm — free GitHub-hosted ARM64
-          # runner available for PUBLIC repos. Builds inside the multi-arch
-          # ubuntu:20.04 container (arm64 variant) so the glibc 2.31 floor is
-          # preserved for arm64 too.
-          # darwin-x64 uses macos-15-intel (free for public repos; GitHub
-          # retires macOS Intel images after the macOS 15 image sunsets in
-          # fall 2027 — revisit then).
-          maybe_add() {
-            local os="$1" arch="$2" runner="$3" container="$4" script="$5"
-            local HASH
-            HASH=$(sha256sum "$script" | cut -d' ' -f1)
-            local MARKER="build-success-${os}-${arch}-pg${PG_VER}-pgvector${PGVEC_VER}-${HASH}.marker"
-
-            if [[ "$FORCE" == "true" ]] || ! echo "$ASSETS" | grep -qxF "$MARKER"; then
-              echo "  [$os] adding to build matrix (force=$FORCE, marker=$MARKER)"
-              echo "mixdog-runtime-${os}-${arch}-pg${PG_VER}-pgvector${PGVEC_VER}.tar.gz" >> needed-assets.txt
-              INCLUDES=$(echo "$INCLUDES" | jq -c \
-                --arg os        "$os" \
-                --arg arch      "$arch" \
-                --arg runner    "$runner" \
-                --arg container "$container" \
-                --arg script    "$script" \
-                '. + [{os:$os, arch:$arch, runner:$runner, container:$container, script:$script}]')
-            else
-              echo "  [$os] marker found ($MARKER) → skip"
-            fi
-          }
-
-          plan_builds() {
-            # Existing release asset names (empty string if the release doesn't exist yet).
-            ASSETS=$(gh release view "$1" --json assets -q '.assets[].name' 2>/dev/null || true)
-            INCLUDES='[]'
-            : > needed-assets.txt
-            maybe_add linux  x64   ubuntu-22.04 'ubuntu:20.04' scripts/build-runtime-linux.sh
-            maybe_add linux  arm64 ubuntu-22.04-arm 'ubuntu:20.04' scripts/build-runtime-linux.sh
-            maybe_add darwin arm64 macos-15     ''             scripts/build-runtime-macos.sh
-            maybe_add darwin x64   macos-15-intel ''           scripts/build-runtime-macos.sh
-            maybe_add win32  x64   windows-2022 ''             scripts/build-runtime-windows.ps1
-          }
-
-          plan_builds "$TAG"
-          printf '%s\n' "$ASSETS" > published-assets.txt
-          # Shipped assets are never replaced: a rebuild of a shipped tag
-          # publishes the whole platform set under the next patch tag.
-          BUILD_TAG=$(node scripts/plan-runtime-release-tag.mjs "$TAG" "$SHIPPED_TAG" needed-assets.txt published-assets.txt)
-          if [[ "$BUILD_TAG" != "$TAG" ]]; then
-            echo "::notice::${TAG} is shipped and its assets are immutable; publishing this runtime build as ${BUILD_TAG}"
-            plan_builds "$BUILD_TAG"
-          fi
-
-          echo "tag=$BUILD_TAG" >> "$GITHUB_OUTPUT"
-          echo "matrix=$INCLUDES" >> "$GITHUB_OUTPUT"
-          echo "has_builds=$(echo "$INCLUDES" | jq 'length > 0')" >> "$GITHUB_OUTPUT"
+        run: node scripts/generate-runtime-manifest.mjs plan
 
   build:
     name: build-${{ matrix.os }}-${{ matrix.arch }}
     needs: gate
-    if: needs.gate.outputs.has_builds == 'true'
+    if: needs.gate.outputs.mode != 'skip'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     container: ${{ matrix.container }}
-    permissions:
-      contents: write # upload tarballs and markers to the release
     env:
-      PG_VER: "16.4"
-      PGVEC_VER: "0.8.2"
+      TAG: ${{ needs.gate.outputs.tag }}
+      OS: ${{ matrix.os }}
+      ARCH: ${{ matrix.arch }}
+      RUNTIME_RELEASE_REPOSITORY: ${{ github.repository }}
+      RUNTIME_SMOKE_INPUT: ${{ needs.gate.outputs.mode == 'build' && 'dist' || '' }}
+      RUNTIME_SMOKE_OUTPUT: smoked
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.gate.outputs.matrix) }}
+        include:
+          - { os: linux, arch: x64, runner: ubuntu-22.04, container: 'ubuntu:20.04', script: scripts/build-runtime-linux.sh }
+          - { os: linux, arch: arm64, runner: ubuntu-22.04-arm, container: 'ubuntu:20.04', script: scripts/build-runtime-linux.sh }
+          - { os: darwin, arch: arm64, runner: macos-15, container: '', script: scripts/build-runtime-macos.sh }
+          - { os: darwin, arch: x64, runner: macos-15-intel, container: '', script: scripts/build-runtime-macos.sh }
+          - { os: win32, arch: x64, runner: windows-2022, container: '', script: scripts/build-runtime-windows.ps1 }
 
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          ref: ${{ inputs.sha }}
           persist-credentials: false
-
       # Cache the PG + pgvector build directory so unchanged versions skip
       # the 5-8 min source compile on every run. Hash key includes the build
       # script — script changes invalidate the cache and force a fresh build.
       - name: Cache build artifacts
+        if: needs.gate.outputs.mode == 'build'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: build
@@ -178,14 +129,14 @@ jobs:
       # windows-2022 runner image ships PG 14/15 by default — PG 16 must be
       # installed (or restored from this cache) every run.
       - name: Cache Windows PG 16 system install
-        if: matrix.os == 'win32'
+        if: matrix.os == 'win32' && needs.gate.outputs.mode == 'build'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: 'C:\Program Files\PostgreSQL\16'
           key: pg16-system-win32-x64-16.4.0
 
       - name: Build (unix)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && needs.gate.outputs.mode == 'build'
         env:
           TARGET_OS: ${{ matrix.os }}
           TARGET_ARCH: ${{ matrix.arch }}
@@ -195,7 +146,7 @@ jobs:
           ls -lh dist/
 
       - name: Build (windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.gate.outputs.mode == 'build'
         env:
           TARGET_OS: ${{ matrix.os }}
           TARGET_ARCH: ${{ matrix.arch }}
@@ -204,160 +155,66 @@ jobs:
           .\${{ matrix.script }}
           Get-ChildItem dist/
 
-      - name: Upload tarballs to release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: ${{ needs.gate.outputs.tag }}
-          make_latest: false
-          files: |
-            dist/mixdog-runtime-*.tar.gz
-            dist/mixdog-runtime-*.tar.gz.sha256
-
-      - name: Write and upload build-success marker (unix)
+      - name: Smoke the runtime pair (Unix)
         if: runner.os != 'Windows'
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          if command -v sha256sum >/dev/null 2>&1; then
-            HASH=$(sha256sum "${{ matrix.script }}" | cut -d' ' -f1)
-          else
-            HASH=$(shasum -a 256 "${{ matrix.script }}" | cut -d' ' -f1)
-          fi
-          MARKER_NAME="build-success-${{ matrix.os }}-${{ matrix.arch }}-pg${PG_VER}-pgvector${PGVEC_VER}-${HASH}.marker"
-          BUILT_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          mkdir -p dist
-          # All values are sanitized (hex hash, dotted version, ISO timestamp,
-          # github-supplied sha + matrix tokens) — no JSON escaping needed.
-          # Heredoc avoids the jq dependency (linux container lacks it).
-          cat > "dist/${MARKER_NAME}" <<EOF
-          {
-            "build_hash": "${HASH}",
-            "pg_version": "${PG_VER}",
-            "pgvector_version": "${PGVEC_VER}",
-            "built_at": "${BUILT_AT}",
-            "commit_sha": "${{ github.sha }}",
-            "os": "${{ matrix.os }}",
-            "arch": "${{ matrix.arch }}"
-          }
-          EOF
+        run: bash scripts/smoke-runtime-negative.sh
 
-      - name: Write and upload build-success marker (windows)
+      - name: Smoke the runtime pair (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          $Hash    = (Get-FileHash "${{ matrix.script }}" -Algorithm SHA256).Hash.ToLower()
-          $Name    = "build-success-${{ matrix.os }}-${{ matrix.arch }}-pg$env:PG_VER-pgvector$env:PGVEC_VER-${Hash}.marker"
-          $BuiltAt = (Get-Date -AsUTC -Format "yyyy-MM-ddTHH:mm:ssZ")
-          $Json    = [ordered]@{
-            build_hash       = $Hash
-            pg_version       = $env:PG_VER
-            pgvector_version = $env:PGVEC_VER
-            built_at         = $BuiltAt
-            commit_sha       = "${{ github.sha }}"
-            os               = "${{ matrix.os }}"
-            arch             = "${{ matrix.arch }}"
-          } | ConvertTo-Json
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Set-Content -Path "dist\$Name" -Value $Json -Encoding UTF8
+        run: .\scripts\smoke-runtime-negative.ps1
 
-      - name: Upload build-success marker to release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      - name: Stage only the tarball and sidecar that passed smoke
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          tag_name: ${{ needs.gate.outputs.tag }}
-          make_latest: false
-          files: dist/build-success-*.marker
+          name: runtime-smoked-${{ needs.gate.outputs.tag }}-${{ inputs.sha }}-${{ matrix.os }}-${{ matrix.arch }}
+          path: smoked/
+          if-no-files-found: error
+          overwrite: true
 
   aggregate:
-    name: aggregate-manifest
+    name: publish-smoked-runtime
     needs: [gate, build]
-    if: ${{ always() && needs.gate.result == 'success' && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.refresh_manifest)) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
+    outputs:
+      manifest_id: ${{ steps.manifest.outputs.artifact-id }}
     permissions:
       contents: write
-    concurrency:
-      group: runtime-manifest-sync
-      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ needs.gate.outputs.tag }}
+      RELEASE_REF: ${{ inputs.sha }}
+      RUNTIME_MODE: ${{ needs.gate.outputs.mode }}
+      REFRESH_COMMIT: ${{ needs.gate.outputs.refresh_commit }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          # Generate and commit against the branch that bundles the manifest,
-          # even when this workflow was started from a runtime-v* tag.
-          ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 0
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.sha }}
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
 
-      - name: Generate runtime-manifest.json
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ needs.gate.outputs.tag }}
-        run: node scripts/generate-runtime-manifest.mjs
-
-      - name: Upload manifest to release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      - name: Download the five smoked runtime pairs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          tag_name: ${{ needs.gate.outputs.tag }}
-          make_latest: false
-          files: dist/runtime-manifest.json
+          pattern: runtime-smoked-${{ needs.gate.outputs.tag }}-${{ inputs.sha }}-*
+          digest-mismatch: error
+          path: smoke-results
 
-      - name: Publish manifest as workflow artifact
+      - name: Verify, stage and publish the complete runtime
+        run: node scripts/generate-runtime-manifest.mjs publish
+
+      - name: Transfer the exact verified manifest to the caller
+        id: manifest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: runtime-manifest
+          name: runtime-manifest-${{ github.run_id }}-${{ github.run_attempt }}
           path: dist/runtime-manifest.json
-
-      # Directly updating the default branch is simpler and more reliable than
-      # an auto-PR that can remain unmerged. GITHUB_TOKEN is the only credential.
-      # The concurrency group may cancel an older pending aggregate; that is
-      # acceptable because this step's monotonic tag guard prevents rollback.
-      - name: Sync bundled manifest to default branch
-        env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          RELEASE_TAG: ${{ needs.gate.outputs.tag }}
-        run: |
-          set -euo pipefail
-          MANIFEST=src/runtime/memory/data/runtime-manifest.json
-          TAG_PATTERN='^runtime-v[0-9]+\.[0-9]+\.[0-9]+$'
-
-          if [[ ! "$RELEASE_TAG" =~ $TAG_PATTERN ]]; then
-            echo "Skipping manifest sync: incoming release tag is malformed: ${RELEASE_TAG}"
-            exit 0
-          fi
-
-          git fetch origin "$DEFAULT_BRANCH"
-          if ! git cat-file -e "origin/${DEFAULT_BRANCH}:${MANIFEST}" 2>/dev/null; then
-            echo "No bundled manifest exists on ${DEFAULT_BRANCH}; proceeding with repair sync."
-          elif ! CURRENT_TAG=$(git show "origin/${DEFAULT_BRANCH}:${MANIFEST}" |
-            node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).release_tag" 2>/dev/null); then
-            echo "Bundled manifest is unreadable; proceeding with repair sync."
-          elif [[ ! "$CURRENT_TAG" =~ $TAG_PATTERN ]]; then
-            echo "Bundled release tag is missing or malformed (${CURRENT_TAG:-missing}); proceeding with repair sync."
-          else
-            CURRENT_VERSION=${CURRENT_TAG#runtime-v}
-            INCOMING_VERSION=${RELEASE_TAG#runtime-v}
-            OLDEST_VERSION=$(printf '%s\n%s\n' "$INCOMING_VERSION" "$CURRENT_VERSION" |
-              sort -V | head -n 1)
-
-            if [[ "$INCOMING_VERSION" != "$CURRENT_VERSION" &&
-                  "$OLDEST_VERSION" == "$INCOMING_VERSION" ]]; then
-              echo "Skipping stale manifest sync: incoming ${RELEASE_TAG} is older than bundled ${CURRENT_TAG}."
-              exit 0
-            fi
-          fi
-
-          if git diff --quiet -- "$MANIFEST"; then
-            echo "Bundled runtime manifest is already current."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$MANIFEST"
-          git commit -m "chore(runtime): sync manifest for ${RELEASE_TAG}"
-          git pull --rebase origin "$DEFAULT_BRANCH"
-          git push origin "HEAD:${DEFAULT_BRANCH}"
+          if-no-files-found: error

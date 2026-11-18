@@ -5,7 +5,7 @@ import { HOST_COMPUTER_POINTER_FEEDBACK, registerComputerPointer } from './compu
 function rig() {
   const published = [];
   const handlers = new Map();
-  registerComputerPointer({ handleRequest: (method, run) => handlers.set(method, run) }, (...args) => published.push(args));
+  registerComputerPointer({ handleRequest: (method, run) => handlers.set(method, run) }, { admit: () => ({ signal: new AbortController().signal, commit() {}, track() {}, trackUnfenced() {} }) }, (...args) => published.push(args));
   return { published, ask: (params) => handlers.get(HOST_COMPUTER_POINTER_FEEDBACK)(params, new AbortController().signal) };
 }
 
@@ -45,7 +45,7 @@ test('an event the overlay cannot draw is dropped and the others still arrive', 
 test('a consumer that throws does not fail the request or stop the later events', async () => {
   const handlers = new Map();
   let calls = 0;
-  registerComputerPointer({ handleRequest: (method, run) => handlers.set(method, run) }, () => {
+  registerComputerPointer({ handleRequest: (method, run) => handlers.set(method, run) }, { admit: () => ({ signal: new AbortController().signal, commit() {}, track() {}, trackUnfenced() {} }) }, () => {
     calls += 1;
     throw new Error('overlay gone');
   });

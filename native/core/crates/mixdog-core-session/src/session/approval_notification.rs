@@ -26,6 +26,7 @@ use serde_json::Value;
 use serde_json::json;
 
 use mixdog_core_api::domain::approval::ApprovalRequest;
+use mixdog_core_api::domain::approval::ApprovalKind;
 use mixdog_protocol::Origin;
 
 use super::SessionDirectory;
@@ -152,6 +153,9 @@ impl SessionDirectory {
         let handle = self.handle(&params.thread_id);
         // The phone names the approval by the id its card shows (`room_approval::card_id`).
         let shown = handle.as_ref().and_then(|handle| handle.cell.shown_approval.load_full()).filter(|request| super::room_approval::card_id(&request.id.0.to_string()) == id);
+        if req.ctx.origin == Origin::Relay && shown.as_ref().is_some_and(|request| request.ask.kind == ApprovalKind::Browser) {
+            return reply(ApprovalNotificationOutcome::Open);
+        }
         let decision = match params.action {
             ApprovalNotificationAction::Allow => shown.as_ref().and_then(|request| allow_once_decision(&tool_approval(request))),
             ApprovalNotificationAction::Deny => Some(json!({ "approved": false })),
@@ -220,6 +224,14 @@ impl SessionDirectory {
     }
 }
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "approval_notification_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "approval_notification_rule_tests.rs"]
+mod rule_tests;

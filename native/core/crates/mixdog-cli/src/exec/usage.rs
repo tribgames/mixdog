@@ -97,30 +97,23 @@ pub fn write_usage_document(target: &Path, document: &Value) -> std::io::Result<
     }
     let mut text = serde_json::to_string_pretty(document).expect("a document serializes");
     text.push('\n');
-    std::fs::write(&temp, text)?;
+    write_private(&temp, text.as_bytes())?;
     std::fs::rename(&temp, target)
+}
+
+/// `writeFileSync(temp, text, { mode: 0o600 })`: the usage file is the owner's.
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(bytes)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_document_matches_the_recorded_node_shape() {
-        let mut stats = SessionStats::default();
-        stats.apply(&UsageDelta { model: Some("gpt-fallback".into()), input: 11.0, cached_read: 7.0, cache_write: 3.0, output: 5.0 });
-        let document = usage_document(
-            &stats,
-            &UsageSession { session_id: " sess_exec_test ", model: "gpt-test", observed_models: &["gpt-fallback".into(), "gpt-test".into(), " ".into()], tool_calls: 0.0 },
-        );
-        let golden: Value = serde_json::from_str(include_str!("../../tests/goldens/exec_usage_v1.json")).expect("golden parses");
-        assert_eq!(document, golden);
-        // Key order is part of the file the harnesses read.
-        assert_eq!(
-            serde_json::to_string_pretty(&document).unwrap() + "\n",
-            include_str!("../../tests/goldens/exec_usage_v1.json")
-        );
-    }
 
     #[test]
     fn the_file_is_replaced_in_place_without_a_temp_left() {
@@ -132,10 +125,60 @@ mod tests {
         assert_eq!(std::fs::read_dir(target.parent().unwrap()).unwrap().count(), 1);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn the_file_is_private_to_its_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("usage.json");
+        write_usage_document(&target, &json!({"a": 1})).unwrap();
+        assert_eq!(std::fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
     #[test]
     fn counts_are_clamped_like_node() {
         assert_eq!(non_negative(f64::NAN), 0.0);
         assert_eq!(non_negative(-3.0), 0.0);
         assert_eq!(js_number(2.5), json!(2.5));
+    }
+
+
+    #[test]
+    fn the_document_has_one_trimmed_session_with_its_models_and_totals_in_a_fixed_key_order() {
+        let mut stats = SessionStats::default();
+        stats.apply(&UsageDelta { model: Some("gpt-fallback".into()), input: 11.0, cached_read: 7.0, cache_write: 3.0, output: 5.0 });
+        let document = usage_document(
+            &stats,
+            &UsageSession { session_id: " sess_exec_test ", model: "gpt-test", observed_models: &["gpt-fallback".into(), "gpt-test".into(), " ".into()], tool_calls: 0.0 },
+        );
+        // The route's model comes first, the observed ones follow without repeats or blanks; the id is trimmed.
+        // Key order is part of the file the harnesses read.
+        let expected = r#"{
+  "schemaVersion": 1,
+  "sessions": [
+    {
+      "sessionId": "sess_exec_test",
+      "agentRole": "primary",
+      "models": [
+        "gpt-test",
+        "gpt-fallback"
+      ],
+      "inputTokens": 11,
+      "cacheTokens": 7,
+      "cacheWriteTokens": 3,
+      "outputTokens": 5,
+      "toolCallCountApprox": 0
+    }
+  ],
+  "totals": {
+    "inputTokens": 11,
+    "cacheTokens": 7,
+    "cacheWriteTokens": 3,
+    "outputTokens": 5,
+    "toolCallCountApprox": 0
+  }
+}
+"#;
+        assert_eq!(serde_json::to_string_pretty(&document).unwrap() + "\n", expected);
     }
 }

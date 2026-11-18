@@ -58,10 +58,6 @@ pub struct NoLifecycleHooks;
 
 impl LifecycleHooks for NoLifecycleHooks {}
 
-/// How long a closing runtime waits for its `SessionEnd` handlers (`withTeardownDeadline(.., 300)`):
-/// a slow hook goes on by itself and never holds the close.
-pub const SESSION_END_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
-
 /// The rows `dispatchSessionStart` puts before the first user turn for the handlers' context
 /// (joined with a blank line): the context as a `system-reminder` user message, then the context
 /// ack (`contextAckMessage()`), so the next prompt stays its own message. `None` when the
@@ -96,3 +92,8 @@ mod tests {
         );
     }
 }
+
+
+/// How long a closing runtime waits for its `SessionEnd` handlers (`withTeardownDeadline(.., 300)`):
+/// a slow hook goes on by itself and never holds the close.
+pub const SESSION_END_WAIT: std::time::Duration = std::time::Duration::from_millis(300);

@@ -34,6 +34,33 @@ struct Readout {
     output: f64,
     request_output_tokens: f64,
     request_ms: f64,
+    /// A record saved before the output sum existed has none to extend: it stays without (`Number.isFinite(base.output)`).
+    output_known: bool,
+    /// `speedOutputTokens` / `speedMs` of a record saved before the request-timed definition, kept as they are.
+    legacy_speed: Option<(Value, Value)>,
+}
+
+impl Readout {
+    fn fresh() -> Self {
+        Self { output_known: true, ..Default::default() }
+    }
+
+    /// The totals the session record holds (`session.usageReadout`), which survive a restart.
+    fn stored(record: &Value) -> Option<Self> {
+        let record = record.as_object()?;
+        let field = |key: &str| record.get(key).map_or(0.0, |value| positive(&json!({ key: value }), key));
+        let output = record.get("output").and_then(Value::as_f64).filter(|n| n.is_finite());
+        Some(Self {
+            input: field("input"),
+            cache_read: field("cacheRead"),
+            cache_write: field("cacheWrite"),
+            output: output.unwrap_or(0.0),
+            request_output_tokens: field("requestOutputTokens"),
+            request_ms: field("requestMs"),
+            output_known: output.is_some(),
+            legacy_speed: record.get("speedOutputTokens").zip(record.get("speedMs")).map(|(tokens, ms)| (tokens.clone(), ms.clone())),
+        })
+    }
 }
 
 /// What the last model call measured of the prompt (`sessionContextMeasurement`).
@@ -63,9 +90,16 @@ pub(crate) struct SessionStats {
     cost_usd: f64,
     measurement: Measurement,
     readout: Option<Readout>,
+    /// Whether this session folded a model call of its own since it was opened.
+    folded: bool,
 }
 
 impl SessionStats {
+    /// The stats of a session as it is opened: the readout totals its record holds (`usageReadout` of the header), nothing else yet.
+    pub(crate) fn opened(stored_readout: Option<&Value>) -> Self {
+        Self { readout: stored_readout.and_then(Readout::stored), ..Default::default() }
+    }
+
     /// One model call's usage event (`usage_delta`).
     pub(crate) fn fold(&mut self, usage: &Value) {
         let (input, output) = (num(usage, "deltaInput"), num(usage, "deltaOutput"));
@@ -91,7 +125,8 @@ impl SessionStats {
         } else {
             Measurement::Pending
         };
-        let mut readout = self.readout.take().unwrap_or_default();
+        self.folded = true;
+        let mut readout = self.readout.take().unwrap_or_else(Readout::fresh);
         if known {
             let (cached, cache_write) = (positive(usage, "deltaCachedRead"), positive(usage, "deltaCacheWrite"));
             let prompt = positive(usage, "deltaPrompt");
@@ -101,7 +136,9 @@ impl SessionStats {
             readout.cache_write += cache_write;
         }
         let output = positive(usage, "deltaOutput");
-        readout.output += output;
+        if readout.output_known {
+            readout.output += output;
+        }
         let request_ms = positive(usage, "requestMs");
         if request_ms > 0.0 && output > 0.0 {
             readout.request_output_tokens += output;
@@ -114,7 +151,7 @@ impl SessionStats {
     /// the session's reading until it folds a model call of its own; after that the live reading stands. Returns whether the
     /// stats changed.
     pub(crate) fn restore_measurement(&mut self, measurement: &Value) -> bool {
-        if self.readout.is_some() {
+        if self.folded {
             return false;
         }
         let at = measurement.get("updatedAt").and_then(Value::as_i64).unwrap_or(0);
@@ -169,14 +206,20 @@ impl SessionStats {
         stats.insert(
             "usageReadout".into(),
             self.readout.as_ref().map_or(Value::Null, |readout| {
-                json!({
-                    "input": number(readout.input),
-                    "cacheRead": number(readout.cache_read),
-                    "cacheWrite": number(readout.cache_write),
-                    "output": number(readout.output),
-                    "requestOutputTokens": number(readout.request_output_tokens),
-                    "requestMs": number(readout.request_ms),
-                })
+                let mut totals = Map::new();
+                totals.insert("input".into(), number(readout.input));
+                totals.insert("cacheRead".into(), number(readout.cache_read));
+                totals.insert("cacheWrite".into(), number(readout.cache_write));
+                if readout.output_known {
+                    totals.insert("output".into(), number(readout.output));
+                }
+                totals.insert("requestOutputTokens".into(), number(readout.request_output_tokens));
+                totals.insert("requestMs".into(), number(readout.request_ms));
+                if let Some((tokens, ms)) = &readout.legacy_speed {
+                    totals.insert("speedOutputTokens".into(), tokens.clone());
+                    totals.insert("speedMs".into(), ms.clone());
+                }
+                Value::Object(totals)
             }),
         );
         Value::Object(stats)
@@ -218,6 +261,22 @@ mod tests {
         assert_eq!(stats["currentContextTokens"], Value::Null);
         assert_eq!(stats["usageReadout"], Value::Null);
         assert_eq!(stats["inputTokens"], 0);
+    }
+
+    /// A session opened again shows the totals its record holds and extends them with its next call, as Node's
+    /// `session.usageReadout` survives a restart (`store-usage-readout.test.mjs`).
+    #[test]
+    fn a_reopened_session_keeps_its_recorded_totals_and_extends_them() {
+        let stored = json!({ "input": 1200, "cacheRead": 98000, "cacheWrite": 800, "output": 4000, "requestOutputTokens": 4000, "requestMs": 50000 });
+        let mut stats = SessionStats::opened(Some(&stored));
+        assert_eq!(stats.json(0)["usageReadout"], stored);
+        assert_eq!(stats.json(0)["currentContextSource"], "pending");
+        stats.fold(&json!({ "deltaInput": 100, "deltaOutput": 10, "deltaCachedRead": 900, "deltaPrompt": 1000, "requestMs": 100 }));
+        assert_eq!(
+            stats.json(0)["usageReadout"],
+            json!({ "input": 1300, "cacheRead": 98900, "cacheWrite": 800, "output": 4010, "requestOutputTokens": 4010, "requestMs": 50100 })
+        );
+        assert_eq!(SessionStats::opened(None).json(0)["usageReadout"], Value::Null);
     }
 
     /// `num()` is `Number(v)` with a finite check: a numeric string, a fraction and a negative delta are

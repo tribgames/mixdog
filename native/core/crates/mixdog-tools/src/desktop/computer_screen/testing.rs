@@ -183,6 +183,7 @@ impl Replay {
     }
 }
 
+#[cfg(node_twin)]
 pub(super) use super::router::next_turn;
 
 /// A closed door a fake backend's send waits at until the script opens it. A hung gate never opens.

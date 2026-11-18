@@ -29,6 +29,33 @@ pub struct Server {
     accept: JoinHandle<()>,
 }
 
+/// The text of the error `server.listen` throws, which `startRelay` reports after `[relay] failed to start:`:
+/// `listen EADDRINUSE: address already in use 0.0.0.0:9800`.
+pub fn bind_error_message(error: &io::Error, port: u16) -> String {
+    let code = mixdog_js::uv_error::error_code(error).unwrap_or("UNKNOWN");
+    let description = match code {
+        "EADDRINUSE" => "address already in use",
+        "EACCES" => "permission denied",
+        "EADDRNOTAVAIL" => "address not available",
+        _ => return format!("listen {code}: {error} 0.0.0.0:{port}"),
+    };
+    format!("listen {code}: {description} 0.0.0.0:{port}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_listen_error_reads_as_nodes_does() {
+        let in_use = io::Error::from(io::ErrorKind::AddrInUse);
+        // The kind alone carries no OS code: the text is built from the code `error_code` finds.
+        let text = bind_error_message(&in_use, 9800);
+        assert!(text.starts_with("listen ") && text.ends_with(" 0.0.0.0:9800"), "{text}");
+    }
+}
+
+
 impl Server {
     /// Binds `0.0.0.0:port` and serves every connection with `handler`. `tls` makes the server speak TLS.
     pub async fn start(port: u16, tls: Option<Arc<ServerConfig>>, handler: Arc<dyn Handler>, limits: Limits) -> io::Result<Self> {
@@ -59,7 +86,6 @@ impl Server {
         self.lifecycle.closed().await;
     }
 }
-
 async fn accept_loop(
     listener: TcpListener,
     tls: Option<TlsAcceptor>,
@@ -81,7 +107,6 @@ async fn accept_loop(
         }
     }
 }
-
 async fn serve_tcp(tcp: TcpStream, tls: Option<TlsAcceptor>, handler: Arc<dyn Handler>, limits: Limits, lifecycle: Arc<Lifecycle>) {
     // `http.createServer` defaults `noDelay` to true.
     let _ = tcp.set_nodelay(true);
@@ -94,31 +119,5 @@ async fn serve_tcp(tcp: TcpStream, tls: Option<TlsAcceptor>, handler: Arc<dyn Ha
                 serve_connection(stream, ConnInfo { remote_address, encrypted: true }, handler, limits, lifecycle).await;
             }
         }
-    }
-}
-
-/// The text of the error `server.listen` throws, which `startRelay` reports after `[relay] failed to start:`:
-/// `listen EADDRINUSE: address already in use 0.0.0.0:9800`.
-pub fn bind_error_message(error: &io::Error, port: u16) -> String {
-    let code = mixdog_js::uv_error::error_code(error).unwrap_or("UNKNOWN");
-    let description = match code {
-        "EADDRINUSE" => "address already in use",
-        "EACCES" => "permission denied",
-        "EADDRNOTAVAIL" => "address not available",
-        _ => return format!("listen {code}: {error} 0.0.0.0:{port}"),
-    };
-    format!("listen {code}: {description} 0.0.0.0:{port}")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_listen_error_reads_as_nodes_does() {
-        let in_use = io::Error::from(io::ErrorKind::AddrInUse);
-        // The kind alone carries no OS code: the text is built from the code `error_code` finds.
-        let text = bind_error_message(&in_use, 9800);
-        assert!(text.starts_with("listen ") && text.ends_with(" 0.0.0.0:9800"), "{text}");
     }
 }

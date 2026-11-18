@@ -10,8 +10,11 @@ pub trait SessionNotices: Send + Sync {
     /// A turn on `provider` failed (`failTurn`, not for a cancel); `kind` is the provider failure's
     /// kind (`providerErrorKind(error).kind`), none for a failure that is not the provider's.
     fn turn_failed(&self, provider: &str, kind: Option<&str>);
-    /// A save of a session's records failed (`_recordSaveFailure`), whichever session it was.
-    fn save_failed(&self);
+    /// `session` holds accepted conversation rows the disk does not have (a failed save left them, or their outcome is
+    /// unknown). Told once while that stands.
+    fn save_failed(&self, session: &str);
+    /// `session`'s unsaved rows are acknowledged: the warning for it is over.
+    fn save_resolved(&self, session: &str);
     /// No tool-result sidecar is pruned while `session` cannot be read (whether it names them is not known): the disk
     /// keeps growing until it can (`offloadCopies`).
     fn offload_prune_blocked(&self, session: &str);

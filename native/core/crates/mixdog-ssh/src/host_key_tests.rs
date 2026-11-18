@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 use super::*;
 use crate::context::{ConfigFiles, LaneFiles, Platform, PreparedSpawn, SshChild, SshConfigFiles, SshSpawner, ToolRunner};
 use crate::diagnostics::Diagnostics;
+use crate::pins::owner_of;
 use crate::mixdog_config::mixdog_ssh_config_text;
 
 const HOME: &str = "/home/tester";
@@ -164,9 +165,9 @@ fn linux(files: Arc<MemFiles>, tools: Arc<Tools>) -> SshEnv {
     env_with(Platform::Linux, &[], files, tools)
 }
 
-async fn inspect(target: &str, env: &SshEnv, own: Option<&MixdogSshConfig>) -> HostKeyInspection {
+async fn inspect(target: &str, env: &SshEnv, own: Option<&Arc<MixdogSshConfig>>) -> HostKeyInspection {
     let target = parse_ssh_target(target).expect("a valid target");
-    inspect_with(env, &AttemptContext::default(), &target, own).await.expect("an inspection")
+    inspect_with(env, &AttemptContext::default(), &target, own.cloned(), None).await.expect("an inspection")
 }
 
 fn hop(name: &str, role: SshHopRole, status: SshHopStatus, key: Option<&str>) -> HopKey {
@@ -179,6 +180,23 @@ fn ed(label: &str) -> String {
 
 fn temp() -> tempfile::TempDir {
     tempfile::tempdir().expect("a temporary folder")
+}
+
+/// The owner a saved server `target` claims its pins under.
+fn owner_for(target: &str) -> String {
+    owner_of(&parse_ssh_target(target).expect("a valid target"))
+}
+
+fn claim_of(target: &str, spec: &str, key_type: &str, label: &str) -> Claim {
+    Claim::new(owner_for(target), spec.to_owned(), key_type.to_owned(), key_of(label))
+}
+
+/// Mixdog's own ssh folder, prepared in a real temporary folder (its files are real; the OpenSSH tools stay scripted).
+async fn configured_own() -> (tempfile::TempDir, Arc<MixdogSshConfig>) {
+    let folder = temp();
+    let vars = [("MIXDOG_DATA_DIR", folder.path().to_str().expect("a path"))];
+    let configured = MixdogSshConfig::configure(&env_with(Platform::Linux, &vars, MemFiles::with(&[]), quiet())).await.expect("configured");
+    (folder, configured)
 }
 
 /// A real folder tree: files are read and written for real, the OpenSSH tools are scripted.
@@ -261,9 +279,13 @@ async fn an_unknown_server_shows_the_key_ssh_would_negotiate_first_and_offers_it
     let tools = Tools::new(Network::plain(&format!("10.0.0.1 ssh-rsa {}\n{}", key_of("rsa"), ed("ed"))).script());
     let result = inspect("root@10.0.0.1", &linux(MemFiles::with(&[]), tools.clone()), None).await;
     assert_eq!(result.check, HostKeyCheck::Unknown { fingerprint: fingerprint_of("ed"), key_type: "ED25519".into(), hops: None });
-    let pin = result.pin.expect("a pin");
-    assert_eq!(pin.line, format!("10.0.0.1 ssh-ed25519 {}", key_of("ed")));
-    assert_eq!(normalized(&pin.file), USER_FILE);
+    // Without Mixdog's own known_hosts nobody could own a pin, and nothing is ever written into the user's file: no pin is offered.
+    assert_eq!(result.pin, None);
+    let (_folder, own) = configured_own().await;
+    let owned = inspect("root@10.0.0.1", &linux(MemFiles::with(&[]), Tools::new(Network::plain(&format!("10.0.0.1 ssh-rsa {}\n{}", key_of("rsa"), ed("ed"))).script())), Some(&own)).await;
+    let pin = owned.pin.expect("a pin");
+    assert_eq!(pin.claims, vec![claim_of("root@10.0.0.1", "10.0.0.1", "ssh-ed25519", "ed")]);
+    assert_eq!(pin.file, own.known_hosts_file());
     let summary = result.summary.expect("a summary");
     assert_eq!((summary.host_name.as_str(), summary.user.as_deref(), summary.port, summary.proxy_jump, summary.proxy_command), ("10.0.0.1", Some("root"), 22, None, false));
     assert_eq!(tools.calls()[0][..2], ["ssh".to_owned(), "-G".to_owned()]);
@@ -274,9 +296,9 @@ async fn an_unknown_server_shows_the_key_ssh_would_negotiate_first_and_offers_it
         ..Network::default()
     };
     let tools = Tools::new(rsa_first.script());
-    let pinned = inspect("root@10.0.0.1", &linux(MemFiles::with(&[]), tools.clone()), None).await;
+    let pinned = inspect("root@10.0.0.1", &linux(MemFiles::with(&[]), tools.clone()), Some(&own)).await;
     assert!(matches!(&pinned.check, HostKeyCheck::Unknown { key_type, .. } if key_type == "RSA"));
-    assert_eq!(pinned.pin.expect("a pin").line, format!("10.0.0.1 ssh-rsa {}", key_of("rsa")));
+    assert_eq!(pinned.pin.expect("a pin").claims, vec![claim_of("root@10.0.0.1", "10.0.0.1", "ssh-rsa", "rsa")]);
     let scan = &tools.named("ssh-keyscan")[0];
     let at = scan.iter().position(|arg| arg == "-t").expect("a -t");
     assert_eq!(scan[at + 1], "rsa,ed25519");
@@ -318,18 +340,22 @@ async fn a_changed_key_shows_both_fingerprints_the_exact_ssh_keygen_r_command_an
     assert_eq!(result.pin, None, "a changed key is never offered for pinning");
     // A key in the user's own known_hosts is never edited by Mixdog: only the command is shown.
     assert_eq!(result.replace, None);
-    // A key Mixdog pinned itself (its own known_hosts) can be replaced from here.
-    let folder = temp();
-    let vars = [("MIXDOG_DATA_DIR", folder.path().to_str().expect("a path"))];
-    let configured = MixdogSshConfig::configure(&env_with(Platform::Linux, &vars, MemFiles::with(&[]), quiet())).await.expect("configured");
+    // A pin Mixdog wrote itself (here another saved server's) can be replaced from here.
+    let (_folder, configured) = configured_own().await;
     let own_file = normalized(configured.known_hosts_file());
-    let env = linux(MemFiles::with(&[(own_file.as_str(), ed("old"))]), Tools::new(network.clone().script()));
+    let managed = format!("{}\n", claim_of("ops@other", "10.0.0.1", "ssh-ed25519", "old").line());
+    let env = linux(MemFiles::with(&[(own_file.as_str(), managed)]), Tools::new(network.clone().script()));
     let own = inspect("root@10.0.0.1", &env, Some(&configured)).await;
     assert!(matches!(&own.check, HostKeyCheck::Changed { replaceable: true, remove_command, .. } if remove_command.contains(" -f ")));
     let replace = own.replace.expect("a replacement");
     assert_eq!((replace.spec.as_str(), replace.host.as_str()), ("10.0.0.1", "10.0.0.1"));
     assert_eq!(normalized(&replace.file), own_file);
-    assert_eq!(replace.line, format!("10.0.0.1 ssh-ed25519 {}", key_of("new")));
+    assert_eq!(replace.claim, claim_of("root@10.0.0.1", "10.0.0.1", "ssh-ed25519", "new"));
+    // A pin from before the mark existed is not the app's own: it is for the user to review, never replaced from here.
+    let legacy_env = linux(MemFiles::with(&[(own_file.as_str(), ed("old"))]), Tools::new(network.clone().script()));
+    let legacy = inspect("root@10.0.0.1", &legacy_env, Some(&configured)).await;
+    assert!(matches!(&legacy.check, HostKeyCheck::Changed { replaceable: false, .. }));
+    assert_eq!(legacy.replace, None);
     // A key from the system file cannot be edited by the user: the command names the file, no replace.
     let system = inspect("root@10.0.0.1", &linux(MemFiles::with(&[(GLOBAL_FILE, ed("old"))]), Tools::new(network.script())), None).await;
     assert!(matches!(&system.check, HostKeyCheck::Changed { remove_command, .. } if *remove_command == format!("ssh-keygen -R \"10.0.0.1\" -f \"{GLOBAL_FILE}\"")));
@@ -420,10 +446,12 @@ async fn behind_proxyjump_the_servers_are_read_hop_by_hop_and_a_hop_is_dialed_th
     let vars = [("TMPDIR", folder.path().to_str().expect("a path"))];
     let files = |known: Option<String>| -> Arc<MemFiles> { MemFiles::with(&known.map(|line| vec![(USER_FILE, line)]).unwrap_or_default()) };
     let env = |tools: Arc<Tools>, known: Option<String>| env_with(Platform::Linux, &vars, files(known), tools);
+    let (_own_folder, own) = configured_own().await;
+    let own = Some(&own);
 
     // Nothing trusted yet: the first hop is read directly (no login, no proxy), the target waits.
     let tools = jump_network(false);
-    let both = inspect("jump-target", &env(tools.clone(), None), None).await;
+    let both = inspect("jump-target", &env(tools.clone(), None), own).await;
     assert!(scan_calls(&tools).is_empty(), "a server behind an untrusted hop is not dialed");
     assert!(matches!(&both.check, HostKeyCheck::Unknown { fingerprint, hops: Some(_), .. } if *fingerprint == fingerprint_of("bastion")));
     let expected = vec![
@@ -432,33 +460,136 @@ async fn behind_proxyjump_the_servers_are_read_hop_by_hop_and_a_hop_is_dialed_th
     ];
     assert_eq!(both.hops, expected);
     assert!(matches!(&both.check, HostKeyCheck::Unknown { hops: Some(hops), .. } if *hops == expected));
-    assert_eq!(both.pin.expect("a pin").line, bastion_line(), "only the key that was read is offered");
+    assert_eq!(both.pin.expect("a pin").claims, vec![claim_of("jump-target", BASTION_SPEC, "ssh-ed25519", "bastion")], "only the key that was read is offered");
     assert_eq!(both.summary.expect("a summary").proxy_jump.as_deref(), Some("ops@bastion.example.com:2200"));
 
     // Hop trusted: the target is read through it, with the hop's key seeded so it is checked strictly on the way.
     let tools = jump_network(false);
-    let hop_known = inspect("jump-target", &env(tools.clone(), Some(format!("{}\n", bastion_line()))), None).await;
+    let hop_known = inspect("jump-target", &env(tools.clone(), Some(format!("{}\n", bastion_line()))), own).await;
     let scans = scan_calls(&tools);
     let [scan] = &scans[..] else { panic!("one read through the hop") };
     assert!(scan.join(" ").contains("-o ProxyJump=ops@bastion.example.com:2200"));
     assert_eq!(&scan[scan.len() - 3..], ["--", "jump-target", "true"]);
     assert_eq!(hop_known.hops.iter().map(|hop| hop.status).collect::<Vec<_>>(), vec![SshHopStatus::Trusted, SshHopStatus::Unknown]);
-    assert_eq!(hop_known.pin.expect("a pin").line, format!("10.1.0.5 ssh-ed25519 {}", key_of("target")));
+    // The hop is trusted by the user's own file: that trust is not copied into a pin of this server's.
+    assert_eq!(hop_known.pin.expect("a pin").claims, vec![claim_of("jump-target", "10.1.0.5", "ssh-ed25519", "target")]);
 
     // A changed hop blocks the whole connection and the target is never dialed.
     let tools = jump_network(false);
     let old = format!("{BASTION_SPEC} ssh-ed25519 {}\n", key_of("old-bastion"));
-    let hop_changed = inspect("jump-target", &env(tools.clone(), Some(old)), None).await;
+    let hop_changed = inspect("jump-target", &env(tools.clone(), Some(old)), own).await;
     assert!(scan_calls(&tools).is_empty());
     assert!(matches!(&hop_changed.check, HostKeyCheck::Changed { host, remove_command, .. } if host == "bastion.example.com" && remove_command == "ssh-keygen -R \"[bastion.example.com]:2200\""));
 
     // The target could not be read through a trusted hop: nothing is offered for pinning.
     let tools = jump_network(true);
-    let blocked = inspect("jump-target", &env(tools, Some(format!("{}\n", bastion_line()))), None).await;
+    let blocked = inspect("jump-target", &env(tools, Some(format!("{}\n", bastion_line()))), own).await;
     assert!(matches!(&blocked.check, HostKeyCheck::Unreachable { message, .. } if message.contains("Connection timed out")));
     assert_eq!(blocked.pin, None);
 }
 
+#[tokio::test]
+async fn a_revocation_added_to_a_jump_hosts_own_system_wide_file_after_the_review_refuses_the_confirmation() {
+    let folder = temp();
+    let path = |name: &str| normalized(&folder.path().join(name));
+    let (hop_global, target_global) = (path("hop_global"), path("target_global"));
+    let dumps = BTreeMap::from([
+        ("jump-target".to_owned(), format!("hostname 10.1.0.5\nport 22\nuserknownhostsfile ~/.ssh/known_hosts\nglobalknownhostsfile {target_global}\nproxyjump ops@bastion.example.com:2200\n")),
+        ("ops@bastion.example.com".to_owned(), format!("hostname bastion.example.com\nport 2200\nuserknownhostsfile ~/.ssh/known_hosts\nglobalknownhostsfile {hop_global}\n")),
+    ]);
+    let tools = Tools::new(move |name, args| {
+        if name == "ssh-keyscan" {
+            return out(&format!("{}\n", bastion_line()), "");
+        }
+        let Some(config) = args.iter().position(|arg| arg == "-F").map(|at| PathBuf::from(&args[at + 1])) else {
+            return out(dumps.get(args.last().map_or("", String::as_str)).map_or("", String::as_str), "");
+        };
+        let known = config.with_file_name("known_hosts");
+        let seeded = String::from_utf8_lossy(&mixdog_fsio::read(&mixdog_fsio::Unlaned, &known)?).into_owned();
+        mixdog_fsio::write(&mixdog_fsio::Unlaned, &known, format!("{seeded}10.1.0.5 ssh-ed25519 {}\n", key_of("target")))?;
+        out("", "")
+    });
+    let (data, scans) = (path("data"), path("scans"));
+    std::fs::create_dir_all(&scans).expect("a folder");
+    let mut env = on_disk(&[("MIXDOG_DATA_DIR", data.as_str()), ("TMPDIR", scans.as_str())], tools);
+    env.home = folder.path().join("home");
+    std::fs::create_dir_all(env.home.join(".ssh")).expect("a folder");
+    // The hop is trusted through the user's own file; the target is read through it.
+    std::fs::write(env.home.join(".ssh").join("known_hosts"), format!("{}\n", bastion_line())).expect("written");
+    let own = MixdogSshConfig::configure(&env).await.expect("configured");
+
+    let inspection = inspect("jump-target", &env, Some(&own)).await;
+    assert!(matches!(inspection.check, HostKeyCheck::Unknown { .. }));
+    std::fs::write(&hop_global, format!("@revoked {}\n", bastion_line())).expect("the hop's key revoked after the review, where only the hop's ssh reads it");
+    let refused = pin_host_key(&inspection).await.expect_err("the hop's revocation is part of what was confirmed");
+    assert_eq!(refused.message, crate::said::HOST_KEY_REVOKED_WHILE_CONFIRMING.plain().english);
+    assert_eq!(text(own.known_hosts_file()), "", "the target is not pinned behind a revoked hop");
+}
+
+#[tokio::test]
+async fn a_file_only_the_jump_hosts_ssh_reads_neither_trusts_nor_refuses_the_target() {
+    let folder = temp();
+    let path = |name: &str| normalized(&folder.path().join(name));
+    let hop_global = path("hop_global");
+    let dumps = BTreeMap::from([
+        ("jump-target".to_owned(), "hostname 10.1.0.5\nport 22\nuserknownhostsfile ~/.ssh/known_hosts\nglobalknownhostsfile none\nproxyjump ops@bastion.example.com:2200\n".to_owned()),
+        ("ops@bastion.example.com".to_owned(), format!("hostname bastion.example.com\nport 2200\nuserknownhostsfile ~/.ssh/known_hosts\nglobalknownhostsfile {hop_global}\n")),
+    ]);
+    let tools = Tools::new(move |name, args| {
+        if name == "ssh-keyscan" {
+            return out(&format!("{}\n", bastion_line()), "");
+        }
+        let Some(config) = args.iter().position(|arg| arg == "-F").map(|at| PathBuf::from(&args[at + 1])) else {
+            return out(dumps.get(args.last().map_or("", String::as_str)).map_or("", String::as_str), "");
+        };
+        let known = config.with_file_name("known_hosts");
+        let seeded = String::from_utf8_lossy(&mixdog_fsio::read(&mixdog_fsio::Unlaned, &known)?).into_owned();
+        mixdog_fsio::write(&mixdog_fsio::Unlaned, &known, format!("{seeded}10.1.0.5 ssh-ed25519 {}\n", key_of("target")))?;
+        out("", "")
+    });
+    let (data, scans) = (path("data"), path("scans"));
+    std::fs::create_dir_all(&scans).expect("a folder");
+    let mut env = on_disk(&[("MIXDOG_DATA_DIR", data.as_str()), ("TMPDIR", scans.as_str())], tools);
+    env.home = folder.path().join("home");
+    std::fs::create_dir_all(env.home.join(".ssh")).expect("a folder");
+    std::fs::write(env.home.join(".ssh").join("known_hosts"), format!("{}\n", bastion_line())).expect("the hop is trusted");
+    // The target's very key, in a file the target's own ssh never reads.
+    let target_line = format!("10.1.0.5 ssh-ed25519 {}", key_of("target"));
+    std::fs::write(&hop_global, format!("{target_line}\n")).expect("written");
+    let own = MixdogSshConfig::configure(&env).await.expect("configured");
+
+    let inspection = inspect("jump-target", &env, Some(&own)).await;
+    assert!(matches!(&inspection.check, HostKeyCheck::Unknown { fingerprint, .. } if *fingerprint == fingerprint_of("target")), "{:?}", inspection.check);
+    // Revoked there after the review: still nothing the target's ssh consults, so the confirmation stands.
+    std::fs::write(&hop_global, format!("@revoked {target_line}\n")).expect("written");
+    pin_host_key(&inspection).await.expect("pinned");
+    assert_eq!(text(own.known_hosts_file()), format!("{}\n", claim_of("jump-target", "10.1.0.5", "ssh-ed25519", "target").line()));
+}
+
+#[tokio::test]
+async fn an_unreachable_server_gets_no_config_and_registers_no_file_and_a_reachable_one_both() {
+    let (_folder, own) = configured_own().await;
+    let configs = ResolvedConfigs::new(Arc::clone(&own));
+    let dump = "hostname 10.0.0.1\nport 22\nuserknownhostsfile ~/.ssh/known_hosts /home/tester/custom_known_hosts\n".to_owned();
+    let generic = || text(own.config_file());
+    let written = || mixdog_fsio::read_dir(&mixdog_fsio::Unlaned, own.dir()).expect("a folder").filter_map(Result::ok).filter(|entry| entry.file_name().to_string_lossy().starts_with("t-")).count();
+    let before = generic();
+    let inspect_at = |network: Network| {
+        let env = linux(MemFiles::with(&[]), Tools::new(network.script()));
+        let (own, configs) = (Arc::clone(&own), &configs);
+        async move { inspect_with(&env, &AttemptContext::default(), &parse_ssh_target("root@10.0.0.1").expect("a target"), Some(own), Some(configs)).await.expect("an inspection") }
+    };
+
+    let down = inspect_at(Network { dump: dump.clone(), scan_fails: true, ..Network::default() }).await;
+    assert!(matches!(down.check, HostKeyCheck::Unreachable { .. }), "{:?}", down.check);
+    assert_eq!(down.reviewed, None);
+    assert_eq!((generic(), written()), (before.clone(), 0), "nothing is written for a server that could not be read");
+
+    let up = inspect_at(Network { dump, scan: ed("ed"), ..Network::default() }).await;
+    assert!(matches!(up.check, HostKeyCheck::Unknown { .. }), "{:?}", up.check);
+    assert!(up.reviewed.as_ref().and_then(|reviewed| reviewed.file.as_ref()).is_some_and(|file| file.path().is_file()));
+    assert!(generic().contains("custom_known_hosts") && written() == 1);
+}
 #[tokio::test]
 async fn the_proxy_read_switches_the_login_off_for_the_server_being_read_only_and_checks_the_hops_before_it_strictly() {
     let folder = temp();
@@ -531,66 +662,80 @@ async fn proxycommand_reads_the_target_through_the_same_ssh_based_scan() {
 async fn known_hosts_in_a_profile_folder_with_spaces_and_non_ascii_characters_is_read_and_written() {
     let folder = temp();
     let home = folder.path().join("mixdog 홈 폴더");
-    let mut env = on_disk(&[], Tools::new(Network::plain(&ed("ed")).script()));
+    let data = folder.path().join("data");
+    let mut env = on_disk(&[("MIXDOG_DATA_DIR", data.to_str().expect("a path"))], Tools::new(Network::plain(&ed("ed")).script()));
     env.home = home.clone();
-    let first = inspect("root@10.0.0.1", &env, None).await;
+    let own = MixdogSshConfig::configure(&env).await.expect("configured");
+    let first = inspect("root@10.0.0.1", &env, Some(&own)).await;
     assert!(matches!(first.check, HostKeyCheck::Unknown { .. }));
-    let file = home.join(".ssh").join("known_hosts");
-    assert_eq!(normalized(&first.pin.as_ref().expect("a pin").file), normalized(&file));
-    pin_host_key(&env, &first).expect("pinned");
-    let second = inspect("root@10.0.0.1", &env, None).await;
+    assert_eq!(first.pin.as_ref().expect("a pin").file, own.known_hosts_file());
+    pin_host_key(&first).await.expect("pinned");
+    let second = inspect("root@10.0.0.1", &env, Some(&own)).await;
     assert_eq!(second.check, HostKeyCheck::Trusted { authority: None, hops: None });
-    assert_eq!(text(&file), ed("ed"));
+    assert_eq!(text(own.known_hosts_file()), format!("{}\n", claim_of("root@10.0.0.1", "10.0.0.1", "ssh-ed25519", "ed").line()));
+    assert!(!home.join(".ssh").join("known_hosts").exists(), "the user's own file is never written");
 }
 
 // ---- writes ----
 
-fn pin_of(file: &Path, line: &str) -> HostKeyInspection {
+/// A pin of `spec` and `key` for the server `root@10.0.0.1`, of an inspection that read nothing about the route.
+fn pin_of(file: &Path, spec: &str, key: &str) -> HostKeyInspection {
+    let owner = owner_for("root@10.0.0.1");
     HostKeyInspection {
         hops: Vec::new(),
         check: HostKeyCheck::Trusted { authority: None, hops: None },
-        pin: Some(Pin { line: line.to_owned(), file: file.to_owned() }),
+        pin: Some(Pin::new(file.to_owned(), vec![Claim::new(owner, spec.to_owned(), "ssh-ed25519".to_owned(), key.to_owned())], Vec::new())),
         replace: None,
         summary: None,
+        reviewed: None,
     }
 }
 
-#[test]
-fn pinning_appends_the_confirmed_key_on_its_own_line_creating_the_folder() {
-    let folder = temp();
-    let file = folder.path().join(".ssh").join("known_hosts");
-    let env = on_disk(&[], quiet());
-    pin_host_key(&env, &pin_of(&file, &format!("10.0.0.1 ssh-ed25519 {}", key_of("a")))).expect("pinned");
-    let mut handle = mixdog_fsio::OpenOptions::new();
-    handle.append(true);
-    io::Write::write_all(&mut handle.open(&mixdog_fsio::Unlaned, &file).expect("opened"), format!("10.0.0.9 ssh-ed25519 {}", key_of("b")).as_bytes()).expect("written");
-    pin_host_key(&env, &pin_of(&file, &format!("10.0.0.2 ssh-ed25519 {}", key_of("c")))).expect("pinned");
-    assert_eq!(
-        text(&file).split('\n').collect::<Vec<_>>(),
-        vec![format!("10.0.0.1 ssh-ed25519 {}", key_of("a")), format!("10.0.0.9 ssh-ed25519 {}", key_of("b")), format!("10.0.0.2 ssh-ed25519 {}", key_of("c")), String::new()]
-    );
-    assert!(pin_host_key(&env, &HostKeyInspection { pin: None, ..pin_of(&file, "x") }).is_err(), "nothing to pin");
+fn pin_line(spec: &str, key: &str) -> String {
+    Claim::new(owner_for("root@10.0.0.1"), spec.to_owned(), "ssh-ed25519".to_owned(), key.to_owned()).line()
 }
 
 #[tokio::test]
-async fn replacing_a_key_removes_the_old_entry_through_ssh_keygen_r_and_pins_the_new_one() {
+async fn pinning_appends_the_confirmed_key_on_its_own_line_creating_the_folder() {
+    let folder = temp();
+    let file = folder.path().join(".ssh").join("known_hosts");
+    pin_host_key(&pin_of(&file, "10.0.0.1", &key_of("a"))).await.expect("pinned");
+    let mut handle = mixdog_fsio::OpenOptions::new();
+    handle.append(true);
+    io::Write::write_all(&mut handle.open(&mixdog_fsio::Unlaned, &file).expect("opened"), format!("10.0.0.9 ssh-ed25519 {}", key_of("b")).as_bytes()).expect("written");
+    pin_host_key(&pin_of(&file, "10.0.0.2", &key_of("c"))).await.expect("pinned");
+    // The file the user left without a final newline ends without one again, behind the pin that took its last place.
+    assert_eq!(
+        text(&file).split('\n').collect::<Vec<_>>(),
+        vec![pin_line("10.0.0.1", &key_of("a")), format!("10.0.0.9 ssh-ed25519 {}", key_of("b")), pin_line("10.0.0.2", &key_of("c"))]
+    );
+    assert!(pin_host_key(&HostKeyInspection { pin: None, ..pin_of(&file, "x", "y") }).await.is_err(), "nothing to pin");
+}
+
+#[tokio::test]
+async fn replacing_a_key_rewrites_its_pin_in_place_and_keeps_its_mark() {
     let folder = temp();
     let file = folder.path().join("known_hosts");
+    let other = owner_for("ops@other");
+    let old = Claim::new(other.clone(), "10.0.0.1".into(), "ssh-ed25519".into(), key_of("old"));
+    mixdog_fsio::write(&mixdog_fsio::Unlaned, &file, format!("{}\n", old.line())).expect("written");
+    let owner = owner_for("root@10.0.0.1");
+    let replace = Replace {
+        spec: "10.0.0.1".into(),
+        file: file.clone(),
+        claim: Claim::new(owner, "10.0.0.1".into(), "ssh-ed25519".into(), key_of("new")),
+        host: "10.0.0.1".into(),
+        old_key: key_of("old"),
+        shown: Vec::new(),
+    };
+    let inspection = HostKeyInspection { replace: Some(replace), ..pin_of(&file, "x", "y") };
+    replace_host_key(&inspection).await.expect("replaced");
+    assert_eq!(text(&file), format!("10.0.0.1 ssh-ed25519 {} mixdog-pin-v1={other}\n", key_of("new")));
+    // An entry Mixdog did not write is for the user to review.
     mixdog_fsio::write(&mixdog_fsio::Unlaned, &file, ed("old")).expect("written");
-    let emptied = file.clone();
-    let tools = Tools::new(move |_, _| {
-        mixdog_fsio::write(&mixdog_fsio::Unlaned, &emptied, "")?;
-        out("", "")
-    });
-    let env = on_disk(&[], tools.clone());
-    let replace = Replace { spec: "10.0.0.1".into(), file: file.clone(), line: format!("10.0.0.1 ssh-ed25519 {}", key_of("new")), host: "10.0.0.1".into() };
-    let inspection = HostKeyInspection { replace: Some(replace), ..pin_of(&file, "x") };
-    replace_host_key(&env, &inspection).await.expect("replaced");
-    assert_eq!(tools.calls(), vec![vec!["ssh-keygen".to_owned(), "-R".into(), "10.0.0.1".into(), "-f".into(), file.to_string_lossy().into_owned()]]);
-    assert_eq!(text(&file), ed("new"));
-    let failing = on_disk(&[], Tools::new(|_, _| Ok(ToolOutput { exit_code: Some(1), stdout: String::new(), stderr: "no such file".into() })));
-    let failure = replace_host_key(&failing, &inspection).await.expect_err("refused");
-    assert!(failure.message.contains("no such file"));
+    let failure = replace_host_key(&inspection).await.expect_err("refused");
+    assert!(failure.message.contains("by hand"), "{}", failure.message);
+    assert_eq!(text(&file), ed("old"));
 }
 
 #[cfg(windows)]
@@ -652,23 +797,23 @@ async fn mixdog_keeps_its_own_known_hosts_new_pins_land_there_and_the_config_lis
     let own = normalized(configured.known_hosts_file());
     let config = normalized(configured.config_file());
     let body = text(configured.config_file());
-    assert!(body.starts_with(&format!("# Written by Mixdog; rewritten on every start.\nHost *\n  UserKnownHostsFile \"{own}\" ~/.ssh/known_hosts ~/.ssh/known_hosts2\n")), "{body}");
+    assert!(body.starts_with(&format!("# Written by Mixdog; rewritten on every start.\nHost *\n  UpdateHostKeys no\n  StrictHostKeyChecking yes\n  UserKnownHostsFile \"{own}\" ~/.ssh/known_hosts ~/.ssh/known_hosts2\n")), "{body}");
     assert!(body.contains("\nInclude \"") && body.ends_with(".ssh/config\"\n") && !config.is_empty());
     // A custom file the user's config names for a server is kept in the list, once.
     let custom = normalized(&env.home.join("work").join("hosts"));
     let list = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>();
-    configured.register_user_known_hosts(&list(&[custom.as_str(), custom.as_str(), "~/.ssh/known_hosts", "none"])).expect("registered");
+    configured.register_user_known_hosts(&list(&[custom.as_str(), custom.as_str(), "~/.ssh/known_hosts", "none"])).await.expect("registered");
     let body = text(configured.config_file());
     assert_eq!(body.matches(custom.as_str()).count(), 1);
     assert!(!body.contains("none"));
     // The default files (also spelled out with the home folder) and Mixdog's own file are not added again.
     let spelled = normalized(&env.home.join(".ssh").join("known_hosts2"));
-    configured.register_user_known_hosts(&list(&[spelled.as_str(), own.as_str()])).expect("registered");
+    configured.register_user_known_hosts(&list(&[spelled.as_str(), own.as_str()])).await.expect("registered");
     assert_eq!(text(configured.config_file()), body);
     // A pin goes to Mixdog's file; the user's own file is never touched.
     let user_file = env.home.join(".ssh").join("known_hosts");
-    pin_host_key(&env, &pin_of(configured.known_hosts_file(), "h ssh-ed25519 AAAA")).expect("pinned");
-    assert_eq!(text(configured.known_hosts_file()), "h ssh-ed25519 AAAA\n");
+    pin_host_key(&pin_of(configured.known_hosts_file(), "h", "AAAA")).await.expect("pinned");
+    assert_eq!(text(configured.known_hosts_file()), format!("{}\n", pin_line("h", "AAAA")));
     assert!(!mixdog_fsio::exists(&mixdog_fsio::Unlaned, &user_file).expect("a check"));
 }
 
@@ -677,9 +822,25 @@ async fn the_user_files_of_the_config_are_capped_at_sixteen() {
     let folder = temp();
     let configured = MixdogSshConfig::configure(&disk_env(folder.path(), &[])).await.expect("configured");
     let many: Vec<String> = (0..20).map(|number| format!("/keys/file{number}")).collect();
-    configured.register_user_known_hosts(&many).expect("registered");
+    configured.register_user_known_hosts(&many).await.expect("registered");
     let body = text(configured.config_file());
     assert!(body.contains("/keys/file15\"") && !body.contains("/keys/file16\""));
+}
+
+#[tokio::test]
+async fn a_registration_that_could_not_be_published_is_not_remembered_so_the_next_one_publishes_it() {
+    let folder = temp();
+    let configured = MixdogSshConfig::configure(&disk_env(folder.path(), &[])).await.expect("configured");
+    let custom = vec!["/keys/custom".to_owned()];
+    // A folder where the config file is: the replacement cannot be renamed over it.
+    let config = configured.config_file().to_path_buf();
+    std::fs::remove_file(&config).expect("removed");
+    std::fs::create_dir(&config).expect("a folder in its place");
+    configured.register_user_known_hosts(&custom).await.expect_err("not published");
+    std::fs::remove_dir(&config).expect("removed");
+
+    configured.register_user_known_hosts(&custom).await.expect("registered");
+    assert!(text(&config).contains("/keys/custom\""), "the file the failed registration named is published now");
 }
 
 #[test]
@@ -792,3 +953,4 @@ async fn a_failed_lock_leaves_no_marker_so_the_next_start_tries_again() {
     MixdogSshConfig::configure(&env).await.expect("configured");
     assert_eq!(again.named("icacls").len(), 1);
 }
+

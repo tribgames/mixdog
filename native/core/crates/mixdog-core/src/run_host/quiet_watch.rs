@@ -110,25 +110,42 @@ mod tests {
     //! `startQuietWatch` as `turn.mjs:781` starts it): the watch runs on a virtual clock that only the recording's
     //! `timers.advances` move; each poll is released when the clock reaches it and the next one is awaited as the watch arms
     //! it. The turn stops being current at `turnEndsAtMs`, where the run finishes the watch.
+    #[cfg(node_twin)]
     use std::path::Path;
+    #[cfg(node_twin)]
     use std::sync::Mutex;
-    use std::sync::atomic::{AtomicI64, Ordering};
+    #[cfg(node_twin)]
+    use std::sync::atomic::AtomicI64;
+    #[cfg(node_twin)]
+    use std::sync::atomic::Ordering;
 
+    #[cfg(node_twin)]
     use async_trait::async_trait;
-    use mixdog_agent::agent_tool::watchdog::{AgentKind, stall_warn_ms};
+    #[cfg(node_twin)]
+    use mixdog_agent::agent_tool::watchdog::AgentKind;
+    #[cfg(node_twin)]
+    use mixdog_agent::agent_tool::watchdog::stall_warn_ms;
+    #[cfg(node_twin)]
     use mixdog_testkit::Exact;
-    use tokio::sync::{mpsc, oneshot};
+    #[cfg(node_twin)]
+    use tokio::sync::mpsc;
+    #[cfg(node_twin)]
+    use tokio::sync::oneshot;
 
+    #[cfg(node_twin)]
     use super::*;
 
     /// The longest the watch may take to arm its next poll after one is released.
+    #[cfg(node_twin)]
     const BOUND: Duration = Duration::from_secs(10);
 
+    #[cfg(node_twin)]
     struct Virtual {
         now: AtomicI64,
         armed: mpsc::UnboundedSender<(i64, oneshot::Sender<()>)>,
     }
 
+    #[cfg(node_twin)]
     impl Clock for Virtual {
         fn now_ms(&self) -> i64 {
             self.now.load(Ordering::SeqCst)
@@ -136,6 +153,7 @@ mod tests {
     }
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl RetryWait for Virtual {
         async fn wait(&self, delay: Duration) {
             let (release, released) = oneshot::channel();
@@ -146,6 +164,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn the_quiet_watch_publishes_what_nodes_published_on_the_recorded_clock() {
         let golden = Exact::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/quiet-progress-cases/golden.json"));
         let case = &golden.get("cases").as_array()[5];
@@ -213,3 +232,5 @@ mod tests {
         assert_eq!(Exact::plain(&json!([])), *want.get("timers").get("pending"), "polls left armed");
     }
 }
+
+

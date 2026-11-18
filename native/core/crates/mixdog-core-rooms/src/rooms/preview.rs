@@ -85,9 +85,9 @@ mod tests {
 
     use super::*;
 
-    const GOLDEN: &str = include_str!("preview/golden.json");
+        const GOLDEN: &str = include_str!("preview/golden.json");
 
-    #[test]
+        #[test]
     fn every_recorded_preview_equals_node() {
         let golden: Vec<Value> = serde_json::from_str(GOLDEN).unwrap();
         assert!(golden.len() > 20);

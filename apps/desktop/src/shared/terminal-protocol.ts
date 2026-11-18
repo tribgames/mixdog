@@ -87,20 +87,35 @@ export function terminalSizeOwnerChanges(
 /** A terminal's output as Node's `termData` text, per tab (`processHandle`): each `process/outputDelta` through its tab's streaming
  *  decoder, with the lone units at the edges of a frame Node cut inside a surrogate pair (the core's bytes cannot hold half a
  *  character). `end` drops a tab's decoder once its shell has exited. */
+export type TerminalReplayCut = { stream: string; offset: number };
+
+export function terminalReplayCut(reply: unknown): TerminalReplayCut | undefined {
+  const cut = (reply as { replayCut?: Partial<TerminalReplayCut> } | null)?.replayCut;
+  return typeof cut?.stream === 'string' && typeof cut.offset === 'number' && Number.isSafeInteger(cut.offset) && cut.offset >= 0
+    ? { stream: cut.stream, offset: cut.offset }
+    : undefined;
+}
+
 export function createTerminalOutputDecoder(): {
-  text(params: unknown): { id: string; data: string };
+  text(params: unknown, cut?: TerminalReplayCut): { id: string; data: string };
   end(id: string): void;
 } {
   const decoders = new Map<string, TextDecoder>();
   const unit = (value: unknown): string => (typeof value === 'number' ? String.fromCharCode(value) : '');
   return {
-    text(params) {
-      const { processHandle, bytesB64, leadUnit, tailUnit } = (params ?? {}) as Record<string, unknown>;
+    text(params, cut) {
+      const { processHandle, bytesB64, leadUnit, tailUnit, outputStream, outputOffset } = (params ?? {}) as Record<string, unknown>;
       const id = String(processHandle ?? '');
+      if (cut && typeof outputOffset === 'number' && outputStream !== cut.stream) return { id, data: '' };
+      const skip = cut && typeof outputOffset === 'number' ? Math.max(0, cut.offset - outputOffset) : 0;
+      const bytes = Uint8Array.from(atob(String(bytesB64 ?? '')), (c) => c.charCodeAt(0));
+      // A carried low surrogate belongs to the previous four-byte character; a trailing high unit belongs to the next one.
+      const lead = !cut || typeof outputOffset !== 'number' || cut.offset < outputOffset ? unit(leadUnit) : '';
+      const tail = skip <= bytes.length ? unit(tailUnit) : '';
+      if (!lead && !tail && skip >= bytes.length) return { id, data: '' };
       let decoder = decoders.get(id);
       if (!decoder) decoders.set(id, (decoder = new TextDecoder()));
-      const bytes = Uint8Array.from(atob(String(bytesB64 ?? '')), (c) => c.charCodeAt(0));
-      return { id, data: unit(leadUnit) + decoder.decode(bytes, { stream: true }) + unit(tailUnit) };
+      return { id, data: lead + decoder.decode(bytes.subarray(skip), { stream: true }) + tail };
     },
     end: (id) => void decoders.delete(id),
   };

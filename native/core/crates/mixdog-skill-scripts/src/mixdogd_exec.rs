@@ -86,18 +86,6 @@ pub struct Mixdogd {
     bin: Option<String>,
 }
 
-impl Mixdogd {
-    /// The runner that starts `bin` (`MIXDOGD_BIN`'s value) or `mixdogd`.
-    pub fn new(bin: Option<String>) -> Self {
-        Self { bin }
-    }
-
-    /// The runner this process's environment names.
-    pub fn from_env() -> Self {
-        Self::new(std::env::var(BIN_ENV).ok())
-    }
-}
-
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the office scripts start `mixdogd exec` and wait for its output, as skill-run's interpreter start does; they have no runtime or lane")]
 impl ExecRunner for Mixdogd {
     fn run(&self, options: &ExecOptions) -> ExecResult {
@@ -178,6 +166,7 @@ mod tests {
         assert_eq!(mixdogd_bin(None), "mixdogd");
     }
 
+
     #[test]
     fn a_mixdogd_that_cannot_start_is_exit_code_one_with_the_reason_on_stderr() {
         let missing = std::env::temp_dir().join("mixdog-skill-scripts-no-such-mixdogd").join("mixdogd");
@@ -185,5 +174,18 @@ mod tests {
         assert_eq!(result.code, 1);
         assert!(result.stderr.starts_with("mixdogd exec could not start: "), "{}", result.stderr);
         assert!(result.stderr.ends_with('\n'));
+    }
+}
+
+
+impl Mixdogd {
+    /// The runner that starts `bin` (`MIXDOGD_BIN`'s value) or `mixdogd`.
+    pub fn new(bin: Option<String>) -> Self {
+        Self { bin }
+    }
+
+    /// The runner this process's environment names.
+    pub fn from_env() -> Self {
+        Self::new(std::env::var(BIN_ENV).ok())
     }
 }

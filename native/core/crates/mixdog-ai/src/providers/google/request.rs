@@ -87,6 +87,7 @@ fn file_part(filename: Option<&str>, mime_type: &str, data: &str) -> Value {
 fn media_part(part: &ContentPart) -> Result<Option<Value>, ProviderError> {
     Ok(Some(match part {
         ContentPart::Text(text, _) => json!({ "text": text }),
+        // The media type is the one the image's bytes have (`prepare_images`, before the request is built).
         ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => {
             json!({ "inlineData": { "mimeType": mime_type, "data": data } })
         }

@@ -208,6 +208,12 @@ impl WsConn {
     }
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn conformance_scenarios_over_websocket() {
+    common::run_all(|| async { Arc::new(WsNet::start().await) as Arc<dyn Net> }).await;
+}
+
+
 #[async_trait]
 impl Net for WsNet {
     fn connector(&self) -> Arc<dyn Connector> {
@@ -225,9 +231,4 @@ impl Net for WsNet {
     async fn settle(&self) {
         mixdog_rt::time::sleep(SETTLE).await;
     }
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn conformance_scenarios_over_websocket() {
-    common::run_all(|| async { Arc::new(WsNet::start().await) as Arc<dyn Net> }).await;
 }

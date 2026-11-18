@@ -159,7 +159,6 @@ test('createPaneConversationRenderer builds conversation surface with appropriat
       defaultSubmitCalls += 1;
       return 'defaultSubmit';
     },
-    applySessionLaneResult: () => {},
     applySnapshot: () => {},
     composerFocusRequest: 0,
     conversationNewTask: () => {},

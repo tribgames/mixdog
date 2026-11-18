@@ -23,8 +23,30 @@ use crate::transactions::TransactionError;
 
 impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Machine<'_, P, H, C, R, B> {
     /// `save(session)`.
-    pub async fn save(&self, handle: &SessionHandle) -> Result<Value, TransactionError> {
-        Ok(save_session(self.host(), handle).await?)
+    /// With `output`, the saved document is also written there as a copy and the session stays on its own file.
+    pub async fn save(&self, handle: &SessionHandle, args: &Value, signal: Option<&CancellationToken>) -> Result<Value, TransactionError> {
+        let mut saved = save_session(self.host(), handle).await?;
+        let output = args.get("output").and_then(Value::as_str).map(mixdog_js::js_trim).filter(|output| !output.is_empty());
+        let Some(output) = output else { return Ok(saved) };
+        let (id, format, mode, target, microsoft_office) = {
+            let session = lock(handle);
+            (session.id.clone(), session.format.clone(), session.mode.as_str(), session.target.clone(), session.is_microsoft_office())
+        };
+        self.note().note_write(std::path::Path::new(output));
+        if microsoft_office {
+            let request = json!({ "action": "save_copy", "session": id, "format": format, "mode": mode, "path": target, "output": output });
+            let answer = self.host().call(&request, signal, Some(std::time::Duration::from_millis(120_000))).await;
+            if !answer.get("ok").is_some_and(truthy) {
+                let reason = answer.get("error").filter(|error| truthy(error)).map_or_else(|| "Microsoft Office save-copy failed".to_owned(), mixdog_js::value_to_string);
+                return Err(reason.into());
+            }
+        } else {
+            mixdog_fsio::copy(self.design().lane, &target, output).map_err(|error| error.to_string())?;
+        }
+        if let Some(fields) = saved.as_object_mut() {
+            fields.insert("output".to_owned(), Value::String(output.to_owned()));
+        }
+        Ok(saved)
     }
 
     /// `closeSession(session, { save, signal })`: the session closed and forgotten.

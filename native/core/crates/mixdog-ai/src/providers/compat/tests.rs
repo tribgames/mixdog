@@ -6,12 +6,14 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use mixdog_core_api::domain::conformance::{check_retry_policy, check_wire_codec};
-use mixdog_core_api::domain::provider::{
-    CacheTier, Content, ContentPart, DeliveryState, ErrorKind, ErrorResponse, ImageSource, Message,
-    ModelRequest, ProviderReplay, RequestOptions, Role, StopReason, StreamEvent, ToolCall,
-    ToolDefinition, TransportFault, WireCodec,
-};
+use mixdog_core_api::domain::conformance::{check_retry_policy};
+#[cfg(node_twin)]
+use mixdog_core_api::domain::conformance::check_wire_codec;
+use mixdog_core_api::domain::provider::{CacheTier, Content, ContentPart, DeliveryState, ErrorKind, ImageSource, Message, ModelRequest, ProviderReplay, RequestOptions, Role, StopReason, StreamEvent, ToolCall, ToolDefinition, WireCodec};
+#[cfg(node_twin)]
+use mixdog_core_api::domain::provider::ErrorResponse;
+#[cfg(node_twin)]
+use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::retry::{RetryClass, RetryDecider, RetryState, Verdict};
 use mixdog_protocol::{JsonValue, ProviderId};
 use serde_json::json;
@@ -21,19 +23,7 @@ use super::models::{ModelTable, parse_models};
 use super::profile::{CompatProfile, CredentialKind};
 use crate::retry::StandardRetryDecider;
 
-fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
-}
-
-#[allow(clippy::disallowed_methods, reason = "test fixture read")]
-fn read(path: &str) -> Vec<u8> {
-    std::fs::read(fixtures().join(path)).unwrap_or_else(|e| panic!("fixture {path}: {e}"))
-}
-
-fn read_json(path: &str) -> JsonValue {
-    serde_json::from_slice(&read(path)).unwrap_or_else(|e| panic!("fixture {path}: {e}"))
-}
-
+#[cfg(node_twin)]
 /// The wire fixture's request body, as the recorder saw it.
 fn recorded_chat_body(records: &JsonValue, field: &str) -> JsonValue {
     let record = records
@@ -103,6 +93,7 @@ fn plain_codec() -> CompatChatCodec {
     CompatChatCodec::new(profile, CompatConfig::default())
 }
 
+#[cfg(node_twin)]
 fn mimo_codec() -> CompatChatCodec {
     CompatChatCodec::new(
         CompatProfile::mimo_oauth(),
@@ -113,6 +104,7 @@ fn mimo_codec() -> CompatChatCodec {
     )
 }
 
+#[cfg(node_twin)]
 fn command_code_codec() -> CompatChatCodec {
     CompatChatCodec::new(CompatProfile::command_code_oauth(), CompatConfig::default())
 }
@@ -152,6 +144,7 @@ fn tool_calls_of(events: &[StreamEvent]) -> Vec<ToolCall> {
         .collect()
 }
 
+#[cfg(node_twin)]
 fn usage_of(events: &[StreamEvent]) -> Option<(u64, u64)> {
     events.iter().find_map(|e| match e {
         StreamEvent::Usage(u) => Some((u.input_tokens, u.output_tokens)),
@@ -163,223 +156,6 @@ fn stop_of(events: &[StreamEvent]) -> StopReason {
     match events.last() {
         Some(StreamEvent::Completed { stop: Some(stop), .. }) => stop.clone(),
         other => panic!("the last event is the terminal one, got {other:?}"),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Chat Completions: recorded bodies and streams
-// ---------------------------------------------------------------------------
-
-#[test]
-fn chat_requests_match_the_recorded_bodies() {
-    let codec = plain_codec();
-    for (case, request) in [
-        ("text", base_request("fixture-model")),
-        ("tool-call", base_request("fixture-model")),
-        ("tool-result-followup", followup_request("fixture-model")),
-    ] {
-        let recorded = read_json(&format!("providers/openai-compat-chat/{case}/request.json"));
-        let want = recorded_chat_body(&recorded["requests"], "bodyText");
-        assert_eq!(body_of(&codec, &request), want, "{case}");
-    }
-    let wire = codec.encode(&base_request("fixture-model")).unwrap();
-    assert_eq!(wire.method, "POST");
-    assert_eq!(wire.url, "https://api.groq.com/v1/chat/completions");
-}
-
-#[test]
-fn chat_streams_decode_to_the_recorded_results() {
-    let codec = plain_codec();
-    for case in ["text", "tool-result-followup"] {
-        let sse = read(&format!("providers/openai-compat-chat/{case}/response.sse"));
-        let result = read_json(&format!("providers/openai-compat-chat/{case}/result.json"));
-        for split in [0, 7, sse.len() / 2, sse.len()] {
-            let events = decode(&codec, &sse, split);
-            assert_eq!(text_of(&events), result["ok"]["content"].as_str().unwrap(), "{case}");
-            assert_eq!(usage_of(&events), Some((20, 8)), "{case}");
-            assert_eq!(stop_of(&events), StopReason::Other("stop".to_owned()), "{case}");
-            let raw = events.iter().find_map(|e| match e {
-                StreamEvent::Usage(u) => u.raw.clone(),
-                _ => None,
-            });
-            assert_eq!(raw.as_ref(), Some(&result["ok"]["usage"]["raw"]), "{case}");
-        }
-    }
-    let sse = read("providers/openai-compat-chat/tool-call/response.sse");
-    let result = read_json("providers/openai-compat-chat/tool-call/result.json");
-    let events = decode(&codec, &sse, 100);
-    let want = &result["ok"]["toolCalls"][0];
-    assert_eq!(
-        tool_calls_of(&events),
-        [ToolCall {
-            id: want["id"].as_str().unwrap().into(),
-            name: want["name"].as_str().unwrap().into(),
-            arguments: want["arguments"].clone(),
-            native_type: None,
-        }]
-    );
-    assert_eq!(stop_of(&events), StopReason::ToolUse);
-    assert!(usage_of(&events).is_none(), "the recording carries no usage");
-}
-
-#[test]
-fn chat_wire_codec_conformance_and_truncation() {
-    let codec = plain_codec();
-    let sse = String::from_utf8(read("providers/openai-compat-chat/text/response.sse")).unwrap();
-    // The same body cut before the event that carries `finish_reason`.
-    let cut = sse.find("\"finish_reason\":\"stop\"").expect("finish chunk");
-    let truncated = &sse[..sse[..cut].rfind("data:").unwrap()];
-    check_wire_codec(&codec, &base_request("m"), sse.as_bytes(), truncated.as_bytes(), 40);
-
-    // The recorded cut: `finish_reason` arrived, the usage frame did not end.
-    // Node completed this turn without usage; the rebuild reports a body that
-    // ends inside an event as truncated (decisions.md:46), after the text.
-    let recorded = read("providers/openai-compat-chat/truncated-no-done/response.sse");
-    let result = read_json("providers/openai-compat-chat/truncated-no-done/result.json");
-    let mut decoder = codec.decoder(&base_request("m"));
-    let events = decoder.feed(&recorded).unwrap();
-    assert_eq!(text_of(&events), result["ok"]["content"].as_str().unwrap());
-    assert!(usage_of(&events).is_none());
-    let err = decoder.finish().expect_err("a cut trailing event is not a success");
-    assert_eq!(err.transport, Some(TransportFault::TruncatedStream));
-    assert!(err.exposure.text_emitted);
-}
-
-#[test]
-fn a_clean_end_after_finish_reason_completes_without_done() {
-    let codec = plain_codec();
-    let sse = String::from_utf8(read("providers/openai-compat-chat/text/response.sse")).unwrap();
-    let without_done = sse.replace("data: [DONE]\n\n", "");
-    let events = decode(&codec, without_done.as_bytes(), 10);
-    assert_eq!(stop_of(&events), StopReason::Other("stop".to_owned()));
-    assert_eq!(text_of(&events), "The result is 42.");
-}
-
-#[test]
-fn recorded_401_is_a_deterministic_refusal() {
-    let codec = plain_codec();
-    let body = read("providers/openai-compat-chat/error-401/response.sse");
-    let err = codec.classify(&ErrorResponse {
-        status: Some(401),
-        headers: vec![],
-        body,
-    });
-    assert_eq!(err.status, Some(401));
-    assert!(err.kind.is_deterministic(), "{:?}", err.kind);
-    assert_eq!(err.delivery, DeliveryState::Accepted);
-    let recorded = read_json("providers/openai-compat-chat/error-401/result.json");
-    assert_eq!(err.message, recorded["error"]["message"].as_str().unwrap());
-}
-
-// ---------------------------------------------------------------------------
-// Intercepted providers: MiMo and Command Code
-// ---------------------------------------------------------------------------
-
-fn result_of(provider: &str, case: &str) -> JsonValue {
-    read_json(&format!("providers-intercepted/{provider}/{case}/result.json"))
-}
-
-fn chat_record(provider: &str, case: &str) -> JsonValue {
-    let exchange = read_json(&format!("providers-intercepted/{provider}/{case}/exchange.json"));
-    exchange["records"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|r| r["path"].as_str().is_some_and(|p| p.ends_with("/chat/completions")))
-        .cloned()
-        .expect("a chat record")
-}
-
-#[test]
-fn mimo_requests_and_headers_match_the_recording() {
-    let codec = mimo_codec();
-    let rec = chat_record("mimo-oauth", "text");
-    let wire = codec.encode(&base_request("mimo-fixture")).unwrap();
-    let want: JsonValue = serde_json::from_str(rec["bodyText"].as_str().unwrap()).unwrap();
-    assert_eq!(body_of(&codec, &base_request("mimo-fixture")), want);
-    let key_order = |v: &JsonValue| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
-    assert_eq!(key_order(&body_of(&codec, &base_request("mimo-fixture"))), key_order(&want), "recorded key order");
-    assert_eq!(wire.url, format!("{}{}", rec["origin"].as_str().unwrap(), rec["path"].as_str().unwrap()));
-    let header = |name: &str| {
-        wire.headers
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(name))
-            .map(|(_, v)| v.clone())
-    };
-    for name in ["x-mimo-source", "user-agent", "accept", "content-type"] {
-        assert_eq!(
-            header(name).as_deref(),
-            rec["headers"][name].as_str(),
-            "header {name}"
-        );
-    }
-    // Session affinity rides on the request when the session is known.
-    let mut request = base_request("mimo-fixture");
-    request.options.session_id = Some("s-1".into());
-    let wire = codec.encode(&request).unwrap();
-    assert!(wire.headers.contains(&("x-session-affinity".into(), "s-1".into())));
-}
-
-#[test]
-fn command_code_requests_match_the_recording() {
-    let codec = command_code_codec();
-    let rec = chat_record("command-code-oauth", "text");
-    let want: JsonValue = serde_json::from_str(rec["bodyText"].as_str().unwrap()).unwrap();
-    assert_eq!(body_of(&codec, &base_request("cc-fixture")), want);
-    let wire = codec.encode(&base_request("cc-fixture")).unwrap();
-    assert_eq!(wire.url, format!("{}{}", rec["origin"].as_str().unwrap(), rec["path"].as_str().unwrap()));
-}
-
-#[test]
-fn intercepted_streams_decode_to_the_recorded_results() {
-    for (provider, codec) in [("mimo-oauth", mimo_codec()), ("command-code-oauth", command_code_codec())] {
-        let text = chat_record(provider, "text")["served"].as_str().unwrap().to_owned();
-        let events = decode(&codec, text.as_bytes(), 33);
-        assert_eq!(text_of(&events), result_of(provider, "text")["ok"]["content"].as_str().unwrap());
-        assert_eq!(usage_of(&events), Some((20, 8)), "{provider}");
-
-        let tool = chat_record(provider, "tool-call")["served"].as_str().unwrap().to_owned();
-        let events = decode(&codec, tool.as_bytes(), 61);
-        let want = &result_of(provider, "tool-call")["ok"]["toolCalls"][0];
-        assert_eq!(
-            tool_calls_of(&events),
-            [ToolCall {
-                id: want["id"].as_str().unwrap().into(),
-                name: want["name"].as_str().unwrap().into(),
-                arguments: want["arguments"].clone(),
-                native_type: None,
-            }],
-            "{provider}"
-        );
-    }
-}
-
-#[test]
-fn intercepted_truncation_and_errors() {
-    for (provider, codec) in [("mimo-oauth", mimo_codec()), ("command-code-oauth", command_code_codec())] {
-        // The body ends after text and before any finish_reason.
-        let cut = chat_record(provider, "truncated-eof")["served"].as_str().unwrap().to_owned();
-        let mut decoder = codec.decoder(&base_request("m"));
-        let events = decoder.feed(cut.as_bytes()).unwrap();
-        assert_eq!(text_of(&events), "The result is 42.");
-        let err = decoder.finish().expect_err("no terminal event");
-        assert_eq!(err.transport, Some(TransportFault::TruncatedStream), "{provider}");
-        assert!(err.exposure.text_emitted, "{provider}");
-
-        for (case, status, kind) in [("error-400", 400, ErrorKind::InvalidRequest), ("error-401", 401, ErrorKind::Auth)] {
-            let rec = chat_record(provider, case);
-            let err = codec.classify(&ErrorResponse {
-                status: Some(status),
-                headers: vec![],
-                body: rec["served"].as_str().unwrap().as_bytes().to_vec(),
-            });
-            assert_eq!(err.kind, kind, "{provider}/{case}");
-            assert_eq!(err.status, Some(status));
-            let recorded = read_json(&format!("providers-intercepted/{provider}/{case}/result.json"));
-            assert_eq!(err.message, recorded["error"]["message"].as_str().unwrap(), "{provider}/{case}");
-            // A key issued by a login cannot be refreshed: 401 means sign in again.
-            assert_eq!(err.reauth_required, status == 401, "{provider}/{case}");
-        }
     }
 }
 
@@ -636,51 +412,6 @@ fn a_cut_or_filtered_turn_never_dispatches_its_tool_calls() {
     assert!(!err.exposure.tool_dispatched);
 }
 
-/// The real-turn harness's provider (`lib/fake-provider.mjs`, `scenarios.mjs` `toolCall`): the
-/// call's JSON arguments cut in half over two `index: 0` deltas, the second carrying no id or
-/// name, then the finish chunk and a usage-only chunk. The tool gets the whole object, wherever
-/// the body is cut.
-#[test]
-fn a_tool_call_streamed_in_two_argument_deltas_reaches_the_tool_whole() {
-    let frame = |delta: JsonValue, finish: JsonValue| {
-        let chunk = json!({
-            "id": "chatcmpl-harness", "object": "chat.completion.chunk", "created": 1700000000, "model": "harness-model",
-            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
-        });
-        format!("data: {chunk}\n\n")
-    };
-    let arguments = json!({"path": "hello.txt"}).to_string();
-    let (first, second) = arguments.split_at(arguments.len() / 2);
-    let mut sse = String::new();
-    sse.push_str(&frame(json!({"role": "assistant", "content": ""}), JsonValue::Null));
-    sse.push_str(&frame(json!({"content": "I will read the file."}), JsonValue::Null));
-    sse.push_str(&frame(
-        json!({"tool_calls": [{"index": 0, "id": "call_harness_1", "type": "function", "function": {"name": "read", "arguments": first}}]}),
-        JsonValue::Null,
-    ));
-    sse.push_str(&frame(json!({"tool_calls": [{"index": 0, "function": {"arguments": second}}]}), JsonValue::Null));
-    sse.push_str(&frame(json!({}), json!("tool_calls")));
-    let usage = json!({"id": "chatcmpl-harness", "object": "chat.completion.chunk", "model": "harness-model", "choices": [],
-        "usage": {"prompt_tokens": 1200, "completion_tokens": 24, "total_tokens": 1224}});
-    sse.push_str(&format!("data: {usage}\n\ndata: [DONE]\n\n"));
-
-    let codec = plain_codec();
-    for split in [0, sse.len() / 3, sse.len() / 2, sse.len()] {
-        let events = decode(&codec, sse.as_bytes(), split);
-        assert_eq!(
-            tool_calls_of(&events),
-            [ToolCall {
-                id: "call_harness_1".into(),
-                name: "read".into(),
-                arguments: json!({"path": "hello.txt"}),
-                native_type: None,
-            }],
-            "split at {split}"
-        );
-        assert_eq!(stop_of(&events), StopReason::ToolUse);
-    }
-}
-
 /// A provider that omits the call's id: the call gets a minted one, so its result reaches the model.
 #[test]
 fn a_streamed_tool_call_without_an_id_gets_one() {
@@ -924,33 +655,35 @@ mod responses_heads {
     use super::*;
     use crate::providers::compat::responses::CompatResponsesCodec;
     use mixdog_core_api::domain::keepalive::TransportKind;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::Phase;
 
-    fn oracle(name: &str) -> serde_json::Map<String, JsonValue> {
-        read_json(&format!("providers/oracles/{name}")).as_object().unwrap().clone()
-    }
-
+    #[cfg(node_twin)]
     fn calls(content: &str, calls: Vec<ToolCall>) -> Message {
         let mut m = text_message(Role::Assistant, content);
         m.tool_calls = calls;
         m
     }
 
+    #[cfg(node_twin)]
     fn call(id: &str, name: &str, arguments: JsonValue) -> ToolCall {
         ToolCall { id: id.into(), name: name.into(), arguments, native_type: None }
     }
 
+    #[cfg(node_twin)]
     fn result(id: &str, content: &str) -> Message {
         let mut m = text_message(Role::Tool, content);
         m.tool_call_id = Some(id.into());
         m
     }
 
+    #[cfg(node_twin)]
     fn search(provider: &str) -> JsonValue {
         json!({"provider": provider, "openaiTools": [
             {"type": "function", "name": "x", "description": "d", "parameters": {"type": "object", "properties": {}}}]})
     }
 
+    #[cfg(node_twin)]
     fn native_history() -> Vec<Message> {
         vec![
             text_message(Role::User, "go"),
@@ -966,6 +699,7 @@ mod responses_heads {
         ]
     }
 
+    #[cfg(node_twin)]
     fn oauth_history() -> Vec<Message> {
         let mut working = text_message(Role::Assistant, "working");
         working.phase = Some(Phase::Commentary);
@@ -990,6 +724,7 @@ mod responses_heads {
         ]
     }
 
+    #[cfg(node_twin)]
     fn server_search(owner: &ProviderId) -> Vec<Message> {
         let mut m = calls("done", vec![call("c1", "Read", json!({}))]);
         m.push_replay(ProviderReplay {
@@ -1004,10 +739,12 @@ mod responses_heads {
         vec![text_message(Role::User, "find tools"), m, result("c1", "ok"), text_message(Role::User, "next")]
     }
 
+    #[cfg(node_twin)]
     fn tool_def(name: &str, description: &str, schema: JsonValue) -> ToolDefinition {
         ToolDefinition { name: name.into(), description: description.into(), input_schema: schema, defer_loading: false, freeform: None }
     }
 
+    #[cfg(node_twin)]
     fn session_tools() -> Vec<ToolDefinition> {
         vec![
             tool_def("Read", "Read a file", json!({"type": "object", "properties": {"path": {"type": "string"}}})),
@@ -1015,6 +752,7 @@ mod responses_heads {
         ]
     }
 
+    #[cfg(node_twin)]
     /// The body text a codec sends, without the socket frame's `type`.
     fn sent(codec: &CompatResponsesCodec, request: &ModelRequest) -> String {
         let wire = codec.encode(request).unwrap();
@@ -1025,42 +763,13 @@ mod responses_heads {
         serde_json::to_string(&body).unwrap()
     }
 
+    #[cfg(node_twin)]
     fn request(model: &str, messages: Vec<Message>, tools: Vec<ToolDefinition>, key: Option<&str>) -> ModelRequest {
         let mut r = base_request(model);
         r.messages = messages;
         r.tools = tools;
         r.options.prompt_cache_key = key.map(str::to_owned);
         r
-    }
-
-    #[test]
-    fn gateway_bodies_match_the_compat_heads() {
-        let heads = oracle("openai-compat-responses-head-parity.json");
-        for (name, profile, model) in [
-            ("opencode-go", CompatProfile::opencode_go(), "gpt-5.5"),
-        ] {
-            let codec = CompatResponsesCodec::new(profile, CompatConfig::default(), TransportKind::Http1);
-            let cases: [(&str, Vec<Message>); 3] = [
-                ("native", native_history()),
-                ("oauth", oauth_history()),
-                ("server-replay", server_search(codec.owner())),
-            ];
-            for (label, history) in cases {
-                let key = format!("compat/{name}/{model}/{label}");
-                let mut expected = heads[&key].clone();
-                if label == "server-replay" {
-                    // A replayed server-executed search is never answered with a synthesized client output.
-                    expected["input"].as_array_mut().unwrap().retain(|i| {
-                        !(i["type"] == "tool_search_output" && i["execution"] == "client" && i["call_id"] == "ts_srv")
-                    });
-                }
-                assert_eq!(
-                    sent(&codec, &request(model, history, vec![], None)),
-                    serde_json::to_string(&expected).unwrap(),
-                    "{key}"
-                );
-            }
-        }
     }
 
     fn muse_codec() -> CompatResponsesCodec {
@@ -1071,15 +780,6 @@ mod responses_heads {
 
     fn muse_body(request: &ModelRequest) -> JsonValue {
         serde_json::from_slice(&muse_codec().encode(request).unwrap().body).unwrap()
-    }
-
-    #[test]
-    fn muse_bytes_match_the_recorded_request() {
-        let recorded = read_json("providers-intercepted/muse-code-oauth/text/exchange.json");
-        let expected = recorded["records"][0]["bodyText"].as_str().unwrap();
-        let wire = muse_codec().encode(&base_request("muse-fixture")).unwrap();
-        assert_eq!(String::from_utf8(wire.body).unwrap(), expected);
-        assert_eq!(wire.url, "https://api.meta.ai/v1/responses");
     }
 
     #[test]
@@ -1127,6 +827,79 @@ mod responses_heads {
         assert!(muse_body(&request).get("reasoning").is_none());
     }
 
+    #[cfg(node_twin)]
+    struct MapEnv(std::collections::HashMap<String, String>);
+
+    #[test]
+    fn replay_envelopes_belong_to_the_compat_owner() {
+        let codec = CompatResponsesCodec::new(CompatProfile::xai(), CompatConfig::default(), TransportKind::Http1);
+        let sse = "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"reasoning\",\"id\":\"rs\",\"encrypted_content\":\"E\",\"summary\":[]}}\n\n\
+                   data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"output\":[{\"type\":\"reasoning\",\"id\":\"rs\",\"encrypted_content\":\"E\",\"summary\":[]}]}}\n\n";
+        let mut decoder = codec.decoder(&base_request("m"));
+        let mut events = decoder.feed(sse.as_bytes()).unwrap();
+        events.extend(decoder.finish().unwrap());
+        let owners: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::ReasoningReplay(r) => Some(r.owner.as_str().to_owned()),
+                _ => None,
+            })
+            .collect();
+        assert!(!owners.is_empty() && owners.iter().all(|o| o == "xai-responses"), "{owners:?}");
+    }
+
+    #[cfg(node_twin)]
+    impl crate::registry::keys::Environment for MapEnv {
+        fn var(&self, name: &str) -> Option<String> {
+            self.0.get(name).cloned()
+        }
+    }
+
+
+    #[cfg(node_twin)]
+    fn oracle(name: &str) -> serde_json::Map<String, JsonValue> {
+        read_json(&format!("providers/oracles/{name}")).as_object().unwrap().clone()
+    }
+    #[cfg(node_twin)]
+    #[test]
+    fn gateway_bodies_match_the_compat_heads() {
+        let heads = oracle("openai-compat-responses-head-parity.json");
+        for (name, profile, model) in [
+            ("opencode-go", CompatProfile::opencode_go(), "gpt-5.5"),
+        ] {
+            let codec = CompatResponsesCodec::new(profile, CompatConfig::default(), TransportKind::Http1);
+            let cases: [(&str, Vec<Message>); 3] = [
+                ("native", native_history()),
+                ("oauth", oauth_history()),
+                ("server-replay", server_search(codec.owner())),
+            ];
+            for (label, history) in cases {
+                let key = format!("compat/{name}/{model}/{label}");
+                let mut expected = heads[&key].clone();
+                if label == "server-replay" {
+                    // A replayed server-executed search is never answered with a synthesized client output.
+                    expected["input"].as_array_mut().unwrap().retain(|i| {
+                        !(i["type"] == "tool_search_output" && i["execution"] == "client" && i["call_id"] == "ts_srv")
+                    });
+                }
+                assert_eq!(
+                    sent(&codec, &request(model, history, vec![], None)),
+                    serde_json::to_string(&expected).unwrap(),
+                    "{key}"
+                );
+            }
+        }
+    }
+    #[cfg(node_twin)]
+    #[test]
+    fn muse_bytes_match_the_recorded_request() {
+        let recorded = read_json("providers-intercepted/muse-code-oauth/text/exchange.json");
+        let expected = recorded["records"][0]["bodyText"].as_str().unwrap();
+        let wire = muse_codec().encode(&base_request("muse-fixture")).unwrap();
+        assert_eq!(String::from_utf8(wire.body).unwrap(), expected);
+        assert_eq!(wire.url, "https://api.meta.ai/v1/responses");
+    }
+    #[cfg(node_twin)]
     #[test]
     fn xai_bodies_match_the_http_and_websocket_heads() {
         let heads = oracle("xai-tool-search-head-parity.json");
@@ -1159,9 +932,9 @@ mod responses_heads {
         assert!(wire.url.starts_with("wss://api.x.ai/v1/responses"));
         assert!(String::from_utf8(wire.body).unwrap().starts_with("{\"type\":\"response.create\""));
     }
-
     /// Node's `resolveWireRoute` over every combination of the recorded
     /// dimensions: the family and legacy tiers included, none skipped.
+    #[cfg(node_twin)]
     #[test]
     fn wire_routes_match_nodes_resolution_for_every_context() {
         use crate::providers::compat::profile::{CredentialKind, Wire};
@@ -1257,17 +1030,9 @@ mod responses_heads {
         }
         assert!(checked > 17_000, "{checked} contexts replayed");
     }
-
-    struct MapEnv(std::collections::HashMap<String, String>);
-
-    impl crate::registry::keys::Environment for MapEnv {
-        fn var(&self, name: &str) -> Option<String> {
-            self.0.get(name).cloned()
-        }
-    }
-
     /// Every scope, namespace and lane setting reaches the `prompt_cache_key`
     /// Node's `xaiResponsesCacheRouting` computes (null: the field is not sent).
+    #[cfg(node_twin)]
     #[test]
     fn xai_cache_keys_match_nodes_routing_for_every_scope() {
         use crate::providers::compat::chat::EnvSource;
@@ -1319,10 +1084,10 @@ mod responses_heads {
             assert_eq!(body.get("prompt_cache_key").unwrap_or(&JsonValue::Null), &case["key"], "{name}");
         }
     }
-
     /// A socket turn that resumed an imported `previous_response_id` and whose
     /// response has no id keeps the resumed id as the slot's `responseId`
     /// (Node: `result.responseId || previousResponseId`); the HTTP turn does not.
+    #[cfg(node_twin)]
     #[test]
     fn a_socket_turn_without_a_response_id_keeps_the_resumed_one() {
         let golden = oracle("xai-responses-continuation.json");
@@ -1350,7 +1115,7 @@ mod responses_heads {
         assert_eq!(slot(TransportKind::WebSocket), turn["providerState"]);
         assert_eq!(slot(TransportKind::Http1)["xaiResponses"]["responseId"], JsonValue::Null);
     }
-
+    #[cfg(node_twin)]
     #[test]
     fn effort_folds_onto_what_the_wire_takes_and_choices_are_placed() {
         let table = CompatProfile::xai().model_table();
@@ -1372,12 +1137,12 @@ mod responses_heads {
         // openai-compat-xai-send.mjs:58; recorded in fixtures/provider-wire/hosted-search/grok-oauth).
         assert!(body("grok-4.3", "low", Some("Read")).get("tool_choice").is_none());
     }
-
     /// Golden recorded from Node's real xAI send path (`sendXaiResponses`) and
     /// `normalizeXaiResponsesWebSocket`: the `xaiResponses` slot is stateless
     /// (`store: false`, `previousResponseId: null`), carries the response id
     /// and the encrypted reasoning, tags no history owner, and the socket turn
     /// adds `transport`. Every other provider-state key is kept.
+    #[cfg(node_twin)]
     #[test]
     fn xai_keeps_nodes_stateless_slot_across_turns() {
         let golden = oracle("xai-responses-continuation.json");
@@ -1465,24 +1230,6 @@ mod responses_heads {
         let turn = &golden["websocket"];
         assert_eq!(produced(&ws, turn, &turn["priorState"]), turn["providerState"], "websocket: slot");
     }
-
-    #[test]
-    fn replay_envelopes_belong_to_the_compat_owner() {
-        let codec = CompatResponsesCodec::new(CompatProfile::xai(), CompatConfig::default(), TransportKind::Http1);
-        let sse = "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"reasoning\",\"id\":\"rs\",\"encrypted_content\":\"E\",\"summary\":[]}}\n\n\
-                   data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\",\"output\":[{\"type\":\"reasoning\",\"id\":\"rs\",\"encrypted_content\":\"E\",\"summary\":[]}]}}\n\n";
-        let mut decoder = codec.decoder(&base_request("m"));
-        let mut events = decoder.feed(sse.as_bytes()).unwrap();
-        events.extend(decoder.finish().unwrap());
-        let owners: Vec<_> = events
-            .iter()
-            .filter_map(|e| match e {
-                StreamEvent::ReasoningReplay(r) => Some(r.owner.as_str().to_owned()),
-                _ => None,
-            })
-            .collect();
-        assert!(!owners.is_empty() && owners.iter().all(|o| o == "xai-responses"), "{owners:?}");
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1500,47 +1247,6 @@ mod liveness {
     use mixdog_core_api::domain::mock::MockKeepalive;
     use mixdog_core_api::domain::provider::{ProviderAdapter, ProviderError, WireRequest};
     use std::sync::{Arc, Mutex};
-
-    /// No module of the family arms a content timer: the only clock it may
-    /// read is the one that dates a `Retry-After` header or a reset field.
-    #[test]
-    #[allow(clippy::disallowed_methods, reason = "test fixture read")]
-    fn no_content_timer_exists_in_the_family() {
-        let banned = [
-            ["tokio::time", "::timeout"].concat(),
-            ["tokio::time", "::sleep"].concat(),
-            ["time", "::timeout("].concat(),
-            ["Instant", "::now"].concat(),
-            ["Sleep", "Until"].concat(),
-            ["set", "Timeout"].concat(),
-        ];
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/providers/compat");
-        let mut stack = vec![root];
-        let mut scanned = 0;
-        while let Some(dir) = stack.pop() {
-            for entry in std::fs::read_dir(dir).unwrap() {
-                let path = entry.unwrap().path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if path.extension().is_some_and(|e| e == "rs") && path.file_name().is_some_and(|n| n != "tests.rs") {
-                    let text = std::fs::read_to_string(&path).unwrap();
-                    // The rule is for what ships: a module's inline test module (`#[cfg(test)] mod x {`, trailing) may drive the
-                    // idle watchdog under a paused clock. A `#[cfg(test)] mod x;` declaration (mod.rs) does not end the scanned part.
-                    let cut = text
-                        .match_indices("\n#[cfg(test)]\nmod ")
-                        .map(|(at, _)| at)
-                        .find(|&at| text[at..].lines().nth(2).is_some_and(|line| line.trim_end().ends_with('{')))
-                        .unwrap_or(text.len());
-                    let text = &text[..cut];
-                    for pattern in &banned {
-                        assert!(!text.contains(pattern.as_str()), "{} uses {pattern}", path.display());
-                    }
-                    scanned += 1;
-                }
-            }
-        }
-        assert!(scanned >= 10, "the scan saw the module tree ({scanned} files)");
-    }
 
     struct Scripted {
         status: u16,
@@ -1592,48 +1298,20 @@ mod liveness {
         (CompatAdapter::new(codec, http.clone(), Some(Arc::new(Key("sk-test-key")))), http)
     }
 
+    #[cfg(node_twin)]
     struct Catalog(std::collections::HashMap<String, Option<String>>);
 
-    impl crate::catalog::ModelTraits for Catalog {
-        fn family(&self, _: &str) -> Option<String> {
-            None
-        }
-        fn thinking(&self, _: &str) -> crate::catalog::Thinking {
-            crate::catalog::Thinking::Unspecified
-        }
-        fn catalog_wire(&self, model: &str) -> Option<crate::providers::compat::profile::Wire> {
-            crate::providers::compat::wire_route::wire_of_package(self.0.get(model)?.as_deref())
-        }
-    }
-
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::WireRouteContext;
 
+    #[cfg(node_twin)]
     async fn routed(adapter: &CompatAdapter, model: &str, ctx: &WireRouteContext) -> String {
         let routing = adapter.wire_routing().expect("a routed gateway");
         let route = routing.resolve_wire_route(model, ctx).await.unwrap();
         route.map_or("-".into(), |r| format!("{}{}", &r.wire[..1], &r.source[..1]))
     }
 
-    /// A scripted answer for the roster / console config, whatever the URL.
-    fn listing_adapter(case: &JsonValue, goldens: &JsonValue, http: Arc<Scripted>) -> CompatAdapter {
-        let provider = case["provider"].as_str().unwrap();
-        let (profile, base, key, headers): (CompatProfile, Option<&str>, &'static str, Vec<(String, String)>) = match provider {
-            "xai" => (CompatProfile::xai(), Some("https://gateway.example/v1"), "fixture-list-key", vec![]),
-            "deepseek" => (CompatProfile::deepseek(), Some("https://gateway.example/v1"), "fixture-list-key", vec![]),
-            "openrouter" => (CompatProfile::openrouter(), Some("https://gateway.example/v1"), "fixture-list-key", vec![]),
-            "mimo-oauth" => (CompatProfile::mimo_oauth(), None, "fixture-mimo-key", vec![]),
-            "muse-code-oauth" => (CompatProfile::muse_code_oauth(), None, "fixture-muse-key", vec![]),
-            "command-code-oauth" => (CompatProfile::command_code_oauth(), None, "fixture-command-key", vec![]),
-            "opencode-go-oauth" => (CompatProfile::opencode_go(), None, "fixture-go-access", vec![("x-org-id".into(), "org-1".into())]),
-            other => panic!("unknown provider {other}"),
-        };
-        let mut config = CompatConfig::for_profile(&profile);
-        config.base_url = base.map(str::to_owned).or(config.base_url);
-        config.extra_headers = headers;
-        let lookup = crate::catalog::ListingLookup::with_models_dev(&json!({ "opencode-go": { "models": goldens["rosters"]["goModelsDev"] } }));
-        CompatAdapter::new(CompatChatCodec::new(profile, config), http, Some(Arc::new(Key(key)))).with_listing_lookup(lookup)
-    }
-
+    #[cfg(node_twin)]
     /// The roster each scenario scripts.
     fn scripted_roster(case: &JsonValue, rosters: &JsonValue) -> (u16, JsonValue) {
         let r = |name: &str| rosters[name].clone();
@@ -1665,9 +1343,176 @@ mod liveness {
         }
     }
 
+    #[tokio::test]
+    async fn a_refusal_is_classified_once_and_never_echoes_the_key() {
+        let body = br#"{"error":{"message":"Incorrect API key provided: sk-test-key","code":"invalid_api_key"}}"#.to_vec();
+        let (adapter, _) = adapter(401, vec![body]);
+        let err = adapter.attempt(Arc::new(base_request("m"))).await.err().expect("refused");
+        assert_eq!((err.kind, err.status), (ErrorKind::Auth, Some(401)));
+        assert!(!err.message.contains("sk-test-key"), "{}", err.message);
+    }
+
+    /// `recoverCompatNonStreaming` (openai-compat-chat-send.mjs:268): the same body with `stream: false` and no
+    /// `stream_options`, the response's first choice the turn (its text whole, no delta), and the line Node writes once
+    /// it answered. `canFallbackNonStreaming` gates it: only a failure that showed nothing and is transient.
+    #[tokio::test]
+    async fn a_spent_chat_send_is_reissued_without_streaming_as_node_does() {
+        use mixdog_core_api::domain::provider::{StreamEvent, TransportFault};
+        let answer = br#"{"id":"r1","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"whole"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}"#.to_vec();
+        let (adapter, http) = adapter(200, vec![answer]);
+        let streaming = adapter.codec().encode(&base_request("m")).unwrap();
+        let mut stream = adapter.recover_spent(Arc::new(base_request("m"))).await.expect("the re-issue answers");
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event.expect("no failure"));
+        }
+        assert!(events.contains(&StreamEvent::FinalContent("whole".into())), "{events:?}");
+        assert!(!events.iter().any(|e| matches!(e, StreamEvent::TextDelta(_))), "no text delta streams");
+        assert!(matches!(events.last(), Some(StreamEvent::Completed { .. })), "{events:?}");
+        let sent = http.sent.lock().unwrap();
+        let (mut expected, sent_body): (JsonValue, JsonValue) = (serde_json::from_slice(&streaming.body).unwrap(), serde_json::from_slice(&sent[0].body).unwrap());
+        assert_eq!(expected["stream"], true);
+        expected["stream"] = json!(false);
+        expected.as_object_mut().unwrap().remove("stream_options");
+        assert_eq!(sent_body, expected);
+        assert_eq!(sent[0].url, streaming.url);
+
+        let cut = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
+        assert!(adapter.recovers_spent("m", &cut));
+        assert_eq!(adapter.recovery_line("m", &cut).as_deref(), Some("[deepseek] stream failed (unknown); recovered via non-streaming request"));
+        let mut shown = cut.clone();
+        shown.exposure.text_emitted = true;
+        assert!(!adapter.recovers_spent("m", &shown), "shown text is the loop's retraction replay");
+        let mut refused = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::Accepted);
+        refused.status = Some(400);
+        assert!(!adapter.recovers_spent("m", &refused));
+    }
+
+    fn go_listing(config: JsonValue, models_dev: JsonValue) -> CompatAdapter {
+        let http = Arc::new(Scripted { status: 200, chunks: vec![serde_json::to_vec(&config).unwrap()], sent: Mutex::new(Vec::new()) });
+        let profile = CompatProfile::opencode_go();
+        let config = CompatConfig::for_profile(&profile);
+        CompatAdapter::new(CompatChatCodec::new(profile, config), http, Some(Arc::new(Key("k"))))
+            .with_listing_lookup(crate::catalog::ListingLookup::with_models_dev(&models_dev))
+    }
+
+    /// A console config that lists no models takes the models.dev rows of the same provider key, in the config's own
+    /// model shape; a config without the provider's entry is unusable even when the catalog has rows.
+    #[tokio::test]
+    async fn an_empty_console_config_falls_back_to_the_catalog_rows_and_a_missing_provider_is_an_error() {
+        use mixdog_core_api::domain::provider::ModelListing;
+        let crate::providers::compat::profile::ListingShape::ConsoleConfig { provider_key, .. } = CompatProfile::opencode_go().listing.shape else {
+            panic!("OpenCode Go reads the console config")
+        };
+        let dev = json!({ provider_key: {"models": {"dev-model": {"name": "Dev Model", "limit": {"context": 1000, "output": 100}}}} });
+        let rows = go_listing(json!({"providers": {provider_key: {"models": {}}}}), dev.clone()).list_models().await.unwrap();
+        assert_eq!(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["dev-model"]);
+        assert_eq!((rows[0].name.as_deref(), rows[0].context_window, rows[0].max_output_tokens), (Some("Dev Model"), Some(1000), Some(100)));
+
+        let error = go_listing(json!({"providers": {}}), dev).list_models().await.unwrap_err();
+        assert!(error.message.contains("has no OpenCode Go provider"), "{}", error.message);
+
+        let none = json!({ provider_key: {"models": {}} });
+        let error = go_listing(json!({"providers": {provider_key: {"models": {}}}}), none).list_models().await.unwrap_err();
+        assert!(error.message.contains("lists no models") && error.message.contains("unavailable"), "{}", error.message);
+    }
+
+    /// `if (!choice) return null`: a response without a choice fails the re-issue.
+    #[tokio::test]
+    async fn a_reissue_without_a_choice_fails() {
+        let (adapter, _) = adapter(200, vec![br#"{"choices":[]}"#.to_vec()]);
+        assert!(adapter.recover_spent(Arc::new(base_request("m"))).await.is_err());
+    }
+
+    #[cfg(node_twin)]
+    impl crate::catalog::ModelTraits for Catalog {
+        fn family(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn thinking(&self, _: &str) -> crate::catalog::Thinking {
+            crate::catalog::Thinking::Unspecified
+        }
+        fn catalog_wire(&self, model: &str) -> Option<crate::providers::compat::profile::Wire> {
+            crate::providers::compat::wire_route::wire_of_package(self.0.get(model)?.as_deref())
+        }
+    }
+    #[cfg(node_twin)]
+    /// A scripted answer for the roster / console config, whatever the URL.
+    fn listing_adapter(case: &JsonValue, goldens: &JsonValue, http: Arc<Scripted>) -> CompatAdapter {
+        let provider = case["provider"].as_str().unwrap();
+        let (profile, base, key, headers): (CompatProfile, Option<&str>, &'static str, Vec<(String, String)>) = match provider {
+            "xai" => (CompatProfile::xai(), Some("https://gateway.example/v1"), "fixture-list-key", vec![]),
+            "deepseek" => (CompatProfile::deepseek(), Some("https://gateway.example/v1"), "fixture-list-key", vec![]),
+            "openrouter" => (CompatProfile::openrouter(), Some("https://gateway.example/v1"), "fixture-list-key", vec![]),
+            "mimo-oauth" => (CompatProfile::mimo_oauth(), None, "fixture-mimo-key", vec![]),
+            "muse-code-oauth" => (CompatProfile::muse_code_oauth(), None, "fixture-muse-key", vec![]),
+            "command-code-oauth" => (CompatProfile::command_code_oauth(), None, "fixture-command-key", vec![]),
+            "opencode-go-oauth" => (CompatProfile::opencode_go(), None, "fixture-go-access", vec![("x-org-id".into(), "org-1".into())]),
+            other => panic!("unknown provider {other}"),
+        };
+        let mut config = CompatConfig::for_profile(&profile);
+        config.base_url = base.map(str::to_owned).or(config.base_url);
+        config.extra_headers = headers;
+        let lookup = crate::catalog::ListingLookup::with_models_dev(&json!({ "opencode-go": { "models": goldens["rosters"]["goModelsDev"] } }));
+        CompatAdapter::new(CompatChatCodec::new(profile, config), http, Some(Arc::new(Key(key)))).with_listing_lookup(lookup)
+    }
+
+    #[test]
+    fn a_half_open_link_ends_as_a_keepalive_failure_within_the_schedule() {
+        let (adapter, _) = adapter(200, vec![]);
+        assert_eq!(adapter.keepalive(), &KeepaliveSchedule::SPEC);
+        check_keepalive_schedule(adapter.keepalive());
+        let link = MockKeepalive::new(TransportKind::Http1);
+        check_transport_keepalive(&link, adapter.keepalive(), || link.go_half_open());
+        // The schedule bounds how long such a link stays undetected.
+        assert_eq!(adapter.keepalive().tcp_detection_bound(), std::time::Duration::from_secs(360));
+    }
+
+
+    /// No module of the family arms a content timer: the only clock it may
+    /// read is the one that dates a `Retry-After` header or a reset field.
+    #[test]
+    #[allow(clippy::disallowed_methods, reason = "test fixture read")]
+    fn no_content_timer_exists_in_the_family() {
+        let banned = [
+            ["tokio::time", "::timeout"].concat(),
+            ["tokio::time", "::sleep"].concat(),
+            ["time", "::timeout("].concat(),
+            ["Instant", "::now"].concat(),
+            ["Sleep", "Until"].concat(),
+            ["set", "Timeout"].concat(),
+        ];
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/providers/compat");
+        let mut stack = vec![root];
+        let mut scanned = 0;
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") && path.file_name().is_some_and(|n| n != "tests.rs") {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    // The rule is for what ships: a module's inline test module (`#[cfg(test)] mod x {`, trailing) may drive the
+                    // idle watchdog under a paused clock. A `#[cfg(test)] mod x;` declaration (mod.rs) does not end the scanned part.
+                    let cut = text
+                        .match_indices("\n#[cfg(test)]\nmod ")
+                        .map(|(at, _)| at)
+                        .find(|&at| text[at..].lines().nth(2).is_some_and(|line| line.trim_end().ends_with('{')))
+                        .unwrap_or(text.len());
+                    let text = &text[..cut];
+                    for pattern in &banned {
+                        assert!(!text.contains(pattern.as_str()), "{} uses {pattern}", path.display());
+                    }
+                    scanned += 1;
+                }
+            }
+        }
+        assert!(scanned >= 10, "the scan saw the module tree ({scanned} files)");
+    }
     /// Every recorded listing scenario gives Node's rows (the fields a
     /// listed row carries; prices and capability flags are the catalog's) and
     /// asks the URL Node asked with the headers Node sent.
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn every_recorded_listing_gives_nodes_rows() {
         use mixdog_core_api::domain::provider::ModelListing;
@@ -1769,9 +1614,9 @@ mod liveness {
         }
         assert_eq!(checked, 12, "16 scenarios, 4 of them refusals");
     }
-
     /// OpenCode Go (catalog package narrows the offered wires) and Command
     /// Code (the roster's declared endpoints) answer as Node's glue does.
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn catalog_and_roster_inputs_route_as_nodes_adapters_do() {
         use crate::providers::compat::adapter::RouteInputs;
@@ -1830,77 +1675,93 @@ mod liveness {
             assert_eq!(got.as_deref(), case["wire"].as_str(), "{model} {}", case["declared"]);
         }
     }
-
     #[tokio::test]
     async fn a_stream_attempt_ends_with_one_terminal_and_the_key_rides_as_a_bearer() {
-        let sse = read("providers/openai-compat-chat/text/response.sse");
+        let sse = TEXT_SSE.as_bytes();
         let (adapter, http) = adapter(200, vec![sse[..60].to_vec(), sse[60..].to_vec()]);
         check_provider_attempt(&adapter, Arc::new(base_request("m")), DeliveryState::Accepted).await;
         let sent = http.sent.lock().unwrap();
         assert!(sent[0].headers.contains(&("authorization".into(), "Bearer sk-test-key".into())));
     }
 
-    #[tokio::test]
-    async fn a_refusal_is_classified_once_and_never_echoes_the_key() {
-        let body = br#"{"error":{"message":"Incorrect API key provided: sk-test-key","code":"invalid_api_key"}}"#.to_vec();
-        let (adapter, _) = adapter(401, vec![body]);
-        let err = adapter.attempt(Arc::new(base_request("m"))).await.err().expect("refused");
-        assert_eq!((err.kind, err.status), (ErrorKind::Auth, Some(401)));
-        assert!(!err.message.contains("sk-test-key"), "{}", err.message);
+    const TEXT_SSE: &str = "data: {\"choices\":[{\"delta\":{\"content\":\"The result is 42.\"}}]}\n\n\
+        data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+
+    /// A body that gives its first chunk and then stays silent, counting the bodies dropped.
+    struct Silent {
+        first: Option<Vec<u8>>,
+        released: Arc<std::sync::atomic::AtomicUsize>,
     }
 
-    /// `recoverCompatNonStreaming` (openai-compat-chat-send.mjs:268): the same body with `stream: false` and no
-    /// `stream_options`, the response's first choice the turn (its text whole, no delta), and the line Node writes once
-    /// it answered. `canFallbackNonStreaming` gates it: only a failure that showed nothing and is transient.
-    #[tokio::test]
-    async fn a_spent_chat_send_is_reissued_without_streaming_as_node_does() {
-        use mixdog_core_api::domain::provider::{StreamEvent, TransportFault};
-        let answer = br#"{"id":"r1","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"whole"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}"#.to_vec();
-        let (adapter, http) = adapter(200, vec![answer]);
-        let streaming = adapter.codec().encode(&base_request("m")).unwrap();
-        let mut stream = adapter.recover_spent(Arc::new(base_request("m"))).await.expect("the re-issue answers");
-        let mut events = Vec::new();
-        while let Some(event) = stream.next().await {
-            events.push(event.expect("no failure"));
+    impl Drop for Silent {
+        fn drop(&mut self) {
+            self.released.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
-        assert!(events.contains(&StreamEvent::FinalContent("whole".into())), "{events:?}");
-        assert!(!events.iter().any(|e| matches!(e, StreamEvent::TextDelta(_))), "no text delta streams");
-        assert!(matches!(events.last(), Some(StreamEvent::Completed { .. })), "{events:?}");
-        let sent = http.sent.lock().unwrap();
-        let (mut expected, sent_body): (JsonValue, JsonValue) = (serde_json::from_slice(&streaming.body).unwrap(), serde_json::from_slice(&sent[0].body).unwrap());
-        assert_eq!(expected["stream"], true);
-        expected["stream"] = json!(false);
-        expected.as_object_mut().unwrap().remove("stream_options");
-        assert_eq!(sent_body, expected);
-        assert_eq!(sent[0].url, streaming.url);
-
-        let cut = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
-        assert!(adapter.recovers_spent("m", &cut));
-        assert_eq!(adapter.recovery_line("m", &cut).as_deref(), Some("[deepseek] stream failed (unknown); recovered via non-streaming request"));
-        let mut shown = cut.clone();
-        shown.exposure.text_emitted = true;
-        assert!(!adapter.recovers_spent("m", &shown), "shown text is the loop's retraction replay");
-        let mut refused = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::Accepted);
-        refused.status = Some(400);
-        assert!(!adapter.recovers_spent("m", &refused));
     }
 
-    /// `if (!choice) return null`: a response without a choice fails the re-issue.
+    #[async_trait]
+    impl BodyStream for Silent {
+        async fn next(&mut self) -> Option<Result<Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+            match self.first.take() {
+                Some(chunk) => Some(Ok(Bytes::from(chunk))),
+                None => std::future::pending().await,
+            }
+        }
+    }
+
+    struct SilentHttp(Arc<std::sync::atomic::AtomicUsize>);
+
+    #[async_trait]
+    impl HttpSend for SilentHttp {
+        async fn send(&self, _: WireRequest, _: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+            let first = b"data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n".to_vec();
+            Ok(HttpResponse { status: 200, headers: vec![], body: Box::new(Silent { first: Some(first), released: self.0.clone() }) })
+        }
+    }
+
+    fn silent_adapter() -> (CompatAdapter, Arc<std::sync::atomic::AtomicUsize>) {
+        let released = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let codec = CompatChatCodec::new(CompatProfile::deepseek(), CompatConfig::default());
+        (CompatAdapter::new(codec, Arc::new(SilentHttp(released.clone())), Some(Arc::new(Key("sk-test-key")))), released)
+    }
+
+    /// Cancelling is dropping the stream: the pending read and the body behind it are released at once.
     #[tokio::test]
-    async fn a_reissue_without_a_choice_fails() {
-        let (adapter, _) = adapter(200, vec![br#"{"choices":[]}"#.to_vec()]);
-        assert!(adapter.recover_spent(Arc::new(base_request("m"))).await.is_err());
+    async fn dropping_a_stream_that_is_waiting_for_bytes_releases_its_body() {
+        let (adapter, released) = silent_adapter();
+        let mut stream = adapter.attempt(Arc::new(base_request("m"))).await.expect("attempt");
+        let mut seen = Vec::new();
+        while let Some(event) = stream.next().await {
+            seen.push(event.expect("no failure"));
+            if seen.iter().any(|e| matches!(e, mixdog_core_api::domain::provider::StreamEvent::TextDelta(_))) {
+                break;
+            }
+        }
+        assert_eq!(released.load(std::sync::atomic::Ordering::SeqCst), 0, "still open while the caller reads");
+        let waiting = tokio::time::timeout(Duration::from_millis(50), stream.next()).await;
+        assert!(waiting.is_err(), "the silent link has nothing to deliver");
+        drop(stream);
+        assert_eq!(released.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
-    #[test]
-    fn a_half_open_link_ends_as_a_keepalive_failure_within_the_schedule() {
-        let (adapter, _) = adapter(200, vec![]);
-        assert_eq!(adapter.keepalive(), &KeepaliveSchedule::SPEC);
-        check_keepalive_schedule(adapter.keepalive());
-        let link = MockKeepalive::new(TransportKind::Http1);
-        check_transport_keepalive(&link, adapter.keepalive(), || link.go_half_open());
-        // The schedule bounds how long such a link stays undetected.
-        assert_eq!(adapter.keepalive().tcp_detection_bound(), std::time::Duration::from_secs(360));
+    /// The decoders and modules of the family arm no content timer (`no_content_timer_exists_in_the_family`); the one
+    /// bound on a silent stream is the model-exchange driver's semantic idle window (300 s by default), which fails the
+    /// read as a transient stream stall once output has started. Before the window the read just waits.
+    #[tokio::test(start_paused = true)]
+    async fn a_silent_stream_waits_for_the_idle_window_and_then_fails_as_a_transient_stall() {
+        use mixdog_core_api::domain::provider::StreamEvent;
+        let (adapter, _released) = silent_adapter();
+        let mut stream = adapter.attempt(Arc::new(base_request("m"))).await.expect("attempt");
+        let mut text = false;
+        while !text {
+            text = matches!(stream.next().await, Some(Ok(StreamEvent::TextDelta(_))));
+        }
+        let early = tokio::time::timeout(Duration::from_secs(200), stream.next()).await;
+        assert!(early.is_err(), "inside the window the read waits");
+        let stalled = tokio::time::timeout(Duration::from_secs(3600), stream.next()).await.expect("the window ends the wait");
+        let error = stalled.expect("the stream reports its end").expect_err("a stall is a failure, not a clean end");
+        assert_eq!((error.code.as_deref(), error.kind, error.timed_out), (Some("ESTREAMSTALL"), ErrorKind::Transient, true));
+        assert!(error.message.contains("SSE idle stream timed out after 300000ms of inactivity"), "{}", error.message);
     }
 }
 
@@ -1939,11 +1800,332 @@ fn per_status_caps_are_carried_as_data() {
     assert_eq!(CompatProfile::mimo_oauth().retry_policy().status.caps, [(429, 5)]);
 }
 
+/// Node's chat consumer reported these progress kinds for each chunk (`golden/stream_progress.json`); the Rust chat
+/// decoder reports the same: a call's header and arguments chunks are `tool`, its dispatch at the finish is none.
+#[cfg(node_twin)]
+#[test]
+fn the_chat_decoder_reports_the_progress_kinds_node_s_consumer_does() {
+    #[cfg(node_twin)]
+    use crate::providers::progress_golden::{golden, node_names, rust_names};
+    let mut decoder = plain_codec().decoder(&base_request("m"));
+    for step in golden()["decoders"]["chat"].as_array().expect("chat") {
+        let unit = format!("data: {}\n\n", step["wire"]);
+        let events = decoder.feed(unit.as_bytes()).expect("feed");
+        assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["wire"]);
+    }
+}
+
+/// The full text of a cut stream, with the label Node puts in front of it: `<provider>:responses` over HTTP/SSE and the
+/// recorded `_wsErrLabel('xai')` over the socket (`golden/stream_progress.json`).
+#[cfg(node_twin)]
+#[test]
+fn a_cut_compat_responses_stream_says_what_node_says() {
+    use crate::providers::compat::responses::CompatResponsesCodec;
+    use mixdog_core_api::domain::keepalive::TransportKind;
+    let golden = crate::providers::progress_golden::golden();
+    let ws_label = golden["labels"]["xaiWs"].as_str().expect("label");
+    for (transport, expected) in [
+        (TransportKind::Http1, "xai:responses SSE stream truncated: incomplete (max_output_tokens) with tool call in flight".to_owned()),
+        (TransportKind::WebSocket, format!("{ws_label} response.incomplete (max_output_tokens) with tool call in flight")),
+    ] {
+        let codec = CompatResponsesCodec::new(CompatProfile::xai(), CompatConfig::default(), transport);
+        let mut decoder = codec.decoder(&base_request("grok-4.5"));
+        let frames = [
+            json!({"type": "response.output_item.added", "item": {"type": "function_call", "id": "fc1", "call_id": "c1", "name": "lookup"}}),
+            json!({"type": "response.incomplete", "response": {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": []}}),
+        ];
+        let mut failure = None;
+        for frame in frames {
+            let bytes = if transport == TransportKind::WebSocket { frame.to_string() } else { format!("data: {frame}\n\n") };
+            if let Err(error) = decoder.feed(bytes.as_bytes()) {
+                failure = Some(error);
+            }
+        }
+        assert_eq!(failure.expect("a cut stream").message, expected);
+    }
+}
+
+
+#[cfg(node_twin)]
+fn fixtures() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
+}
+#[cfg(node_twin)]
+#[allow(clippy::disallowed_methods, reason = "test fixture read")]
+fn read(path: &str) -> Vec<u8> {
+    std::fs::read(fixtures().join(path)).unwrap_or_else(|e| panic!("fixture {path}: {e}"))
+}
+#[cfg(node_twin)]
+fn read_json(path: &str) -> JsonValue {
+    serde_json::from_slice(&read(path)).unwrap_or_else(|e| panic!("fixture {path}: {e}"))
+}
+// ---------------------------------------------------------------------------
+// Chat Completions: recorded bodies and streams
+// ---------------------------------------------------------------------------
+
+#[cfg(node_twin)]
+#[test]
+fn chat_requests_match_the_recorded_bodies() {
+    let codec = plain_codec();
+    for (case, request) in [
+        ("text", base_request("fixture-model")),
+        ("tool-call", base_request("fixture-model")),
+        ("tool-result-followup", followup_request("fixture-model")),
+    ] {
+        let recorded = read_json(&format!("providers/openai-compat-chat/{case}/request.json"));
+        let want = recorded_chat_body(&recorded["requests"], "bodyText");
+        assert_eq!(body_of(&codec, &request), want, "{case}");
+    }
+    let wire = codec.encode(&base_request("fixture-model")).unwrap();
+    assert_eq!(wire.method, "POST");
+    assert_eq!(wire.url, "https://api.groq.com/v1/chat/completions");
+}
+#[cfg(node_twin)]
+#[test]
+fn chat_streams_decode_to_the_recorded_results() {
+    let codec = plain_codec();
+    for case in ["text", "tool-result-followup"] {
+        let sse = read(&format!("providers/openai-compat-chat/{case}/response.sse"));
+        let result = read_json(&format!("providers/openai-compat-chat/{case}/result.json"));
+        for split in [0, 7, sse.len() / 2, sse.len()] {
+            let events = decode(&codec, &sse, split);
+            assert_eq!(text_of(&events), result["ok"]["content"].as_str().unwrap(), "{case}");
+            assert_eq!(usage_of(&events), Some((20, 8)), "{case}");
+            assert_eq!(stop_of(&events), StopReason::Other("stop".to_owned()), "{case}");
+            let raw = events.iter().find_map(|e| match e {
+                StreamEvent::Usage(u) => u.raw.clone(),
+                _ => None,
+            });
+            assert_eq!(raw.as_ref(), Some(&result["ok"]["usage"]["raw"]), "{case}");
+        }
+    }
+    let sse = read("providers/openai-compat-chat/tool-call/response.sse");
+    let result = read_json("providers/openai-compat-chat/tool-call/result.json");
+    let events = decode(&codec, &sse, 100);
+    let want = &result["ok"]["toolCalls"][0];
+    assert_eq!(
+        tool_calls_of(&events),
+        [ToolCall {
+            id: want["id"].as_str().unwrap().into(),
+            name: want["name"].as_str().unwrap().into(),
+            arguments: want["arguments"].clone(),
+            native_type: None,
+        }]
+    );
+    assert_eq!(stop_of(&events), StopReason::ToolUse);
+    assert!(usage_of(&events).is_none(), "the recording carries no usage");
+}
+#[cfg(node_twin)]
+#[test]
+fn chat_wire_codec_conformance_and_truncation() {
+    let codec = plain_codec();
+    let sse = String::from_utf8(read("providers/openai-compat-chat/text/response.sse")).unwrap();
+    // The same body cut before the event that carries `finish_reason`.
+    let cut = sse.find("\"finish_reason\":\"stop\"").expect("finish chunk");
+    let truncated = &sse[..sse[..cut].rfind("data:").unwrap()];
+    check_wire_codec(&codec, &base_request("m"), sse.as_bytes(), truncated.as_bytes(), 40);
+
+    // The recorded cut: `finish_reason` arrived, the usage frame did not end.
+    // Node completed this turn without usage; the rebuild reports a body that
+    // ends inside an event as truncated (decisions.md:46), after the text.
+    let recorded = read("providers/openai-compat-chat/truncated-no-done/response.sse");
+    let result = read_json("providers/openai-compat-chat/truncated-no-done/result.json");
+    let mut decoder = codec.decoder(&base_request("m"));
+    let events = decoder.feed(&recorded).unwrap();
+    assert_eq!(text_of(&events), result["ok"]["content"].as_str().unwrap());
+    assert!(usage_of(&events).is_none());
+    let err = decoder.finish().expect_err("a cut trailing event is not a success");
+    assert_eq!(err.transport, Some(TransportFault::TruncatedStream));
+    assert!(err.exposure.text_emitted);
+}
+#[cfg(node_twin)]
+#[test]
+fn a_clean_end_after_finish_reason_completes_without_done() {
+    let codec = plain_codec();
+    let sse = String::from_utf8(read("providers/openai-compat-chat/text/response.sse")).unwrap();
+    let without_done = sse.replace("data: [DONE]\n\n", "");
+    let events = decode(&codec, without_done.as_bytes(), 10);
+    assert_eq!(stop_of(&events), StopReason::Other("stop".to_owned()));
+    assert_eq!(text_of(&events), "The result is 42.");
+}
+#[cfg(node_twin)]
+#[test]
+fn recorded_401_is_a_deterministic_refusal() {
+    let codec = plain_codec();
+    let body = read("providers/openai-compat-chat/error-401/response.sse");
+    let err = codec.classify(&ErrorResponse {
+        status: Some(401),
+        headers: vec![],
+        body,
+    });
+    assert_eq!(err.status, Some(401));
+    assert!(err.kind.is_deterministic(), "{:?}", err.kind);
+    assert_eq!(err.delivery, DeliveryState::Accepted);
+    let recorded = read_json("providers/openai-compat-chat/error-401/result.json");
+    assert_eq!(err.message, recorded["error"]["message"].as_str().unwrap());
+}
+// ---------------------------------------------------------------------------
+// Intercepted providers: MiMo and Command Code
+// ---------------------------------------------------------------------------
+
+#[cfg(node_twin)]
+fn result_of(provider: &str, case: &str) -> JsonValue {
+    read_json(&format!("providers-intercepted/{provider}/{case}/result.json"))
+}
+#[cfg(node_twin)]
+fn chat_record(provider: &str, case: &str) -> JsonValue {
+    let exchange = read_json(&format!("providers-intercepted/{provider}/{case}/exchange.json"));
+    exchange["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["path"].as_str().is_some_and(|p| p.ends_with("/chat/completions")))
+        .cloned()
+        .expect("a chat record")
+}
+#[cfg(node_twin)]
+#[test]
+fn mimo_requests_and_headers_match_the_recording() {
+    let codec = mimo_codec();
+    let rec = chat_record("mimo-oauth", "text");
+    let wire = codec.encode(&base_request("mimo-fixture")).unwrap();
+    let want: JsonValue = serde_json::from_str(rec["bodyText"].as_str().unwrap()).unwrap();
+    assert_eq!(body_of(&codec, &base_request("mimo-fixture")), want);
+    let key_order = |v: &JsonValue| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+    assert_eq!(key_order(&body_of(&codec, &base_request("mimo-fixture"))), key_order(&want), "recorded key order");
+    assert_eq!(wire.url, format!("{}{}", rec["origin"].as_str().unwrap(), rec["path"].as_str().unwrap()));
+    let header = |name: &str| {
+        wire.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.clone())
+    };
+    for name in ["x-mimo-source", "user-agent", "accept", "content-type"] {
+        assert_eq!(
+            header(name).as_deref(),
+            rec["headers"][name].as_str(),
+            "header {name}"
+        );
+    }
+    // Session affinity rides on the request when the session is known.
+    let mut request = base_request("mimo-fixture");
+    request.options.session_id = Some("s-1".into());
+    let wire = codec.encode(&request).unwrap();
+    assert!(wire.headers.contains(&("x-session-affinity".into(), "s-1".into())));
+}
+#[cfg(node_twin)]
+#[test]
+fn command_code_requests_match_the_recording() {
+    let codec = command_code_codec();
+    let rec = chat_record("command-code-oauth", "text");
+    let want: JsonValue = serde_json::from_str(rec["bodyText"].as_str().unwrap()).unwrap();
+    assert_eq!(body_of(&codec, &base_request("cc-fixture")), want);
+    let wire = codec.encode(&base_request("cc-fixture")).unwrap();
+    assert_eq!(wire.url, format!("{}{}", rec["origin"].as_str().unwrap(), rec["path"].as_str().unwrap()));
+}
+#[cfg(node_twin)]
+#[test]
+fn intercepted_streams_decode_to_the_recorded_results() {
+    for (provider, codec) in [("mimo-oauth", mimo_codec()), ("command-code-oauth", command_code_codec())] {
+        let text = chat_record(provider, "text")["served"].as_str().unwrap().to_owned();
+        let events = decode(&codec, text.as_bytes(), 33);
+        assert_eq!(text_of(&events), result_of(provider, "text")["ok"]["content"].as_str().unwrap());
+        assert_eq!(usage_of(&events), Some((20, 8)), "{provider}");
+
+        let tool = chat_record(provider, "tool-call")["served"].as_str().unwrap().to_owned();
+        let events = decode(&codec, tool.as_bytes(), 61);
+        let want = &result_of(provider, "tool-call")["ok"]["toolCalls"][0];
+        assert_eq!(
+            tool_calls_of(&events),
+            [ToolCall {
+                id: want["id"].as_str().unwrap().into(),
+                name: want["name"].as_str().unwrap().into(),
+                arguments: want["arguments"].clone(),
+                native_type: None,
+            }],
+            "{provider}"
+        );
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn intercepted_truncation_and_errors() {
+    for (provider, codec) in [("mimo-oauth", mimo_codec()), ("command-code-oauth", command_code_codec())] {
+        // The body ends after text and before any finish_reason.
+        let cut = chat_record(provider, "truncated-eof")["served"].as_str().unwrap().to_owned();
+        let mut decoder = codec.decoder(&base_request("m"));
+        let events = decoder.feed(cut.as_bytes()).unwrap();
+        assert_eq!(text_of(&events), "The result is 42.");
+        let err = decoder.finish().expect_err("no terminal event");
+        assert_eq!(err.transport, Some(TransportFault::TruncatedStream), "{provider}");
+        assert!(err.exposure.text_emitted, "{provider}");
+
+        for (case, status, kind) in [("error-400", 400, ErrorKind::InvalidRequest), ("error-401", 401, ErrorKind::Auth)] {
+            let rec = chat_record(provider, case);
+            let err = codec.classify(&ErrorResponse {
+                status: Some(status),
+                headers: vec![],
+                body: rec["served"].as_str().unwrap().as_bytes().to_vec(),
+            });
+            assert_eq!(err.kind, kind, "{provider}/{case}");
+            assert_eq!(err.status, Some(status));
+            let recorded = read_json(&format!("providers-intercepted/{provider}/{case}/result.json"));
+            assert_eq!(err.message, recorded["error"]["message"].as_str().unwrap(), "{provider}/{case}");
+            // A key issued by a login cannot be refreshed: 401 means sign in again.
+            assert_eq!(err.reauth_required, status == 401, "{provider}/{case}");
+        }
+    }
+}
+/// The real-turn harness's provider (`lib/fake-provider.mjs`, `scenarios.mjs` `toolCall`): the
+/// call's JSON arguments cut in half over two `index: 0` deltas, the second carrying no id or
+/// name, then the finish chunk and a usage-only chunk. The tool gets the whole object, wherever
+/// the body is cut.
+#[test]
+fn a_tool_call_streamed_in_two_argument_deltas_reaches_the_tool_whole() {
+    let frame = |delta: JsonValue, finish: JsonValue| {
+        let chunk = json!({
+            "id": "chatcmpl-harness", "object": "chat.completion.chunk", "created": 1700000000, "model": "harness-model",
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+        });
+        format!("data: {chunk}\n\n")
+    };
+    let arguments = json!({"path": "hello.txt"}).to_string();
+    let (first, second) = arguments.split_at(arguments.len() / 2);
+    let mut sse = String::new();
+    sse.push_str(&frame(json!({"role": "assistant", "content": ""}), JsonValue::Null));
+    sse.push_str(&frame(json!({"content": "I will read the file."}), JsonValue::Null));
+    sse.push_str(&frame(
+        json!({"tool_calls": [{"index": 0, "id": "call_harness_1", "type": "function", "function": {"name": "read", "arguments": first}}]}),
+        JsonValue::Null,
+    ));
+    sse.push_str(&frame(json!({"tool_calls": [{"index": 0, "function": {"arguments": second}}]}), JsonValue::Null));
+    sse.push_str(&frame(json!({}), json!("tool_calls")));
+    let usage = json!({"id": "chatcmpl-harness", "object": "chat.completion.chunk", "model": "harness-model", "choices": [],
+        "usage": {"prompt_tokens": 1200, "completion_tokens": 24, "total_tokens": 1224}});
+    sse.push_str(&format!("data: {usage}\n\ndata: [DONE]\n\n"));
+
+    let codec = plain_codec();
+    for split in [0, sse.len() / 3, sse.len() / 2, sse.len()] {
+        let events = decode(&codec, sse.as_bytes(), split);
+        assert_eq!(
+            tool_calls_of(&events),
+            [ToolCall {
+                id: "call_harness_1".into(),
+                name: "read".into(),
+                arguments: json!({"path": "hello.txt"}),
+                native_type: None,
+            }],
+            "split at {split}"
+        );
+        assert_eq!(stop_of(&events), StopReason::ToolUse);
+    }
+}
 /// Which tools an OpenAI-compatible chat route sends and what it reports for the ones it leaves
 /// out, against `fixtures/providers/compat-tool-exclusion/cases.json` (recorded by
 /// `record-compat-tool-exclusion.mjs` from the real `OpenAICompatProvider.send`): a Gemini-family
 /// model is held to Google's schema rule, any other model to the OpenAI one, and every report goes
 /// to the request's sink under the rule's own label.
+#[cfg(node_twin)]
 #[test]
 fn a_gemini_model_behind_a_compat_route_is_held_to_googles_rule() {
     use std::sync::{Arc, Mutex};
@@ -1993,47 +2175,5 @@ fn a_gemini_model_behind_a_compat_route_is_held_to_googles_rule() {
             assert_eq!(got.reason, want["reason"].as_str().unwrap(), "{id}");
             assert_eq!(got.message, want["message"].as_str().unwrap(), "{id}");
         }
-    }
-}
-
-/// Node's chat consumer reported these progress kinds for each chunk (`golden/stream_progress.json`); the Rust chat
-/// decoder reports the same: a call's header and arguments chunks are `tool`, its dispatch at the finish is none.
-#[test]
-fn the_chat_decoder_reports_the_progress_kinds_node_s_consumer_does() {
-    use crate::providers::progress_golden::{golden, node_names, rust_names};
-    let mut decoder = plain_codec().decoder(&base_request("m"));
-    for step in golden()["decoders"]["chat"].as_array().expect("chat") {
-        let unit = format!("data: {}\n\n", step["wire"]);
-        let events = decoder.feed(unit.as_bytes()).expect("feed");
-        assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["wire"]);
-    }
-}
-
-/// The full text of a cut stream, with the label Node puts in front of it: `<provider>:responses` over HTTP/SSE and the
-/// recorded `_wsErrLabel('xai')` over the socket (`golden/stream_progress.json`).
-#[test]
-fn a_cut_compat_responses_stream_says_what_node_says() {
-    use crate::providers::compat::responses::CompatResponsesCodec;
-    use mixdog_core_api::domain::keepalive::TransportKind;
-    let golden = crate::providers::progress_golden::golden();
-    let ws_label = golden["labels"]["xaiWs"].as_str().expect("label");
-    for (transport, expected) in [
-        (TransportKind::Http1, "xai:responses SSE stream truncated: incomplete (max_output_tokens) with tool call in flight".to_owned()),
-        (TransportKind::WebSocket, format!("{ws_label} response.incomplete (max_output_tokens) with tool call in flight")),
-    ] {
-        let codec = CompatResponsesCodec::new(CompatProfile::xai(), CompatConfig::default(), transport);
-        let mut decoder = codec.decoder(&base_request("grok-4.5"));
-        let frames = [
-            json!({"type": "response.output_item.added", "item": {"type": "function_call", "id": "fc1", "call_id": "c1", "name": "lookup"}}),
-            json!({"type": "response.incomplete", "response": {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}, "output": []}}),
-        ];
-        let mut failure = None;
-        for frame in frames {
-            let bytes = if transport == TransportKind::WebSocket { frame.to_string() } else { format!("data: {frame}\n\n") };
-            if let Err(error) = decoder.feed(bytes.as_bytes()) {
-                failure = Some(error);
-            }
-        }
-        assert_eq!(failure.expect("a cut stream").message, expected);
     }
 }

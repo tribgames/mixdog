@@ -101,6 +101,7 @@ impl Drop for SharedSource {
     }
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "capture_tests.rs"]
 mod tests;

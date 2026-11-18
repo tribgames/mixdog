@@ -83,6 +83,16 @@ fn path_key(path: &str) -> String {
     if cfg!(windows) { trimmed.to_lowercase() } else { trimmed.to_owned() }
 }
 
+/// Every rule of [`select_worktree_cleanup`] but the dirty and merge checks: a row it rejects is never picked.
+fn pickable_when_clean(row: &CleanupRow, favorite_session_ids: &HashSet<String>, now: i64) -> bool {
+    row.state == "ready"
+        && !row.owner_live
+        && !row.in_use
+        && row.shared_session_ids.is_empty()
+        && !row.owner_session_id.as_ref().is_some_and(|id| favorite_session_ids.contains(id))
+        && now - row.created_at.max(0) >= CLEANUP_MIN_AGE_MS
+}
+
 /// Ready branch worktrees that are clean, merged, not in use, not shared, not a favorite
 /// session's and old enough, chosen by the unused-days then max-worktrees limits.
 pub fn select_worktree_cleanup(rows: &[CleanupRow], settings: &WorktreeSettings, options: &SelectOptions<'_>) -> Vec<Selected> {
@@ -93,16 +103,7 @@ pub fn select_worktree_cleanup(rows: &[CleanupRow], settings: &WorktreeSettings,
     let mut candidates: Vec<(&CleanupRow, i64)> = managed
         .iter()
         .copied()
-        .filter(|row| {
-            row.state == "ready"
-                && row.dirty == 0
-                && row.unmerged == 0
-                && !row.owner_live
-                && !row.in_use
-                && row.shared_session_ids.is_empty()
-                && !row.owner_session_id.as_ref().is_some_and(|id| options.favorite_session_ids.contains(id))
-                && options.now - row.created_at.max(0) >= CLEANUP_MIN_AGE_MS
-        })
+        .filter(|row| row.dirty == 0 && row.unmerged == 0 && pickable_when_clean(row, options.favorite_session_ids, options.now))
         .map(|row| (row, row_activity(row, options.activity)))
         .collect();
     candidates.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| locale_compare(&a.0.id, &b.0.id)));
@@ -195,6 +196,94 @@ impl InUse for JobsInUse {
     }
 }
 
+/// The count/age limits' selection for one pass (autoCleanup on only).
+struct Limits {
+    selected: Vec<Selected>,
+    favorites: HashSet<String>,
+    /// `off`, `applied` or `favorites-unknown`.
+    state: &'static str,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NOW: i64 = 1_000 * DAY_MS;
+
+    fn row(id: &str, created_days_ago: i64) -> CleanupRow {
+        CleanupRow {
+            id: id.into(),
+            repo_common_dir: "/r/.git".into(),
+            state: "ready".into(),
+            created_at: NOW - created_days_ago * DAY_MS,
+            ..Default::default()
+        }
+    }
+
+    fn settings(max: u64, days: u64) -> WorktreeSettings {
+        WorktreeSettings { auto_cleanup: true, max_worktrees: max, unused_days: days, ..WorktreeSettings::default() }
+    }
+
+    fn pick(rows: &[CleanupRow], s: &WorktreeSettings, potential: bool, scope: Option<&str>) -> Vec<(String, CleanupReason)> {
+        let (activity, favorites) = (HashMap::new(), HashSet::new());
+        let options = SelectOptions { now: NOW, activity: &activity, favorite_session_ids: &favorites, potential, repo_common_dir: scope, max_removals: 20 };
+        select_worktree_cleanup(rows, s, &options).into_iter().map(|p| (p.id, p.reason)).collect()
+    }
+
+    #[test]
+    fn off_selects_nothing_and_age_then_count_pick_oldest_first() {
+        let rows = [row("a", 10), row("b", 5), row("c", 1)];
+        let mut off = settings(1, 7);
+        off.auto_cleanup = false;
+        assert!(pick(&rows, &off, false, None).is_empty());
+        // `a` is past 7 unused days; 3 managed against a max of 1 leaves an excess of 2.
+        assert_eq!(pick(&rows, &settings(1, 7), false, None), [("a".to_owned(), CleanupReason::Age), ("b".to_owned(), CleanupReason::Count)]);
+    }
+
+    #[test]
+    fn dirty_unmerged_live_shared_favorite_young_and_snapshot_rows_are_never_picked() {
+        let mut dirty = row("dirty", 10);
+        dirty.dirty = 1;
+        let mut unmerged = row("unmerged", 10);
+        unmerged.unmerged = 2;
+        let mut live = row("live", 10);
+        live.owner_live = true;
+        let mut shared = row("shared", 10);
+        shared.shared_session_ids = vec!["s".into()];
+        let mut favorite = row("favorite", 10);
+        favorite.owner_session_id = Some("fav".into());
+        let mut young = row("young", 0);
+        young.created_at = NOW - 60_000;
+        let mut snapshot = row("snap", 10);
+        snapshot.is_snapshot = true;
+        let rows = [dirty, unmerged, live, shared, favorite, young, snapshot, row("ok", 10)];
+        let (activity, favorites) = (HashMap::new(), HashSet::from(["fav".to_owned()]));
+        let options = SelectOptions { now: NOW, activity: &activity, favorite_session_ids: &favorites, potential: false, repo_common_dir: None, max_removals: 20 };
+        let picked = select_worktree_cleanup(&rows, &settings(0, 1), &options);
+        assert_eq!(picked.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["ok"]);
+    }
+
+    #[test]
+    fn a_scope_drops_other_repositories_before_the_cap_and_potential_uncaps() {
+        let mut other = row("other", 20);
+        other.repo_common_dir = "/x/.git".into();
+        let rows = [other, row("mine", 10)];
+        assert_eq!(pick(&rows, &settings(0, 1), false, Some("/r/.git/")).len(), 1);
+        let many: Vec<CleanupRow> = (0..25).map(|i| row(&format!("w{i:02}"), 10)).collect();
+        assert_eq!(pick(&many, &settings(0, 1), false, None).len(), CLEANUP_MAX_REMOVALS);
+        assert_eq!(pick(&many, &settings(0, 1), true, None).len(), 25);
+    }
+
+    #[test]
+    fn a_session_turn_after_creation_moves_a_rows_activity() {
+        let mut r = row("a", 10);
+        r.owner_session_id = Some("s".into());
+        let activity = HashMap::from([("s".to_owned(), NOW - DAY_MS)]);
+        assert_eq!(row_activity(&r, &activity), NOW - DAY_MS);
+    }
+}
+
+
 #[derive(Clone)]
 pub struct CleanupOptions {
     pub live: HashSet<String>,
@@ -206,7 +295,6 @@ pub struct CleanupOptions {
     pub current_live: Arc<dyn Fn() -> HashSet<String> + Send + Sync>,
     pub final_check_timeout: Option<std::time::Duration>,
 }
-
 impl Default for CleanupOptions {
     fn default() -> Self {
         Self {
@@ -220,19 +308,9 @@ impl Default for CleanupOptions {
         }
     }
 }
-
 fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
-
-/// The count/age limits' selection for one pass (autoCleanup on only).
-struct Limits {
-    selected: Vec<Selected>,
-    favorites: HashSet<String>,
-    /// `off`, `applied` or `favorites-unknown`.
-    state: &'static str,
-}
-
 impl Worktrees {
     /// Managed branch worktrees as the policy sees them. `inspect` runs the per-worktree
     /// dirty/merge checks the removal needs; off, every ready worktree counts as clean and
@@ -244,16 +322,7 @@ impl Worktrees {
             let snapshot = record.extra.get("kind").and_then(|v| v.as_str()) == Some("snapshot");
             let (mut dirty, mut unmerged) = (0u64, 0u64);
             if inspect && !snapshot && record.state == "ready" {
-                let checked: Result<(u64, u64), ScmFailure> = async {
-                    let (changed, ignored, _) = self.automatic_keep_paths(&record, cancel).await?;
-                    Ok(((changed.len() + ignored.len()) as u64, self.checkout_unmerged_count(&record, cancel).await?))
-                }
-                .await;
-                match checked {
-                    Ok(pair) => (dirty, unmerged) = pair,
-                    Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
-                    Err(_) => (dirty, unmerged) = (u64::MAX, u64::MAX),
-                }
+                (dirty, unmerged) = self.inspected(&record, cancel).await?;
             }
             rows.push(CleanupRow {
                 id: record.id.clone(),
@@ -270,6 +339,20 @@ impl Worktrees {
             });
         }
         Ok(rows)
+    }
+
+    /// A ready worktree's dirty and unmerged counts (`u64::MAX` both when they cannot be read: work to keep).
+    async fn inspected(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<(u64, u64), ScmFailure> {
+        let checked: Result<(u64, u64), ScmFailure> = async {
+            let (changed, ignored, _) = self.automatic_keep_paths(record, cancel).await?;
+            Ok(((changed.len() + ignored.len()) as u64, self.checkout_unmerged_count(record, cancel).await?))
+        }
+        .await;
+        match checked {
+            Ok(pair) => Ok(pair),
+            Err(ScmFailure::Cancelled) => Err(ScmFailure::Cancelled),
+            Err(_) => Ok((u64::MAX, u64::MAX)),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -293,11 +376,22 @@ impl Worktrees {
         };
         let mut selected = Vec::new();
         if settings.max_worktrees > 0 || settings.unused_days > 0 {
-            let mut rows = self.cleanup_rows(live, retained, inspect, cancel).await?;
-            for (row, record) in rows.iter_mut().zip(self.all_records(cancel).await?) {
+            // The rows as the policy reads them before the dirty/merge checks; those run only on a row every other rule lets
+            // the limits pick (`pickable_when_clean`): another row is never picked whatever its checks say, so the selection is
+            // the one checking every row gives, without a `git status` of each of them.
+            let mut rows = self.cleanup_rows(live, retained, false, cancel).await?;
+            let records = self.all_records(cancel).await?;
+            for (row, record) in rows.iter_mut().zip(&records) {
                 if jobs.iter().any(|job| job.cwd.as_deref().is_some_and(|cwd| within(&record.path, cwd))) {
                     row.in_use = true;
                     live.extend(row.owner_session_id.clone());
+                }
+            }
+            if inspect {
+                for (row, record) in rows.iter_mut().zip(&records) {
+                    if !row.is_snapshot && pickable_when_clean(row, &favorites, now) {
+                        (row.dirty, row.unmerged) = self.inspected(record, cancel).await?;
+                    }
                 }
             }
             let owners: Vec<String> = rows.iter().flat_map(|r| r.owner_session_id.iter().chain(r.shared_session_ids.iter()).cloned()).collect();
@@ -461,84 +555,5 @@ impl Worktrees {
                 _ => Err(failure),
             },
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const NOW: i64 = 1_000 * DAY_MS;
-
-    fn row(id: &str, created_days_ago: i64) -> CleanupRow {
-        CleanupRow {
-            id: id.into(),
-            repo_common_dir: "/r/.git".into(),
-            state: "ready".into(),
-            created_at: NOW - created_days_ago * DAY_MS,
-            ..Default::default()
-        }
-    }
-
-    fn settings(max: u64, days: u64) -> WorktreeSettings {
-        WorktreeSettings { auto_cleanup: true, max_worktrees: max, unused_days: days, ..WorktreeSettings::default() }
-    }
-
-    fn pick(rows: &[CleanupRow], s: &WorktreeSettings, potential: bool, scope: Option<&str>) -> Vec<(String, CleanupReason)> {
-        let (activity, favorites) = (HashMap::new(), HashSet::new());
-        let options = SelectOptions { now: NOW, activity: &activity, favorite_session_ids: &favorites, potential, repo_common_dir: scope, max_removals: 20 };
-        select_worktree_cleanup(rows, s, &options).into_iter().map(|p| (p.id, p.reason)).collect()
-    }
-
-    #[test]
-    fn off_selects_nothing_and_age_then_count_pick_oldest_first() {
-        let rows = [row("a", 10), row("b", 5), row("c", 1)];
-        let mut off = settings(1, 7);
-        off.auto_cleanup = false;
-        assert!(pick(&rows, &off, false, None).is_empty());
-        // `a` is past 7 unused days; 3 managed against a max of 1 leaves an excess of 2.
-        assert_eq!(pick(&rows, &settings(1, 7), false, None), [("a".to_owned(), CleanupReason::Age), ("b".to_owned(), CleanupReason::Count)]);
-    }
-
-    #[test]
-    fn dirty_unmerged_live_shared_favorite_young_and_snapshot_rows_are_never_picked() {
-        let mut dirty = row("dirty", 10);
-        dirty.dirty = 1;
-        let mut unmerged = row("unmerged", 10);
-        unmerged.unmerged = 2;
-        let mut live = row("live", 10);
-        live.owner_live = true;
-        let mut shared = row("shared", 10);
-        shared.shared_session_ids = vec!["s".into()];
-        let mut favorite = row("favorite", 10);
-        favorite.owner_session_id = Some("fav".into());
-        let mut young = row("young", 0);
-        young.created_at = NOW - 60_000;
-        let mut snapshot = row("snap", 10);
-        snapshot.is_snapshot = true;
-        let rows = [dirty, unmerged, live, shared, favorite, young, snapshot, row("ok", 10)];
-        let (activity, favorites) = (HashMap::new(), HashSet::from(["fav".to_owned()]));
-        let options = SelectOptions { now: NOW, activity: &activity, favorite_session_ids: &favorites, potential: false, repo_common_dir: None, max_removals: 20 };
-        let picked = select_worktree_cleanup(&rows, &settings(0, 1), &options);
-        assert_eq!(picked.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["ok"]);
-    }
-
-    #[test]
-    fn a_scope_drops_other_repositories_before_the_cap_and_potential_uncaps() {
-        let mut other = row("other", 20);
-        other.repo_common_dir = "/x/.git".into();
-        let rows = [other, row("mine", 10)];
-        assert_eq!(pick(&rows, &settings(0, 1), false, Some("/r/.git/")).len(), 1);
-        let many: Vec<CleanupRow> = (0..25).map(|i| row(&format!("w{i:02}"), 10)).collect();
-        assert_eq!(pick(&many, &settings(0, 1), false, None).len(), CLEANUP_MAX_REMOVALS);
-        assert_eq!(pick(&many, &settings(0, 1), true, None).len(), 25);
-    }
-
-    #[test]
-    fn a_session_turn_after_creation_moves_a_rows_activity() {
-        let mut r = row("a", 10);
-        r.owner_session_id = Some("s".into());
-        let activity = HashMap::from([("s".to_owned(), NOW - DAY_MS)]);
-        assert_eq!(row_activity(&r, &activity), NOW - DAY_MS);
     }
 }

@@ -28,6 +28,7 @@ import type {
   DesktopTranscriptHistoryRequest,
   DesktopUpdaterState,
   SessionSnapshot,
+  DesktopStreamPosition,
   ToolApprovalDecision,
 } from './contract-session';
 import type {
@@ -80,6 +81,7 @@ import type {
   DesktopSshLogView,
   DesktopSshServerLog,
   DesktopSshCleanupResult,
+  DesktopSshForgetResult,
   DesktopSshConfigHost,
   DesktopSshConnectRequest,
   DesktopSshConnectResult,
@@ -162,6 +164,7 @@ import type {
   DesktopRemoteAccessInfo,
   DesktopRemoteAccessSettings,
   DesktopRemoteClientClaim,
+  DesktopRemoteConnectionState,
   DesktopRemoteHost,
   DesktopRemotePairCode,
   DesktopRemotePairCodeUnsupported,
@@ -329,7 +332,7 @@ export interface DesktopApi {
     name: string,
     size: number,
     scope: string
-  ): Promise<{ uploadId: string; chunkBytes: number; maxBytes: number }>;
+  ): Promise<{ uploadId: string; chunkBytes: number; maxBytes: number; inFlightChunks: number }>;
   serverUploadChunk?(uploadId: string, offset: number, bytes: Uint8Array): Promise<{ received: number }>;
   serverUploadCommit?(uploadId: string): Promise<DesktopLocalPathEntry>;
   serverUploadAbort?(uploadId: string): Promise<boolean>;
@@ -512,11 +515,22 @@ export interface DesktopApi {
    *  folder equal to it means no Project (shared/task-workspace.ts). */
   getTaskWorkspace?(): Promise<string>;
   /** Remote surface only: the uncapped output of one tool row whose output the
-   *  host cut for the phone (`remoteOutputTruncated`); null when it is gone. */
+   *  host cut for the phone (`remoteOutputTruncated`); null when it is gone.
+   *  A host may return a replay token only if it can authorize that row and
+   *  address its exact stored position and revision. A token read must echo
+   *  the token or fail, never substitute the current row. */
   readTranscriptItem?(
     sessionId: string,
-    itemId: string
-  ): Promise<{ id: string; result?: unknown; rawResult?: unknown; uiDiff?: unknown; withheld?: true } | null>;
+    itemId: string,
+    replayToken?: string
+  ): Promise<{
+    id: string;
+    result?: unknown;
+    rawResult?: unknown;
+    uiDiff?: unknown;
+    withheld?: true;
+    replayToken?: string;
+  } | null>;
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
   setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
   /** The agent contact's one home thread, resolved by the host from the agent
@@ -553,6 +567,8 @@ export interface DesktopApi {
   /** `activate: false` only reads: it never starts the relay or activates
    *  remote access on an install that has not used it yet. Default true. */
   getRemoteAccessInfo?(options?: { activate?: boolean }): Promise<DesktopRemoteAccessInfo | null>;
+  /** Reads the Connection state when the app feed sends a stub instead of an inline roster. Never activates. */
+  getRemoteConnectionState?(): Promise<DesktopRemoteConnectionState>;
   /** Settings → Connection: revoke every paired phone by minting a new
    *  pairing token and restarting the bridge/relay legs. */
   rotateRemoteAccess?(): Promise<DesktopRemoteAccessInfo | null>;
@@ -594,8 +610,9 @@ export interface DesktopApi {
   sshListHosts?(): Promise<DesktopSshHost[]>;
   /** Local name of a saved SSH server. */
   sshRenameHost?(id: string, name: string): Promise<DesktopSshHost[]>;
-  /** Removes only the saved entry; the server and its window are untouched. */
-  sshForgetHost?(id: string): Promise<DesktopSshHost[]>;
+  /** Forgets a saved server: its host-key claims and generated ssh config on this PC, then the entry; the server and its window
+   *  are untouched. Answers with the remaining servers and what was removed. */
+  sshForgetHost?(id: string): Promise<DesktopSshForgetResult>;
   /** Opens (or focuses) a saved server's window. A failure comes back as a result, not a rejection. */
   sshOpenHost?(id: string): Promise<DesktopSshConnectResult>;
   /** Host aliases of ~/.ssh/config (wildcard patterns skipped). */
@@ -610,6 +627,9 @@ export interface DesktopApi {
   sshAskpassReply?(attemptId: string, requestId: string, secret: string | null): Promise<void>;
   /** Removes Mixdog from a saved server over ssh (optionally with its work history), then optionally forgets the entry. */
   sshCleanupHost?(id: string, request: DesktopSshCleanupRequest): Promise<DesktopSshCleanupResult>;
+  /** The same for a server that was never saved (its first connection failed), by the address the connect dialog was given;
+   *  `request.forget` does not apply. */
+  sshCleanupTarget?(target: string, request: DesktopSshCleanupRequest): Promise<DesktopSshCleanupResult>;
   /** Per-server settings: folder, login key file, auto-reconnect. */
   sshUpdateHostSettings?(id: string, settings: DesktopSshHostSettings): Promise<DesktopSshHost[]>;
   subscribeSshAskpass?(listener: (request: DesktopSshAskpass) => void): () => void;
@@ -962,6 +982,9 @@ export interface DesktopApi {
   ): Promise<ConversationNotificationOverride[]>;
   /** Per-session live snapshot lane covering every pooled session runtime. */
   subscribeSessionState(listener: (update: DesktopSessionStateUpdate) => void): () => void;
+  /** The position this window's connection has received on the session's feed, null when it does not follow the session.
+   *  Read after a call's reply, it is at or past everything that call's mutation published on the feed. */
+  sessionStreamPosition(sessionId: string): Promise<DesktopStreamPosition | null>;
   listProviderModels(options?: DesktopModelCatalogOptions): Promise<DesktopModelOption[]>;
   /** sessionId addresses a pane. Omitted routes through the control session
    *  for settings that are not owned by a conversation. */

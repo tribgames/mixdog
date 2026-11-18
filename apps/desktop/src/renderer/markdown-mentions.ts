@@ -1,5 +1,6 @@
 import { createContext } from 'react';
 import type { MarkdownAstRoot } from './markdown-ast';
+import { placedTextSlice } from './markdown-stream-fade';
 
 /** Display names of the group room being shown; null outside a group room. */
 export const MarkdownMentionNamesContext = createContext<readonly string[] | null>(null);
@@ -9,22 +10,26 @@ type Node = MarkdownAstRoot['children'][number];
 const MENTION = /(?<![\p{L}\p{N}_@])@([\p{L}\p{N}_-]+)/gu;
 const SKIP_TAGS = new Set(['code', 'pre', 'a']);
 
-function splitText(value: string, names: ReadonlySet<string>): Node[] | null {
+/** Text node `node` with its mentions wrapped; its pieces keep where their
+ *  characters sit (a streamed reply's fade reads it). */
+function splitText(node: Node, names: ReadonlySet<string>): Node[] | null {
+  const value = node.value ?? '';
   const out: Node[] = [];
   let last = 0;
   for (const match of value.matchAll(MENTION)) {
     if (!names.has(match[1].toLowerCase())) continue;
-    if (match.index > last) out.push({ type: 'text', value: value.slice(last, match.index) });
+    const end = match.index + match[0].length;
+    if (match.index > last) out.push(placedTextSlice(node, last, match.index));
     out.push({
       type: 'element',
       tagName: 'span',
       properties: { className: ['agent-room-mention'] },
-      children: [{ type: 'text', value: match[0] }],
+      children: [placedTextSlice(node, match.index, end)],
     });
-    last = match.index + match[0].length;
+    last = end;
   }
   if (!last) return null;
-  if (last < value.length) out.push({ type: 'text', value: value.slice(last) });
+  if (last < value.length) out.push(placedTextSlice(node, last, value.length));
   return out;
 }
 
@@ -33,7 +38,7 @@ function walk(node: Node, names: ReadonlySet<string>): Node {
   let changed = false;
   const children: Node[] = [];
   for (const child of node.children) {
-    const split = child.type === 'text' ? splitText(child.value ?? '', names) : null;
+    const split = child.type === 'text' ? splitText(child, names) : null;
     if (split) {
       children.push(...split);
       changed = true;

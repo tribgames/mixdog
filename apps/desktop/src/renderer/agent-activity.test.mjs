@@ -357,7 +357,7 @@ test('shell status equality includes detail fields that arrive after the task id
   assert.equal(
     shellJobsStatusEqual(before, {
       ...before,
-      jobs: [{ taskId: 'job-1', command: 'npm test', cwd: 'C:\\Project\\mixdog', startedAt: 123 }],
+      jobs: [{ taskId: 'job-1', command: 'npm test', cwd: 'C:\\Project\\sample', startedAt: 123 }],
     }),
     false
   );
@@ -1061,7 +1061,7 @@ test('Agent pane ignores a stale initial list that resolves after a live push', 
   }
 });
 
-test('an Agent pane that mounts after the pool section is populated shows it, and a pushed empty pool clears departed rows', async () => {
+test('an already-open Agents pane follows the child request route on pool pushes', async () => {
   const dom = installDom();
   const row = {
     tag: 'review',
@@ -1090,9 +1090,31 @@ test('an Agent pane that mounts after the pool section is populated shows it, an
     await expandAllAgentGroups();
     assert.ok(document.querySelector('[data-agent-session-id="worker-live"]'), 'the existing pool is read at subscribe time');
 
-    await act(async () =>
-      listener({ kind: 'sections', changes: [{ section: 'agentPool', key: null, entry: entry([]) }] })
-    );
+    const agentRow = () => document.querySelector('[data-agent-session-id="worker-live"]');
+    const routeLabel = () => agentRow().querySelector('.agent-route-summary');
+    const push = (rows) =>
+      act(async () => listener({ kind: 'sections', changes: [{ section: 'agentPool', key: null, entry: entry(rows) }] }));
+    await push([{ ...row, status: 'queued', stage: 'queued', provider: null, model: null, fast: null }]);
+    assert.equal(routeLabel(), null);
+    await push([
+      { ...row, provider: 'anthropic-oauth', model: 'claude-sonnet-5-5', effort: 'medium', fast: false, autoEffort: false },
+    ]);
+    assert.equal(routeLabel().title, 'claude-sonnet-5-5');
+    assert.match(routeLabel().textContent, /Medium$/);
+    await push([
+      {
+        ...row,
+        provider: 'openai-oauth',
+        model: 'gpt-6.2-sol',
+        effort: 'high',
+        fast: true,
+        autoEffort: false,
+        modelParameters: { serviceTier: 'ultrafast' },
+      },
+    ]);
+    assert.equal(routeLabel().title, 'gpt-6.2-sol');
+    assert.match(routeLabel().textContent, /High Ultrafast$/);
+    await push([]);
     assert.equal(Boolean(document.querySelector('[data-agent-session-id="worker-live"]')), false);
   } finally {
     await act(async () => dom.root.unmount());

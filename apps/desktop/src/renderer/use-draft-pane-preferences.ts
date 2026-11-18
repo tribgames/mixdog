@@ -147,11 +147,9 @@ export function useDraftPanePreferences({
   useHydrateDraftPrefs({
     draftPanePrefs,
     lastNewTaskPrefs,
-    hostMainRoute,
-    selectionRef,
+    refreshHostMainRoute,
     persistDraftPanePrefs,
     repaintDrafts,
-    setNewTaskModelSelection,
   });
   const stageNewTaskProject = useCallback(
     (projectPath: string) => {

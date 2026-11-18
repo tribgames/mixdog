@@ -44,32 +44,6 @@ pub(crate) async fn default_program(
     Ok(program)
 }
 
-/// How long a Git Bash lookup that found nothing is kept (`SHELL_RESOLUTION_MISS_TTL_MS`): a later install is found again.
-const BASH_MISS_TTL: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// The last Git Bash lookup: whether it found one, and when it was made.
-static GIT_BASH: std::sync::Mutex<Option<(bool, std::time::Instant)>> = std::sync::Mutex::new(None);
-
-/// The runtime boundary of the Git Bash probe: a cache hit never waits on a probing thread's mutex, while a miss probes
-/// on the existing spawn lane with this call's cancellation token. The lane job is awaited, never detached.
-pub(crate) async fn bash_request_is_posix_on(
-    windows: bool,
-    lane: mixdog_rt::SpawnIo,
-    cancel: &tokio_util::sync::CancellationToken,
-) -> Result<bool, String> {
-    if !windows { return Ok(true); }
-    let read = |slot: &Option<(bool, std::time::Instant)>| {
-        slot.as_ref().filter(|(found, at)| *found || at.elapsed() < BASH_MISS_TTL).map(|(found, _)| *found)
-    };
-    let cached = match GIT_BASH.try_lock() {
-        Ok(slot) => read(&slot),
-        Err(std::sync::TryLockError::Poisoned(error)) => read(&error.into_inner()),
-        Err(std::sync::TryLockError::WouldBlock) => None,
-    };
-    if let Some(found) = cached { return Ok(found); }
-    probe_on_lane(lane, cancel, move || bash_request_is_posix(windows)).await
-}
-
 async fn probe_on_lane(
     lane: mixdog_rt::SpawnIo,
     cancel: &tokio_util::sync::CancellationToken,
@@ -80,72 +54,6 @@ async fn probe_on_lane(
         .map_err(|_| "the lane is full".to_owned())?
         .await
         .map_err(|error| error.to_string())
-}
-
-/// Whether a call that asks for the `bash` shell (a foreign CLI's `bash` name, `shell: 'bash'`) is read as POSIX syntax
-/// (`requestedShellType` over `resolveShellFor('bash')`). Off Windows a bash, or `/bin/sh` as the last resort, is always
-/// there. On Windows it is Git Bash, and without one the request is no request: the default shell's syntax applies. A
-/// found Git Bash is kept for the process, a miss for 30 s.
-pub(crate) fn bash_request_is_posix(windows: bool) -> bool {
-    if !windows {
-        return true;
-    }
-    let mut slot = GIT_BASH.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some((found, at)) = *slot
-        && (found || at.elapsed() < BASH_MISS_TTL)
-    {
-        return found;
-    }
-    let entries = path_entries(std::env::current_dir().ok(), &std::env::var("PATH").unwrap_or_default());
-    let found = git_bash(&entries, &known_git_roots(&|name: &str| std::env::var(name).ok())).is_some();
-    *slot = Some((found, std::time::Instant::now()));
-    found
-}
-
-/// The folders a command name is looked up in (`allExistingPathsFromPath`): the working directory, then every `PATH` entry,
-/// trimmed and unquoted.
-fn path_entries(cwd: Option<std::path::PathBuf>, path: &str) -> Vec<std::path::PathBuf> {
-    let listed = std::env::split_paths(path).map(|entry| std::path::PathBuf::from(entry.to_string_lossy().trim().trim_matches('"')));
-    cwd.into_iter().chain(listed).filter(|entry| !entry.as_os_str().is_empty()).collect()
-}
-
-/// Every existing `name` in `entries`, once per path (case-insensitively).
-#[allow(clippy::disallowed_methods, reason = "Production lookup runs in bash_request_is_posix_on's SpawnIo job; tests use owned fixture paths.")]
-fn existing_on_path(entries: &[std::path::PathBuf], name: &str) -> Vec<std::path::PathBuf> {
-    let mut seen = std::collections::HashSet::new();
-    entries
-        .iter()
-        .map(|entry| entry.join(name))
-        .filter(|candidate| seen.insert(candidate.to_string_lossy().to_lowercase()) && candidate.exists())
-        .collect()
-}
-
-/// The Git-for-Windows launcher under an install root: `bin\bash.exe`, then `usr\bin\bash.exe`.
-#[allow(clippy::disallowed_methods, reason = "Production lookup runs in bash_request_is_posix_on's SpawnIo job; tests use owned fixture paths.")]
-fn bash_under(root: &std::path::Path) -> Option<std::path::PathBuf> {
-    let launcher = |dirs: &[&str]| dirs.iter().fold(root.to_path_buf(), |path, part| path.join(part)).join("bash.exe");
-    [launcher(&["bin"]), launcher(&["usr", "bin"])].into_iter().find(|candidate| candidate.exists())
-}
-
-/// `resolveWindowsGitBash`: the launcher beside a `git.exe` on the path (up to three folders up from it, so `cmd`, `bin` and
-/// `mingw64\bin` all lead to the install root), else a `bash.exe` on the path that is not the System32 launcher of WSL, else
-/// the well-known install `roots` ([`known_git_roots`]).
-fn git_bash(entries: &[std::path::PathBuf], roots: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
-    for git in existing_on_path(entries, "git.exe") {
-        let mut dir = git.parent();
-        for _ in 0..3 {
-            let Some(current) = dir else { break };
-            if let Some(bash) = bash_under(current) {
-                return Some(bash);
-            }
-            dir = current.parent();
-        }
-    }
-    let wsl = |path: &std::path::Path| path.to_string_lossy().to_lowercase().replace('/', "\\").contains(r"\system32\");
-    if let Some(bash) = existing_on_path(entries, "bash.exe").into_iter().find(|candidate| !wsl(candidate)) {
-        return Some(bash);
-    }
-    roots.iter().find_map(|root| bash_under(root))
 }
 
 /// `gitBashFromKnownWindowsRoots`: the Git-for-Windows install roots of the machine and of the user, then the fixed ones.
@@ -173,81 +81,8 @@ fn program_name(program: &str) -> &str {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn bash_path_probing_runs_on_the_spawn_lane_not_the_callers_thread() {
-        // testing::tokens installs InlineBackend, which deliberately executes a submitted job on the caller. This
-        // assertion needs the real executor and its owned spawn-lane threads (one backend-installing test per process).
-        let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("the real executors");
-        let caller = std::thread::current().id();
-        let cancel = tokio_util::sync::CancellationToken::new();
-        // Await the job to completion before the test returns; no held/blocking fixture job or detached task survives it.
-        let off_caller = probe_on_lane(tokens.spawn_io, &cancel, move || std::thread::current().id() != caller).await.unwrap();
-        assert!(off_caller);
-    }
-
-    #[tokio::test]
-    async fn a_cancelled_bash_probe_does_not_run_its_filesystem_lookup() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        let ran = std::sync::Arc::new(AtomicBool::new(false));
-        let probe_ran = ran.clone();
-        let cancel = tokio_util::sync::CancellationToken::new();
-        cancel.cancel();
-        assert!(probe_on_lane(mixdog_rt::testing::tokens().spawn_io, &cancel, move || { probe_ran.store(true, Ordering::SeqCst); true }).await.is_err());
-        assert!(!ran.load(Ordering::SeqCst));
-    }
-
-    fn golden() -> serde_json::Value {
-        serde_json::from_str(include_str!("testdata/shell_choice.json")).unwrap()
-    }
-
     /// The recorded `<default>` stands for the host's own default program.
     const DEFAULT: &str = "C:\\Host\\default-shell.exe";
-
-    fn expected(case: &serde_json::Value) -> String {
-        match case["shell"].as_str().unwrap() {
-            "<default>" => DEFAULT.to_owned(),
-            explicit => explicit.to_owned(),
-        }
-    }
-
-    /// Node's shell for every recorded setting, `MIXDOG_SHELL` value and platform. The setting is
-    /// stored trimmed (`setConfiguredShell`), as the daemon's `ConfiguredShell` does.
-    #[test]
-    fn the_chosen_shell_equals_nodes_for_every_setting_variable_and_platform() {
-        let golden = golden();
-        let cases = golden["cases"].as_array().unwrap();
-        assert!(cases.len() > 100);
-        for case in cases {
-            let windows = case["platform"] == "win32";
-            let configured = mixdog_js::js_trim(case["configured"].as_str().unwrap());
-            let env = case["env"].as_str();
-            assert_eq!(chosen_shell(windows, configured, env, DEFAULT), expected(case), "{case}");
-        }
-    }
-
-    /// The type of the shell Node chose is the platform's: the PowerShell-only paths (wmic rewrite,
-    /// hygiene, the UTF-8 preamble) follow `windows`, whatever is configured.
-    #[test]
-    fn the_shell_type_is_the_platforms_for_every_recorded_choice() {
-        let golden = golden();
-        for case in golden["cases"].as_array().unwrap() {
-            let want = if case["platform"] == "win32" { "powershell" } else { "posix" };
-            assert_eq!(case["shellType"], want, "{case}");
-        }
-        for (platform, kind) in golden["defaults"].as_object().unwrap() {
-            assert_eq!(kind, if platform == "win32" { "powershell" } else { "posix" });
-        }
-    }
-
-    /// One process, the setting changing between spawns: each spawn follows the current value.
-    #[test]
-    fn the_setting_is_followed_from_one_spawn_to_the_next() {
-        let golden = golden();
-        for step in golden["sequence"].as_array().unwrap() {
-            let configured = mixdog_js::js_trim(step["set"].as_str().unwrap());
-            assert_eq!(chosen_shell(true, configured, None, DEFAULT), expected(step), "{step}");
-        }
-    }
 
     /// A setting whose change drops the kept default, as the daemon's `ConfiguredShell` does
     /// (`setConfiguredShell`); every probe answers a new program.
@@ -275,12 +110,40 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_program_name_is_the_last_path_component() {
+        assert_eq!(program_name("C:\\Program Files\\PowerShell\\7\\pwsh.exe"), "pwsh.exe");
+        assert_eq!(program_name("/usr/bin/pwsh"), "pwsh");
+        assert_eq!(program_name("C:\\Git\\bin\\bash.exe\\"), "bash.exe");
+        assert_eq!(program_name("powershell.exe"), "powershell.exe");
+    }
+
+    #[tokio::test]
+    async fn bash_path_probing_runs_on_the_spawn_lane_not_the_callers_thread() {
+        // testing::tokens installs InlineBackend, which deliberately executes a submitted job on the caller. This
+        // assertion needs the real executor and its owned spawn-lane threads (one backend-installing test per process).
+        let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("the real executors");
+        let caller = std::thread::current().id();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        // Await the job to completion before the test returns; no held/blocking fixture job or detached task survives it.
+        let off_caller = probe_on_lane(tokens.spawn_io, &cancel, move || std::thread::current().id() != caller).await.unwrap();
+        assert!(off_caller);
+    }
+    #[tokio::test]
+    async fn a_cancelled_bash_probe_does_not_run_its_filesystem_lookup() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let ran = std::sync::Arc::new(AtomicBool::new(false));
+        let probe_ran = ran.clone();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        cancel.cancel();
+        assert!(probe_on_lane(mixdog_rt::testing::tokens().spawn_io, &cancel, move || { probe_ran.store(true, Ordering::SeqCst); true }).await.is_err());
+        assert!(!ran.load(Ordering::SeqCst));
+    }
     /// The default program of one spawn.
     async fn spawn_program(source: &std::sync::Arc<dyn super::super::jobs::ShellSource>) -> String {
         let cancel = tokio_util::sync::CancellationToken::new();
         default_program(source, mixdog_rt::testing::tokens().spawn_io, &cancel, &source.configured()).await.unwrap()
     }
-
     /// The default program is probed once and kept; a setting change makes the next spawn probe again.
     #[tokio::test]
     async fn the_kept_default_program_is_probed_again_after_the_setting_changes() {
@@ -294,7 +157,6 @@ mod tests {
         assert_eq!(spawn_program(&source).await, "probe-2");
         assert_eq!(setting.probes.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
-
     /// `resolveWindowsGitBash`: a `git.exe` leads to the install root's launcher from `cmd`, `bin` or `mingw64\bin`; the WSL
     /// launcher under System32 is never taken; a known install root is the last resort.
     #[test]
@@ -327,7 +189,6 @@ mod tests {
         assert_eq!(roots.len(), 3, "the machine's root, then the two fixed ones");
         assert_eq!(git_bash(&[], &roots), Some(installed.join("Git").join("bin").join("bash.exe")));
     }
-
     #[test]
     fn the_lookup_folders_are_the_working_directory_then_the_path_unquoted() {
         let separator = if cfg!(windows) { ';' } else { ':' };
@@ -336,11 +197,128 @@ mod tests {
         assert!(bash_request_is_posix(false));
     }
 
+
+    /// The shell a spawn uses: off Windows always the platform's default; on Windows the setting (stored trimmed, as the
+    /// daemon's `ConfiguredShell` does) wins over `MIXDOG_SHELL`, which is used as written, and `bash` names no shell of
+    /// the Windows family so it falls back to the default.
     #[test]
-    fn the_program_name_is_the_last_path_component() {
-        assert_eq!(program_name("C:\\Program Files\\PowerShell\\7\\pwsh.exe"), "pwsh.exe");
-        assert_eq!(program_name("/usr/bin/pwsh"), "pwsh");
-        assert_eq!(program_name("C:\\Git\\bin\\bash.exe\\"), "bash.exe");
-        assert_eq!(program_name("powershell.exe"), "powershell.exe");
+    fn the_chosen_shell_follows_the_platform_then_the_setting_then_the_variable() {
+        let choose = |windows: bool, configured: &str, env: Option<&str>| chosen_shell(windows, mixdog_js::js_trim(configured), env, DEFAULT);
+        for (configured, env) in [("", None), ("", Some("pwsh")), ("pwsh", None), ("bash", Some("pwsh"))] {
+            assert_eq!(choose(false, configured, env), DEFAULT, "off Windows: {configured:?} {env:?}");
+        }
+        assert_eq!(choose(true, "", None), DEFAULT);
+        assert_eq!(choose(true, "", Some("")), DEFAULT);
+        assert_eq!(choose(true, "", Some("pwsh")), "pwsh");
+        assert_eq!(choose(true, "", Some(" pwsh ")), " pwsh ", "the variable is used as written");
+        assert_eq!(choose(true, "", Some("cmd.exe")), "cmd.exe");
+        assert_eq!(choose(true, "", Some("bash")), DEFAULT);
+        for env in [None, Some(""), Some("pwsh"), Some("bash"), Some("cmd.exe"), Some("D:\\Tools\\PowerShell\\pwsh.exe")] {
+            assert_eq!(choose(true, "powershell", env), "powershell", "the setting wins over {env:?}");
+            assert_eq!(choose(true, "  pwsh  ", env), "pwsh", "the setting is trimmed ({env:?})");
+            assert_eq!(choose(true, "D:\\Tools\\PowerShell\\pwsh.exe", env), "D:\\Tools\\PowerShell\\pwsh.exe");
+        }
     }
+
+    /// One process, the setting changing between spawns: each spawn follows the current value.
+    #[test]
+    fn the_setting_is_followed_from_one_spawn_to_the_next() {
+        for (set, want) in [
+            ("", DEFAULT),
+            ("pwsh", "pwsh"),
+            ("pwsh", "pwsh"),
+            ("bash", DEFAULT),
+            ("D:\\Tools\\PowerShell\\pwsh.exe", "D:\\Tools\\PowerShell\\pwsh.exe"),
+            ("", DEFAULT),
+            ("powershell.exe", "powershell.exe"),
+        ] {
+            assert_eq!(chosen_shell(true, mixdog_js::js_trim(set), None, DEFAULT), want, "{set:?}");
+        }
+    }
+}
+
+
+/// How long a Git Bash lookup that found nothing is kept (`SHELL_RESOLUTION_MISS_TTL_MS`): a later install is found again.
+const BASH_MISS_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+/// The last Git Bash lookup: whether it found one, and when it was made.
+static GIT_BASH: std::sync::Mutex<Option<(bool, std::time::Instant)>> = std::sync::Mutex::new(None);
+/// The runtime boundary of the Git Bash probe: a cache hit never waits on a probing thread's mutex, while a miss probes
+/// on the existing spawn lane with this call's cancellation token. The lane job is awaited, never detached.
+pub(crate) async fn bash_request_is_posix_on(
+    windows: bool,
+    lane: mixdog_rt::SpawnIo,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<bool, String> {
+    if !windows { return Ok(true); }
+    let read = |slot: &Option<(bool, std::time::Instant)>| {
+        slot.as_ref().filter(|(found, at)| *found || at.elapsed() < BASH_MISS_TTL).map(|(found, _)| *found)
+    };
+    let cached = match GIT_BASH.try_lock() {
+        Ok(slot) => read(&slot),
+        Err(std::sync::TryLockError::Poisoned(error)) => read(&error.into_inner()),
+        Err(std::sync::TryLockError::WouldBlock) => None,
+    };
+    if let Some(found) = cached { return Ok(found); }
+    probe_on_lane(lane, cancel, move || bash_request_is_posix(windows)).await
+}
+/// Whether a call that asks for the `bash` shell (a foreign CLI's `bash` name, `shell: 'bash'`) is read as POSIX syntax
+/// (`requestedShellType` over `resolveShellFor('bash')`). Off Windows a bash, or `/bin/sh` as the last resort, is always
+/// there. On Windows it is Git Bash, and without one the request is no request: the default shell's syntax applies. A
+/// found Git Bash is kept for the process, a miss for 30 s.
+pub(crate) fn bash_request_is_posix(windows: bool) -> bool {
+    if !windows {
+        return true;
+    }
+    let mut slot = GIT_BASH.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((found, at)) = *slot
+        && (found || at.elapsed() < BASH_MISS_TTL)
+    {
+        return found;
+    }
+    let entries = path_entries(std::env::current_dir().ok(), &std::env::var("PATH").unwrap_or_default());
+    let found = git_bash(&entries, &known_git_roots(&|name: &str| std::env::var(name).ok())).is_some();
+    *slot = Some((found, std::time::Instant::now()));
+    found
+}
+/// The folders a command name is looked up in (`allExistingPathsFromPath`): the working directory, then every `PATH` entry,
+/// trimmed and unquoted.
+fn path_entries(cwd: Option<std::path::PathBuf>, path: &str) -> Vec<std::path::PathBuf> {
+    let listed = std::env::split_paths(path).map(|entry| std::path::PathBuf::from(entry.to_string_lossy().trim().trim_matches('"')));
+    cwd.into_iter().chain(listed).filter(|entry| !entry.as_os_str().is_empty()).collect()
+}
+/// Every existing `name` in `entries`, once per path (case-insensitively).
+#[allow(clippy::disallowed_methods, reason = "Production lookup runs in bash_request_is_posix_on's SpawnIo job; tests use owned fixture paths.")]
+fn existing_on_path(entries: &[std::path::PathBuf], name: &str) -> Vec<std::path::PathBuf> {
+    let mut seen = std::collections::HashSet::new();
+    entries
+        .iter()
+        .map(|entry| entry.join(name))
+        .filter(|candidate| seen.insert(candidate.to_string_lossy().to_lowercase()) && candidate.exists())
+        .collect()
+}
+/// The Git-for-Windows launcher under an install root: `bin\bash.exe`, then `usr\bin\bash.exe`.
+#[allow(clippy::disallowed_methods, reason = "Production lookup runs in bash_request_is_posix_on's SpawnIo job; tests use owned fixture paths.")]
+fn bash_under(root: &std::path::Path) -> Option<std::path::PathBuf> {
+    let launcher = |dirs: &[&str]| dirs.iter().fold(root.to_path_buf(), |path, part| path.join(part)).join("bash.exe");
+    [launcher(&["bin"]), launcher(&["usr", "bin"])].into_iter().find(|candidate| candidate.exists())
+}
+/// `resolveWindowsGitBash`: the launcher beside a `git.exe` on the path (up to three folders up from it, so `cmd`, `bin` and
+/// `mingw64\bin` all lead to the install root), else a `bash.exe` on the path that is not the System32 launcher of WSL, else
+/// the well-known install `roots` ([`known_git_roots`]).
+fn git_bash(entries: &[std::path::PathBuf], roots: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
+    for git in existing_on_path(entries, "git.exe") {
+        let mut dir = git.parent();
+        for _ in 0..3 {
+            let Some(current) = dir else { break };
+            if let Some(bash) = bash_under(current) {
+                return Some(bash);
+            }
+            dir = current.parent();
+        }
+    }
+    let wsl = |path: &std::path::Path| path.to_string_lossy().to_lowercase().replace('/', "\\").contains(r"\system32\");
+    if let Some(bash) = existing_on_path(entries, "bash.exe").into_iter().find(|candidate| !wsl(candidate)) {
+        return Some(bash);
+    }
+    roots.iter().find_map(|root| bash_under(root))
 }

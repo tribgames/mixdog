@@ -42,7 +42,7 @@ function fakeClient(answer) {
     subscribeApp: async () => undefined,
     resumeThread: async (threadId, window) => {
       calls.push({ method: 'thread/resume', params: { threadId, window } });
-      folds.set(threadId, { state: sessionReducer.initial({ thread: { id: threadId }, items: [] }) });
+      folds.set(threadId, { feed: { id: threadId, epoch: 'e1', seq: 1 }, order: 1, state: sessionReducer.initial({ thread: { id: threadId }, items: [] }) });
       queueMicrotask(() => storeListeners.forEach((l) => l({ type: 'thread', threadId })));
       return {};
     },
@@ -56,7 +56,8 @@ function fakeClient(answer) {
   };
 }
 
-const defaults = (method) => {
+const defaults = (method, params) => {
+  if (method === 'config/value/write') return { values: [params.value] };
   if (method === 'project/taskWorkspace') return { path: 'C:/task' };
   if (method === 'thread/delete') return {};
   if (method === 'model/list') return [];
@@ -105,8 +106,6 @@ test('requests equal what the IPC handlers sent', async () => {
     ['agentRoomAction', ['leave', undefined], [['room/leave', { input: { roomId: undefined } }]]],
     ['listProviderModels', [], [['model/list', {}]]],
     ['listProviderModels', [{ force: true }], [['model/list', { force: true }]]],
-    ['setFast', [true, S1], [['fast/set', { threadId: S1, on: true }]]],
-    ['setFast', [false], [['fast/set', { on: false }]]],
     ['submitToSession', [S1, 'hi', { id: 'sub1', priority: 'now', device: 'x' }], [['turn/start', { threadId: S1, input: { prompt: 'hi', options: { priority: 'now', clientSubmissionId: 'sub1' } } }]]],
     ['submitToSession', [S1, 'hi'], [['turn/start', { threadId: S1, input: { prompt: 'hi', options: {} } }]]],
     ['abortSession', [S1, { restorePrompt: true, submissionId: 'x' }], [['turn/interrupt', { threadId: S1, restorePrompt: true, submissionId: 'x' }]]],
@@ -119,6 +118,17 @@ test('requests equal what the IPC handlers sent', async () => {
     await api[key](...args);
     assert.deepEqual(sent(client), expected, `${key}(${JSON.stringify(args)})`);
   }
+});
+
+test('setFast returns the addressed conversation, not the blank window shell', async () => {
+  const { api, client } = await opened((method, params) => {
+    if (method === 'thread/read') return { thread: { id: params.threadId }, state: { route: { fast: true } }, items: [] };
+    return defaults(method);
+  });
+  const snapshot = await api.setFast(true, S1);
+  assert.equal(snapshot.sessionId, S1);
+  assert.equal(snapshot.fast, true);
+  assert.deepEqual(sent(client), [['fast/set', { threadId: S1, on: true }], ['thread/read', { threadId: S1, window: { none: true } }]]);
 });
 
 test('answers keep the handlers shapes', async () => {
@@ -243,7 +253,7 @@ test('resync delivers the state the window last held and asks the lane for one i
   // A session with no held state: the lane is asked once, the answer (any frame) is admitted although the session is hidden.
   api.resyncSessionState(S2);
   api.resyncSessionState(S2);
-  client.folds.set(S2, { state: sessionReducer.initial({ thread: { id: S2 }, items: [] }) });
+  client.folds.set(S2, { feed: { id: S2, epoch: 'e1', seq: 1 }, order: 1, state: sessionReducer.initial({ thread: { id: S2 }, items: [] }) });
   client.emitStore({ type: 'thread', threadId: S2 });
   assert.deepEqual(seen, [S1, S1, S2]);
   api.resyncSessionState('not a session id');
@@ -349,7 +359,7 @@ test('sessions that leave the visible set are logged as released baselines', asy
 
 // The patch chain of the removed preload decoder (session-state.test.mjs) is gone: the lane publishes whole states, so a
 // window that missed frames, or whose feed was resumed after a gap, is rebuilt from the whole fold, never from a delta.
-const folding = (client, id, items) => client.folds.set(id, { state: sessionReducer.initial({ thread: { id }, items }) });
+const folding = (client, id, items) => client.folds.set(id, { feed: { id, epoch: 'e1', seq: 1 }, order: 1, state: sessionReducer.initial({ thread: { id }, items }) });
 const row = (id, text) => ({ type: 'agentMessage', id, text, meta: {} });
 
 test('a feed resumed after a gap replaces the window state with the whole new fold', async () => {

@@ -261,7 +261,84 @@ test('a failed login shows its error in the wait dialog', async () => {
   }
 });
 
-// A sign-in the wait dialog cannot follow any more must not leave it waiting: it shows the status-failure notice.
+test('after a lost feed the wait dialog follows the host until the actual sign-in completes', async () => {
+  let reads = 0;
+  let refreshed = 0;
+  const view = await mountMcp({
+    servers: [server({ authRequired: true })],
+    refreshExtensions: async () => {
+      refreshed += 1;
+    },
+    async run(capability, args) {
+      if (capability === 'getMcpServerConfig') return { name: 'cloudflare', config: server().config };
+      if (capability === 'beginMcpOAuthLogin') return { flowId: 'recover', state: 'pending', url: 'https://auth.test/x' };
+      if (capability === 'getMcpOAuthLoginStatus') {
+        assert.deepEqual(args, ['recover']);
+        reads += 1;
+        return { flowId: 'recover', state: reads === 1 ? 'pending' : 'complete' };
+      }
+    },
+  });
+  try {
+    await openEditor('cloudflare');
+    await act(async () => document.querySelector('.extensions-mcp-dialog .extensions-action').click());
+    await act(async () => feed.lose('recover'));
+    const dialog = document.querySelector('.settings-oauth-dialog');
+    assert.ok(dialog);
+    assert.match(dialog.querySelector('.settings-oauth-wait').textContent, /Waiting…/);
+    assert.equal(dialog.querySelector('.settings-oauth-host').textContent, 'auth.test');
+    await waitFor(() => document.querySelector('.settings-oauth-dialog') === null);
+    assert.equal(document.querySelector('.settings-oauth-dialog'), null);
+    assert.equal(refreshed, 1);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+for (const timing of ['retained', 'while polling']) {
+  test(`feed loss preserves a matching terminal outcome (${timing})`, async () => {
+    let finishRead;
+    let refreshed = 0;
+    if (timing === 'retained') {
+      feed.held = { lost: true, state: { flowId: 'terminal', state: 'complete' } };
+    }
+    const view = await mountMcp({
+      servers: [server({ authRequired: true })],
+      refreshExtensions: async () => {
+        refreshed += 1;
+      },
+      async run(capability) {
+        if (capability === 'getMcpServerConfig') return { name: 'cloudflare', config: server().config };
+        if (capability === 'beginMcpOAuthLogin') return { flowId: 'terminal', state: 'pending' };
+        if (capability === 'getMcpOAuthLoginStatus') {
+          return new Promise((resolve) => {
+            finishRead = resolve;
+          });
+        }
+      },
+    });
+    try {
+      await openEditor('cloudflare');
+      await act(async () => document.querySelector('.extensions-mcp-dialog .extensions-action').click());
+      if (timing === 'while polling') {
+        await act(async () => feed.lose('terminal'));
+        assert.ok(finishRead, 'a status read is outstanding');
+        await act(async () => feed.push('other', { flowId: 'other', state: 'complete' }));
+        assert.ok(document.querySelector('.settings-oauth-dialog'));
+        await act(async () => {
+          feed.push('terminal', { flowId: 'terminal', state: 'complete' });
+          finishRead({ flowId: 'terminal', state: 'pending' });
+        });
+      }
+      assert.equal(document.querySelector('.settings-oauth-dialog'), null);
+      assert.equal(refreshed, 1);
+    } finally {
+      await view.cleanup();
+    }
+  });
+}
+
+// If neither the feed nor a direct status read works, the wait dialog shows the status-failure notice.
 const feedFailures = {
   'the feed was lost while the dialog waits': {
     flowId: 'f5',
@@ -309,7 +386,7 @@ for (const [name, failure] of Object.entries(feedFailures)) {
   });
 }
 
-test('a client without the pushed feed shows the status-failure notice instead of waiting', async () => {
+test('a client with neither a feed nor a status reply shows the status-failure notice', async () => {
   const { sections } = window.mixdogDesktop;
   delete window.mixdogDesktop.sections;
   const view = await mountMcp({

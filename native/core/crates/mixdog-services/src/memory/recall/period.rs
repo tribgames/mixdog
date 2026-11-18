@@ -2,10 +2,11 @@
 //! `09:00~12:00`, `last`), the period a query's own words imply, and the local
 //! clock used to turn them into time windows and render stamps.
 
+use mixdog_js::time::{LocalFields, date_parse_in, local_fields_in, local_to_utc_ms_in};
 use mixdog_js::{JsRegex, js_words};
 use std::sync::LazyLock;
 
-use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, TimeZone, Timelike, Utc};
 use chrono_tz::Tz;
 use unicode_normalization::UnicodeNormalization;
 
@@ -22,12 +23,20 @@ impl Clock {
         Utc.timestamp_millis_opt(ms).single().unwrap_or_default().with_timezone(&self.zone)
     }
 
-    fn local(&self, naive: NaiveDateTime) -> Option<i64> {
-        self.zone.from_local_datetime(&naive).earliest().map(|t| t.timestamp_millis())
+    /// The local calendar fields of the clock's instant (`new Date()`'s getters).
+    fn today(&self) -> Option<LocalFields> {
+        local_fields_in(self.zone, self.now_ms as f64)
     }
 
-    fn midnight(&self, date: NaiveDate) -> Option<i64> {
-        self.local(date.and_time(NaiveTime::MIN))
+    /// `new Date(y, m, d, h, mi, s, ms)` in the clock's zone, through the JavaScript local-time conversion; the day
+    /// may leave its month (`d - 1` is the day before). `None` where the Date is invalid.
+    fn wall(&self, (year, month, day): (i64, i64, i64), (hour, minute, second, ms): (i64, i64, i64, i64)) -> Option<i64> {
+        finite(local_to_utc_ms_in(self.zone, year, month, day, hour, minute, second, ms))
+    }
+
+    /// Local midnight of the day `back` days before `day`'s date.
+    fn midnight(&self, day: &LocalFields, back: i64) -> Option<i64> {
+        self.wall((i64::from(day.year), i64::from(day.month), i64::from(day.day) - back), (0, 0, 0, 0))
     }
 
     /// `YYYY-MM-DD HH:mm` of an instant in the local zone.
@@ -46,6 +55,12 @@ impl Clock {
 }
 
 use chrono::Offset;
+
+/// A JavaScript number as a bound: NaN and the infinities are an absent bound, every finite value is kept (a value
+/// beyond `i64` saturates).
+fn finite(ms: f64) -> Option<i64> {
+    ms.is_finite().then_some(ms as i64)
+}
 
 /// A resolved time window. A bound that could not be read is absent.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -70,86 +85,89 @@ static TIME_OF_DAY: LazyLock<JsRegex> = LazyLock::new(|| {
 });
 static SINGLE_DAY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(\d{4}-\d{2}-\d{2})$", ""));
 
-fn parse_date(text: &str) -> Option<NaiveDate> {
-    NaiveDate::parse_from_str(text, "%Y-%m-%d").ok()
+/// `Date.parse` of a date and a time of day read as local time (`2026-02-31T00:00:00` is March 3).
+fn parse_local(clock: &Clock, day: &str, time: &str) -> Option<i64> {
+    finite(date_parse_in(clock.zone, &format!("{day}T{time}")))
 }
 
 fn day_window(clock: &Clock, period: &str) -> Option<Window> {
-    let today = clock.at(clock.now_ms).date_naive();
-    match period {
-        "today" => Some(Window { start_ms: clock.midnight(today), end_ms: Some(clock.now_ms), exact: false }),
-        "yesterday" => {
-            let day = today - Duration::days(1);
-            let start = clock.midnight(day);
-            let end = clock.local(day.and_time(NaiveTime::from_hms_milli_opt(23, 59, 59, 999)?));
-            Some(Window { start_ms: start, end_ms: end, exact: false })
-        }
-        _ => None,
+    if period != "today" && period != "yesterday" {
+        return None;
     }
+    let today = clock.today()?;
+    if period == "today" {
+        return Some(Window { start_ms: clock.midnight(&today, 0), end_ms: Some(clock.now_ms), exact: false });
+    }
+    let (year, month, day) = (i64::from(today.year), i64::from(today.month), i64::from(today.day) - 1);
+    Some(Window {
+        start_ms: clock.midnight(&today, 1),
+        end_ms: clock.wall((year, month, day), (23, 59, 59, 999)),
+        exact: false,
+    })
 }
 
 fn week_window(clock: &Clock, period: &str) -> Option<Window> {
     if period != "this_week" && period != "last_week" {
         return None;
     }
-    let today = clock.at(clock.now_ms).date_naive();
-    let monday = today - Duration::days(i64::from(today.weekday().num_days_from_monday()));
-    let monday_ms = clock.midnight(monday);
+    let today = clock.today()?;
+    let since_monday = i64::from((today.weekday + 6) % 7);
+    let monday_ms = clock.midnight(&today, since_monday);
     if period == "this_week" {
         return Some(Window { start_ms: monday_ms, end_ms: Some(clock.now_ms), exact: false });
     }
-    let last_monday = clock.midnight(monday - Duration::days(7));
-    Some(Window { start_ms: last_monday, end_ms: monday_ms.map(|ms| ms - 1), exact: false })
+    Some(Window { start_ms: clock.midnight(&today, since_monday + 7), end_ms: monday_ms.map(|ms| ms - 1), exact: false })
 }
 
 fn rolling_window(clock: &Clock, period: &str) -> Option<Window> {
     let caps = ROLLING.captures(period)?;
-    let n: i64 = caps.get(1).unwrap_or_default().parse().ok()?;
+    // The count is a JavaScript number: minutes and hours are plain subtraction, whatever finite value results.
+    let n: f64 = caps.get(1).unwrap_or_default().parse().ok()?;
     let now = clock.now_ms;
     let start = match caps.get(2).unwrap_or_default() {
-        "m" => Some(now - n * 60_000),
-        "h" => Some(now - n * 3_600_000),
-        _ => {
-            let local = clock.at(now).naive_local() - Duration::days(n);
-            clock.local(local)
-        }
+        "m" => finite(now as f64 - n * 60_000.0),
+        "h" => finite(now as f64 - n * 3_600_000.0),
+        // `setDate(getDate() - n)`: valid across the Date range, invalid beyond it. Past 2e8 days (twice that range)
+        // the answer is invalid anyway; the bound only keeps the day count inside the conversion's integer arithmetic.
+        _ => clock.today().filter(|_| n <= 2e8).and_then(|t| {
+            let day = (i64::from(t.year), i64::from(t.month), i64::from(t.day) - n as i64);
+            clock.wall(day, (i64::from(t.hour), i64::from(t.minute), i64::from(t.second), i64::from(t.millisecond)))
+        }),
     };
     Some(Window { start_ms: start, end_ms: Some(now), exact: false })
 }
 
 fn date_range_window(clock: &Clock, period: &str) -> Option<Window> {
     let caps = DATE_RANGE.captures(period)?;
-    let start = parse_date(caps.get(1).unwrap_or_default()).and_then(|d| clock.midnight(d));
-    let end = parse_date(caps.get(2).unwrap_or_default())
-        .and_then(|d| NaiveTime::from_hms_milli_opt(23, 59, 59, 999).map(|t| d.and_time(t)))
-        .and_then(|naive| clock.local(naive));
+    let start = parse_local(clock, caps.get(1).unwrap_or_default(), "00:00:00");
+    let end = parse_local(clock, caps.get(2).unwrap_or_default(), "23:59:59.999");
     Some(Window { start_ms: start, end_ms: end, exact: false })
 }
 
 fn time_of_day_window(clock: &Clock, period: &str) -> Option<Window> {
     let caps = TIME_OF_DAY.captures(period)?;
     let base = match caps.get(1) {
-        Some(day) => parse_date(day)?,
-        None => clock.at(clock.now_ms).date_naive(),
+        Some(day) => parse_local(clock, day, "00:00:00")?,
+        None => clock.now_ms,
     };
-    let number = |i: usize| caps.get(i).unwrap_or_default().parse::<u32>().ok();
+    let day = local_fields_in(clock.zone, base as f64)?;
+    let day = (i64::from(day.year), i64::from(day.month), i64::from(day.day));
+    let number = |i: usize| caps.get(i).unwrap_or_default().parse::<i64>().ok();
     let (sh, sm, eh, em) = (number(2)?, number(3)?, number(4)?, number(5)?);
     if sh > 23 || eh > 23 || sm > 59 || em > 59 {
         return None;
     }
-    let start = clock.local(base.and_time(NaiveTime::from_hms_opt(sh, sm, 0)?))?;
-    let end = clock.local(base.and_time(NaiveTime::from_hms_milli_opt(eh, em, 59, 999)?))?;
+    let start = clock.wall(day, (sh, sm, 0, 0))?;
+    let end = clock.wall(day, (eh, em, 59, 999))?;
     (end > start).then_some(Window { start_ms: Some(start), end_ms: Some(end), exact: true })
 }
 
 fn single_day_window(clock: &Clock, period: &str) -> Option<Window> {
     let caps = SINGLE_DAY.captures(period)?;
-    let date = parse_date(caps.get(1).unwrap_or_default());
+    let date = caps.get(1).unwrap_or_default();
     Some(Window {
-        start_ms: date.and_then(|d| clock.midnight(d)),
-        end_ms: date
-            .and_then(|d| NaiveTime::from_hms_milli_opt(23, 59, 59, 999).map(|t| d.and_time(t)))
-            .and_then(|naive| clock.local(naive)),
+        start_ms: parse_local(clock, date, "00:00:00"),
+        end_ms: parse_local(clock, date, "23:59:59.999"),
         exact: true,
     })
 }
@@ -247,4 +265,69 @@ pub fn format_local_minute(clock: &Clock, ts: i64) -> String {
 /// Hour of the local day, for span headers.
 pub fn local_hour(clock: &Clock, ts: i64) -> u32 {
     clock.at(ts).hour()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn clock(zone: Tz) -> Clock {
+        Clock { now_ms: 1_780_000_000_000, zone }
+    }
+
+    fn window(clock: &Clock, period: &str) -> Window {
+        match parse_period(clock, period, false) {
+            Some(Temporal::Window(window)) => window,
+            other => panic!("{period}: {other:?}"),
+        }
+    }
+
+    fn utc_ms(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> i64 {
+        Utc.with_ymd_and_hms(y, mo, d, h, mi, 0).unwrap().timestamp_millis()
+    }
+
+    #[test]
+    fn a_relative_period_follows_javascript_across_the_date_range() {
+        let clock = clock(chrono_tz::UTC);
+        // Node, `setDate(getDate() - n)` at this instant in UTC: valid down to the Date limit, invalid beyond it.
+        let days = [
+            ("100000000d", Some(-8_638_220_000_000_000)),
+            ("100020601d", Some(-8_639_999_926_400_000)),
+            ("100020602d", None),
+            ("99999999999999999d", None),
+            ("2d", Some(clock.now_ms - 2 * 86_400_000)),
+        ];
+        // Node, `now - n * unit`: plain numbers, finite however large (beyond i64 they saturate).
+        let numbers = [
+            ("3000000000h", Some(-10_798_220_000_000_000)),
+            ("6000000000000m", Some(-359_998_220_000_000_000)),
+            ("999999999999999999999m", Some(i64::MIN)),
+        ];
+        for (period, start) in days.into_iter().chain(numbers) {
+            let found = window(&clock, period);
+            assert_eq!((found.start_ms, found.end_ms), (start, Some(clock.now_ms)), "{period}");
+        }
+    }
+
+    #[test]
+    fn a_day_past_the_end_of_its_month_rolls_into_the_next_as_javascript_dates_do() {
+        let clock = clock(chrono_tz::UTC);
+        let rolled = window(&clock, "2026-02-31");
+        let march = window(&clock, "2026-03-03");
+        assert_eq!((rolled.start_ms, rolled.end_ms), (march.start_ms, march.end_ms));
+        assert_eq!(rolled.start_ms, Some(utc_ms(2026, 3, 3, 0, 0)));
+        let impossible = window(&clock, "2026-13-45");
+        assert_eq!((impossible.start_ms, impossible.end_ms), (None, None));
+    }
+
+    #[test]
+    fn a_wall_time_in_a_dst_gap_is_read_with_the_offset_before_the_gap() {
+        let new_york = clock(chrono_tz::America::New_York);
+        // 02:30 does not exist on 2026-03-08; it reads as 03:30 EDT.
+        let found = window(&new_york, "2026-03-08 02:30~04:30");
+        assert_eq!(found.start_ms, Some(utc_ms(2026, 3, 8, 7, 30)));
+        // Midnight itself is skipped on 2018-11-04 in São Paulo: it reads as 01:00 -02:00.
+        let sao_paulo = clock(chrono_tz::America::Sao_Paulo);
+        assert_eq!(window(&sao_paulo, "2018-11-04").start_ms, Some(1_541_300_400_000));
+    }
 }

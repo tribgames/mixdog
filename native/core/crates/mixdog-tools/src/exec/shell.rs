@@ -190,13 +190,15 @@ pub(super) fn guard_shell_args(args: JsonValue) -> Result<JsonValue, String> {
         }
     }
     if let Some(timeout) = a.get("timeout_ms") {
-        match whole(timeout).filter(|n| *n >= 0.0) {
-            Some(n) => {
-                a.insert("timeout_ms".to_owned(), JsonValue::from(n as u64));
-            }
-            None => {
-                return Err(format!("Error: shell arg \"timeout_ms\" must be a non-negative integer (got {})", describe_type(timeout)));
-            }
+        if whole(timeout).filter(|n| *n >= 0.0).is_none() {
+            return Err(format!("Error: shell arg \"timeout_ms\" must be a non-negative integer (got {})", describe_type(timeout)));
+        }
+    }
+    // JavaScript has one number type: `90000.0` and `9e4` are the integer 90000. Every integer argument that passed
+    // above is handed on as one, so the typed arguments below read it.
+    for key in ["wait_ms", "timeout_ms"] {
+        if let Some(n) = a.get(key).and_then(whole) {
+            a.insert(key.to_owned(), JsonValue::from(n as u64));
         }
     }
     Ok(JsonValue::Object(a))
@@ -259,6 +261,7 @@ impl Tool for ForeignShellTool {
 pub struct ShellTool {
     spec: ToolSpec,
     runtime: Arc<ExecRuntime>,
+    background_enabled: bool,
 }
 
 /// The definitions Node sends (`buildShellDescription` / `buildShellCommandDescription`, written for
@@ -310,7 +313,7 @@ impl ShellTool {
     /// The tool with its text written for background tasks `enabled` or not (`new` reads
     /// `MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS`).
     pub fn with_background(runtime: Arc<ExecRuntime>, enabled: bool) -> Self {
-        Self { spec: shell_spec(ShellKind::of(runtime.config.windows), enabled), runtime }
+        Self { spec: shell_spec(ShellKind::of(runtime.config.windows), enabled), runtime, background_enabled: enabled }
     }
 }
 
@@ -331,10 +334,6 @@ fn failed(code: ToolErrorCode, text: String) -> ToolError {
 
 fn text_output(text: String) -> ToolOutput {
     ToolOutput { parts: vec![ToolPart::Text(text)], ..ToolOutput::default() }
-}
-
-fn process_env(name: &str) -> Option<String> {
-    std::env::var(name).ok()
 }
 
 /// How long the call holds (`planShellDeadlines`); 0 means it never moves to the background.
@@ -393,19 +392,23 @@ pub(super) fn hold_end(background: bool, time_limit: u64, hold: u64, env: &dyn F
     }
 }
 
-/// The run limit: an explicit `timeout_ms`, else the background safety net
-/// `MIXDOG_SHELL_BACKGROUND_MAX_MS`, else none.
-pub(super) fn time_limit_ms(args: &Args, background_enabled: bool, env: &dyn Fn(&str) -> Option<String>) -> u64 {
-    if let Some(t) = args.timeout_ms.filter(|t| *t > 0) {
-        return t.min(TIMER_MAX_MS);
+/// The caller or rewrite can set a hard run limit. The safety net only arms on promotion,
+/// but counts elapsed foreground time toward the background deadline.
+pub(super) fn run_limits_ms(args: &Args, hard_cap: u64, env: &dyn Fn(&str) -> Option<String>) -> (u64, u64) {
+    let explicit = args.timeout_ms.filter(|t| *t > 0).map_or(0, |t| t.min(TIMER_MAX_MS));
+    let hard = match (explicit, hard_cap) {
+        (0, cap) => cap,
+        (limit, 0) => limit,
+        (limit, cap) => limit.min(cap),
+    };
+    if hard > 0 {
+        return (hard, 0);
     }
-    if !background_enabled {
-        return 0;
-    }
-    env("MIXDOG_SHELL_BACKGROUND_MAX_MS")
+    let background = env("MIXDOG_SHELL_BACKGROUND_MAX_MS")
         .map(|raw| mixdog_js::string_to_number(&raw))
         .filter(|n| n.is_finite() && *n > 0.0)
-        .map_or(0, |n| (n.floor() as u64).min(TIMER_MAX_MS))
+        .map_or(0, |n| (n.floor() as u64).min(TIMER_MAX_MS));
+    (0, background)
 }
 
 /// `shellCwdError` and `effectiveShellCwd`: the requested directory against the session cwd.
@@ -414,15 +417,12 @@ async fn resolve_cwd(ctx: &ToolContext, requested: Option<String>) -> Result<Abs
     let Some(requested) = requested.filter(|c| !mixdog_js::js_trim(c).is_empty()) else {
         return Ok(ctx.cwd.clone());
     };
-    let path = if requested == "~" || requested.starts_with("~/") || requested.starts_with("~\\") {
-        let home = dirs::home_dir().ok_or_else(|| {
-            failed(ToolErrorCode::NotFound { target: requested.clone() }, tool_failure("no home directory"))
-        })?;
-        home.join(requested[1..].trim_start_matches(['/', '\\']))
-    } else {
-        PathBuf::from(&requested)
-    };
-    let abs = AbsPath::new(path.clone()).unwrap_or_else(|| ctx.cwd.join(path));
+    // The one folded form (`resolve(sessionCwd, expandHome(cwd))`): the process, the job record and every
+    // "is something running in this folder" test see the same spelling.
+    let resolved = super::settle::resolved_shell_cwd(ctx.cwd.as_path(), Some(&requested)).ok_or_else(|| {
+        failed(ToolErrorCode::NotFound { target: requested.clone() }, tool_failure("no home directory"))
+    })?;
+    let abs = AbsPath::new(PathBuf::from(&resolved)).unwrap_or_else(|| ctx.cwd.join(&resolved));
     let shown = abs.as_path().display().to_string();
     match ctx.files.stat(ctx.io.interactive, abs.clone()).await {
         Ok(stat) if stat.kind == EntryKind::Dir => Ok(abs),
@@ -578,25 +578,6 @@ async fn compaction_of(
     still_worthwhile(&out, &err, &plan, &hint).then_some(Compaction { plan, recovery })
 }
 
-/// The kill of a cancelled foreground command. One that exits within `KILL_VERIFY` is forgotten; one whose exit is not
-/// confirmed by then is held as termination-unconfirmed until it does exit (or the user releases it), so its owner's
-/// workspace stays busy meanwhile, as Node keeps the run's workspace admission until termination is confirmed
-/// (`shell-run-settle.mjs:155-158`, `releaseAdmissionOnConfirmedTermination` :46-104). The result is reported either way.
-async fn cancel_foreground(runtime: &Arc<ExecRuntime>, ctx: &ToolContext, job: &Arc<Job>) {
-    // A kill of a process that just exited is not an error.
-    let _ = ctx.processes.kill(&job.handle);
-    if mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await.is_ok() {
-        runtime.release(&job.id);
-        return;
-    }
-    runtime.hold_unconfirmed(job);
-    let (runtime, job) = (runtime.clone(), job.clone());
-    mixdog_rt::spawn("shell-unconfirmed-exit", mixdog_rt::TaskClass::Work, async move {
-        job.settled().await;
-        runtime.release(&job.id);
-    });
-}
-
 /// Result of a finished foreground command (`renderCompletedResult`).
 #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
 #[allow(clippy::too_many_arguments, reason = "Preserve the existing process ownership and result-rendering boundary and its explicit call arguments.")]
@@ -665,6 +646,13 @@ async fn completed(
         place_warnings_after_status(command, format!("{prefix}{marker}{notes}\n\n{shown}"))
     };
     let Some(exit) = job.exit() else {
+        if ctx.cancel.is_cancelled() {
+            let text = compose("[shell-run-failed] [cause: cancellation; process exit not confirmed]".into(), true, false);
+            let mut error = failed(ToolErrorCode::Cancelled, text);
+            error.outcome_unknown = true;
+            error.partial = Some(text_output(payload));
+            return Err(error);
+        }
         let text = compose("[shell-run-failed] [missing exit status]".into(), true, false);
         return Err(failed(
             ToolErrorCode::Unavailable { capability: "shell".into(), reason: "missing exit status".into() },
@@ -756,13 +744,99 @@ impl ShellTool {
         let requested = args.get("cwd").and_then(JsonValue::as_str).map(str::to_owned);
         let cwd = super::settle::effective_shell_cwd(ctx.cwd.as_path(), requested.as_deref());
         let _settled = super::settle::SettleGuard::new(ctx.review.clone(), cwd);
-        self.run(ctx, args, posix).await
+        self.run(ctx, args, posix, &process_env).await
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An integral number is an integer whatever its spelling (`90000.0`, `9e4`): both integer arguments reach the typed
+    /// arguments as integers, and an over-long hold is still cut to the maximum.
+    #[test]
+    fn integral_floats_are_integer_arguments() {
+        let guarded = guard_shell_args(serde_json::json!({"command": "x", "wait_ms": 90000.0, "timeout_ms": 1e4})).unwrap();
+        let args: Args = serde_json::from_value(guarded).unwrap();
+        assert_eq!((args.wait_ms, args.timeout_ms), (Some(90_000), Some(10_000)));
+        let guarded = guard_shell_args(serde_json::json!({"command": "x", "wait_ms": 9e6})).unwrap();
+        assert_eq!(serde_json::from_value::<Args>(guarded).unwrap().wait_ms, Some(SHELL_HOLD_MAX_MS));
+        assert!(guard_shell_args(serde_json::json!({"command": "x", "wait_ms": 1500.5})).is_err());
+    }
+
+    /// `planShellDeadlines` (`deadline-plan.mjs`): `MIXDOG_SHELL_BACKGROUND_MAX_MS` is the planned background deadline of a call with no
+    /// `timeout_ms`, and `wait_ms` below the minimum is refused by the guard (`arg-guard.mjs:811`) as it is in Node.
+    #[test]
+    fn the_background_max_is_planned_without_a_timeout_and_a_short_wait_is_refused() {
+        let env = |name: &str| (name == "MIXDOG_SHELL_BACKGROUND_MAX_MS").then(|| "5000".to_owned());
+        let plain: Args = serde_json::from_value(serde_json::json!({"command": "x", "wait_ms": 10_000})).unwrap();
+        let (hard, background) = run_limits_ms(&plain, 0, &env);
+        assert_eq!((hard, background), (0, 5000));
+        let hold = hold_ms(&plain, hard, true, &env);
+        assert_eq!(hold, 10_000);
+        assert!(hold_end(false, hard, hold, &env) == Some(PromotionReason::Threshold));
+        let explicit: Args = serde_json::from_value(serde_json::json!({"command": "x", "timeout_ms": 9000})).unwrap();
+        assert_eq!(run_limits_ms(&explicit, 0, &env), (9000, 0));
+        assert_eq!(run_limits_ms(&plain, 3000, &env), (3000, 0));
+        assert!(guard_shell_args(serde_json::json!({"command": "x", "wait_ms": 999})).is_err());
+    }
+
+    #[test]
+    fn the_unix_signal_table_names_the_linux_signals() {
+        use super::super::jobs::unix_signal_name;
+        assert_eq!(unix_signal_name(6), Some("SIGABRT"));
+        assert_eq!(unix_signal_name(9), Some("SIGKILL"));
+        assert_eq!(unix_signal_name(15), Some("SIGTERM"));
+        assert_eq!(unix_signal_name(32), None);
+    }
+
+
+    /// An exit status above 128 names its signal and 126 names a non-executable; the Windows signal table has no
+    /// entry for the other codes (134, 160 and above included).
+    #[cfg(windows)]
+    #[test]
+    fn an_exit_status_is_explained_by_the_signal_or_the_refusal_behind_it() {
+        for (code, text) in [
+            (126, " — 126: command found but not executable (permission or format)"),
+            (129, " — 128+1: terminated by SIGHUP"),
+            (130, " — 128+2: terminated by SIGINT"),
+            (137, " — 128+9: terminated by SIGKILL"),
+            (139, " — 128+11: terminated by SIGSEGV"),
+            (143, " — 128+15: terminated by SIGTERM"),
+        ] {
+            assert_eq!(exit_class_diagnostic(code), text, "{code}");
+        }
+        for code in [0, 1, 2, 127, 134, 160, 164, 165, 200] {
+            assert_eq!(exit_class_diagnostic(code), "", "{code}");
+        }
+    }
+}
+
+
+fn process_env(name: &str) -> Option<String> {
+    std::env::var(name).ok()
+}
+/// The kill of a cancelled foreground command. One that exits within `KILL_VERIFY` is forgotten; one whose exit is not
+/// confirmed by then is held as termination-unconfirmed until it does exit (or the user releases it), so its owner's
+/// workspace stays busy meanwhile, as Node keeps the run's workspace admission until termination is confirmed
+/// (`shell-run-settle.mjs:155-158`, `releaseAdmissionOnConfirmedTermination` :46-104). The result is reported either way.
+async fn cancel_foreground(runtime: &Arc<ExecRuntime>, ctx: &ToolContext, job: &Arc<Job>) {
+    // A kill of a process that just exited is not an error.
+    let _ = ctx.processes.kill(&job.handle);
+    if mixdog_rt::time::timeout(super::KILL_VERIFY, job.settled()).await.is_ok() {
+        runtime.release(&job.id);
+        return;
+    }
+    runtime.hold_unconfirmed(job);
+    let (runtime, job) = (runtime.clone(), job.clone());
+    mixdog_rt::spawn("shell-unconfirmed-exit", mixdog_rt::TaskClass::Work, async move {
+        job.settled().await;
+        runtime.release(&job.id);
+    });
+}
 impl ShellTool {
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
-    async fn run(&self, ctx: &ToolContext, args: JsonValue, posix: bool) -> ToolOutcome {
+    pub(super) async fn run(&self, ctx: &ToolContext, args: JsonValue, posix: bool, env: &(dyn Fn(&str) -> Option<String> + Sync)) -> ToolOutcome {
         let args = guard_shell_args(args)
             .map_err(|text| failed(ToolErrorCode::InvalidArgs { field: "arguments".into(), reason: text.clone() }, text))?;
         let args: Args = serde_json::from_value(args).map_err(|e| {
@@ -772,6 +846,16 @@ impl ShellTool {
             )
         })?;
         let runtime = &self.runtime;
+        let background_enabled = self.background_enabled;
+        if !background_enabled
+            && let Some(field) = args.background.map(|_| "background").or(args.wait_ms.map(|_| "wait_ms"))
+        {
+            let reason = "background shell tasks are disabled";
+            return Err(failed(
+                ToolErrorCode::InvalidArgs { field: field.into(), reason: reason.into() },
+                tool_failure(&format!("{field} is unavailable: {reason}")),
+            ));
+        }
         if args.command.is_empty() {
             return Err(failed(
                 ToolErrorCode::InvalidArgs { field: "command".into(), reason: "required".into() },
@@ -887,12 +971,9 @@ impl ShellTool {
             command = plan.replace(&path.to_string_lossy().replace('\\', "/"));
             hoist_path = Some(path);
         }
-        let background_enabled = !env_flag("MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS", false);
-        let mut time_limit = time_limit_ms(&args, background_enabled, &process_env);
-        if hard_cap > 0 {
-            time_limit = args.timeout_ms.filter(|t| *t > 0).map_or(hard_cap, |t| t.min(hard_cap));
-        }
-        let hold = hold_ms(&args, time_limit, background_enabled, &process_env);
+        let (time_limit, background_limit) = run_limits_ms(&args, hard_cap, env);
+        let hold = hold_ms(&args, time_limit, background_enabled, env);
+        let at_hold_end = hold_end(args.background == Some(true), time_limit, hold, env);
 
         let scratch = runtime
             .config
@@ -1024,7 +1105,7 @@ impl ShellTool {
         };
         let hand_off = super::standby::hand_off_prelude(&request.env, &request.cwd.as_path().to_string_lossy());
         let started = runtime
-            .start(&ctx.processes, request, standby, task_id, command.clone(), ctx.thread_id.clone(), time_limit, ctx.review.clone(), ctx.options.notify.clone())
+            .start(&ctx.processes, request, standby, task_id, command.clone(), ctx.thread_id.clone(), time_limit.max(background_limit), ctx.review.clone(), ctx.options.notify.clone())
             .await;
         let job = match started {
             Ok(job) => job,
@@ -1088,7 +1169,6 @@ impl ShellTool {
         if hold > 0 {
             // New user input or a notification ends the hold, the same wake `task wait` uses.
             let wait = runtime.config.wake.begin(&ctx.thread_id);
-            let at_hold_end = hold_end(args.background == Some(true), time_limit, hold, &process_env);
             let hold_timer = async {
                 if at_hold_end.is_none() {
                     std::future::pending::<()>().await;
@@ -1141,7 +1221,13 @@ impl ShellTool {
             }
             return completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await;
         }
-        if job.detach(runtime.now_ms(), runtime.cycle_of(&job.owner)) {
+        let promoted = runtime.now_ms();
+        if job.detach(promoted) {
+            if background_limit > 0 {
+                let remaining = job.remaining_time_limit_ms(promoted);
+                // The process may exit between detach and arming the limit.
+                let _ = ctx.processes.arm_time_limit(&job.handle, Duration::from_millis(remaining));
+            }
             runtime.promote(&job.id);
             // A promoted command's tee file is consumed (deleted) when it settles.
             if let Some(tee) = tee_path.clone() {
@@ -1152,33 +1238,5 @@ impl ShellTool {
             runtime.release(&job.id);
             completed(runtime, ctx, &job, &command, &analysis_command, tee_path.as_deref(), &rewrite_note, time_limit).await
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Node's `_exitClassDiagnostic` for 15 exit codes, recorded on Windows (its signal table).
-    #[cfg(windows)]
-    #[test]
-    fn exit_class_diagnostics_equal_nodes() {
-        let vectors: serde_json::Value =
-            serde_json::from_str(include_str!("testdata/psfix_node_vectors.json")).unwrap();
-        let cases = vectors["diagnostics"].as_array().unwrap();
-        assert_eq!(cases.len(), 15);
-        for case in cases {
-            let code = case["code"].as_i64().unwrap() as i32;
-            assert_eq!(exit_class_diagnostic(code), case["text"].as_str().unwrap(), "{code}");
-        }
-    }
-
-    #[test]
-    fn the_unix_signal_table_names_the_linux_signals() {
-        use super::super::jobs::unix_signal_name;
-        assert_eq!(unix_signal_name(6), Some("SIGABRT"));
-        assert_eq!(unix_signal_name(9), Some("SIGKILL"));
-        assert_eq!(unix_signal_name(15), Some("SIGTERM"));
-        assert_eq!(unix_signal_name(32), None);
     }
 }

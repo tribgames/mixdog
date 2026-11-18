@@ -22,6 +22,8 @@ use mixdog_services::webhooks::lifecycle::{TunnelStarter, WebhookServer};
 use mixdog_services::webhooks::relay::{hook_public_base, resolve_relay_url};
 use serde_json::{Map, Value};
 
+use crate::event_pipeline::{EventPipeline, EventSink, QueueFiles};
+
 const DEFAULT_PORT: u16 = 3333;
 const IDENTITY_FILE: &str = "relay-hook-device.json";
 
@@ -92,6 +94,16 @@ impl ConfigChannelSettings {
     fn channels(&self) -> Map<String, Value> {
         self.config.get("channels").and_then(|v| v.as_object().cloned()).unwrap_or_default()
     }
+
+    pub(crate) fn event_pipeline(
+        &self,
+        files: QueueFiles,
+        sink: Arc<dyn EventSink>,
+        deliveries: Arc<mixdog_services::webhooks::StateWebhookStore>,
+        now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
+    ) -> Arc<EventPipeline> {
+        EventPipeline::new(files, sink, deliveries, self.channels().get("events").unwrap_or(&Value::Null), now_ms)
+    }
 }
 
 #[async_trait]
@@ -147,9 +159,13 @@ impl ChannelSettings for ConfigChannelSettings {
         settings.ok_or_else(|| "the channels settings update did not run".to_owned())
     }
 
-    /// `config.secret`, `config.allowUnsignedWebhooks` and `config.endpoints` of the section.
+    /// Receiver configuration lives inside `channels.webhook`, beside the listener settings.
     async fn webhook_config(&self) -> Result<WebhookConfig, String> {
-        serde_json::from_value(Value::Object(self.channels())).map_err(|error| error.to_string())
+        let channels = self.channels();
+        match channels.get("webhook").filter(|value| value.is_object()) {
+            Some(webhook) => serde_json::from_value(webhook.clone()).map_err(|error| error.to_string()),
+            None => Ok(WebhookConfig::default()),
+        }
     }
 }
 

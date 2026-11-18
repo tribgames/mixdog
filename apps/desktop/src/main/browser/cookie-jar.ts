@@ -25,6 +25,7 @@ export interface BrowserCookieJar {
   get(filter: BrowserCookieFilter): Promise<BrowserCookie[]>;
   set(details: BrowserCookieSetDetails): Promise<void>;
   remove(url: string, name: string, partitionKey?: BrowserCookiePartitionKey): Promise<void>;
+  removeExact?(cookie: BrowserCookie): Promise<void>;
   flushStore(): Promise<void>;
 }
 
@@ -164,7 +165,10 @@ function fromProtocol(cookie: ProtocolCookie): BrowserCookie {
  * the browser-wide default context or an external Chrome profile. CDP retains
  * partition identity that Electron's cookie API cannot represent.
  */
-export function createBrowserCookieJar(partition: Session): BrowserCookieJar & { dispose(): Promise<void> } {
+export function createBrowserCookieJar(
+  partition: Session,
+  loadView: () => Promise<typeof WebContentsView> = async () => (await import('electron')).WebContentsView
+): BrowserCookieJar & { dispose(): Promise<void> } {
   let view: WebContentsView | undefined;
   let ready: Promise<WebContentsView> | undefined;
   let chain: Promise<unknown> = Promise.resolve();
@@ -182,9 +186,9 @@ export function createBrowserCookieJar(partition: Session): BrowserCookieJar & {
     if (!ready) {
       const expectedGeneration = generation;
       ready = (async () => {
-        const { WebContentsView } = await import('electron');
+        const View = await loadView();
         if (disposed || generation !== expectedGeneration) throw new Error('Cookie target was closed.');
-        const owner = new WebContentsView({
+        const owner = new View({
           webPreferences: { session: partition, sandbox: true, contextIsolation: true, nodeIntegration: false },
         });
         view = owner;
@@ -219,7 +223,15 @@ export function createBrowserCookieJar(partition: Session): BrowserCookieJar & {
         if (timer) clearTimeout(timer);
       }
     });
-    chain = result.catch(() => undefined);
+    const tail = result.then(() => undefined, () => undefined);
+    chain = tail;
+    void tail.then(() => {
+      if (chain !== tail || !view || disposed) return;
+      // Sequential cookie imports can reuse the target; an idle jar only needs its partition.
+      setImmediate(() => {
+        if (chain === tail && !disposed) closeTarget();
+      });
+    });
     return result;
   }
 
@@ -229,6 +241,18 @@ export function createBrowserCookieJar(partition: Session): BrowserCookieJar & {
     // The target-scoped Network method retains the exact owning Session.
     const response = await send<{ cookies: ProtocolCookie[] }>('Network.getAllCookies');
     return response.cookies.map(fromProtocol).filter((cookie) => matches(cookie, filter));
+  }
+
+  async function removeExact(cookie: BrowserCookie): Promise<void> {
+    if (typeof cookie.path !== 'string' || !cookie.path.length) {
+      throw new Error('Exact cookie removal requires a path.');
+    }
+    await send('Network.deleteCookies', {
+      domain: cookie.domain,
+      path: cookie.path,
+      name: cookie.name,
+      ...(cookie.partitionKey ? { partitionKey: cookie.partitionKey } : {}),
+    });
   }
 
   return {
@@ -260,14 +284,10 @@ export function createBrowserCookieJar(partition: Session): BrowserCookieJar & {
     },
     async remove(url, name, partitionKey) {
       for (const cookie of await get({ url, name, partitionKey: partitionKey ?? null })) {
-        await send('Network.deleteCookies', {
-          domain: cookie.domain,
-          path: cookie.path,
-          name: cookie.name,
-          ...(cookie.partitionKey ? { partitionKey: cookie.partitionKey } : {}),
-        });
+        await removeExact(cookie);
       }
     },
+    removeExact,
     flushStore: () => partition.cookies.flushStore(),
     async dispose() {
       disposed = true;

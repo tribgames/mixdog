@@ -1,6 +1,4 @@
-//! Relay-owned Web Push, the part that needs the relay: the cases of `apps/relay/lib/web-push.test.mjs` that run `startRelay`
-//! (the `/webpush/*` routes over real sockets, and the desktop legs' frames over in-process sockets on the real hub). The push
-//! service is the recording `PushClient`; no process and no real service is started.
+//! Relay-owned Web Push over the relay: the `/webpush/*` routes over real sockets and the desktop legs' frames over in-process sockets on the real hub. The push service is a recording `PushClient`.
 
 use std::net::SocketAddr;
 use std::path::Path;

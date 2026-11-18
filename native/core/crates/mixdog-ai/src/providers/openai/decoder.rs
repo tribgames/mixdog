@@ -145,6 +145,12 @@ pub struct ResponsesDecoder {
     line_buf: Vec<u8>,
     data: Vec<String>,
     terminal: bool,
+    /// A failure that followed events decoded from the same unit: those are delivered first, and the next `feed` (an
+    /// empty one suffices) returns it, so the outcome does not depend on how the network cut the stream.
+    pending_error: Option<ProviderError>,
+    failure_param: Option<String>,
+    /// A whole protocol record was handled ([`WireDecoder::payload_seen`]).
+    payload: bool,
     exposure: Exposure,
     tools: HashMap<String, ToolItem>,
     texts: HashMap<String, String>,
@@ -204,35 +210,77 @@ fn u64_at(value: &Value, path: &[&str]) -> u64 {
 fn first_nonzero(value: &Value, paths: &[&[&str]]) -> u64 {
     paths
         .iter()
-        .map(|p| u64_at(value, p))
+        .map(|p| first_finite(value, &[*p]))
         .find(|n| *n > 0)
         .unwrap_or(0)
 }
 
-fn usage_from(usage: &Value, service_tier: Option<&str>) -> Usage {
+/// `firstFiniteNumberOrZero`: the first path holding a value `Number()` makes finite (`null` is 0, an absent one is
+/// skipped), as a token count.
+fn first_finite(value: &Value, paths: &[&[&str]]) -> u64 {
+    for path in paths {
+        let found = path.iter().try_fold(value, |at, key| at.get(*key));
+        let number = match found {
+            Some(Value::Number(n)) => n.as_f64(),
+            Some(Value::String(text)) => Some(mixdog_js::string_to_number(text)),
+            Some(Value::Null) => Some(0.0),
+            Some(Value::Bool(flag)) => Some(f64::from(u8::from(*flag))),
+            _ => None,
+        };
+        if let Some(n) = number.filter(|n| n.is_finite()) {
+            return n.max(0.0) as u64;
+        }
+    }
+    0
+}
+
+fn usage_from(usage: &Value, service_tier: Option<&str>, compat: bool) -> Usage {
     let mut raw = usage.clone();
     if let (Some(tier), Some(map)) = (service_tier, raw.as_object_mut()) {
         map.insert("service_tier".into(), json!(tier));
     }
+    let total = |canonical: &str, alias: &str| {
+        let key = if compat && usage.get(canonical).is_none_or(Value::is_null) { alias } else { canonical };
+        if compat { first_finite(usage, &[&[key]]) } else { u64_at(usage, &[key]) }
+    };
     Usage {
-        input_tokens: u64_at(usage, &["input_tokens"]),
-        output_tokens: u64_at(usage, &["output_tokens"]),
-        cache_read_tokens: first_nonzero(
-            usage,
-            &[
-                &["input_tokens_details", "cached_tokens"],
-                &["prompt_tokens_details", "cached_tokens"],
-                &["cached_tokens"],
-            ],
-        ),
-        cache_write_tokens: first_nonzero(
-            usage,
-            &[
-                &["input_tokens_details", "cache_write_tokens"],
-                &["prompt_tokens_details", "cache_write_tokens"],
-                &["cache_write_tokens"],
-            ],
-        ),
+        input_tokens: total("input_tokens", "prompt_tokens"),
+        output_tokens: total("output_tokens", "completion_tokens"),
+        // The Responses collectors read the first finite figure (`extractCachedTokens`, a reported 0 ends the search); the
+        // compatible collector the first positive one (`extractCompatCachedTokens`), with a top-level `cached_tokens` too.
+        cache_read_tokens: if compat {
+            first_nonzero(
+                usage,
+                &[
+                    &["prompt_tokens_details", "cached_tokens"],
+                    &["input_tokens_details", "cached_tokens"],
+                    &["prompt_cache_hit_tokens"],
+                    &["cached_prompt_text_tokens"],
+                    &["cached_tokens"],
+                ],
+            )
+        } else {
+            first_finite(
+                usage,
+                &[
+                    &["input_tokens_details", "cached_tokens"],
+                    &["prompt_tokens_details", "cached_tokens"],
+                    &["inputTokensDetails", "cachedTokens"],
+                    &["promptTokensDetails", "cachedTokens"],
+                ],
+            )
+        },
+        cache_write_tokens: first_finite(
+                usage,
+                &[
+                    &["input_tokens_details", "cache_write_tokens"],
+                    &["prompt_tokens_details", "cache_write_tokens"],
+                    &["inputTokensDetails", "cacheWriteTokens"],
+                    &["promptTokensDetails", "cacheWriteTokens"],
+                    &["cache_write_tokens"],
+                    &["cacheWriteTokens"],
+                ],
+            ),
         cache_write_1h_tokens: 0,
         reasoning_tokens: usage
             .pointer("/output_tokens_details/reasoning_tokens")
@@ -420,6 +468,9 @@ impl ResponsesDecoder {
             line_buf: Vec::new(),
             data: Vec::new(),
             terminal: false,
+            pending_error: None,
+            failure_param: None,
+            payload: false,
             exposure: Exposure::default(),
             tools: HashMap::new(),
             texts: HashMap::new(),
@@ -496,13 +547,36 @@ impl ResponsesDecoder {
         &self.outcome
     }
 
-    fn fail(&self, mut err: ProviderError) -> ProviderError {
-        err.exposure = self.exposure();
+    pub(super) fn fail(&self, mut err: ProviderError) -> ProviderError {
+        let exposure = self.exposure();
+        err.exposure.text_emitted |= exposure.text_emitted;
+        err.exposure.tool_dispatched |= exposure.tool_dispatched;
+        err.exposure.tool_input_cut |= exposure.tool_input_cut;
+        if self.collector() != Collector::Compat {
+            err.unsafe_to_retry |= err.exposure.tool_dispatched;
+        }
+        if self.collector() == Collector::HttpSse {
+            err.unsafe_to_retry |= err.exposure.text_emitted || err.exposure.tool_dispatched;
+            if err.partial_model.is_none() {
+                err.partial_model = self.model.as_deref().map(Box::from);
+            }
+            if err.partial_replay.is_none() && !self.outcome.output_items.is_empty() {
+                err.partial_replay = Some(Box::new(ProviderReplay {
+                    owner: self.replay_owner.clone(),
+                    items: Value::Array(self.outcome.output_items.clone()),
+                }));
+            }
+        }
         err
     }
 
-    fn wire_error(&self, status_event: &Value, error: Option<&Value>, fallback: &str) -> ProviderError {
-        self.fail(classify(&Failure {
+    pub(super) fn failure_param(&self) -> Option<&str> {
+        self.failure_param.as_deref()
+    }
+
+    fn wire_error(&mut self, status_event: &Value, error: Option<&Value>, fallback: &str) -> ProviderError {
+        self.failure_param = error.and_then(|e| e.get("param")).and_then(Value::as_str).map(str::to_owned);
+        let err = classify(&Failure {
             status: None,
             headers: &[],
             error,
@@ -511,11 +585,43 @@ impl ResponsesDecoder {
             message_fallback: fallback,
             delivery: DeliveryState::Accepted,
             now_ms: self.context.now_unix_ms(),
-        }))
+        });
+        let response = status_event.get("response");
+        let terminal_response = matches!(str_of(status_event, "type"), "response.failed" | "response.done");
+        if terminal_response && self.collector() == Collector::HttpSse && self.model.is_none() {
+            self.model = response.map(|r| str_of(r, "model")).filter(|m| !m.is_empty()).map(str::to_owned);
+        }
+        let err = match response.filter(|r| terminal_response && r.get("usage").is_some_and(Value::is_object)) {
+            Some(response) => self.billed(err, response, true),
+            None => err,
+        };
+        self.fail(err)
     }
 
     fn in_flight(&self) -> bool {
         self.tools.values().any(|t| !t.done)
+    }
+
+    fn hosted_call(kind: &str) -> bool {
+        matches!(kind, "web_search_call" | "file_search_call" | "code_interpreter_call" | "image_generation_call" | "mcp_call")
+    }
+
+    fn observe_server_effects(&mut self, event: &Value) {
+        if self.collector() == Collector::Compat || self.exposure.tool_dispatched {
+            return;
+        }
+        let server_item = |item: &Value| {
+            let kind = str_of(item, "type");
+            Self::hosted_call(kind)
+                || str_of(item, "execution") == "server" && is_tool_item(item)
+                || kind == "tool_search_call" && item.get("call_id").is_some_and(Value::is_null)
+        };
+        // A hosted call can have run without a client dispatch event. Do not
+        // emit one; latch the same replay veto seen by the outer retry owners.
+        self.exposure.tool_dispatched = str_of(event, "type").strip_prefix("response.")
+                .and_then(|name| name.split_once('.')).is_some_and(|(kind, _)| Self::hosted_call(kind))
+            || event.get("item").is_some_and(server_item)
+            || event.pointer("/response/output").and_then(Value::as_array).is_some_and(|items| items.iter().any(server_item));
     }
 
     // -- framing ------------------------------------------------------------
@@ -579,6 +685,10 @@ impl ResponsesDecoder {
     // -- events -------------------------------------------------------------
 
     fn handle(&mut self, event: &Value, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
+        self.observe_server_effects(event);
+        if str_of(event, "type") != "codex.rate_limits" {
+            self.payload = true;
+        }
         match str_of(event, "type") {
             "response.created" => {
                 if let Some(id) = event.get("response").map(|r| str_of(r, "id")).filter(|i| !i.is_empty()) {
@@ -1142,7 +1252,7 @@ impl ResponsesDecoder {
             out.push(StreamEvent::ServedModel(model.clone()));
         }
         self.search_sources(response, out);
-        let service_tier = response.get("service_tier").and_then(Value::as_str);
+        let service_tier = self.reported_tier(response);
         // The response's own items in arrival order, reasoning included
         // verbatim (ids, summaries, encrypted content): the one envelope the
         // next request replays (Node `createProviderReplay(owner, responseItems)`).
@@ -1153,7 +1263,7 @@ impl ResponsesDecoder {
             }));
         }
         if let Some(usage) = response.get("usage").filter(|u| u.is_object()) {
-            out.push(StreamEvent::Usage(usage_from(usage, service_tier)));
+            out.push(StreamEvent::Usage(usage_from(usage, service_tier, self.collector() == Collector::Compat)));
         }
         if let Some(report) = &self.state {
             let response_id = response
@@ -1290,9 +1400,15 @@ impl ResponsesDecoder {
 
     /// A failure of an incomplete response still carries the usage it was billed and, but for the WebSocket
     /// collector's plain failure, the model that reported it.
+    fn reported_tier<'a>(&self, response: &'a Value) -> Option<&'a str> {
+        response.get("service_tier").and_then(Value::as_str).or_else(|| {
+            (self.collector() != Collector::Compat).then(|| response.get("serviceTier").and_then(Value::as_str)).flatten()
+        })
+    }
+
     fn billed(&self, mut err: ProviderError, response: &Value, with_model: bool) -> ProviderError {
         if let Some(usage) = response.get("usage").filter(|u| u.is_object()) {
-            err.partial_usage = Some(Box::new(usage_from(usage, response.get("service_tier").and_then(Value::as_str))));
+            err.partial_usage = Some(Box::new(usage_from(usage, self.reported_tier(response), self.collector() == Collector::Compat)));
         }
         if with_model {
             let model = self.model.as_deref().or_else(|| Some(str_of(response, "model")).filter(|m| !m.is_empty()));
@@ -1361,31 +1477,54 @@ impl ResponsesDecoder {
 
 impl WireDecoder for ResponsesDecoder {
     fn feed(&mut self, unit: &[u8]) -> Result<Vec<StreamEvent>, ProviderError> {
+        if let Some(err) = self.pending_error.take() {
+            return Err(err);
+        }
         let mut out = Vec::new();
         if self.terminal {
             return Ok(out);
         }
-        match self.framing {
-            Framing::Sse => self.feed_sse(unit, &mut out)?,
-            Framing::WebSocket => {
-                if let Ok(event) = serde_json::from_slice::<Value>(unit) {
-                    self.handle(&event, &mut out)?;
-                }
+        let decoded = match self.framing {
+            Framing::Sse => self.feed_sse(unit, &mut out),
+            Framing::WebSocket => match serde_json::from_slice::<Value>(unit) {
+                Ok(event) => self.handle(&event, &mut out),
+                Err(_) => Ok(()),
+            },
+        };
+        match decoded {
+            // What the unit decoded before its failing frame is delivered first (Node handles frames one by one).
+            Err(err) if !out.is_empty() => {
+                self.pending_error = Some(err);
+                Ok(out)
             }
+            Err(err) => Err(err),
+            Ok(()) => Ok(out),
         }
-        Ok(out)
     }
 
     fn finish(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
+        if let Some(err) = self.pending_error.take() {
+            return Err(err);
+        }
         let mut out = Vec::new();
         if !self.terminal && self.framing == Framing::Sse {
-            if !self.line_buf.is_empty() {
-                let line = std::mem::take(&mut self.line_buf);
-                let line = line.strip_suffix(b"\r").unwrap_or(&line);
-                self.sse_line(line, &mut out)?;
-            }
-            if !self.terminal {
-                self.sse_dispatch(&mut out)?;
+            let flushed = (|| {
+                if !self.line_buf.is_empty() {
+                    let line = std::mem::take(&mut self.line_buf);
+                    let line = line.strip_suffix(b"\r").unwrap_or(&line);
+                    self.sse_line(line, &mut out)?;
+                }
+                if !self.terminal {
+                    self.sse_dispatch(&mut out)?;
+                }
+                Ok(())
+            })();
+            if let Err(err) = flushed {
+                if out.is_empty() || self.collector() == Collector::Compat {
+                    return Err(err);
+                }
+                self.pending_error = Some(err);
+                return Ok(out);
             }
         }
         if self.terminal {
@@ -1399,11 +1538,24 @@ impl WireDecoder for ResponsesDecoder {
             return Err(self.billed(self.fail(err), &Value::Null, true));
         }
         err.message = "stream ended before the response completed".into();
-        Err(self.fail(err))
+        let err = self.fail(err);
+        if out.is_empty() {
+            Err(err)
+        } else {
+            self.pending_error = Some(err);
+            Ok(out)
+        }
     }
 
+    /// A whole protocol record was decoded, whether or not it carried output; metadata frames (`codex.rate_limits`) and SSE
+    /// comments are not one.
+    fn payload_seen(&self) -> bool {
+        self.payload
+    }
+
+    /// A failing terminal frame is not the end while its failure is still to be returned.
     fn terminal_seen(&self) -> bool {
-        self.terminal
+        self.terminal && self.pending_error.is_none()
     }
 
     fn exposure(&self) -> Exposure {
@@ -1419,24 +1571,55 @@ impl WireDecoder for ResponsesDecoder {
 mod reasoning_tests {
     use super::*;
 
+    /// `firstFiniteNumberOrZero`: a reported 0 ends the search and no top-level `cached_tokens` is read; the compatible
+    /// collector keeps its first-positive rule.
+    #[test]
+    fn the_cached_figure_is_the_first_finite_one() {
+        let usage = json!({ "input_tokens": 9, "input_tokens_details": { "cached_tokens": 0 }, "prompt_tokens_details": { "cached_tokens": 500 }, "cached_tokens": 300 });
+        assert_eq!(usage_from(&usage, None, false).cache_read_tokens, 0);
+        assert_eq!(usage_from(&json!({ "input_tokens": 9, "cached_tokens": 300 }), None, false).cache_read_tokens, 0);
+        assert_eq!(usage_from(&json!({ "inputTokensDetails": { "cachedTokens": 40 } }), None, false).cache_read_tokens, 40);
+        assert_eq!(usage_from(&usage, None, true).cache_read_tokens, 500);
+    }
+
+    #[test]
+    fn compatible_responses_keep_reported_token_aliases_without_counting_twice() {
+        let mut raw = json!({"input_tokens":null,"prompt_tokens":80.0,"completion_tokens":"5",
+            "prompt_cache_hit_tokens":50,"cached_prompt_text_tokens":60});
+        let normalized = usage_from(&raw, None, true);
+        assert_eq!((normalized.input_tokens, normalized.output_tokens, normalized.cache_read_tokens), (80, 5, 50));
+        raw["input_tokens"] = json!(0);
+        raw["output_tokens"] = json!(0);
+        raw["prompt_cache_hit_tokens"] = json!(0);
+        let normalized = usage_from(&raw, None, true);
+        assert_eq!((normalized.input_tokens, normalized.output_tokens, normalized.cache_read_tokens), (0, 0, 60));
+        raw["cached_prompt_text_tokens"] = json!("55");
+        raw["inputTokensDetails"] = json!({"cacheWriteTokens":0});
+        raw["cache_write_tokens"] = json!(40);
+        let normalized = usage_from(&raw, None, true);
+        assert_eq!((normalized.cache_read_tokens, normalized.cache_write_tokens), (55, 0));
+    }
+
     #[test]
     fn a_reported_zero_stays_zero_and_a_missing_figure_stays_missing() {
-        let zero = usage_from(&json!({ "input_tokens": 5, "output_tokens": 2, "output_tokens_details": { "reasoning_tokens": 0 } }), None);
+        let zero = usage_from(&json!({ "input_tokens": 5, "output_tokens": 2, "output_tokens_details": { "reasoning_tokens": 0 } }), None, false);
         assert_eq!(zero.reasoning_tokens, Some(0));
-        let missing = usage_from(&json!({ "input_tokens": 5, "output_tokens": 2 }), None);
+        let missing = usage_from(&json!({ "input_tokens": 5, "output_tokens": 2 }), None, false);
         assert_eq!(missing.reasoning_tokens, None);
-        let counted = usage_from(&json!({ "output_tokens_details": { "reasoning_tokens": 7 } }), None);
+        let counted = usage_from(&json!({ "output_tokens_details": { "reasoning_tokens": 7 } }), None, false);
         assert_eq!(counted.reasoning_tokens, Some(7));
     }
 }
 
 #[cfg(test)]
 mod arguments_tests {
+    #[cfg(node_twin)]
     use super::*;
 
     /// Node's `JSON.parse` over the recorded corpora (`mixdog-js/testdata`), through this decoder's real parse path: an input V8 rejects
     /// is an invalid call carrying V8's text, an input V8 accepts is a call with its arguments. The two lists are the inputs where the
     /// decoder's parser (serde) and V8 disagree about which of the two it is.
+    #[cfg(node_twin)]
     #[test]
     fn the_real_parse_path_answers_the_recorded_corpus_as_v8_does() {
         let errors: Vec<(String, Option<String>)> = serde_json::from_str::<Vec<Value>>(mixdog_testkit::fixture!("../mixdog-js/testdata/json_error.json"))
@@ -1473,9 +1656,13 @@ mod arguments_tests {
         assert!(disagree.is_empty(), "inputs the decoder and V8 treat differently:\n{}", disagree.join("\n"));
     }
 }
+
+
+
 #[cfg(test)]
 mod progress_tests {
     use super::*;
+    #[cfg(node_twin)]
     use crate::providers::progress_golden::{golden, node_names, rust_names};
 
     struct Ctx;
@@ -1511,6 +1698,7 @@ mod progress_tests {
     /// Node's three Responses collectors reported these kinds for each event of each scenario
     /// (`golden/stream_progress.json`): item boundaries after earlier output are `semantic`, a call's item, arguments and
     /// end are `tool`, the tool-in-flight flag is latched, and the terminal bundle reports what it salvaged.
+    #[cfg(node_twin)]
     #[test]
     fn the_decoder_reports_the_progress_kinds_node_s_collectors_do() {
         for scenario in golden()["decoders"]["responses"].as_array().expect("responses") {
@@ -1591,5 +1779,84 @@ mod progress_tests {
                 (_, None) => panic!("{} / {name}: Node failed, Rust did not", scenario["framing"]),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod split_read_tests {
+    use super::*;
+    use crate::providers::openai::adapter::SessionContext;
+
+    fn frame(event: &Value) -> String {
+        format!("data: {event}\n\n")
+    }
+
+    /// What the stream makes of `chunks` read in turn: its events, and the failure it ends in. After each read the held
+    /// failure is asked for, as `ResponsesStream::next` does.
+    fn read(chunks: &[&[u8]]) -> (Vec<StreamEvent>, Option<ProviderError>) {
+        let mut decoder = ResponsesDecoder::new(Framing::Sse, Arc::new(SessionContext::default()), ProviderId::from("openai"));
+        let mut events = Vec::new();
+        for chunk in chunks {
+            match decoder.feed(chunk) {
+                Ok(more) => events.extend(more),
+                Err(error) => return (events, Some(error)),
+            }
+            if let Err(error) = decoder.feed(&[]) {
+                return (events, Some(error));
+            }
+        }
+        (events, decoder.finish().err())
+    }
+
+    /// The frames read in one chunk, one frame per chunk, and one byte per chunk: the same events and the same failure.
+    fn read_every_way(frames: &[Value]) -> (Vec<StreamEvent>, ProviderError) {
+        let text: Vec<String> = frames.iter().map(frame).collect();
+        let whole = text.concat();
+        let (events, error) = read(&[whole.as_bytes()]);
+        let per_frame: Vec<&[u8]> = text.iter().map(|f| f.as_bytes()).collect();
+        assert_eq!(read(&per_frame), (events.clone(), error.clone()), "frame by frame");
+        let per_byte: Vec<&[u8]> = whole.as_bytes().chunks(1).collect();
+        assert_eq!(read(&per_byte), (events.clone(), error.clone()), "byte by byte");
+        (events, error.expect("the stream failed"))
+    }
+
+    fn failed() -> Value {
+        json!({ "type": "response.failed", "response": { "id": "resp_1", "status": "failed", "error": { "code": "server_error", "message": "boom" } } })
+    }
+
+    #[test]
+    fn only_failed_response_frames_name_a_previously_unknown_serving_model() {
+        let mut terminal = failed();
+        terminal["response"]["model"] = json!("served");
+        let (_, failure) = read_every_way(&[terminal]);
+        assert_eq!(failure.partial_model.as_deref(), Some("served"));
+        let (_, failure) = read_every_way(&[json!({"type":"error","error":{"message":"boom"},"response":{"model":"not-confirmed"}})]);
+        assert!(failure.partial_model.is_none());
+    }
+
+    #[test]
+    fn text_read_together_with_a_failing_frame_is_delivered_before_the_failure() {
+        let (events, error) = read_every_way(&[
+            json!({ "type": "response.created", "response": { "id": "resp_1", "model": "m" } }),
+            json!({ "type": "response.output_item.added", "output_index": 0, "item": { "type": "message", "id": "msg_1", "role": "assistant", "content": [] } }),
+            json!({ "type": "response.output_text.delta", "output_index": 0, "item_id": "msg_1", "delta": "partial" }),
+            failed(),
+        ]);
+        assert!(events.iter().any(|e| matches!(e, StreamEvent::TextDelta(t) if t == "partial")), "{events:?}");
+        assert!(error.exposure.text_emitted);
+        assert_eq!(error.code.as_deref(), Some("server_error"));
+    }
+
+    #[test]
+    fn a_tool_completion_read_together_with_a_failing_frame_is_delivered_before_the_failure() {
+        let call = json!({ "type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "read", "arguments": "{}" });
+        let (events, error) = read_every_way(&[
+            json!({ "type": "response.created", "response": { "id": "resp_1", "model": "m" } }),
+            json!({ "type": "response.output_item.added", "output_index": 0, "item": call }),
+            json!({ "type": "response.output_item.done", "output_index": 0, "item": call }),
+            failed(),
+        ]);
+        assert!(events.iter().any(|e| matches!(e, StreamEvent::ToolCallDone(c) if c.id == "call_1")), "{events:?}");
+        assert!(error.exposure.tool_dispatched);
     }
 }

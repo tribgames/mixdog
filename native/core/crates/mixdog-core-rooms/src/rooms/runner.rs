@@ -35,8 +35,8 @@ impl<R: CallRunner + 'static> RoomRunner for CallsRunner<R> {
         self.calls.is_running(room_id)
     }
 
-    fn stop(&self, room_id: &str) {
-        self.calls.stop(room_id);
+    async fn stop(&self, room_id: &str) -> Result<(), String> {
+        self.calls.stop_ticket(room_id).saved().await
     }
 
     /// `start(roomId, { to })` of `proceed`: no call rides it, and a user still waiting is read

@@ -20,7 +20,7 @@ use mixdog_app_protocol::v2::host::HostClaimParams;
 use mixdog_app_protocol::{Delivery, SERVER_NOTIFICATIONS};
 use mixdog_app_server_client::api::{
     CallOptions, ClientError, ClientEvent, ClientInfo, ConnectOptions, ConnectionStatus, Connector, InitializeCapabilities,
-    ProtocolClient, RpcNotification, ServerRequest, ServerRequestAnswer, Target,
+    ProtocolClient, ReplyAddress, RpcNotification, ServerRequest, ServerRequestAnswer, Target,
 };
 use mixdog_app_server_client::discovery::Endpoint as WsEndpoint;
 use mixdog_app_server_client::engine::Attacher;
@@ -35,6 +35,7 @@ use mixdog_ssh::connect_failure::{failure_of, ConnectError};
 use mixdog_ssh::context::{AttemptContext, HostSettings, ModelLogin as SshModelLogin, Platform, SshEnv};
 use mixdog_ssh::diagnostics::{diagnostics_key_for, Diagnostics};
 use mixdog_ssh::install_wire::{BootstrapCode, RemoteBootstrapError};
+use mixdog_ssh::said;
 use mixdog_ssh::session::{Endpoint, Progress, RemoteSession, RemoteSessionConfig, SessionError, SessionPhase};
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, watch};
@@ -131,17 +132,14 @@ pub fn version_refusal(error: &ClientError, display: &str) -> Option<ConnectErro
     let server = if server_version.is_empty() { "unknown" } else { server_version.as_str() };
     let client = if client_version.is_empty() { "unknown" } else { client_version.as_str() };
     let refusal = if reason == "clientOutdated" {
-        RemoteBootstrapError::new(
+        RemoteBootstrapError::said(
             BootstrapCode::ClientOutdated,
-            format!("This Mixdog ({client}) is older than the core on {display} ({server}). Update Mixdog on this PC."),
+            said::APP_OLDER_THAN_SERVER.said([("client", client), ("display", display), ("server", server)]),
         )
     } else {
-        RemoteBootstrapError::new(
+        RemoteBootstrapError::said(
             BootstrapCode::ProtocolMismatch,
-            format!(
-                "The Mixdog core on {display} ({server}) is incompatible with this desktop ({client}). \
-                 Reconnect: Mixdog installs the version that matches this desktop on the server."
-            ),
+            said::SERVER_VERSION_MISMATCH.said([("display", display), ("server", server), ("client", client)]),
         )
     };
     Some(ConnectError::Bootstrap(refusal))
@@ -151,13 +149,16 @@ pub fn version_refusal(error: &ClientError, display: &str) -> Option<ConnectErro
 fn connect_error(error: SessionError) -> ConnectError {
     match error {
         SessionError::Connect(error) => error,
-        SessionError::Cwd(message) => SshError::new(message, FailureClass::Terminal).into(),
-        other => SshError::new(other.to_string(), FailureClass::Transient).into(),
+        SessionError::Cwd(said) => SshError::said(said, FailureClass::Terminal).into(),
+        other => match other.said() {
+            Some(said) => SshError::said(said, FailureClass::Transient).into(),
+            None => SshError::new(other.to_string(), FailureClass::Transient).into(),
+        },
     }
 }
 
 fn closed_error(name: &str) -> ConnectError {
-    SshError::new(format!("The connection to {name} was closed."), FailureClass::Terminal).into()
+    SshError::said(said::LINK_CLOSED.said([("name", name)]), FailureClass::Terminal).into()
 }
 
 /// What the server window shows of a failure that stopped the link: a refused host key or login can only be confirmed again
@@ -422,7 +423,7 @@ impl Follower {
     }
 
     /// A `host/*` request of the server's core, answered by this PC's desktop through this PC's core.
-    fn relay_request(&self, request: ServerRequest) {
+    fn relay_request(&self, request: ServerRequest, address: ReplyAddress) {
         let Some(capability) = request.requires().and_then(host_capability) else { return };
         let (host, client, token) = (self.host.clone(), self.client.clone(), locked(&self.relays).clone());
         drop(mixdog_rt::spawn("link-host-relay", TaskClass::Control, async move {
@@ -439,9 +440,10 @@ impl Follower {
                     }
                 }
             };
-            // The connection that sent it is gone: the server has given the request up.
+            // The connection that sent it is gone: the server has given the request up. Answered by address, so a socket that
+            // took its place (and may reuse the id) is never sent this answer: the client refuses it as stale.
             if !token.is_cancelled() {
-                let _ = client.respond(request.id().clone(), answer).await;
+                let _ = client.respond(address, answer).await;
             }
         }));
     }
@@ -521,7 +523,7 @@ impl Follower {
             match events.recv().await {
                 Ok(ClientEvent::Status(status)) => self.status(status),
                 Ok(ClientEvent::Notification(note)) => self.notification(&note),
-                Ok(ClientEvent::ServerRequest(request)) => self.relay_request(request),
+                Ok(ClientEvent::ServerRequest(request, address)) => self.relay_request(request, address),
                 Ok(_) => {}
                 // Events missed in a burst: the status is what the link needs.
                 Err(broadcast::error::RecvError::Lagged(_)) => self.status(self.client.status()),
@@ -682,7 +684,7 @@ impl ServerLink {
             Err(error) => {
                 session.close().await;
                 return Err(version_refusal(&error, &display).unwrap_or_else(|| {
-                    SshError::new(format!("The Mixdog core on {display} did not accept this desktop: {error}"), FailureClass::Transient).into()
+                    SshError::said(said::SERVER_REFUSED_APP.said([("name", display.to_string()), ("error", error.to_string())]), FailureClass::Transient).into()
                 }));
             }
         };
@@ -1054,6 +1056,13 @@ pub enum LinkPower {
 
 type Opened = Option<Result<Arc<ServerLink>, ConnectError>>;
 
+/// Only the caller that started a new attachment owns its rollback token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkOpen {
+    Reused,
+    Owned(u64),
+}
+
 /// An attempt to attach, shared by everyone who asks for the same connection while it runs.
 struct Flight {
     token: u64,
@@ -1064,7 +1073,7 @@ struct Flight {
 #[derive(Default)]
 struct PoolState {
     /// In the order they attached.
-    links: Vec<Arc<ServerLink>>,
+    links: Vec<(u64, Arc<ServerLink>)>,
     opening: HashMap<String, Flight>,
     next_token: u64,
 }
@@ -1106,34 +1115,52 @@ impl LinkPool {
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<ServerLink>> {
-        locked(&self.inner.state).links.iter().find(|link| link.id == id).cloned()
+        locked(&self.inner.state).links.iter().find(|(_, link)| link.id == id).map(|(_, link)| link.clone())
     }
 
     pub fn list(&self) -> Vec<Arc<ServerLink>> {
-        locked(&self.inner.state).links.clone()
+        locked(&self.inner.state).links.iter().map(|(_, link)| link.clone()).collect()
     }
 
     /// Connects (bootstrap, tunnel, attach) when needed. One attempt runs per id, shared by everyone who asks while it runs; a
     /// link that is attached is returned as it is, and a stopped one is opened again behind the same id inside this caller's
     /// context.
     pub async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<Arc<ServerLink>, ConnectError> {
-        if let Some(link) = self.get(&spec.id) {
+        self.open_scoped(spec, context, progress, None).await.map(|(link, _)| link)
+    }
+
+    pub(crate) async fn open_scoped(
+        &self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>, cancel: Option<&CancellationToken>,
+    ) -> Result<(Arc<ServerLink>, LinkOpen), ConnectError> {
+        loop {
+            if cancel.is_some_and(CancellationToken::is_cancelled) {
+                return Err(closed_error(&spec.name));
+            }
+            let existing = locked(&self.inner.state).links.iter().find(|(_, link)| link.id == spec.id).cloned();
+            let Some((token, link)) = existing else { break };
             if !link.stopped() {
-                return Ok(link);
+                return Ok((link, LinkOpen::Reused));
             }
             if !link.client_ended() {
                 link.reconnect(context).await?;
-                return Ok(link);
+                return Ok((link, LinkOpen::Reused));
             }
             // The client of a link that was refused for its version cannot attach again: a new link takes its place.
-            self.remove(&spec.id).await;
+            self.remove(&spec.id, Some(token)).await;
         }
         let name = spec.name.clone();
-        let mut result = {
+        let id = spec.id.clone();
+        let (mut result, ownership) = {
             let mut state = locked(&self.inner.state);
+            if let Some((_, link)) = state.links.iter().find(|(_, link)| link.id == spec.id) {
+                return Ok((link.clone(), LinkOpen::Reused));
+            }
+            if cancel.is_some_and(CancellationToken::is_cancelled) {
+                return Err(closed_error(&name));
+            }
             let joined = state.opening.get(&spec.id).map(|flight| flight.result.clone());
             match joined {
-                Some(result) => result,
+                Some(result) => (result, LinkOpen::Reused),
                 None => {
                     state.next_token += 1;
                     let token = state.next_token;
@@ -1146,14 +1173,44 @@ impl LinkPool {
                         tx.send_replace(Some(opened));
                     });
                     state.opening.insert(id, Flight { token, result: rx.clone(), task: task.abort_handle() });
-                    rx
+                    (rx, LinkOpen::Owned(token))
                 }
             }
         };
-        // A cancelled attempt (a close) drops its sender without an answer.
-        match result.wait_for(Option::is_some).await {
-            Ok(opened) => opened.clone().unwrap_or_else(|| Err(closed_error(&name))),
-            Err(_) => Err(closed_error(&name)),
+        let wait = async {
+            match result.wait_for(Option::is_some).await {
+                Ok(opened) => opened.clone().unwrap_or_else(|| Err(closed_error(&name))),
+                Err(_) => Err(closed_error(&name)),
+            }
+        };
+        let opened = if let Some(cancel) = cancel {
+            tokio::select! {
+                biased;
+                () = cancel.cancelled() => {
+                    if let LinkOpen::Owned(token) = ownership {
+                        self.remove(&id, Some(token)).await;
+                    }
+                    return Err(closed_error(&name));
+                }
+                opened = wait => opened,
+            }
+        } else {
+            wait.await
+        };
+        opened.map(|link| (link, ownership))
+    }
+
+    pub(crate) async fn rollback(&self, id: &str, token: u64) {
+        self.remove(id, Some(token)).await;
+    }
+
+    /// Retire precisely the link associated with a window, not a newer generation with the same id.
+    pub(crate) async fn close_identity(&self, id: &str, identity: usize) {
+        let token = locked(&self.inner.state).links.iter().find_map(|(token, link)| {
+            (link.id == id && Arc::as_ptr(link) as usize == identity).then_some(*token)
+        });
+        if let Some(token) = token {
+            self.remove(id, Some(token)).await;
         }
     }
 
@@ -1168,7 +1225,7 @@ impl LinkPool {
             if current {
                 state.opening.remove(&id);
                 if let Ok(link) = &opened {
-                    state.links.push(link.clone());
+                    state.links.push((token, link.clone()));
                 }
             }
             current
@@ -1182,11 +1239,16 @@ impl LinkPool {
         }
     }
 
-    async fn remove(&self, id: &str) -> Option<Arc<ServerLink>> {
+    async fn remove(&self, id: &str, token: Option<u64>) -> Option<Arc<ServerLink>> {
         let (link, flight) = {
             let mut state = locked(&self.inner.state);
-            let at = state.links.iter().position(|link| link.id == id);
-            (at.map(|at| state.links.remove(at)), state.opening.remove(id))
+            let at = state.links.iter().position(|(held, link)| link.id == id && token.is_none_or(|token| token == *held));
+            let flight = if state.opening.get(id).is_some_and(|flight| token.is_none_or(|token| token == flight.token)) {
+                state.opening.remove(id)
+            } else {
+                None
+            };
+            (at.map(|at| state.links.remove(at).1), flight)
         };
         if let Some(flight) = flight {
             flight.task.abort();
@@ -1199,16 +1261,16 @@ impl LinkPool {
 
     /// Detaches: the tunnel and forwards close, the server's daemon keeps running; an attempt in flight is cancelled.
     pub async fn close(&self, id: &str) {
-        self.remove(id).await;
+        self.remove(id, None).await;
     }
 
     pub async fn close_all(&self) {
         let ids: Vec<String> = {
             let state = locked(&self.inner.state);
-            state.links.iter().map(|link| link.id.clone()).chain(state.opening.keys().cloned()).collect()
+            state.links.iter().map(|(_, link)| link.id.clone()).chain(state.opening.keys().cloned()).collect()
         };
         for id in ids {
-            self.remove(&id).await;
+            self.remove(&id, None).await;
         }
     }
 

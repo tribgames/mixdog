@@ -9,6 +9,7 @@ use mixdog_ai::providers::local::LocalRuntime;
 use mixdog_ai::providers::local::listing::InstalledModels;
 use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError};
 use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 
 use super::catalog::Catalog;
 use super::provider::LocalProvider;
@@ -47,10 +48,20 @@ impl InstalledModels for ManagedRuntime {
 /// One request's slot in the provider's queue with its measurement: dropping it ends the queue operation that holds the slot.
 struct Slot {
     inference: super::model_state::Inference,
+    cancel: CancellationToken,
+    cleanup: Arc<tokio::sync::Mutex<()>>,
     _release: tokio::sync::oneshot::Sender<()>,
 }
 
 impl Inference for Slot {
+    fn startup_cancel(&self) -> Option<CancellationToken> {
+        Some(self.cancel.clone())
+    }
+
+    fn attempt_cleanup(&self) -> Option<Arc<tokio::sync::Mutex<()>>> {
+        Some(self.cleanup.clone())
+    }
+
     fn progress(&self, kind: &str) {
         self.inference.progress(kind);
     }
@@ -65,49 +76,90 @@ impl LocalRuntime for ManagedRuntime {
     /// holds idle unload and context changes, and keeps the slot until the returned [`Slot`] is dropped.
     async fn begin(&self, model: &str) -> Result<Box<dyn Inference>, ProviderError> {
         let queued_at = tokio::time::Instant::now();
-        let cancel = tokio_util::sync::CancellationToken::new();
+        let cancel = CancellationToken::new();
         // A caller that stops waiting leaves the queue.
         let leaving = cancel.clone().drop_guard();
         let (turn, mut turns) = tokio::sync::mpsc::unbounded_channel();
         let (release, released) = tokio::sync::oneshot::channel::<()>();
         let queue = self.0.queue.clone();
         let refused = turn.clone();
+        let cleanup = Arc::new(tokio::sync::Mutex::new(()));
+        let worker_cleanup = cleanup.clone();
         tokio::spawn(async move {
             let started = queue
-                .run(Some(cancel), move |_| async move {
-                    let _ = turn.send(Ok(()));
-                    // The slot is held until the request lets go of it.
-                    let _ = released.await;
+                .run(Some(cancel), move |cancel| async move {
+                    if turn.send(Ok(cancel.clone())).is_ok() {
+                        tokio::select! {
+                            _ = cancel.cancelled() => {},
+                            _ = released => {},
+                        }
+                        // Stop retires an idle retry group immediately, but an active worker
+                        // still owns the queue lane until it has dropped its body.
+                        let _cleaned = worker_cleanup.lock().await;
+                    }
                 })
                 .await;
             if let Err(error) = started {
                 let _ = refused.send(Err(error));
             }
         });
-        match turns.recv().await {
-            Some(Ok(())) => {}
+        let cancel = match turns.recv().await {
+            Some(Ok(cancel)) => cancel,
             Some(Err(error)) => return Err(unsent(error.to_string())),
             None => return Err(unsent("aborted".into())),
-        }
+        };
         leaving.disarm();
         let inference = self.0.catalog.state.begin_inference(model, queued_at);
-        Ok(Box::new(Slot { inference, _release: release }))
+        Ok(Box::new(Slot { inference, cancel, cleanup, _release: release }))
     }
 
     fn installed_now(&self) -> Option<Vec<Value>> {
         self.0.installed_rows().borrow().clone()
     }
 
-    async fn ensure_server(&self, model: &str) -> Result<Endpoint, ProviderError> {
-        let ready = self.0.ensure_server(model, None).await.map_err(|e| unsent(e.to_string()))?;
+    async fn ensure_server(&self, model: &str, cancel: Option<CancellationToken>) -> Result<Endpoint, ProviderError> {
+        let ready = self.0.ensure_server(model, cancel).await.map_err(|e| unsent(e.to_string()))?;
         let text = |key: &str| ready[key].as_str().unwrap_or_default().to_owned();
         Ok(Endpoint { base_url: text("baseURL"), api_key: text("apiKey") })
+    }
+
+    fn supports_tools(&self, model: &str) -> Option<bool> {
+        self.0.catalog.state.get(model).pointer("/capabilities/tools").and_then(Value::as_bool)
+            .or_else(|| self.0.catalog.model_entry(model)?.get("supportsFunctionCalling")?.as_bool())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn stop_waits_for_cleanup_before_reopening_the_queue() {
+        let dir = tempfile::tempdir().unwrap();
+        let provider = super::super::provider::tests::provider(dir.path());
+        let runtime = ManagedRuntime(provider.clone());
+        let slot = runtime.begin("old").await.unwrap();
+        let stop_signal = slot.startup_cancel().unwrap();
+        let cleanup = slot.attempt_cleanup().unwrap().lock_owned().await;
+        let mut stopping = Box::pin(provider.queue.stop());
+        tokio::select! {
+            biased;
+            _ = &mut stopping => panic!("stop completed before attempt cleanup"),
+            _ = stop_signal.cancelled() => {},
+        }
+        tokio::select! {
+            biased;
+            _ = &mut stopping => panic!("stop completed before attempt cleanup"),
+            _ = mixdog_rt::time::sleep(std::time::Duration::from_secs(1)) => {},
+        }
+        assert_eq!(provider.queue.status()["activeRequests"], 1);
+        assert!(matches!(provider.queue.run(None, |_| async {}).await,
+            Err(super::super::request_queue::QueueError::Stopping)));
+        drop(cleanup);
+        stopping.await;
+        assert_eq!(provider.queue.run(None, |_| async { 1 }).await, Ok(1));
+        drop(slot);
+    }
 
     #[tokio::test]
     async fn an_empty_data_dir_lists_no_installed_models() {

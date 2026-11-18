@@ -1,24 +1,19 @@
-// A group room log's `roomView` section (`thread/roomView/updated`) laid over its state reproduces the view Node pushes for the
-// room (`agent-room-views.ts` `decorateRoomSnapshot`, `native/core/fixtures/room-approvals/golden.json`, recorded by
-// record-room-approvals.mjs): busy, the speaking member's `toolApproval`, the handed-off questions and the typing row.
+// A group room log's `roomView` section (`thread/roomView/updated`) laid over its state decorates the room's session state: busy,
+// the speaking member's `toolApproval`, the handed-off questions and the typing row (`withRoomView` in session-state.ts).
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { Json } from '../src/api.ts';
 import { desktopSessionState, sessionReducer } from '../src/session-state.ts';
 import type { SessionFold } from '../src/session-state.ts';
 
 type O = Record<string, any>;
-const golden: O = JSON.parse(readFileSync(new URL('../../../native/core/fixtures/room-approvals/golden.json', import.meta.url), 'utf8'));
+const snapshotItems = [{ kind: 'user', id: 'u1', text: 'hello room' }, { kind: 'notice', id: 'n1', text: 'Stopped.', tone: 'info' }];
+const snapshot: O = { busy: false, items: snapshotItems };
+const typing = { kind: 'notice', id: 'room-typing-n1', text: 'Git Hub is typing', tone: 'info' };
+const approval = { id: 'ap1', tool: 'shell' };
+const questions = [{ id: 'q1', text: 'Which branch?' }];
 
-/** The section the core publishes for a room state (`room_approval::room_view`): what Node's decoration adds. */
-function sectionOf(state: O | null, questions: O[], view: O): O | null {
-  if (!state) return questions.length ? { busy: false, handoffQuestions: questions } : null;
-  const typing = state.speaking ? view.items[view.items.length - 1] : undefined;
-  return { busy: true, ...(state.approval ? { toolApproval: state.approval } : {}), ...(typing ? { typing } : {}), ...(questions.length ? { handoffQuestions: questions } : {}) };
-}
-
-/** The room log as its own fields give it (the recorded snapshot), with `roomView` set by the live section. */
+/** The room log as its own fields give it (the snapshot), with `roomView` set by the live section. */
 function fold(snapshot: O, roomView: O | null): SessionFold {
   const base: SessionFold = { sessionId: 'sess_room_room01', items: snapshot.items, fields: { busy: snapshot.busy }, live: null, structureRevision: 0 };
   return sessionReducer.apply(base, { method: 'thread/roomView/updated', params: { threadId: 'sess_room_room01', value: roomView } } as never);
@@ -26,26 +21,22 @@ function fold(snapshot: O, roomView: O | null): SessionFold {
 
 const pick = (s: O): O => ({ busy: s.busy, toolApproval: s.toolApproval ?? null, handoffQuestions: s.handoffQuestions ?? null, items: s.items });
 
-test('every recorded room state reads as the view Node pushed for the room', () => {
-  const cases: O[] = [
-    ...(golden.decorations as O[]).map((d) => ({ name: d.name, state: d.state, questions: d.handoffQuestions, snapshot: d.snapshot, view: d.view })),
-    ...(golden.cases as O[]).map((c) => ({
-      name: c.name,
-      state: { speaking: 'gh.bot', speakingName: 'Git Hub', typingId: 'room-typing-n1', approval: c.toolApproval },
-      questions: [],
-      snapshot: golden.decorations[0].snapshot,
-      view: c.roomView,
-    })),
+test('a room view decorates the log: busy, the speaker\'s approval, handed-off questions and the typing row after the transcript', () => {
+  const cases: { name: string; view: O | null; want: O }[] = [
+    { name: 'no view', view: null, want: { busy: false, toolApproval: null, handoffQuestions: null, items: snapshotItems } },
+    { name: 'busy with the typing row', view: { busy: true, typing }, want: { busy: true, toolApproval: null, handoffQuestions: null, items: [...snapshotItems, typing] } },
+    { name: 'busy with an approval and questions', view: { busy: true, toolApproval: approval, typing, handoffQuestions: questions }, want: { busy: true, toolApproval: approval, handoffQuestions: questions, items: [...snapshotItems, typing] } },
+    { name: 'questions without an exchange leave busy alone', view: { busy: false, handoffQuestions: questions }, want: { busy: false, toolApproval: null, handoffQuestions: questions, items: snapshotItems } },
+    { name: 'a view that is not busy adds no approval or typing row', view: { busy: false, toolApproval: approval, typing }, want: { busy: false, toolApproval: null, handoffQuestions: null, items: snapshotItems } },
   ];
   for (const c of cases) {
-    const state = desktopSessionState(fold(c.snapshot, sectionOf(c.state, c.questions, c.view)), []);
-    assert.deepEqual(pick(state as O), pick({ toolApproval: null, ...c.view }), c.name);
+    const state = desktopSessionState(fold(snapshot, c.view), []);
+    assert.deepEqual(pick(state as O), c.want, c.name);
     assert.equal('roomView' in state, false, `${c.name}: roomView is no state field`);
   }
 });
 
 test('a cleared room view leaves the log as its own fields give it', () => {
-  const snapshot = golden.decorations[0].snapshot;
   const cleared = sessionReducer.apply(fold(snapshot, { busy: true, typing: { kind: 'notice', id: 'x' } }), {
     method: 'thread/roomView/updated',
     params: { threadId: 'sess_room_room01', value: null },

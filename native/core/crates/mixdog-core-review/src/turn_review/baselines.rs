@@ -51,7 +51,9 @@ const BASELINE_TTL_MS: f64 = 30.0 * 24.0 * 60.0 * 60.0 * 1000.0;
 const SWEEP_INTERVAL_MS: f64 = 10.0 * 60.0 * 1000.0;
 const ORPHAN_BLOB_GRACE_MS: f64 = 60.0 * 60.0 * 1000.0;
 const STATE_CACHE_SESSIONS: usize = 16;
-const ROW_CACHE_MAX_BYTES: usize = 16 * 1024 * 1024;
+const ROW_CACHE_MAX_BYTES: usize = 8 * 1024 * 1024;
+/// A measured row no poll used for this long leaves memory; the next poll measures it again.
+const ROW_CACHE_IDLE: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
 fn digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
@@ -769,14 +771,48 @@ pub(super) struct CachedRow {
 
 #[derive(Default)]
 struct RowCache {
-    rows: IndexMap<String, (CachedRow, usize)>,
+    /// Least recently used first, with each row's bytes and last use.
+    rows: IndexMap<String, (CachedRow, usize, std::time::Instant)>,
     bytes: usize,
 }
 
 impl RowCache {
     fn drop_row(&mut self, key: &str) {
-        if let Some((_, bytes)) = self.rows.shift_remove(key) {
+        if let Some((_, bytes, _)) = self.rows.shift_remove(key) {
             self.bytes -= bytes;
+        }
+    }
+
+    /// Drops the rows unused for `ROW_CACHE_IDLE` as of `now` (they lead the order).
+    fn expire(&mut self, now: std::time::Instant) {
+        while let Some((_, (_, bytes, used))) = self.rows.first() {
+            if now.saturating_duration_since(*used) < ROW_CACHE_IDLE {
+                break;
+            }
+            self.bytes -= *bytes;
+            self.rows.shift_remove_index(0);
+        }
+    }
+
+    fn get(&mut self, key: String, now: std::time::Instant) -> Option<CachedRow> {
+        self.expire(now);
+        let (row, bytes, _) = self.rows.shift_remove(&key)?;
+        self.rows.insert(key, (row.clone(), bytes, now));
+        Some(row)
+    }
+
+    fn set(&mut self, key: String, row: CachedRow, now: std::time::Instant) {
+        self.drop_row(&key);
+        self.expire(now);
+        let bytes = row_bytes(&row);
+        if bytes > ROW_CACHE_MAX_BYTES {
+            return;
+        }
+        self.rows.insert(key, (row, bytes, now));
+        self.bytes += bytes;
+        while self.bytes > ROW_CACHE_MAX_BYTES {
+            let Some(oldest) = self.rows.keys().next().cloned() else { break };
+            self.drop_row(&oldest);
         }
     }
 }
@@ -821,27 +857,13 @@ pub(super) struct Loaded {
 
 impl Loaded {
     pub fn cache_get(&self, unit: &str) -> Option<CachedRow> {
-        let mut shared = self.core.lock();
         let key = format!("{}\0{unit}", self.session_id);
-        let (row, bytes) = shared.rows.rows.shift_remove(&key)?;
-        shared.rows.rows.insert(key, (row.clone(), bytes));
-        Some(row)
+        self.core.lock().rows.get(key, std::time::Instant::now())
     }
 
     pub fn cache_set(&self, unit: &str, row: CachedRow) {
-        let mut shared = self.core.lock();
         let key = format!("{}\0{unit}", self.session_id);
-        shared.rows.drop_row(&key);
-        let bytes = row_bytes(&row);
-        if bytes > ROW_CACHE_MAX_BYTES {
-            return;
-        }
-        shared.rows.rows.insert(key, (row, bytes));
-        shared.rows.bytes += bytes;
-        while shared.rows.bytes > ROW_CACHE_MAX_BYTES {
-            let Some(oldest) = shared.rows.rows.keys().next().cloned() else { break };
-            shared.rows.drop_row(&oldest);
-        }
+        self.core.lock().rows.set(key, row, std::time::Instant::now());
     }
 
     /// The captured bytes of `entry`; a torn blob is damage and goes.
@@ -1356,5 +1378,35 @@ impl Core {
         if let Ok(Ok(state)) = landed {
             self.remember(state);
         }
+    }
+}
+
+#[cfg(test)]
+mod row_cache_tests {
+    use std::time::Duration;
+    use std::time::Instant;
+
+    use super::CachedRow;
+    use super::ROW_CACHE_IDLE;
+    use super::RowCache;
+
+    fn row(sig: &str) -> CachedRow {
+        CachedRow { sig: sig.to_owned(), change: None, stripped: false }
+    }
+
+    /// A row no poll used for the idle period leaves the cache at its next use, its bytes with it; a used one stays.
+    #[test]
+    fn an_idle_row_leaves_the_row_cache() {
+        let mut cache = RowCache::default();
+        let start = Instant::now();
+        cache.set("s\0a".into(), row("a"), start);
+        cache.set("s\0b".into(), row("b"), start + Duration::from_secs(60));
+        let later = start + ROW_CACHE_IDLE + Duration::from_secs(1);
+        assert_eq!(cache.get("s\0b".into(), later).map(|r| r.sig), Some("b".to_owned()));
+        assert!(cache.get("s\0a".into(), later).is_none());
+        assert_eq!(cache.rows.len(), 1);
+        assert_eq!(cache.bytes, super::row_bytes(&row("b")));
+        cache.set("s\0c".into(), row("c"), later + ROW_CACHE_IDLE);
+        assert_eq!(cache.rows.keys().collect::<Vec<_>>(), ["s\0c"]);
     }
 }

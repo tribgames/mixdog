@@ -24,16 +24,6 @@ const OPTIONS: &str = include_str!(concat!(
 
 struct PausedClock;
 
-#[async_trait]
-impl Clock for PausedClock {
-    async fn sleep(&self, ms: u64) {
-        mixdog_rt::time::sleep(std::time::Duration::from_millis(ms)).await;
-    }
-    fn jitter(&self) -> f64 {
-        0.0
-    }
-}
-
 /// One call the fake local core took up, and the way to answer it.
 struct Started {
     call: ProxyCall,
@@ -169,29 +159,6 @@ fn subset(frame: &Value, keys: &[&str]) -> Value {
 }
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]
-async fn heartbeat_first_beat_claims_and_one_beat_names_every_running_request() {
-    let mut rig = rig(all_providers()).await;
-    execute(&rig.conn, json!(7));
-    assert_eq!(subset(&frame(&rig.conn).await, &["method", "params"]), beat(json!([7])), "the first beat is the claim");
-    let first = rig.calls.recv().await.unwrap();
-    execute(&rig.conn, json!("b"));
-    assert_eq!(subset(&frame(&rig.conn).await, &["method", "params"]), beat(json!(["b"])));
-    let second = rig.calls.recv().await.unwrap();
-
-    assert_eq!(subset(&frame(&rig.conn).await, &["method", "params"]), beat(json!([7, "b"])), "five seconds on");
-    assert_eq!(rig.relay.running(), 2);
-    first.answer.send(route()).unwrap();
-    assert_eq!(subset(&frame(&rig.conn).await, &["id", "result"]), route_response(json!(7)));
-    assert_eq!(subset(&frame(&rig.conn).await, &["method", "params"]), beat(json!(["b"])));
-    second.answer.send(route()).unwrap();
-    assert_eq!(subset(&frame(&rig.conn).await, &["id", "result"]), route_response(json!("b")));
-    settle().await;
-    assert_eq!(rig.relay.running(), 0);
-    mixdog_rt::time::sleep(std::time::Duration::from_secs(20)).await;
-    assert_eq!(rig.conn.queued(), 0, "nothing running, nothing vouched for");
-}
-
-#[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn cancel_maps_to_token_of_the_run_that_request_started() {
     let mut rig = rig(all_providers()).await;
     execute(&rig.conn, json!(7));
@@ -288,53 +255,6 @@ async fn a_failed_call_answers_as_the_error_of_the_request_with_the_failure_as_i
 }
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]
-async fn abandon_on_link_loss_stops_every_call_and_leaves_them_unanswered() {
-    let mut rig = rig(all_providers()).await;
-    execute(&rig.conn, json!(1));
-    execute(&rig.conn, json!(2));
-    for _ in 0..2 {
-        frame(&rig.conn).await; // claims
-    }
-    let first = rig.calls.recv().await.unwrap();
-    let second = rig.calls.recv().await.unwrap();
-
-    rig.conn.server_close(1006, "gone");
-    let conn = handshake(&rig.net, "s1").await;
-    settle().await;
-    assert!(first.cancel.is_cancelled() && second.cancel.is_cancelled());
-    assert_eq!(rig.relay.running(), 0);
-    first.answer.send(route()).unwrap();
-    second.answer.send(Err("cancelled".into())).unwrap();
-    mixdog_rt::time::sleep(std::time::Duration::from_secs(20)).await;
-    assert_eq!(conn.queued(), 0, "no answer and no beat of an abandoned call");
-
-    // The server's ids restart on the next link: the new call is its own run and is answered.
-    execute(&conn, json!(1));
-    frame(&conn).await; // claim
-    rig.calls.recv().await.unwrap().answer.send(route()).unwrap();
-    assert_eq!(subset(&frame(&conn).await, &["id", "result"]), route_response(json!(1)));
-}
-
-#[tokio::test(flavor = "current_thread", start_paused = true)]
-async fn revoke_gives_up_the_calls_in_flight_and_takes_up_new_ones_again() {
-    let mut rig = rig(all_providers()).await;
-    execute(&rig.conn, json!(1));
-    frame(&rig.conn).await; // claim
-    let started = rig.calls.recv().await.unwrap();
-    rig.relay.revoke();
-    assert!(started.cancel.is_cancelled());
-    assert_eq!(rig.relay.running(), 0);
-    started.answer.send(route()).unwrap();
-    mixdog_rt::time::sleep(std::time::Duration::from_secs(20)).await;
-    assert_eq!(rig.conn.queued(), 0);
-
-    execute(&rig.conn, json!(2));
-    frame(&rig.conn).await; // claim
-    rig.calls.recv().await.unwrap().answer.send(route()).unwrap();
-    assert_eq!(subset(&frame(&rig.conn).await, &["id", "result"]), route_response(json!(2)));
-}
-
-#[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn a_server_on_its_own_logins_is_not_claimed() {
     let mut rig = rig(all_providers()).await;
     rig.relay.serving(false);
@@ -386,6 +306,83 @@ async fn every_call_settles_once_with_its_provider_and_outcome() {
     assert!(settled.try_recv().is_err(), "an abandoned call settles once");
 }
 
+
+#[async_trait]
+impl Clock for PausedClock {
+    async fn sleep(&self, ms: u64) {
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(ms)).await;
+    }
+    fn jitter(&self) -> f64 {
+        0.0
+    }
+}
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn heartbeat_first_beat_claims_and_one_beat_names_every_running_request() {
+    let mut rig = rig(all_providers()).await;
+    execute(&rig.conn, json!(7));
+    assert_eq!(subset(&frame(&rig.conn).await, &["method", "params"]), beat(json!([7])), "the first beat is the claim");
+    let first = rig.calls.recv().await.unwrap();
+    execute(&rig.conn, json!("b"));
+    assert_eq!(subset(&frame(&rig.conn).await, &["method", "params"]), beat(json!(["b"])));
+    let second = rig.calls.recv().await.unwrap();
+
+    assert_eq!(subset(&frame(&rig.conn).await, &["method", "params"]), beat(json!([7, "b"])), "five seconds on");
+    assert_eq!(rig.relay.running(), 2);
+    first.answer.send(route()).unwrap();
+    assert_eq!(subset(&frame(&rig.conn).await, &["id", "result"]), route_response(json!(7)));
+    assert_eq!(subset(&frame(&rig.conn).await, &["method", "params"]), beat(json!(["b"])));
+    second.answer.send(route()).unwrap();
+    assert_eq!(subset(&frame(&rig.conn).await, &["id", "result"]), route_response(json!("b")));
+    settle().await;
+    assert_eq!(rig.relay.running(), 0);
+    mixdog_rt::time::sleep(std::time::Duration::from_secs(20)).await;
+    assert_eq!(rig.conn.queued(), 0, "nothing running, nothing vouched for");
+}
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn abandon_on_link_loss_stops_every_call_and_leaves_them_unanswered() {
+    let mut rig = rig(all_providers()).await;
+    execute(&rig.conn, json!(1));
+    execute(&rig.conn, json!(2));
+    for _ in 0..2 {
+        frame(&rig.conn).await; // claims
+    }
+    let first = rig.calls.recv().await.unwrap();
+    let second = rig.calls.recv().await.unwrap();
+
+    rig.conn.server_close(1006, "gone");
+    let conn = handshake(&rig.net, "s1").await;
+    settle().await;
+    assert!(first.cancel.is_cancelled() && second.cancel.is_cancelled());
+    assert_eq!(rig.relay.running(), 0);
+    first.answer.send(route()).unwrap();
+    second.answer.send(Err("cancelled".into())).unwrap();
+    mixdog_rt::time::sleep(std::time::Duration::from_secs(20)).await;
+    assert_eq!(conn.queued(), 0, "no answer and no beat of an abandoned call");
+
+    // The server's ids restart on the next link: the new call is its own run and is answered.
+    execute(&conn, json!(1));
+    frame(&conn).await; // claim
+    rig.calls.recv().await.unwrap().answer.send(route()).unwrap();
+    assert_eq!(subset(&frame(&conn).await, &["id", "result"]), route_response(json!(1)));
+}
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn revoke_gives_up_the_calls_in_flight_and_takes_up_new_ones_again() {
+    let mut rig = rig(all_providers()).await;
+    execute(&rig.conn, json!(1));
+    frame(&rig.conn).await; // claim
+    let started = rig.calls.recv().await.unwrap();
+    rig.relay.revoke();
+    assert!(started.cancel.is_cancelled());
+    assert_eq!(rig.relay.running(), 0);
+    started.answer.send(route()).unwrap();
+    mixdog_rt::time::sleep(std::time::Duration::from_secs(20)).await;
+    assert_eq!(rig.conn.queued(), 0);
+
+    execute(&rig.conn, json!(2));
+    frame(&rig.conn).await; // claim
+    rig.calls.recv().await.unwrap().answer.send(route()).unwrap();
+    assert_eq!(subset(&frame(&rig.conn).await, &["id", "result"]), route_response(json!(2)));
+}
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn a_stopped_relay_abandons_its_calls_and_takes_up_nothing_more() {
     let mut rig = rig(all_providers()).await;

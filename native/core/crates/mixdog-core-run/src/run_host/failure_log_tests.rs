@@ -103,7 +103,7 @@ async fn a_cancelled_flush_keeps_the_turn_until_its_lane_job_ends() {
 /// its result and its search; an error call also gets its failure row.
 #[tokio::test]
 async fn a_runs_tool_log_writes_its_batch_and_tool_rows_to_the_agent_trace() {
-    use mixdog_agent::env::{ToolBatch, ToolBatchCall, TracedCall};
+    use mixdog_agent::env::{CrossTurnReceipt, ToolBatch, ToolBatchCall, TracedCall};
     let tokens = mixdog_rt::testing::tokens();
     let data = tempfile::tempdir().unwrap();
     let config = TraceConfig::from_env(data.path(), &|name| (name == "MIXDOG_DIAGNOSTICS").then(|| "1".to_owned()), false);
@@ -111,7 +111,7 @@ async fn a_runs_tool_log_writes_its_batch_and_tool_rows_to_the_agent_trace() {
     let writer = Arc::new(FailureWriter::new(&config, io, Arc::new(At(1))));
     let log = RunFailureLog::new(Arc::clone(&writer), "s", Some("lead"), "/ws");
     let call = |id: &str, name: &str| ToolBatchCall { tool_call_id: id.into(), tool_name: name.into(), array_lengths: None };
-    log.batch(&ToolBatch { iteration: 1, calls: vec![call("x1", "edit"), call("l1", "list")] });
+    log.batch(&ToolBatch { iteration: 1, calls: vec![call("x1", "edit"), call("l1", "list"), call("r1", "read"), call("g1", "grep")] });
     let traced = |id: &str, name: &str, kind: &'static str| TracedCall {
         iteration: 1,
         tool_call_id: id.into(),
@@ -132,6 +132,16 @@ async fn a_runs_tool_log_writes_its_batch_and_tool_rows_to_the_agent_trace() {
     let integrity = json!({ "kind": "directory-walk", "status": "complete", "entriesVisited": 3, "warnings": 0 });
     let search = json!({ "native_hits": 1, "native_ms": 4 });
     log.tool(TracedCall { result_telemetry: Some(json!({ "integrity": integrity })), local_search: Some(search.clone()), ..traced("l1", "list", "error") });
+    for (id, name, kind) in [("r1", "read", "cache-hit"), ("g1", "grep", "scoped-cache-hit")] {
+        log.tool(TracedCall {
+            tool_ms: 0,
+            tool_args: json!({ "path": "private-path", "pattern": "private-query" }),
+            result: json!("private-body"),
+            result_text: "private-body".into(),
+            ..traced(id, name, kind)
+        });
+    }
+    log.cross_turn_receipt(CrossTurnReceipt { iteration: 2, tool: "grep", occurrence: 2, first_iteration: 1, total: 1 });
     writer.flush().await;
 
     let rows: Vec<Value> = mixdog_testkit::read_string(data.path().join("history").join("agent-trace.jsonl"))
@@ -139,7 +149,7 @@ async fn a_runs_tool_log_writes_its_batch_and_tool_rows_to_the_agent_trace() {
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
     let kinds: Vec<&str> = rows.iter().map(|row| row["kind"].as_str().unwrap()).collect();
-    assert_eq!(kinds, ["batch", "tool", "tool"]);
+    assert_eq!(kinds, ["batch", "tool", "tool", "tool", "tool", "steer"]);
     let batch_id = rows[0]["payload"]["batch_id"].as_str().unwrap();
     assert_eq!(rows[1]["payload"]["batch"], json!({ "batch_id": batch_id, "tool_call_id": "x1" }));
     assert_eq!(
@@ -149,6 +159,16 @@ async fn a_runs_tool_log_writes_its_batch_and_tool_rows_to_the_agent_trace() {
     assert_eq!(rows[1]["local_search"], Value::Null);
     assert_eq!(rows[2]["payload"]["integrity"], integrity);
     assert_eq!(rows[2]["local_search"], search);
+    for (row, id, kind) in [(&rows[3], "r1", "cache-hit"), (&rows[4], "g1", "scoped-cache-hit")] {
+        assert_eq!(row["result_kind"], kind);
+        assert_eq!(row["payload"]["batch"], json!({ "batch_id": batch_id, "tool_call_id": id }));
+        assert_eq!(row["payload"]["execution_intervals"], json!([]));
+        assert!(row["tool_args"].is_null() && row["tool_args_hash"].is_null());
+        assert!(!row.to_string().contains("private-"));
+    }
+    assert_eq!(rows[5]["payload"], json!({
+        "tag": "cross_turn_dedup", "tool": "grep", "occurrence": 2, "first_iteration": 1, "dedup_stub_total": 1,
+    }));
     let failures = mixdog_testkit::read_string(data.path().join("history").join("tool-failures.jsonl"));
     assert_eq!(failures.lines().count(), 1, "the error call's failure row, once");
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { requiredDesktopCapabilityRequest } from './ipc-validation.ts';
+import { requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
 
 const request = (capability, args) => requiredDesktopCapabilityRequest({ capability, args });
 

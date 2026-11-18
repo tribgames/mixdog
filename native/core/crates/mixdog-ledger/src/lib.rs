@@ -30,6 +30,7 @@ pub mod refresh;
 pub mod repair;
 mod reply;
 pub mod requests;
+mod route_merge;
 pub mod rollup;
 pub mod schema;
 pub mod stats;

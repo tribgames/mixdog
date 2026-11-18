@@ -8,7 +8,10 @@ export interface CoreState {
   controlPort?: number | null;
   /** The session token (`endpoints.session.token`) the control listener takes. */
   token?: string | null;
+  /** The sessions the core's index rebuild has read of how many; null (or absent) when none runs. */
+  rebuild?: RebuildProgress | null;
 }
+export interface RebuildProgress { done: number; total: number }
 export interface EnsureCoreOptions {
   /** Whether a process still runs (the real check outside a test). */
   runs?(pid: number): boolean;
@@ -18,8 +21,12 @@ export interface EnsureCoreOptions {
   readyTimeoutMs?: number;
   now?(): number;
   log?(line: string): void;
+  /** The ask of a core that still says it is starting once the ready time has passed (`pingCore` outside a test). */
+  ping?(discovery: CoreState): Promise<{ answered: boolean; stalledMs: number }>;
+  /** Told each time the core's rebuild progress changes (null when it ends or none runs), with the pid of the core boot the counts are of, while this waits for `serving`. */
+  onProgress?(progress: RebuildProgress | null, boot: number | null): void;
 }
-export function launchCore(options?: { bin?: string; env?: NodeJS.ProcessEnv; spawnImpl?: unknown; log?(line: string): void; beginCapture?(options: unknown): unknown; detached?: boolean }): Promise<unknown>;
+export function launchCore(options?: { bin?: string; env?: NodeJS.ProcessEnv; spawnImpl?: unknown; log?(line: string): void; beginCapture?(options: unknown): unknown; detached?: boolean; desktopConfirmationPipe?: boolean }): Promise<unknown>;
 export function processRuns(pid: number): boolean;
 export function ensureCore(options: EnsureCoreOptions): Promise<CoreState>;
 export const CORE_PING_INTERVAL_MS: number;

@@ -6,6 +6,8 @@
 #
 # Env: TAG=runtime-v0.4.0 OS=linux|darwin ARCH=x64|arm64
 #      RUNTIME_RELEASE_REPOSITORY — override repo (default tribgames/mixdog)
+#      RUNTIME_SMOKE_INPUT — use the staged tarball and sidecar instead of the public URL
+#      RUNTIME_SMOKE_OUTPUT — retain the exact pair that passed, for release recovery
 
 set -euo pipefail
 
@@ -32,20 +34,22 @@ if [[ "$OS" == "linux" && "$(id -u)" -eq 0 ]]; then
 	chmod 755 "$WORK"
 	RUN_AS=(runuser -u pguser --)
 else
-	RUN_AS=()
+	# Bash 3.2 treats an empty array as unset under nounset.
+	RUN_AS=(env)
 fi
 
-echo "==> Test 1: HEAD reaches release asset"
-curl -sIL -o /dev/null -w "  HTTP %{http_code}\n" "$URL" || {
-	echo "FAIL: URL HEAD"
-	exit 1
-}
-
-echo "==> Test 2: full download + sha256 (manifest match)"
-curl -fsSL -o "$WORK/$ASSET" "$URL"
+if [[ -n "${RUNTIME_SMOKE_INPUT:-}" ]]; then
+	cp "$RUNTIME_SMOKE_INPUT/$ASSET" "$RUNTIME_SMOKE_INPUT/$ASSET.sha256" "$WORK/"
+else
+	echo "==> Test 1: HEAD reaches release asset"
+	curl -fsIL -o /dev/null -w "  HTTP %{http_code}\n" "$URL"
+	curl -fsSL -o "$WORK/$ASSET" "$URL"
+	curl -fsSL -o "$WORK/$ASSET.sha256" "${URL}.sha256"
+fi
+echo "==> Test 2: sha256 of the exact tarball under test"
 SHA="$(sha256sum "$WORK/$ASSET" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$WORK/$ASSET" | awk '{print $1}')"
 echo "  sha256=$SHA"
-EXPECTED_SHA="$(curl -fsSL "${URL}.sha256" | awk '{print tolower($1)}')"
+EXPECTED_SHA="$(awk '{print tolower($1)}' "$WORK/$ASSET.sha256")"
 [[ "$SHA" == "$EXPECTED_SHA" ]] || {
 	echo "FAIL: sha256 mismatch (got $SHA, release sidecar says ${EXPECTED_SHA:-<empty>})"
 	exit 1
@@ -107,4 +111,8 @@ echo "==> Test 6: shutdown + cleanup"
 "${RUN_AS[@]}" env -i HOME="$WORK/fresh" PATH=/usr/bin:/bin "$PG_BIN/pg_ctl" -D "$DATA" -m fast stop >/dev/null
 trap 'rm -rf "$WORK"' EXIT
 
+if [[ -n "${RUNTIME_SMOKE_OUTPUT:-}" ]]; then
+	mkdir -p "$RUNTIME_SMOKE_OUTPUT"
+	cp "$WORK/$ASSET" "$WORK/$ASSET.sha256" "$RUNTIME_SMOKE_OUTPUT/"
+fi
 echo "==> All negative-path smokes: PASS"

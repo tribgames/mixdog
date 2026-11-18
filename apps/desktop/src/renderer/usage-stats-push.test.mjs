@@ -7,6 +7,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { CommandSurface } from './CommandSurface.tsx';
+import { t } from './i18n.ts';
 import {
   REMOTE_STATS_REFRESH_INTERVAL_MS,
   getStatsDataCache,
@@ -40,7 +41,14 @@ function snapshot(tokens) {
     period,
     range: { days: period.days, firstDay: period.startDay || '2025-01-01' },
     totals: { ...route, sessions: 1 },
-    providers: [{ ...route, provider: 'openai', providerKind: 'api' }],
+    providers: [{
+      ...route,
+      provider: 'openai',
+      providerKind: 'api',
+      models: (tokens === 1200 ? [{ fast: true }] : [
+        { speedTier: 'standard' }, { speedTier: 'fast' }, { speedTier: 'ultrafast', fast: true },
+      ]).map((tier) => ({ model: 'model-a', ...tier })),
+    }],
     daily: [{ day: period.startDay, tokens, turns: 1, costUsd: 2, costKnownTurns: 1, providers: [] }],
     hourly: Array.from({ length: 24 }, (_, hour) => ({
       key: String(hour).padStart(2, '0'),
@@ -99,10 +107,13 @@ test('a pushed usage/stats entry updates an open statistics dialog without a rea
   context.after(release);
   await act(async () => root.render(React.createElement(CommandSurface, props)));
   assert.equal(shown(), '1.2K', 'opening reads once');
+  const modelNames = () => [...document.querySelectorAll('.stats-model-cell')].map((cell) => cell.textContent);
+  assert.deepEqual(modelNames(), [`model-a · ${t('Fast')}`]);
   assert.equal(reads.length, 1);
 
   await act(async () => push(2400));
   assert.equal(shown(), '2.4K');
+  assert.deepEqual(modelNames(), ['model-a', `model-a · ${t('Fast')}`, `model-a · ${t('Ultrafast')}`]);
   await act(async () => push(3600));
   assert.equal(shown(), '3.6K');
   assert.ok(document.querySelector('.stats-provider-row').textContent.includes('3.6K'));

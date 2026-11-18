@@ -19,6 +19,7 @@ const [
   { pendingSessionDiffFileRequest },
   { t: translate },
   { parseIslandGitRequestText },
+  { MIN_READ_GAP_MS },
 ] = await Promise.all([
   import('./ComposerDock.tsx'),
   import('./WorktreeIslandSegment.tsx'),
@@ -26,11 +27,12 @@ const [
   import('./session-diff-focus.ts'),
   import('./i18n.ts'),
   import('./island-git-request.ts'),
+  import('./island-session-usage.ts'),
 ]);
 
 function mount(t) {
   const { dom, root } = installTestDom(t, {
-    expose: ['HTMLElement', 'Element', 'Node', 'KeyboardEvent', 'MouseEvent', 'MutationObserver'],
+    expose: ['HTMLElement', 'Element', 'Node', 'KeyboardEvent', 'MouseEvent', 'MutationObserver', 'getComputedStyle'],
     globals: {
       ResizeObserver: class {
         observe() {}
@@ -42,13 +44,14 @@ function mount(t) {
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   dom.window.requestAnimationFrame = (callback) => dom.window.setTimeout(() => callback(Date.now()), 16);
   dom.window.cancelAnimationFrame = (id) => dom.window.clearTimeout(id);
-  // The island lists agents from the same pool feed as the Agents window.
-  let pushPool = () => {};
-  let poolRows = [];
+  // The island lists agents from the same pool feed as the Agents window: the core's `agentPool` section.
+  const pushes = new Set();
+  let poolEntry = { section: 'agentPool', key: null, revision: 1, value: [] };
   dom.window.mixdogDesktop = {
-    listAgentPool: async () => poolRows,
-    subscribeAgentPool: (listener) => {
-      pushPool = listener;
+    sections: {
+      core: async () => false,
+      snapshot: async () => ({ status: 'ready', entries: [poolEntry] }),
+      subscribe: (listener) => (pushes.add(listener), () => void pushes.delete(listener)),
     },
   };
   // The branch segment remembers each session's last workspace and menu.
@@ -56,8 +59,8 @@ function mount(t) {
   t.after(() => defaultSessionLaneStore.clear());
   const publishPool = (rows) =>
     act(async () => {
-      poolRows = rows;
-      pushPool(rows);
+      poolEntry = { section: 'agentPool', key: null, revision: poolEntry.revision + 1, value: rows };
+      for (const push of [...pushes]) push({ kind: 'sections', changes: [{ section: 'agentPool', key: null, entry: poolEntry }] });
     });
   return { root, document: dom.window.document, window: dom.window, publishPool };
 }
@@ -197,17 +200,18 @@ test('agents and shells are counted in separate icon segments that both survive 
   });
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   await publishPool([agent('a'), agent('b')]);
-  assert.equal(segments().agents.textContent, '2 agentsRunning 2');
+  assert.equal(segments().agents.textContent, '2 agents');
+  assert.ok(segments().agents.querySelector('.composer-island-pulse'), 'running agents show as the pulse alone');
   assert.equal(segments().shell, null);
   await publishPool([agent('a')]);
-  assert.equal(segments().agents.textContent, '1 agentRunning 1');
+  assert.equal(segments().agents.textContent, '1 agent');
   await publishPool([]);
   await publish({ shellJobs: shells(2) });
   assert.equal(segments().shell.textContent, '2 shells');
   assert.equal(segments().agents, null);
   await publishPool([agent('a'), agent('b')]);
   const { agents, shell } = segments();
-  assert.equal(agents.textContent, '2 agentsRunning 2');
+  assert.equal(agents.textContent, '2 agents');
   assert.equal(shell.textContent, '2 shells');
   // Narrow keeps both: each carries its glyph and the bare count; the container
   // query only drops the words.
@@ -265,9 +269,8 @@ test('an agent blocked on a user approval reads as needing the user, not working
     }),
   ]);
   const segment = document.querySelector('.composer-island-seg-agents');
-  // The pill counts only running agents; the blocked one is not running.
-  assert.equal(segment.textContent, '2 agentsRunning 1');
-  assert.equal(segment.querySelector('.composer-island-seg-state[data-kind="needs-user"]'), null);
+  // The pill names the agents alone; how many run is in its tooltip.
+  assert.equal(segment.textContent, '2 agents');
   await act(async () => segment.click());
   // Same order as the Agents window (spawn order), not re-ranked by state.
   const rows = [...document.querySelectorAll('.agent-pool-row')];
@@ -278,7 +281,7 @@ test('an agent blocked on a user approval reads as needing the user, not working
   assert.equal(rows[1].querySelector('.agent-activity-elapsed').textContent, translate('Waiting for approval'));
 });
 
-test('finished agents stay counted and listed after the active ones; the Lead row is not listed', async (t) => {
+test('the pill counts the working agents, as shells; finished ones stay listed after them; the Lead row is not listed', async (t) => {
   const { root, document, publishPool } = mount(t);
   await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
   const segment = () => document.querySelector('.composer-island-seg-agents');
@@ -290,9 +293,8 @@ test('finished agents stay counted and listed after the active ones; the Lead ro
     poolAgent('parent-d', { sessionId: 's-parent', stage: 'idle', status: 'idle' }),
     poolAgent('child-e', { sessionId: 's-child', parentSessionId: 's-parent' }),
   ]);
-  // The total, finished included; the parent waiting on its child is still at
-  // work, so both count as running.
-  assert.equal(segment().textContent, '5 agentsRunning 2');
+  // Those still at work only: the parent waiting on its child, and the child.
+  assert.equal(segment().textContent, '2 agents');
   assert.ok(segment().querySelector('svg.composer-island-seg-icon'));
   assert.ok(segment().querySelector('.composer-island-pulse'));
   await act(async () => segment().click());
@@ -305,12 +307,13 @@ test('finished agents stay counted and listed after the active ones; the Lead ro
   assert.equal(rows[1].dataset.agentDepth, String(Number(rows[0].dataset.agentDepth) + 1));
   assert.equal(rows[0].querySelector('.agent-activity-elapsed').dataset.state, 'waiting');
   assert.equal(rows[4].querySelector('.agent-activity-elapsed').dataset.state, 'cancelled');
-  // Everything finished: the same total with the idle mark, no pulse.
+  // Everything finished: the word without a number, the idle mark, no pulse.
   await publishPool([
     poolAgent('idle-a', { sessionId: 's-idle', stage: 'idle', status: 'idle' }),
     poolAgent('done-b', { sessionId: 's-done', stage: 'done', status: 'done' }),
   ]);
-  assert.equal(segment().textContent, '2 agents');
+  assert.equal(segment().textContent, translate('Agent'));
+  assert.equal(segment().querySelector('.composer-island-seg-num'), null);
   assert.equal(segment().querySelector('.composer-island-pulse'), null);
   assert.ok(segment().querySelector('.composer-island-dot-idle'));
   assert.equal(
@@ -339,7 +342,7 @@ test('a working agent stays listed through a transient idle/done phase and an un
     poolAgent('lease-d', { sessionId: 's-d', status: 'unknown', stage: 'unknown' }),
     poolAgent('settled-e', { sessionId: 's-e', status: 'idle', stage: 'idle' }),
   ]);
-  assert.equal(document.querySelector('.composer-island-seg-agents').textContent, '5 agentsRunning 3');
+  assert.equal(document.querySelector('.composer-island-seg-agents').textContent, '4 agents');
   await act(async () => document.querySelector('.composer-island-seg-agents').click());
   assert.deepEqual(
     [...document.querySelectorAll('.agent-pool-row')].map((row) => row.dataset.agentTag),
@@ -435,7 +438,9 @@ test('a clean exit leaves after 60s, a failed one stays; Close all dismisses eve
     ['npm run dev', 'run auto-fail'],
     'only the clean exit left on its own'
   );
-  const closeAll = head().querySelector('.composer-island-phead-action');
+  // Close all is the footer's right-end action, as the branch panel's Clean up.
+  assert.equal(head().querySelectorAll('button').length, 1, 'the header holds only the close button');
+  const closeAll = document.querySelector('.composer-island-panel-foot-end [data-kind="close-all"]');
   assert.equal(closeAll.textContent, translate('Island: Close all'));
   await act(async () => closeAll.click());
   assert.deepEqual(
@@ -443,7 +448,7 @@ test('a clean exit leaves after 60s, a failed one stays; Close all dismisses eve
     ['npm run dev'],
     'every finished row dismissed; the running one stays'
   );
-  assert.equal(head().querySelector('.composer-island-phead-action'), null);
+  assert.equal(document.querySelector('.composer-island-panel-foot'), null, 'nothing left for the footer');
 });
 
 test('with no shells there is no shell segment, tab or row anywhere in the island', async (t) => {
@@ -808,6 +813,15 @@ test('each segment opens its own panel: a title chip and a close button, no tab 
   assert.equal(island().dataset.expanded, undefined);
 });
 
+/** The footer's items in the composer readout's worded form, its `·`
+ *  separators left out. */
+const summaryParts = (summary) => [...summary.children].map((part) => part.textContent.replace(/·$/, ''));
+const usageSummary = (tokens, lead, agents, percent, cost) => [
+  `${translate('Total {{tokens}} tokens', { tokens, defaultValue: '{{tokens}} tokens' })} (${translate('Lead {{lead}} · Agents {{agents}}', { lead, agents })})`,
+  translate('Cache hit {{percent}}', { percent }),
+  translate('Island: {{cost}} est. cost', { cost }),
+];
+
 /** A getSessionUsage answer in the ledger's terms. */
 const ledgerUsage = (
   tokens,
@@ -890,16 +904,14 @@ test('the agents summary shows the session totals with the Lead split out, cache
   assert.equal(reads[0].args[0].agents, true);
   assert.deepEqual(meta, usagePanelMeta());
   // The totals are the footer, below the rows.
-  assert.equal(summary.previousElementSibling.classList.contains('composer-island-agents'), true);
-  const parts = [...summary.children].map((part) => part.textContent);
-  assert.equal(
-    parts[0],
-    `${translate('Island: Total tokens')} 1.8M (${translate('Lead {{lead}} · Agents {{agents}}', { lead: '1M', agents: '800K' })})`
-  );
-  // (800k + 200k) / 1.8M
-  assert.equal(parts[1], `${translate('Island: Cache hit rate')} 55.6%`);
-  assert.equal(parts[2], `${translate('Island: Approx. cost')} $2.50`);
-  assert.deepEqual(rowTokens, { 'run-a': '300K', 'ask-c': '0', 'done-b': '200K' });
+  const foot = summary.parentElement;
+  assert.ok(foot.classList.contains('composer-island-panel-foot'));
+  assert.equal(foot.previousElementSibling.classList.contains('composer-island-agents'), true);
+  // The composer usage readout's own line: (800k + 200k) / 1.8M is the hit.
+  assert.ok(summary.classList.contains('composer-usage-readout'));
+  assert.deepEqual(summaryParts(summary), usageSummary('1.8M', '1M', '800k', '55.6%', '$2.50'));
+  // Rows use the footer's (the composer readout's) token units.
+  assert.deepEqual(rowTokens, { 'run-a': '300k', 'ask-c': '0', 'done-b': '200k' });
 });
 
 test('an unpriced turn drops only the cost from the agents summary', async (t) => {
@@ -909,23 +921,12 @@ test('an unpriced turn drops only the cost from the agents summary', async (t) =
     sessions: { 's-a': ledgerUsage(100, { unpriced: 1 }), 's-b': ledgerUsage(100), 's-c': ledgerUsage(100) },
   });
   // Unpriced stays "-" (never a $0.00); the exact figures are still shown.
-  assert.deepEqual(
-    [...summary.children].map((part) => part.textContent),
-    [
-      `${translate('Island: Total tokens')} 1.3K (${translate('Lead {{lead}} · Agents {{agents}}', { lead: '1K', agents: '300' })})`,
-      `${translate('Island: Cache hit rate')} 38.5%`,
-      `${translate('Island: Approx. cost')} -`,
-    ]
-  );
+  assert.deepEqual(summaryParts(summary), usageSummary('1.3k', '1k', '300', '38.5%', '-'));
 });
 
-// Every figure the footer cannot show reads "-" in its reserved slot (the Lead
-// and Agents split included), so the three stats exist from the first render.
-const unknownSummary = () => [
-  `${translate('Island: Total tokens')} - (${translate('Lead {{lead}} · Agents {{agents}}', { lead: '-', agents: '-' })})`,
-  `${translate('Island: Cache hit rate')} -`,
-  `${translate('Island: Approx. cost')} -`,
-];
+// Every figure the footer cannot show reads "-" (the Lead and Agents split
+// included), so the three items exist from the first render.
+const unknownSummary = () => usageSummary('-', '-', '-', '-', '-');
 
 test('an unmeasured agent turn drops every combined figure; an unmeasured or missing row drops its own', async (t) => {
   const { summary, meta, rowTokens } = await usagePanel(t, {
@@ -936,20 +937,14 @@ test('an unmeasured agent turn drops every combined figure; an unmeasured or mis
   // The agents' share is unknown: no total, cache rate or cost: the footer
   // keeps its line empty (so the rows never move when figures arrive); the
   // header counts stay.
-  assert.deepEqual(
-    [...summary.children].map((part) => part.textContent),
-    unknownSummary()
-  );
+  assert.deepEqual(summaryParts(summary), unknownSummary());
   assert.deepEqual(meta, usagePanelMeta());
   assert.deepEqual(rowTokens, { 'run-a': null, 'ask-c': null, 'done-b': '100' });
 });
 
 test('without a usage read the footer holds "-" placeholders and the header counts remain', async (t) => {
   const { summary, meta, rowTokens } = await usagePanel(t, null);
-  assert.deepEqual(
-    [...summary.children].map((part) => part.textContent),
-    unknownSummary()
-  );
+  assert.deepEqual(summaryParts(summary), unknownSummary());
   assert.deepEqual(meta, usagePanelMeta());
   assert.deepEqual(rowTokens, { 'run-a': null, 'ask-c': null, 'done-b': null });
 });
@@ -987,23 +982,15 @@ test('the footer is laid out with "-" while getSessionUsage is pending, then fil
     document.querySelector('.composer-island-seg-agents').click();
     await read;
   });
-  const parts = () => [...document.querySelector('.composer-island-summary').children];
-  const shapes = () => parts().map((part) => [part.className, part.dataset.reserve, part.querySelector('b') !== null]);
-  const before = shapes();
-  assert.deepEqual(
-    parts().map((part) => part.textContent),
-    unknownSummary()
-  );
-  assert.equal(before.length, 3);
+  const summary = () => document.querySelector('.composer-island-summary');
+  const before = summary();
+  assert.deepEqual(summaryParts(before), unknownSummary());
   await act(async () => {
     release();
     await done;
   });
-  assert.deepEqual(shapes(), before, 'same elements and reserved boxes before and after the answer');
-  assert.deepEqual(
-    parts().map((part) => part.querySelector('b').textContent),
-    ['1.3K', '38.5%', '$1.50']
-  );
+  assert.equal(summary(), before, 'the same footer line before and after the answer');
+  assert.deepEqual(summaryParts(summary()), usageSummary('1.3k', '1k', '300', '38.5%', '$1.50'));
 });
 
 test('an open agents panel reads when the ledger records a response for the Lead or any agent under it, and only then', async (t) => {
@@ -1057,7 +1044,7 @@ test('an open agents panel reads when the ledger records a response for the Lead
     );
   assert.equal(reads.length, 1, 'opening reads the ledger');
   await answer();
-  assert.equal(rowTokens()['run-a'], '100K');
+  assert.equal(rowTokens()['run-a'], '100k');
   await act(async () => t.mock.timers.tick(3_600_000));
   assert.equal(reads.length, 1, 'a quiet panel does not read');
 
@@ -1071,9 +1058,11 @@ test('an open agents panel reads when the ledger records a response for the Lead
   for (let burst = 0; burst < 5; burst += 1) await commit();
   assert.equal(reads.length, 2, 'the first change reads at once; the burst waits for it');
   await answer();
+  assert.equal(reads.length, 2, 'the follow-up waits out the gap since the last read started');
+  await act(async () => t.mock.timers.tick(MIN_READ_GAP_MS));
   assert.equal(reads.length, 3, 'and costs one follow-up read');
   await answer();
-  assert.equal(rowTokens()['run-a'], '250K');
+  assert.equal(rowTokens()['run-a'], '250k');
 
   // Unrelated sessions committing, busy, moves their own group's token and nothing of ours.
   for (let busy = 0; busy < 20; busy += 1) {
@@ -1095,6 +1084,8 @@ test('an open agents panel reads when the ledger records a response for the Lead
 
   // The Lead's turn settling takes one reading.
   await publish({ busy: false });
+  assert.equal(reads.length, 4, 'inside the gap since the last read started: it waits');
+  await act(async () => t.mock.timers.tick(MIN_READ_GAP_MS));
   assert.equal(reads.length, 5);
   await answer();
 });
@@ -1452,14 +1443,15 @@ test('an undecided files segment keeps the room its last width needs in the pill
   const { root, document, window } = mount(t);
   slotFixture(t, window, document);
   const proto = window.HTMLElement.prototype;
-  const offsetWidth = Object.getOwnPropertyDescriptor(proto, 'offsetWidth');
-  Object.defineProperty(proto, 'offsetWidth', {
+  // Shadows Element.prototype's for the test's HTML elements.
+  Object.defineProperty(proto, 'getBoundingClientRect', {
     configurable: true,
-    get() {
-      return this.classList.contains('turn-review-segment') ? 180 : 0;
+    value() {
+      const width = this.classList.contains('turn-review-segment') ? 180 : 0;
+      return { x: 0, y: 0, left: 0, top: 0, right: width, bottom: 0, width, height: 0 };
     },
   });
-  t.after(() => Object.defineProperty(proto, 'offsetWidth', offsetWidth));
+  t.after(() => delete proto.getBoundingClientRect);
   const { ComposerIsland } = await import('./ComposerIsland.tsx');
   // The specifier ComposerIsland itself uses: one module, one island context.
   const { IslandSegmentPending } = await import('./composer-island-state');
@@ -1559,7 +1551,7 @@ function islandPage(t) {
         import { flushSync } from 'react-dom';
         import { createRoot } from 'react-dom/client';
         import { ComposerIsland } from './ComposerIsland.tsx';
-        window.mixdogDesktop = { listAgentPool: async () => [], subscribeAgentPool: () => {} };
+        window.mixdogDesktop = { sections: { core: async () => false, snapshot: async () => ({ status: 'ready', entries: [{ section: 'agentPool', key: null, revision: 1, value: [] }] }), subscribe: () => () => {} } };
         const root = createRoot(document.getElementById('root'));
         // Keyed by session like ComposerDock: a switch remounts the island.
         window.__render = (session, { approval = false, segment = false } = {}) =>
@@ -1613,7 +1605,7 @@ function crowdedIslandPage(t) {
           status: index < 2 ? 'running' : 'done',
           startedAt: Date.now() - 5000,
         }));
-        window.mixdogDesktop = { listAgentPool: async () => rows, subscribeAgentPool: () => {} };
+        window.mixdogDesktop = { sections: { core: async () => false, snapshot: async () => ({ status: 'ready', entries: [{ section: 'agentPool', key: null, revision: 1, value: rows }] }), subscribe: () => () => {} } };
         const root = createRoot(document.getElementById('root'));
         const h = React.createElement;
         window.__render = () =>
@@ -1683,7 +1675,7 @@ test("the overlay bot pinned above the message box takes its width from the isla
         import { createRoot } from 'react-dom/client';
         import { ComposerIsland, IslandSegLabel } from './ComposerIsland.tsx';
         import { setPetIslandReserve } from './composer-island-state.ts';
-        window.mixdogDesktop = { listAgentPool: async () => [], subscribeAgentPool: () => {} };
+        window.mixdogDesktop = { sections: { core: async () => false, snapshot: async () => ({ status: 'ready', entries: [{ section: 'agentPool', key: null, revision: 1, value: [] }] }), subscribe: () => () => {} } };
         const region = document.getElementById('root');
         const elsewhere = document.body.appendChild(document.createElement('div'));
         window.__reserve = (width, here = true) => setPetIslandReserve(here ? region : elsewhere, width);
@@ -1755,7 +1747,7 @@ test('labels that change beside an open side panel still go compact under the pi
         import { createRoot } from 'react-dom/client';
         import { ComposerIsland, IslandSegLabel } from './ComposerIsland.tsx';
         import { setPetIslandReserve } from './composer-island-state.ts';
-        window.mixdogDesktop = { listAgentPool: async () => [], subscribeAgentPool: () => {} };
+        window.mixdogDesktop = { sections: { core: async () => false, snapshot: async () => ({ status: 'ready', entries: [{ section: 'agentPool', key: null, revision: 1, value: [] }] }), subscribe: () => () => {} } };
         const region = document.getElementById('root');
         window.__reserve = (width) => setPetIslandReserve(region, width);
         const h = React.createElement;
@@ -1830,8 +1822,10 @@ function dockPage(t) {
         import { flushSync } from 'react-dom';
         import { createRoot } from 'react-dom/client';
         import { ComposerDock } from './ComposerDock.tsx';
-        window.mixdogDesktop = new Proxy({}, {
-          get: (_, name) => (String(name).startsWith('subscribe') ? () => () => {} : async () => []),
+        window.mixdogDesktop = new Proxy({
+          sections: { core: async () => false, snapshot: async () => ({ status: 'ready', entries: [] }), subscribe: () => () => {} },
+        }, {
+          get: (target, name) => (name in target ? target[name] : String(name).startsWith('subscribe') ? () => () => {} : async () => []),
         });
         const root = createRoot(document.getElementById('root'));
         const chip = (label) => React.createElement('button', { type: 'button', style: { height: '28px' } }, label);
@@ -2773,7 +2767,7 @@ test('on main the segment opens the New Task branch menu; Worktree provisions no
   assert.equal(menu().querySelector('input[type="search"]').placeholder, 'Search branches');
   assert.ok(menu().querySelector('.branch-row-more'));
   assert.deepEqual(
-    [...menu().querySelectorAll('.composer-island-pfoot button')].map((button) => [
+    [...menu().querySelectorAll('.composer-island-panel-foot button')].map((button) => [
       button.dataset.kind,
       button.textContent,
     ]),
@@ -2802,7 +2796,7 @@ test('on main the segment opens the New Task branch menu; Worktree provisions no
     assert.ok(shell.querySelector(':scope > .branch-menu-item'), 'the row is in its shell');
     assert.ok(shell.querySelector(':scope > .branch-row-more'), 'the … trigger sits in the same row shell');
   }
-  await act(async () => menu().querySelector('.composer-island-pfoot [data-kind="worktree"]').click());
+  await act(async () => menu().querySelector('.composer-island-panel-foot [data-kind="worktree"]').click());
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   assert.deepEqual(
     calls.filter((call) => call.capability === 'requestWorktree'),
@@ -3086,16 +3080,16 @@ test('the branch segment opens an island tab: ✕, outside press and Escape coll
   assert.ok(panel().querySelector('.composer-island-tab svg.lucide-git-branch'));
   assert.equal(panel().querySelector('.branch-menu-search').placeholder, 'Search branches');
   assert.equal(panel().querySelector('.branch-menu-list [data-kind="worktree"]'), null, 'no "Worktree" row');
-  assert.equal(panel().querySelector('.composer-island-pfoot [data-kind="worktree"]').textContent, 'New worktree');
+  assert.equal(panel().querySelector('.composer-island-panel-foot [data-kind="worktree"]').textContent, 'New worktree');
   assert.ok(panel().querySelector('[data-branch="main"] .branch-menu-check'), '✓ on the current branch');
   assert.equal(panel().querySelector('[data-branch="main"] small').textContent, 'Current', 'beside the check');
   assert.equal(panel().querySelectorAll('.branch-menu-check').length, 1);
   assert.equal(panel().querySelector('[data-branch="ext"] small').textContent, '/elsewhere');
   assert.equal(panel().querySelector('[data-branch="ext"]').getAttribute('aria-disabled'), 'true');
-  const prune = panel().querySelector('.composer-island-pfoot [data-kind="prune"]');
+  const prune = panel().querySelector('.composer-island-panel-foot-end [data-kind="prune"]');
   assert.ok(prune, 'Clean up worktrees in the footer');
   assert.ok(prune.classList.contains('composer-island-button'), 'styled like New branch');
-  assert.equal(prune.previousElementSibling?.dataset.kind, 'worktree');
+  assert.equal(prune.parentElement.previousElementSibling?.dataset.kind, 'worktree', 'at the end, after New worktree');
   assert.ok(prune.querySelector('svg.lucide-brush-cleaning'));
   assert.ok(
     panel().querySelector('[data-branch="ext"] svg[class*="lucide-folder-git"]'),
@@ -3586,7 +3580,7 @@ function petSwitchPage(t) {
         requestAnimationFrame(loop);
         const rec = (kind) => (value) => window.__sent.push({ kind, tick: window.__tick, t: Math.round(performance.now()), value: JSON.parse(JSON.stringify(value)) });
         window.mixdogDesktop = new Proxy({
-          listAgentPool: async () => rows,
+          sections: { core: async () => false, snapshot: async () => ({ status: 'ready', entries: [{ section: 'agentPool', key: null, revision: 1, value: rows }] }), subscribe: () => () => {} },
           gitStatus: async (cwd) => status(cwd),
           gitReview: async (cwd) => ({ repository: true, root: cwd, base: 'HEAD', files: status(cwd).files.map((f) => ({ ...f, untracked: false })) }),
           invokeCapability: async (request) => request.capability === 'getBranchMenu'
@@ -3662,7 +3656,7 @@ for (const width of [1100, 560, 480]) {
 // The island's first frame after a session switch is already fitted: the
 // incoming island starts from the room's fit, not from the full labels that a
 // later frame would shrink.
-for (const width of [480, 560]) {
+for (const width of [440, 480]) {
   test(`a switched-to island's first committed state is the compact fit of the island it replaced (${width}px)`, async (t) => {
     const page = await petSwitchPage(t);
     await page.setViewport({ width, height: 800 });
@@ -3706,7 +3700,7 @@ function fitStabilityPage(t) {
         import { flushSync } from 'react-dom';
         import { createRoot } from 'react-dom/client';
         import { ComposerIsland, IslandSegLabel } from './ComposerIsland.tsx';
-        window.mixdogDesktop = { listAgentPool: async () => [], subscribeAgentPool: () => {} };
+        window.mixdogDesktop = { sections: { core: async () => false, snapshot: async () => ({ status: 'ready', entries: [{ section: 'agentPool', key: null, revision: 1, value: [] }] }), subscribe: () => () => {} } };
         const root = createRoot(document.getElementById('root'));
         const h = React.createElement;
         window.__render = (count) =>

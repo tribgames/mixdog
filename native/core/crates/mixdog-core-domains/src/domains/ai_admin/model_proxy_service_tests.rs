@@ -72,20 +72,48 @@ impl HostChannel for Gone {
     async fn request_streamed(&self, _: HostCapability, _: Method, _: Value, _: &mut (dyn FnMut(Value) + Send)) -> Result<Value, HostError> {
         Err(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: self.0.into() }.into())
     }
+    async fn request_streamed_duplex(
+        &self,
+        _: HostCapability,
+        _: Method,
+        _: Value,
+        _: &mut (dyn FnMut(Value) + Send),
+        _: Method,
+        _: tokio::sync::mpsc::UnboundedReceiver<Value>,
+    ) -> Result<Value, HostError> {
+        Err(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: self.0.into() }.into())
+    }
+}
+
+/// A session send no PC took up says so, and why a PC may not: one whose Mixdog does not know the call never claims it,
+/// and nothing of the session's transcript was sent. Any other way the PC is missing reads as for any call.
+#[tokio::test]
+async fn an_unclaimed_session_send_says_an_older_pc_does_not_take_it_up() {
+    for (detail, want) in [
+        ("notClaimed", ProxyError::Unavailable(SESSION_SEND_NOT_CLAIMED.into())),
+        ("leaseLapsed", ProxyError::Lost("model proxy unavailable: the desktop client stopped responding".into())),
+    ] {
+        let transport = HostProxyTransport { host: Arc::new(Gone(detail)) };
+        let (_say, back) = tokio::sync::mpsc::unbounded_channel();
+        let got = transport.execute_duplex(usable()["call"].clone(), &mut |_| {}, back, &CancellationToken::new()).await;
+        assert_eq!(got, Err(want), "{detail}");
+    }
 }
 
 /// Node's `ModelProxyUnavailableError` texts (model-proxy-channel.mjs): one per way the PC is missing.
 #[tokio::test]
 async fn each_way_the_pc_is_missing_reads_as_nodes_model_proxy_unavailable_error() {
-    for (detail, text) in [
-        ("noClaimant", "model proxy unavailable: no desktop client is connected to run model calls"),
-        ("claimantClosed", "model proxy unavailable: the desktop client disconnected"),
-        ("notClaimed", "model proxy unavailable: the desktop client did not pick up the model call"),
-        ("leaseLapsed", "model proxy unavailable: the desktop client stopped responding"),
+    // A PC that never took the call up sent nothing; one that claimed it and then closed or stopped answering may have sent it.
+    for (detail, text, sent) in [
+        ("noClaimant", "model proxy unavailable: no desktop client is connected to run model calls", false),
+        ("claimantClosed", "model proxy unavailable: the desktop client disconnected", true),
+        ("notClaimed", "model proxy unavailable: the desktop client did not pick up the model call", false),
+        ("leaseLapsed", "model proxy unavailable: the desktop client stopped responding", true),
     ] {
         let transport = HostProxyTransport { host: Arc::new(Gone(detail)) };
         let got = transport.execute(usable()["call"].clone(), &mut |_| {}, &CancellationToken::new()).await;
-        assert_eq!(got, Err(ProxyError::Unavailable(text.into())), "{detail}");
+        let want = if sent { ProxyError::Lost(text.into()) } else { ProxyError::Unavailable(text.into()) };
+        assert_eq!(got, Err(want), "{detail}");
     }
 }
 
@@ -125,43 +153,6 @@ async fn a_run_streams_its_events_to_the_asking_connection_and_answers() {
     for (to, method, params) in notes.iter() {
         assert_eq!((*to, method.as_str(), params["runId"].as_str()), (ConnectionId(7), "modelProxy/run/event", Some("r1")));
     }
-}
-
-const TRUST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/model-proxy-host-trust-cases/golden.json");
-
-fn recorded_payloads() -> serde_json::Map<String, Value> {
-    let golden: Value = serde_json::from_str(&TRUST).unwrap();
-    let case = golden["cases"].as_array().unwrap().iter().find(|c| c["case"] == "the size of a payload is the length of the string the server claimed").expect("the payload sizes are recorded");
-    case["observed"]["payloads"].as_object().unwrap().clone()
-}
-
-/// Node sizes the claimed string as `payload.length` (`admitPayload`); the service sizes the claimed call as that string would
-/// be: for every recorded payload (plain text, escapes, non-BMP characters, number forms down to 5e-324 and up to 1.8e308) the
-/// length Node measured is the one counted from the value the text reads as.
-#[test]
-fn a_claimed_call_is_as_long_as_the_string_node_measured() {
-    let payloads = recorded_payloads();
-    assert!(payloads.len() >= 5);
-    for (name, payload) in &payloads {
-        let claimed: Value = serde_json::from_str(payload["text"].as_str().unwrap()).unwrap();
-        assert_eq!(claimed_chars(&claimed), payload["length"].as_u64().unwrap() as usize, "{name}: Node wrote {}", payload["text"]);
-    }
-}
-
-/// The bound falls where Node's does, and the refusal is Node's: a call is served at its own length and refused as too large one
-/// below (the recorded `refusedOneBelow`), by the length of the call as claimed.
-#[tokio::test]
-async fn a_call_is_served_at_its_claimed_length_and_refused_one_below() {
-    let node = recorded_payloads()["ascii"]["refusedOneBelow"]["resolveArgs"][3].as_str().map(|text| serde_json::from_str::<Value>(text).unwrap()).unwrap();
-    let request = run("mock", 7);
-    let length = claimed_chars(&request.params["call"]);
-    let (served, _) = service(vec![MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
-    let Reply::Value(answer) = served.with_request_bound(length).call(request.clone()).await.unwrap() else { panic!("not a value") };
-    assert_eq!(answer["result"]["result"], json!("sent"));
-    let (refused, _) = service(Vec::new()).await;
-    let Reply::Value(answer) = refused.with_request_bound(length - 1).call(request).await.unwrap() else { panic!("not a value") };
-    let failure = &answer["result"]["failure"];
-    assert_eq!((answer["result"]["result"].as_str(), failure["code"].as_str(), failure["status"].as_u64(), failure["message"].as_str()), (Some("failed"), node["props"]["code"].as_str(), node["props"]["status"].as_u64(), node["message"].as_str()));
 }
 
 /// The size is the claimed call's, not that of the typed call it decodes to: a field the type does not read still counts.
@@ -351,4 +342,43 @@ async fn run_local_events_are_those_of_run_in_order() {
     let seen: Vec<Value> = events.0.lock().unwrap().iter().map(|event| serde_json::to_value(event).unwrap()).collect();
     assert!(!seen.is_empty());
     assert_eq!(seen, relayed);
+}
+
+
+#[cfg(node_twin)]
+const TRUST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/model-proxy-host-trust-cases/golden.json");
+#[cfg(node_twin)]
+fn recorded_payloads() -> serde_json::Map<String, Value> {
+    let golden: Value = serde_json::from_str(&TRUST).unwrap();
+    let case = golden["cases"].as_array().unwrap().iter().find(|c| c["case"] == "the size of a payload is the length of the string the server claimed").expect("the payload sizes are recorded");
+    case["observed"]["payloads"].as_object().unwrap().clone()
+}
+/// Node sizes the claimed string as `payload.length` (`admitPayload`); the service sizes the claimed call as that string would
+/// be: for every recorded payload (plain text, escapes, non-BMP characters, number forms down to 5e-324 and up to 1.8e308) the
+/// length Node measured is the one counted from the value the text reads as.
+#[cfg(node_twin)]
+#[test]
+fn a_claimed_call_is_as_long_as_the_string_node_measured() {
+    let payloads = recorded_payloads();
+    assert!(payloads.len() >= 5);
+    for (name, payload) in &payloads {
+        let claimed: Value = serde_json::from_str(payload["text"].as_str().unwrap()).unwrap();
+        assert_eq!(claimed_chars(&claimed), payload["length"].as_u64().unwrap() as usize, "{name}: Node wrote {}", payload["text"]);
+    }
+}
+/// The bound falls where Node's does, and the refusal is Node's: a call is served at its own length and refused as too large one
+/// below (the recorded `refusedOneBelow`), by the length of the call as claimed.
+#[cfg(node_twin)]
+#[tokio::test]
+async fn a_call_is_served_at_its_claimed_length_and_refused_one_below() {
+    let node = recorded_payloads()["ascii"]["refusedOneBelow"]["resolveArgs"][3].as_str().map(|text| serde_json::from_str::<Value>(text).unwrap()).unwrap();
+    let request = run("mock", 7);
+    let length = claimed_chars(&request.params["call"]);
+    let (served, _) = service(vec![MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
+    let Reply::Value(answer) = served.with_request_bound(length).call(request.clone()).await.unwrap() else { panic!("not a value") };
+    assert_eq!(answer["result"]["result"], json!("sent"));
+    let (refused, _) = service(Vec::new()).await;
+    let Reply::Value(answer) = refused.with_request_bound(length - 1).call(request).await.unwrap() else { panic!("not a value") };
+    let failure = &answer["result"]["failure"];
+    assert_eq!((answer["result"]["result"].as_str(), failure["code"].as_str(), failure["status"].as_u64(), failure["message"].as_str()), (Some("failed"), node["props"]["code"].as_str(), node["props"]["status"].as_u64(), node["message"].as_str()));
 }

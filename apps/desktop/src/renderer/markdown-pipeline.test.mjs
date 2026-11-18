@@ -57,9 +57,9 @@ for (const [name, render] of Object.entries(strongRenderers)) {
   test(`${name}: strong preserves mixed code and prose before Korean suffixes`, async () => {
     const cases = [
       {
-        source: '네, 재영님. **`src/workflows/default/`가 코워크(Cowork)**입니다.',
+        source: '네, 길동님. **`src/workflows/default/`가 코워크(Cowork)**입니다.',
         // The folder mention keeps its inline code as written.
-        text: '네, 재영님. src/workflows/default/가 코워크(Cowork)입니다.',
+        text: '네, 길동님. src/workflows/default/가 코워크(Cowork)입니다.',
         strong: ['src/workflows/default/가 코워크(Cowork)'],
         code: ['src/workflows/default/'],
       },

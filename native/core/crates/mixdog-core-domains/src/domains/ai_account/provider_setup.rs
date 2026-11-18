@@ -469,7 +469,48 @@ pub fn provider_setup(world: &dyn SetupWorld, config: &Value, options: SetupOpti
     out.insert("api".into(), Value::Array(api));
     out.insert("oauth".into(), Value::Array(oauth));
     out.insert("local".into(), json!([local_provider_setup(world, config, options.detect_local)]));
-    Value::Object(out)
+    with_hidden_favorites(Value::Object(out), config)
+}
+
+/// Hidden custom models do not have catalog rows to hydrate. Project only their
+/// starred ids, using the preferences of the daemon serving Model management.
+pub(super) fn with_hidden_favorites(mut setup: Value, config: &Value) -> Value {
+    if let Some(rows) = setup.get_mut("api").and_then(Value::as_array_mut) {
+        for row in rows.iter_mut().filter_map(Value::as_object_mut) {
+            if row.get("custom") != Some(&Value::Bool(true)) {
+                continue;
+            }
+            row.shift_remove("hiddenFavoriteModels");
+            let (Some(provider), Some(settings)) =
+                (row.get("id").and_then(Value::as_str), config.get("modelSettings"))
+            else {
+                continue;
+            };
+            let starred = |id: &str| settings.get(&format!("{provider}/{id}")).and_then(|saved| saved.get("favorite")) == Some(&Value::Bool(true));
+            let mut ids = Vec::new();
+            for model in row.get("models").and_then(Value::as_array).into_iter().flatten() {
+                if let Some(id) = model.get("id").and_then(Value::as_str)
+                    && model.get("hidden") == Some(&Value::Bool(true))
+                    && starred(id)
+                {
+                    ids.push(id.to_owned());
+                }
+            }
+            if let Some(overrides) = row.get("modelOverrides").and_then(Value::as_object) {
+                for (id, over) in overrides {
+                    match over.get("hidden").and_then(Value::as_bool) {
+                        Some(true) if starred(id) && !ids.contains(id) => ids.push(id.clone()),
+                        Some(false) => ids.retain(|current| current != id),
+                        _ => {}
+                    }
+                }
+            }
+            if !ids.is_empty() {
+                row.insert("hiddenFavoriteModels".into(), json!(ids));
+            }
+        }
+    }
+    setup
 }
 
 /// `modelProxyProviderSetup(options)`: an SSH server holds no model credentials, so the setup projects

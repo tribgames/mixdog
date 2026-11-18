@@ -10,6 +10,7 @@
 //           none      nothing a Rust test can see changed
 // and prints, as `name=value` lines (GitHub's output file format), what the build and test jobs take:
 //   core, core_scope, core_packages, core_archive_args (`--workspace` or `-p a -p b`), core_filter (a nextest filter),
+//   core_pg, core_pg_matrix (the legs of the `core-pg` job: a nextest profile of #[ignore]d Postgres tests per system, for each crate the archive holds),
 //   core_tests (the number of test attributes selected), core_legs (partitions per OS), core_build (a build job is needed: tests, or the
 //   mixdogd the desktop replays drive), build_matrix, test_matrix.
 //
@@ -39,6 +40,12 @@ export const SYSTEMS = [
 ];
 
 const HACK = 'mixdog-workspace-hack';
+// The nextest profiles of the #[ignore]d tests that need a Postgres runtime (native/core/.config/nextest.toml), each with the one
+// crate whose tests it selects.
+export const PG_PROFILES = [
+  { name: 'services-pg', package: 'mixdog-services' },
+  { name: 'pg', package: 'mixdog-app-server-daemon' },
+];
 const slash = (path) => path.split(sep).join('/');
 
 // A change to any of these reaches every crate: the build's own inputs, and this gate.
@@ -235,6 +242,13 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, met
   // The relay's twin suites are built only with its test-support feature (required-features of its test targets); the feature
   // is named with its package, which cargo accepts only for a package the build selects.
   const features = selected.flatMap((crate) => crate.requiredFeatures.map((feature) => `${crate.name}/${feature}`)).join(',');
+  // The #[ignore]d tests that need a Postgres runtime run from the same archive, one leg per nextest profile and system; a
+  // profile whose package is not in the archive has nothing to run, and `--no-tests=fail` would fail it. Linux always, macOS
+  // when the run is not a pull request (`all`: a push to main or a manual run), where the runner minutes are the release's.
+  const pgSystems = SYSTEMS.filter((system) => system.os === 'linux' || (all && system.os === 'macos'));
+  const pgMatrix = PG_PROFILES.filter((profile) => selected.some((crate) => crate.name === profile.package)).flatMap((profile) =>
+    pgSystems.map((system) => ({ ...system, profile: profile.name })),
+  );
 
   const build = SYSTEMS.filter((system) => scope !== 'none' || (mixdogdDev && system.os === 'linux')).map((system) => ({
     ...system,
@@ -254,6 +268,8 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, met
     core_archive_args: archiveArgs,
     core_filter: filter,
     core_features: features,
+    core_pg: pgMatrix.length > 0,
+    core_pg_matrix: JSON.stringify({ include: pgMatrix }),
     core_tests: tests,
     core_legs: legs,
     core_build: build.length > 0,

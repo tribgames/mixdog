@@ -27,6 +27,7 @@ use mixdog_core_api::sink::LaneRecovery;
 use mixdog_core_api::sink::Reservation;
 use mixdog_core_api::sink::SnapshotSlot;
 use serde_json::Value;
+use serde_json::json;
 
 /// How long one awaited frame may take before the test fails naming it (a failure bound only).
 const DEADLINE: Duration = Duration::from_secs(10);
@@ -112,82 +113,6 @@ fn hub_and_peer(writable: bool) -> (ConnectionHub, Peer) {
     (hub, peer)
 }
 
-fn golden() -> Value {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/frame-order/golden.json");
-    serde_json::from_str(&std::fs::read_to_string(path).expect("the frame-order recording")).expect("JSON")
-}
-
-/// Node's terminal close (`fixtures/frame-order`, scenario `terminal-dispose`): the activity
-/// frame (an ordered-class event, `remote-relay-push-lanes.ts:148-150`) is queued while the call
-/// is handled, the answer after it, then the marker's answer. For every recorded mode and run the
-/// writer must put on the socket exactly what the phone got, in that order, for a prompt reader
-/// and for one that reads nothing until all three are queued.
-#[tokio::test]
-async fn an_event_of_the_ordered_class_queued_before_an_answer_is_written_before_it() {
-    replay_recorded_windows("terminal-dispose", true).await;
-}
-
-/// Every other recorded window, queued in Node's queue order on a socket read promptly or withheld
-/// until all is queued (the recorder's barrier on Node's socket writes): events after an answer and
-/// several never-dropped events in a row (`activity-after-answer`, ordered lane), catalog rows
-/// before their answer (`room-rename`, `thread-favorite`, ordered lane: never-droppable rosters,
-/// `remote-relay-catalog.ts:89`), and droppable states around an answer (`state-latest-wins`,
-/// a droppable lane) come out exactly as Node's phone got them.
-#[tokio::test]
-async fn every_recorded_window_is_written_in_the_order_nodes_phone_got_it() {
-    for (scenario, ordered) in [("activity-after-answer", true), ("room-rename", true), ("thread-favorite", true), ("state-latest-wins", false)] {
-        replay_recorded_windows(scenario, ordered).await;
-    }
-}
-
-/// Queues each recorded run's frames in the order Node's phone got them (events on one lane of the
-/// given class, answers on the control lane) and compares the socket's whole output with them.
-async fn replay_recorded_windows(scenario: &str, ordered: bool) {
-    let golden = golden();
-    let modes = golden["scenarios"][scenario]["modes"].as_object().expect("modes");
-    assert_eq!(modes.len(), 4, "{scenario}: transport and legacy, each prompt and stalled");
-    for (mode, recorded) in modes {
-        for run in recorded["runs"].as_array().expect("runs") {
-            let frames: Vec<String> = run["frames"].as_array().expect("frames").iter().map(Value::to_string).collect();
-            let kinds: Vec<&str> = frames
-                .iter()
-                .map(|frame| {
-                    let frame: Value = serde_json::from_str(frame).unwrap();
-                    if frame["id"] == run["cause"] || frame["id"] == run["marker"] { "answer" } else { "event" }
-                })
-                .collect();
-            let prompt = mode.ends_with("prompt");
-            let (_hub, mut peer) = hub_and_peer(prompt);
-            let events = live_lane(&mut peer, scenario, ordered, Arc::new(NoRecovery)).await;
-            let queue = |peer: &Peer, frame: &String, kind: &str| {
-                if kind == "event" {
-                    push(&events, frame);
-                } else {
-                    answer(peer, frame);
-                }
-            };
-            // Queued in Node's queue order.
-            let mut window = frames.iter().zip(&kinds);
-            if !prompt {
-                // The recorder's barrier on Node's socket write: the writer holds the window's first frame at a
-                // socket that takes nothing (confirmed, not assumed) while the rest queues behind it.
-                while peer.held.try_recv().is_ok() {}
-                let (frame, kind) = window.next().expect("a first frame");
-                queue(&peer, frame, kind);
-                mixdog_rt::time::timeout(DEADLINE, peer.held.recv())
-                    .await
-                    .unwrap_or_else(|_| panic!("{scenario} {mode}: the writer did not reach the withheld socket with the window's first frame within {DEADLINE:?}"))
-                    .expect("the socket");
-            }
-            for (frame, kind) in window {
-                queue(&peer, frame, kind);
-            }
-            let wire = texts(until_marker(&mut peer, frames.last().expect("a last frame")).await);
-            assert_eq!(wire, frames, "{scenario} {mode}: the writer's order is not the order Node's phone got");
-        }
-    }
-}
-
 /// An answer queued after feed frames of its own lane and of another lane is written after all of
 /// them, in queue order, and so is a later frame after the answer.
 #[tokio::test]
@@ -206,6 +131,25 @@ async fn an_answer_is_written_after_the_frames_queued_before_it_and_before_later
         }
         assert_eq!(texts(until_marker(&mut peer, "marker").await), queued, "writable={writable}");
     }
+}
+
+/// Visualize changes reach a phone as connection-scoped notifications on the control queue (`ConnectionNotifier::notify`, which is
+/// `send_control`): with the phone's reader held, many of them are queued for one session; released, every one is written, in the
+/// order queued, none dropped or merged. (A section key is not such a carrier: its lane keeps only the latest and recovers a lagged
+/// lane with merged state, see the lag tests below and `Shared::append` in `mixdog-core-base/src/feed/mod.rs`.)
+#[tokio::test]
+async fn visualize_notifications_queued_while_the_phones_reader_is_held_all_arrive_in_order() {
+    let (_hub, mut peer) = hub_and_peer(false);
+    let frames: Vec<String> = (0..100)
+        .map(|n| json!({ "method": "visualize/changed", "params": { "sessionId": "s1", "state": { "sessionId": "s1", "tabs": [], "n": n, "pad": "x".repeat(300) } } }).to_string())
+        .collect();
+    for frame in &frames {
+        peer.connection.sink.send_control(Bytes::from(frame.clone())).expect("the control queue takes the notification");
+    }
+    answer(&peer, "marker");
+    let mut expected = frames.clone();
+    expected.push("marker".to_owned());
+    assert_eq!(texts(until_marker(&mut peer, "marker").await), expected);
 }
 
 /// Recovery that pushes the recovery slot and keeps it unfilled until the test fills it.
@@ -423,4 +367,82 @@ async fn an_answer_and_a_ping_still_queue_when_the_ordered_room_is_full() {
     let wire = until_marker(&mut peer, "answer").await;
     assert_eq!(short(&wire), short(&expected), "in-flight frame, ping, the events in order, the answer");
     assert!(wire == expected, "every frame written whole");
+}
+
+
+#[cfg(node_twin)]
+fn golden() -> Value {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/frame-order/golden.json");
+    serde_json::from_str(&std::fs::read_to_string(path).expect("the frame-order recording")).expect("JSON")
+}
+/// Node's terminal close (`fixtures/frame-order`, scenario `terminal-dispose`): the activity
+/// frame (an ordered-class event, `remote-relay-push-lanes.ts:148-150`) is queued while the call
+/// is handled, the answer after it, then the marker's answer. For every recorded mode and run the
+/// writer must put on the socket exactly what the phone got, in that order, for a prompt reader
+/// and for one that reads nothing until all three are queued.
+#[cfg(node_twin)]
+#[tokio::test]
+async fn an_event_of_the_ordered_class_queued_before_an_answer_is_written_before_it() {
+    replay_recorded_windows("terminal-dispose", true).await;
+}
+/// Every other recorded window, queued in Node's queue order on a socket read promptly or withheld
+/// until all is queued (the recorder's barrier on Node's socket writes): events after an answer and
+/// several never-dropped events in a row (`activity-after-answer`, ordered lane), catalog rows
+/// before their answer (`room-rename`, `thread-favorite`, ordered lane: never-droppable rosters,
+/// `remote-relay-catalog.ts:89`), and droppable states around an answer (`state-latest-wins`,
+/// a droppable lane) come out exactly as Node's phone got them.
+#[cfg(node_twin)]
+#[tokio::test]
+async fn every_recorded_window_is_written_in_the_order_nodes_phone_got_it() {
+    for (scenario, ordered) in [("activity-after-answer", true), ("room-rename", true), ("thread-favorite", true), ("state-latest-wins", false)] {
+        replay_recorded_windows(scenario, ordered).await;
+    }
+}
+/// Queues each recorded run's frames in the order Node's phone got them (events on one lane of the
+/// given class, answers on the control lane) and compares the socket's whole output with them.
+#[cfg(node_twin)]
+async fn replay_recorded_windows(scenario: &str, ordered: bool) {
+    let golden = golden();
+    let modes = golden["scenarios"][scenario]["modes"].as_object().expect("modes");
+    assert_eq!(modes.len(), 4, "{scenario}: transport and legacy, each prompt and stalled");
+    for (mode, recorded) in modes {
+        for run in recorded["runs"].as_array().expect("runs") {
+            let frames: Vec<String> = run["frames"].as_array().expect("frames").iter().map(Value::to_string).collect();
+            let kinds: Vec<&str> = frames
+                .iter()
+                .map(|frame| {
+                    let frame: Value = serde_json::from_str(frame).unwrap();
+                    if frame["id"] == run["cause"] || frame["id"] == run["marker"] { "answer" } else { "event" }
+                })
+                .collect();
+            let prompt = mode.ends_with("prompt");
+            let (_hub, mut peer) = hub_and_peer(prompt);
+            let events = live_lane(&mut peer, scenario, ordered, Arc::new(NoRecovery)).await;
+            let queue = |peer: &Peer, frame: &String, kind: &str| {
+                if kind == "event" {
+                    push(&events, frame);
+                } else {
+                    answer(peer, frame);
+                }
+            };
+            // Queued in Node's queue order.
+            let mut window = frames.iter().zip(&kinds);
+            if !prompt {
+                // The recorder's barrier on Node's socket write: the writer holds the window's first frame at a
+                // socket that takes nothing (confirmed, not assumed) while the rest queues behind it.
+                while peer.held.try_recv().is_ok() {}
+                let (frame, kind) = window.next().expect("a first frame");
+                queue(&peer, frame, kind);
+                mixdog_rt::time::timeout(DEADLINE, peer.held.recv())
+                    .await
+                    .unwrap_or_else(|_| panic!("{scenario} {mode}: the writer did not reach the withheld socket with the window's first frame within {DEADLINE:?}"))
+                    .expect("the socket");
+            }
+            for (frame, kind) in window {
+                queue(&peer, frame, kind);
+            }
+            let wire = texts(until_marker(&mut peer, frames.last().expect("a last frame")).await);
+            assert_eq!(wire, frames, "{scenario} {mode}: the writer's order is not the order Node's phone got");
+        }
+    }
 }

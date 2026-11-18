@@ -493,23 +493,6 @@ pub(super) fn references(headers: &str) -> Vec<String> {
     REFERENCE.find_iter(&unfolded(headers)).map(|m| m.as_str().to_owned()).collect()
 }
 
-// ── Dates ───────────────────────────────────────────────────────────────────
-
-/// `isoDate`: `new Date(value).toISOString()`, empty for no date or one that is none.
-pub(super) fn iso_date(value: &str) -> String {
-    if value.is_empty() {
-        return String::new();
-    }
-    iso_from_ms(mixdog_js::time::date_parse(value))
-}
-
-/// `Date.prototype.toISOString` of a time value; empty for NaN.
-pub(super) fn iso_from_ms(ms: f64) -> String {
-    let Some(f) = mixdog_js::time::local_fields_in(Tz::UTC, ms) else { return String::new() };
-    let year = if (0..=9999).contains(&f.year) { format!("{:04}", f.year) } else { format!("{}{:06}", if f.year < 0 { '-' } else { '+' }, f.year.abs()) };
-    format!("{year}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z", f.month, f.day, f.hour, f.minute, f.second, f.millisecond)
-}
-
 /// `.replace(/\s+/g, ' ')`.
 pub(super) fn squash_space(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -623,17 +606,35 @@ mod tests {
     }
 
     #[test]
+    fn white_space_runs_and_long_text_are_shortened_as_the_old_server_does() {
+        assert_eq!(squash_space(" a \n\t b  "), " a b ");
+        assert_eq!(clip("abcdef", 3), "abc…");
+        assert_eq!(clip("abc", 3), "abc");
+    }
+
+
+    #[test]
     fn dates_are_iso_in_utc_and_empty_when_they_are_none() {
         assert_eq!(iso_date("Mon, 7 Feb 2022 21:52:25 -0800"), "2022-02-08T05:52:25.000Z");
         assert_eq!(iso_date("not a date"), "");
         assert_eq!(iso_date(""), "");
         assert_eq!(iso_from_ms(0.0), "1970-01-01T00:00:00.000Z");
     }
+}
 
-    #[test]
-    fn white_space_runs_and_long_text_are_shortened_as_the_old_server_does() {
-        assert_eq!(squash_space(" a \n\t b  "), " a b ");
-        assert_eq!(clip("abcdef", 3), "abc…");
-        assert_eq!(clip("abc", 3), "abc");
+
+// ── Dates ───────────────────────────────────────────────────────────────────
+
+/// `isoDate`: `new Date(value).toISOString()`, empty for no date or one that is none.
+pub(super) fn iso_date(value: &str) -> String {
+    if value.is_empty() {
+        return String::new();
     }
+    iso_from_ms(mixdog_js::time::date_parse(value))
+}
+/// `Date.prototype.toISOString` of a time value; empty for NaN.
+pub(super) fn iso_from_ms(ms: f64) -> String {
+    let Some(f) = mixdog_js::time::local_fields_in(Tz::UTC, ms) else { return String::new() };
+    let year = if (0..=9999).contains(&f.year) { format!("{:04}", f.year) } else { format!("{}{:06}", if f.year < 0 { '-' } else { '+' }, f.year.abs()) };
+    format!("{year}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z", f.month, f.day, f.hour, f.minute, f.second, f.millisecond)
 }

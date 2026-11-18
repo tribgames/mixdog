@@ -45,6 +45,7 @@ use crate::env::CompactPass;
 use crate::env::PassStage;
 use crate::env::SessionPressure;
 use crate::message::AgentMessage;
+use mixdog_core_api::domain::cache_tail::Counters;
 use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::provider::Usage;
 
@@ -55,6 +56,8 @@ pub struct Books<'a> {
     pub native: &'a [Value],
     /// `isAgentModeSession(session)`.
     pub agent_mode: bool,
+    /// The environment the policy reads its tuning variables from.
+    pub env: &'a dyn mixdog_ai::registry::keys::Environment,
 }
 
 /// A header change built up step by step, each step reading the header the earlier ones left.
@@ -91,6 +94,62 @@ pub fn turn_started(header: &Header) -> Option<HeaderPatch> {
     draft.finish()
 }
 
+/// Attach evidence to the private pressure projection, not to usage totals or the public delta.
+pub fn with_prompt_cache_evidence<'a>(header: &Header, delta: &'a Value, usage: &Usage) -> std::borrow::Cow<'a, Value> {
+    let counters = incomplete_prompt(header, usage);
+    let prompt = prompt_evidence(usage);
+    let output = output_evidence(usage);
+    if counters.is_none()
+        && prompt.is_none()
+        && output == delta.get("contextOutputTokens").and_then(Value::as_u64)
+    {
+        return std::borrow::Cow::Borrowed(delta);
+    }
+    let mut delta = delta.clone();
+    delta["contextPromptKnown"] = json!(prompt);
+    delta["contextOutputTokens"] = json!(output);
+    if let Some(counters) = counters {
+        delta["unmeasuredAnthropicPrompt"] = json!({ "read": counters.read, "written": counters.created });
+    }
+    std::borrow::Cow::Owned(delta)
+}
+
+fn prompt_evidence(usage: &Usage) -> Option<bool> {
+    let raw = usage.raw.as_ref()?;
+    if raw["input_tokens_known"] == Value::Bool(false) || raw["cache_tokens_known"] == Value::Bool(false) {
+        return Some(false);
+    }
+    ["input_tokens", "prompt_tokens", "promptTokenCount"]
+        .iter().any(|key| raw.get(*key).and_then(Value::as_u64).is_some())
+        .then_some(true)
+}
+
+fn output_evidence(usage: &Usage) -> Option<u64> {
+    (usage.output_tokens > 0 || usage.raw.as_ref().is_some_and(|raw| {
+        ["output_tokens", "completion_tokens", "candidatesTokenCount"]
+            .iter().any(|key| raw.get(*key).and_then(Value::as_u64).is_some())
+    })).then_some(usage.output_tokens)
+}
+
+fn incomplete_prompt(header: &Header, usage: &Usage) -> Option<Counters> {
+    let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default();
+    (crate::cache_observation::is_anthropic(provider) && !crate::cache_observation::has_prompt(usage))
+        .then(|| Counters::of_usage(usage))
+}
+
+fn unmeasured_prompt(read: Value, written: Value, now: f64) -> HeaderPatch {
+    let mut patch = HeaderPatch::default();
+    for key in ["lastInputTokens", "lastUncachedInputTokens", "lastPromptTokens", "lastContextTokens"] {
+        patch.put(key, Value::Null);
+    }
+    patch.put("lastCachedReadTokens", read);
+    patch.put("lastCacheWriteTokens", written);
+    patch.put("lastContextTokensUpdatedAt", mixdog_js::json_number(now));
+    // The previous pressure reading remains historical and cannot anchor this request.
+    patch.put("lastContextTokensStaleAfterCompact", json!(true));
+    patch
+}
+
 /// `onUsageDelta(delta)` for one model call: `delta` is the call's `usageDeltaEvent`, `outgoing` the
 /// transcript its request carried (the provider's reading covers it, not the reply appended after) and
 /// `send_tools` its tools. `books`: `None` records no pressure.
@@ -110,18 +169,13 @@ pub fn usage_change(
     // before the call's usage is reported.
     let mut sent = HeaderPatch::default();
     sent.put("lastProviderSendAt", mixdog_js::json_number(sent_at));
-    // `traceActualCacheMiss` (`loop/send-phase.mjs:340-384`): an Anthropic session keeps the call's cache read plus
-    // write as the next call's miss baseline, on the record so it survives a reload.
-    if matches!(header.get("provider").and_then(Value::as_str), Some("anthropic" | "anthropic-oauth")) {
-        // `Number(x) || 0`.
-        let tokens = |key: &str| {
-            let n = mixdog_js::to_number_of(delta.get(key));
-            if n.is_nan() { 0.0 } else { n }
-        };
-        sent.put("lastProviderCachedPrefixTokens", mixdog_js::json_number(tokens("deltaCachedRead") + tokens("deltaCacheWrite")));
-    }
+    // The send carry owns the cache observation and its timestamp; this timestamp is request timing only.
     draft.apply(sent);
     draft.apply(iteration_metrics(header, delta, input_excludes_cache, now));
+    if let Some(missing) = delta.get("unmeasuredAnthropicPrompt") {
+        draft.apply(unmeasured_prompt(missing["read"].clone(), missing["written"].clone(), now));
+        return draft.finish();
+    }
     if let Some(books) = books
         && delta.get("source") == Some(&json!("provider_send"))
     {
@@ -141,7 +195,7 @@ pub fn usage_change(
             boundary: "request",
             send_tools: RequestTools { native: books.native, defined: send_tools },
             input_excludes_cache,
-            token_calibration: provider_token_calibration(header.get("provider")),
+            token_calibration: provider_token_calibration(books.env, header.get("provider")),
             now,
         };
         if let Some(patch) = record_provider_context_baseline(&draft.working, outgoing, &usage, books.signer, &args) {
@@ -149,6 +203,63 @@ pub fn usage_change(
         }
     }
     draft.finish()
+}
+
+#[cfg(test)]
+mod cache_evidence_tests {
+    use super::*;
+
+    #[test]
+    fn a_partial_prompt_preserves_the_cache_baseline_but_does_not_reanchor_pressure() {
+        let mut header = json!({
+            "provider": "anthropic",
+            "lastProviderCachedPrefixTokens": 8000,
+            "lastCachedReadTokens": 7000,
+            "lastContextTokens": 10000,
+            "contextPressureBaselineTokens": 10000,
+            "contextPressureBaselineUpdatedAt": 100,
+        }).as_object().unwrap().clone();
+        let reported = Usage {
+            input_tokens: 50, output_tokens: 10,
+            raw: Some(json!({ "input_tokens": 50, "cache_creation_input_tokens": 0 })),
+            ..Usage::default()
+        };
+        let delta = json!({
+            "source": "provider_send", "deltaInput": 50, "deltaOutput": 10,
+            "deltaCachedRead": 0, "deltaCacheWrite": 0,
+        });
+        let pressure_delta = with_prompt_cache_evidence(&header, &delta, &reported);
+        usage_change(&header, &pressure_delta, &[], &[], None, true, 200.0, 210.0).unwrap().apply(&mut header);
+        assert_eq!(header["lastProviderSendAt"], json!(200));
+        assert_eq!(header["lastProviderCachedPrefixTokens"], json!(8000));
+        assert_eq!(header["contextPressureBaselineUpdatedAt"], json!(100));
+        assert_eq!(header["lastContextTokens"], Value::Null);
+        assert_eq!(header["lastCachedReadTokens"], Value::Null);
+        assert_eq!(header["lastCacheWriteTokens"], json!(0));
+        assert_eq!(header["totalOutputTokens"], json!(10));
+
+        let settled = Settled { transcript: &[], usage: &reported, last_turn_usage: &reported, tool_calls_total: 0, send_tools: &[] };
+        settled_change(&header, &settled, true, None, true, 220.0).unwrap().apply(&mut header);
+        assert_eq!(header["lastProviderCachedPrefixTokens"], json!(8000));
+        assert_eq!(header["lastContextTokens"], Value::Null);
+        assert_eq!(header["lastCachedReadTokens"], Value::Null);
+        assert_eq!(header["lastCacheWriteTokens"], json!(0));
+        assert_eq!(header["totalOutputTokens"], json!(10));
+    }
+
+    #[test]
+    fn a_reported_zero_read_and_write_still_give_a_measured_prompt() {
+        let mut header = json!({ "provider": "anthropic" }).as_object().unwrap().clone();
+        let reported = Usage { raw: Some(json!({
+            "input_tokens": 50, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0,
+        })), ..Usage::default() };
+        let delta = json!({ "deltaInput": 50, "deltaCachedRead": 0, "deltaCacheWrite": 0 });
+        let pressure_delta = with_prompt_cache_evidence(&header, &delta, &reported);
+        usage_change(&header, &pressure_delta, &[], &[], None, true, 200.0, 210.0).unwrap().apply(&mut header);
+        assert_eq!(header["lastContextTokens"], json!(50));
+        assert_eq!(header["lastCachedReadTokens"], json!(0));
+        assert_eq!(header["lastCacheWriteTokens"], json!(0));
+    }
 }
 
 /// The check before a send that compacts nothing: `messages` and `tools` are the request about to go
@@ -189,6 +300,7 @@ fn status_input<'a>(header: &'a Header, messages: &'a [AgentMessage], tools: &'a
         agent_mode: books.agent_mode,
         meter: books.signer.meter,
         signer: books.signer,
+        env: books.env,
     }
 }
 
@@ -248,6 +360,11 @@ pub fn pass_change(header: &Header, pass: &CompactPass, books: &Books<'_>, now: 
             }
             if *changed {
                 draft.apply(invalidate_provider_context_baseline());
+                // The compacted transcript is a cold point: the next turn start rebuilds the system text from current sources.
+                let mut fold = HeaderPatch::default();
+                fold.put("promptFoldPending", Value::Bool(true));
+                fold.put("compactionFoldPending", Value::Bool(true));
+                draft.apply(fold);
                 let snapshot = post_compact_snapshot(&status_input(&draft.working, after, &pass.tools, books), *after_tokens as f64, now);
                 if let Some(patch) = snapshot {
                     draft.apply(patch);
@@ -262,9 +379,10 @@ pub fn pass_change(header: &Header, pass: &CompactPass, books: &Books<'_>, now: 
 fn usage_record(usage: &Usage) -> Value {
     let mut record = json!({
         "inputTokens": usage.input_tokens,
-        "outputTokens": usage.output_tokens,
+        "outputTokens": output_evidence(usage),
         "cachedTokens": usage.cache_read_tokens,
         "cacheWriteTokens": usage.cache_write_tokens,
+        "contextPromptKnown": prompt_evidence(usage),
         "reasoningTokens": usage.reasoning_tokens,
         "reasoningTokensComplete": usage.reasoning_complete(),
     });
@@ -283,7 +401,7 @@ pub fn estimate_transcript_context_usage(messages: &[AgentMessage], tools: &Requ
     }
     let estimated = super::number_or_zero(super::summarize_messages(messages, books.signer.meter).get("estimatedTokens"));
     let reserve = crate::compact::tool_schema::estimate_request_reserve_tokens(tools) as f64;
-    mixdog_js::math::round((estimated + reserve) * provider_token_calibration(provider))
+    mixdog_js::math::round((estimated + reserve) * provider_token_calibration(books.env, provider))
 }
 
 /// What the ask's settlement reads of a finished run (`result` of `settleAskTurn`).
@@ -307,12 +425,16 @@ pub fn settled_change(header: &Header, settled: &Settled<'_>, incremental: bool,
     let mut draft = Draft::new(header);
     let ask = TerminalUsage { usage: Some(&usage), last_turn: &last, tool_calls_total: settled.tool_calls_total as f64, incremental, input_excludes_cache, now };
     draft.apply(terminal_usage(header, &ask));
+    if let Some(counters) = incomplete_prompt(header, settled.last_turn_usage) {
+        draft.apply(unmeasured_prompt(json!(counters.read), json!(counters.created), now));
+        return draft.finish();
+    }
     if let Some(books) = books {
         let args = BaselineArgs {
             boundary: "complete",
             send_tools: RequestTools { native: books.native, defined: settled.send_tools },
             input_excludes_cache,
-            token_calibration: provider_token_calibration(header.get("provider")),
+            token_calibration: provider_token_calibration(books.env, header.get("provider")),
             now,
         };
         if let Some(patch) = record_provider_context_baseline(&draft.working, settled.transcript, &last, books.signer, &args) {

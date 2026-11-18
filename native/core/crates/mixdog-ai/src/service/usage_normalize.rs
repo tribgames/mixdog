@@ -413,6 +413,23 @@ fn scoped_window_label(name: &str) -> String {
     }
 }
 
+/// Model families whose weekly window is positively known to bind Messages inference. Any other
+/// scoped window (`oauth_apps`, a surface, an unknown key) is shown but never excludes a model.
+const INFERENCE_FAMILIES: [&str; 3] = ["opus", "sonnet", "fable"];
+
+/// Marks `window` display-only (`models: []`) unless `family` is a known inference family; a known
+/// one is pinned to that single token so a multi-word display name cannot read as account-wide.
+fn bind_inference_family(window: Value, family: &str, pin: bool) -> Value {
+    let family = family.trim().to_lowercase();
+    let known = INFERENCE_FAMILIES.contains(&family.as_str());
+    if known && !pin {
+        return window; // its single-token `7D <Family>` label already scopes it
+    }
+    let mut w = window.as_object().cloned().unwrap_or_default();
+    w.insert("models".into(), Value::Array(if known { vec![Value::String(family)] } else { Vec::new() }));
+    Value::Object(w)
+}
+
 /// Model- and surface-scoped weekly windows: a refusal of one family must not
 /// mark the whole account exhausted.
 fn scoped_anthropic_windows(data: &Value, source: &str, now_ms: i64) -> Vec<Value> {
@@ -432,7 +449,7 @@ fn scoped_anthropic_windows(data: &Value, source: &str, now_ms: i64) -> Vec<Valu
                 continue;
             }
             if let Some(w) = window_from_percent(&label, Some(value), source, now_ms) {
-                put(label, w);
+                put(label, bind_inference_family(w, rest, false));
             }
         }
     }
@@ -450,7 +467,14 @@ fn scoped_anthropic_windows(data: &Value, source: &str, now_ms: i64) -> Vec<Valu
                 ("resets_at", entry.get("resets_at").cloned().unwrap_or(Value::Null)),
             ]);
             if let Some(w) = window_from_percent(&label, Some(&pct), source, now_ms) {
-                put(label, w);
+                // Only a model scope can bind inference; a surface scope never does.
+                let family = scope
+                    .and_then(|s| s.get("model"))
+                    .filter(|m| truthy(Some(m)))
+                    .and_then(|_| name)
+                    .and_then(|n| n.split_whitespace().next())
+                    .unwrap_or("");
+                put(label, bind_inference_family(w, family, true));
             }
         }
     }

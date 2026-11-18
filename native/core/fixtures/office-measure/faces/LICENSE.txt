@@ -1,6 +1,0 @@
-The fonts in this folder are test data for the office-measure twin test. Each is licensed under the SIL Open Font License,
-Version 1.1 (https://openfontlicense.org, http://scripts.sil.org/OFL), and is redistributed unmodified.
-
-NotoSansLisu-Regular.ttf, NotoSansLisu-Bold.ttf  Copyright 2022 The Noto Project Authors (https://github.com/notofonts/lisu)
-NotoSansHebrew-Regular.ttf                       Copyright 2024 The Noto Project Authors (https://github.com/notofonts/hebrew)
-MiriamLibre-Regular.otf                          Copyright 2016 Michal Sahar

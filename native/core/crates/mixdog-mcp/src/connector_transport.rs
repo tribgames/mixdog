@@ -65,9 +65,110 @@ fn union_tools(lists: &[Vec<Value>]) -> Vec<Value> {
     first
 }
 
+/// An account's health error is a failure of its connect or call (Node records what the last connect or call
+/// found): connecting and closed are states, not errors, and must not read as a failed account.
+fn health_error(state: &ServerState) -> String {
+    match state {
+        ServerState::Failed { cause } => cause.clone(),
+        ServerState::Starting | ServerState::Ready(_) | ServerState::Closed => String::new(),
+    }
+}
+
 fn error_result(message: impl ToString) -> Value {
     json!({"isError": true, "content": [{"type": "text", "text": message.to_string()}]})
 }
+
+struct AccountTransport {
+    group: Arc<AccountGroup>,
+    tx: IncomingTx,
+    cancel: CancellationToken,
+    inflight: Arc<Mutex<HashMap<String, CancellationToken>>>,
+    running: Arc<RwLock<()>>,
+}
+
+impl Drop for AccountTransport {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+    }
+}
+
+#[async_trait]
+impl Transport for AccountTransport {
+    async fn send(&self, message: Value, _: Liveness) -> Result<(), TransportError> {
+        if self.cancel.is_cancelled() { return Err(TransportError::Closed); }
+        if message["method"] == "notifications/cancelled" {
+            if let Some(cancel) = self.inflight.lock().unwrap_or_else(|e| e.into_inner()).get(&message["params"]["requestId"].to_string()) {
+                cancel.cancel();
+            }
+            return Ok(());
+        }
+        let Some(id) = message.get("id").cloned() else { return Ok(()) };
+        let key = id.to_string();
+        let cancel = self.cancel.child_token();
+        self.inflight.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone(), cancel.clone());
+        let (group, tx, inflight) = (self.group.clone(), self.tx.clone(), self.inflight.clone());
+        let running = self.running.clone().read_owned().await;
+        mixdog_rt::spawn("mcp.connector.request", TaskClass::Work, async move {
+            let work = async {
+                let result = match message["method"].as_str().unwrap_or_default() {
+                    "initialize" => group.initialize().await,
+                    "ping" => Ok(json!({})),
+                    "tools/list" => Ok(json!({"tools": group.catalog().0})),
+                    "tools/call" => Ok(group.call(&message["params"], &cancel, tx.clone()).await),
+                    _ => Err("Method not found".to_owned()),
+                };
+                let reply = match result {
+                    Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+                    Err(error) => json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32001, "message": error}}),
+                };
+                let _ = tx.send(Incoming::Message(reply));
+            };
+            if message["method"] == "tools/call" {
+                // Let the child RPC observe cancellation and send its own cancellation notice.
+                work.await;
+            } else {
+                tokio::select! { () = work => {}, () = cancel.cancelled() => {} }
+            }
+            inflight.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
+            drop(running);
+        });
+        Ok(())
+    }
+
+    async fn close(&self) {
+        self.cancel.cancel();
+        let _running = self.running.write().await;
+        let _ = self.tx.send(Incoming::Closed(CloseCause { reason: "connector closed".into(), stderr_tail: String::new() }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_failed_connection_is_an_account_health_error() {
+        assert_eq!(health_error(&ServerState::Starting), "");
+        assert_eq!(health_error(&ServerState::Closed), "");
+        assert_eq!(health_error(&ServerState::Failed { cause: "boom".into() }), "boom");
+    }
+
+    #[test]
+    fn account_union_compares_schema_objects_and_rejects_conflicting_tools() {
+        let lists = vec![
+            vec![json!({"name": "search", "inputSchema": {"type": "object", "properties": {"q": {"type": "string"}}}}),
+                 json!({"name": "conflict", "inputSchema": {"type": "object"}})],
+            vec![json!({"name": "search", "inputSchema": {"properties": {"q": {"type": "string"}}, "type": "object"}}),
+                 json!({"name": "conflict", "inputSchema": {"type": "string"}})],
+        ];
+        let tools = union_tools(&lists);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["name"], "search");
+        assert_eq!(tools[0]["inputSchema"]["properties"]["q"]["type"], "string");
+        assert_eq!(tools[0]["inputSchema"]["properties"]["account"]["type"], "string");
+    }
+}
+
 
 impl AccountGroup {
     pub fn new(config: &McpServerConfig, servers: Vec<Arc<McpServer>>, runtime: &AccountRuntime) -> Arc<Self> {
@@ -123,10 +224,7 @@ impl AccountGroup {
                     let instructions = catalog.instructions.as_str();
                     let addresses = crate::connector_instructions::accounts_of_instructions(instructions);
                     let email = addresses.first().cloned();
-                    let error = match &*server.state() {
-                        ServerState::Ready(_) => String::new(),
-                        state => state.describe(),
-                    };
+                    let error = health_error(&server.state());
                     self.choice.record(server.name(), &AccountReport { email, error, auth_required: server.sign_in_required() });
                     self.choice.note_tools(server.name(), catalog.tools.iter().filter_map(|tool| tool["name"].as_str().map(str::to_owned)));
                     lists.push(catalog.tools.clone());
@@ -135,7 +233,7 @@ impl AccountGroup {
                     }
                 }
                 None => {
-                    let error = server.state().describe();
+                    let error = health_error(&server.state());
                     self.choice.record(server.name(), &AccountReport {
                         auth_required: server.sign_in_required(), error: error.clone(), email: None,
                     });
@@ -233,89 +331,5 @@ impl AccountGroup {
             "type": "text", "text": format!("({} account: {})", self.service, chosen.label)
         }));
         result
-    }
-}
-
-struct AccountTransport {
-    group: Arc<AccountGroup>,
-    tx: IncomingTx,
-    cancel: CancellationToken,
-    inflight: Arc<Mutex<HashMap<String, CancellationToken>>>,
-    running: Arc<RwLock<()>>,
-}
-
-impl Drop for AccountTransport {
-    fn drop(&mut self) {
-        self.cancel.cancel();
-    }
-}
-
-#[async_trait]
-impl Transport for AccountTransport {
-    async fn send(&self, message: Value, _: Liveness) -> Result<(), TransportError> {
-        if self.cancel.is_cancelled() { return Err(TransportError::Closed); }
-        if message["method"] == "notifications/cancelled" {
-            if let Some(cancel) = self.inflight.lock().unwrap_or_else(|e| e.into_inner()).get(&message["params"]["requestId"].to_string()) {
-                cancel.cancel();
-            }
-            return Ok(());
-        }
-        let Some(id) = message.get("id").cloned() else { return Ok(()) };
-        let key = id.to_string();
-        let cancel = self.cancel.child_token();
-        self.inflight.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone(), cancel.clone());
-        let (group, tx, inflight) = (self.group.clone(), self.tx.clone(), self.inflight.clone());
-        let running = self.running.clone().read_owned().await;
-        mixdog_rt::spawn("mcp.connector.request", TaskClass::Work, async move {
-            let work = async {
-                let result = match message["method"].as_str().unwrap_or_default() {
-                    "initialize" => group.initialize().await,
-                    "ping" => Ok(json!({})),
-                    "tools/list" => Ok(json!({"tools": group.catalog().0})),
-                    "tools/call" => Ok(group.call(&message["params"], &cancel, tx.clone()).await),
-                    _ => Err("Method not found".to_owned()),
-                };
-                let reply = match result {
-                    Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                    Err(error) => json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32001, "message": error}}),
-                };
-                let _ = tx.send(Incoming::Message(reply));
-            };
-            if message["method"] == "tools/call" {
-                // Let the child RPC observe cancellation and send its own cancellation notice.
-                work.await;
-            } else {
-                tokio::select! { () = work => {}, () = cancel.cancelled() => {} }
-            }
-            inflight.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
-            drop(running);
-        });
-        Ok(())
-    }
-
-    async fn close(&self) {
-        self.cancel.cancel();
-        let _running = self.running.write().await;
-        let _ = self.tx.send(Incoming::Closed(CloseCause { reason: "connector closed".into(), stderr_tail: String::new() }));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn account_union_compares_schema_objects_and_rejects_conflicting_tools() {
-        let lists = vec![
-            vec![json!({"name": "search", "inputSchema": {"type": "object", "properties": {"q": {"type": "string"}}}}),
-                 json!({"name": "conflict", "inputSchema": {"type": "object"}})],
-            vec![json!({"name": "search", "inputSchema": {"properties": {"q": {"type": "string"}}, "type": "object"}}),
-                 json!({"name": "conflict", "inputSchema": {"type": "string"}})],
-        ];
-        let tools = union_tools(&lists);
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0]["name"], "search");
-        assert_eq!(tools[0]["inputSchema"]["properties"]["q"]["type"], "string");
-        assert_eq!(tools[0]["inputSchema"]["properties"]["account"]["type"], "string");
     }
 }

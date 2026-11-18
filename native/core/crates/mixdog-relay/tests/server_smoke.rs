@@ -1,9 +1,4 @@
-//! The assembled relay (`server.mjs`: `startRelay`, `routeRequest`, `handleUpgrade`, `closeRelay`), started in this process on port 0
-//! and driven over loopback sockets: start and stop with the listening line, the failure a bad `PORT` or a malformed `devices.json`
-//! is, TLS with no ALPN list, the routes of the router in Node's order, the authentication of the desktop and hook legs, and the
-//! raw socket an unknown upgrade path is destroyed with.
-//!
-//! The device store waits for a lane thread, so time is the real clock; every wait is a bounded read.
+//! The assembled relay started in this process on port 0: serving, stopping, start failures, TLS with no ALPN list, the router's order, and the authentication of the desktop and hook legs.
 
 use std::collections::BTreeMap;
 use std::path::Path;

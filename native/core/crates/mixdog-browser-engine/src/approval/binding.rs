@@ -45,29 +45,6 @@ pub fn precondition(binding: &Binding) -> Precondition {
     }
 }
 
-/// An upload's real files: 1 to 10 absolute paths of regular files, each bound by its canonical path, size and modification
-/// time. The command is then dispatched with the canonical paths (`BoundFile::path`).
-pub async fn resolve_upload_files(files: &dyn FilePort, paths: &[String]) -> Result<Vec<BoundFile>, ApprovalError> {
-    if paths.is_empty() || paths.len() > MAX_UPLOAD_FILES {
-        return Err(ApprovalError::Invalid("upload requires 1\u{2013}10 approved absolute file paths".to_owned()));
-    }
-    let mut bound = Vec::with_capacity(paths.len());
-    for path in paths {
-        if !mixdog_js::nodepath::is_absolute_host(path) {
-            return Err(ApprovalError::Invalid("upload approval requires absolute file paths".to_owned()));
-        }
-        let facts = files.stat(Path::new(path)).await;
-        let Some(canonical) = facts.canonical.filter(|_| facts.exists) else {
-            return Err(ApprovalError::Invalid(format!("upload approval cannot read the file: {path}")));
-        };
-        if !facts.is_file {
-            return Err(ApprovalError::Invalid("upload approval requires regular files".to_owned()));
-        }
-        bound.push(BoundFile { path: canonical.to_string_lossy().into_owned(), size: facts.size, mtime: facts.modified, realpath: canonical });
-    }
-    Ok(bound)
-}
-
 /// The target as it is now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservedTarget {
@@ -249,60 +226,6 @@ mod tests {
         assert_eq!(ApprovalError::TargetChanged.to_string(), "Browser Use approval target changed; nothing was dispatched");
     }
 
-    #[tokio::test]
-    async fn an_upload_binds_its_files_and_its_receiving_frame() {
-        let disk = Disk::default();
-        disk.put(ABS, 5, 100);
-        let files = resolve_upload_files(&disk, &[ABS.to_owned()]).await.expect("files");
-        assert_eq!((files[0].size, files[0].path.as_str()), (5, ABS));
-        let mut bound = binding("{}");
-        bound.files = files;
-        bound.receiver_key = "frame-1".into();
-        let page = Page::at("https://a.test/form", "p:1", "frame-1");
-        assert_eq!(verify(&bound, &allow(), "{}", &page, &disk, &token()).await, Ok(Some("frame-1".to_owned())));
-        // The receiving frame changed during the wait.
-        *page.receiver.lock().unwrap() = "frame-2".into();
-        assert_eq!(verify(&bound, &allow(), "{}", &page, &disk, &token()).await, Err(ApprovalError::TargetChanged));
-        *page.receiver.lock().unwrap() = "frame-1".into();
-        // A file that changes after approval is refused, whichever fact changed, or is gone.
-        for (size, mtime) in [(6, 100), (5, 101)] {
-            disk.put(ABS, size, mtime);
-            assert_eq!(verify(&bound, &allow(), "{}", &page, &disk, &token()).await, Err(ApprovalError::FileChanged));
-        }
-        disk.0.lock().unwrap().clear();
-        assert_eq!(verify(&bound, &allow(), "{}", &page, &disk, &token()).await, Err(ApprovalError::FileChanged));
-        assert_eq!(ApprovalError::FileChanged.to_string(), "approved upload file changed; nothing was dispatched");
-    }
-
-    #[tokio::test]
-    async fn an_upload_that_cannot_be_confirmed_stays_bound_to_the_empty_key() {
-        let disk = Disk::default();
-        disk.put(ABS, 5, 100);
-        let mut bound = binding("{}");
-        bound.files = resolve_upload_files(&disk, &[ABS.to_owned()]).await.unwrap();
-        let page = Page::at("https://a.test/form", "p:1", "");
-        assert_eq!(verify(&bound, &allow(), "{}", &page, &disk, &token()).await, Ok(Some(String::new())));
-        *page.receiver.lock().unwrap() = "frame-9".into();
-        assert_eq!(verify(&bound, &allow(), "{}", &page, &disk, &token()).await, Err(ApprovalError::TargetChanged));
-    }
-
-    #[tokio::test]
-    async fn upload_paths_must_be_one_to_ten_absolute_regular_readable_files() {
-        let disk = Disk::default();
-        disk.put(ABS, 5, 1);
-        let message = |result: Result<Vec<BoundFile>, ApprovalError>| result.unwrap_err().to_string();
-        assert_eq!(message(resolve_upload_files(&disk, &[]).await), "upload requires 1\u{2013}10 approved absolute file paths");
-        let eleven = vec![ABS.to_owned(); 11];
-        assert_eq!(message(resolve_upload_files(&disk, &eleven).await), "upload requires 1\u{2013}10 approved absolute file paths");
-        assert_eq!(message(resolve_upload_files(&disk, &["rel/a.txt".to_owned()]).await), "upload approval requires absolute file paths");
-        let missing = if cfg!(windows) { "C:\\work\\missing.txt" } else { "/work/missing.txt" };
-        assert!(message(resolve_upload_files(&disk, &[missing.to_owned()]).await).starts_with("upload approval cannot read the file"));
-        let dir = if cfg!(windows) { "C:\\work" } else { "/work" };
-        disk.0.lock().unwrap().insert(PathBuf::from(dir), FileFacts { exists: true, is_file: false, canonical: Some(PathBuf::from(dir)), ..FileFacts::default() });
-        assert_eq!(message(resolve_upload_files(&disk, &[dir.to_owned()]).await), "upload approval requires regular files");
-        assert_eq!(resolve_upload_files(&disk, &vec![ABS.to_owned(); 10]).await.unwrap().len(), 10);
-    }
-
     #[test]
     fn the_precondition_carries_the_document_origin_url_and_receiver() {
         let mut bound = binding("{}");
@@ -351,4 +274,81 @@ mod tests {
         let page = Page::at("https://evil.test/", "p:2", "");
         assert_eq!(verify(&bound, &allow(), "{\"action\":\"click\"}", &page, &Disk::default(), &token()).await, Err(ApprovalError::TargetChanged));
     }
+
+
+    #[tokio::test]
+    async fn an_upload_binds_its_files_and_its_receiving_frame() {
+        let disk = Disk::default();
+        disk.put(ABS, 5, 100);
+        let files = resolve_upload_files(&disk, &[ABS.to_owned()]).await.expect("files");
+        assert_eq!((files[0].size, files[0].path.as_str()), (5, ABS));
+        let mut bound = binding("{}");
+        bound.files = files;
+        bound.receiver_key = "frame-1".into();
+        let page = Page::at("https://a.test/form", "p:1", "frame-1");
+        assert_eq!(verify(&bound, &allow(), "{}", &page, &disk, &token()).await, Ok(Some("frame-1".to_owned())));
+        // The receiving frame changed during the wait.
+        *page.receiver.lock().unwrap() = "frame-2".into();
+        assert_eq!(verify(&bound, &allow(), "{}", &page, &disk, &token()).await, Err(ApprovalError::TargetChanged));
+        *page.receiver.lock().unwrap() = "frame-1".into();
+        // A file that changes after approval is refused, whichever fact changed, or is gone.
+        for (size, mtime) in [(6, 100), (5, 101)] {
+            disk.put(ABS, size, mtime);
+            assert_eq!(verify(&bound, &allow(), "{}", &page, &disk, &token()).await, Err(ApprovalError::FileChanged));
+        }
+        disk.0.lock().unwrap().clear();
+        assert_eq!(verify(&bound, &allow(), "{}", &page, &disk, &token()).await, Err(ApprovalError::FileChanged));
+        assert_eq!(ApprovalError::FileChanged.to_string(), "approved upload file changed; nothing was dispatched");
+    }
+    #[tokio::test]
+    async fn an_upload_that_cannot_be_confirmed_stays_bound_to_the_empty_key() {
+        let disk = Disk::default();
+        disk.put(ABS, 5, 100);
+        let mut bound = binding("{}");
+        bound.files = resolve_upload_files(&disk, &[ABS.to_owned()]).await.unwrap();
+        let page = Page::at("https://a.test/form", "p:1", "");
+        assert_eq!(verify(&bound, &allow(), "{}", &page, &disk, &token()).await, Ok(Some(String::new())));
+        *page.receiver.lock().unwrap() = "frame-9".into();
+        assert_eq!(verify(&bound, &allow(), "{}", &page, &disk, &token()).await, Err(ApprovalError::TargetChanged));
+    }
+    #[tokio::test]
+    async fn upload_paths_must_be_one_to_ten_absolute_regular_readable_files() {
+        let disk = Disk::default();
+        disk.put(ABS, 5, 1);
+        let message = |result: Result<Vec<BoundFile>, ApprovalError>| result.unwrap_err().to_string();
+        assert_eq!(message(resolve_upload_files(&disk, &[]).await), "upload requires 1\u{2013}10 approved absolute file paths");
+        let eleven = vec![ABS.to_owned(); 11];
+        assert_eq!(message(resolve_upload_files(&disk, &eleven).await), "upload requires 1\u{2013}10 approved absolute file paths");
+        assert_eq!(message(resolve_upload_files(&disk, &["rel/a.txt".to_owned()]).await), "upload approval requires absolute file paths");
+        let missing = if cfg!(windows) { "C:\\work\\missing.txt" } else { "/work/missing.txt" };
+        assert!(message(resolve_upload_files(&disk, &[missing.to_owned()]).await).starts_with("upload approval cannot read the file"));
+        let dir = if cfg!(windows) { "C:\\work" } else { "/work" };
+        disk.0.lock().unwrap().insert(PathBuf::from(dir), FileFacts { exists: true, is_file: false, canonical: Some(PathBuf::from(dir)), ..FileFacts::default() });
+        assert_eq!(message(resolve_upload_files(&disk, &[dir.to_owned()]).await), "upload approval requires regular files");
+        assert_eq!(resolve_upload_files(&disk, &vec![ABS.to_owned(); 10]).await.unwrap().len(), 10);
+    }
+}
+
+
+/// An upload's real files: 1 to 10 absolute paths of regular files, each bound by its canonical path, size and modification
+/// time. The command is then dispatched with the canonical paths (`BoundFile::path`).
+pub async fn resolve_upload_files(files: &dyn FilePort, paths: &[String]) -> Result<Vec<BoundFile>, ApprovalError> {
+    if paths.is_empty() || paths.len() > MAX_UPLOAD_FILES {
+        return Err(ApprovalError::Invalid("upload requires 1\u{2013}10 approved absolute file paths".to_owned()));
+    }
+    let mut bound = Vec::with_capacity(paths.len());
+    for path in paths {
+        if !mixdog_js::nodepath::is_absolute_host(path) {
+            return Err(ApprovalError::Invalid("upload approval requires absolute file paths".to_owned()));
+        }
+        let facts = files.stat(Path::new(path)).await;
+        let Some(canonical) = facts.canonical.filter(|_| facts.exists) else {
+            return Err(ApprovalError::Invalid(format!("upload approval cannot read the file: {path}")));
+        };
+        if !facts.is_file {
+            return Err(ApprovalError::Invalid("upload approval requires regular files".to_owned()));
+        }
+        bound.push(BoundFile { path: canonical.to_string_lossy().into_owned(), size: facts.size, mtime: facts.modified, realpath: canonical });
+    }
+    Ok(bound)
 }

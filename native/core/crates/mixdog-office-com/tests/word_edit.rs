@@ -201,9 +201,15 @@ fn bare_document(world: &World, build: impl FnOnce(Builder) -> Builder) -> Obj {
 
 #[test]
 fn the_editor_serves_exactly_the_docx_operations_of_the_registry() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join("registry").join("operations.json");
-    let registry: serde_json::Value = serde_json::from_str(&mixdog_testkit::read_string(path)).expect("the registry");
-    let listed: Vec<&str> = registry["operations"]["docx"].as_array().expect("the docx list").iter().map(|name| name.as_str().expect("a name")).collect();
+    let listed = [
+        "add_bookmark", "add_comment", "add_comment_reply", "add_hyperlink", "add_image", "add_note", "add_page_numbers",
+        "add_provenance", "add_table", "append_text", "define_styles", "delete_comment", "delete_table_column",
+        "delete_table_row", "fill_template", "fit_table", "insert_break", "insert_table_column", "insert_table_row",
+        "insert_toc", "merge_table_cells", "move_paragraph", "normalize_runs", "remove_paragraph", "replace_text",
+        "resolve_revision", "resolve_revisions", "set_comment_resolved", "set_content_control", "set_document_font",
+        "set_font", "set_header_footer", "set_list", "set_page", "set_paragraph_format", "set_paragraph_style",
+        "set_paragraph_text", "set_table_cell", "set_table_cell_style", "set_table_style", "track_changes",
+    ];
     assert_eq!(listed.len(), 41);
     assert_eq!(Editor.operation_names(), listed.as_slice());
 }
@@ -605,6 +611,24 @@ fn a_locked_content_control_is_refused_and_an_absent_one_is_named() {
     assert_eq!(operate(&document, r#"{"op":"set_content_control","control":4,"text":"x"}"#).unwrap_err(), "DOCX content control 4 not found");
 }
 
+#[test]
+fn every_scenario_of_the_recorder_is_a_scenario_with_steps() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("scenarios").join("word-edit.json");
+    let spec: serde_json::Value = serde_json::from_str(&mixdog_testkit::read_string(path)).expect("the scenario file");
+    assert_eq!(spec["area"], "word-edit");
+    let scenarios = spec["scenarios"].as_array().expect("scenarios");
+    assert!(scenarios.len() >= 10);
+    for scenario in scenarios {
+        assert!(scenario["id"].is_string() && scenario["steps"].as_array().is_some_and(|steps| !steps.is_empty()), "{scenario}");
+    }
+    // Each of the 41 operations is exercised by some scenario.
+    let text = spec.to_string();
+    for name in Editor.operation_names() {
+        assert!(text.contains(&format!("\"op\":\"{name}\"")), "no scenario runs {name}");
+    }
+}
+
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The recordings of the PowerShell host.
 
@@ -618,25 +642,5 @@ fn every_recorded_word_edit_fixture_is_listed_and_readable() {
         let path = fixtures.join(entry["path"].as_str().expect("a path"));
         let recording: serde_json::Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).expect("a recording");
         assert!(recording["steps"].is_array(), "{}", path.display());
-    }
-}
-
-#[test]
-fn every_scenario_of_the_recorder_is_a_scenario_with_steps() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("scenarios").join("word-edit.json");
-    let spec: serde_json::Value = serde_json::from_str(&mixdog_testkit::read_string(path)).expect("the scenario file");
-    assert_eq!(spec["area"], "word-edit");
-    let scenarios = spec["scenarios"].as_array().expect("scenarios");
-    assert!(scenarios.len() >= 10);
-    for scenario in scenarios {
-        assert!(scenario["id"].is_string() && scenario["steps"].as_array().is_some_and(|steps| !steps.is_empty()), "{scenario}");
-    }
-    // Each of the 41 operations is exercised by some scenario.
-    let text = spec.to_string();
-    let registry = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join("registry").join("operations.json");
-    let registry: serde_json::Value = serde_json::from_str(&mixdog_testkit::read_string(registry)).expect("the registry");
-    for name in registry["operations"]["docx"].as_array().expect("the docx list") {
-        let name = name.as_str().expect("a name");
-        assert!(text.contains(&format!("\"op\":\"{name}\"")), "no scenario runs {name}");
     }
 }

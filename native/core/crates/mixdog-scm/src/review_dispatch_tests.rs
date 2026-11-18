@@ -163,6 +163,28 @@ async fn each_parameter_set_picks_the_read_node_runs() {
     assert_eq!(log.lock().unwrap().len(), 8, "one read each");
 }
 
+#[tokio::test]
+async fn a_review_failure_keeps_the_message_node_threw() {
+    let handle = service(Log::default());
+    let error = get(&handle, json!({ "scope": "turn", "threadId": "t1", "checkpointId": "gone" })).await.unwrap_err();
+    assert_eq!(
+        error,
+        CoreError::DomainError { domain: "turnReview".into(), code: None, message: Some("checkpointId is required".into()), detail: None }
+    );
+}
+
+#[tokio::test]
+async fn a_thread_review_needs_its_thread_and_a_session_review_a_known_one() {
+    let handle = service(Log::default());
+    for params in [json!({ "scope": "turn" }), json!({ "scope": "session" })] {
+        assert!(matches!(get(&handle, params).await, Err(CoreError::InvalidParams { path, .. }) if &*path == "threadId"));
+    }
+    assert!(matches!(
+        get(&handle, json!({ "scope": "session", "threadId": "t2" })).await,
+        Err(CoreError::ThreadNotFound { thread_id }) if thread_id.as_str() == "t2"
+    ));
+}
+
 /// The repository form (`scope: repo`, `gitReview`) over a real repository answers Node's `GitReviewResult` and nothing more:
 /// the harness recorded `{repository, root, base, files, untrackedOmitted}` for `gitReview` (no `key`, which only the thread review
 /// carries for `known`, and no `totals`), and each row is `GitReviewFile`: `path`, `status`, `additions`, `deletions`,
@@ -185,152 +207,111 @@ async fn a_repository_review_has_the_fields_of_nodes_git_review_and_no_key() {
     assert_eq!((untracked["status"].clone(), untracked["additions"].clone(), untracked["deletions"].clone(), untracked["untracked"].clone()), (json!("A"), json!(1), json!(0), json!(true)));
 }
 
-/// Node's `gitReview` recorded over a dirty repository (`fixtures/desktop/git/review.json`, recorder `record-review.mjs`): a modified,
-/// an added (staged), a deleted, a renamed (git's index holds it as a delete and an add: the review reads without renames) and
-/// untracked files, with accent and case pairs in their names. Same repository here, same rows in the same order (`localeCompare`).
-/// Case-only pairs (`b.txt` / `B.txt`) are not in it: the recording ran on NTFS, where they are one file. A row's `revision` is the
-/// work tree's identity, `size:mtimeNs:ctimeNs:ino` or `deleted`: its form is compared, not its numbers.
-#[tokio::test]
-async fn a_dirty_repository_review_matches_the_row_by_row_recording_of_node() {
+
+#[cfg(node_twin)]
+include!("node-twin/review_dispatch_tests.rs");
+
+/// A repository with `base` committed and the worktree left to the test.
+fn review_repo(files: &[(&str, &str)]) -> (tempfile::TempDir, std::path::PathBuf) {
     use crate::golden_tests::git;
-    let recording: Value = serde_json::from_str(include_str!("../../../fixtures/desktop/git/review.json")).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let repo = std::fs::canonicalize(dir.path()).unwrap().join("repo");
-    std::fs::create_dir_all(repo.join("dir")).unwrap();
+    std::fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["config", "core.autocrlf", "false"]);
-    for (name, text) in [("mod.txt", "one\ntwo\nthree\n"), ("del.txt", "gone\nsoon\n"), ("ren.txt", "alpha\nbeta\ngamma\ndelta\n"), ("same.txt", "unchanged\n"), ("dir/inner.txt", "in\n")] {
-        std::fs::write(repo.join(name), text).unwrap();
+    for (name, text) in files {
+        let path = repo.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
     }
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "base"]);
+    (dir, repo)
+}
+
+/// A review over a dirty repository lists a modified, a staged-added, a deleted and a renamed file (the review reads without
+/// renames: a delete and an add), a changed file in a folder, and untracked files, each with its line counts; a deleted file's
+/// revision is `deleted` and any other's is `size:mtimeNs:ctimeNs:ino`.
+#[tokio::test]
+async fn a_dirty_repository_review_lists_every_kind_of_change_with_its_counts() {
+    use crate::golden_tests::git;
+    let (_dir, repo) = review_repo(&[("mod.txt", "one\ntwo\nthree\n"), ("del.txt", "gone\nsoon\n"), ("ren.txt", "alpha\nbeta\ngamma\ndelta\n"), ("same.txt", "unchanged\n"), ("dir/inner.txt", "in\n")]);
     std::fs::write(repo.join("mod.txt"), "one\nTWO\nthree\nfour\n").unwrap();
     std::fs::remove_file(repo.join("del.txt")).unwrap();
     std::fs::write(repo.join("added.txt"), "added\nlines\n").unwrap();
     git(&repo, &["add", "added.txt"]);
     git(&repo, &["mv", "ren.txt", "moved.txt"]);
     std::fs::write(repo.join("dir/inner.txt"), "in\nside\n").unwrap();
-    for (name, text) in recording["untracked"].as_object().unwrap() {
-        std::fs::write(repo.join(name), text.as_str().unwrap()).unwrap();
-    }
+    std::fs::write(repo.join("new.txt"), "untracked\n").unwrap();
 
-    let handle = service(Log::default());
-    let reply = get(&handle, json!({ "scope": "repo", "cwd": repo.to_string_lossy() })).await.unwrap();
-    assert_eq!((reply["repository"].clone(), reply["base"].clone(), reply["untrackedOmitted"].clone()), (recording["repository"].clone(), recording["base"].clone(), recording["untrackedOmitted"].clone()));
-    let (got, want) = (reply["files"].as_array().unwrap(), recording["files"].as_array().unwrap());
-    let paths = |rows: &[Value]| rows.iter().map(|row| row["path"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
-    assert_eq!(paths(got), paths(want), "the rows, in Node's order");
-    for (row, recorded) in got.iter().zip(want) {
-        for field in ["path", "status", "additions", "deletions", "untracked"] {
-            assert_eq!(row[field], recorded[field], "{} {field}", recorded["path"]);
-        }
-        let revision = row["revision"].as_str().unwrap();
-        match recorded["revision"].as_str().unwrap() {
-            "deleted" => assert_eq!(revision, "deleted", "{}", recorded["path"]),
-            _ => assert!(revision.split(':').count() == 4 && revision.split(':').all(|part| part.parse::<u64>().is_ok()), "{}: {revision}", recorded["path"]),
-        }
-    }
-}
-
-/// Node's `gitReview` over more untracked files than `REVIEW_UNTRACKED_LIMIT` (`fixtures/desktop/git/review-cap.json`, recorder
-/// `record-review-cap.mjs`): 295 untracked files and one modified. Node listed the first 256 of git's status order (bytes of the path:
-/// `a.b`, `a/b`, `sub.txt`, `sub/..`, `u000.txt`..`u221.txt`, with `Z-upper.txt` first of all) as rows, left out `u222.txt`..`u259.txt` and
-/// `\u{e9}.txt` (the non-ASCII name sorts last), and said so in `untrackedOmitted` (39); the modified row is not capped. The rows then
-/// follow `localeCompare`.
-#[tokio::test]
-async fn untracked_rows_past_the_limit_are_counted_like_node() {
-    use crate::golden_tests::git;
-    let recording: Value = serde_json::from_str(include_str!("../../../fixtures/desktop/git/review-cap.json")).unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let repo = std::fs::canonicalize(dir.path()).unwrap().join("repo");
-    std::fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "-q", "-b", "main"]);
-    git(&repo, &["config", "core.autocrlf", "false"]);
-    std::fs::write(repo.join("mod.txt"), "one\ntwo\n").unwrap();
-    git(&repo, &["add", "-A"]);
-    git(&repo, &["commit", "-q", "-m", "base"]);
-    std::fs::write(repo.join("mod.txt"), "one\nTWO\nthree\n").unwrap();
-    for name in recording["created"].as_array().unwrap() {
-        let name = name.as_str().unwrap();
-        let path = repo.join(name);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, format!("{name}\n")).unwrap();
-    }
-
-    let handle = service(Log::default());
-    let reply = get(&handle, json!({ "scope": "repo", "cwd": repo.to_string_lossy() })).await.unwrap();
-    assert_eq!(reply["untrackedOmitted"], recording["untrackedOmitted"]);
-    let (got, want) = (reply["files"].as_array().unwrap(), recording["files"].as_array().unwrap());
-    assert_eq!((got.len(), want.len()), (257, 257));
-    for (row, recorded) in got.iter().zip(want) {
-        for field in ["path", "status", "additions", "deletions", "untracked"] {
-            assert_eq!(row[field], recorded[field], "{} {field}", recorded["path"]);
+    let reply = get(&service(Log::default()), json!({ "scope": "repo", "cwd": repo.to_string_lossy() })).await.unwrap();
+    assert_eq!((&reply["repository"], &reply["base"], &reply["untrackedOmitted"]), (&json!(true), &json!("main"), &json!(0)));
+    let rows: Vec<(String, String, u64, u64, bool)> = reply["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| (row["path"].as_str().unwrap().to_owned(), row["status"].as_str().unwrap().to_owned(), row["additions"].as_u64().unwrap(), row["deletions"].as_u64().unwrap(), row["untracked"].as_bool().unwrap()))
+        .collect();
+    let row = |path: &str, status: &str, additions, deletions, untracked| (path.to_owned(), status.to_owned(), additions, deletions, untracked);
+    // Sorted by path, case-insensitively.
+    assert_eq!(
+        rows,
+        [
+            row("added.txt", "A", 2, 0, false),
+            row("del.txt", "D", 0, 2, false),
+            row("dir/inner.txt", "M", 1, 0, false),
+            row("mod.txt", "M", 2, 1, false),
+            row("moved.txt", "A", 4, 0, false),
+            row("new.txt", "A", 1, 0, true),
+            row("ren.txt", "D", 0, 4, false),
+        ]
+    );
+    for file in reply["files"].as_array().unwrap() {
+        let revision = file["revision"].as_str().unwrap();
+        if file["status"] == "D" {
+            assert_eq!(revision, "deleted");
+        } else {
+            assert!(revision.split(':').count() == 4 && revision.split(':').all(|part| part.parse::<u64>().is_ok()), "{}: {revision}", file["path"]);
         }
     }
 }
 
-/// Node's `gitReview` over nested repositories (`fixtures/desktop/git/review-nested.json`, recorder `record-review-nested.mjs`): git lists a
-/// nested repository as one `name/` untracked record (with or without a commit in it), and Node's row for it is
-/// `{path: "inner/", status: "A", additions: 0, deletions: 0, untracked: true}` with the folder's own work-tree identity.
+/// Past 256 untracked files the review lists the first 256 (in git's byte order of paths), counts the rest in `untrackedOmitted`,
+/// and never caps the tracked rows.
 #[tokio::test]
-async fn a_nested_repository_is_the_row_node_lists() {
-    use crate::golden_tests::git;
-    let recording: Value = serde_json::from_str(include_str!("../../../fixtures/desktop/git/review-nested.json")).unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let repo = std::fs::canonicalize(dir.path()).unwrap().join("repo");
-    std::fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "-q", "-b", "main"]);
-    git(&repo, &["config", "core.autocrlf", "false"]);
-    std::fs::write(repo.join("mod.txt"), "one\ntwo\n").unwrap();
-    git(&repo, &["add", "-A"]);
-    git(&repo, &["commit", "-q", "-m", "base"]);
+async fn untracked_rows_past_the_limit_are_counted_not_listed() {
+    let (_dir, repo) = review_repo(&[("mod.txt", "one\ntwo\n")]);
     std::fs::write(repo.join("mod.txt"), "one\nTWO\nthree\n").unwrap();
-    let inner = repo.join("inner");
-    std::fs::create_dir_all(&inner).unwrap();
-    git(&inner, &["init", "-q", "-b", "main"]);
-    git(&inner, &["config", "core.autocrlf", "false"]);
-    std::fs::write(inner.join("a.txt"), "a\nb\n").unwrap();
+    for number in 0..300 {
+        std::fs::write(repo.join(format!("u{number:03}.txt")), "x\n").unwrap();
+    }
+    let reply = get(&service(Log::default()), json!({ "scope": "repo", "cwd": repo.to_string_lossy() })).await.unwrap();
+    assert_eq!(reply["untrackedOmitted"], 44);
+    let paths: Vec<&str> = reply["files"].as_array().unwrap().iter().map(|row| row["path"].as_str().unwrap()).collect();
+    assert_eq!(paths.len(), 257);
+    assert!(paths.contains(&"mod.txt") && paths.contains(&"u255.txt") && !paths.contains(&"u256.txt"));
+}
+
+/// A nested repository (with or without a commit in it) is one untracked row named `folder/`, with no line counts.
+#[tokio::test]
+async fn a_nested_repository_is_one_untracked_folder_row() {
+    use crate::golden_tests::git;
+    let (_dir, repo) = review_repo(&[("mod.txt", "one\ntwo\n")]);
+    let (inner, bare) = (repo.join("inner"), repo.join("zz-bare"));
+    for folder in [&inner, &bare] {
+        std::fs::create_dir_all(folder).unwrap();
+        git(folder, &["init", "-q", "-b", "main"]);
+    }
+    std::fs::write(inner.join("a.txt"), "a\n").unwrap();
     git(&inner, &["add", "-A"]);
     git(&inner, &["commit", "-q", "-m", "inner"]);
-    std::fs::write(inner.join("a.txt"), "a\nb\nc\n").unwrap();
-    let bare = repo.join("zz-bare");
-    std::fs::create_dir_all(&bare).unwrap();
-    git(&bare, &["init", "-q", "-b", "main"]);
     std::fs::write(repo.join("plain.txt"), "plain\n").unwrap();
-
-    let handle = service(Log::default());
-    let reply = get(&handle, json!({ "scope": "repo", "cwd": repo.to_string_lossy() })).await.unwrap();
-    assert_eq!(reply["untrackedOmitted"], recording["untrackedOmitted"]);
-    let (got, want) = (reply["files"].as_array().unwrap(), recording["files"].as_array().unwrap());
-    let paths = |rows: &[Value]| rows.iter().map(|row| row["path"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
-    assert_eq!(paths(got), paths(want), "the rows, in Node's order");
-    for (row, recorded) in got.iter().zip(want) {
-        for field in ["path", "status", "additions", "deletions", "untracked"] {
-            assert_eq!(row[field], recorded[field], "{} {field}", recorded["path"]);
-        }
-        let revision = row["revision"].as_str().unwrap();
-        assert!(revision.split(':').count() == 4 && revision.split(':').all(|part| part.parse::<u64>().is_ok()), "{}: {revision}", recorded["path"]);
-    }
-}
-
-#[tokio::test]
-async fn a_review_failure_keeps_the_message_node_threw() {
-    let handle = service(Log::default());
-    let error = get(&handle, json!({ "scope": "turn", "threadId": "t1", "checkpointId": "gone" })).await.unwrap_err();
-    assert_eq!(
-        error,
-        CoreError::DomainError { domain: "turnReview".into(), code: None, message: Some("checkpointId is required".into()), detail: None }
-    );
-}
-
-#[tokio::test]
-async fn a_thread_review_needs_its_thread_and_a_session_review_a_known_one() {
-    let handle = service(Log::default());
-    for params in [json!({ "scope": "turn" }), json!({ "scope": "session" })] {
-        assert!(matches!(get(&handle, params).await, Err(CoreError::InvalidParams { path, .. }) if &*path == "threadId"));
-    }
-    assert!(matches!(
-        get(&handle, json!({ "scope": "session", "threadId": "t2" })).await,
-        Err(CoreError::ThreadNotFound { thread_id }) if thread_id.as_str() == "t2"
-    ));
+    let reply = get(&service(Log::default()), json!({ "scope": "repo", "cwd": repo.to_string_lossy() })).await.unwrap();
+    let rows: Vec<(&str, &str, u64, u64, bool)> = reply["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| (row["path"].as_str().unwrap(), row["status"].as_str().unwrap(), row["additions"].as_u64().unwrap(), row["deletions"].as_u64().unwrap(), row["untracked"].as_bool().unwrap()))
+        .collect();
+    assert_eq!(rows, [("inner/", "A", 0, 0, true), ("plain.txt", "A", 1, 0, true), ("zz-bare/", "A", 0, 0, true)]);
 }

@@ -3,11 +3,12 @@ import type {
   DesktopModelOption,
   DesktopModelSelection,
   DesktopOrchestrationMode,
+  DesktopStreamPosition,
   SessionSnapshot,
 } from '../shared/contract';
 import { beginBootSurface, holdBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
 import { routePreferenceStore } from './app-route-preference';
-import { useModelSelection } from './use-model-selection';
+import { streamMarkAfterCall, useModelSelection } from './use-model-selection';
 import { publishInheritedOrchestrationMode, useInheritedOrchestrationMode } from './orchestration-mode-store';
 import type { RecordValue } from './desktop-types';
 import { isDesktopProvidersUnavailableError, useDesktopProvidersRetry } from './desktop-provider-retry';
@@ -386,7 +387,6 @@ export const ModelSelector = memo(function ModelSelector({
   modelDisabled,
   tuningDisabled,
   invokeResult,
-  applySnapshot,
   onOpenSettings,
   onDraftSelection,
   onRoutePreferenceApplied,
@@ -484,15 +484,22 @@ export const ModelSelector = memo(function ModelSelector({
   // answers those cases.
   const known = selected || models.find((option) => option.provider === provider && option.model === model);
   const awaitingRoute = !known && !startupCatalogSettled;
-  const autoEffortRoute = useAutoEffortRoute(known?.autoEffortCapable === true, autoEffort, (enabled) =>
-    changeAutoEffort(enabled)
+  const autoEffortRoute = useAutoEffortRoute(
+    known?.autoEffortCapable === true,
+    autoEffort,
+    (enabled) => changeAutoEffort(enabled),
+    known !== undefined
   );
   useEffect(() => {
     reportBootSurfaceStage('model-controls', modelBootKey, 'module');
     if (!awaitingRoute) reportBootSurfaceReady('model-controls', modelBootKey, 'shell');
   }, [awaitingRoute, modelBootKey]);
   const fastCapable = known?.fastCapable ?? sourceFastCapable;
-  const selectedModelParameters = preferredModelParameters(known, modelParameters || {});
+  const preferred = preferredModelParameters(known, modelParameters || {});
+  // No service tier on an active Fast route means priority, even if the catalog remembers Ultrafast.
+  const selectedModelParameters = sessionId && modelOffersUltrafast(known)
+    ? { ...preferred, serviceTier: modelParameters?.serviceTier ?? 'priority' }
+    : preferred;
   const defaultContextWindow = known ? modelContextWindow(known) : 0;
   const maxContextWindow = known ? modelMaxContextWindow(known) : 0;
   const contextDefaultPercent = defaultContextPercent(defaultContextWindow, maxContextWindow);
@@ -641,7 +648,7 @@ export const ModelSelector = memo(function ModelSelector({
     reportBootSurfaceStage('model-controls', modelBootKey, 'data');
   }, [model, modelBootKey, startupCatalogSettled]);
 
-  const route = async (selection: DesktopModelSelection, modelChoice = false) => {
+  const route = async (selection: DesktopModelSelection, modelChoice = false, write = () => window.mixdogDesktop.setModelRoute(selection, sessionId) as Promise<unknown>) => {
     if (modelUnavailable) return false;
     if (onDraftSelection) {
       onDraftSelection(selection);
@@ -649,19 +656,20 @@ export const ModelSelector = memo(function ModelSelector({
     }
     const token = begin(selection);
     latestRouteToken.current = token;
+    let mark: DesktopStreamPosition | null = null;
     let applied = false;
     try {
-      const next = await invokeResult(() => window.mixdogDesktop.setModelRoute(selection, sessionId));
-      if (next) {
-        applied = next.provider === selection.provider && next.model === selection.model;
-        settle(token, next);
+      // The answer only says the write was taken: the value shown is the stream's (useModelSelection).
+      const answered = await invokeResult(write);
+      if (answered !== undefined) {
+        applied = true;
+        mark = await streamMarkAfterCall(sessionId);
         if (latestRouteToken.current === token) {
-          applySnapshot(next);
-          if (applied) onRoutePreferenceApplied?.(selection, modelChoice ? { modelChoice: true } : undefined);
+          onRoutePreferenceApplied?.(selection, modelChoice ? { modelChoice: true } : undefined);
         }
       }
     } finally {
-      if (!applied) settle(token);
+      settle(token, mark);
     }
     return applied;
   };
@@ -733,49 +741,10 @@ export const ModelSelector = memo(function ModelSelector({
       invalidateSharedModelCatalogRequest();
     }
   };
-  const changeFast = async (enabled: boolean) => {
-    if (tuningUnavailable) return;
-    if (onDraftSelection && provider && model) {
-      onDraftSelection({
-        provider,
-        model,
-        ...(effort ? { effort } : {}),
-        fast: enabled,
-        ...autoEffortField,
-        contextPercent: normalizedContextPercent,
-        ...exactContextField,
-      });
-      return;
-    }
-    const token = begin({ provider, model, fast: enabled });
-    latestRouteToken.current = token;
-    let accepted = false;
-    try {
-      const next = await invokeResult(() => window.mixdogDesktop.setFast(enabled, sessionId));
-      if (next !== undefined) {
-        accepted = next?.fast === enabled;
-        settle(token, next);
-        if (latestRouteToken.current === token) applySnapshot(next);
-        if (accepted && provider && model && latestRouteToken.current === token) {
-          onRoutePreferenceApplied?.({
-            provider,
-            model,
-            ...(effort ? { effort } : {}),
-            fast: enabled,
-          });
-        }
-      }
-    } finally {
-      if (!accepted) settle(token);
-    }
-  };
   const changeSpeed = async (speed: RouteSpeed) => {
-    if (!known || !modelOffersUltrafast(known)) {
-      await changeFast(speed !== 'standard');
-      return;
-    }
     if (tuningUnavailable) return;
-    const next = speedRouteFields(speed, selectedModelParameters, true);
+    const offersTier = modelOffersUltrafast(known);
+    const next = speedRouteFields(speed, modelParameters ?? {}, offersTier);
     await route({
       provider,
       model,
@@ -785,7 +754,7 @@ export const ModelSelector = memo(function ModelSelector({
       modelParameters: routeModelParameters(next.modelParameters, maxContextWindow),
       contextPercent: normalizedContextPercent,
       ...exactContextField,
-    });
+    }, false, offersTier ? undefined : () => window.mixdogDesktop.setFast(next.fast, sessionId));
   };
   const changeEffort = async (effort: string) => {
     if (tuningUnavailable) return;
@@ -795,69 +764,22 @@ export const ModelSelector = memo(function ModelSelector({
     // A picked level is explicit: it turns the route's Auto effort off (the
     // runtime's setEffort does the same), or Auto would replace it next turn.
     const pickedAutoEffort = hostRouteAutoEffort() ? { autoEffort: false } : {};
-    if (onDraftSelection && provider && model) {
-      onDraftSelection({
-        provider,
-        model,
-        effort,
-        ...(nextFast === undefined ? {} : { fast: nextFast }),
-        ...pickedAutoEffort,
-        ...routedParameterFields,
-        contextPercent: normalizedContextPercent,
-        ...exactContextField,
-      });
-      return;
-    }
-    if (nextFast === false && displayedFast) {
-      await route({
-        provider,
-        model,
-        effort,
-        fast: false,
-        ...pickedAutoEffort,
-        ...routedParameterFields,
-        contextPercent: normalizedContextPercent,
-        ...exactContextField,
-      });
-      return;
-    }
-    const token = begin({
+    await route({
       provider,
       model,
       effort,
       ...(nextFast === undefined ? {} : { fast: nextFast }),
       ...pickedAutoEffort,
+      modelParameters: routeModelParameters(modelParameters ?? {}, maxContextWindow),
+      contextPercent: normalizedContextPercent,
+      ...exactContextField,
+    }, false, nextFast === false && displayedFast ? undefined : async () => {
+      const result = await window.mixdogDesktop.invokeCapability<string | false>({
+        capability: 'setEffort', args: [effort], ...(sessionId ? { sessionId } : {}),
+      });
+      if (result.value === false) throw new Error(`Effort ${effort} is not available for ${provider}/${model}`);
+      return result;
     });
-    latestRouteToken.current = token;
-    let accepted = false;
-    try {
-      const result = await invokeResult(() =>
-        window.mixdogDesktop.invokeCapability<string | false>({
-          capability: 'setEffort',
-          args: [effort],
-          ...(sessionId ? { sessionId } : {}),
-        })
-      );
-      if (result !== undefined && result.value !== false) {
-        settle(token, result.snapshot);
-        accepted = true;
-        if (latestRouteToken.current === token) {
-          applySnapshot(result.snapshot);
-          onRoutePreferenceApplied?.({
-            provider,
-            model,
-            effort,
-            ...(nextFast === undefined ? {} : { fast: nextFast }),
-            ...pickedAutoEffort,
-            ...routedParameterFields,
-            contextPercent: normalizedContextPercent,
-            ...exactContextField,
-          });
-        }
-      }
-    } finally {
-      if (!accepted) settle(token);
-    }
   };
 
   const changeContext = async (nextContextPercent: number, nextContextTokens?: number) => {

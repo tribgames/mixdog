@@ -18,9 +18,14 @@ use tokio::sync::Notify;
 use super::chain::RouteFacts;
 use super::model_list::ModelListService;
 use super::model_list_tests::Offline;
-use super::route_service::{FastValue, LiveControls, RouteService, SessionFollow, SetRouteOptions};
+use super::route_service::{LiveControls, RouteService, SessionFollow};
+#[cfg(node_twin)]
+use super::route_service::SetRouteOptions;
+#[cfg(node_twin)]
+use super::route_service::FastValue;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelSource, ModelsDevSource};
 use mixdog_ai::oauth::CredentialIo;
+#[cfg(node_twin)]
 use mixdog_ai::service::admin_models::developer_option_for_provider;
 use mixdog_ai::service::effort_configuration::UnsupportedEfforts;
 use mixdog_core_config::config::Config;
@@ -40,10 +45,6 @@ impl LiveControls for Controls {
             sync(&thread);
         }
     }
-}
-
-fn twin() -> Value {
-    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/route-service-twin.json")).unwrap()
 }
 
 const KNOWN: [&str; 5] = ["openai", "openai-oauth", "anthropic", "anthropic-oauth", "gemini"];
@@ -179,6 +180,7 @@ fn obj(v: &Value) -> Obj {
     v.as_object().cloned().unwrap_or_default()
 }
 
+#[cfg(node_twin)]
 fn subset(doc: &Obj) -> Value {
     Value::Object(["default", "presets", "modelSettings"].iter().filter_map(|k| doc.get(*k).map(|v| ((*k).to_owned(), v.clone()))).collect())
 }
@@ -217,6 +219,7 @@ pub(super) async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<L
     (service, writer, log, dir)
 }
 
+#[cfg(node_twin)]
 fn options(case: &Value) -> SetRouteOptions {
     let o = &case["options"];
     SetRouteOptions {
@@ -226,49 +229,6 @@ fn options(case: &Value) -> SetRouteOptions {
         validate_only: o["validateOnly"] == json!(true),
         follow: FollowOptions::default(),
     }
-}
-
-/// A default route with no model is refused before a thread exists, with the text Node's
-/// `resolveMissingRouteModelForFirstTurn` throws (`fixtures/ai-admin/route-model-refusals.json`,
-/// extracted from the Node source). Which text follows what Node's `collectProviderModels()`
-/// answered over the recorded catalogs (`fixtures/ai-admin/model-list-service-twin.json`, Node's
-/// real read): no row means "No provider models available", including a catalog whose providers
-/// are all unavailable; any row means "No model selected". A route with a model is readied.
-#[tokio::test]
-async fn a_default_route_with_no_model_is_refused_with_the_texts_node_throws() {
-    let thread = ThreadId::from("t");
-    let refusals: Value = serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/route-model-refusals.json")).unwrap();
-    let recorded: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/model-list-service-twin.json")).unwrap();
-    // Catalogs whose every listed model sits under a Developer-gated provider (recorded with the
-    // option off, so none is available) and catalogs Node answered rows for.
-    let (mut unavailable, mut listed) = (0, 0);
-    for (i, recording) in recorded["cases"].as_array().unwrap().iter().enumerate() {
-        if matches!(recording["read"].as_str(), Some("force" | "warm-quick")) {
-            continue;
-        }
-        let rows = recording["value"].as_array().unwrap().len();
-        let providers_with_models: Vec<&str> =
-            recording["snapshot"]["models"].as_object().unwrap().iter().filter(|(_, models)| !models.as_array().unwrap().is_empty()).map(|(name, _)| name.as_str()).collect();
-        let in_catalog = providers_with_models.len();
-        let case = json!({ "config": recording["config"], "snapshot": recording["snapshot"], "live": { "provider": "anthropic-oauth", "model": "" } });
-        let (service, _writer, log, _dir) = rig(&case).await;
-        let refused = service.ready_default(&thread).await.expect_err("a model-less route is refused");
-        let text = if rows == 0 { "noProviderModels" } else { "noModelSelected" };
-        assert_eq!(refused, refusals[text].as_str().unwrap(), "case {i}: {rows} rows, models under {in_catalog} providers");
-        assert!(log.lock().unwrap().refreshes.is_empty(), "nothing is readied for it");
-        let gated_only = in_catalog > 0 && recording["config"]["developer"].is_null() && providers_with_models.iter().all(|name| developer_option_for_provider(name).is_some());
-        if rows == 0 && gated_only {
-            unavailable += 1;
-        }
-        if rows > 0 {
-            listed += 1;
-        }
-    }
-    assert!(unavailable > 0 && listed > 0, "the recording covers catalog models with no provider available ({unavailable}) and the reverse ({listed})");
-    let case = json!({ "config": {}, "live": { "provider": "anthropic-oauth", "model": "claude-x" } });
-    let (service, _writer, log, _dir) = rig(&case).await;
-    service.ready_default(&thread).await.expect("a route with a model is readied");
-    assert_eq!(log.lock().unwrap().refreshes.len(), 1);
 }
 
 /// A provider listing held open by the test: it says it was asked, then answers nothing once released.
@@ -323,6 +283,87 @@ async fn a_model_chosen_while_the_catalog_is_read_is_taken_not_refused() {
     assert!(refused.starts_with("No provider models available"), "{refused}");
 }
 
+
+struct Lists(Vec<ModelRecord>);
+
+#[async_trait]
+impl ModelListing for Lists {
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        Ok(self.0.clone())
+    }
+}
+
+/// A default route with no model is refused before a thread exists: "No provider models available" when the catalog lists none
+/// (the first test above), "No model selected" when it lists some and the route names none.
+#[tokio::test]
+async fn a_default_route_with_no_model_is_told_to_choose_one_when_the_catalog_lists_models() {
+    let thread = ThreadId::from("t");
+    let case = json!({ "config": {}, "live": { "provider": "anthropic-oauth", "model": "" } });
+    let (mut service, _writer, log, dir) = rig(&case).await;
+    let tokens = mixdog_rt::testing::tokens();
+    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let record = mixdog_ai::providers::openai::models::codex_record(&json!({ "slug": "gpt-5-codex", "display_name": "GPT 5" })).unwrap();
+    let source = ModelSource::new(serde_json::from_value(json!("openai-oauth")).unwrap(), Arc::new(Lists(vec![record])));
+    let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), vec![source], ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io)).await);
+    service.models = Arc::new(ModelListService {
+        catalog,
+        config: service.config.clone(),
+        primary_provider: Arc::new(String::new),
+        unsupported: Arc::new(UnsupportedEfforts::default()),
+        host: None,
+    });
+    let refused = service.ready_default(&thread).await.expect_err("a model-less route is refused");
+    assert_eq!(refused, "No model selected. Choose a model with /model first.");
+    assert!(log.lock().unwrap().refreshes.is_empty(), "nothing is readied for it");
+}
+#[cfg(node_twin)]
+fn twin() -> Value {
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/route-service-twin.json")).unwrap()
+}
+/// A default route with no model is refused before a thread exists, with the text Node's
+/// `resolveMissingRouteModelForFirstTurn` throws (`fixtures/ai-admin/route-model-refusals.json`,
+/// extracted from the Node source). Which text follows what Node's `collectProviderModels()`
+/// answered over the recorded catalogs (`fixtures/ai-admin/model-list-service-twin.json`, Node's
+/// real read): no row means "No provider models available", including a catalog whose providers
+/// are all unavailable; any row means "No model selected". A route with a model is readied.
+#[cfg(node_twin)]
+#[tokio::test]
+async fn a_default_route_with_no_model_is_refused_with_the_texts_node_throws() {
+    let thread = ThreadId::from("t");
+    let refusals: Value = serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/route-model-refusals.json")).unwrap();
+    let recorded: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/ai-admin/model-list-service-twin.json")).unwrap();
+    // Catalogs whose every listed model sits under a Developer-gated provider (recorded with the
+    // option off, so none is available) and catalogs Node answered rows for.
+    let (mut unavailable, mut listed) = (0, 0);
+    for (i, recording) in recorded["cases"].as_array().unwrap().iter().enumerate() {
+        if matches!(recording["read"].as_str(), Some("force" | "warm-quick")) {
+            continue;
+        }
+        let rows = recording["value"].as_array().unwrap().len();
+        let providers_with_models: Vec<&str> =
+            recording["snapshot"]["models"].as_object().unwrap().iter().filter(|(_, models)| !models.as_array().unwrap().is_empty()).map(|(name, _)| name.as_str()).collect();
+        let in_catalog = providers_with_models.len();
+        let case = json!({ "config": recording["config"], "snapshot": recording["snapshot"], "live": { "provider": "anthropic-oauth", "model": "" } });
+        let (service, _writer, log, _dir) = rig(&case).await;
+        let refused = service.ready_default(&thread).await.expect_err("a model-less route is refused");
+        let text = if rows == 0 { "noProviderModels" } else { "noModelSelected" };
+        assert_eq!(refused, refusals[text].as_str().unwrap(), "case {i}: {rows} rows, models under {in_catalog} providers");
+        assert!(log.lock().unwrap().refreshes.is_empty(), "nothing is readied for it");
+        let gated_only = in_catalog > 0 && recording["config"]["developer"].is_null() && providers_with_models.iter().all(|name| developer_option_for_provider(name).is_some());
+        if rows == 0 && gated_only {
+            unavailable += 1;
+        }
+        if rows > 0 {
+            listed += 1;
+        }
+    }
+    assert!(unavailable > 0 && listed > 0, "the recording covers catalog models with no provider available ({unavailable}) and the reverse ({listed})");
+    let case = json!({ "config": {}, "live": { "provider": "anthropic-oauth", "model": "claude-x" } });
+    let (service, _writer, log, _dir) = rig(&case).await;
+    service.ready_default(&thread).await.expect("a route with a model is readied");
+    assert_eq!(log.lock().unwrap().refreshes.len(), 1);
+}
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_adoption_effects_match_node() {
     let thread = ThreadId::from("t");
@@ -373,14 +414,14 @@ async fn the_adoption_effects_match_node() {
         assert_eq!(log.switches, u32::from(continued), "{label} switches");
     }
 }
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn an_addressed_selection_follows_under_the_lease_it_was_opened_with() {
     let case = twin()["cases"].as_array().unwrap().iter().find(|c| c["kind"] == "setRoute" && c.get("error").is_none() && c["options"] == json!({}) && c["request"]["model"].is_string()).unwrap().clone();
     let thread = ThreadId::from("t");
     let (service, _writer, log, _dir) = rig(&case).await;
     let opts = SetRouteOptions {
-        follow: FollowOptions { switch_established: true, defer_until_next_turn: false, apply_to_current_session: false, lease: Some(0) },
+        follow: FollowOptions { switch_established: true, lease: Some(0), ..FollowOptions::default() },
         ..SetRouteOptions::default()
     };
     service.set_route(&thread, &obj(&case["request"]), &opts).await.unwrap();
@@ -388,11 +429,11 @@ async fn an_addressed_selection_follows_under_the_lease_it_was_opened_with() {
     assert_eq!(follows.len(), 1);
     assert!(follows[0].switch_established && follows[0].lease == Some(0));
 }
-
 /// The desktop's control session is created before any model is chosen, so its route has none. Its readying
 /// (`ready_control`, which `NewThreadRoute::adopt_control` answers the route of) gives it the route the config resolves to,
 /// as Node's `syncEmptyMainRoute` does at a config adoption; the sessionless `setFast` then acts on that route and is
 /// refused with the text Node throws for it (`fixtures/control-route/control-route-twin.json`, Node's real code).
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_control_route_is_the_one_node_syncs_and_set_fast_is_refused_on_it_as_node_refuses() {
     let thread = ThreadId::from("control");

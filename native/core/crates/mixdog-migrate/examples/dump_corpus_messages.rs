@@ -71,7 +71,7 @@ fn main() {
     let out = std::env::var_os("MIXDOG_RESTORE_DUMP").expect("MIXDOG_RESTORE_DUMP names the dump file");
     let corpus = std::env::var_os("MIXDOG_MIGRATION_CORPUS")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\Users\tempe\.mixdog\data\scratch\rust-core\migration-corpus"));
+        .expect("MIXDOG_MIGRATION_CORPUS names the migration corpus");
     let mut dump = serde_json::Map::new();
     let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
     let office = OfficeExtractor { docs: Arc::new(NoDocuments), runtime: runtime.handle().clone() };

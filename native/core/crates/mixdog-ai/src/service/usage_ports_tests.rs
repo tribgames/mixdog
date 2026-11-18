@@ -11,6 +11,7 @@ use mixdog_core_api::domain::provider::TransportFault;
 
 use super::super::oauth_usage::QuotaHistory;
 use super::super::oauth_usage::QuotaSample;
+#[cfg(node_twin)]
 use super::super::oauth_usage::RouteInfo;
 use super::super::oauth_usage::UsageDeps;
 use super::*;
@@ -20,7 +21,8 @@ use crate::service::oauth_usage::OAuthUsage;
 use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 
-const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/usage-ports/usage-ports-twin.json");
+#[path = "usage_provider_reads_tests.rs"]
+mod provider_reads;
 
 struct Body(Option<Bytes>);
 
@@ -129,6 +131,7 @@ impl Environment for Vars {
     }
 }
 
+#[cfg(node_twin)]
 struct Rig {
     usage: Arc<OAuthUsage>,
     net: Arc<Net>,
@@ -136,6 +139,32 @@ struct Rig {
     _dir: tempfile::TempDir,
 }
 
+#[tokio::test]
+async fn a_refusal_of_the_transport_reads_as_nodes_fetch_failed_or_timeout() {
+    /// Refuses with the message the link gives for the exchange's surface, or with none of the link's (a route the
+    /// proxy policy could not decide: no typed fault).
+    struct Refusing(Option<TransportFault>);
+
+    #[async_trait]
+    impl HttpSend for Refusing {
+        async fn send(&self, _: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
+            let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Ambiguous);
+            error.message = "no route".to_owned();
+            if let Some(fault) = &self.0 {
+                error.transport = Some(fault.clone());
+                error.message = exchange.surface.timeout_text(Duration::from_secs(1)).unwrap();
+            }
+            Err(error)
+        }
+    }
+
+    let http: Arc<dyn HttpSend> = Arc::new(Refusing(None));
+    // No typed fault: Node's `fetch failed`.
+    let undecided = RoutedUsageHttp::new(http).get("https://x.test/a", &[], Duration::from_secs(1)).await.err().unwrap();
+    assert_eq!((undecided.message.as_str(), undecided.status), ("fetch failed", None));
+}
+
+#[cfg(node_twin)]
 fn rig(flow: &Value) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
@@ -156,7 +185,7 @@ fn rig(flow: &Value) -> Rig {
     });
     Rig { usage, net, history, _dir: dir }
 }
-
+#[cfg(node_twin)]
 fn assert_wire(at: &str, rig: &Rig, flow: &Value) {
     let seen = rig.net.seen.lock().unwrap();
     let exchanges = rig.net.exchanges.lock().unwrap();
@@ -173,7 +202,121 @@ fn assert_wire(at: &str, rig: &Rig, flow: &Value) {
         assert_eq!(exchanges[i].liveness.total_deadline(), Some(Duration::from_millis(want["timeoutMs"].as_u64().unwrap())), "{at} #{i} timeout");
     }
 }
+#[tokio::test]
+async fn a_provider_without_a_signed_in_credential_fails_and_one_without_usage_is_left_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    let source = ProviderUsageSource::new(store, Net::from(&json!([])));
+    for provider in ["openai-oauth", "anthropic-oauth", "grok-oauth"] {
+        assert!(source.ensure_auth(provider, "default", false).await.is_err(), "{provider}");
+    }
+    assert!(source.ensure_auth("cursor-oauth", "default", false).await.unwrap().is_none());
+    assert!(source.provider_snapshot("cursor-oauth", "default").await.is_err());
+}
 
+#[tokio::test]
+async fn anthropic_usage_refresh_uses_the_daemons_claude_client_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let store = AccountStore::new(dir.path().to_path_buf(), io);
+    store.credential_file("anthropic-oauth", "default").unwrap().save(&json!({
+        "claudeAiOauth": {
+            "accessToken": "fixture-before-refresh",
+            "refreshToken": "fixture-refresh",
+            "scopes": ["user:inference"]
+        }
+    })).await.unwrap();
+    let net = Net::from(&json!([{
+        "url": "https://platform.claude.com/v1/oauth/token",
+        "body": {"access_token": "fixture-after-refresh", "expires_in": 3600}
+    }]));
+    let env = Vars(HashMap::from([("MIXDOG_CLI_VERSION".to_owned(), "2.9.120".to_owned())]));
+    let versions = ClientVersions::new(net.clone(), dir.path().to_path_buf(), io, Arc::new(env));
+    let source = ProviderUsageSource::new(store, net.clone()).with_versions(versions);
+    let auth = source.ensure_auth("anthropic-oauth", "default", true).await.unwrap().unwrap();
+    assert_eq!(auth["accessToken"], "fixture-after-refresh");
+    let seen = net.seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].method, "POST");
+    assert!(seen[0].headers.iter().any(|(name, value)|
+        name.eq_ignore_ascii_case("user-agent") && value == "claude-cli/2.9.120 (external, sdk-cli)"
+    ));
+}
+
+#[tokio::test]
+async fn cursor_api_plan_read_exchanges_the_configured_key_without_a_registered_adapter() {
+    use crate::providers::cursor::{API_URL, auth::EXCHANGE_URL};
+    use crate::registry::keys::MemoryVault;
+
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    let net = Net::from(&json!([
+        {"url": EXCHANGE_URL, "body": {"accessToken": "fixture-cursor-bearer"}},
+        {"url": format!("{API_URL}{}", usage_cursor::USAGE_PATH), "body": ""},
+        {"url": format!("{API_URL}{}", usage_cursor::PLAN_PATH), "body": ""}
+    ]));
+    let keys = ApiKeyStore::new(Arc::new(MemoryVault::default()), Arc::new(Vars(HashMap::new())), false);
+    let source = ProviderUsageSource::new(store, net.clone()).with_cursor_api(keys, Arc::new(|| KeyConfig {
+        api_key: Some("fixture-cursor-key".into()), api_key_env: None,
+    }));
+    let reading = source.provider_snapshot("cursor-api", "default").await.unwrap().unwrap();
+    assert_eq!(reading["provider"], "cursor-api");
+    let seen = net.seen.lock().unwrap();
+    assert_eq!(seen.len(), 3);
+    for (idx, expected) in ["Bearer fixture-cursor-key", "Bearer fixture-cursor-bearer", "Bearer fixture-cursor-bearer"].into_iter().enumerate() {
+        assert!(seen[idx].headers.iter().any(|(name, value)| name.eq_ignore_ascii_case("authorization") && value == expected));
+    }
+}
+
+/// An OAuth usage read that is never answered ends 4.5 s in with the text of a timed-out signal.
+#[tokio::test(start_paused = true)]
+async fn an_oauth_usage_read_ends_after_four_and_a_half_seconds_when_never_answered() {
+    use crate::transport::site_probe::TimingOut;
+
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let transport = TimingOut::new();
+    let versions = ClientVersions::new(Net::from(&json!([])), dir.path().to_path_buf(), io(), Arc::new(Vars(HashMap::new())));
+    let usage = OAuthUsage::new(UsageDeps {
+        http: Arc::new(RoutedUsageHttp::new(transport.clone())),
+        source: Arc::new(Flow { auth: json!({ "access_token": "a", "account_id": "x" }), forced: Value::Null, refreshed: Mutex::new(false) }),
+        grok: Arc::new(GrokVersionHeaders::new(versions)),
+        history: Arc::new(History::default()),
+        store: AccountStore::new(dir.path().to_path_buf(), io()),
+        io: io(),
+        log: Arc::new(|_| {}),
+        data_dir: dir.path().join("data"),
+    });
+    let error = usage.fetch_codex_reset_credits("default").await.err().expect("never answers");
+    let seen = transport.seen();
+    assert_eq!(seen[0].after, std::time::Duration::from_millis(4500));
+    let text = "The operation was aborted due to timeout";
+    assert_eq!((seen[0].text.as_str(), error.message.as_str()), (text, text));
+}
+/// The OpenCode Go status read is a bare abort timer: it ends 6.5 s in with the text of an aborted request.
+#[tokio::test(start_paused = true)]
+async fn the_opencode_go_status_read_ends_after_six_and_a_half_seconds_when_never_answered() {
+    use crate::transport::site_probe::TimingOut;
+
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    let transport = TimingOut::new();
+    let source = ProviderUsageSource::new(store, transport.clone());
+    let credentials = serde_json::from_value(json!({ "access_token": "a", "refresh_token": "r", "org_id": "o" })).unwrap();
+    let error = source.opencode_status(&credentials).await.expect_err("never answers");
+    let seen = transport.seen();
+    assert_eq!(seen[0].after, std::time::Duration::from_millis(6500));
+    assert_eq!((seen[0].text.as_str(), error.message.as_str()), ("This operation was aborted", "This operation was aborted"));
+}
+
+#[cfg(node_twin)]
+const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/usage-ports/usage-ports-twin.json");
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_usage_fetch_puts_nodes_requests_on_the_wire_and_hands_nodes_samples_to_the_history() {
     let twin: Value = serde_json::from_str(&TWIN).unwrap();
@@ -208,7 +351,7 @@ async fn the_usage_fetch_puts_nodes_requests_on_the_wire_and_hands_nodes_samples
     }
     assert!(reads >= 15);
 }
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn a_redeem_posts_nodes_body_with_nodes_headers_and_replays_once() {
     let twin: Value = serde_json::from_str(&TWIN).unwrap();
@@ -227,87 +370,4 @@ async fn a_redeem_posts_nodes_body_with_nodes_headers_and_replays_once() {
             (other, _) => panic!("{at}: {other:?}"),
         }
     }
-}
-
-#[tokio::test]
-async fn a_refusal_of_the_transport_reads_as_nodes_fetch_failed_or_timeout() {
-    /// Refuses with the message the link gives for the exchange's surface, or with none of the link's (a route the
-    /// proxy policy could not decide: no typed fault).
-    struct Refusing(Option<TransportFault>);
-
-    #[async_trait]
-    impl HttpSend for Refusing {
-        async fn send(&self, _: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
-            let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Ambiguous);
-            error.message = "no route".to_owned();
-            if let Some(fault) = &self.0 {
-                error.transport = Some(fault.clone());
-                error.message = exchange.surface.timeout_text(Duration::from_secs(1)).unwrap();
-            }
-            Err(error)
-        }
-    }
-
-    let http: Arc<dyn HttpSend> = Arc::new(Refusing(None));
-    // No typed fault: Node's `fetch failed`.
-    let undecided = RoutedUsageHttp::new(http).get("https://x.test/a", &[], Duration::from_secs(1)).await.err().unwrap();
-    assert_eq!((undecided.message.as_str(), undecided.status), ("fetch failed", None));
-}
-
-/// The OAuth usage reads are `AbortSignal.timeout` fetches (`sites.oauthUsage`, `oauth-usage.mjs:247`): the read ends at
-/// Node's window with the signal's own text.
-#[tokio::test(start_paused = true)]
-async fn an_oauth_usage_read_ends_as_nodes_does_when_its_timer_fires() {
-    use crate::transport::site_probe::TimingOut;
-    use crate::transport::site_probe::assert_thrown;
-    use crate::transport::site_probe::assert_transport;
-
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-    let transport = TimingOut::new();
-    let versions = ClientVersions::new(Net::from(&json!([])), dir.path().to_path_buf(), io(), Arc::new(Vars(HashMap::new())));
-    let usage = OAuthUsage::new(UsageDeps {
-        http: Arc::new(RoutedUsageHttp::new(transport.clone())),
-        source: Arc::new(Flow { auth: json!({ "access_token": "a", "account_id": "x" }), forced: Value::Null, refreshed: Mutex::new(false) }),
-        grok: Arc::new(GrokVersionHeaders::new(versions)),
-        history: Arc::new(History::default()),
-        store: AccountStore::new(dir.path().to_path_buf(), io()),
-        io: io(),
-        log: Arc::new(|_| {}),
-        data_dir: dir.path().join("data"),
-    });
-    let error = usage.fetch_codex_reset_credits("default").await.err().expect("never answers");
-    assert_transport("oauthUsage", &transport);
-    assert_thrown("oauthUsage", &error.message);
-}
-/// The OpenCode Go status read is a bare `AbortController` timer (`sites.opencodeGoUsage`).
-#[tokio::test(start_paused = true)]
-async fn the_opencode_go_status_read_ends_as_nodes_does_when_its_timer_fires() {
-    use crate::transport::site_probe::TimingOut;
-    use crate::transport::site_probe::assert_thrown;
-    use crate::transport::site_probe::assert_transport;
-
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
-    let transport = TimingOut::new();
-    let source = ProviderUsageSource::new(store, transport.clone());
-    let credentials = serde_json::from_value(json!({ "access_token": "a", "refresh_token": "r", "org_id": "o" })).unwrap();
-    let error = source.opencode_status(&credentials).await.expect_err("never answers");
-    assert_transport("opencodeGoUsage", &transport);
-    assert_thrown("opencodeGoUsage", &error.message);
-}
-
-#[tokio::test]
-async fn a_provider_without_a_signed_in_credential_fails_and_one_without_usage_is_left_alone() {
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
-    let source = ProviderUsageSource::new(store, Net::from(&json!([])));
-    for provider in ["openai-oauth", "anthropic-oauth", "grok-oauth"] {
-        assert!(source.ensure_auth(provider, "default", false).await.is_err(), "{provider}");
-    }
-    assert!(source.ensure_auth("cursor-oauth", "default", false).await.unwrap().is_none());
-    assert!(source.provider_snapshot("cursor-oauth", "default").await.is_err());
 }

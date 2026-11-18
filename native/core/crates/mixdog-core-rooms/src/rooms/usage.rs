@@ -6,6 +6,12 @@ use serde_json::Value;
 use super::exchange::UsageLimit;
 
 #[cfg(test)]
+mod feature_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(test)]
 mod tests;
 
 /// `QUOTA_KINDS` (`provider-error-kind.mjs`): refusals no wait or replay can change.

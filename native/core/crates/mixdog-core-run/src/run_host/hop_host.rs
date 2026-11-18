@@ -30,7 +30,7 @@ use serde_json::{json, Value};
 use super::model_display::display_model_name;
 use super::route_chain::BotRoutes;
 use mixdog_core_ports::ports::domain_sessions::Obj;
-use super::route_fallback::{HopHost, HopWrite};
+use super::route_fallback::{HopHost, HopWrite, RouteEligibility};
 use super::session_context_meta::session_context_meta;
 
 /// The session side of a hop, bound to one thread. Owner: WP-SESSION.
@@ -78,27 +78,64 @@ pub struct HopDeps {
     pub wiring: Arc<dyn HopWiring>,
 }
 
+/// Whether a route can be sent on now. Owner: the quota, admission and dispatch layer, which holds the accounts,
+/// credentials and quota readings; the hop asks it and keeps none of that evidence itself.
+#[async_trait]
+pub trait RouteEligibilitySource: Send + Sync {
+    async fn eligibility(&self, provider: &str, model: &str) -> RouteEligibility;
+}
+
+/// Read the same adapter and account selection policy that would send the route. A cold or
+/// superseded registration is not evidence about the configured destination.
+pub struct RegistryEligibility(pub Arc<ProviderRegistry>);
+
+#[async_trait]
+impl RouteEligibilitySource for RegistryEligibility {
+    async fn eligibility(&self, provider: &str, model: &str) -> RouteEligibility {
+        let Some(adapter) = self.0.registered_for_route(provider) else {
+            return RouteEligibility::Unknown;
+        };
+        let verdict = adapter.quota_eligibility(model).await;
+        if !self.0.registered_for_route(provider).is_some_and(|current| Arc::ptr_eq(&current, &adapter)) {
+            return RouteEligibility::Unknown;
+        }
+        match verdict {
+            Some(true) => RouteEligibility::Eligible,
+            Some(false) => RouteEligibility::Exhausted,
+            None => RouteEligibility::Unknown,
+        }
+    }
+}
+
 /// `SessionSeams::hop_host`.
 pub struct HopFactory {
     deps: HopDeps,
     sessions: Arc<dyn HopSessions>,
+    eligibility: Option<Arc<dyn RouteEligibilitySource>>,
 }
 
 impl HopFactory {
     pub fn new(deps: HopDeps, sessions: Arc<dyn HopSessions>) -> Self {
-        Self { deps, sessions }
+        Self { deps, sessions, eligibility: None }
+    }
+
+    /// The source of route eligibility the hops of this factory ask; without one a hop reconsiders nothing.
+    pub fn with_eligibility(mut self, source: Arc<dyn RouteEligibilitySource>) -> Self {
+        self.eligibility = Some(source);
+        self
     }
 
     /// The hop host of `thread`; `None` when the thread has no open session.
     pub fn hop_host(&self, thread: &ThreadId, _header: &Header) -> Option<Arc<dyn HopHost>> {
         let session = self.sessions.open(thread)?;
-        Some(Arc::new(RegistryHopHost { deps: self.deps.clone(), session }))
+        Some(Arc::new(RegistryHopHost { deps: self.deps.clone(), session, eligibility: self.eligibility.clone() }))
     }
 }
 
 pub struct RegistryHopHost {
     deps: HopDeps,
     session: Arc<dyn HopSession>,
+    eligibility: Option<Arc<dyn RouteEligibilitySource>>,
 }
 
 fn text(value: Option<&Value>) -> String {
@@ -170,6 +207,13 @@ pub async fn resolve_pin(adapter: &dyn ProviderAdapter, current: Option<&Value>,
 
 #[async_trait]
 impl HopHost for RegistryHopHost {
+    async fn route_eligibility(&self, route: &Value) -> RouteEligibility {
+        match &self.eligibility {
+            Some(source) => source.eligibility(&text(route.get("provider")), &text(route.get("model"))).await,
+            None => RouteEligibility::Unknown,
+        }
+    }
+
     fn session(&self) -> Option<Value> {
         self.session.header().map(|h| Value::Object((*h).clone()))
     }

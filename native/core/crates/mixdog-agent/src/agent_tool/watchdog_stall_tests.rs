@@ -1,39 +1,6 @@
-use serde_json::Value;
-
 use super::AgentKind;
 use super::stall_first_byte_abort_s;
 use super::stall_warn_ms;
-
-const GOLDEN: &str = include_str!("../../../../fixtures/stall-thresholds/golden.json");
-
-#[test]
-fn the_stall_warn_deadline_is_the_one_node_resolves() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-    for case in golden["cases"].as_array().unwrap() {
-        let variable = case["env"].as_str().map(str::to_owned);
-        let env = move |name: &str| if name == "STALL_TIMEOUT_S" { variable.clone() } else { None };
-        for row in case["rows"].as_array().unwrap() {
-            let agent = row["agent"].as_str().filter(|a| !a.is_empty());
-            let kind = AgentKind { name: agent, hidden: row["hidden"] == true, stall_cap_idle_seconds: row["stallCapIdleSeconds"].as_i64() };
-            let want = row["warn"].as_i64().unwrap() * 1000;
-            assert_eq!(stall_warn_ms(kind, &env), want, "STALL_TIMEOUT_S={} agent={}", case["env"], row["agent"]);
-        }
-    }
-}
-
-#[test]
-fn the_first_byte_abort_is_the_one_node_resolves() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-    for case in golden["cases"].as_array().unwrap() {
-        let variable = case["env"].as_str().map(str::to_owned);
-        let env = move |name: &str| if name == "STALL_TIMEOUT_S" { variable.clone() } else { None };
-        for row in case["rows"].as_array().unwrap() {
-            let agent = row["agent"].as_str().filter(|a| !a.is_empty());
-            let kind = AgentKind { name: agent, hidden: row["hidden"] == true, stall_cap_idle_seconds: row["stallCapIdleSeconds"].as_i64() };
-            assert_eq!(stall_first_byte_abort_s(kind, &env), row["firstByteAbort"].as_i64().unwrap(), "STALL_TIMEOUT_S={} agent={}", case["env"], row["agent"]);
-        }
-    }
-}
 
 #[test]
 fn the_first_byte_abort_variable_moves_the_window_within_its_bounds() {
@@ -49,4 +16,29 @@ fn the_first_byte_abort_variable_moves_the_window_within_its_bounds() {
     let worker = AgentKind { name: Some("worker"), ..AgentKind::default() };
     assert_eq!(stall_first_byte_abort_s(worker, &with("600")), 300);
     assert_eq!(stall_first_byte_abort_s(worker, &with("90")), 90);
+}
+
+
+#[test]
+fn the_stall_deadline_is_the_variable_when_positive_else_the_hidden_agents_cap_else_600() {
+    let none = |_: &str| None;
+    let with = |raw: &'static str| move |name: &str| (name == "STALL_TIMEOUT_S").then(|| raw.to_owned());
+    let plain = AgentKind { name: Some("nobody-special"), ..AgentKind::default() };
+    assert_eq!(stall_warn_ms(plain, &none), 600_000);
+    assert_eq!(stall_warn_ms(plain, &with("45")), 45_000);
+    for bad in ["0", "-3", "soon", ""] {
+        assert_eq!(stall_warn_ms(plain, &with(bad)), 600_000, "STALL_TIMEOUT_S={bad:?}");
+    }
+    let capped = AgentKind { name: Some("nobody-special"), hidden: true, stall_cap_idle_seconds: Some(90) };
+    assert_eq!(stall_warn_ms(capped, &none), 90_000);
+    assert_eq!(stall_warn_ms(capped, &with("45")), 45_000, "the variable outranks the cap");
+    let zero_cap = AgentKind { stall_cap_idle_seconds: Some(0), ..capped };
+    assert_eq!(stall_warn_ms(zero_cap, &none), 600_000, "a zero cap is no cap");
+}
+
+#[test]
+fn the_first_byte_abort_never_outlasts_the_agents_own_abort_deadline() {
+    let env = |name: &str| (name == "STALL_TIMEOUT_S").then(|| "60".to_owned());
+    let agent = AgentKind { name: Some("nobody-special"), ..AgentKind::default() };
+    assert_eq!(stall_first_byte_abort_s(agent, &env), 60);
 }

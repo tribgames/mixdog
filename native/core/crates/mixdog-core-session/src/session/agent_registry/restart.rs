@@ -272,6 +272,17 @@ impl AgentRegistry {
             }
             self.persist(&mut st, &key, Some(live.failed_row(&current, PROCESS_RESTART_FAILURE, true)));
         }
+        // `flushActiveLeadRows`: a Lead row this process holds running goes idle, stamped now (a Lead's turn is not an agent
+        // task: nothing is owed to anyone).
+        let leads: Vec<(String, Row)> = st
+            .lead_rows
+            .iter()
+            .filter_map(|(id, row)| Some((id.clone(), row.clone()?)))
+            .filter(|(_, row)| positive_int(row.get("runtimePid")) == Some(live.own_pid) && is_active_worker_row(row))
+            .collect();
+        for (id, row) in leads {
+            self.write_lead(&mut st, &id, Some(live.idle_row(&row, true)));
+        }
     }
 }
 
@@ -403,5 +414,9 @@ pub async fn notify_restart_failures(registry: &AgentRegistry, notices: &dyn Res
     Ok(told)
 }
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod tests;

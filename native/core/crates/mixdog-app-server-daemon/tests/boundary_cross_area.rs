@@ -219,137 +219,14 @@ fn window_scope_of(origin: &ConnectionOrigin) -> Option<WindowScope> {
     Some(WindowScope { id: Arc::from(id), role })
 }
 
-fn server_config() -> ServerConfig {
-    let available = || CapabilityState::Available;
-    ServerConfig {
-        user_agent: "boundary-test".to_owned(),
-        platform_family: std::env::consts::FAMILY.to_owned(),
-        platform_os: std::env::consts::OS.to_owned(),
-        server_version: VERSION.to_owned(),
-        server_build: "test".to_owned(),
-        server_instance_id: "instance-1".to_owned(),
-        defaults_separation: Default::default(),
-        capabilities: ServerCapabilities {
-            office: available(),
-            js_skills: available(),
-            browser: available(),
-            computer: available(),
-            voice: available(),
-            remote: Default::default(),
-            window_scope: 1,
-        },
-        native_push: Arc::new(|| false),
-        limits: Limits::default(),
-        version_gate: Arc::new(|_| VersionOrder::Equal),
-    }
-}
-
 struct Harness {
     addr: SocketAddr,
     lock: Arc<HumanOnlyLock>,
 }
 
-impl Harness {
-    async fn start() -> Self {
-        let lock = Arc::new(HumanOnlyLock::new(Arc::new(NoTakeovers)));
-        let core = Arc::new(Core { mock: MockCore::new(&[], MockLimits::default()), human_only: HumanOnlyService::new(lock.clone()), endpoint: Endpoint });
-        let outgoing = Outgoing::new();
-        let hub = ConnectionHub::new(Limits::default()).unwrap();
-        let origins = hub.clone();
-        let server = AppServer::new(core, outgoing.clone(), Arc::new(move |id| origins.origin_of(id)), server_config()).unwrap();
-        let windows = hub.clone();
-        server
-            .set_window_of(Arc::new(move |id| windows.connection_origin(id).as_ref().and_then(window_scope_of)))
-            .unwrap_or_else(|_| unreachable!("a server built a line above has no window source yet"));
-        let listener = WebSocketListener::bind("127.0.0.1:0".parse().unwrap(), hub.clone(), BearerAuth::new(TOKEN), ListenerOrigin::Loopback).await.unwrap();
-        let addr = listener.local_addr();
-        let running = Running { server, hub, outgoing };
-        tokio::spawn(async move { running.serve_transport(listener).await });
-        Self { addr, lock }
-    }
-
-    /// A connection dialled with the given header lines, initialized with `capabilities`.
-    async fn connect(&self, headers: &[(&str, &str)], capabilities: Value) -> (Client, Value) {
-        let tcp = TcpStream::connect(self.addr).await.unwrap();
-        let mut request = format!("ws://{}/rpc", self.addr).into_client_request().unwrap();
-        request.headers_mut().insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
-        for (name, value) in headers {
-            request.headers_mut().append(
-                tokio_tungstenite::tungstenite::http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
-                value.parse().unwrap(),
-            );
-        }
-        let (socket, _) = tokio_tungstenite::client_async(request, tcp).await.unwrap();
-        let mut client = Client { socket, next: 1 };
-        let initialized = client.call("initialize", json!({ "clientInfo": { "name": "boundary", "version": VERSION, "kind": "desktop" }, "capabilities": capabilities })).await;
-        (client, initialized)
-    }
-
-    /// A connection that names no window and declares nothing: a client that is not the desktop.
-    async fn plain(&self) -> Client {
-        let (client, initialized) = self.connect(&[], json!({})).await;
-        assert!(initialized.get("result").is_some(), "{initialized}");
-        client
-    }
-
-    /// The window `id` in its main role.
-    async fn main_window(&self, id: &str) -> Client {
-        let (client, initialized) = self.connect(&[(WINDOW_HEADER, id)], json!({})).await;
-        assert_eq!(initialized["result"]["connection"]["window"], json!(id), "{initialized}");
-        client
-    }
-
-    /// The window `id`'s socket for the server connection `connection`.
-    async fn server_window(&self, id: &str, connection: &str) -> Client {
-        let role = format!("server:{connection}");
-        let (client, initialized) = self.connect(&[(WINDOW_HEADER, id), (WINDOW_ROLE_HEADER, role.as_str())], json!({})).await;
-        assert_eq!(initialized["result"]["connection"]["window"], json!(id), "{initialized}");
-        client
-    }
-
-    /// The desktop's own connection: it declares the host and claims it.
-    async fn host(&self) -> Client {
-        let (mut client, initialized) = self.connect(&[], json!({ "host": {} })).await;
-        assert!(initialized.get("result").is_some(), "{initialized}");
-        let claimed = client.call("host/claim", json!({ "hostId": "h-1" })).await;
-        assert!(claimed.get("result").is_some(), "{claimed}");
-        client
-    }
-
-    /// Computer Use over the one lock this harness's human-only service holds, counting what reaches the helper.
-    fn computer(&self) -> (GatedComputerBackend, Arc<Counting>) {
-        let inner = Arc::new(Counting(AtomicUsize::new(0)));
-        (GatedComputerBackend::new(inner.clone(), self.lock.clone()), inner)
-    }
-}
-
 struct Client {
     socket: WebSocketStream<TcpStream>,
     next: u64,
-}
-
-impl Client {
-    async fn call(&mut self, method: &str, params: Value) -> Value {
-        let id = self.next;
-        self.next += 1;
-        self.socket.send(Message::Text(json!({ "id": id, "method": method, "params": params }).to_string().into())).await.unwrap();
-        let found = tokio::time::timeout(WAIT, async {
-            loop {
-                match self.socket.next().await.expect("the server ended the connection").expect("the socket failed") {
-                    Message::Text(text) => {
-                        let frame: Value = serde_json::from_str(text.as_str()).unwrap();
-                        if frame["id"] == json!(id) && frame.get("method").is_none() {
-                            return frame;
-                        }
-                    }
-                    Message::Close(_) => panic!("the server closed the connection"),
-                    _ => {}
-                }
-            }
-        })
-        .await;
-        found.expect("the server wrote no answer")
-    }
 }
 
 /// What a call answered, apart from the frame's id.
@@ -557,28 +434,6 @@ async fn computer_act_is_paused_while_a_human_only_card_is_up() {
     assert_eq!(inner.0.load(Ordering::SeqCst), 3);
 }
 
-/// A host that goes away leaves nothing held: the hold ends with its connection.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_human_only_card_ends_with_the_connection_that_declared_it() {
-    let harness = Harness::start().await;
-    let (gated, _) = harness.computer();
-    let mut host = harness.host().await;
-    let begun = host.call("host/humanOnly/begin", json!({ "label": "Approve" })).await;
-    assert!(begun["result"]["holdId"].is_string(), "{begun}");
-    assert!(blocked(&act(&gated).await));
-    drop(host);
-    let freed = tokio::time::timeout(WAIT, async {
-        loop {
-            if act(&gated).await.is_ok() {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await;
-    assert!(freed.is_ok(), "the hold outlived its connection");
-}
-
 /// The secret guard the core hands the engine: the session's secrets of the one registry the secret input fills.
 struct Registry(Arc<SessionSecrets>);
 
@@ -666,4 +521,147 @@ async fn a_typed_secret_is_in_no_frame_of_the_browser_engine() {
         assert!(!call.params.to_string().contains(secret), "{} carries the secret", call.method);
     }
     host.finish().expect("the one scripted call was made");
+}
+
+
+fn server_config() -> ServerConfig {
+    let available = || CapabilityState::Available;
+    ServerConfig {
+        user_agent: "boundary-test".to_owned(),
+        platform_family: std::env::consts::FAMILY.to_owned(),
+        platform_os: std::env::consts::OS.to_owned(),
+        server_version: VERSION.to_owned(),
+        server_build: "test".to_owned(),
+        server_instance_id: "instance-1".to_owned(),
+        defaults_separation: Default::default(),
+        capabilities: ServerCapabilities {
+            office: available(),
+            js_skills: available(),
+            browser: available(),
+            computer: available(),
+            voice: available(),
+            remote: Default::default(),
+            window_scope: 1,
+        },
+        native_push: Arc::new(|| false),
+        limits: Limits::default(),
+        version_gate: Arc::new(|_| VersionOrder::Equal),
+    }
+}
+impl Harness {
+    async fn start() -> Self {
+        let lock = Arc::new(HumanOnlyLock::new(Arc::new(NoTakeovers)));
+        let core = Arc::new(Core { mock: MockCore::new(&[], MockLimits::default()), human_only: HumanOnlyService::new(lock.clone()), endpoint: Endpoint });
+        let outgoing = Outgoing::new();
+        let hub = ConnectionHub::new(Limits::default()).unwrap();
+        let origins = hub.clone();
+        let server = AppServer::new(core, outgoing.clone(), Arc::new(move |id| origins.origin_of(id)), server_config()).unwrap();
+        let windows = hub.clone();
+        server
+            .set_window_of(Arc::new(move |id| windows.connection_origin(id).as_ref().and_then(window_scope_of)))
+            .unwrap_or_else(|_| unreachable!("a server built a line above has no window source yet"));
+        let listener = WebSocketListener::bind("127.0.0.1:0".parse().unwrap(), hub.clone(), BearerAuth::new(TOKEN), ListenerOrigin::Loopback).await.unwrap();
+        let addr = listener.local_addr();
+        let running = Running { server, hub, outgoing };
+        tokio::spawn(async move { running.serve_transport(listener).await });
+        Self { addr, lock }
+    }
+
+    /// A connection dialled with the given header lines, initialized with `capabilities`.
+    async fn connect(&self, headers: &[(&str, &str)], capabilities: Value) -> (Client, Value) {
+        let tcp = TcpStream::connect(self.addr).await.unwrap();
+        let mut request = format!("ws://{}/rpc", self.addr).into_client_request().unwrap();
+        request.headers_mut().insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
+        for (name, value) in headers {
+            request.headers_mut().append(
+                tokio_tungstenite::tungstenite::http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                value.parse().unwrap(),
+            );
+        }
+        let (socket, _) = tokio_tungstenite::client_async(request, tcp).await.unwrap();
+        let mut client = Client { socket, next: 1 };
+        let initialized = client.call("initialize", json!({ "clientInfo": { "name": "boundary", "version": VERSION, "kind": "desktop" }, "capabilities": capabilities })).await;
+        (client, initialized)
+    }
+
+    /// A connection that names no window and declares nothing: a client that is not the desktop.
+    async fn plain(&self) -> Client {
+        let (client, initialized) = self.connect(&[], json!({})).await;
+        assert!(initialized.get("result").is_some(), "{initialized}");
+        client
+    }
+
+    /// The window `id` in its main role.
+    async fn main_window(&self, id: &str) -> Client {
+        let (client, initialized) = self.connect(&[(WINDOW_HEADER, id)], json!({})).await;
+        assert_eq!(initialized["result"]["connection"]["window"], json!(id), "{initialized}");
+        client
+    }
+
+    /// The window `id`'s socket for the server connection `connection`.
+    async fn server_window(&self, id: &str, connection: &str) -> Client {
+        let role = format!("server:{connection}");
+        let (client, initialized) = self.connect(&[(WINDOW_HEADER, id), (WINDOW_ROLE_HEADER, role.as_str())], json!({})).await;
+        assert_eq!(initialized["result"]["connection"]["window"], json!(id), "{initialized}");
+        client
+    }
+
+    /// The desktop's own connection: it declares the host and claims it.
+    async fn host(&self) -> Client {
+        let (mut client, initialized) = self.connect(&[], json!({ "host": {} })).await;
+        assert!(initialized.get("result").is_some(), "{initialized}");
+        let claimed = client.call("host/claim", json!({ "hostId": "h-1" })).await;
+        assert!(claimed.get("result").is_some(), "{claimed}");
+        client
+    }
+
+    /// Computer Use over the one lock this harness's human-only service holds, counting what reaches the helper.
+    fn computer(&self) -> (GatedComputerBackend, Arc<Counting>) {
+        let inner = Arc::new(Counting(AtomicUsize::new(0)));
+        (GatedComputerBackend::new(inner.clone(), self.lock.clone()), inner)
+    }
+}
+impl Client {
+    async fn call(&mut self, method: &str, params: Value) -> Value {
+        let id = self.next;
+        self.next += 1;
+        self.socket.send(Message::Text(json!({ "id": id, "method": method, "params": params }).to_string().into())).await.unwrap();
+        let found = tokio::time::timeout(WAIT, async {
+            loop {
+                match self.socket.next().await.expect("the server ended the connection").expect("the socket failed") {
+                    Message::Text(text) => {
+                        let frame: Value = serde_json::from_str(text.as_str()).unwrap();
+                        if frame["id"] == json!(id) && frame.get("method").is_none() {
+                            return frame;
+                        }
+                    }
+                    Message::Close(_) => panic!("the server closed the connection"),
+                    _ => {}
+                }
+            }
+        })
+        .await;
+        found.expect("the server wrote no answer")
+    }
+}
+/// A host that goes away leaves nothing held: the hold ends with its connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_human_only_card_ends_with_the_connection_that_declared_it() {
+    let harness = Harness::start().await;
+    let (gated, _) = harness.computer();
+    let mut host = harness.host().await;
+    let begun = host.call("host/humanOnly/begin", json!({ "label": "Approve" })).await;
+    assert!(begun["result"]["holdId"].is_string(), "{begun}");
+    assert!(blocked(&act(&gated).await));
+    drop(host);
+    let freed = tokio::time::timeout(WAIT, async {
+        loop {
+            if act(&gated).await.is_ok() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    assert!(freed.is_ok(), "the hold outlived its connection");
 }

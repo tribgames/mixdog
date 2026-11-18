@@ -107,7 +107,7 @@ export function mainProblems({ entries, version }) {
   if (JSON.stringify(Object.entries(actual).sort()) !== JSON.stringify(Object.entries(expected).sort())) {
     problems.push(`optionalDependencies of mixdog are ${JSON.stringify(actual)}, not every platform package at ${version}`);
   }
-  for (const path of ['package/bin/mixdog.mjs', 'package/bin/native-layout.mjs']) {
+  for (const path of ['package/bin/mixdog.mjs', 'package/bin/native-layout.mjs', 'package/bin/staged-swap.mjs', 'package/bin/invocation.mjs']) {
     if (!entries.some((entry) => entry.path === path)) problems.push(`the main package lacks ${path}`);
   }
   for (const entry of entries) {
@@ -126,10 +126,14 @@ export function findTarballs(dir) {
   let main;
   for (const name of files) {
     const manifest = manifestOf(readTarball(join(dir, name)), name);
-    if (manifest.name === 'mixdog') main = join(dir, name);
-    else {
+    if (name !== `${manifest.name}-${manifest.version}.tgz`) throw new Error(`${name} does not match its package identity`);
+    if (manifest.name === 'mixdog') {
+      if (main) throw new Error(`${dir} holds multiple tarballs for mixdog`);
+      main = join(dir, name);
+    } else {
       const entry = PLATFORMS.find(({ key }) => platformPackageName(key) === manifest.name);
       if (!entry) throw new Error(`${name} is the package ${manifest.name}, which is not one of the mixdog packages`);
+      if (platforms[entry.key]) throw new Error(`${dir} holds multiple tarballs for ${manifest.name}`);
       platforms[entry.key] = join(dir, name);
     }
   }

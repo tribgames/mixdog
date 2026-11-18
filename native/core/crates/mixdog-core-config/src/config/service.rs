@@ -14,6 +14,7 @@ use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::DomainService;
 use mixdog_core_api::Reply;
+use mixdog_core_api::call::Caller;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
@@ -107,6 +108,9 @@ fn announce_provider_models(config: &Config, params: &Value) -> Result<Value, Co
     config.announce("ui/providerModels/changed", json!({ "origin": origin }));
     Ok(json!({}))
 }
+
+/// The daemon's private inherited confirmation pipe is the only producer of this context.
+pub const DESKTOP_CONFIRMATION_CALLER: &str = "desktop-confirmation-pipe";
 
 pub struct ConfigService {
     config: Config,
@@ -415,7 +419,15 @@ impl DomainService for ConfigService {
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let relay = req.ctx.origin == mixdog_protocol::Origin::Relay;
-        let value = self.dispatch(req.method.as_str(), &req.params, relay).await?;
+        let value = if req.method.as_str() == "config/setDeveloperOption"
+            && req.params.get("id").and_then(Value::as_str) == Some("allowAllActions")
+            && req.params.get("enabled") == Some(&Value::Bool(true))
+            && matches!(req.ctx.caller, Caller::Internal(DESKTOP_CONFIRMATION_CALLER))
+        {
+            tool(self.settings.enable_confirmed_allow_all_actions().await)?
+        } else {
+            self.dispatch(req.method.as_str(), &req.params, relay).await?
+        };
         // A change this call wrote reaches the threads' state before the answer, as Node's synchronous announcement did.
         self.config.shown().await.map_err(|message| CoreError::DomainError {
             domain: "config".into(),

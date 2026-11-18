@@ -5,7 +5,6 @@ use crate::platform::{AppEntry, Launched};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io::Write;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -132,21 +131,9 @@ fn exec_arguments(exec: &str) -> Vec<String> {
         .collect()
 }
 
+/// Starts a program through the executor's port (one admitted spawn).
 fn spawn_detached(program: &str, arguments: &[String]) -> std::io::Result<u32> {
-    let mut command = Command::new(program);
-    command
-        .args(arguments)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    // SAFETY: setsid in the child only detaches it from this host's session.
-    unsafe {
-        command.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
-    command.spawn().map(|child| child.id())
+    crate::port::linux::spawn_detached(program, arguments)
 }
 
 fn on_path(name: &str) -> bool {
@@ -166,6 +153,7 @@ fn failure(target: &str, error: &std::io::Error) -> String {
     )
 }
 
+/// A launch: preparation here, each spawn admitted by the executor's port.
 pub fn launch(target: &str, app: Option<&AppEntry>) -> Result<Launched, String> {
     if let Some(app) = app {
         let path = find_desktop_file(&app.app_id).ok_or_else(|| {
@@ -425,25 +413,12 @@ pub fn wayland_clipboard_read() -> Result<String, String> {
     })
 }
 
+/// The Wayland clipboard written through the executor's port (`wl-copy`, each step admitted); the read-back holds nothing.
 pub fn wayland_clipboard_write(text: &str) -> Result<bool, String> {
+    let taken = crate::port::linux::wl_copy(text, CLIPBOARD_HINT)?;
     if text.is_empty() {
-        let status = Command::new("wl-copy")
-            .arg("--clear")
-            .status()
-            .map_err(|_| CLIPBOARD_HINT.to_string())?;
-        return Ok(status.success());
+        return Ok(taken);
     }
-    let mut child = Command::new("wl-copy")
-        .stdin(Stdio::piped())
-        .spawn()
-        .map_err(|_| CLIPBOARD_HINT.to_string())?;
-    child
-        .stdin
-        .take()
-        .ok_or("clipboard_unavailable: no input pipe")?
-        .write_all(text.as_bytes())
-        .map_err(|error| error.to_string())?;
-    child.wait().map_err(|error| error.to_string())?;
     Ok(wayland_clipboard_read()? == text)
 }
 

@@ -1,7 +1,0 @@
-# Core wiring after the audit wave (g95): reduced by the wire audit (t19). Everything else of this file is applied (relayPayloadRefused published on the app feed, session_gate bound, ClaimedResources set from host/claim, translate wired, mixdog_ssh_files no longer fails the core start, the dead "host/screen/displays" arm gone, compose_connections.rs and compose_screen.rs merged).
-
-Still open:
-1. residual-b section 4: the login-shell environment read at the start of run(). It has no caller in the core (read_login_shell_environment, login_shell_overrides, with_homebrew_path are only in mixdog-core-domains desktop_residual_b); the TypeScript read (apps/desktop/src/main/login-shell-environment.ts, used by main/index.ts) still runs, so nothing is lost meanwhile. Switch both together with the launcher edge (owner decision: the launcher, mixdog-spawn or the daemon start, must depend on mixdog-core-domains or the three functions move to a crate it already depends on; they spawn a shell and must not run on a core executor thread).
-2. residual-b section 5 (tidy-up only): one Arc<DesktopAttachmentHost> for the three users (compose_flip.rs builds it at lines 2859, 2963 and 2967).
-3. connections: the attachment word of a server toast title is English (not checked in this audit); the icacls run at every start (not checked in this audit).
-4. The Electron screen sources are still in the desktop: see apps/desktop/pending-wire/g97-fu-screen.kept (real-screen check).

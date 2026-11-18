@@ -1,12 +1,17 @@
 //! One server's sign-in: the stored credentials (cached, written through the secret store and
 //! the marker files), the renewal of a refused token, and the explicit browser login.
 //!
-//! The daemon is the single owner of the keychain entry, so no cross-process lock or revision
-//! polling is needed; the revision marker is still written for the status readers.
+//! One daemon owns the store, but different connections can hold the same credential. They
+//! serialize its changes and invalidate cached copies by generation without polling the disk.
 
+use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::Mutex;
+use std::sync::Weak;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -56,7 +61,7 @@ const LOGIN_DEADLINE: Duration = Duration::from_secs(5 * 60);
 pub struct OAuthEnv {
     pub store: Arc<dyn SecretStore>,
     /// `<plugin data>`; the marker files go under `mcp-oauth/`.
-    pub plugin_data: std::path::PathBuf,
+    pub plugin_data: PathBuf,
     pub io: DurabilityIo,
 }
 
@@ -95,12 +100,67 @@ fn refresh_token(entry: &Entry) -> Option<String> {
 
 #[derive(Default)]
 struct Cache {
-    loaded: bool,
+    generation: Option<u64>,
     entry: Option<Entry>,
 }
 
-/// Exclusive use of the cache, which may be held across awaits. The data moves out of the
-/// std mutex for the guard's life and back on drop, so no async lock is needed.
+struct Credential {
+    store: Arc<dyn SecretStore>,
+    gate: tokio::sync::Semaphore,
+    generation: AtomicU64,
+    status: Mutex<Option<CredentialStatus>>,
+    /// An explicit login or sign-out supersedes a pending switch or its rollback; a token refresh doesn't.
+    login_version: AtomicU64,
+    sign_in_required: AtomicBool,
+}
+
+struct CredentialStatus {
+    has_tokens: bool,
+    identity: Option<StoredIdentity>,
+}
+
+impl CredentialStatus {
+    fn of(entry: Option<&Entry>) -> Self {
+        let has_tokens = entry.is_some_and(|entry| entry.tokens.is_some());
+        let identity = has_tokens.then(|| {
+            let who = entry.and_then(|entry| entry.identity.clone().flatten()).unwrap_or_default();
+            let endpoint = entry.and_then(|entry| entry.discovery.as_ref()).and_then(Discovery::authorization_endpoint_text);
+            StoredIdentity {
+                account: who.account,
+                workspace: who.workspace,
+                forced_choice: super::account::can_force_account_choice(endpoint.as_deref()),
+            }
+        });
+        Self { has_tokens, identity }
+    }
+}
+
+type Credentials = HashMap<(usize, String), Weak<Credential>>;
+static CREDENTIALS: LazyLock<Mutex<Credentials>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+impl Credential {
+    fn shared(store: &Arc<dyn SecretStore>, account: String) -> Arc<Self> {
+        let mut all = CREDENTIALS.lock().unwrap_or_else(|e| e.into_inner());
+        // Marker paths are projections, not credential namespaces. Keep the store alive with the key.
+        let key = (Arc::as_ptr(store).cast::<()>() as usize, account);
+        if let Some(credential) = all.get(&key).and_then(Weak::upgrade) {
+            return credential;
+        }
+        all.retain(|_, credential| credential.strong_count() != 0);
+        let credential = Arc::new(Self {
+            store: Arc::clone(store),
+            gate: tokio::sync::Semaphore::new(1),
+            generation: AtomicU64::new(0),
+            status: Mutex::new(None),
+            login_version: AtomicU64::new(0),
+            sign_in_required: AtomicBool::new(false),
+        });
+        all.insert(key, Arc::downgrade(&credential));
+        credential
+    }
+}
+
+/// A holder can read or mutate its cache only on the credential's shared lane.
 struct CacheGuard<'a> {
     owner: &'a Mutex<Cache>,
     data: Cache,
@@ -129,22 +189,15 @@ impl Drop for CacheGuard<'_> {
 pub struct McpOAuth {
     binding: OAuthBinding,
     protocol: Protocol,
-    store: Arc<dyn SecretStore>,
     files: MarkerFiles,
     account: String,
+    credential: Arc<Credential>,
     cache: Mutex<Cache>,
-    /// Held while the cache is checked out (see [`CacheGuard`]).
-    cache_gate: tokio::sync::Semaphore,
     /// Every token this connection held: an error echoing one stays scrubbed after a refresh.
     held: Mutex<HashSet<String>>,
-    /// One refresh at a time: later callers see the token the first one stored.
-    renew_gate: tokio::sync::Semaphore,
     active_login: Mutex<Option<CancellationToken>>,
-    /// The entry a committed account switch replaced (`Some(None)`: there was none).
-    switched_from: Mutex<Option<Option<Entry>>>,
-    /// The server refused the token and the sign-in could not renew it: the user must sign in.
-    /// Cleared when a sign-in is stored.
-    sign_in_required: std::sync::atomic::AtomicBool,
+    /// The explicit version committed by a switch and the entry it replaced.
+    switched_from: Mutex<Option<(u64, Option<Entry>)>>,
 }
 
 /// The secret-store account of a sign-in: a digest of its key, nothing else.
@@ -172,25 +225,23 @@ fn store_error(error: super::store::StoreError) -> OAuthError {
 
 impl McpOAuth {
     pub fn new(binding: OAuthBinding, env: &OAuthEnv) -> Result<Arc<Self>, String> {
+        let account = account_of(&binding.credential_key);
         Ok(Arc::new(Self {
-            account: account_of(&binding.credential_key),
+            credential: Credential::shared(&env.store, account.clone()),
+            account,
             binding,
             protocol: Protocol::new()?,
-            store: Arc::clone(&env.store),
             files: MarkerFiles::new(env.plugin_data.clone(), env.io),
             cache: Mutex::new(Cache::default()),
-            cache_gate: tokio::sync::Semaphore::new(1),
             held: Mutex::new(HashSet::new()),
-            renew_gate: tokio::sync::Semaphore::new(1),
             active_login: Mutex::new(None),
             switched_from: Mutex::new(None),
-            sign_in_required: std::sync::atomic::AtomicBool::new(false),
         }))
     }
 
     /// Whether the last refused token could not be renewed, so the server needs a sign-in.
     pub fn sign_in_required(&self) -> bool {
-        self.sign_in_required.load(std::sync::atomic::Ordering::SeqCst)
+        self.credential.sign_in_required.load(Ordering::SeqCst)
     }
 
     pub fn binding(&self) -> &OAuthBinding {
@@ -202,13 +253,23 @@ impl McpOAuth {
         self.held.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect()
     }
 
-    /// Whether tokens are stored, from the marker file without a keychain read.
+    /// Whether tokens are stored, without a keychain read.
     pub async fn has_stored_tokens(&self) -> Result<bool, super::store::StoreError> {
+        let _gate = self.credential.gate.acquire().await.expect("the gate is never closed");
+        let status = self.credential.status.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|status| status.has_tokens);
+        if let Some(has_tokens) = status {
+            return Ok(has_tokens);
+        }
         self.files.has_tokens(&self.account).await
     }
 
     /// Who the stored sign-in belongs to, without a keychain read.
     pub async fn stored_identity(&self) -> Result<Option<StoredIdentity>, super::store::StoreError> {
+        let _gate = self.credential.gate.acquire().await.expect("the gate is never closed");
+        let status = self.credential.status.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|status| status.identity.clone());
+        if let Some(identity) = status {
+            return Ok(identity);
+        }
         self.files.identity(&self.account).await
     }
 
@@ -224,15 +285,21 @@ impl McpOAuth {
 
     /// Checks the cache out for exclusive use across awaits; it is put back when the guard drops.
     async fn lock_cache(&self) -> CacheGuard<'_> {
-        let permit = self.cache_gate.acquire().await.expect("the gate is never closed");
+        let permit = self.credential.gate.acquire().await.expect("the gate is never closed");
         let data = std::mem::take(&mut *self.cache.lock().unwrap_or_else(|e| e.into_inner()));
         CacheGuard { owner: &self.cache, data, _permit: permit }
     }
 
     async fn load(&self) -> Result<CacheGuard<'_>, OAuthError> {
         let mut cache = self.lock_cache().await;
-        if !cache.loaded {
-            let saved = self.store.get(&self.account).await.map_err(store_error)?;
+        self.load_locked(&mut cache).await?;
+        Ok(cache)
+    }
+
+    async fn load_locked(&self, cache: &mut Cache) -> Result<(), OAuthError> {
+        let generation = self.credential.generation.load(Ordering::Relaxed);
+        if cache.generation != Some(generation) {
+            let saved = self.credential.store.get(&self.account).await.map_err(store_error)?;
             let entry = match saved {
                 Some(text) => {
                     let entry: Entry = serde_json::from_str(&text).map_err(|_| OAuthError::ReauthenticationRequired)?;
@@ -246,42 +313,64 @@ impl McpOAuth {
             };
             self.hold(entry.as_ref());
             cache.entry = entry;
-            cache.loaded = true;
+            cache.generation = Some(generation);
         }
-        Ok(cache)
+        Ok(())
     }
 
-    async fn write_entry(&self, entry: &Entry) -> Result<(), OAuthError> {
-        let has_tokens = entry.tokens.is_some();
-        self.files.write_revision(&self.account, Some(&entry.revision), has_tokens).await.map_err(store_error)?;
-        let text = serde_json::to_string(entry).map_err(|e| OAuthError::Store(e.to_string()))?;
-        self.store.set(&self.account, &text).await.map_err(store_error)?;
-        let endpoint = entry.discovery.as_ref().and_then(Discovery::authorization_endpoint_text);
-        let identity = entry.identity.clone().flatten().unwrap_or_default();
+    async fn write_markers(&self, entry: Option<&Entry>) -> Result<(), OAuthError> {
+        let has_tokens = entry.is_some_and(|entry| entry.tokens.is_some());
+        self.files.write_revision(&self.account, entry.map(|entry| entry.revision.as_str()), has_tokens).await.map_err(store_error)?;
+        let endpoint = entry.and_then(|entry| entry.discovery.as_ref()).and_then(Discovery::authorization_endpoint_text);
+        let identity = entry.and_then(|entry| entry.identity.clone().flatten()).unwrap_or_default();
         let who = has_tokens.then_some((&identity, endpoint.as_deref()));
         self.files.write_identity(&self.account, who).await.map_err(store_error)
     }
 
-    /// The only writer of the stored entry: applies `change` with a fresh revision.
-    async fn persist(&self, cache: &mut Cache, change: impl FnOnce(&mut Entry)) -> Result<(), OAuthError> {
-        let mut entry = cache
-            .entry
-            .clone()
-            .unwrap_or_else(|| Entry { url: self.binding.url.to_string(), ..Entry::default() });
-        change(&mut entry);
+    async fn replace(&self, cache: &mut Cache, mut entry: Entry, store_first: bool) -> Result<(), OAuthError> {
         entry.revision = rand::random::<[u8; 16]>().iter().map(|b| format!("{b:02x}")).collect();
-        self.write_entry(&entry).await?;
+        let text = serde_json::to_string(&entry).map_err(|e| OAuthError::Store(e.to_string()))?;
+        // A new sign-in can still fail without replacing the old grant. Stage the markers first.
+        // A provider-confirmed rotation cannot be undone; persist it even if a marker cannot be written.
+        let write = async {
+            if !store_first {
+                self.write_markers(Some(&entry)).await?;
+            }
+            self.credential.store.set(&self.account, &text).await.map_err(store_error)
+        };
+        let previous = self.credential.generation.fetch_add(1, Ordering::Relaxed);
+        if let Err(error) = write.await {
+            if !store_first && let Err(restore) = self.write_markers(cache.entry.as_ref()).await {
+                tracing::warn!(%restore, "MCP OAuth status markers could not be restored");
+            }
+            return Err(error);
+        }
+        if store_first && let Err(error) = self.write_markers(Some(&entry)).await {
+            tracing::warn!(%error, "MCP OAuth credential was stored but its status markers could not be updated");
+        }
+        *self.credential.status.lock().unwrap_or_else(|e| e.into_inner()) = Some(CredentialStatus::of(Some(&entry)));
         self.hold(Some(&entry));
         cache.entry = Some(entry);
-        self.sign_in_required.store(false, std::sync::atomic::Ordering::SeqCst);
+        cache.generation = Some(previous.wrapping_add(1));
+        self.credential.sign_in_required.store(false, Ordering::SeqCst);
         Ok(())
     }
 
+    async fn persist(&self, cache: &mut Cache, rotated: bool, change: impl FnOnce(&mut Entry)) -> Result<(), OAuthError> {
+        let mut entry = cache.entry.clone().unwrap_or_else(|| Entry { url: self.binding.url.to_string(), ..Entry::default() });
+        change(&mut entry);
+        self.replace(cache, entry, rotated).await
+    }
+
     async fn erase(&self, cache: &mut Cache) -> Result<(), OAuthError> {
-        self.files.write_revision(&self.account, None, false).await.map_err(store_error)?;
-        self.store.delete(&self.account).await.map_err(store_error)?;
-        self.files.write_identity(&self.account, None).await.map_err(store_error)?;
+        let previous = self.credential.generation.fetch_add(1, Ordering::Relaxed);
+        self.credential.store.delete(&self.account).await.map_err(store_error)?;
+        if let Err(error) = self.write_markers(None).await {
+            tracing::warn!(%error, "MCP OAuth credential was erased but its status markers could not be updated");
+        }
+        *self.credential.status.lock().unwrap_or_else(|e| e.into_inner()) = Some(CredentialStatus::of(None));
         cache.entry = None;
+        cache.generation = Some(previous.wrapping_add(1));
         Ok(())
     }
 
@@ -295,7 +384,7 @@ impl McpOAuth {
         if let Some(client) = &self.binding.client {
             let secret = match &client.inline_secret {
                 Some(inline) => Some(inline.0.clone()),
-                None => match self.store.get(&client.secret_account).await {
+                None => match self.credential.store.get(&client.secret_account).await {
                     Ok(secret) => secret.filter(|s| !s.is_empty()),
                     Err(error) if error.unrun => return Err(store_error(error)),
                     Err(_) => None,
@@ -308,12 +397,7 @@ impl McpOAuth {
 
     /// Renews a refused token from the refresh token. A failure that needs the user is
     /// `ReauthenticationRequired`.
-    async fn refresh(&self, rejected: Option<String>, challenge: Option<&str>) -> Result<(), OAuthError> {
-        // A store that never answered is not a sign-in that needs renewing by the user.
-        let mut cache = self.load().await.map_err(|error| match error {
-            OAuthError::Unavailable => error,
-            _ => OAuthError::ReauthenticationRequired,
-        })?;
+    async fn refresh(&self, cache: &mut Cache, rejected: Option<String>, challenge: Option<&str>) -> Result<(), OAuthError> {
         let entry = cache.entry.clone().ok_or(OAuthError::ReauthenticationRequired)?;
         // Another request already renewed it.
         if access_token(&entry).is_some() && access_token(&entry) != rejected {
@@ -334,7 +418,7 @@ impl McpOAuth {
                     tokens["refresh_token"] = Value::String(refresh_token);
                 }
                 let identity = identity_from_token_response(&tokens);
-                self.persist(&mut cache, |e| {
+                self.persist(cache, true, |e| {
                     e.tokens = Some(tokens);
                     e.discovery = Some(discovery);
                     if identity.is_some() {
@@ -345,13 +429,13 @@ impl McpOAuth {
                 Ok(())
             }
             Err(TokenError::Oauth(code)) if matches!(code.as_str(), "invalid_client" | "unauthorized_client") => {
-                self.erase(&mut cache).await?;
+                self.erase(cache).await?;
                 Err(OAuthError::ReauthenticationRequired)
             }
             Err(TokenError::Oauth(code)) if code == "invalid_grant" => {
                 // The grant is gone. The registration goes too: an authorization server that
                 // forgot its clients would fail every later sign-in at the authorization endpoint.
-                self.persist(&mut cache, |e| {
+                self.persist(cache, false, |e| {
                     e.tokens = None;
                     e.client_information = None;
                 })
@@ -366,9 +450,8 @@ impl McpOAuth {
     /// Signs out: forgets the stored sign-in, first revoking the grant at the authorization
     /// server where it documents a revocation endpoint. True when the server confirmed it.
     pub async fn sign_out(&self, revoke: bool) -> Result<bool, OAuthError> {
-        let _gate = self.renew_gate.acquire().await.expect("the gate is never closed");
         let mut cache = self.lock_cache().await;
-        let saved = self.store.get(&self.account).await.map_err(store_error)?;
+        let saved = self.credential.store.get(&self.account).await.map_err(store_error)?;
         let entry: Option<Entry> = saved.as_deref().and_then(|text| serde_json::from_str(text).ok());
         let mut revoked = false;
         if revoke && let Some(entry) = &entry {
@@ -380,20 +463,21 @@ impl McpOAuth {
                 revoked = self.protocol.revoke(&endpoint, &token, refresh_token(entry).is_some(), &client).await;
             }
         }
+        self.credential.login_version.fetch_add(1, Ordering::Relaxed);
         self.erase(&mut cache).await?;
-        cache.loaded = true;
         Ok(revoked)
     }
 
     /// Restores the sign-in an account switch replaced (the new one failed to connect).
     pub async fn rollback_switch(&self) -> Result<(), OAuthError> {
-        let Some(previous) = self.switched_from.lock().unwrap_or_else(|e| e.into_inner()).take() else { return Ok(()) };
         let mut cache = self.lock_cache().await;
+        let Some((version, previous)) = self.switched_from.lock().unwrap_or_else(|e| e.into_inner()).take() else { return Ok(()) };
+        if version != self.credential.login_version.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        self.credential.login_version.fetch_add(1, Ordering::Relaxed);
         match previous {
-            Some(entry) => {
-                self.write_entry(&entry).await?;
-                cache.entry = Some(entry);
-            }
+            Some(entry) => self.replace(&mut cache, entry, true).await?,
             None => self.erase(&mut cache).await?,
         }
         Ok(())
@@ -425,9 +509,14 @@ impl Authorizer for McpOAuth {
     }
 
     async fn renew(&self, rejected: Option<String>, challenge: Option<String>) -> Result<(), TransportError> {
-        let _gate = self.renew_gate.acquire().await.expect("the gate is never closed");
-        let renewed = self.refresh(rejected, challenge.as_deref()).await;
-        self.sign_in_required.store(matches!(renewed, Err(OAuthError::ReauthenticationRequired)), std::sync::atomic::Ordering::SeqCst);
+        let mut cache = self.lock_cache().await;
+        // A store that never answered is not a sign-in that needs renewing by the user.
+        let renewed = match self.load_locked(&mut cache).await {
+            Ok(()) => self.refresh(&mut cache, rejected, challenge.as_deref()).await,
+            Err(OAuthError::Unavailable) => Err(OAuthError::Unavailable),
+            Err(_) => Err(OAuthError::ReauthenticationRequired),
+        };
+        self.credential.sign_in_required.store(matches!(renewed, Err(OAuthError::ReauthenticationRequired)), Ordering::SeqCst);
         renewed.map_err(Into::into)
     }
 }

@@ -45,14 +45,44 @@ test('large_image_ref', async () => {
   const params = { input: { prompt: [{ type: 'text', text: 'see' }, { type: 'image', data: raw.toString('base64') }, { type: 'image', data: `data:image/png;base64,${raw.toString('base64')}` }] } };
   await sizedCall(client, 'turn/start', params);
   assert.equal(blobs.length, 2);
-  assert.deepEqual([...blobs[0].bytes.subarray(0, 4)], [7, 7, 7, 7]);
-  assert.equal(blobs[0].bytes.length, raw.length);
-  // A data URL travels as its text: a "base64" reference would expand without the `data:...;base64,` prefix.
-  assert.equal(new TextDecoder().decode(blobs[1].bytes), params.input.prompt[2].data);
   const prompt = sent[0].params.input.prompt;
-  assert.deepEqual(prompt[1].data, { $blobRef: 'sha256:1', as: 'base64' });
-  assert.deepEqual(prompt[2].data, { $blobRef: 'sha256:2', as: 'text' });
+  const uploaded = new Map(blobs.map(({ bytes }, i) => [`sha256:${i + 1}`, bytes]));
+  assert.equal(prompt[1].data.as, 'base64');
+  assert.deepEqual(Buffer.from(uploaded.get(prompt[1].data.$blobRef)), raw);
+  // A data URL travels as its text: a "base64" reference would expand without the `data:...;base64,` prefix.
+  assert.equal(prompt[2].data.as, 'text');
+  assert.equal(new TextDecoder().decode(uploaded.get(prompt[2].data.$blobRef)), params.input.prompt[2].data);
   assert.equal(prompt[0].text, 'see');
+});
+
+test('several supported attachment fields that together exceed a frame still submit', async () => {
+  const { client, sent, blobs } = harness();
+  const data = Buffer.alloc(42 * 1024, 23).toString('base64');
+  const prompt = Array.from({ length: 5 }, () => ({ type: 'image', data, mimeType: 'image/png' }));
+  await sizedCall(client, 'turn/start', { input: { prompt } });
+  assert.equal(sent.length, 1);
+  assert.ok(frameBytes(sent[0].params) < FRAME);
+  for (const part of sent[0].params.input.prompt) {
+    const restored = typeof part.data === 'string' ? part.data : Buffer.from(blobs[Number(part.data.$blobRef.slice(7)) - 1].bytes).toString('base64');
+    assert.equal(restored, data);
+  }
+});
+
+test('new, existing, and room submissions preserve large display and goal text', async () => {
+  const displayText = '表'.repeat(100_000);
+  const goalCommand = 'goal '.repeat(60_000);
+  for (const [method, key] of [['thread/start', 'initialInput'], ['turn/start', 'input'], ['room/send', 'input']]) {
+    const { client, sent, blobs } = harness();
+    await sizedCall(client, method, { [key]: { prompt: 'go', options: { displayText, goalCommand } } });
+    assert.ok(frameBytes(sent[0].params) < FRAME);
+    const restored = (ref) => {
+      assert.equal(ref.as, 'text');
+      return new TextDecoder().decode(blobs[Number(ref.$blobRef.slice(7)) - 1].bytes);
+    };
+    const options = sent[0].params[key].options;
+    assert.equal(restored(options.displayText), displayText);
+    assert.equal(restored(options.goalCommand), goalCommand);
+  }
 });
 
 test('still_too_large_refused', async () => {

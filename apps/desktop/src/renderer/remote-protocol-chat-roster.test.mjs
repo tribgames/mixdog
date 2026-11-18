@@ -125,7 +125,7 @@ actions.slice(1).forEach((name, at) => {
     r.published.length = 0;
     r.setListing(listOf(name));
     const done = r.published_();
-    r.store({ type: 'subscription', feedId: 'app', state: 'restored' });
+    r.store({ type: 'appSnapshot' });
     await done;
     assert.equal(r.published.length, 1);
     assertParity(t, parity.classify(nodeStep(`restart:${prev}>${name}`).roster, finalRoster(r)));
@@ -137,7 +137,7 @@ actions.slice(1).forEach((name, at) => {
     r.published.length = 0;
     const { arrived, release } = r.hold();
     const done = r.published_();
-    r.store({ type: 'subscription', feedId: 'app', state: 'restored' });
+    r.store({ type: 'appSnapshot' });
     await arrived;
     // The listing is still being read (it will answer with the older rows) when the core's own edges for the action arrive.
     for (const edge of liveStep(name).edges) r.edge(edge);
@@ -244,7 +244,7 @@ async function writtenThrough(wire = (adapter) => adapter) {
     roster: { summaries: (rows) => summariesOfThreadRows(rows) },
   });
   const host = { ctx: { sessionsCatalog: { publish() {} } }, client: () => client, declareLane() {} };
-  const router = createProtocolRouter([wire(adapter, client)], { host, started: async () => undefined, synced: async () => undefined, probe() {}, silentSince: () => false });
+  const router = createProtocolRouter([wire(adapter, client)], { host, started: async () => undefined, synced: async () => undefined, appSynced: async () => undefined, probe() {}, silentSince: () => false });
   await router.call('markSessionRead', ['sess_a', 3, true]);
   await router.call('renameSession', ['sess_a', 'New name']);
   await router.call('listSessions', []);
@@ -302,11 +302,11 @@ test('getSnapshot is null until a start, then the start\'s blank snapshot with t
   assert.equal(await adapter.calls.getSnapshot([], other), null, 'another page holds its own shell');
 });
 
-test('the adapter the switch point loads claims all 35 chat calls, the shell snapshot, the thread list and the fresh recovery, and nothing twice', async () => {
+test('the adapter the switch point loads claims all 35 chat calls, the shell snapshot, the thread list, the fresh recovery and the stream position, and nothing twice', async () => {
   const { adapter } = await import('./remote-protocol-chat.ts');
   assert.equal(adapter.group, 'chat');
   const claimed = Object.keys(adapter.calls);
-  assert.equal(claimed.length, 38, 'the 35 chat calls, getSnapshot, the thread list and refreshSessionState');
+  assert.equal(claimed.length, 39, 'the 35 chat calls, getSnapshot, the thread list, refreshSessionState and sessionStreamPosition');
   assert.equal(new Set(claimed).size, claimed.length, 'nothing twice');
   // Every call Node's recording made of the chat host is claimed: here, or (submitFeedback) by the settings adapter.
   const { adapter: settings } = await import('./remote-protocol-settings.ts');

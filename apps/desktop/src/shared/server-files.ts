@@ -3,8 +3,9 @@
 
 /** Largest file one upload into the server's staging folder may carry. */
 export const SERVER_UPLOAD_MAX_BYTES = 512 * 1024 * 1024;
-/** Raw bytes per upload chunk (~2.7 MB as base64, far below the 32 MB body cap). */
-export const SERVER_UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024;
+/** The most encoded (base64) upload bytes this PC lets stay unacknowledged on one server connection, whatever the server
+ *  offers: the server's connection budget (`queueBytes`) is the largest it states, and a larger offer is clamped to this. */
+export const SERVER_UPLOAD_ALLOWANCE_MAX_BYTES = 8 * 1024 * 1024;
 /** Largest server file "download to this PC" accepts. */
 export const SERVER_DOWNLOAD_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 /** A staging folder no live session owns is swept once nothing in it changed for this long. */

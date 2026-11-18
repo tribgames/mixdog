@@ -7,36 +7,44 @@ use std::sync::atomic::AtomicI64;
 use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::board::CancelAll;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::board::CancelNotice;
 use mixdog_agent::agent_tool::board::Completion;
 use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::agent_tool::board::JobMeta;
 use mixdog_agent::agent_tool::board::JobOwner;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::board::JobSnapshot;
 use mixdog_agent::agent_tool::board::NewJob;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::progress::ProgressInput;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::progress::RuntimeFacts;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::progress::SemanticKind;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::progress::Snapshot;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::progress::ToolSilence;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::progress::WatchdogPolicy;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::progress::WatchdogState;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::progress::progress_fields;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::scope::Scope;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::stamp::iso_from_ms;
 use mixdog_agent::env::Clock;
 use mixdog_protocol::ThreadId;
 use mixdog_tools::exec::TaskNotifier;
 use mixdog_tools::orch::agent::TaskResult;
+#[cfg(node_twin)]
 use serde_json::Value;
 use serde_json::json;
-
-#[allow(clippy::disallowed_methods)] // test fixture loading
-fn fixture(name: &str) -> Vec<Value> {
-    let text = std::fs::read_to_string(format!("{}/../../fixtures/agent/jobs/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap();
-    serde_json::from_str::<Value>(&text).unwrap().as_array().unwrap().clone()
-}
 
 struct TestClock(AtomicI64);
 impl Clock for TestClock {
@@ -66,6 +74,120 @@ fn backend() {
     mixdog_rt::testing::tokens();
 }
 
+#[cfg(node_twin)]
+fn text(v: &Value, key: &str) -> Option<String> {
+    v.get(key).and_then(Value::as_str).map(str::to_owned)
+}
+
+#[cfg(node_twin)]
+fn scope(v: &Value) -> Scope {
+    let s = v.get("scope").unwrap_or(&Value::Null);
+    Scope { caller_session_id: text(s, "session"), host_pid: s.get("pid").and_then(Value::as_u64) }
+}
+
+#[cfg(node_twin)]
+fn row(t: &JobSnapshot) -> Value {
+    json!({
+        "task_id": t.task_id,
+        "operation": t.operation,
+        "label": t.label,
+        "status": t.status,
+        "startedAt": iso_from_ms(t.started_ms),
+        "finishedAt": t.finished_ms.map(iso_from_ms),
+        "error": t.error,
+        "notified": t.notified,
+        "tag": t.meta.tag,
+        "sessionId": t.meta.session_id,
+        "terminalReason": t.terminal_reason,
+    })
+}
+
+/// Waits until `want` notifications have been delivered (delivery runs on a spawned task of the
+/// runtime's work pool), then lets any task already runnable finish. The bound only turns a
+/// notification that never arrives into a failure.
+async fn settle(notices: &Notices, want: usize) {
+    let arrive = async {
+        loop {
+            let arrived = notices.arrived.notified();
+            tokio::pin!(arrived);
+            arrived.as_mut().enable();
+            if notices.sent.lock().unwrap().len() >= want {
+                break;
+            }
+            arrived.await;
+        }
+    };
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), arrive).await.expect("a notification never arrived");
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+}
+/// `renderBackgroundTaskNotification`: an agent's object result with `content: ""` delivers an
+/// empty authored body (no `<result>` block), never the JSON of the object.
+#[tokio::test(start_paused = true)]
+async fn an_empty_agent_report_notifies_without_a_result_body() {
+    backend();
+    let notices = Arc::new(Notices::default());
+    let board = JobBoard::new(Arc::new(TestClock(AtomicI64::new(1_000))), Some(notices.clone()), None);
+    board
+        .register(NewJob {
+            task_id: Some("t1".into()),
+            operation: "spawn".into(),
+            label: Some("w".into()),
+            owner: JobOwner { caller_session_id: Some("lead".into()), ..JobOwner::default() },
+            meta: JobMeta { tag: Some("w".into()), ..JobMeta::default() },
+            ..NewJob::default()
+        })
+        .unwrap();
+    board.complete(
+        "t1",
+        Completion { result: Some(TaskResult::Json(json!({ "agent": "worker", "content": "" }))), ..Completion::new("completed") },
+    );
+    settle(&notices, 1).await;
+    let sent = notices.sent.lock().unwrap();
+    assert!(sent[0].1.contains("<status>completed</status>"), "{}", sent[0].1);
+    assert!(!sent[0].1.contains("<result>") && !sent[0].1.contains("worker"), "{}", sent[0].1);
+}
+
+#[cfg(node_twin)]
+fn snapshot_of(v: &Value) -> Snapshot {
+    let n = |k: &str| v.get(k).and_then(Value::as_i64).unwrap_or(0);
+    let b = |k: &str| v.get(k) == Some(&Value::Bool(true));
+    Snapshot {
+        stage: text(v, "stage"),
+        last_progress_at: n("lastProgressAt"),
+        last_stream_delta_at: n("lastStreamDeltaAt"),
+        tool_started_at: n("toolStartedAt"),
+        ask_started_at: n("askStartedAt"),
+        first_activity_at: n("firstActivityAt"),
+        model_request_started_at: n("modelRequestStartedAt"),
+        attempt_phase: None,
+        retry_at: 0,
+        last_keepalive_at: n("lastKeepaliveAt"),
+        last_visible_text_at: n("lastVisibleTextAt"),
+        awaiting_model_response: b("awaitingModelResponse"),
+        waiting_for_transport: b("waitingForTransport"),
+        waiting_for_first_semantic: b("waitingForFirstSemantic"),
+        has_first_semantic: b("hasFirstSemantic"),
+        awaiting_user: b("awaitingUser"),
+        last_semantic_kind: match v.get("lastSemanticKind").and_then(Value::as_str) {
+            Some("tool") => Some(SemanticKind::Tool),
+            Some("text") => Some(SemanticKind::Text),
+            Some("reasoning") => Some(SemanticKind::Reasoning),
+            _ => None,
+        },
+        current_tool: text(v, "currentTool"),
+    }
+}
+
+
+#[cfg(node_twin)]
+#[allow(clippy::disallowed_methods)] // test fixture loading
+fn fixture(name: &str) -> Vec<Value> {
+    let text = std::fs::read_to_string(format!("{}/../../fixtures/agent/jobs/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    serde_json::from_str::<Value>(&text).unwrap().as_array().unwrap().clone()
+}
+#[cfg(node_twin)]
 /// `resultDelivered` (`close-flow.mjs`) against what real Node's `releaseIdle` answered for the same jobs
 /// (`fixtures/agent-cleanup`, `delivery`): `closed` is a delivered result, `undelivered` one the owner never got.
 #[tokio::test(start_paused = true)]
@@ -116,52 +238,7 @@ async fn an_idle_agents_result_reads_as_delivered_as_node_reads_it() {
         assert_eq!(delivered, expected, "{name}");
     }
 }
-
-fn text(v: &Value, key: &str) -> Option<String> {
-    v.get(key).and_then(Value::as_str).map(str::to_owned)
-}
-
-fn scope(v: &Value) -> Scope {
-    let s = v.get("scope").unwrap_or(&Value::Null);
-    Scope { caller_session_id: text(s, "session"), host_pid: s.get("pid").and_then(Value::as_u64) }
-}
-
-fn row(t: &JobSnapshot) -> Value {
-    json!({
-        "task_id": t.task_id,
-        "operation": t.operation,
-        "label": t.label,
-        "status": t.status,
-        "startedAt": iso_from_ms(t.started_ms),
-        "finishedAt": t.finished_ms.map(iso_from_ms),
-        "error": t.error,
-        "notified": t.notified,
-        "tag": t.meta.tag,
-        "sessionId": t.meta.session_id,
-        "terminalReason": t.terminal_reason,
-    })
-}
-
-/// Waits until `want` notifications have been delivered (delivery runs on a spawned task of the
-/// runtime's work pool), then lets any task already runnable finish. The bound only turns a
-/// notification that never arrives into a failure.
-async fn settle(notices: &Notices, want: usize) {
-    let arrive = async {
-        loop {
-            let arrived = notices.arrived.notified();
-            tokio::pin!(arrived);
-            arrived.as_mut().enable();
-            if notices.sent.lock().unwrap().len() >= want {
-                break;
-            }
-            arrived.await;
-        }
-    };
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), arrive).await.expect("a notification never arrived");
-    for _ in 0..8 {
-        tokio::task::yield_now().await;
-    }
-}
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn the_board_equals_nodes_background_tasks() {
     backend();
@@ -273,7 +350,7 @@ async fn the_board_equals_nodes_background_tasks() {
                 "ack" => board.acknowledge(&id),
                 "appendix" => {
                     let appendix = text(op, "text").unwrap();
-                    board.set_report_appendix(&id, Arc::new(move || appendix.clone()));
+                    board.set_report_appendix(&id, Arc::new(move |_: Option<&str>| appendix.clone()));
                 }
                 "merge" => {
                     let meta = op["meta"].clone();
@@ -316,35 +393,7 @@ async fn the_board_equals_nodes_background_tasks() {
         }
     }
 }
-
-fn snapshot_of(v: &Value) -> Snapshot {
-    let n = |k: &str| v.get(k).and_then(Value::as_i64).unwrap_or(0);
-    let b = |k: &str| v.get(k) == Some(&Value::Bool(true));
-    Snapshot {
-        stage: text(v, "stage"),
-        last_progress_at: n("lastProgressAt"),
-        last_stream_delta_at: n("lastStreamDeltaAt"),
-        tool_started_at: n("toolStartedAt"),
-        ask_started_at: n("askStartedAt"),
-        first_activity_at: n("firstActivityAt"),
-        model_request_started_at: n("modelRequestStartedAt"),
-        last_keepalive_at: n("lastKeepaliveAt"),
-        last_visible_text_at: n("lastVisibleTextAt"),
-        awaiting_model_response: b("awaitingModelResponse"),
-        waiting_for_transport: b("waitingForTransport"),
-        waiting_for_first_semantic: b("waitingForFirstSemantic"),
-        has_first_semantic: b("hasFirstSemantic"),
-        awaiting_user: b("awaitingUser"),
-        last_semantic_kind: match v.get("lastSemanticKind").and_then(Value::as_str) {
-            Some("tool") => Some(SemanticKind::Tool),
-            Some("text") => Some(SemanticKind::Text),
-            Some("reasoning") => Some(SemanticKind::Reasoning),
-            _ => None,
-        },
-        current_tool: text(v, "currentTool"),
-    }
-}
-
+#[cfg(node_twin)]
 #[test]
 fn progress_fields_equal_nodes() {
     let cases = fixture("progress.json");

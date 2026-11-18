@@ -29,6 +29,7 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
+use mixdog_core_base::ops::{OpRecord as StoredOpRecord, OpState, PayloadDigest, op_record, replay_audience, set_op_row_outcome};
 use serde_json::Value;
 use serde_json::json;
 use std::collections::HashMap;
@@ -67,22 +68,14 @@ use crate::watcher::ChangeKind;
 use crate::watcher::ChangeSink;
 use crate::watcher::FolderWatcher;
 
-/// Routes watcher batches: `fs:` watches publish `fs/changed`; `idx:` watches
-/// mark a search index stale.
+/// Publishes file watches. Search checks freshness at the shared watcher root,
+/// before events are batched for individual subscribers.
 struct Router {
     fs: Mutex<HashMap<String, Arc<Publisher>>>,
-    search: OnceLock<Weak<SearchSessions>>,
 }
 
 impl ChangeSink for Router {
     fn changed(&self, watch_id: &str, paths: Vec<String>, kind: ChangeKind) {
-        if let Some(rest) = watch_id.strip_prefix("idx:") {
-            let Some((session, root)) = rest.rsplit_once(':') else { return };
-            if let (Some(search), Ok(root)) = (self.search.get().and_then(Weak::upgrade), root.parse()) {
-                search.invalidate(session, root);
-            }
-            return;
-        }
         let publisher = self.fs.lock().expect("fs watches").get(watch_id).cloned();
         if let Some(publisher) = publisher {
             publisher.publish("fs/changed", json!({ "watchId": watch_id, "changedPaths": paths, "kind": kind.as_str() }), None);
@@ -192,6 +185,9 @@ pub struct Deps {
     /// The one "a folder is going away" hook set: `project/delete` runs it, worktree removal runs
     /// the same set. The language servers register here.
     pub releases: Arc<crate::release::FolderReleases>,
+    /// The raw upload chunk the serving core advertises at `initialize` (`limits.maxBlobPutChunkBytes`), stated in the begin
+    /// answer as a fact of the transfer. A sender takes the size from its connection's limits; this is for a UI that reads it here.
+    pub upload_chunk_bytes: u64,
 }
 
 /// The language servers rooted in a folder that goes away.
@@ -285,6 +281,8 @@ pub struct WorkspaceService {
     /// The desktop host's channel, for the methods only an Electron window can answer.
     host: OnceLock<Arc<dyn HostChannel>>,
     phone_grants: OnceLock<PhoneGrants>,
+    /// The media leases of a paired device's streamable project-file previews (served by the relay media lane).
+    project_leases: Arc<crate::media_lease::ProjectFileLeases>,
     /// The desktop's persisted one-file grants and the core's page server ([`Self::enable_desktop_files`]).
     desktop_grants: OnceLock<Arc<crate::desktop_grants::DesktopGrantStore>>,
     page_server: OnceLock<Arc<crate::pageserver::PageServer>>,
@@ -295,6 +293,7 @@ pub struct WorkspaceService {
     /// Where a path inside a managed worktree is resolved to its owner Project (see [`ManagedProjects`]).
     managed: OnceLock<Arc<dyn ManagedProjects>>,
     releases: Arc<crate::release::FolderReleases>,
+    upload_chunk_bytes: u64,
     /// "Download to this PC" of a server window's files (`transfer/serverDownload/*`); the bytes come through [`Self::set_remote_files`].
     server_downloads: Arc<ServerDownloads>,
     remote_files: OnceLock<Arc<dyn RemoteFileReaders>>,
@@ -338,8 +337,8 @@ fn s<'a>(params: &'a Value, key: &str) -> WsResult<&'a str> {
     params.get(key).and_then(Value::as_str).ok_or_else(|| WsError::invalid(format!("{key} is invalid.")))
 }
 
-/// Largest staged upload and its chunk size (`shared/server-files.ts`).
-use crate::transfer::{UPLOAD_CHUNK_BYTES, UPLOAD_MAX_BYTES, unavailable};
+/// Largest staged upload (`shared/server-files.ts`).
+use crate::transfer::{UPLOAD_MAX_BYTES, unavailable};
 
 /// A relay call's file as admitted (Node's `remoteFileTarget` answer): the registered project and the entry in it, or the
 /// granted file's own folder and its name.
@@ -378,22 +377,303 @@ fn text_query(options: &Value, lone: bool) -> WsResult<TextQuery> {
     })
 }
 
+/// The op scope of a mutating method (the method table's `mutation: op(Scope)`).
+fn op_scope(method: &str) -> Option<&'static str> {
+    Some(match method {
+        "project/create" | "project/touch" | "project/update" | "project/delete" | "project/ensureDirectory" => "project",
+        "projectFs/writeText" | "projectFs/writeTextBatch" | "projectFs/create" | "projectFs/rename" | "projectFs/move"
+        | "projectFs/copy" | "projectFs/trash" | "projectFs/replaceText" | "projectFs/recovery" | "projectFs/backup/write"
+        | "projectFs/backup/delete" | "projectFs/workspaceFile/write" => "projectFs",
+        "transfer/beginWrite" | "transfer/commit" | "transfer/trash/entry" => "transfer",
+        "lsp/request" => "lsp",
+        _ => return None,
+    })
+}
+
+/// Registry changes commit their op row inside their own store transaction.
+fn commits_op_itself(method: &str) -> bool {
+    matches!(method, "project/create" | "project/touch" | "project/update" | "project/delete")
+}
+
+#[async_trait]
+impl DomainService for WorkspaceService {
+    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        // `dispatch` needs `Arc<Self>` for lane closures; services are always held in an Arc.
+        let this = self.me.get().and_then(Weak::upgrade).ok_or(CoreError::ConnectionClosed)?;
+        // The OS trash is the window's (Node's `trashItem` host request): the path is confined here, the window moves it.
+        if req.method.as_str() == "projectFs/trash" && opt_bool(&req.params, "viaHost") {
+            let confined = async {
+                let root = this.root(req.ctx.origin, &req.params).await?;
+                let target = project_entry_path(&root, s(&req.params, "rel")?)?;
+                Ok::<_, WsError>(json!({ "path": target.to_string_lossy() }))
+            };
+            let host_params = confined.await.map_err(|e| this.map_error(&req, e))?;
+            return this.host_files("host/files/trashItem", host_params).await.map(|_| Reply::Value(json!({})));
+        }
+        if let (Some(scope), Some(op)) = (op_scope(req.method.as_str()), req.op.as_ref()) {
+            return this.with_op(&req, scope, op.to_string()).await;
+        }
+        if req.method.as_str() == "projectFs/localPageUrl" {
+            let leased = async { this.local_page_url(&req, this.page_server()?).await };
+            return leased.await.map(Reply::Value).map_err(|e| this.map_error(&req, e));
+        }
+        if req.method.as_str() == "projectFs/captureSnapshot" {
+            // The path is confined here; the window only renders it. A one-file grant names the granted file alone.
+            let confined = async {
+                let (root, rel) = this.file_target(&req, &req.params).await?;
+                project_entry_path(&root, &rel)?;
+                let granted = req.params.get("accessToken").is_some();
+                Ok::<_, WsError>(json!({ "root": root.to_string_lossy(), "rel": rel, "grant": granted }))
+            };
+            let host_params = confined.await.map_err(|e| this.map_error(&req, e))?;
+            return this.host_files("host/capture/fileSnapshot", host_params).await.map(Reply::Value);
+        }
+        this.dispatch(&req, None).await.map_err(|e| this.map_error(&req, e))
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &[
+            "project/list",
+            "project/read",
+            "project/create",
+            "project/touch",
+            "project/update",
+            "project/delete",
+            "project/ensureDirectory",
+            "project/directory",
+            "project/recoveryDirectory",
+            "project/taskWorkspace",
+            "project/codeGraph",
+            "projectFs/listDir",
+            "projectFs/readText",
+            "projectFs/stat",
+            "projectFs/entryPath",
+            "projectFs/previewFile",
+            "projectFs/previewRange",
+            "projectFs/readLocal",
+            "projectFs/statLocal",
+            "projectFs/browseDirs",
+            "projectFs/captureSnapshot",
+            "projectFs/localPageUrl",
+            "projectFs/grant/describe",
+            "projectFs/grant/redeem",
+            "projectFs/localPage/revokeOwner",
+            "projectFs/localPage/origin",
+            "projectFs/localPage/assetType",
+            "projectFs/localPage/virtual",
+            "projectFs/writeText",
+            "projectFs/writeTextBatch",
+            "projectFs/create",
+            "projectFs/rename",
+            "projectFs/move",
+            "projectFs/copy",
+            "projectFs/trash",
+            "projectFs/searchText",
+            "projectFs/replaceText",
+            "projectFs/recovery",
+            "projectFs/backup/read",
+            "projectFs/backup/write",
+            "projectFs/backup/delete",
+            "projectFs/workspaceFile/read",
+            "projectFs/workspaceFile/write",
+            "projectFs/readEditorSettings",
+            "fs/watch",
+            "fs/unwatch",
+            "search/start",
+            "search/update",
+            "search/stop",
+            "transfer/beginRead",
+            "transfer/beginZip",
+            "transfer/readRange",
+            "transfer/authorizeRead",
+            "transfer/redeemGrant",
+            "transfer/finishRead",
+            "transfer/endRead",
+            "transfer/beginWrite",
+            "transfer/writeChunk",
+            "transfer/commit",
+            "transfer/abort",
+            "transfer/serverDownload/begin",
+            "transfer/serverDownload/step",
+            "transfer/serverDownload/finish",
+            "transfer/serverDownload/abort",
+            "transfer/serverDownload/check",
+            "transfer/trash/info",
+            "transfer/trash/entry",
+            "transfer/grant/mint",
+            "lsp/subscribe",
+            "lsp/unsubscribe",
+            "lsp/document",
+            "lsp/request",
+        ]
+    }
+
+    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
+        Admit::Accepted
+    }
+}
+
+#[cfg(test)]
+mod serverdownload_calls {
+    use std::collections::HashMap;
+
+    use base64::Engine;
+    use mixdog_core_api::call::CallContext;
+    use mixdog_core_api::domain::mock::MockProcessManager;
+    use mixdog_core_api::mock::MockLimits;
+    use mixdog_core_api::mock::MockScopedFeeds;
+
+    use super::*;
+
+    struct NoGit;
+
+    #[async_trait]
+    impl crate::zip::TrackedFiles for NoGit {
+        async fn files(&self, _: &Path, _: &CancellationToken) -> Option<Vec<String>> {
+            None
+        }
+        async fn ignored(&self, _: &Path, _: &CancellationToken) -> Option<u64> {
+            None
+        }
+    }
+
+    struct Server(Vec<u8>);
+
+    #[async_trait]
+    impl RemoteFileReader for Server {
+        async fn stat(&self, _: &str, _: &str) -> WsResult<Value> {
+            Ok(json!({ "size": self.0.len(), "mtimeMs": 1700.5 }))
+        }
+        async fn read_range(&self, _: &str, _: &str, offset: u64, length: u64) -> WsResult<Value> {
+            let start = (offset as usize).min(self.0.len());
+            let end = (start + length as usize).min(self.0.len());
+            Ok(json!({
+                "offset": offset,
+                "size": self.0.len(),
+                "mtimeMs": 1700.5,
+                "data": base64::engine::general_purpose::STANDARD.encode(&self.0[start..end]),
+            }))
+        }
+    }
+
+    struct Links(HashMap<String, Vec<u8>>);
+
+    impl RemoteFileReaders for Links {
+        fn reader(&self, server_id: &str) -> Option<Arc<dyn RemoteFileReader>> {
+            self.0.get(server_id).map(|bytes| Arc::new(Server(bytes.clone())) as Arc<dyn RemoteFileReader>)
+        }
+    }
+
+    fn service(dir: &Path) -> Arc<WorkspaceService> {
+        let tokens = mixdog_rt::testing::tokens();
+        let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.join("core.sqlite")).unwrap();
+        WorkspaceService::new(Deps {
+            lanes: Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk },
+            feeds: Arc::new(MockScopedFeeds::new(MockLimits::default())),
+            processes: Arc::new(MockProcessManager::default()),
+            tracked: Arc::new(NoGit),
+            state,
+            recovery_dir: dir.join("recovery"),
+            user_data_dir: dir.join("userData"),
+            sources: Vec::new(),
+            code_graph: None,
+            turn_review: None,
+            releases: crate::release::FolderReleases::new(),
+            upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
+        })
+        .unwrap()
+    }
+
+    async fn call(service: &WorkspaceService, method: &'static str, params: Value) -> Result<Value, CoreError> {
+        let ctx = CallContext::connection(ConnectionId(2), mixdog_protocol::Origin::Local, CancellationToken::new());
+        match service.call(CoreRequest { method: Method(method), params, op: None, ctx }).await? {
+            Reply::Value(value) => Ok(value),
+            Reply::Subscribe(_) => panic!("unexpected subscribe"),
+        }
+    }
+
+    fn begin_params(downloads: &Path, server: &str, rel: &str) -> Value {
+        json!({ "serverId": server, "downloadsDir": downloads.to_string_lossy(), "root": "/srv", "rel": rel })
+    }
+
+    fn parts(dir: &Path) -> usize {
+        std::fs::read_dir(dir).map_or(0, |rows| rows.filter(|row| row.as_ref().unwrap().file_name().to_string_lossy().ends_with(".part")).count())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_server_that_is_not_linked_is_not_connected() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = service(dir.path());
+        let downloads = dir.path().join("downloads");
+        let refused = |error: CoreError| format!("{error:?}").contains("This SSH server is not connected");
+        assert!(refused(call(&service, "transfer/serverDownload/begin", begin_params(&downloads, "s1", "a.txt")).await.unwrap_err()));
+        service.set_remote_files(Arc::new(Links(HashMap::new())));
+        assert!(refused(call(&service, "transfer/serverDownload/begin", begin_params(&downloads, "s1", "a.txt")).await.unwrap_err()));
+        assert!(!downloads.exists());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_download_runs_to_this_pcs_folder_under_a_free_name_and_may_then_be_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = service(dir.path());
+        service.set_remote_files(Arc::new(Links(HashMap::from([("s1".to_owned(), b"0123456789".to_vec())]))));
+        let downloads = dir.path().join("downloads");
+        let mut paths = Vec::new();
+        for _ in 0..2 {
+            let begun = call(&service, "transfer/serverDownload/begin", begin_params(&downloads, "s1", "a/report.txt")).await.unwrap();
+            assert_eq!((begun["name"].as_str(), begun["size"].as_u64()), (Some("report.txt"), Some(10)));
+            let id = begun["downloadId"].as_str().unwrap().to_owned();
+            let stepped = call(&service, "transfer/serverDownload/step", json!({ "downloadId": id })).await.unwrap();
+            assert_eq!((stepped["received"].as_u64(), stepped["size"].as_u64(), stepped["done"].as_bool()), (Some(10), Some(10), Some(true)));
+            let finished = call(&service, "transfer/serverDownload/finish", json!({ "downloadId": id })).await.unwrap();
+            paths.push(finished["path"].as_str().unwrap().to_owned());
+        }
+        assert_eq!(paths[0], downloads.join("report.txt").to_string_lossy());
+        assert_eq!(paths[1], downloads.join("report (2).txt").to_string_lossy());
+        assert_eq!(std::fs::read(&paths[1]).unwrap(), b"0123456789");
+        assert_eq!(parts(&downloads), 0);
+        assert_eq!(call(&service, "transfer/serverDownload/check", json!({ "path": paths[0] })).await.unwrap(), json!(true));
+        let other = downloads.join("other.txt").to_string_lossy().into_owned();
+        assert_eq!(call(&service, "transfer/serverDownload/check", json!({ "path": other })).await.unwrap(), json!(false));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_aborted_download_leaves_no_part_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = service(dir.path());
+        service.set_remote_files(Arc::new(Links(HashMap::from([("s1".to_owned(), b"abc".to_vec())]))));
+        let downloads = dir.path().join("downloads");
+        let begun = call(&service, "transfer/serverDownload/begin", begin_params(&downloads, "s1", "x.bin")).await.unwrap();
+        let id = begun["downloadId"].as_str().unwrap();
+        assert_eq!(parts(&downloads), 1);
+        assert_eq!(call(&service, "transfer/serverDownload/abort", json!({ "downloadId": id })).await.unwrap(), json!(true));
+        assert_eq!(call(&service, "transfer/serverDownload/abort", json!({ "downloadId": id })).await.unwrap(), json!(false));
+        for _ in 0..100 {
+            if parts(&downloads) == 0 {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("the part file is still there");
+    }
+}
+
+
 impl WorkspaceService {
     pub fn new(deps: Deps) -> WsResult<Arc<Self>> {
         Self::build(deps, Arc::new(Transfers::default()))
     }
 
     /// A service over a transfer table whose clock a test moves (the whole download path then runs on that clock).
-    #[cfg(test)]
+    #[cfg(all(test, node_twin))]
     pub(crate) fn new_with_transfers(deps: Deps, transfers: Arc<Transfers>) -> WsResult<Arc<Self>> {
         Self::build(deps, transfers)
     }
 
     fn build(deps: Deps, transfers: Arc<Transfers>) -> WsResult<Arc<Self>> {
-        let router = Arc::new(Router { fs: Mutex::default(), search: OnceLock::new() });
+        let router = Arc::new(Router { fs: Mutex::default() });
         let watcher = Arc::new(FolderWatcher::new(router.clone())?);
         let search = SearchSessions::new(deps.lanes, deps.feeds.clone(), watcher.clone());
-        let _ = router.search.set(Arc::downgrade(&search));
         let lsp_feeds = Arc::new(LspFeeds::new(deps.feeds.clone()));
         let lsp = LspManager::new(deps.processes.clone(), lsp_feeds.clone(), deps.lanes.maintenance);
         deps.releases.add(Arc::new(LspRelease(lsp.clone())));
@@ -422,12 +702,14 @@ impl WorkspaceService {
             state: deps.state,
             host: OnceLock::new(),
             phone_grants: OnceLock::new(),
+            project_leases: crate::media_lease::ProjectFileLeases::new(deps.lanes),
             desktop_grants: OnceLock::new(),
             page_server: OnceLock::new(),
             sweepers: std::sync::Once::new(),
             user_markdown_view: OnceLock::new(),
             managed: OnceLock::new(),
             releases: deps.releases,
+            upload_chunk_bytes: deps.upload_chunk_bytes,
             server_downloads: ServerDownloads::new(SERVER_DOWNLOAD_MAX_BYTES, deps.lanes),
             remote_files: OnceLock::new(),
         });
@@ -452,6 +734,20 @@ impl WorkspaceService {
                 return sweeping.run_download_sweeper(&*clock).await;
             }
             sweeping.run_download_sweeper(&crate::transfer::TokioTimer).await;
+        }));
+        // The ends of the leases the relay media lane streams under, published at their deadlines (one scheduler per table): a stream
+        // parked for room is released when its lease ends, not when the next tick or the next writable notification comes.
+        let leases = self.transfers.clone();
+        drop(mixdog_rt::spawn("download-lease-ends", mixdog_rt::TaskClass::Work, async move {
+            #[cfg(feature = "replay-controls")]
+            if let Some(clock) = crate::replay_controls::clock() {
+                return leases.run_lease_ends(&*clock).await;
+            }
+            leases.run_lease_ends(&crate::transfer::TokioTimer).await;
+        }));
+        let projects = self.project_leases.clone();
+        drop(mixdog_rt::spawn("project-lease-expiry", mixdog_rt::TaskClass::Work, async move {
+            projects.run_expiry().await;
         }));
         let (transfers, lanes) = (self.transfers.clone(), self.lanes);
         drop(mixdog_rt::spawn("upload-idle-sweep", mixdog_rt::TaskClass::Work, async move {
@@ -532,7 +828,11 @@ impl WorkspaceService {
     ) {
         // A device that unpairs loses its downloads in the same step as its grants, whether or not any connection of it is attached.
         let transfers = self.transfers.clone();
-        store.on_unpaired(Arc::new(move |credential| transfers.revoke_owner(&Owner::device(credential))));
+        let previews = self.project_leases.clone();
+        store.on_unpaired(Arc::new(move |credential| {
+            transfers.revoke_owner(&Owner::device(credential));
+            previews.revoke_device(credential);
+        }));
         // A conversation a publication lists again is a member again (Node's replaceable catalog).
         let transfers = self.transfers.clone();
         store.on_listed(Arc::new(move |sessions| transfers.relisted(sessions)));
@@ -607,6 +907,26 @@ impl WorkspaceService {
         }
     }
 
+    /// The media leases of paired devices' project-file previews, for the relay media lane to serve.
+    pub fn project_leases(&self) -> Arc<crate::media_lease::ProjectFileLeases> {
+        self.project_leases.clone()
+    }
+
+    /// The phone's file-download lease `media_id` names for `device`, as the relay media lane reads it (`resolveMedia`).
+    pub fn download_file(&self, device: &str, media_id: &str) -> Option<crate::media_lease::DownloadFile> {
+        crate::media_lease::download_file(&self.transfers, self.lanes, device, media_id)
+    }
+
+    /// A gallery file opened for one request of the relay media lane (`openAuthorizedFile(path, dirname(path))`).
+    pub async fn open_gallery_file(&self, path: PathBuf, mime: String) -> Option<crate::media_lease::LeasedFile> {
+        let within = path.parent()?.to_path_buf();
+        crate::media_lease::open_within(self.lanes, path, within, mime).await
+    }
+
+    pub fn watcher(&self) -> Arc<FolderWatcher> {
+        self.watcher.clone()
+    }
+
     pub fn open_os_watches(&self) -> usize {
         self.watcher.open_watches()
     }
@@ -649,6 +969,7 @@ impl WorkspaceService {
         self.transfers.revoke_owner(&Owner::connection(id));
         if let Some(credential) = self.phone_grants.get().and_then(|grants| (grants.credential_of)(ConnectionId(id))).filter(|credential| !credential.is_empty()) {
             self.transfers.revoke_owner(&Owner::device(&credential));
+            self.project_leases.revoke_device(&credential);
         }
     }
 
@@ -656,6 +977,7 @@ impl WorkspaceService {
     /// finds it revoked (Node's `fileDownloads.revokeAll` in the relay's `close`, `remote-relay.ts:653`).
     pub fn revoke_all_downloads(&self) {
         self.transfers.revoke_all();
+        self.project_leases.revoke_all();
     }
 
     /// Who a phone's download calls belong to: its paired credential (only a relay peer admitted under one has it), else (a local
@@ -783,6 +1105,32 @@ impl WorkspaceService {
         Ok((self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned()))
     }
 
+    /// A preview reuses the original permission, not merely the path it resolved to.
+    fn preview_authority(&self, req: &CoreRequest, root: &Path, rel: &str, device: &str) -> crate::media_lease::Authorize {
+        let service = self.me.get().cloned().expect("workspace owns a weak self reference");
+        let given = req.params.clone();
+        let caller = req.ctx.caller.clone();
+        let expected = (root.to_path_buf(), rel.to_owned());
+        let device = device.to_owned();
+        Arc::new(move || {
+            let (service, given, caller, expected, device) = (service.clone(), given.clone(), caller.clone(), expected.clone(), device.clone());
+            Box::pin(async move {
+                let Some(service) = service.upgrade() else { return false };
+                if let Some(token) = given.get("accessToken") {
+                    let mixdog_core_api::call::Caller::Connection(connection) = caller else { return false };
+                    let Some(grants) = service.phone_grants.get() else { return false };
+                    if (grants.credential_of)(connection).as_deref() != Some(device.as_str()) {
+                        return false;
+                    }
+                    let (Some(token), Ok(root), Ok(rel)) = (token.as_str(), s(&given, "root"), s(&given, "rel")) else { return false };
+                    return grants.store.redeem(&device, connection.0, token, root, rel).await
+                        .is_ok_and(|granted| (granted.root, granted.rel) == expected);
+                }
+                service.root(mixdog_protocol::Origin::Relay, &given).await.is_ok_and(|root| root == expected.0)
+            })
+        })
+    }
+
     /// A paired phone's file named by its path (an editor backup, a document preview), held to what Node's host let a phone
     /// name (`remoteFileTarget`, `remote-file-preview.ts`): a file this device holds a live one-file grant for, or an entry of a
     /// registered project confined to it. The registered projects are the catalog's; the grants are this connection's device
@@ -795,6 +1143,29 @@ impl WorkspaceService {
     /// to a project's is not that project).
     pub async fn relay_file(&self, req: &CoreRequest, root: &str, rel: &str) -> Result<RelayTarget, CoreError> {
         self.relay_target(req, root, rel).await.map_err(|error| self.map_error(req, error))
+    }
+
+    /// A paired phone's range read of a visualize pane's file (`visualize_pane::range`): the tab's own panes decide what is
+    /// servable, so no project registration or grant is asked.
+    pub async fn visualize_pane_range(&self, req: &CoreRequest, scope: crate::visualize_pane::PaneScope, rel: String, offset: u64, length: u64) -> Result<Value, CoreError> {
+        let length = if (1..=crate::preview::RANGE_MAX).contains(&length) { length } else { return Err(self.map_error(req, WsError::invalid("length is invalid."))) };
+        run_fallible(self.lanes.interactive, &req.ctx.cancel, move || crate::visualize_pane::range(&scope, &rel, offset, length))
+            .await
+            .map_err(|error| self.map_error(req, error))
+    }
+
+    /// A private copy of an admitted file's bytes, made through its authorized handle (`visualize_pane::private_copy`).
+    pub async fn relay_private_copy(&self, req: &CoreRequest, root: String, rel: String) -> Result<crate::visualize_pane::PrivateCopy, CoreError> {
+        run_fallible(self.lanes.interactive, &req.ctx.cancel, move || crate::visualize_pane::private_copy(Path::new(&root), &rel))
+            .await
+            .map_err(|error| self.map_error(req, error))
+    }
+
+    /// A paired phone's metadata read of pane `index` (`visualize_pane::file`).
+    pub async fn visualize_pane_file(&self, req: &CoreRequest, scope: crate::visualize_pane::PaneScope, index: usize) -> Result<Value, CoreError> {
+        run_fallible(self.lanes.interactive, &req.ctx.cancel, move || crate::visualize_pane::file(&scope, index))
+            .await
+            .map_err(|error| self.map_error(req, error))
     }
 
     async fn relay_target(&self, req: &CoreRequest, root: &str, rel: &str) -> WsResult<RelayTarget> {
@@ -1010,7 +1381,28 @@ impl WorkspaceService {
             }
             "projectFs/previewFile" => {
                 let (root, rel) = self.file_target(req, params).await?;
-                value(run_fallible(self.lanes.interactive, &cancel, move || crate::preview::preview_file(&root, &rel)).await?)
+                // A paired device's image, audio or video also gets a lease the relay media lane streams (Node's
+                // `authorizedMediaFile`); a pdf, a call of a window and a connection that is no paired device get none and
+                // read ranges.
+                let lease = (req.ctx.origin == mixdog_protocol::Origin::Relay)
+                    .then(|| self.phone_grants_for(req).ok().map(|(_, credential, _)| {
+                        let authorize = self.preview_authority(req, &root, &rel, &credential);
+                        (self.project_leases.clone(), credential, authorize)
+                    }))
+                    .flatten();
+                value(
+                    run_fallible(self.lanes.interactive, &cancel, move || {
+                        let mut preview = crate::preview::preview_file(&root, &rel)?;
+                        if let Some((leases, device, authorize)) = lease
+                            && preview["kind"] != "pdf"
+                        {
+                            let mime = preview["mime"].as_str().unwrap_or_default().to_owned();
+                            preview["mediaAssetId"] = Value::String(leases.mint_with_authority(&root, &rel, &mime, &device, Some(authorize))?);
+                        }
+                        Ok(preview)
+                    })
+                    .await?,
+                )
             }
             "projectFs/previewRange" => {
                 let (root, rel) = self.file_target(req, params).await?;
@@ -1310,6 +1702,9 @@ impl WorkspaceService {
                         let path = s(source, "path")?.to_owned();
                         run_fallible(self.lanes.interactive, &cancel, move || t.begin_local_read(&owner, &path)).await?
                     }
+                    Some("export") if req.ctx.origin == mixdog_protocol::Origin::Relay => {
+                        return Err(WsError::denied("A paired device downloads exports through a download grant."));
+                    }
                     Some(kind) => match self.sources.iter().find(|x| x.kind() == kind) {
                         Some(found) => {
                             let file = found.open(source, &cancel).await?;
@@ -1379,6 +1774,26 @@ impl WorkspaceService {
                 let given = row.project_path.as_deref().map(PathBuf::from);
                 let mut left_out = None;
                 let opened = match requested {
+                    crate::transfer::DownloadRequest::Export(mut input) => {
+                        let owner = if req.ctx.origin == mixdog_protocol::Origin::Relay {
+                            let (_, credential, _) = self.phone_grants_for(req)?;
+                            let paired = Owner::device(&credential);
+                            if paired != owner {
+                                return Err(WsError::expired());
+                            }
+                            paired
+                        } else {
+                            owner
+                        };
+                        let render = self.sources.iter().find(|x| x.kind() == "export")
+                            .ok_or_else(|| WsError::new(Reason::Unsupported, "Visualize exports are not available."))?;
+                        // The catalog-validated conversation, not any session named inside the render input, owns the grant.
+                        input.insert("sessionId".into(), json!(&session));
+                        let file = render.open(&json!({ "kind": "export", "input": input }), &cancel).await
+                            .map_err(crate::transfer::source_refusal)?;
+                        // Once the host has rendered a file, authorization takes cleanup ownership even on refusal.
+                        return value(json!(t.authorize_source(&owner, &session, mark, file)?));
+                    }
                     crate::transfer::DownloadRequest::Project(rel) => {
                         let root = project.ok_or_else(|| WsError::new(Reason::Download("file-download:outside-project"), "The file is outside the conversation's project."))?;
                         run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_project_download(&root, &rel, &|point| t.point(point))).await?
@@ -1464,7 +1879,7 @@ impl WorkspaceService {
                 let dir = self.user_data.join("attachments").join(scope);
                 let (owner, name, t) = (Self::owner(req), s(params, "name")?.to_owned(), self.transfers.clone());
                 let id = run_fallible(self.lanes.durability, &cancel, move || t.begin_staged(&owner, &dir, &name, size)).await?;
-                value(json!({ "transferId": id, "uploadId": id, "chunkBytes": UPLOAD_CHUNK_BYTES, "maxBytes": UPLOAD_MAX_BYTES }))
+                value(json!({ "transferId": id, "uploadId": id, "chunkBytes": self.upload_chunk_bytes, "maxBytes": UPLOAD_MAX_BYTES }))
             }
             "transfer/beginWrite" => {
                 let root = self.root(req.ctx.origin, params).await?;
@@ -1701,344 +2116,73 @@ impl WorkspaceService {
         req.ctx.lone_surrogates.iter().any(|held| matches!(held, mixdog_js::LoneAt::Value(at) if at == pointer))
     }
 }
-
-/// The op scope of a mutating method (the method table's `mutation: op(Scope)`).
-fn op_scope(method: &str) -> Option<&'static str> {
-    Some(match method {
-        "project/create" | "project/touch" | "project/update" | "project/delete" | "project/ensureDirectory" => "project",
-        "projectFs/writeText" | "projectFs/writeTextBatch" | "projectFs/create" | "projectFs/rename" | "projectFs/move"
-        | "projectFs/copy" | "projectFs/trash" | "projectFs/replaceText" | "projectFs/recovery" | "projectFs/backup/write"
-        | "projectFs/backup/delete" | "projectFs/workspaceFile/write" => "projectFs",
-        "transfer/beginWrite" | "transfer/commit" | "transfer/trash/entry" => "transfer",
-        "lsp/request" => "lsp",
-        _ => return None,
-    })
-}
-
-/// Registry changes commit their op row inside their own store transaction.
-fn commits_op_itself(method: &str) -> bool {
-    matches!(method, "project/create" | "project/touch" | "project/update" | "project/delete")
-}
-
 impl WorkspaceService {
     /// Runs a mutation under its op record: a repeated id answers from the record, a
-    /// different payload under the same id conflicts, and the record is written before the
-    /// effect (inProgress) and completed after it (applied or rejected). Registry changes
+    /// different method, payload or audience conflicts. The record is written before the
+    /// effect (externalPending) and completed after it (applied or rejected). Registry changes
     /// write the record in the same transaction as the change.
     async fn with_op(self: &Arc<Self>, req: &CoreRequest, scope: &'static str, op_id: String) -> Result<Reply, CoreError> {
         let method = req.method.as_str();
-        let digest = crate::recovery::hex_digest(format!("{method}\n{}", req.params).as_bytes());
+        let digest = PayloadDigest::of_params(&req.params);
+        let audience = replay_audience(&req.ctx);
         let state_error = |_| CoreError::Internal { incident_id: "workspace-op-store".into() };
         if let Some(found) = self.state.op(scope, &op_id).await.map_err(state_error)? {
             let id = req.op.clone().expect("op present");
-            if found.payload_digest != digest {
+            if found.state == OpRowState::Fenced {
+                return Err(CoreError::OpFenced { op_id: id });
+            }
+            if found.method != method || found.payload_digest != digest.as_str() {
                 return Err(CoreError::OpIdConflict { op_id: id });
             }
-            return match (found.state, found.outcome) {
-                (OpRowState::Applied, outcome) => {
-                    Ok(Reply::Value(outcome.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| json!({}))))
-                }
-                (OpRowState::Rejected, code) => Err(CoreError::DomainError {
-                    domain: "workspace".into(),
-                    code: Some(code.unwrap_or_else(|| "rejected".into()).into()),
-                    message: None,
-                    detail: None,
-                }),
-                _ => Err(CoreError::ExternalOutcomeUnknown { op_id: id, effect: method.into(), target: "".into() }),
+            let StoredOpRecord::Settled { audience: Some(owner), state, .. } = op_record(found)? else {
+                return Err(CoreError::OpIdConflict { op_id: id });
+            };
+            if owner != audience {
+                return Err(CoreError::OpIdConflict { op_id: id });
+            }
+            return match state {
+                OpState::Applied { result, .. } => Ok(Reply::Value(result.unwrap_or_else(|| json!({})))),
+                OpState::Rejected { error } => Err(error),
+                OpState::ExternalPending { effect, target } | OpState::ExternalUnknown { effect, target } =>
+                    Err(CoreError::ExternalOutcomeUnknown { op_id: id, effect, target }),
             };
         }
-        let record = OpRecord {
+        let now = crate::catalog::now_ms();
+        let mut record = OpRecord {
             scope: scope.to_owned(),
             op_id: op_id.clone(),
+            audience,
             row: OpRow {
                 method: method.to_owned(),
-                payload_digest: digest,
+                payload_digest: digest.as_str().to_owned(),
                 state: OpRowState::InProgress,
                 outcome: None,
-                created_at: crate::catalog::now_ms(),
+                created_at: now,
                 completed_at: None,
             },
         };
         let own = commits_op_itself(method);
         if !own {
+            let pending = OpState::ExternalPending { effect: method.into(), target: "".into() };
+            set_op_row_outcome(&mut record.row, Some(&record.audience), &pending, now);
             let begin = record.clone();
             self.state.write(move |tx| tx.put_op(&begin.scope, &begin.op_id, &begin.row)).await.map_err(state_error)?;
         }
         let result = self.dispatch(req, own.then(|| record.clone())).await;
-        let settled = match &result {
-            Ok(Reply::Value(value)) => (OpRowState::Applied, value.to_string()),
-            Ok(Reply::Subscribe(_)) => (OpRowState::Applied, "{}".to_owned()),
-            Err(error) => (OpRowState::Rejected, error.reason.code().to_owned()),
-        };
         if !(own && result.is_ok()) {
-            let mut done = record;
-            done.row.state = settled.0;
-            done.row.outcome = Some(settled.1);
-            done.row.completed_at = Some(crate::catalog::now_ms());
-            self.state.write(move |tx| tx.put_op(&done.scope, &done.op_id, &done.row)).await.map_err(state_error)?;
+            let settled = match &result {
+                Ok(Reply::Value(value)) => OpState::Applied { seq: None, result: Some(value.clone()) },
+                Ok(Reply::Subscribe(_)) => OpState::Applied { seq: None, result: Some(json!({})) },
+                Err(error) => OpState::Rejected { error: CoreError::DomainError {
+                    domain: "workspace".into(),
+                    code: Some(error.reason.code().into()),
+                    message: None,
+                    detail: None,
+                }},
+            };
+            set_op_row_outcome(&mut record.row, Some(&record.audience), &settled, crate::catalog::now_ms());
+            self.state.write(move |tx| tx.put_op(&record.scope, &record.op_id, &record.row)).await.map_err(state_error)?;
         }
         result.map_err(|e| self.map_error(req, e))
-    }
-}
-
-#[async_trait]
-impl DomainService for WorkspaceService {
-    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        // `dispatch` needs `Arc<Self>` for lane closures; services are always held in an Arc.
-        let this = self.me.get().and_then(Weak::upgrade).ok_or(CoreError::ConnectionClosed)?;
-        // The OS trash is the window's (Node's `trashItem` host request): the path is confined here, the window moves it.
-        if req.method.as_str() == "projectFs/trash" && opt_bool(&req.params, "viaHost") {
-            let confined = async {
-                let root = this.root(req.ctx.origin, &req.params).await?;
-                let target = project_entry_path(&root, s(&req.params, "rel")?)?;
-                Ok::<_, WsError>(json!({ "path": target.to_string_lossy() }))
-            };
-            let host_params = confined.await.map_err(|e| this.map_error(&req, e))?;
-            return this.host_files("host/files/trashItem", host_params).await.map(|_| Reply::Value(json!({})));
-        }
-        if let (Some(scope), Some(op)) = (op_scope(req.method.as_str()), req.op.as_ref()) {
-            return this.with_op(&req, scope, op.to_string()).await;
-        }
-        if req.method.as_str() == "projectFs/localPageUrl" {
-            let leased = async { this.local_page_url(&req, this.page_server()?).await };
-            return leased.await.map(Reply::Value).map_err(|e| this.map_error(&req, e));
-        }
-        if req.method.as_str() == "projectFs/captureSnapshot" {
-            // The path is confined here; the window only renders it. A one-file grant names the granted file alone.
-            let confined = async {
-                let (root, rel) = this.file_target(&req, &req.params).await?;
-                project_entry_path(&root, &rel)?;
-                let granted = req.params.get("accessToken").is_some();
-                Ok::<_, WsError>(json!({ "root": root.to_string_lossy(), "rel": rel, "grant": granted }))
-            };
-            let host_params = confined.await.map_err(|e| this.map_error(&req, e))?;
-            return this.host_files("host/capture/fileSnapshot", host_params).await.map(Reply::Value);
-        }
-        this.dispatch(&req, None).await.map_err(|e| this.map_error(&req, e))
-    }
-
-    fn methods(&self) -> &'static [&'static str] {
-        &[
-            "project/list",
-            "project/read",
-            "project/create",
-            "project/touch",
-            "project/update",
-            "project/delete",
-            "project/ensureDirectory",
-            "project/directory",
-            "project/recoveryDirectory",
-            "project/taskWorkspace",
-            "project/codeGraph",
-            "projectFs/listDir",
-            "projectFs/readText",
-            "projectFs/stat",
-            "projectFs/entryPath",
-            "projectFs/previewFile",
-            "projectFs/previewRange",
-            "projectFs/readLocal",
-            "projectFs/statLocal",
-            "projectFs/browseDirs",
-            "projectFs/captureSnapshot",
-            "projectFs/localPageUrl",
-            "projectFs/grant/describe",
-            "projectFs/grant/redeem",
-            "projectFs/localPage/revokeOwner",
-            "projectFs/localPage/origin",
-            "projectFs/localPage/assetType",
-            "projectFs/localPage/virtual",
-            "projectFs/writeText",
-            "projectFs/writeTextBatch",
-            "projectFs/create",
-            "projectFs/rename",
-            "projectFs/move",
-            "projectFs/copy",
-            "projectFs/trash",
-            "projectFs/searchText",
-            "projectFs/replaceText",
-            "projectFs/recovery",
-            "projectFs/backup/read",
-            "projectFs/backup/write",
-            "projectFs/backup/delete",
-            "projectFs/workspaceFile/read",
-            "projectFs/workspaceFile/write",
-            "projectFs/readEditorSettings",
-            "fs/watch",
-            "fs/unwatch",
-            "search/start",
-            "search/update",
-            "search/stop",
-            "transfer/beginRead",
-            "transfer/beginZip",
-            "transfer/readRange",
-            "transfer/authorizeRead",
-            "transfer/redeemGrant",
-            "transfer/finishRead",
-            "transfer/endRead",
-            "transfer/beginWrite",
-            "transfer/writeChunk",
-            "transfer/commit",
-            "transfer/abort",
-            "transfer/serverDownload/begin",
-            "transfer/serverDownload/step",
-            "transfer/serverDownload/finish",
-            "transfer/serverDownload/abort",
-            "transfer/serverDownload/check",
-            "transfer/trash/info",
-            "transfer/trash/entry",
-            "transfer/grant/mint",
-            "lsp/subscribe",
-            "lsp/unsubscribe",
-            "lsp/document",
-            "lsp/request",
-        ]
-    }
-
-    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
-        Admit::Accepted
-    }
-}
-
-#[cfg(test)]
-mod serverdownload_calls {
-    use std::collections::HashMap;
-
-    use base64::Engine;
-    use mixdog_core_api::call::CallContext;
-    use mixdog_core_api::domain::mock::MockProcessManager;
-    use mixdog_core_api::mock::MockLimits;
-    use mixdog_core_api::mock::MockScopedFeeds;
-
-    use super::*;
-
-    struct NoGit;
-
-    #[async_trait]
-    impl crate::zip::TrackedFiles for NoGit {
-        async fn files(&self, _: &Path, _: &CancellationToken) -> Option<Vec<String>> {
-            None
-        }
-        async fn ignored(&self, _: &Path, _: &CancellationToken) -> Option<u64> {
-            None
-        }
-    }
-
-    struct Server(Vec<u8>);
-
-    #[async_trait]
-    impl RemoteFileReader for Server {
-        async fn stat(&self, _: &str, _: &str) -> WsResult<Value> {
-            Ok(json!({ "size": self.0.len(), "mtimeMs": 1700.5 }))
-        }
-        async fn read_range(&self, _: &str, _: &str, offset: u64, length: u64) -> WsResult<Value> {
-            let start = (offset as usize).min(self.0.len());
-            let end = (start + length as usize).min(self.0.len());
-            Ok(json!({
-                "offset": offset,
-                "size": self.0.len(),
-                "mtimeMs": 1700.5,
-                "data": base64::engine::general_purpose::STANDARD.encode(&self.0[start..end]),
-            }))
-        }
-    }
-
-    struct Links(HashMap<String, Vec<u8>>);
-
-    impl RemoteFileReaders for Links {
-        fn reader(&self, server_id: &str) -> Option<Arc<dyn RemoteFileReader>> {
-            self.0.get(server_id).map(|bytes| Arc::new(Server(bytes.clone())) as Arc<dyn RemoteFileReader>)
-        }
-    }
-
-    fn service(dir: &Path) -> Arc<WorkspaceService> {
-        let tokens = mixdog_rt::testing::tokens();
-        let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.join("core.sqlite")).unwrap();
-        WorkspaceService::new(Deps {
-            lanes: Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk },
-            feeds: Arc::new(MockScopedFeeds::new(MockLimits::default())),
-            processes: Arc::new(MockProcessManager::default()),
-            tracked: Arc::new(NoGit),
-            state,
-            recovery_dir: dir.join("recovery"),
-            user_data_dir: dir.join("userData"),
-            sources: Vec::new(),
-            code_graph: None,
-            turn_review: None,
-            releases: crate::release::FolderReleases::new(),
-        })
-        .unwrap()
-    }
-
-    async fn call(service: &WorkspaceService, method: &'static str, params: Value) -> Result<Value, CoreError> {
-        let ctx = CallContext::connection(ConnectionId(2), mixdog_protocol::Origin::Local, CancellationToken::new());
-        match service.call(CoreRequest { method: Method(method), params, op: None, ctx }).await? {
-            Reply::Value(value) => Ok(value),
-            Reply::Subscribe(_) => panic!("unexpected subscribe"),
-        }
-    }
-
-    fn begin_params(downloads: &Path, server: &str, rel: &str) -> Value {
-        json!({ "serverId": server, "downloadsDir": downloads.to_string_lossy(), "root": "/srv", "rel": rel })
-    }
-
-    fn parts(dir: &Path) -> usize {
-        std::fs::read_dir(dir).map_or(0, |rows| rows.filter(|row| row.as_ref().unwrap().file_name().to_string_lossy().ends_with(".part")).count())
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_server_that_is_not_linked_is_not_connected() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = service(dir.path());
-        let downloads = dir.path().join("downloads");
-        let refused = |error: CoreError| format!("{error:?}").contains("This SSH server is not connected");
-        assert!(refused(call(&service, "transfer/serverDownload/begin", begin_params(&downloads, "s1", "a.txt")).await.unwrap_err()));
-        service.set_remote_files(Arc::new(Links(HashMap::new())));
-        assert!(refused(call(&service, "transfer/serverDownload/begin", begin_params(&downloads, "s1", "a.txt")).await.unwrap_err()));
-        assert!(!downloads.exists());
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_download_runs_to_this_pcs_folder_under_a_free_name_and_may_then_be_opened() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = service(dir.path());
-        service.set_remote_files(Arc::new(Links(HashMap::from([("s1".to_owned(), b"0123456789".to_vec())]))));
-        let downloads = dir.path().join("downloads");
-        let mut paths = Vec::new();
-        for _ in 0..2 {
-            let begun = call(&service, "transfer/serverDownload/begin", begin_params(&downloads, "s1", "a/report.txt")).await.unwrap();
-            assert_eq!((begun["name"].as_str(), begun["size"].as_u64()), (Some("report.txt"), Some(10)));
-            let id = begun["downloadId"].as_str().unwrap().to_owned();
-            let stepped = call(&service, "transfer/serverDownload/step", json!({ "downloadId": id })).await.unwrap();
-            assert_eq!((stepped["received"].as_u64(), stepped["size"].as_u64(), stepped["done"].as_bool()), (Some(10), Some(10), Some(true)));
-            let finished = call(&service, "transfer/serverDownload/finish", json!({ "downloadId": id })).await.unwrap();
-            paths.push(finished["path"].as_str().unwrap().to_owned());
-        }
-        assert_eq!(paths[0], downloads.join("report.txt").to_string_lossy());
-        assert_eq!(paths[1], downloads.join("report (2).txt").to_string_lossy());
-        assert_eq!(std::fs::read(&paths[1]).unwrap(), b"0123456789");
-        assert_eq!(parts(&downloads), 0);
-        assert_eq!(call(&service, "transfer/serverDownload/check", json!({ "path": paths[0] })).await.unwrap(), json!(true));
-        let other = downloads.join("other.txt").to_string_lossy().into_owned();
-        assert_eq!(call(&service, "transfer/serverDownload/check", json!({ "path": other })).await.unwrap(), json!(false));
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn an_aborted_download_leaves_no_part_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let service = service(dir.path());
-        service.set_remote_files(Arc::new(Links(HashMap::from([("s1".to_owned(), b"abc".to_vec())]))));
-        let downloads = dir.path().join("downloads");
-        let begun = call(&service, "transfer/serverDownload/begin", begin_params(&downloads, "s1", "x.bin")).await.unwrap();
-        let id = begun["downloadId"].as_str().unwrap();
-        assert_eq!(parts(&downloads), 1);
-        assert_eq!(call(&service, "transfer/serverDownload/abort", json!({ "downloadId": id })).await.unwrap(), json!(true));
-        assert_eq!(call(&service, "transfer/serverDownload/abort", json!({ "downloadId": id })).await.unwrap(), json!(false));
-        for _ in 0..100 {
-            if parts(&downloads) == 0 {
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        panic!("the part file is still there");
     }
 }

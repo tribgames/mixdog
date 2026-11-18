@@ -27,9 +27,20 @@ function connection(answer = async () => ({})) {
     for (const listener of [...storeListeners]) listener(value);
   };
   const follow = (threadId, items, hasOlder) => {
-    threads.set(threadId, { feed: { id: threadId, epoch: 'e', seq: 1 }, state: sessionReducer.initial(snapshotOf(threadId, items, hasOlder)) });
+    threads.set(threadId, { feed: { id: threadId, epoch: 'e', seq: 1 }, order: 1, state: sessionReducer.initial(snapshotOf(threadId, items, hasOlder)) });
     change({ type: 'thread', threadId });
   };
+  /** One thread feed notification folded, announced as the library announces every fold. */
+  const notify = (threadId, method, params = {}) => {
+    const held = threads.get(threadId);
+    threads.set(threadId, {
+      ...held,
+      feed: { ...held.feed, seq: held.feed.seq + 1 },
+      state: sessionReducer.apply(held.state, { method, params: { threadId, ...params } }),
+    });
+    change({ type: 'thread', threadId });
+  };
+  const requests = [];
   const client = {
     store: {
       thread: (threadId) => threads.get(threadId),
@@ -37,7 +48,7 @@ function connection(answer = async () => ({})) {
       sections: () => [],
       subscribe: (listener) => (storeListeners.add(listener), () => storeListeners.delete(listener)),
     },
-    pendingServerRequests: () => [],
+    pendingServerRequests: () => requests,
   };
   const resumes = [];
   const protocol = {
@@ -55,7 +66,7 @@ function connection(answer = async () => ({})) {
       return {};
     },
   };
-  return { protocol, calls, resumes, threads, sections, change, follow, replaced: () => [...replacedListeners].forEach((listener) => listener()) };
+  return { protocol, calls, resumes, threads, sections, requests, change, follow, notify, replaced: () => [...replacedListeners].forEach((listener) => listener()) };
 }
 
 const framesOf = (lane) => {
@@ -78,6 +89,160 @@ test('a followed thread is pushed as its folded state with every fold, a live fr
   assert.equal(snapshot.remoteSessionId, 'sess_remote');
   core.follow('t1', [userRow('m1', 'hello'), userRow('m2', 'again')]);
   assert.deepEqual(frames[1].snapshot.items.map((row) => row.id), ['m1', 'm2']);
+});
+
+test('a streamed reply is projected once per core frame: its deltas fold unpublished, the frame publishes all they appended', () => {
+  const core = connection();
+  const lane = createSessionLane({ protocol: core.protocol });
+  const frames = framesOf(lane);
+  core.follow('t1', [userRow('m1', 'hello')]);
+  frames.length = 0;
+  for (const delta of ['Hel', 'lo\nwor', 'ld']) core.notify('t1', 'item/agentMessage/delta', { itemId: 'a1', delta });
+  assert.equal(frames.length, 0, 'nothing is projected before the frame');
+  core.notify('t1', 'thread/frame', { structureChanged: false });
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0].snapshot.streamingTail.text, 'Hello\n');
+  assert.deepEqual(frames[0].snapshot.streamingPartial, { id: 'a1', from: 6, text: 'world' });
+  assert.deepEqual(frames[0].streamPosition, { epoch: 'e', seq: 5, order: 1 }, 'a publication names the feed position it was folded up to');
+  core.notify('t1', 'thread/frame', { structureChanged: false });
+  assert.equal(frames.length, 2);
+  assert.equal(frames[1].snapshot, frames[0].snapshot, 'a frame that changed nothing the state shows is no new projection');
+  assert.deepEqual(frames[1].streamPosition, { epoch: 'e', seq: 6, order: 1 }, 'the state already published is handed on as current at the frame');
+  // Telemetry the core sends without a frame (phone_frame.rs: stage, model-request, tool-batch) leaves the fold as it was: the
+  // state is current at the note's position too, so a call that read its position there is not stranded.
+  core.notify('t1', 'thread/stage/updated', { value: { stage: 'requesting' } });
+  assert.equal(frames.length, 3);
+  assert.equal(frames[2].snapshot, frames[0].snapshot);
+  assert.deepEqual(frames[2].streamPosition, { epoch: 'e', seq: 7, order: 1 });
+  // A change of what the state shows is not current before its frame: a note after it hands nothing on.
+  core.notify('t1', 'item/agentMessage/delta', { itemId: 'a1', delta: '!' });
+  core.notify('t1', 'thread/modelRequest/updated', { value: {} });
+  assert.equal(frames.length, 3);
+  core.notify('t1', 'thread/frame', { structureChanged: false });
+  assert.equal(frames.length, 4);
+  assert.notEqual(frames[3].snapshot, frames[0].snapshot);
+  assert.deepEqual(frames[3].streamPosition, { epoch: 'e', seq: 10, order: 1 });
+});
+
+test('an approval arriving or resolving between a delta and its frame is published as it lands', () => {
+  const core = connection();
+  const lane = createSessionLane({ protocol: core.protocol });
+  const frames = framesOf(lane);
+  core.follow('t1', []);
+  frames.length = 0;
+  core.notify('t1', 'item/agentMessage/delta', { itemId: 'a1', delta: 'Running ls' });
+  assert.equal(frames.length, 0);
+  core.requests.push({ id: 7, method: 'item/tool/requestApproval', params: { threadId: 't1', order: 1, card: { kind: 'shell', command: 'ls' } } });
+  core.change({ type: 'thread', threadId: 't1' });
+  assert.equal(frames.length, 1, 'the approval does not wait for the frame');
+  assert.deepEqual(frames[0].snapshot.toolApproval, { kind: 'shell', command: 'ls' });
+  assert.equal(frames[0].snapshot.streamingPartial.text, 'Running ls', 'with what was folded before it');
+  core.notify('t1', 'item/agentMessage/delta', { itemId: 'a1', delta: '…' });
+  core.requests.length = 0;
+  core.change({ type: 'thread', threadId: 't1' });
+  assert.equal(frames.length, 2, 'its resolution does not wait either');
+  assert.equal(frames[1].snapshot.toolApproval, null);
+  core.notify('t1', 'thread/frame', { structureChanged: false });
+  assert.equal(frames.length, 3);
+  assert.equal(frames[2].snapshot, frames[1].snapshot, 'the frame brings nothing the last publication did not show');
+});
+
+test('a session read after a snapshot it was hidden for is republished on host changes', async () => {
+  const core = connection();
+  const lane = createSessionLane({ protocol: core.protocol });
+  const frames = framesOf(lane);
+  const interested = new Set();
+  lane.setInterest((threadId) => interested.has(threadId));
+  core.follow('t1', [userRow('m1', 'hello')]);
+  assert.equal(frames.length, 0, 'hidden: its snapshot is not projected');
+  interested.add('t1');
+  assert.equal(await lane.prefetchSession('t1', 1, 'trace-1'), true);
+  assert.equal(frames.length, 1);
+  core.sections.set('hostShellJobs\0', { section: 'hostShellJobs', key: null, revision: 2, value: { count: 2 } });
+  core.change({ type: 'section', section: 'hostShellJobs', key: null });
+  assert.equal(frames.length, 2, 'the read made it a shown session');
+  assert.deepEqual(frames[1].snapshot.hostShellJobs, { count: 2 });
+});
+
+test('nothing of a session is retained once its subscription ends, unsubscribed without a loss', { skip: typeof globalThis.gc !== 'function' && 'requires node --expose-gc' }, async () => {
+  const core = connection();
+  const lane = createSessionLane({ protocol: core.protocol });
+  core.follow('t1', [userRow('m1', 'x'.repeat(1 << 20))]);
+  core.notify('t1', 'item/agentMessage/delta', { itemId: 'a1', delta: 'live text' });
+  core.notify('t1', 'thread/frame', { structureChanged: false });
+  const projectedFold = new WeakRef(core.threads.get('t1').state);
+  const rows = new WeakRef(core.threads.get('t1').state.items);
+  // The client's own unsubscribe: the fold leaves the store and no change is announced.
+  core.threads.delete('t1');
+  for (let i = 0; i < 5 && (projectedFold.deref() || rows.deref()); i++) {
+    await new Promise((resolve) => setImmediate(resolve));
+    globalThis.gc();
+  }
+  assert.equal(projectedFold.deref(), undefined, 'the projected fold is released');
+  assert.equal(rows.deref(), undefined, 'the transcript rows are released');
+  lane.dispose();
+});
+
+test('a hidden session unsubscribed without a loss leaves the shown sessions: host changes no longer visit it', () => {
+  const core = connection();
+  const lookups = [];
+  const thread = core.protocol.client().store.thread;
+  core.protocol.client().store.thread = (threadId) => (lookups.push(threadId), thread(threadId));
+  const lane = createSessionLane({ protocol: core.protocol });
+  const frames = framesOf(lane);
+  const interested = new Set(['t1']);
+  const asked = [];
+  lane.setInterest((threadId) => (asked.push(threadId), interested.has(threadId)));
+  core.follow('t1', []);
+  assert.equal(frames.length, 1);
+  interested.delete('t1');
+  core.threads.delete('t1');
+  const hostChange = (count) => {
+    core.sections.set('hostShellJobs\0', { section: 'hostShellJobs', key: null, revision: count, value: { count } });
+    core.change({ type: 'section', section: 'hostShellJobs', key: null });
+  };
+  asked.length = 0;
+  hostChange(1);
+  lookups.length = 0;
+  hostChange(2);
+  assert.equal(frames.length, 1, 'neither host change publishes it');
+  assert.deepEqual(asked, [], 'neither host change visits it for a publication');
+  assert.deepEqual(lookups, [], 'it left the shown sessions with its subscription: the second host change does not look it up');
+});
+
+test("a change of a thread's server requests is published as it lands", () => {
+  const core = connection();
+  const lane = createSessionLane({ protocol: core.protocol });
+  const frames = framesOf(lane);
+  core.follow('t1', []);
+  core.change({ type: 'thread', threadId: 't1' });
+  assert.equal(frames.length, 1, 'the same fold and the same requests: nothing to publish');
+  core.requests.push({ id: 7, method: 'item/tool/requestApproval', params: { threadId: 't1', order: 1, card: { kind: 'shell', command: 'ls' } } });
+  core.change({ type: 'thread', threadId: 't1' });
+  assert.equal(frames.length, 2);
+  assert.deepEqual(frames[1].snapshot.toolApproval, { kind: 'shell', command: 'ls' });
+});
+
+test('a thread no listener is interested in is not projected, on its own changes or on a host change', () => {
+  const core = connection();
+  const lane = createSessionLane({ protocol: core.protocol });
+  const frames = framesOf(lane);
+  const interested = new Set(['t1']);
+  lane.setInterest((threadId) => interested.has(threadId));
+  core.follow('t1', []);
+  core.follow('t2', []);
+  core.notify('t2', 'thread/frame', { structureChanged: false });
+  assert.deepEqual(frames.map((frame) => frame.sessionId), ['t1']);
+  core.sections.set('hostShellJobs\0', { section: 'hostShellJobs', key: null, revision: 2, value: { count: 1 } });
+  core.change({ type: 'section', section: 'hostShellJobs', key: null });
+  assert.deepEqual(frames.map((frame) => frame.sessionId), ['t1', 't1']);
+  // Shown from now on: its next change publishes what it holds, and the frame after it holds nothing new.
+  interested.add('t2');
+  core.notify('t2', 'item/agentMessage/delta', { itemId: 'a1', delta: 'hi' });
+  core.notify('t2', 'thread/frame', { structureChanged: false });
+  assert.deepEqual(frames.map((frame) => frame.sessionId), ['t1', 't1', 't2', 't2']);
+  assert.equal(frames[3].snapshot, frames[2].snapshot, 'the frame after it holds nothing new');
+  assert.deepEqual(frames[2].snapshot.streamingPartial, { id: 'a1', from: 0, text: 'hi', tail: { id: 'a1', kind: 'assistant', streaming: true } });
 });
 
 test("the host's shell jobs and the remote session republish the threads shown; one no longer followed is let go", () => {

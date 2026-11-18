@@ -9,6 +9,7 @@ type SettingLookup = dyn Fn(&str) -> Option<String> + Send + Sync;
 
 use crate::transport::deadlines::GEMINI_MODELS;
 use crate::transport::deadlines::MODEL_STREAM_FETCH;
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -23,9 +24,12 @@ use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
+use mixdog_core_api::domain::provider::AttemptHandle;
+use mixdog_core_api::domain::provider::Boundary;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::Role;
+use mixdog_core_api::domain::provider::SendEnd;
 use mixdog_core_api::domain::provider::RetryLine;
 use mixdog_core_api::domain::provider::RetryLineStyle;
 use mixdog_core_api::domain::provider::SendStages;
@@ -41,6 +45,7 @@ use mixdog_core_api::domain::provider::ProviderState;
 use serde_json::Value;
 
 use super::auth::Authorization;
+use super::auth::ApiKeyAuth;
 use super::auth::RequestAuth;
 use crate::providers::key_source::ApiKeySource;
 use super::cache::layer::Ask;
@@ -49,19 +54,25 @@ use super::cache::policy::CacheRequest;
 use super::codec::Attach;
 use super::codec::GoogleCodec;
 use super::codec::Target;
+use super::decode::GeminiDecoder;
 use super::maas::VertexModel;
 use super::models;
-use super::watchdog::StreamWatch;
-use super::watchdog::Watchdogs;
 use super::redirect;
 use crate::catalog::ListingLookup;
 use crate::providers::first_byte::FirstByteSettings;
+use crate::providers::first_byte::FirstBytePolicy;
+use crate::providers::head_wait::FirstByteGate;
+use crate::providers::first_byte::attempt_budget;
+use crate::providers::first_byte::vertex_budget;
 use crate::providers::first_byte::vertex_flex_budget;
 use super::serving::Tier;
 use crate::transport::BodyStream;
 use crate::transport::HttpResponse;
 use crate::transport::HttpSend;
+use crate::transport::model_driver::ModelCall;
+use crate::transport::model_driver::ModelDriver;
 use crate::transport::preconnect::Preconnect;
+use mixdog_core_api::domain::provider::PhaseWindows;
 
 pub struct GoogleAdapter {
     id: ProviderId,
@@ -72,10 +83,11 @@ pub struct GoogleAdapter {
     /// The policy of Claude on Vertex AI.
     claude_policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
-    http: Arc<dyn HttpSend>,
+    /// The transport of every model exchange: its phase deadlines are the driver's, and listings go through [`ModelDriver::aux`].
+    driver: ModelDriver,
     /// An open model's sends: Node posts them through the OpenAI client (`vertex-ai-maas.mjs`, no default headers),
     /// whose head the SDK writes.
-    maas_http: Arc<dyn HttpSend>,
+    maas_driver: ModelDriver,
     auth: Arc<dyn RequestAuth>,
     /// The account the codec's target was built for.
     identity: String,
@@ -85,6 +97,12 @@ pub struct GoogleAdapter {
     /// Antigravity's records that carry a `wire`: the one source of the route
     /// table, from the last listing or the catalog's restored snapshot.
     roster: Mutex<Vec<ModelRecord>>,
+    /// Vertex Gemini's regional 404 fallback applies to the rest of that send, including its unary recovery.
+    global_sends: Mutex<HashMap<String, (String, Tier)>>,
+    gemini_sends: Mutex<HashMap<String, GeminiSend>>,
+    /// Antigravity's roster file (`antigravity-oauth-models.json`), written after a live listing and read back after a
+    /// restart.
+    roster_cache: Option<super::roster_cache::RosterCache>,
     /// The metadata enrichment and picker sanitizer Gemini's listing ends with.
     lookup: ListingLookup,
     /// The Gemini API's socket warm-up (`preconnect(GEMINI_API_ORIGIN)`).
@@ -115,17 +133,21 @@ impl GoogleAdapter {
             codec,
             policy,
             maas_policy: crate::providers::compat::retry::unprofiled(),
-            claude_policy: crate::providers::anthropic::retry_policy(true),
+            // The Anthropic rows; the loop replay of a spent cut is the Anthropic providers' own ladder, which this send does not run.
+            claude_policy: RetryPolicy { stream_cut_loop_replay: false, ..crate::providers::anthropic::retry_policy(true) },
             keepalive: KeepaliveSchedule::SPEC,
-            maas_http: Arc::new(
+            maas_driver: ModelDriver::new(Arc::new(
                 crate::registry::gateway::GatewayHttp::new(http.clone()).through_sdk(crate::registry::gateway::Sdk::OpenAi, &[]),
-            ),
-            http,
+            )),
+            driver: ModelDriver::new(http),
             auth,
             identity,
             cache: None,
             reload: None,
             roster: Mutex::default(),
+            global_sends: Mutex::default(),
+            gemini_sends: Mutex::default(),
+            roster_cache: None,
             lookup: ListingLookup::new(),
             preconnect: None,
             var: Arc::new(|name| std::env::var(name).ok()),
@@ -176,6 +198,11 @@ impl GoogleAdapter {
         self
     }
 
+    pub(crate) fn with_vertex_environment(mut self, env: Arc<dyn crate::registry::keys::Environment>) -> Self {
+        self.codec = self.codec.with_env(env);
+        self
+    }
+
     /// Warms the Gemini API now, as `GeminiProvider`'s constructor does (`gemini.mjs:291`), and again before each send
     /// (`send`, `gemini.mjs:651`).
     /// The settings the adapter reads (its first-byte and idle windows) from `var` instead of the process environment.
@@ -200,6 +227,23 @@ impl GoogleAdapter {
     /// send and with no fetch. Records without a `wire` are not routes.
     pub fn with_roster(self, records: &[ModelRecord]) -> Self {
         self.set_roster(records);
+        self
+    }
+
+    /// Gives the adapter its roster file; [`Self::restore_roster`] reads it.
+    pub fn with_roster_cache(mut self, cache: super::roster_cache::RosterCache) -> Self {
+        self.roster_cache = Some(cache);
+        self
+    }
+
+    /// The last live roster, past its TTL as well (`antigravityCatalogModels`: sends never refresh it), seeds the route
+    /// table; with no readable file the curated list stays the answer.
+    pub async fn restore_roster(self) -> Self {
+        if let Some(cache) = &self.roster_cache
+            && let Some(records) = cache.load(true).await
+        {
+            self.set_roster(&records);
+        }
         self
     }
 
@@ -291,18 +335,14 @@ impl GoogleAdapter {
         self
     }
 
-    /// The cache to attach to `request` under `cache` (the cache serving the request's key), if any, and the
-    /// session state it changed. Hosted tools disable it, as in Node (`opts.nativeTools`).
-    async fn cached_prefix(&self, cache: Option<&ExplicitCache>, request: &ModelRequest, inner: &Value) -> Option<Cached> {
-        let cache = cache?;
+    fn cache_ask<'a>(request: &'a ModelRequest, inner: &'a Value) -> Option<Ask<'a>> {
         if !request.options.hosted_tools.is_empty() {
             return None;
         }
         let system = inner["systemInstruction"]["parts"][0]["text"].as_str().unwrap_or_default();
         let tools = inner["tools"].as_array().map(Vec::as_slice).unwrap_or_default();
         let contents = inner["contents"].as_array().map(Vec::as_slice).unwrap_or_default();
-        let answer = cache
-            .ensure(Ask {
+        Some(Ask {
                 model: &request.model,
                 request: CacheRequest {
                     system_instruction: system,
@@ -313,8 +353,11 @@ impl GoogleAdapter {
                 state: request.options.provider_state.as_ref(),
                 iteration: request.options.iteration,
                 fork: request.options.shared_cache_prefix_count.is_some_and(|n| n > 0),
-            })
-            .await;
+        })
+    }
+
+    async fn cached_prefix(&self, cache: Option<&ExplicitCache>, request: &ModelRequest, inner: &Value) -> Option<Cached> {
+        let answer = cache?.ensure(Self::cache_ask(request, inner)?).await;
         let name = answer.cache_name?;
         let state = answer
             .state
@@ -325,25 +368,54 @@ impl GoogleAdapter {
         Some(Cached { name, state, changed: answer.state })
     }
 
-    /// One authorized send, with the single credential-recovery resend of a 401.
+    /// One authorized model submission of `request`, with the single credential-recovery resend of a 401: each submission is
+    /// its own attempt, with a fresh identity and the whole window, whatever came before it.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn dispatch(&self, wire: &WireRequest) -> Result<HttpResponse, ProviderError> {
-        self.dispatch_on(&*self.http, wire).await
+    async fn dispatch(&self, request: &ModelRequest, wire: &WireRequest) -> Result<(HttpResponse, AttemptHandle), ProviderError> {
+        self.dispatch_on(&self.driver, request, wire, false).await
+    }
+
+    /// The Gemini API key is read once for both cache selection and model dispatch. Other routes keep their own auth.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn dispatch_with_key(&self, request: &ModelRequest, wire: &WireRequest, key: Option<&str>, recovery: bool) -> Result<(HttpResponse, AttemptHandle), ProviderError> {
+        let Some(key) = key else {
+            return self.dispatch_on(&self.driver, request, wire, recovery).await;
+        };
+        let authorization = ApiKeyAuth::authorization(key.to_owned())?;
+        self.check_identity(&authorization)?;
+        self.note_carried(&authorization);
+        self.send_authorized(&self.driver, request, wire, &authorization, recovery).await
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn dispatch_on(&self, http: &dyn HttpSend, wire: &WireRequest) -> Result<HttpResponse, ProviderError> {
+    async fn dispatch_on(&self, driver: &ModelDriver, request: &ModelRequest, wire: &WireRequest, recovery: bool) -> Result<(HttpResponse, AttemptHandle), ProviderError> {
         let mut authorization = self.auth.authorize().await?;
         self.check_identity(&authorization)?;
         self.note_carried(&authorization);
-        let mut response = http.send(Self::authorized(wire, &authorization), MODEL_STREAM_FETCH).await?;
-        if response.status == 401 && self.auth.rejected(&authorization).await {
+        let mut sent = self.send_authorized(driver, request, wire, &authorization, recovery).await?;
+        if sent.0.status == 401
+            && !crate::providers::compat::login::opencode_go::gateway_owns_auth_recovery()
+            && self.auth.rejected(&authorization).await
+        {
             authorization = self.auth.authorize().await?;
             self.check_identity(&authorization)?;
             self.note_carried(&authorization);
-            response = http.send(Self::authorized(wire, &authorization), MODEL_STREAM_FETCH).await?;
+            sent = self.send_authorized(driver, request, wire, &authorization, recovery).await?;
         }
-        Ok(response)
+        Ok(sent)
+    }
+
+    /// The request with `authorization` as one attempt of the driver.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn send_authorized(&self, driver: &ModelDriver, request: &ModelRequest, wire: &WireRequest, authorization: &Authorization, recovery: bool) -> Result<(HttpResponse, AttemptHandle), ProviderError> {
+        // Authorized and about to be written: the Vertex request-type header of this very request is its tier. Only Priority
+        // is a premium speed; Flex is discounted and groups as standard.
+        let priority = wire.headers.iter().any(|(name, value)| name.eq_ignore_ascii_case("X-Vertex-AI-LLM-Shared-Request-Type") && value == "priority");
+        request.options.send_identity.note_dispatched_speed_tier(if priority { "priority" } else { "" });
+        let sent = driver.send(&self.model_call(request, recovery), Self::authorized(wire, authorization), MODEL_STREAM_FETCH).await?;
+        // The head, a refusal's too, tells the run the server is answering (`gemini.mjs:811`, `antigravity-transport.mjs:257`).
+        request.options.send_identity.raise_stage("transport");
+        Ok(sent)
     }
 
     /// One listing fetch: no credential recovery and no resend. Node's listing
@@ -354,7 +426,8 @@ impl GoogleAdapter {
         self.check_identity(&authorization)?;
         self.note_carried(&authorization);
         let response = self
-            .http
+            .driver
+            .aux()
             .send(Self::authorized(wire, &authorization), GEMINI_MODELS)
             .await?;
         let succeeded = response.is_success();
@@ -391,9 +464,19 @@ impl ModelListing for GoogleAdapter {
                 }
             }
             Target::Antigravity { origin, project, client_version } => {
+                // `listModels`: a roster within its TTL answers without a fetch and is not written again.
+                if let Some(cache) = &self.roster_cache
+                    && let Some(records) = cache.load(false).await
+                {
+                    self.set_roster(&records);
+                    return Ok(records);
+                }
                 let body = self.fetch_listing(&models::antigravity_request(origin, project, &client_version.get())).await?;
                 let records = models::antigravity_records(&body, self.codec.traits())?;
                 self.set_roster(&records);
+                if let Some(cache) = &self.roster_cache {
+                    cache.save(&records).await;
+                }
                 Ok(records)
             }
         }
@@ -434,6 +517,7 @@ impl Redirect {
     }
 }
 
+#[derive(Clone)]
 struct Cached {
     name: String,
     state: GeminiCacheState,
@@ -441,9 +525,29 @@ struct Cached {
     changed: Option<ProviderState>,
 }
 
+#[derive(Clone)]
+struct GeminiSend {
+    credential: String,
+    cached: Option<Cached>,
+}
+
+fn unary_failure(mut error: ProviderError) -> ProviderError {
+    if error.reauth_required || matches!(error.kind, ErrorKind::Policy | ErrorKind::Auth | ErrorKind::Permission) {
+        error.recovery_terminal = true;
+    }
+    error
+}
+
 #[async_trait]
 impl ProviderAdapter for GoogleAdapter {
-    fn release_send(&self, _group: &str) {}
+    fn release_send(&self, group: &str) {
+        self.global_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(group);
+        self.gemini_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(group);
+    }
+
+    async fn settle_send(&self, group: &str, _end: SendEnd) {
+        self.release_send(group);
+    }
     fn id(&self) -> &ProviderId {
         &self.id
     }
@@ -525,7 +629,15 @@ impl ProviderAdapter for GoogleAdapter {
         let transient = matches!(failure.kind, ErrorKind::Transient | ErrorKind::Overloaded)
             || failure.timed_out
             || failure.transport == Some(mixdog_core_api::domain::provider::TransportFault::TruncatedStream);
-        self.direct_gemini(model) && !exposed && transient
+        self.gemini_unary_supported(model)
+            && (self.direct_gemini(model)
+                || failure.delivery == DeliveryState::Accepted
+                    && failure.retry_after.is_none_or(|wait| wait <= super::policy::GEMINI_RETRY_ADVICE_LIMIT))
+            && !exposed
+            && !failure.recovery_terminal
+            && failure.code.as_deref() != Some("no_response_text")
+            && !failure.kind.is_deterministic()
+            && transient
     }
 
     /// `[gemini] stream failed (<code, else message>); recovered via non-streaming generateContent` (gemini.mjs), as
@@ -535,47 +647,91 @@ impl ProviderAdapter for GoogleAdapter {
         Some(format!("[gemini] stream failed ({cause}); recovered via non-streaming generateContent"))
     }
 
-    /// `_recoverGeminiNonStreaming`: the same body once to `:generateContent`; an answer with a candidate is the turn
-    /// (and the stderr line), anything else fails the re-issue.
+    /// Re-issue the generation on the same account and route, retaining a still-valid cache attachment.
     async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let (request, _) = self.served(self.routed(request));
+        let (request, redirect) = self.served(self.routed(request));
+        if !self.gemini_unary_supported(&request.model) {
+            return Err(super::request::invalid("This model does not support Gemini unary recovery"));
+        }
         let inner = self.codec.build_inner(&request)?;
-        let mut wire = self.codec.wire(&request, &inner, None)?;
+        let global = self.uses_global(&request);
+        let key = self.current_key().await.map_err(unary_failure)?;
+        let sent = request.options.send_group.as_ref().and_then(|group|
+            self.gemini_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(group).cloned());
+        if let (Some(sent), Some(key)) = (&sent, &key)
+            && sent.credential != super::cache::policy::credential_fingerprint(key)
+        {
+            let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
+            error.reauth_required = true;
+            error.message = "the credential changed during the request".into();
+            return Err(unary_failure(error));
+        }
+        let mut cached = sent.and_then(|sent| sent.cached).filter(|cached| {
+            let (Some(key), Some(cache), Some(ask)) = (&key, &self.cache, Self::cache_ask(&request, &inner)) else { return false };
+            cache.keyed(key).can_reattach(&cached.state, &ask)
+        });
+        let attach = cached.as_ref().map(|c| Attach { name: &c.name, state: &c.state });
+        let mut wire = self.codec.wire_at(&request, &inner, attach, global)?;
         wire.url = wire.url.replacen(":streamGenerateContent?alt=sse", ":generateContent", 1);
-        let response = self.dispatch(&wire).await?;
+        // One generation total over the head and the whole body: the recovery's attempt begins in it, and a head arriving
+        // does not reset it.
+        let (response, _) = self.dispatch_with_key(&request, &wire, key.as_deref(), true).await.map_err(unary_failure)?;
         let answered = self.scrubbed(response.read_all().await?);
         if !(200..300).contains(&answered.status.unwrap_or(0)) {
-            return Err(self.codec.classify_for(&answered, &request, false));
+            if matches!(answered.status, Some(400 | 404))
+                && let (Some(cache), Some(attached)) = (&self.cache, &cached)
+                && names_cached_content(&answered.body, &attached.name)
+            {
+                cache.forget(&attached.name);
+            }
+            return Err(unary_failure(self.codec.classify_for(&answered, &request, global)));
         }
-        let candidates = serde_json::from_slice::<Value>(&answered.body)
-            .ok()
-            .and_then(|body| body.get("candidates").and_then(Value::as_array).map(|c| !c.is_empty()));
-        if candidates != Some(true) {
+        let Some(payload) = serde_json::from_slice::<Value>(&answered.body).ok() else {
             return Err(ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted));
+        };
+        let mut decoder = self.codec.gemini_decoder(&request);
+        // Decode the entire answer before returning any events: a refused unary answer must not dispatch tools.
+        let events = decoder.unary(payload).map_err(unary_failure)?;
+        let mut stream = GoogleStream::with_decoder(Box::new(EmptyBody), Decoder::Gemini(Box::new(decoder)));
+        stream.require_answer(&request);
+        stream.publish_usage();
+        if let Some(redirect) = redirect {
+            stream.queue.push_back(Ok(StreamEvent::ServedModel(redirect.target.to_owned())));
         }
-        let mut sse = b"data: ".to_vec();
-        sse.extend_from_slice(&answered.body);
-        sse.extend_from_slice(b"\n\n");
-        let mut stream = GoogleStream::consume(Box::new(Whole(Some(sse.into()))), self.codec.decoder_at(&request, false), None);
-        stream.answer_required = true;
-        stream.after_tool_result =
-            request.messages.iter().rev().find(|m| m.role != Role::System).is_some_and(|m| m.role == Role::Tool);
+        if let Some(state) = cached.take().and_then(|c| c.changed) {
+            stream.queue.push_back(Ok(StreamEvent::ProviderState(state)));
+        }
+        stream.push(events);
+        stream.ended = true;
         Ok(Box::new(stream))
     }
 
-    /// `antigravityFirstResponseBudget(antigravityFirstBytePolicy(model || DEFAULT_ANTIGRAVITY_MODEL))`: the gateway
-    /// queues or thinks server-side, so a Pro-class model waits `MIXDOG_ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS` (300 s, clamped
-    /// to the provider ceiling) and a Flash-class one the shared 60 s, each on a doubling window with one first-byte retry;
-    /// a model without a Gemini family keeps the shared window on the ordinary ladder. The Gemini API states none; Vertex AI
-    /// states one for a Flex route only (`VertexAIProvider.firstResponseBudget`).
+    /// The longest one attempt waits before its first output, which the agent watchdog's first-response deadlines are
+    /// floored above: the attempt's own first-byte window for the head and again for the first chunk (the Gemini API and
+    /// Antigravity; a model without a Gemini family keeps the shared 60 s window), and for Vertex AI the 600 s head bound
+    /// and its first-chunk window (a Flex route its own longer one), one deadline since its head is not marked. Never a sum
+    /// over the retry ladder: the watchdog's request clock restarts with each attempt.
     fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<FirstResponseBudget> {
         match self.codec.target() {
-            Target::Gemini { .. } => None,
-            Target::Vertex { .. } => (Tier::requested(parameters) == Tier::Flex).then(vertex_flex_budget),
+            // The Gemini API waits its one long window on each attempt of its request ladder.
+            Target::Gemini { .. } => Some(attempt_budget(&self.first_byte_policy(model)?)),
+            // A Vertex AI send waits the same window for its first chunk (a Flex route its own longer one); the head is not
+            // marked, so the transport deadline covers both waits. Claude and open models stream through other consumers.
+            Target::Vertex { .. } => {
+                // A Flex send states its window whatever the model (Node's class states it from no model); a standard one only for
+                // the Gemini models whose stream this adapter times.
+                if Tier::requested(parameters) == Tier::Flex {
+                    Some(vertex_flex_budget())
+                } else if self.codec.claude_model(model).is_some() || self.codec.maas_model(model).is_some() {
+                    None
+                } else {
+                    Some(vertex_budget(crate::providers::first_byte::VERTEX_HEAD_BOUND_MS, super::cache::policy::gemini_first_byte_ms(|name| (self.var)(name)) as i64))
+                }
+            }
             Target::Antigravity { .. } => {
                 let model = if model.is_empty() { models::DEFAULT_ANTIGRAVITY_MODEL } else { model };
                 let family = models::antigravity_family(&self.roster.lock().unwrap_or_else(std::sync::PoisonError::into_inner), model);
-                Some(self.first_byte.antigravity_budget(&self.first_byte.antigravity_policy(family.as_deref())))
+                Some(attempt_budget(&self.first_byte.antigravity_policy(family.as_deref())))
             }
         }
     }
@@ -609,13 +765,13 @@ impl ProviderAdapter for GoogleAdapter {
     }
 }
 
-/// A body already read whole, as one chunk.
-struct Whole(Option<bytes::Bytes>);
+/// The unary answer has already been read and decoded.
+struct EmptyBody;
 
 #[async_trait]
-impl BodyStream for Whole {
+impl BodyStream for EmptyBody {
     async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
-        self.0.take().map(Ok)
+        None
     }
 }
 
@@ -645,12 +801,36 @@ struct Exchanged {
     response: HttpResponse,
     queue: VecDeque<Result<StreamEvent, ProviderError>>,
     global: bool,
+    cached: Option<Cached>,
+    /// The attempt of the submission that answered: its phase clock, which its stream publishes the response's boundaries on.
+    attempt: AttemptHandle,
 }
 
 impl GoogleAdapter {
     /// A send to `model` on the Gemini API itself (`GeminiProvider`), not one of its other engines.
     fn direct_gemini(&self, model: &str) -> bool {
         matches!(self.codec.target(), Target::Gemini { .. }) && self.codec.maas_model(model).is_none() && self.codec.claude_model(model).is_none()
+    }
+
+    fn gemini_unary_supported(&self, model: &str) -> bool {
+        self.direct_gemini(model) || matches!(self.codec.target(), Target::Vertex { .. })
+            && super::maas::vertex_model(model).is_ok_and(|m| m.wire == super::serving::Wire::Gemini)
+    }
+
+    fn uses_global(&self, request: &ModelRequest) -> bool {
+        let tier = Tier::requested(request.options.model_parameters.as_ref());
+        request.options.send_group.as_ref().is_some_and(|group| {
+            self.global_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(group).is_some_and(|(model, sent_tier)| model == &request.model && *sent_tier == tier)
+        })
+    }
+
+    fn clear_recovery_cache(&self, request: &ModelRequest) {
+        if let Some(group) = &request.options.send_group
+            && let Some(sent) = self.gemini_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_mut(group)
+        {
+            sent.cached = None;
+        }
     }
 
     /// The key the request is sent with, for the families that read one per send (`_getApiKey()`).
@@ -677,27 +857,30 @@ impl GoogleAdapter {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn exchange(&self, request: &Arc<ModelRequest>, key: Option<&str>) -> Result<Exchanged, ProviderError> {
         let mut queue = VecDeque::new();
+        // Every model submission (a retry, the one after a key reload, a resend without a refused cache, the one on the global
+        // location, the one after a refreshed credential) is its own attempt of the driver: a fresh identity and the whole
+        // window, and nothing of the attempt it replaces carries over.
         // An open model on Vertex AI (`_sendMaas`): the Chat Completions engine, no explicit cache.
         if let Some(model) = self.codec.maas_model(&request.model) {
             // The compat send raises `requesting` before every attempt of its ladder (openai-compat-chat-send.mjs:276), after
             // the access token has been fetched.
             self.auth.authorize().await?;
             request.options.send_identity.raise_stage("requesting");
-            let mut response = self.dispatch_on(&*self.maas_http, &self.codec.maas_wire(request, &model, false)?).await?;
+            let (mut response, mut attempt) = self.dispatch_on(&self.maas_driver, request, &self.codec.maas_wire(request, &model, false)?, false).await?;
             let global = response.status == 404 && self.codec.falls_back_to_global(request);
             if global {
-                response = self.dispatch_on(&*self.maas_http, &self.codec.maas_wire(request, &model, true)?).await?;
+                (response, attempt) = self.dispatch_on(&self.maas_driver, request, &self.codec.maas_wire(request, &model, true)?, false).await?;
             }
-            return Ok(Exchanged { response, queue, global });
+            return Ok(Exchanged { response, queue, global, attempt, cached: None });
         }
         // Claude (`_sendClaude`): an Anthropic request through streamRawPredict, no explicit cache.
         if let Some(model) = self.codec.claude_model(&request.model) {
-            let mut response = self.dispatch(&self.claude_fitted(request, &model, false).await?).await?;
+            let (mut response, mut attempt) = self.dispatch(request, &self.claude_fitted(request, &model, false).await?).await?;
             let global = response.status == 404 && self.codec.falls_back_to_global(request);
             if global {
-                response = self.dispatch(&self.claude_fitted(request, &model, true).await?).await?;
+                (response, attempt) = self.dispatch(request, &self.claude_fitted(request, &model, true).await?).await?;
             }
-            return Ok(Exchanged { response, queue, global });
+            return Ok(Exchanged { response, queue, global, attempt, cached: None });
         }
         // State changes reach the session only as stream events: Node persists
         // `providerState` from a delivered result alone (`ask-turn-settle.mjs:147`),
@@ -708,15 +891,16 @@ impl GoogleAdapter {
         if let Some(state) = cached.as_ref().and_then(|c| c.changed.clone()) {
             queue.push_back(Ok(StreamEvent::ProviderState(state)));
         }
-        let mut response = {
+        let mut global = matches!(self.codec.target(), Target::Vertex { .. }) && self.uses_global(request);
+        let (mut response, mut attempt) = {
             let attach = cached.as_ref().map(|c| Attach { name: &c.name, state: &c.state });
-            self.dispatch(&self.codec.wire(request, &inner, attach)?).await?
+            self.dispatch_with_key(request, &self.codec.wire_at(request, &inner, attach, global)?, key, false).await?
         };
         // A cache the server refuses (gone, evicted, mismatched) is forgotten
         // here and in the session, and the request runs once without it: a 400/404
         // whose error names the cached content (`isGeminiCachedContentError`,
         // gemini.mjs:222-231). Any other refusal is the request's error.
-        if let Some(attached) = cached.take().filter(|_| matches!(response.status, 400 | 404)) {
+        if matches!(response.status, 400 | 404) && let Some(attached) = cached.take() {
             let refused = response.read_all().await?;
             if !names_cached_content(&refused.body, &attached.name) {
                 return Err(self.codec.classify_for(&refused, request, false));
@@ -724,24 +908,29 @@ impl GoogleAdapter {
             if let Some(cache) = &cache {
                 cache.forget(&attached.name);
             }
+            self.clear_recovery_cache(request);
             // Node drops only the `gemini` key; the other provider keys stay.
             let rest = request.options.provider_state.as_ref().map(|s| s.rest.clone()).unwrap_or_default();
             queue.push_back(Ok(StreamEvent::ProviderState(ProviderState { gemini: None, rest })));
-            response = self.dispatch(&self.codec.wire(request, &inner, None)?).await?;
+            (response, attempt) = self.dispatch_with_key(request, &self.codec.wire(request, &inner, None)?, key, false).await?;
         }
         // A region from the environment that lacks the model (404) is retried
         // once on global (`vertex-ai.mjs:325-327`).
-        let mut global = false;
-        if response.status == 404 && self.codec.falls_back_to_global(request) {
+        if !global && response.status == 404 && self.codec.falls_back_to_global(request) {
             global = true;
-            response = self.dispatch(&self.codec.wire_at(request, &inner, None, true)?).await?;
+            if let Some(group) = &request.options.send_group {
+                let tier = Tier::requested(request.options.model_parameters.as_ref());
+                self.global_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(group.clone(), (request.model.clone(), tier));
+            }
+            (response, attempt) = self.dispatch(request, &self.codec.wire_at(request, &inner, None, true)?).await?;
         }
-        Ok(Exchanged { response, queue, global })
+        Ok(Exchanged { response, queue, global, attempt, cached })
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn attempt_served(&self, mut request: Arc<ModelRequest>) -> Result<GoogleStream, ProviderError> {
-        let key = self.current_key().await?;
+        let mut key = self.current_key().await?;
         let mut sent = self.exchange(&request, key.as_deref()).await?;
         // `GeminiProvider.send`: a typed 401 re-reads the provider's key, drops every cache made under the old one and
         // the session's saved cache, and sends the whole request once more when the re-read finds a key. A second
@@ -753,6 +942,7 @@ impl GoogleAdapter {
             if let Some(cache) = &self.cache {
                 cache.keyed(old).forget_credential();
             }
+            self.clear_recovery_cache(&request);
             if let Ok(new) = source.reload().await {
                 let held = request
                     .options
@@ -768,28 +958,30 @@ impl GoogleAdapter {
                 }
                 request = Arc::new(again);
                 sent = self.exchange(&request, Some(&new)).await?;
+                key = Some(new);
                 if let Some(dropped) = dropped {
                     sent.queue.push_front(dropped);
                 }
             }
         }
-        let Exchanged { response, queue, global } = sent;
+        let Exchanged { response, queue, global, attempt, cached } = sent;
         if !response.is_success() {
             let rejected = self.scrubbed(response.read_all().await?);
             return Err(self.codec.classify_for(&rejected, &request, global));
         }
-        let watch = self.first_byte_window(&request).map(|(first_byte, idle_after_first_chunk)| StreamWatch {
-            first_byte,
-            idle: super::cache::policy::semantic_idle_ms(|name| (self.var)(name)).map(|ms| std::time::Duration::from_millis(ms as u64)),
-            idle_after_first_chunk,
-            label: self.codec.stream_label(),
-        });
-        let mut stream = GoogleStream::consume(response.body, self.codec.decoder_at(&request, global), watch);
+        if let (Some(group), Some(key)) = (&request.options.send_group, &key) {
+            let sent = GeminiSend { credential: super::cache::policy::credential_fingerprint(key), cached };
+            self.gemini_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(group.clone(), sent);
+        }
+        let decoder = if self.codec.maas_model(&request.model).is_some() || self.codec.claude_model(&request.model).is_some() {
+            Decoder::Other(self.codec.decoder_at(&request, global))
+        } else {
+            Decoder::Gemini(Box::new(self.codec.gemini_decoder(&request)))
+        };
+        let mut stream = GoogleStream::with_decoder(response.body, decoder).with_attempt(attempt);
         stream.queue = queue;
         // `gemini.mjs`'s answer check: an empty answer right after a tool result is the model's answer.
-        stream.answer_required = true;
-        stream.after_tool_result =
-            request.messages.iter().rev().find(|m| m.role != Role::System).is_some_and(|m| m.role == Role::Tool);
+        stream.require_answer(&request);
         Ok(stream)
     }
 }
@@ -799,45 +991,96 @@ impl GoogleAdapter {
     /// Gemini API (`gemini.mjs:878`) and on Vertex AI, `VERTEX_FLEX_FIRST_CHUNK_TIMEOUT_MS` for a Flex send there
     /// (`vertex-ai.mjs:414`), and on Antigravity the first window of the model's family (`antigravityFirstBytePolicy`:
     /// `ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS` for `gemini-pro`, else the Gemini window). Claude and open models on
-    /// Vertex AI stream through other consumers: none. With the window, whether the idle window waits for the first
-    /// payload (`idleAfterFirstChunk`, a Vertex Flex send).
-    fn first_byte_window(&self, request: &ModelRequest) -> Option<(std::time::Duration, bool)> {
+    /// Vertex AI stream through other consumers: none. The idle window never runs before the first output
+    /// (`idleAfterFirstChunk` of Node's Vertex Flex send holds for every route now): silence after the head ends at this window.
+    fn first_byte_window(&self, request: &ModelRequest, gate: Option<&FirstByteGate>) -> Option<std::time::Duration> {
+        if let Some(gate) = gate {
+            return Some(gate.window());
+        }
         let get = |name: &str| (self.var)(name);
         let gemini = super::cache::policy::gemini_first_byte_ms(get);
         let ms = match self.codec.target() {
-            Target::Gemini { .. } => gemini,
+            Target::Gemini { .. } | Target::Antigravity { .. } => gemini,
             Target::Vertex { .. } => {
                 if self.codec.claude_model(&request.model).is_some() || self.codec.maas_model(&request.model).is_some() {
                     return None;
                 }
                 if super::serving::Tier::requested(request.options.model_parameters.as_ref()) == super::serving::Tier::Flex {
-                    return Some((std::time::Duration::from_millis(570_000), true));
+                    return Some(std::time::Duration::from_millis(570_000));
                 }
                 gemini
             }
-            Target::Antigravity { .. } => {
-                let roster = self.roster.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                // `antigravityModelFamily`: the record of the picker id, else the one sending under that wire id.
-                let sends = |r: &&ModelRecord| match &r.wire {
-                    Some(mixdog_core_api::domain::provider::WireIds::One(id)) => *id == request.model,
-                    Some(mixdog_core_api::domain::provider::WireIds::Tiers(tiers)) => tiers.iter().any(|(_, id)| *id == request.model),
-                    None => false,
-                };
-                let record = roster.iter().find(|r| r.id == request.model).or_else(|| roster.iter().find(sends));
-                let pro = record.and_then(|r| r.family.as_deref()) == Some("gemini-pro");
-                if pro { super::cache::policy::antigravity_first_byte_ms(get) } else { gemini }
-            }
         };
-        Some((std::time::Duration::from_millis(ms as u64), false))
+        Some(std::time::Duration::from_millis(ms as u64))
+    }
+
+    /// The first-byte policy of a send that waits for its response head under a window: one long window for every Gemini
+    /// route (285 s at the defaults; Antigravity Pro's own variable defaults to the same), and for the Gemini API and the
+    /// Antigravity Gemini families the same retry rule: the first attempt and one retry, headers and first-chunk timeouts
+    /// counted together, the window doubled up to the ceiling, which a default window already is. A model without a Gemini
+    /// family keeps the shared 60 s on the ordinary ladder. Vertex AI has none: its head is bounded by the 600 s fetch
+    /// bound and its first chunk by the window of [`Self::first_byte_window`] (285 s, a Flex route 570 s), the stream's timer; each
+    /// of its exchanges begins an attempt like any other, so a retry's clocks start fresh with no display-stage special case.
+    fn first_byte_policy(&self, model: &str) -> Option<FirstBytePolicy> {
+        match self.codec.target() {
+            Target::Gemini { .. } => self.direct_gemini(model).then(|| self.first_byte.gemini_policy()),
+            Target::Vertex { .. } => None,
+            Target::Antigravity { .. } => {
+                let model = if model.is_empty() { models::DEFAULT_ANTIGRAVITY_MODEL } else { model };
+                let family = models::antigravity_family(&self.roster.lock().unwrap_or_else(std::sync::PoisonError::into_inner), model);
+                Some(self.first_byte.antigravity_policy(family.as_deref()))
+            }
+        }
+    }
+    /// The model submission of `request`: the windows this route declares for each phase (the common fallback policy fills the
+    /// rest) and how an expiry of each reads. `MIXDOG_ENABLE_STREAM_WATCHDOG=0` drops the provider's idle policy and the fallback
+    /// takes over: no phase is ever unbounded.
+    fn model_call(&self, request: &ModelRequest, recovery: bool) -> ModelCall {
+        let gate = self.first_byte_gate(request);
+        let vertex = matches!(self.codec.target(), Target::Vertex { .. });
+        let millis = |ms: i64| std::time::Duration::from_millis(u64::try_from(ms).unwrap_or(0));
+        let head = match &gate {
+            Some(gate) => Some(gate.window()),
+            None => vertex.then(|| millis(crate::providers::first_byte::VERTEX_HEAD_BOUND_MS)),
+        };
+        let windows = PhaseWindows {
+            head,
+            payload: self.first_byte_window(request, gate.as_ref()),
+            first_output: None,
+            idle: super::cache::policy::semantic_idle_ms(|name| (self.var)(name)).map(|ms| std::time::Duration::from_millis(ms as u64)),
+            recovery: Some(millis(self.first_byte.generate_total_ms)),
+        };
+        let label = self.codec.stream_label();
+        let call = ModelCall::new(&request.options.send_identity, windows, Arc::new(move |expiry, delivery, exposure| super::watchdog::expired(label, gate.as_ref(), expiry, delivery, exposure)));
+        if recovery { call.recovery() } else { call }
+    }
+
+    /// The first-byte window of this attempt of the send ([`Self::first_byte_policy`]), counting against the send's first-byte timeouts.
+    fn first_byte_gate(&self, request: &ModelRequest) -> Option<FirstByteGate> {
+        let label = if matches!(self.codec.target(), Target::Antigravity { .. }) { "Antigravity" } else { "Gemini REST" };
+        Some(FirstByteGate::of(&self.first_byte_policy(&request.model)?, &request.options.send_identity, label))
+    }
+}
+enum Decoder {
+    Gemini(Box<GeminiDecoder>),
+    Other(Box<dyn WireDecoder>),
+}
+
+impl Decoder {
+    fn wire(&mut self) -> &mut dyn WireDecoder {
+        match self {
+            Self::Gemini(d) => d.as_mut(),
+            Self::Other(d) => d.as_mut(),
+        }
     }
 }
 
-/// One Gemini-wire response body through its decoder (`consumeGeminiRestStreamResponse`): the decoder's events in
-/// order, the first-byte and idle watchdogs, and a transport fault as the stream's failure.
+/// One response body through its decoder, with usage retained on terminal Gemini-wire failures.
 pub struct GoogleStream {
-    watchdogs: Option<Watchdogs>,
+    /// The attempt this stream answers, for the boundaries of its response.
+    attempt: Option<AttemptHandle>,
     body: Box<dyn BodyStream>,
-    decoder: Box<dyn WireDecoder>,
+    decoder: Decoder,
     queue: VecDeque<Result<StreamEvent, ProviderError>>,
     ended: bool,
     /// The provider's answer check (`gemini.mjs`): a clean end without text or a call fails, unless the turn
@@ -848,10 +1091,14 @@ pub struct GoogleStream {
 }
 
 impl GoogleStream {
-    /// The consumer over a response whose headers just arrived, under `watch` (its windows and label).
-    pub fn consume(body: Box<dyn BodyStream>, decoder: Box<dyn WireDecoder>, watch: Option<StreamWatch>) -> Self {
+    /// The consumer over a response whose headers just arrived. Its body is the driver's: the phase windows run there.
+    pub fn consume(body: Box<dyn BodyStream>, decoder: Box<dyn WireDecoder>) -> Self {
+        Self::with_decoder(body, Decoder::Other(decoder))
+    }
+
+    fn with_decoder(body: Box<dyn BodyStream>, decoder: Decoder) -> Self {
         Self {
-            watchdogs: watch.map(Watchdogs::arm),
+            attempt: None,
             body,
             decoder,
             queue: VecDeque::new(),
@@ -862,18 +1109,53 @@ impl GoogleStream {
         }
     }
 
-    fn fail(&mut self, err: ProviderError) {
+    /// The attempt this stream answers: the boundaries of its response are reported on it.
+    pub fn with_attempt(mut self, attempt: AttemptHandle) -> Self {
+        self.attempt = Some(attempt);
+        self
+    }
+
+    fn require_answer(&mut self, request: &ModelRequest) {
+        self.answer_required = true;
+        self.after_tool_result =
+            request.messages.iter().rev().find(|m| m.role != Role::System).is_some_and(|m| m.role == Role::Tool);
+    }
+
+    fn fail(&mut self, mut err: ProviderError) {
+        if let Decoder::Gemini(decoder) = &self.decoder {
+            decoder.stamp_failure(&mut err);
+        }
         self.ended = true;
         self.queue.push_back(Err(err));
     }
 
-    fn push(&mut self, events: Vec<StreamEvent>) {
-        // A read that decoded a payload re-arms the idle window (`resetIdle` on semantic progress only).
-        if let Some(watchdogs) = &mut self.watchdogs
-            && events.iter().any(|e| matches!(e, StreamEvent::ChunkProgress(_)))
+    fn publish_usage(&mut self) {
+        if let Decoder::Gemini(decoder) = &mut self.decoder
+            && let Some((usage, model)) = decoder.take_usage_update()
         {
-            watchdogs.payload();
-            watchdogs.reset_idle();
+            crate::registry::accounted::observe_attempt_usage(usage, model);
+        }
+    }
+
+    fn push(&mut self, events: Vec<StreamEvent>) {
+        // The decoder's events are the attempt's boundaries, and the driver follows the deadlines they install: a decoded
+        // payload ends the payload wait and starts the first-output one; semantic output ends that and starts the idle window,
+        // which only later semantic output renews. A chunk that carries none (a role-only or metadata one) is a payload and
+        // nothing more, so no number of them renews or replaces the first-output window. A wire whose decoder reports no chunks
+        // (Claude and open models) is read by its own events.
+        if let Some(attempt) = &self.attempt {
+            let chunked = events.iter().any(|event| matches!(event, StreamEvent::ChunkProgress(_)));
+            if chunked || events.iter().any(|event| !matches!(event, StreamEvent::ProviderKeepalive)) {
+                attempt.observe(Boundary::FirstProtocolPayload);
+            }
+            let semantic = if chunked {
+                events.iter().any(|event| matches!(event, StreamEvent::ChunkProgress(Some(_))))
+            } else {
+                events.iter().any(crate::providers::idle::output)
+            };
+            if semantic {
+                attempt.observe(Boundary::FirstSemanticOutput);
+            }
         }
         for mut event in events {
             match &mut event {
@@ -904,32 +1186,34 @@ impl ModelStream for GoogleStream {
             if self.ended {
                 return None;
             }
-            let next = match &self.watchdogs {
-                Some(watchdogs) => match watchdogs.read(self.body.next()).await {
-                    Ok(next) => next,
-                    Err(phase) => {
-                        let err = watchdogs.expired(phase, self.decoder.exposure());
+            match self.body.next().await {
+                Some(Ok(chunk)) => {
+                    let decoded = self.decoder.wire().feed(&chunk);
+                    self.publish_usage();
+                    match decoded {
+                        Ok(events) => self.push(events),
+                        Err(err) => self.fail(err),
+                    }
+                }
+                Some(Err(fault)) => {
+                    // A phase deadline of the driver ended the body: its one failure, as the adapter classified it.
+                    let exposure = self.decoder.wire().exposure();
+                    if let Some(err) = self.body.expired(exposure) {
                         self.fail(err);
                         continue;
                     }
-                },
-                None => self.body.next().await,
-            };
-            match next {
-                Some(Ok(chunk)) => match self.decoder.feed(&chunk) {
-                    Ok(events) => self.push(events),
-                    Err(err) => self.fail(err),
-                },
-                Some(Err(fault)) => {
                     let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
                     // Node reads the body through `fetch` (gemini-rest-stream), whose socket failure is undici's.
                     err.message = crate::transport::link::TERMINATED.to_owned();
-                    err.exposure = self.decoder.exposure();
+                    err.exposure = exposure;
+                    err.connection = self.body.connection();
                     self.fail(err);
                 }
                 None => {
                     self.ended = true;
-                    match self.decoder.finish() {
+                    let decoded = self.decoder.wire().finish();
+                    self.publish_usage();
+                    match decoded {
                         Ok(events) => self.push(events),
                         Err(err) => self.fail(err),
                     }

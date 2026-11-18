@@ -67,30 +67,6 @@ impl RevealingTerminalHost {
     }
 }
 
-#[async_trait]
-impl TerminalBridgeHost for RevealingTerminalHost {
-    async fn session_cwd(&self, session_id: &str) -> Option<String> {
-        self.cwds.session_cwd(session_id).await
-    }
-
-    async fn reveal(&self, session_id: &str, target: &SessionTab, tabs: &[SessionTab]) -> bool {
-        let request_id = Uuid::new_v4().to_string();
-        let mut wait = self.waits.watch_terminal_run(session_id, &request_id);
-        let request = json!({
-            "kind": "terminal",
-            "sessionId": session_id,
-            "terminalId": target.id,
-            "tabs": tabs.iter().map(|t| json!({"id": t.id, "tab": t.tab, "cwd": t.cwd})).collect::<Vec<_>>(),
-            "requestId": request_id,
-        });
-        let relay = relay_projection(&request);
-        if !self.feed.publish_reveal(request, relay) {
-            return false;
-        }
-        wait.wait().await.is_some()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -135,11 +111,17 @@ mod tests {
         SessionTab { tab: n, id: format!("session-terminal:s{n}"), shell: "sh".into(), running: true, cwd: Some("/w".into()) }
     }
 
+    #[test]
+    fn the_projection_leaves_out_an_empty_terminal_id_and_tolerates_no_tabs() {
+        let p = relay_projection(&json!({ "kind": "terminal", "sessionId": "s1", "terminalId": "", "requestId": "r", "cwd": "/x" }));
+        assert_eq!(p, json!({ "kind": "terminal", "sessionId": "s1" }));
+    }
+
+
     async fn reveal(attached: bool, claim: bool, terminal_ms: u64) -> (bool, Vec<Value>) {
         let (shown, seen, _) = reveal_all(attached, claim, terminal_ms).await;
         (shown, seen)
     }
-
     async fn reveal_all(attached: bool, claim: bool, terminal_ms: u64) -> (bool, Vec<Value>, Vec<Value>) {
         let waits = crate::desktop::pending::tests::waits(3000, terminal_ms);
         let feed = Arc::new(Feed { attached, claim, waits: waits.clone(), seen: Mutex::default(), relayed: Mutex::default() });
@@ -149,7 +131,6 @@ mod tests {
         let relayed = feed.relayed.lock().unwrap().clone();
         (shown, seen, relayed)
     }
-
     #[tokio::test]
     async fn a_claim_shows_the_terminal_and_the_request_names_it() {
         let (shown, seen) = reveal(true, true, 5000).await;
@@ -162,7 +143,6 @@ mod tests {
         assert_eq!(request["tabs"][1], json!({"id": "session-terminal:s2", "tab": 2, "cwd": "/w"}));
         assert!(Uuid::parse_str(request["requestId"].as_str().unwrap()).is_ok());
     }
-
     #[tokio::test]
     async fn no_attached_ui_settles_not_shown_at_once() {
         let started = std::time::Instant::now();
@@ -170,14 +150,12 @@ mod tests {
         assert!(!shown);
         assert!(started.elapsed() < Duration::from_millis(1000));
     }
-
     #[tokio::test]
     async fn an_unclaimed_request_settles_not_shown_at_the_deadline() {
         let (shown, seen) = reveal(true, false, 40).await;
         assert!(!shown);
         assert_eq!(seen.len(), 1);
     }
-
     #[tokio::test]
     async fn a_phone_is_told_the_reveal_without_any_path_or_ack_id_while_the_desktop_keeps_the_full_request() {
         let (_, seen, relayed) = reveal_all(true, true, 5000).await;
@@ -195,10 +173,29 @@ mod tests {
         let text = relayed[0].to_string();
         assert!(!text.contains("requestId") && !text.contains("cwd") && !text.contains("/w"));
     }
+}
 
-    #[test]
-    fn the_projection_leaves_out_an_empty_terminal_id_and_tolerates_no_tabs() {
-        let p = relay_projection(&json!({ "kind": "terminal", "sessionId": "s1", "terminalId": "", "requestId": "r", "cwd": "/x" }));
-        assert_eq!(p, json!({ "kind": "terminal", "sessionId": "s1" }));
+
+#[async_trait]
+impl TerminalBridgeHost for RevealingTerminalHost {
+    async fn session_cwd(&self, session_id: &str) -> Option<String> {
+        self.cwds.session_cwd(session_id).await
+    }
+
+    async fn reveal(&self, session_id: &str, target: &SessionTab, tabs: &[SessionTab]) -> bool {
+        let request_id = Uuid::new_v4().to_string();
+        let mut wait = self.waits.watch_terminal_run(session_id, &request_id);
+        let request = json!({
+            "kind": "terminal",
+            "sessionId": session_id,
+            "terminalId": target.id,
+            "tabs": tabs.iter().map(|t| json!({"id": t.id, "tab": t.tab, "cwd": t.cwd})).collect::<Vec<_>>(),
+            "requestId": request_id,
+        });
+        let relay = relay_projection(&request);
+        if !self.feed.publish_reveal(request, relay) {
+            return false;
+        }
+        wait.wait().await.is_some()
     }
 }

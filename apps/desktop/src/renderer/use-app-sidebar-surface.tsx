@@ -226,7 +226,7 @@ function useSidebarProjectActions({
       (
         await window.mixdogDesktop.invokeCapability({
           capability: 'memoryControl',
-          args: [input, { silent: true }],
+          args: [input],
         })
       ).value,
     []

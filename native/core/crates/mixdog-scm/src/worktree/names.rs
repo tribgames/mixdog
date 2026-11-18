@@ -120,6 +120,7 @@ pub fn unique_slug(base: &str, is_taken: impl Fn(&str) -> bool) -> String {
     }
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 mod node_cases;
 
@@ -138,45 +139,58 @@ mod tests {
         assert!(name_error("ok-name_1.2").is_none());
     }
 
-    fn golden() -> serde_json::Value {
-        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/worktree-slug/golden.json")).unwrap()
-    }
-
     /// `<prefix>-` and exactly eight lowercase hex digits.
     fn is_random_suffixed(candidate: &str, prefix: &str) -> bool {
         candidate.strip_prefix(prefix).and_then(|rest| rest.strip_prefix('-')).is_some_and(|hex| hex.len() == 8 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
     }
 
+    #[cfg(node_twin)]
+    include!("node-twin/names_tests.rs");
+
+    /// Accents fold to their base letters, anything else becomes a word break, words join with `-` while the slug stays within 40
+    /// characters, and a first word longer than that is cut and loses a trailing `-`.
     #[test]
-    fn slugs_are_those_nodes_slug_from_hint_makes() {
-        let golden = golden();
-        assert_eq!(golden["slugMax"].as_u64().unwrap() as usize, SLUG_MAX_LENGTH);
-        for case in golden["slugs"].as_array().unwrap() {
-            let hint = case["hint"].as_str().unwrap();
-            let slug = slug_from_hint(hint);
-            assert_eq!(slug, case["slug"].as_str().unwrap(), "{hint:?}");
-            assert_eq!(name_error(&slug).is_none(), case["valid"].as_bool().unwrap(), "{hint:?}");
+    fn a_hint_becomes_a_folded_lowercase_dashed_slug_within_the_length_limit() {
+        assert_eq!(slug_from_hint("Résumé  Déjà-vu: 42 things"), "resume-deja-vu-42-things");
+        assert_eq!(slug_from_hint("  ...  "), "task");
+        assert_eq!(slug_from_hint("日本語"), "task");
+        // 30 + 1 + 9 fits exactly; one more letter does not, so the slug stops before that word.
+        let thirty = "a".repeat(30);
+        assert_eq!(slug_from_hint(&format!("{thirty} bbbbbbbbb")), format!("{thirty}-bbbbbbbbb"));
+        assert_eq!(slug_from_hint(&format!("{thirty} bbbbbbbbbb ccc")), thirty);
+        assert_eq!(slug_from_hint(&"z".repeat(60)), "z".repeat(40));
+        for reserved in ["con", "PRN", "aux", "nul", "com1", "lpt9"] {
+            assert_eq!(slug_from_hint(reserved), format!("{}-task", reserved.to_lowercase()), "{reserved}");
         }
+        assert!(name_error(&slug_from_hint("Fix the Login bug!")).is_none());
+    }
+
+    /// A taken base is followed by `-2`, `-3`, …; the suffix counts inside the 40-character limit; after fifty candidates the
+    /// answer is the base and eight hex digits; an invalid base falls back to `task`.
+    #[test]
+    fn a_taken_slug_gets_a_numeric_then_a_random_suffix_within_the_limit() {
+        let taken = ["fix".to_owned(), "fix-2".to_owned(), "fix-4".to_owned()];
+        assert_eq!(unique_slug("fix", |c| taken.iter().any(|t| t == c)), "fix-3");
+        assert_eq!(unique_slug("not valid!", |c| c == "task"), "task-2");
+        let long = "a".repeat(40);
+        let slug = unique_slug(&long, |c| c == long);
+        assert_eq!(slug, format!("{}-2", "a".repeat(38)));
+        let slug = unique_slug("fix", |candidate| !is_random_suffixed(candidate, "fix"));
+        assert!(is_random_suffixed(&slug, "fix"), "{slug}");
+        let slug = unique_slug(&long, |candidate| !is_random_suffixed(candidate, &"a".repeat(31)));
+        assert!(is_random_suffixed(&slug, &"a".repeat(31)) && slug.len() == 40 && name_error(&slug).is_none(), "{slug}");
     }
 
     #[test]
-    fn a_taken_slug_gets_the_numeric_then_the_random_suffix_nodes_unique_slug_gives() {
-        let golden = golden();
-        for case in golden["unique"].as_array().unwrap() {
-            let taken: Vec<&str> = case["taken"].as_array().unwrap().iter().map(|t| t.as_str().unwrap()).collect();
-            let base = case["base"].as_str().unwrap();
-            let slug = unique_slug(base, |candidate| taken.contains(&candidate));
-            assert_eq!(slug, case["slug"].as_str().unwrap(), "{base:?} with {taken:?} taken");
-            assert_eq!(name_error(&slug).is_none(), case["valid"].as_bool().unwrap(), "{base:?}");
+    fn a_name_that_cannot_be_a_folder_or_a_branch_is_refused_with_its_reason() {
+        assert_eq!(name_error(""), Some("a name is required"));
+        assert_eq!(name_error(&"a".repeat(65)), Some("at most 64 characters"));
+        assert!(name_error(&"a".repeat(64)).is_none());
+        for bad in ["-lead", ".lead", "a b", "a/b", "é"] {
+            assert_eq!(name_error(bad), Some("use letters, digits, \".\", \"_\" or \"-\", starting with a letter or digit"), "{bad}");
         }
-        // After fifty numeric candidates the answer is `<base>-<8 hex digits>`; only that shape is accepted, as in the recording.
-        for case in golden["random"].as_array().unwrap() {
-            let base = case["base"].as_str().unwrap();
-            let prefix = trim_slug(base, SLUG_MAX_LENGTH - 9);
-            let slug = unique_slug(base, |candidate| !is_random_suffixed(candidate, &prefix));
-            assert!(is_random_suffixed(&slug, &prefix), "{slug}");
-            assert_eq!(slug.len() as u64, case["length"].as_u64().unwrap());
-            assert_eq!(name_error(&slug).is_none(), case["valid"].as_bool().unwrap());
+        for bad in ["a..b", "trail.", "x.lock", "X.LOCK"] {
+            assert_eq!(name_error(bad), Some("not a valid git branch component"), "{bad}");
         }
     }
 }

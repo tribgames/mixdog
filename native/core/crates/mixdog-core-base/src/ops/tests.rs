@@ -85,6 +85,7 @@ impl Db {
                 let record = OpRecord::Settled {
                     method: req.method.clone(),
                     digest: req.digest.clone(),
+                    audience: Some(replay_audience(&ctx())),
                     state: OpState::Applied {
                         seq: None,
                         result: None,
@@ -151,14 +152,10 @@ impl Owner {
                     seq: Some(n as u64),
                     result: Some(json!({ "n": n })),
                 };
-                let record = OpRecord::Settled {
-                    method: req.method.clone(),
-                    digest: req.digest.clone(),
-                    state: OpState::Applied {
-                        seq: applied.seq,
-                        result: applied.result.clone(),
-                    },
-                };
+                let record = ticket.settled_record(OpState::Applied {
+                    seq: applied.seq,
+                    result: applied.result.clone(),
+                });
                 let row = op_row(&req.id, &record, NOW_MS as i64)?;
                 let (scope, id) = (self.store.scope().to_owned(), req.id.clone());
                 self.db
@@ -277,6 +274,55 @@ async fn another_payload_under_the_same_op_id_conflicts() {
     running.await.unwrap().unwrap();
     assert_eq!(owner.mutate(&rename(&id, "b"), None).await, Err(conflict));
     assert_eq!(owner.effects(), 1);
+}
+
+#[tokio::test]
+async fn replay_is_bound_to_the_method_and_authenticated_audience() {
+    use mixdog_core_api::{call::WindowRole, call::WindowScope, ids::ConnectionId};
+    use mixdog_protocol::Origin;
+
+    let owner = Owner::new("config").await;
+    let peer = |id, principal: &'static str| {
+        let mut ctx = CallContext::connection(ConnectionId(id), Origin::Relay, Default::default());
+        ctx.replay_principal = Some(principal.into());
+        ctx
+    };
+    let original = peer(1, "one");
+    let reconnect = peer(2, "one");
+    let other = peer(3, "two");
+    let id = op_id(NOW_MS, 51);
+    let params = json!({});
+    let request = OpRequest::new(id.clone(), "config/setTheme", &params);
+    let different_method = OpRequest::new(id.clone(), "config/setProfile", &params);
+    let Begin::Execute(ticket) = owner.gate.begin(&request, &original).await.unwrap() else { panic!("first execution") };
+
+    assert!(matches!(owner.gate.begin(&request, &other).await, Err(CoreError::OpIdConflict { .. })));
+    assert!(matches!(owner.gate.begin(&different_method, &original).await, Err(CoreError::OpIdConflict { .. })));
+    let result = AppliedOp { seq: None, result: Some(json!({ "saved": true })) };
+    ticket.finish(OpOutcome::Applied(result.clone())).await.unwrap();
+
+    let gate = OpGate::domain(scope("config"), owner.store.clone()).await.unwrap();
+    assert!(matches!(gate.begin(&request, &reconnect).await, Ok(Begin::Done(OpOutcome::Applied(value))) if value == result));
+    assert!(matches!(gate.begin(&different_method, &original).await, Err(CoreError::OpIdConflict { .. })));
+    assert!(matches!(gate.status(&[id.clone()], false, &other).await, Err(CoreError::PermissionDenied { .. })));
+    assert!(matches!(gate.status(&[id], false, &reconnect).await.unwrap().as_slice(), [OpStatus::Applied { .. }]));
+
+    // A matching client-supplied window label is not a reconnect identity.
+    let window = |socket| {
+        let mut ctx = CallContext::connection(ConnectionId(1), Origin::Local, Default::default());
+        ctx.replay_socket = Some(socket);
+        ctx.with_window(Some(WindowScope { id: "main-window".into(), role: WindowRole::Main }))
+    };
+    let original = window(10);
+    let other = window(11);
+    let id = op_id(NOW_MS, 52);
+    let request = OpRequest::new(id.clone(), "config/setTheme", &params);
+    let Begin::Execute(ticket) = gate.begin(&request, &original).await.unwrap() else { panic!("first execution") };
+    assert!(matches!(gate.begin(&request, &other).await, Err(CoreError::OpIdConflict { .. })));
+    assert!(matches!(gate.status(std::slice::from_ref(&id), false, &other).await, Err(CoreError::PermissionDenied { .. })));
+    ticket.finish(OpOutcome::Applied(result.clone())).await.unwrap();
+    assert!(matches!(gate.begin(&request, &original).await, Ok(Begin::Done(OpOutcome::Applied(value))) if value == result));
+    assert!(matches!(gate.status(&[id], false, &other).await, Err(CoreError::PermissionDenied { .. })));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -80,6 +80,7 @@ async fn idle_run(idle: Duration) {
         code_graph: None,
         turn_review: None,
         releases: mixdog_workspace::release::FolderReleases::new(),
+        upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
     })
     .unwrap();
     service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None).await.unwrap();

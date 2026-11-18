@@ -31,7 +31,7 @@ import { MarkdownSessionContext } from './MarkdownLink';
 import type { Approval, TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
-import { reportRendererFailure } from './RendererRecovery';
+import { useDesktopStatus } from './settings/use-desktop-status';
 import { type ApprovalButton, ApprovalPreviewRow, ApprovalPrompt, noteApprovalDecision } from './approval-prompt';
 import { PixelIcon, type PixelIconName } from './pixel-icon';
 import { asRecord, textOf } from './text-format';
@@ -57,8 +57,8 @@ function approvalText(value: unknown, preferredKey: string): string {
  *  UI language; an agent's own words stay as written. */
 export function approvalReasonText(text: string): string {
   const known: Record<string, () => string> = {
-    'This sends or posts outside Mixdog; it needs your approval.': () =>
-      t('This sends or posts outside Mixdog; it needs your approval.'),
+    'This sends or posts on your behalf; it needs your approval.': () =>
+      t('This sends or posts on your behalf; it needs your approval.'),
     "This agent's permission blocks this action.": () => t("This agent's permission blocks this action."),
     // tool-exec/before-hook.mjs CONNECTOR_APPROVAL_REASON.
     'This connector tool is set to ask before it runs for this agent.': () =>
@@ -99,24 +99,14 @@ function ApprovalPreviewImage({ path, alt }: { path: unknown; alt: string }) {
 const AGENT_KEYS = ['agents'] as const;
 
 /** The "save sign-ins typed in chat" setting (`saveChatLogins`, on unless
- *  set off): the default of a sign-in card's save box. It is off until the
- *  stored value has loaded; a failed read is reported and stays off. */
-function useSaveChatLogins(enabled: boolean): boolean {
-  const [on, setOn] = useState(false);
-  useEffect(() => {
-    if (!enabled) return;
-    let live = true;
-    void Promise.resolve(window.mixdogDesktop?.readSettings?.()).then(
-      (settings) => {
-        if (live && settings) setOn(settings.saveChatLogins !== false);
-      },
-      (error: unknown) => reportRendererFailure('unhandled-rejection', error)
-    );
-    return () => {
-      live = false;
-    };
-  }, [enabled]);
-  return on;
+ *  set off): the default of a sign-in card's save box. `null` while the
+ *  stored value is unknown (not loaded yet, or its read failed): the box is
+ *  not offered and nothing is saved until the setting arrives, which every
+ *  settings announcement reads again. */
+function useSaveChatLogins(enabled: boolean): boolean | null {
+  const api = typeof window === 'undefined' ? undefined : window.mixdogDesktop;
+  const settings = useDesktopStatus(api, 'settings', enabled);
+  return settings ? settings.saveChatLogins !== false : null;
 }
 
 /** An agent's display name (its home tab title); its id until the catalog has it. */
@@ -190,20 +180,11 @@ function useOwnerChip(
   return handoffChip ?? { name: chain || title };
 }
 
-/** How long a takeover waits before it expires (main/takeover-gate.ts
- *  TAKEOVER_EXPIRY_MS, which settles it 'expired'). */
-const TAKEOVER_EXPIRY_MS = 15 * 60_000;
-
-/** When a secret or takeover card lapses: its own expiry, else a takeover's
- *  15 minutes from when it was asked; undefined when unknown. */
+/** When a secret card lapses (its own expiry); undefined when unknown. A
+ *  takeover card shows no deadline. */
 function approvalDeadline(approval: Approval): number | undefined {
   const expiresAt = Number(approval.expiresAt);
-  if (Number.isFinite(expiresAt) && expiresAt > 0) return expiresAt;
-  const requestedAt = Number(approval.requestedAt);
-  if (approval.kind === 'takeover' && Number.isFinite(requestedAt) && requestedAt > 0) {
-    return requestedAt + TAKEOVER_EXPIRY_MS;
-  }
-  return undefined;
+  return Number.isFinite(expiresAt) && expiresAt > 0 ? expiresAt : undefined;
 }
 
 /** "사무관 › Worker": the runtime's chain of a delegated request (its tokens
@@ -283,29 +264,29 @@ export function alwaysAllowScope(agent: string, action: string): string {
   return t("With Always allow, {{agent}}'s {{action}} won't ask again", { agent, action });
 }
 
-/** What the scope line says "Allow for this session" changes. */
+/** What the scope line says "Allow for this conversation" changes on a browser card. */
 export function sessionAllowScope(agent: string, action: string): string {
-  return t("For this session, {{agent}}'s {{action}} won't ask again, on any site", { agent, action });
+  return t("In this conversation, {{agent}}'s {{action}} won't ask again, on any site", { agent, action });
 }
 
-/** What the scope line says "Allow for this session" changes on a tool's own card. */
-export function sessionAllowToolScope(action: string): string {
-  return t("For this session, {{action}} won't ask again", { action });
+/** What the scope line says "Allow for this conversation" changes: this one
+ *  tool, in this conversation. Closing, deleting or resetting the conversation,
+ *  changing its agent and a restart of the background service end it (it is
+ *  held in the service's memory). */
+export function sessionAllowToolScope(tool: string): string {
+  return t("{{tool}} won't ask again in this conversation until you close, delete, or reset it, change its agent, or restart the app.", { tool });
 }
 
-/** What the scope line says "Always allow (all conversations)" changes: a saved
- *  allow of every agent's, listed (and revocable) in each agent's permissions. */
-export function sharedAllowScope(action: string): string {
-  return t("With Always allow, {{action}} won't ask again in any conversation", { action });
+/** What the scope line says "Allow for this agent" changes: this one tool, for
+ *  this agent in every conversation, listed (and revocable) in its permissions. */
+export function agentAllowToolScope(agent: string, tool: string): string {
+  return t("{{tool}} won't ask again for {{agent}}, in any conversation", { agent, tool });
 }
 
-/** The same two lines for a choice keyed by an action kind, which covers that
- *  kind whichever tool sends it (a Lead's hook ask on a classified call). */
-export function sessionAllowKindScope(action: string): string {
-  return t("For this session, {{action}} from any tool won't ask again", { action });
-}
-export function sharedAllowKindScope(action: string): string {
-  return t("With Always allow, {{action}} from any tool won't ask again in any conversation", { action });
+/** What the scope line says "Always allow" changes: this one tool, for every
+ *  agent, listed (and revocable) in each agent's permissions. */
+export function sharedAllowScope(tool: string): string {
+  return t("{{tool}} won't ask again for any agent, in any conversation", { tool });
 }
 
 function actionText(action: string): string {
@@ -357,9 +338,11 @@ type CardRow = {
   desc?: string;
   /** What the row sends; `secret` hands the typed value over,
    *  `reimport` opens the Chrome import and leaves the card open. */
-  decision: ToolApprovalDecision | 'secret' | 'reimport' | 'wait' | 'open';
+  decision: ToolApprovalDecision | 'secret' | 'reimport' | 'open';
   /** The card's edited text rides this decision (edit-and-approve). */
   edits?: boolean;
+  /** Shown but not choosable yet (a takeover's Done until the agent has stopped). */
+  disabled?: boolean;
 };
 
 /** Everything a request kind shows, derived from the request alone. */
@@ -439,6 +422,8 @@ export function approvalCardModel(approval: Approval) {
     title,
     text,
     tool: outbound || kind !== 'approval' ? '' : String(approval.name || ''),
+    /** The tool the call is for, whatever the card (an outbound card shows its action instead of the tool). */
+    callName: String(approval.name || ''),
     detail: outbound || office || kind !== 'approval' ? '' : approvalDetail(approval.args),
     // A secret's site is its title; its target is never repeated under it.
     target: String(outbound?.target || ''),
@@ -449,11 +434,11 @@ export function approvalCardModel(approval: Approval) {
     editable: Array.isArray(outbound?.editable) ? outbound.editable.map(String) : [],
     details,
     remember: Array.isArray(approval.remember) && approval.remember.includes('agent'),
-    /** "Allow for this session" is offered (requests.mjs: only for an action kind that can be remembered). */
+    /** "Allow for this conversation" is offered (requests.mjs: only for an action kind that can be remembered). */
     rememberSession: Array.isArray(approval.remember) && approval.remember.includes('session'),
-    /** "Always allow (all conversations)" is offered: a saved allow of every agent's (requests.mjs). */
+    /** "Always allow" is offered: a saved allow of every agent's (requests.mjs). */
     rememberShared: Array.isArray(approval.remember) && approval.remember.includes('always'),
-    /** What a session or every-agent choice covers: an action kind or `tool:<name>` (requests.mjs). */
+    /** The tool every remembered choice covers: `tool:<identity>` (requests.mjs). */
     grantAction: typeof approval.grantAction === 'string' ? approval.grantAction : '',
     secretId: String(secret?.requestId || ''),
     /** The bound field (requests.mjs SECRET_FORMS): 아이디 + 비밀번호 for a
@@ -535,11 +520,8 @@ export function approvalCardRows(
   if (model.kind === 'takeover') {
     // The agent is stopped as the card appears; until that has finished
     // (commands refused, in-flight work drained) Done cannot be chosen.
-    const first: CardRow = controlReady
-      ? { label: t('Done'), decision: { approved: true, response: 'done' } }
-      : { label: t('Stopping the agent…'), decision: 'wait' };
     return [
-      first,
+      { label: t('Done'), decision: { approved: true, response: 'done' }, disabled: !controlReady },
       // The page the takeover is about, in this device's browser panel.
       ...(openPage && model.surface === 'browser' ? [{ label: t('Open'), decision: 'open' as const }] : []),
       // The PC's whole screen, full-screen on a paired phone.
@@ -613,37 +595,18 @@ export function approvalCardRows(
       { ...cancel, label: t('Deny') },
     ];
   }
-  // What a session or every-agent choice covers: the request's own grant key (an
-  // action kind, or `tool:<name>`), else the card's kind, else its tool.
-  const grantKind = model.grantAction && !model.grantAction.startsWith('tool:') ? model.grantAction : '';
-  const grantTool = model.grantAction.startsWith('tool:') ? model.grantAction.slice('tool:'.length) : '';
-  const toolCard = !model.action && !grantKind && Boolean(grantTool || model.tool);
-  const alwaysAllowTarget = toolCard
-    ? connectorToolLabel(grantTool || model.tool)
-    : actionLabel(model.action || grantKind);
-  const keyedByKind = !model.action && Boolean(grantKind);
+  // Every remembered choice covers the one tool asked about: the request's own
+  // grant key (`tool:<identity>`, the same for every account of a connector).
+  const grantTool = model.grantAction.startsWith('tool:') ? model.grantAction.slice('tool:'.length) : model.callName;
+  const toolName = connectorToolLabel(grantTool);
   return [
     { label: t('Allow just once'), decision: { approved: true }, edits: true },
     ...(model.rememberSession
       ? [
           {
-            label: t('Allow for this session'),
-            desc: toolCard
-              ? sessionAllowToolScope(alwaysAllowTarget)
-              : keyedByKind
-                ? sessionAllowKindScope(alwaysAllowTarget)
-                : sessionAllowScope(agentName, alwaysAllowTarget),
+            label: t('Allow for this conversation'),
+            desc: sessionAllowToolScope(toolName),
             decision: { approved: true, remember: 'session' as const },
-            edits: true,
-          },
-        ]
-      : []),
-    ...(model.rememberShared
-      ? [
-          {
-            label: t('Always allow (all conversations)'),
-            desc: keyedByKind ? sharedAllowKindScope(alwaysAllowTarget) : sharedAllowScope(alwaysAllowTarget),
-            decision: { approved: true, remember: 'always' as const },
             edits: true,
           },
         ]
@@ -651,9 +614,19 @@ export function approvalCardRows(
     ...(model.remember
       ? [
           {
-            label: t('Always allow'),
-            desc: alwaysAllowScope(agentName, alwaysAllowTarget),
+            label: t('Allow for this agent'),
+            desc: agentAllowToolScope(agentName, toolName),
             decision: { approved: true, remember: 'agent' as const },
+            edits: true,
+          },
+        ]
+      : []),
+    ...(model.rememberShared
+      ? [
+          {
+            label: t('Always allow'),
+            desc: sharedAllowScope(toolName),
+            decision: { approved: true, remember: 'always' as const },
             edits: true,
           },
         ]
@@ -739,7 +712,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
 // How each login takeover's window last ended, across remounts of its card.
 const loginStatuses = new Map<string, DesktopBrowserLoginStatus>();
 
-type LoginRow = { label: string; action: 'open' | 'fill' | 'wait' | 'reimport' | 'cancel' };
+type LoginRow = { label: string; action: 'open' | 'fill' | 'reimport' | 'cancel'; disabled?: boolean };
 
 /** The login takeover's card (design/mockups/browser-login, side-panel-audit
  *  §1): one head line "<site> 로그인이 필요합니다". With saved logins for the
@@ -823,13 +796,14 @@ function BrowserLoginCard({
     // A phone: the sign-in happens on the PC, but the takeover can end here.
     rows = settled ? [] : [cancel];
   } else if (choosing) {
-    const yourself: LoginRow = { label: t('Sign in yourself'), action: 'open' };
-    rows = picked ? [{ label: t('Sign in with this account'), action: 'fill' }, yourself, cancel] : [yourself, cancel];
-    if (!controlReady) rows = [{ label: t('Stopping the agent…'), action: 'wait' }, cancel];
+    // Until the agent has stopped, nothing that opens or fills the page can be chosen.
+    const yourself: LoginRow = { label: t('Sign in yourself'), action: 'open', disabled: !controlReady };
+    rows = picked
+      ? [{ label: t('Sign in with this account'), action: 'fill', disabled: !controlReady }, yourself, cancel]
+      : [yourself, cancel];
   } else if (!settled && (state === 'idle' || state === 'closed')) {
-    let first: LoginRow = { label: state === 'closed' ? t('Sign in again…') : t('Sign in…'), action: 'open' };
-    if (!controlReady) first = { label: t('Stopping the agent…'), action: 'wait' };
-    rows = [first, cancel];
+    const label = state === 'closed' ? t('Sign in again…') : t('Sign in…');
+    rows = [{ label, action: 'open', disabled: !controlReady }, cancel];
   } else if (!settled && state === 'refused') {
     rows = [{ label: t('Import again from Chrome'), action: 'reimport' }, cancel];
   }
@@ -851,20 +825,20 @@ function BrowserLoginCard({
       (accepted) => {
         if (typeof accepted === 'boolean' || !mounted.current) return;
         setResolving(false);
-        setError(t('Mixdog could not record this decision. Please try again.'));
+        setError(t('This decision could not be saved. Please try again.'));
       },
       (reason) => {
         if (!mounted.current) return;
         setResolving(false);
         setError(
-          t('Mixdog could not record this decision: {{detail}}', {
+          t('This decision could not be saved: {{detail}}', {
             detail: reason instanceof Error ? reason.message : String(reason || ''),
           })
         );
       }
     );
   const activate = (row: LoginRow) => {
-    if (row.action === 'wait' || resolving || settled) return;
+    if (row.disabled || resolving || settled) return;
     noteApprovalDecision();
     if (row.action === 'open') {
       follow(api?.browserLoginOpen?.(sessionId, id));
@@ -919,7 +893,7 @@ function BrowserLoginCard({
   const buttons: ApprovalButton[] = [...rows].reverse().map((row) => ({
     label: row.label,
     tone: row === rows[0] && row.action !== 'cancel' ? 'primary' : undefined,
-    disabled: row.action === 'wait',
+    disabled: row.disabled,
     onClick: () => activate(row),
   }));
   const radioName = `approval-account-${id}`;
@@ -954,7 +928,6 @@ function BrowserLoginCard({
       tone={done ? 'done' : 'need'}
       requester=""
       target={owner}
-      deadline={done ? undefined : approvalDeadline(approval)}
       preview={preview}
       buttons={buttons}
       focus="primary"
@@ -1209,7 +1182,8 @@ function SecretFields({
   length: number;
   /** How many code characters are typed (a count, no characters). */
   filled: number;
-  save: boolean;
+  /** `null` while the save default is unknown: no box is offered. */
+  save: boolean | null;
   disabled: boolean;
   secretRef: Ref<HTMLInputElement>;
   usernameRef: Ref<HTMLInputElement>;
@@ -1307,10 +1281,12 @@ function SecretFields({
         <span className="approval-field-label">{t('Password')}</span>
         {password}
       </label>
-      <label className="approval-check">
-        <input type="checkbox" checked={save} disabled={disabled} onChange={(event) => onSave(event.target.checked)} />
-        <span>{t("Save as this site's login")}</span>
-      </label>
+      {save !== null && (
+        <label className="approval-check">
+          <input type="checkbox" checked={save} disabled={disabled} onChange={(event) => onSave(event.target.checked)} />
+          <span>{t("Save as this site's login")}</span>
+        </label>
+      )}
       {lock}
     </>
   );
@@ -1371,9 +1347,7 @@ function ToolApprovalCard({
   const [error, setError] = useState('');
   const resolvingRef = useRef(false);
   const edited = model.editable.length > 0 && text !== model.payload;
-  // A value is only ever handed to the PC: by this window's IPC, or by a
-  // phone whose encrypted channel to a host that takes it provides the call
-  // (remote-shim-api.ts); any other client has no such path.
+  // The desktop API supplies this method locally and over SSH; the paired API omits it.
   const secretEntry = typeof window !== 'undefined' && typeof window.mixdogDesktop?.provideSecretInput === 'function';
   const owner = useOwnerChip(approval, hostSessionId, approvalChainLabel(approval.chain));
   const handsOver = model.kind === 'secret' || model.kind === 'takeover';
@@ -1421,20 +1395,20 @@ function ToolApprovalCard({
         return;
       }
       if (typeof accepted === 'boolean') return;
-      setError(t('Mixdog could not record this decision. Please try again.'));
+      setError(t('This decision could not be saved. Please try again.'));
     } catch (reason) {
       const detail = reason instanceof Error ? reason.message : String(reason || '');
       setError(
         detail
-          ? t('Mixdog could not record this decision: {{detail}}', { detail })
-          : t('Mixdog could not record this decision. Please try again.')
+          ? t('This decision could not be saved: {{detail}}', { detail })
+          : t('This decision could not be saved. Please try again.')
       );
     }
     resolvingRef.current = false;
     setResolving(false);
   };
   const activate = (row: CardRow) => {
-    if (row.decision === 'wait') return;
+    if (row.disabled) return;
     if (row.decision === 'reimport') {
       requestBrowserImport(browserSessionId);
       return;
@@ -1452,7 +1426,7 @@ function ToolApprovalCard({
       if (!field || !value || otpShort) return void field?.focus();
       const login = model.secretForm === 'login';
       const name = login ? (usernameRef.current?.value ?? '').trim() : '';
-      const save = login && name !== '' && (saveLogin ?? saveDefault);
+      const save = login && name !== '' && (saveLogin ?? saveDefault) === true;
       field.value = '';
       if (usernameRef.current) usernameRef.current.value = '';
       setCodeFilled(0);
@@ -1514,7 +1488,7 @@ function ToolApprovalCard({
   const toButton = (row: CardRow, tone?: ApprovalButton['tone']): ApprovalButton => ({
     label: row.label,
     tone,
-    disabled: row.decision === 'wait',
+    disabled: row.disabled,
     hint: row.desc,
     always: isAlways(row) || undefined,
     onClick: () => activate(row),
@@ -1628,7 +1602,7 @@ function ToolApprovalCard({
       tone="need"
       requester={requester}
       target={handsOver ? owner : handoffChip}
-      deadline={handsOver ? approvalDeadline(approval) : undefined}
+      deadline={model.kind === 'secret' ? approvalDeadline(approval) : undefined}
       service={handsOver ? undefined : service}
       serviceTitle={rawTool !== service ? rawTool : undefined}
       sessionLink={sessionLink}

@@ -123,6 +123,36 @@ mod tests {
         }
     }
 
+    struct Desk(Value);
+
+    #[async_trait]
+    impl HostChannel for Desk {
+        async fn request(
+            &self,
+            capability: HostCapability,
+            method: Method,
+            params: Value,
+        ) -> Result<Value, mixdog_core_api::HostError> {
+            assert_eq!(capability, HostCapability::SystemProxy);
+            assert_eq!(method, Method("host/systemProxy/resolve"));
+            assert_eq!(params, json!({ "url": "https://api.example.com" }));
+            Ok(self.0.clone())
+        }
+
+        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), mixdog_core_api::CoreError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn the_host_resolver_asks_the_claimant_for_the_rules_of_an_origin() {
+        let rules = HostResolver::new(Arc::new(Desk(json!({ "rules": "PROXY 127.0.0.1:7890; DIRECT" }))));
+        assert_eq!(rules.resolve("https://api.example.com").await.unwrap(), "PROXY 127.0.0.1:7890; DIRECT");
+        let bad = HostResolver::new(Arc::new(Desk(json!({ "other": 1 }))));
+        assert!(bad.resolve("https://api.example.com").await.is_err());
+    }
+
+
     #[tokio::test(start_paused = true)]
     async fn a_config_change_reaches_the_policy_and_a_changed_setting_moves_its_epoch() {
         let stack = NetworkStack::new(KeepaliveSchedule::SPEC);
@@ -151,34 +181,5 @@ mod tests {
         .unwrap();
         drop(tick);
         task.await.unwrap();
-    }
-
-    struct Desk(Value);
-
-    #[async_trait]
-    impl HostChannel for Desk {
-        async fn request(
-            &self,
-            capability: HostCapability,
-            method: Method,
-            params: Value,
-        ) -> Result<Value, mixdog_core_api::HostError> {
-            assert_eq!(capability, HostCapability::SystemProxy);
-            assert_eq!(method, Method("host/systemProxy/resolve"));
-            assert_eq!(params, json!({ "url": "https://api.example.com" }));
-            Ok(self.0.clone())
-        }
-
-        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), mixdog_core_api::CoreError> {
-            Ok(())
-        }
-    }
-
-    #[tokio::test]
-    async fn the_host_resolver_asks_the_claimant_for_the_rules_of_an_origin() {
-        let rules = HostResolver::new(Arc::new(Desk(json!({ "rules": "PROXY 127.0.0.1:7890; DIRECT" }))));
-        assert_eq!(rules.resolve("https://api.example.com").await.unwrap(), "PROXY 127.0.0.1:7890; DIRECT");
-        let bad = HostResolver::new(Arc::new(Desk(json!({ "other": 1 }))));
-        assert!(bad.resolve("https://api.example.com").await.is_err());
     }
 }

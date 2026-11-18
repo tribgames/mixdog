@@ -33,20 +33,11 @@ impl NotificationClicks for LoggedClicks {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain_seams::golden;
 
     #[test]
-    fn a_click_is_reported_as_nodes_notifier_reports_it() {
-        let golden = golden();
-        let clicks = &golden["clicks"];
-        assert_eq!(EVENT_PREFIX, clicks["prefix"].as_str().unwrap());
-        let reported = clicks["reported"].as_array().unwrap().iter().find(|report| report["event"] == "clicked").unwrap();
-        let session = reported["sessionId"].as_str().unwrap();
-        let mut details = serde_json::Map::from_iter([("sessionId".to_owned(), json!(session))]);
-        details.extend(reported["details"].as_object().unwrap().clone());
-        let (event, shown) = click_report(&ThreadId::from(session));
-        assert_eq!(event, format!("{}{}", clicks["prefix"].as_str().unwrap(), reported["event"].as_str().unwrap()));
-        assert_eq!(shown, Value::Object(details));
-        assert_eq!(clicks["opened"], json!([session]));
+    fn a_click_is_reported_as_the_clicked_event_of_its_session() {
+        let (event, shown) = click_report(&ThreadId::from("sess_click"));
+        assert_eq!(event, "turn-notification-clicked");
+        assert_eq!(shown, json!({ "sessionId": "sess_click" }));
     }
 }

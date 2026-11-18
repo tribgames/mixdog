@@ -10,12 +10,29 @@ use serde::{Deserialize, Serialize};
 use super::config::{self, InputType};
 use super::engine::EmbedConfig;
 use crate::memory::error::{MemoryError, Result};
+pub(crate) use crate::model_host::Lifecycle;
 use crate::model_host::{HostLaunch, Pipes};
 use crate::model_install::run_on_lane;
 
 pub const HOST_COMMAND: &str = "embedding-host";
 const TAG: &str = "MIXDOG-EMBEDDING ";
-const START_LIMIT: Duration = Duration::from_secs(60);
+/// How long a host may take: Node's worker timeouts.
+#[derive(Clone, Copy)]
+pub(crate) struct Limits {
+    /// `EMBED_WORKER_COLD_TIMEOUT_MS`: a host that has not loaded yet has this long to answer ready (the first load may download the model).
+    cold: Duration,
+    /// `EMBED_WORKER_TIMEOUT_MS`: a request to a loaded host; past it the host is terminated and the next request starts another.
+    request: Duration,
+}
+
+impl Limits {
+    pub(crate) const NODE: Self = Self { cold: Duration::from_secs(180), request: Duration::from_secs(60) };
+
+    #[cfg(test)]
+    pub(crate) const fn new(cold: Duration, request: Duration) -> Self {
+        Self { cold, request }
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 struct Request {
@@ -61,6 +78,22 @@ struct Inner {
     model_id: String,
     dtype: String,
     lane: mixdog_rt::CpuBulk,
+    request_limit: Duration,
+    /// Identities handed to exchanges.
+    next_exchange: std::sync::atomic::AtomicU64,
+    /// The exchange whose alarm may still kill the host (0: none), and whether its alarm did.
+    armed: Mutex<(u64, bool)>,
+}
+
+impl Inner {
+    /// An exchange's alarm: kills the host only when `identity` is still the armed exchange.
+    fn expire(&self, identity: u64) {
+        let mut armed = self.armed.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if armed.0 == identity {
+            armed.1 = true;
+            self.pipes.kill.cancel();
+        }
+    }
 }
 
 /// A handle to the child, never to an ONNX session in the core.
@@ -76,13 +109,17 @@ impl Embedder {
     }
 
     pub(crate) async fn start(config: EmbedConfig, launch: HostLaunch) -> Result<Self> {
+        Self::start_within(config, launch, Limits::NODE).await
+    }
+
+    pub(crate) async fn start_within(config: EmbedConfig, launch: HostLaunch, limits: Limits) -> Result<Self> {
         let runtime = tokio::runtime::Handle::current();
         run_on_lane(config.lane, move || {
-            let pipes = Pipes::start(&launch, TAG, &runtime).map_err(error)?;
+            let pipes = Pipes::start_below_normal(&launch, TAG, &runtime).map_err(error)?;
             let ready = Arc::new(AtomicBool::new(false));
             let kill = pipes.kill.clone();
             let loaded = ready.clone();
-            let _alarm = mixdog_rt::ticker().register(std::time::Instant::now() + START_LIMIT, Box::new(move || {
+            let _alarm = mixdog_rt::ticker().register(std::time::Instant::now() + limits.cold, Box::new(move || {
                 if !loaded.load(Ordering::Acquire) {
                     kill.cancel();
                 }
@@ -99,13 +136,22 @@ impl Embedder {
                 pipes, exchange: Mutex::new(()), dims,
                 device: match device.as_str() { "cpu" => "cpu", "dml" => "dml", _ => return Err(error("unknown device")) },
                 dtype: config::normalize_dtype(&model_id, config.dtype.as_deref()),
-                model_id, lane: config.lane,
+                model_id, lane: config.lane, request_limit: limits.request,
+                next_exchange: std::sync::atomic::AtomicU64::new(0), armed: Mutex::new((0, false)),
             }) })
         }).await.map_err(error)?
     }
 
     pub fn in_use(&self) -> bool { Arc::strong_count(&self.inner) > 1 }
     pub fn alive(&self) -> bool { self.inner.pipes.alive() }
+    /// The host's lifecycle (Rule B): `Ended` only once its reaper read the exit.
+    pub(crate) fn lifecycle(&self) -> Lifecycle { self.inner.pipes.lifecycle() }
+    /// Resolves with the host's `Ended`.
+    pub(crate) async fn ended(&self) -> Lifecycle { self.inner.pipes.ended().await }
+    /// The provider ends this host by its own choice (idle release, disposal): Node's retired worker, whose exit is not counted.
+    pub(crate) fn retire(&self) { self.inner.pipes.retire() }
+    #[cfg(test)]
+    pub(crate) fn generation(&self) -> u64 { self.inner.pipes.generation() }
     pub fn dims(&self) -> usize { self.inner.dims }
     pub fn device(&self) -> &'static str { self.inner.device }
     pub fn model_id(&self) -> &str { &self.inner.model_id }
@@ -116,6 +162,13 @@ impl Embedder {
         let this = self.clone();
         run_on_lane(self.inner.lane, move || {
             let _exchange = this.inner.exchange.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            // A host that never answers would hold the exchange for good: the alarm ends the host, which ends the wait below.
+            // The alarm kills only the exchange it was armed for: the check and the kill are one step under `armed`, which the exchange's end also takes,
+            // so a callback already dispatched when the reply returns finds another identity (or none) and does nothing.
+            let identity = this.inner.next_exchange.fetch_add(1, Ordering::AcqRel) + 1;
+            *this.inner.armed.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = (identity, false);
+            let inner = this.inner.clone();
+            let alarm = mixdog_rt::ticker().register(std::time::Instant::now() + this.inner.request_limit, move || inner.expire(identity));
             let outcome = (|| {
                 this.inner.pipes.send(serde_json::to_string(&request).map_err(error)?).map_err(error)?;
                 let reply = this.inner.pipes.receive().map_err(error)?;
@@ -125,9 +178,14 @@ impl Embedder {
                     _ => Err(error("unexpected inference reply")),
                 }
             })();
+            let _ = alarm.cancel();
+            let timed_out = std::mem::take(&mut *this.inner.armed.lock().unwrap_or_else(std::sync::PoisonError::into_inner)).1;
             if outcome.is_err() {
                 // A failed exchange cannot leave a response for a later caller.
                 this.inner.pipes.kill.cancel();
+            }
+            if timed_out {
+                return Err(error(format!("request timed out after {}ms", this.inner.request_limit.as_millis())));
             }
             outcome
         }).await.map_err(error)?
@@ -164,7 +222,11 @@ fn serve_model<M>(
     mut output: impl Write,
 ) -> i32
 where M: Metadata {
-    let model = match load() {
+    let loaded = {
+        let _capped = affinity::cap_for_load();
+        load()
+    };
+    let model = match loaded {
         Ok(model) => model,
         Err(error) => {
             send(&mut output, &Reply::Failed { message: error.message() });
@@ -182,6 +244,40 @@ where M: Metadata {
         if !send(&mut output, &reply) { return 1; }
     }
     0
+}
+
+/// Node's cap on the load's CPU affinity (`embedding-worker.mjs`, `LOAD_AFFINITY_CORES` 1): graph compilation and weight dequantization cannot saturate every
+/// core, and the full mask is restored the instant the load resolves, so inference is unaffected. Node set it on Windows only.
+mod affinity {
+    #[cfg(windows)]
+    pub(super) struct Capped(usize);
+
+    #[cfg(windows)]
+    impl Drop for Capped {
+        fn drop(&mut self) {
+            // SAFETY: the current process's pseudo handle and a mask it already held.
+            unsafe { windows_sys::Win32::System::Threading::SetProcessAffinityMask(windows_sys::Win32::System::Threading::GetCurrentProcess(), self.0) };
+        }
+    }
+
+    #[cfg(windows)]
+    pub(super) fn cap_for_load() -> Option<Capped> {
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessAffinityMask, SetProcessAffinityMask};
+        // SAFETY: the current process's pseudo handle and two out-parameters.
+        unsafe {
+            let process = GetCurrentProcess();
+            let (mut held, mut system) = (0usize, 0usize);
+            if GetProcessAffinityMask(process, &mut held, &mut system) == 0 || SetProcessAffinityMask(process, held & held.wrapping_neg()) == 0 {
+                return None;
+            }
+            Some(Capped(held))
+        }
+    }
+
+    #[cfg(not(windows))]
+    pub(super) fn cap_for_load() -> Option<()> {
+        None
+    }
 }
 
 trait Metadata {

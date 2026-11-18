@@ -412,7 +412,7 @@ impl UserControlState {
 
     /// `lifecycle-abort.ts:unconfirmedCleanup`: a helper cleanup that did not confirm holds the desktop for the person, also
     /// when the aborted session's execution has already closed (`pauseForUser(reason, [sessionId])`); only Resume ends it.
-    pub(super) fn cleanup_unconfirmed(&self, session: &str) {
+    pub fn cleanup_unconfirmed(&self, session: &str) {
         locked(&self.inner).latched.insert(session.to_owned());
         self.hold(TAKEOVER_CODES[0], false, true);
     }

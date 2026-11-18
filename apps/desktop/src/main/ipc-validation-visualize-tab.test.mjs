@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  requiredDesktopCapabilityRequest,
-  requiredVisualizeGestureTarget,
-  requiredVisualizeTabCommand,
-} from './ipc-validation.ts';
+import { requiredVisualizeGestureTarget, requiredVisualizeTabCommand } from './ipc-validation.ts';
+import { requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
 
 const ids = { sessionId: 'session-1', tabId: 'tab-1' };
 const cmd = (extra) => requiredVisualizeTabCommand({ ...ids, ...extra });

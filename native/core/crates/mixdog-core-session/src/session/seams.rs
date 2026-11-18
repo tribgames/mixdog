@@ -343,11 +343,29 @@ pub struct HistoryBefore {
     pub decor: Vec<RowDecor>,
 }
 
+/// Store-private continuation of a bounded turn-history scan.
+pub struct TurnHistoryCursor(pub Box<dyn Any + Send>);
+
+pub(super) fn turn_read_cancelled() -> CoreError {
+    CoreError::Cancelled { by: "caller".into() }
+}
+
+pub(super) fn check_turn_read_cancel(cancel: &CancellationToken) -> Result<(), CoreError> {
+    if cancel.is_cancelled() { Err(turn_read_cancelled()) } else { Ok(()) }
+}
+
+pub struct TurnHistoryChunk {
+    /// Newest record first; each record's display rows still run oldest first.
+    pub records: Vec<ItemRecord>,
+    pub next: Option<TurnHistoryCursor>,
+}
+
 /// An op of a thread as its log holds it (P §9.2): the indexed row and the frame that carries it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoredOp {
     pub method: String,
     pub digest: String,
+    pub audience: Option<String>,
     pub state: mixdog_store::schema::record::OpState,
     /// The ordinal of the carrying frame: the op's `seq`.
     pub seq: u64,
@@ -355,6 +373,14 @@ pub struct StoredOp {
     pub result: Option<Value>,
     /// An `op` record's detail: the rejection, or `{effect, target}`.
     pub detail: Option<Value>,
+}
+
+/// The members of `header` named in `fields`, in the header's order; `None` for a session kept only to host a worker row.
+pub fn header_fields(header: &Header, fields: &[&str]) -> Option<Header> {
+    if header.get(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY).and_then(serde_json::Value::as_bool) == Some(true) {
+        return None;
+    }
+    Some(header.iter().filter(|(key, _)| fields.contains(&key.as_str())).map(|(key, value)| (key.clone(), value.clone())).collect())
 }
 
 /// The thread store's open and create paths (FORMAT.md §6.3, SPEC R28).
@@ -366,6 +392,23 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// A stored session's whole header (its folded record), read without opening the thread:
     /// `threadNotFound` for an unknown or deleted one.
     fn read_header(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError>;
+
+    /// The members of [`read_header`](Self::read_header) named in `fields`; `None` for a session kept only to host a
+    /// worker row, which has no record a listing reads. A store that knows when a session's log was last written keeps
+    /// the answer until then: the same few members of a finished worker are asked for again and again, and each was the
+    /// whole header (a prompt and tool catalog of megabytes) read and decoded.
+    fn read_header_fields(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, fields: &'static [&'static str]) -> Result<Option<Header>, CoreError> {
+        Ok(header_fields(&self.read_header(lane, id)?, fields))
+    }
+
+    /// The header members a listing reads of a stored session (`mixdog_store::worker::LISTED_FIELDS`), from the index
+    /// and without opening its log. The outer `None`: the index cannot answer for the session and
+    /// [`read_header`](Self::read_header) is the source; the inner `None`: a session kept only to host a worker row.
+    /// One answer per session, in order and in one index read, run as the caller's lane job (a full lane is waited out
+    /// where the job is queued).
+    fn listed_rows(&self, _lane: &InLane<InteractiveIo>, ids: &[ThreadId]) -> Result<Vec<Option<Option<Header>>>, CoreError> {
+        Ok(vec![None; ids.len()])
+    }
 
     /// The `log_id` of a session `read_header` found.
     fn read_log_id(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError>;
@@ -403,6 +446,32 @@ pub trait ThreadStore: Send + Sync + 'static {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
     ) -> Result<(u64, Vec<ItemRecord>), CoreError>;
+
+    /// A bounded scan of the same records as [`Self::history_rows`], newest first. `None` means the store cannot
+    /// provide one consistent scan; the caller discards any partial result and uses the whole-history read.
+    fn turn_history_chunk(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        _id: &ThreadId,
+        _after: Option<TurnHistoryCursor>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<TurnHistoryChunk>, CoreError> {
+        check_turn_read_cancel(cancel)?;
+        Ok(None)
+    }
+
+    /// The authoritative read for an item-bearing turn page or an invalidated scan.
+    fn turn_history_full(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        cancel: &CancellationToken,
+    ) -> Result<(Vec<ItemRecord>, Vec<RowDecor>), CoreError> {
+        check_turn_read_cancel(cancel)?;
+        let (_, records, decor, _) = self.history_tail_decor(lane, id, usize::MAX)?;
+        check_turn_read_cancel(cancel)?;
+        Ok((records, decor))
+    }
 
     /// [`history_rows`](Self::history_rows) of the newest `rows` rows only (oldest first), with whether they are all of
     /// the history: a page of the transcript reads the rows it shows, not the whole conversation.
@@ -445,6 +514,13 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// P §9.2 thread-scope lookup: the stored record of op `op` of thread `id` (the index
     /// holds every barrier acked so far), `None` when the thread never recorded it.
     fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<StoredOp>, CoreError>;
+
+    /// The answer the first acceptance of client submission `submission` of thread `id` got (`{kind:"started", turnId}` or
+    /// `{kind:"queued", queuedId}`), once the index holds every barrier acked so far; `None` when the thread never accepted it.
+    /// A store that keeps no submission index answers `None`.
+    fn submission(&self, _lane: &InLane<InteractiveIo>, _id: &ThreadId, _submission: &str) -> Result<Option<Value>, CoreError> {
+        Ok(None)
+    }
 
     /// The ops of thread `id` that were fenced (P §9.4), read once when the thread loads.
     fn fenced_ops(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError>;
@@ -645,8 +721,9 @@ pub trait Transcript: Send + Sync + 'static {
     /// The `queued` row of a queue entry (`thread/queue/changed`).
     fn queued(&self, qid: &str, entry: &Value) -> Value;
 
-    /// The history-row body of a user prompt (the model message the run reads back).
-    fn user_message(&self, input: &TurnInput) -> Value;
+    /// The history-row body of a user prompt (the model message the run reads back). `originals_missing`: how many of its
+    /// images go with only their smaller copy ([`super::staged_originals::drop_missing`]), recorded with the message.
+    fn user_message(&self, input: &TurnInput, originals_missing: u32) -> Value;
 
     /// The thread's list row as the snapshot's `thread` field carries it.
     fn summary(&self, id: &ThreadId, header: &Header) -> ThreadSummary;
@@ -839,6 +916,11 @@ pub trait RoomMemberEvents: Send + Sync + 'static {
     /// showing it at once, as `scheduler.approve` does after its answer (`state.approval = null;
     /// deps.republish`, `agent-room-scheduler.ts:285-286`).
     fn approval_resolved(&self, room_id: &str, approval_id: &str);
+    /// A Stop on the room's log (`agentRooms.stop`): `Some` (whether an exchange or a message on its way was stopped, and the
+    /// durable member stops it owes); `None` when no room is hosted under `room_id`, which leaves the Stop to the thread.
+    fn stop_room(&self, _room_id: &str) -> Option<mixdog_core_api::thread::RoomStopped> {
+        None
+    }
 }
 
 /// `_refreshResumedTools(session, sessionId, preset)` of `resumeSession` (`session-lifecycle.mjs:598-620`):
@@ -870,8 +952,49 @@ pub struct AgentTurn {
     pub caller_watchdog: bool,
 }
 
+/// `session._providerPrefixGuardState`: the request the actor's last completed turn settled on, for the next turn's prefix guard.
+/// One actor incarnation owns one and hands it to each of its runs; it goes with the actor however that ends, so a replacement
+/// actor starts on no guard (a live session object held it in Node, and it was never stored).
+#[derive(Default)]
+pub struct PrefixGuardSlot(std::sync::Mutex<KeptPrefixGuard>);
+
+/// The kept guard with the header's `transcriptEpoch` of the turn it was taken for: the epoch the session names after a rewrite
+/// (or a route change) is Node's deletion of the state, so a guard kept under another lineage is gone.
+#[derive(Default)]
+struct KeptPrefixGuard {
+    epoch: Option<String>,
+    guard: Option<mixdog_agent::prefix_guard::Snapshot>,
+}
+
+impl PrefixGuardSlot {
+    fn kept(&self) -> std::sync::MutexGuard<'_, KeptPrefixGuard> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The guard a turn on `header` starts with.
+    pub fn for_header(&self, header: &Header) -> Option<mixdog_agent::prefix_guard::Snapshot> {
+        let epoch = header.get("transcriptEpoch").and_then(Value::as_str).map(str::to_owned);
+        let mut kept = self.kept();
+        if kept.epoch != epoch {
+            kept.guard = None;
+            kept.epoch = epoch;
+        }
+        kept.guard.clone()
+    }
+
+    /// What a completed turn settled on (`None`: a failed or cancelled turn, whose transcript is rewritten). The lineage stays
+    /// the one the turn started on ([`Self::for_header`]).
+    pub fn keep(&self, guard: Option<mixdog_agent::prefix_guard::Snapshot>) {
+        self.kept().guard = guard;
+    }
+}
+
 /// What the actor hands a new run.
 pub struct RunStart {
+    /// The actor incarnation's prefix guard.
+    pub prefix_guard: Arc<PrefixGuardSlot>,
+    /// The transcript-cache books of the session's store ([`super::SessionDeps::cache_tail`]).
+    pub cache_tail: Arc<mixdog_ai::cache_tail::Books>,
     /// The conversation transcripts the turn appends its prompt and assistant texts to.
     pub transcripts: Option<Arc<super::transcript_writer::TranscriptFiles>>,
     /// `Some` for a worker's turn started by `agent_registry::SessionTurns`.
@@ -898,7 +1021,7 @@ pub struct RunStart {
     /// The input row the actor committed for `input`: its item id and `item.body`.
     pub input_item: mixdog_core_api::ids::ItemId,
     pub input_body: Value,
-    /// The session header (route, agent, effort, tool spec) as acked at turn start.
+    /// The session header as acked at turn start, with the pending route frozen at admission.
     pub header: Header,
     pub port: RunPort,
     /// The model context before the input row (today's `session.messages` at ask start).
@@ -952,8 +1075,8 @@ pub struct CrashedRows {
     pub rows: Vec<super::run::ItemCommit>,
     /// The model context to restart on (a silent compaction), when the finalization changed it.
     pub context: Option<Vec<(mixdog_core_api::ids::ItemId, Value)>>,
-    /// The draft's last context reading, restored as `lastContextTokens` (`restoreCheckpointContext`).
-    pub context_tokens: Option<u64>,
+    /// The draft's last context reading, restored as `lastContextTokens`: absent, explicitly cleared, or measured.
+    pub context_tokens: Option<Option<u64>>,
 }
 
 /// The run loop (RL §5.2): owned by the actor, reports only to it.

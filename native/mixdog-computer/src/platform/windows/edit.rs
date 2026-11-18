@@ -2,8 +2,9 @@
 //! keyboard value replacement proves before it deletes anything
 //! (BackgroundSelectAll and BackgroundTextEnd, MixWin32Keyboard.cs:597-660).
 
-use super::background::{keyboard_target_of, send_value, WinBackground};
+use super::background::{keyboard_target_of, read_value, WinBackground};
 use crate::platform::Wid;
+use crate::port::windows::ReadMessage;
 
 const EM_GETSEL: u32 = 0x00B0;
 const EM_SETSEL: u32 = 0x00B1;
@@ -66,12 +67,20 @@ fn select_all_proof(send: Send, has_text: bool) -> Result<i32, String> {
     Ok(-1)
 }
 
+/// The two messages on the real control: `EM_SETSEL` is a submission through the port, `EM_GETSEL` a read.
+fn live<'a>(background: &'a WinBackground, top: Wid, control: Wid) -> impl Fn(u32, usize, isize) -> Result<usize, String> + 'a {
+    move |message, wparam, lparam| match message {
+        EM_SETSEL => background.edit_select(top, control, wparam, lparam),
+        _ => read_value(control, ReadMessage::Selection),
+    }
+}
+
 /// Selects the control's whole text and returns its end, -1 when the
 /// selection cannot be proved (BackgroundSelectAll).
 pub fn select_all(background: &WinBackground, top: Wid, preferred: Wid, has_text: bool) -> Result<i32, String> {
     background.while_inactive(top, || {
         let control = target(top, preferred)?;
-        select_all_proof(&|message, wparam, lparam| send_value(control, message, wparam, lparam), has_text)
+        select_all_proof(&live(background, top, control), has_text)
     })
 }
 
@@ -79,7 +88,7 @@ pub fn select_all(background: &WinBackground, top: Wid, preferred: Wid, has_text
 pub fn text_end(background: &WinBackground, top: Wid, preferred: Wid) -> Result<i32, String> {
     background.while_inactive(top, || {
         let control = target(top, preferred)?;
-        caret_at_end(&|message, wparam, lparam| send_value(control, message, wparam, lparam))
+        caret_at_end(&live(background, top, control))
     })
 }
 

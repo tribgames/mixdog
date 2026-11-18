@@ -103,9 +103,20 @@ impl Registry {
         collect_font_files(proof, dir, 0, &mut files);
         let before = self.len();
         for path in files {
-            let _ = self.register_file(proof, &path, None);
+            let _ = self.register_scanned(proof, &path);
         }
         self.len() - before
+    }
+
+    /// Registers every face of the file at `path` by what the file describes, keeping no bytes: one file is resident at a
+    /// time during a scan, and a face's bytes are read when a text first needs it.
+    fn register_scanned<P: ReadProof>(&mut self, proof: &P, path: &Path) -> Result<(), FontError> {
+        let bytes = mixdog_fsio::read(proof, path).map_err(|error| FontError::Unreadable(format!("{}: {error}", path.display())))?;
+        let faces = Face::scanned_at(path, &bytes)?;
+        for face in faces {
+            self.register(Arc::new(face), None, Some(path));
+        }
+        Ok(())
     }
 
     /// `GlobalFonts.setAlias(font_name, alias)`: `alias` resolves to the family `font_name`. An alias never hides a

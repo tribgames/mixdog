@@ -590,9 +590,7 @@ test('a request names its kinds: form submits, send/post clicks and operator-con
 });
 
 test('the shared classification corpus asks the same kinds for the same commands as the engine does', async () => {
-  const corpus = JSON.parse(
-    readFileSync(new URL('../../../../../native/core/fixtures/browser-parity/approval-classification.json', import.meta.url), 'utf8')
-  );
+  const corpus = JSON.parse(readFileSync(new URL('./fixtures/approval-classification.json', import.meta.url), 'utf8'));
   const dir = mkdtempSync(join(tmpdir(), 'approval-corpus-'));
   try {
     const file = join(dir, 'a.txt');

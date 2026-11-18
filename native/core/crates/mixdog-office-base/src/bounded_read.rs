@@ -180,8 +180,6 @@ impl std::fmt::Display for BoundedReadError {
     }
 }
 
-impl std::error::Error for BoundedReadError {}
-
 impl From<io::Error> for BoundedReadError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
@@ -387,3 +385,6 @@ mod tests {
         assert_eq!(describe_omitted_file(OmitReason::Budget, 5, 3 * MIB / 2), "over the 1.5 MiB per-patch snapshot budget (5 bytes)");
     }
 }
+
+
+impl std::error::Error for BoundedReadError {}

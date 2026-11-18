@@ -47,6 +47,15 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh, Relay],
     },
+    /// Reads live subscription heads without replacing any subscription.
+    FeedHeads => "feed/heads" {
+        params: v2::feed::FeedHeadsParams,
+        result: v2::feed::FeedHeadsResponse,
+        scope: none,
+        class: C0,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
     /// Outcome of mutations whose response was lost; `fence` makes `notApplied` final (P §9.4).
     OpStatus => "op/status" {
         params: v2::op::OpStatusParams,
@@ -92,14 +101,14 @@ crate::client_request_definitions! {
         mutation: op(Feedback),
         origins: [Local, Ssh, Relay],
     },
-    /// Secret answer of a `provide-secret` human gate.
+    /// Secret answer of a `provide-secret` human gate, from a local or SSH desktop, never a paired relay.
     ApprovalProvideSecret => "approval/provideSecret" {
         params: v2::approval::ApprovalProvideSecretParams,
         result: v2::feed::EmptyResult,
         scope: none,
         class: C2,
         mutation: op(Approval),
-        origins: [Local, Ssh, Relay],
+        origins: [Local, Ssh],
     },
     /// Channel-bridge tool call (P §12.1).
     ChannelCall => "channel/call" {
@@ -694,6 +703,17 @@ crate::client_request_definitions! {
     /// Today's session configure action `resizeImage`.
     ThreadResizeImage => "thread/resizeImage" {
         params: ThreadResizeImageParams,
+        result: JsonValue,
+        scope: thread_or_none(thread_id),
+        class: C2,
+        mutation: op(Thread),
+        origins: [Local, Ssh, Relay],
+    },
+    /// The local fixes of an image refusal (leave an image out, replace it, continue in a new branch without the earlier context,
+    /// undo each) and the state of the restore check of a conversation's images, answered as `{ edits, newContextAt, gate }`. It
+    /// edits the conversation's projection of its history and nothing else.
+    ThreadImageRecovery => "thread/imageRecovery" {
+        params: ThreadImageRecoveryParams,
         result: JsonValue,
         scope: thread_or_none(thread_id),
         class: C2,
@@ -3459,7 +3479,7 @@ crate::client_request_definitions! {
     TransferWriteChunk => "transfer/writeChunk" {
         params: TransferWriteChunkParams,
         result: v2::feed::EmptyResult,
-        scope: none,
+        scope: keyed("transferUpload", transfer_id),
         class: C2,
         mutation: none,
         origins: [Local, Ssh],
@@ -3468,7 +3488,7 @@ crate::client_request_definitions! {
     TransferCommit => "transfer/commit" {
         params: TransferCommitParams,
         result: JsonValue,
-        scope: none,
+        scope: keyed("transferUpload", transfer_id),
         class: C2,
         mutation: op(Transfer),
         origins: [Local, Ssh],
@@ -3477,7 +3497,7 @@ crate::client_request_definitions! {
     TransferAbort => "transfer/abort" {
         params: TransferAbortParams,
         result: JsonValue,
-        scope: none,
+        scope: keyed("transferUpload", transfer_id),
         class: C2,
         mutation: none,
         origins: [Local, Ssh],
@@ -4275,10 +4295,10 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local],
     },
-    /// Remove only the saved entry (`sshForgetHost`). Caller: M.
+    /// Forget a saved server: its pins and generated config on this PC, then the entry; what was removed comes back (`sshForgetHost`). Caller: M.
     ConnectionsSshForget => "connections/ssh/forget" {
         params: ConnectionsIdParams,
-        result: v2::feed::EmptyResult,
+        result: SshForgetResult,
         scope: none,
         class: C2,
         mutation: none,

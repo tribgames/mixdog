@@ -10,8 +10,8 @@
     "compressible": false,
     "compressibleLossless": true
   },
-  "description": "Edit files with one complete V4A patch in `patch`: every file of the stage in one patch, one file block per target with all its hunks. Use exact, unique context; add a class/function locator if needed. New files and parents are created atomically; existing targets reject creation unchanged. Attempt it directly, without read/list/mkdir. Valid files commit; rejected files are reported separately.",
-  "freeformDescription": "Send raw V4A here, not JSON or a shell command. One Add/Delete/Update File block per path; group its @@ hunks. Prefix each new-file content line once (\"+hello\", not \"++hello\"). Use exact, unique context; add a class/function locator if needed. New files and parents are created atomically; existing targets reject creation unchanged. Attempt it directly, without read/list/mkdir. Valid files commit; rejected files are reported separately.",
+  "description": "Edit files with one complete V4A patch in `patch`: every file of the stage in one patch, one file block per target with all its hunks. Use exact, unique context; add a class/function locator if needed. Add File creates the file atomically and creates missing parents; it never overwrites an existing file. No preliminary read/list/mkdir is needed for Add File. In a multi-file patch without moves, valid files commit and rejected files are reported separately. Retry only rejected files.",
+  "freeformDescription": "Send raw V4A here, not JSON or a shell command. One Add/Delete/Update File block per path; group its @@ hunks. Prefix each new-file content line once (\"+hello\", not \"++hello\"). Use exact, unique context; add a class/function locator if needed. Add File creates the file atomically and creates missing parents; it never overwrites an existing file. No preliminary read/list/mkdir is needed for Add File. In a multi-file patch without moves, valid files commit and rejected files are reported separately. Retry only rejected files.",
   "freeform": {
     "type": "grammar",
     "syntax": "lark",

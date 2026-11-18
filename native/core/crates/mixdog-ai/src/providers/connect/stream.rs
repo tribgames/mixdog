@@ -10,6 +10,7 @@ use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::StreamEvent;
+use mixdog_core_api::domain::provider::Usage;
 use mixdog_core_api::domain::provider::WireDecoder;
 
 use crate::transport::http::BodyStream;
@@ -21,6 +22,12 @@ pub struct DecodedStream {
     ended: bool,
     fault_code: Option<&'static str>,
     fault_prefix: Option<&'static str>,
+    billed: Option<Billed>,
+}
+
+struct Billed {
+    model: String,
+    last_usage: Option<Usage>,
 }
 
 impl DecodedStream {
@@ -32,6 +39,7 @@ impl DecodedStream {
             ended: false,
             fault_code: None,
             fault_prefix: None,
+            billed: None,
         }
     }
 
@@ -49,14 +57,53 @@ impl DecodedStream {
         self
     }
 
-    fn fail(&mut self, err: ProviderError) {
+    /// Devin reports cumulative usage before a Connect trailer (including failing trailers).
+    pub(crate) fn with_billed_usage(mut self, model: String) -> Self {
+        self.billed = Some(Billed { model, last_usage: None });
+        self
+    }
+
+    fn fail(&mut self, mut err: ProviderError) {
         self.ended = true;
+        if err.partial_usage.is_none()
+            && let Some(billed) = self.billed.as_ref()
+            && let Some(usage) = billed.last_usage.as_ref()
+        {
+            err.partial_usage = Some(Box::new(usage.clone()));
+            err.partial_model = Some(billed.model.as_str().into());
+        }
         self.queue.push_back(Err(err));
     }
 
     fn push(&mut self, result: Result<Vec<StreamEvent>, ProviderError>) {
         match result {
-            Ok(events) => self.queue.extend(events.into_iter().map(Ok)),
+            Ok(events) => {
+                if let Some(billed) = self.billed.as_mut() {
+                    let mut reported = None;
+                    let mut output = Vec::new();
+                    for event in events {
+                        match event {
+                            StreamEvent::Usage(usage) => reported = Some(usage),
+                            StreamEvent::ServedModel(ref model) => {
+                                billed.model.clone_from(model);
+                                output.push(event);
+                            }
+                            _ => output.push(event),
+                        }
+                    }
+                    // A sink can cancel upon seeing output. Give the ledger this chunk's cumulative bill first.
+                    if let Some(usage) = reported {
+                        billed.last_usage = Some(usage.clone());
+                        self.queue.push_back(Ok(StreamEvent::Usage(usage)));
+                    }
+                    if let Some(usage) = billed.last_usage.as_ref() {
+                        crate::registry::accounted::observe_attempt_usage(usage.clone(), Some(billed.model.clone()));
+                    }
+                    self.queue.extend(output.into_iter().map(Ok));
+                } else {
+                    self.queue.extend(events.into_iter().map(Ok));
+                }
+            }
             Err(err) => self.fail(err),
         }
     }
@@ -76,10 +123,16 @@ impl ModelStream for DecodedStream {
                 Some(Ok(chunk)) => {
                     let result = self.decoder.feed(&chunk);
                     self.push(result);
+                    if self.billed.is_some() && !self.ended && self.decoder.terminal_seen() {
+                        self.ended = true;
+                        let result = self.decoder.finish();
+                        self.push(result);
+                    }
                 }
                 Some(Err(fault)) => {
                     let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
                     err.exposure = self.decoder.exposure();
+                    err.connection = self.body.connection();
                     err.code = self.fault_code.map(str::to_owned);
                     // Node reads these bodies through `fetch`: a socket failure mid-body is undici's `TypeError: terminated`.
                     err.message = format!("{}{}", self.fault_prefix.unwrap_or_default(), crate::transport::link::TERMINATED);

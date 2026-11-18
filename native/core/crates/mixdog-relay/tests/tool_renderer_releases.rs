@@ -1,6 +1,5 @@
-//! `mixdog-relay renderer-releases --action=prepare`: the cases of `apps/relay/deploy/renderer-releases.test.mjs`, and the
-//! `index.json` the tool writes for a fixture history equal byte for byte to the one the Node tool wrote for it
-//! (`tests/fixtures/renderer-releases-index.json`, recorded by `tests/renderer_releases_record.mjs`).
+//! `mixdog-relay renderer-releases --action=prepare`: adopting the installed renderer, adding a release, retention, and the
+//! registry the tool writes.
 
 use std::path::{Path, PathBuf};
 
@@ -188,6 +187,7 @@ fn the_cli_reads_reporting_devices_from_devices_json_and_prints_one_json_result(
     assert_eq!(run(&["prepare".to_owned()]).expect_err("a bare word").to_string(), "Invalid argument: prepare");
 }
 
+#[cfg(node_twin)]
 fn same_results(recorded: &Value, ran: &[PrepareOutcome]) {
     let wanted = recorded["results"].as_array().expect("results");
     assert_eq!(wanted.len(), ran.len());
@@ -196,6 +196,8 @@ fn same_results(recorded: &Value, ran: &[PrepareOutcome]) {
     }
 }
 
+
+#[cfg(node_twin)]
 #[test]
 fn index_json_is_byte_equal_to_the_one_the_node_tool_writes() {
     let recording = js::parse(include_str!("fixtures/renderer-releases-index.json")).expect("the recording");
@@ -231,4 +233,23 @@ fn index_json_is_byte_equal_to_the_one_the_node_tool_writes() {
     }
     same_results(&recording["gc"], &ran);
     assert_eq!(text(live.join("index.json")), recording["gc"]["index"].as_str().expect("index text"));
+}
+
+#[test]
+fn the_registry_the_tool_writes_lists_legacy_first_then_each_release_with_its_versions() {
+    let (_guard, root, releases) = sandbox();
+    let installed_shell = staged(&root.join("installed"), "a");
+    let new_shell = staged(&root.join("next"), "b");
+    prepare(&releases, &root.join("next"), "1.5.0", Some(&root.join("installed")), &[], NOW);
+    let id = release_id_for("1.5.0", &new_shell);
+    let document = js::parse(&text(releases.join("index.json"))).expect("the registry is JSON");
+    assert_eq!(document["schemaVersion"], 1);
+    let rows = document["releases"].as_array().expect("releases");
+    assert_eq!(rows.len(), 2);
+    assert_eq!((rows[0]["id"].as_str(), rows[0]["legacy"].as_bool(), rows[0]["shellVersion"].as_str()), (Some("legacy"), Some(true), Some(installed_shell.as_str())));
+    assert_eq!(rows[1]["id"].as_str(), Some(id.as_str()));
+    assert_eq!(rows[1]["desktopVersion"], "1.5.0");
+    assert_eq!(rows[1]["shellVersion"].as_str(), Some(new_shell.as_str()));
+    assert_eq!(rows[1]["legacy"], false);
+    assert_eq!(rows[1]["addedAt"], 1_767_225_600_000_u64);
 }

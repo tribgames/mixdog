@@ -1,6 +1,6 @@
-//! Known answer: `NATIVE_PUSH_TEST_VECTOR` of apps/desktop/src/shared/native-push-crypto.ts
+//! Known answer: the native-push test vector
 //! (fixed ephemeral key and IV) must produce the same `mx`, and the phone half must open it.
-//! The collapse key was computed by running `nativeCollapseKey`'s expression in Node.
+//! The collapse key is the one the collapse-key expression gives for the same input.
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;

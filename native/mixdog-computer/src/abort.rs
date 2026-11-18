@@ -40,7 +40,8 @@ pub fn run() -> i32 {
     let mut restored = Ok(());
     if target != 0 && marker.is_ok() {
         let observer = Observer::new();
-        let desktop = platform::create(observer.shared.clone(), crate::config::input_marker());
+        // The abort cleanup runs once the session's scope is gone, under a scope of its own.
+        let desktop = platform::create(observer.shared.clone(), crate::config::input_marker(), &crate::port::Scope::open(1));
         if desktop.foreground() == target {
             if let Some((x, y)) = cursor {
                 restored = desktop.move_pointer(x, y);

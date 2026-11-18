@@ -131,16 +131,13 @@ mod tests {
     use mixdog_core_session::session::secret_input::SecretInputService;
     use mixdog_core_session::session::secret_input::SecretSlots;
     use mixdog_tools::policy::MemoryGrantStore;
+    #[cfg(node_twin)]
     use mixdog_tools::policy::RunKind;
     use serde_json::Map;
     use serde_json::Value;
     use serde_json::json;
 
     use super::*;
-
-    fn golden() -> Value {
-        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/handoff-env/golden.json")).expect("golden")
-    }
 
     struct NoStamps;
     #[async_trait]
@@ -229,10 +226,13 @@ mod tests {
 
     struct Rig {
         env: SessionHandoffEnv,
+        #[cfg(node_twin)]
         runs: Arc<UnattendedRunRegistry>,
+        #[cfg(node_twin)]
         store: Arc<MemoryGrantStore>,
         slots: Arc<SecretSlots>,
         fill: Arc<SecretFill>,
+        #[cfg(node_twin)]
         aborts: Arc<Aborts>,
         helper: Arc<Helper>,
     }
@@ -246,72 +246,22 @@ mod tests {
         let fill = fill_over(&slots, &helper);
         let computers = Arc::new(Computers(HashMap::from([("sess_pc".to_owned(), helper.clone())])));
         let env = SessionHandoffEnv::new(runs.clone(), store.clone(), fill.clone(), computers, aborts.clone());
-        Rig { env, runs, store, slots, fill, aborts, helper }
+        Rig {
+            env,
+            #[cfg(node_twin)]
+            runs,
+            #[cfg(node_twin)]
+            store,
+            slots,
+            fill,
+            #[cfg(node_twin)]
+            aborts,
+            helper,
+        }
     }
 
     fn thread(id: &str) -> ThreadId {
         ThreadId::from(id.to_owned())
-    }
-
-    /// Every recorded `recordHumanDecision` of a handoff gate: one audit line for the agent the
-    /// session acts for, the answer as its decision and the answering device.
-    #[tokio::test]
-    async fn an_answered_gate_is_one_audit_line_for_the_agent_the_session_acts_for() {
-        let golden = golden();
-        for case in golden["audit"].as_array().expect("cases") {
-            let rig = rig();
-            let _run = rig.runs.mark("sess_run_ann", RunKind::Webhook, "ann", "Hook");
-            let session = match case["session"].as_str().expect("session") {
-                "sess_plain" => "sess_plain",
-                id if id == golden["memberSession"] => golden["memberSession"].as_str().unwrap(),
-                id if id == golden["homeSession"] => golden["homeSession"].as_str().unwrap(),
-                other => other,
-            };
-            let gate = GateRecord {
-                kind: if case["gate"]["kind"] == "secret" { "secret" } else { "takeover" },
-                tool: case["gate"]["tool"].as_str().unwrap().to_owned(),
-                target: case["gate"]["target"].as_str().unwrap().to_owned(),
-            };
-            let approval = &case["approval"];
-            // A device that is no string is none (Node `typeof device === 'string'`).
-            let device = approval["device"].as_str().unwrap_or_default();
-            rig.env.record_decision(&thread(session), &gate, approval["response"].as_str().unwrap(), device).await.unwrap();
-            let rows: Vec<Value> = rig
-                .store
-                .audit()
-                .into_iter()
-                .map(|row| json!({"agentId": row.agent_id, "decision": row.decision, "device": row.device, "kind": row.kind, "target": row.target, "tool": row.tool}))
-                .collect();
-            assert_eq!(Value::Array(rows), case["rows"], "{}", case["name"]);
-        }
-    }
-
-    /// `failRunForHuman`: only a marked run ends, its turn is aborted as `login-required` and what
-    /// it needs is readable until the run is unmarked.
-    #[tokio::test]
-    async fn only_a_marked_run_ends_for_a_human_and_remembers_why() {
-        let golden = golden();
-        let rig = rig();
-        let mark = rig.runs.mark("sess_human", RunKind::Schedule, "ann", "Daily");
-        for case in golden["human"].as_array().expect("cases") {
-            let Some(want) = case.get("result") else {
-                drop(mark);
-                assert_eq!(rig.runs.human_needed_of("sess_human"), None, "{}", case["name"]);
-                break;
-            };
-            let session = case["session"].as_str().unwrap();
-            let session = if session == "sess_rmem_abc123_ann" { golden["memberSession"].as_str().unwrap() } else { session };
-            let before = rig.aborts.0.lock().unwrap().len();
-            let got = rig.env.human_needed(&thread(session), "login_required", "example.com").await;
-            assert_eq!(json!(got), *want, "{}", case["name"]);
-            let aborted: Vec<String> = rig.aborts.0.lock().unwrap()[before..].iter().map(|(id, reason)| {
-                assert_eq!(reason, "login-required");
-                id.clone()
-            }).collect();
-            assert_eq!(json!(aborted), case["aborted"], "{}", case["name"]);
-            let needed = rig.runs.human_needed_of(session).map(|(outcome, site)| json!({"outcome": outcome, "site": site})).unwrap_or(Value::Null);
-            assert_eq!(needed, case["humanNeeded"], "{}", case["name"]);
-        }
     }
 
     #[tokio::test]
@@ -353,5 +303,72 @@ mod tests {
         assert_eq!(sent[0], json!({ "action": "type", "text": "pw", "session_id": "sess_pc", "ref": "e1", "window_id": "w1" }));
         assert!(!rig.slots.has("secret_abcdefgh"), "the value is taken once");
         assert_eq!(rig.fill.redact(&pc, "the pw"), "the [redacted]");
+    }
+
+
+    #[cfg(node_twin)]
+    fn golden() -> Value {
+        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/handoff-env/golden.json")).expect("golden")
+    }
+    /// Every recorded `recordHumanDecision` of a handoff gate: one audit line for the agent the
+    /// session acts for, the answer as its decision and the answering device.
+    #[tokio::test]
+    #[cfg(node_twin)]
+    async fn an_answered_gate_is_one_audit_line_for_the_agent_the_session_acts_for() {
+        let golden = golden();
+        for case in golden["audit"].as_array().expect("cases") {
+            let rig = rig();
+            let _run = rig.runs.mark("sess_run_ann", RunKind::Webhook, "ann", "Hook");
+            let session = match case["session"].as_str().expect("session") {
+                "sess_plain" => "sess_plain",
+                id if id == golden["memberSession"] => golden["memberSession"].as_str().unwrap(),
+                id if id == golden["homeSession"] => golden["homeSession"].as_str().unwrap(),
+                other => other,
+            };
+            let gate = GateRecord {
+                kind: if case["gate"]["kind"] == "secret" { "secret" } else { "takeover" },
+                tool: case["gate"]["tool"].as_str().unwrap().to_owned(),
+                target: case["gate"]["target"].as_str().unwrap().to_owned(),
+            };
+            let approval = &case["approval"];
+            // A device that is no string is none (Node `typeof device === 'string'`).
+            let device = approval["device"].as_str().unwrap_or_default();
+            rig.env.record_decision(&thread(session), &gate, approval["response"].as_str().unwrap(), device).await.unwrap();
+            let rows: Vec<Value> = rig
+                .store
+                .audit()
+                .into_iter()
+                .map(|row| json!({"agentId": row.agent_id, "decision": row.decision, "device": row.device, "kind": row.kind, "target": row.target, "tool": row.tool}))
+                .collect();
+            assert_eq!(Value::Array(rows), case["rows"], "{}", case["name"]);
+        }
+    }
+    /// `failRunForHuman`: only a marked run ends, its turn is aborted as `login-required` and what
+    /// it needs is readable until the run is unmarked.
+    #[tokio::test]
+    #[cfg(node_twin)]
+    async fn only_a_marked_run_ends_for_a_human_and_remembers_why() {
+        let golden = golden();
+        let rig = rig();
+        let mark = rig.runs.mark("sess_human", RunKind::Schedule, "ann", "Daily");
+        for case in golden["human"].as_array().expect("cases") {
+            let Some(want) = case.get("result") else {
+                drop(mark);
+                assert_eq!(rig.runs.human_needed_of("sess_human"), None, "{}", case["name"]);
+                break;
+            };
+            let session = case["session"].as_str().unwrap();
+            let session = if session == "sess_rmem_abc123_ann" { golden["memberSession"].as_str().unwrap() } else { session };
+            let before = rig.aborts.0.lock().unwrap().len();
+            let got = rig.env.human_needed(&thread(session), "login_required", "example.com").await;
+            assert_eq!(json!(got), *want, "{}", case["name"]);
+            let aborted: Vec<String> = rig.aborts.0.lock().unwrap()[before..].iter().map(|(id, reason)| {
+                assert_eq!(reason, "login-required");
+                id.clone()
+            }).collect();
+            assert_eq!(json!(aborted), case["aborted"], "{}", case["name"]);
+            let needed = rig.runs.human_needed_of(session).map(|(outcome, site)| json!({"outcome": outcome, "site": site})).unwrap_or(Value::Null);
+            assert_eq!(needed, case["humanNeeded"], "{}", case["name"]);
+        }
     }
 }

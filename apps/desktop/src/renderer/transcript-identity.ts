@@ -77,6 +77,25 @@ function identityRecord(item: TranscriptItem): TranscriptItem {
   return record;
 }
 
+/** The baseline record of the live row (`streamingTail`), a new object every frame while its text grows. It keeps the
+ *  text itself, neither cut nor fingerprinted: the next frame's tail is matched by its id, and only a row that crosses id
+ *  namespaces (the reply settling under another id) compares the text, once. */
+function liveIdentityRecord(item: TranscriptItem): TranscriptItem {
+  return {
+    id: item.id,
+    kind: item.kind,
+    name: item.name,
+    text: item.text,
+    status: item.status,
+    label: capText(item.label),
+    tone: item.tone,
+    verb: item.verb,
+    count: item.count,
+    completedCount: item.completedCount,
+    detail: capText(item.detail),
+  };
+}
+
 export function adoptTranscriptIdentity(
   previous: SessionTranscriptIdentity | undefined,
   incomingItems: readonly TranscriptItem[] | undefined,
@@ -139,9 +158,9 @@ export function adoptTranscriptIdentity(
     if (acceptedAlignment && index < incomingItems.length && tailDonor && consumed >= prevItems.length) {
       const inc = incomingItems[index] as TranscriptItem;
       if (
-        alignedRow(tailDonor, inc) &&
         hasOwnId(tailDonor) &&
         !sameRowId(tailDonor, inc) &&
+        alignedRow(tailDonor, inc) &&
         !carriedByIncoming(tailDonor.id)
       ) {
         out ||= incomingItems.slice();
@@ -154,7 +173,9 @@ export function adoptTranscriptIdentity(
     acceptedAlignment = true;
   }
   let adoptedTail: TranscriptItem | undefined;
-  if (incomingTail) {
+  // The live row keeps its id from frame to frame: under the id the baseline's tail already shows, it is that row, and
+  // nothing of its (growing) text is read.
+  if (incomingTail && !(previous?.tail && sameRowId(previous.tail, incomingTail))) {
     const leftover =
       acceptedAlignment && prevItems && consumed < prevItems.length
         ? (prevItems[consumed] as TranscriptItem)
@@ -227,7 +248,7 @@ export function createTranscriptIdentityReconciler(): TranscriptIdentityReconcil
         baselineItems = nextItems.map(identityRecord);
         source = new WeakRef(nextItems);
       }
-      sessions.set(sessionId, { items: baselineItems, tail: nextTail ? identityRecord(nextTail) : null, source });
+      sessions.set(sessionId, { items: baselineItems, tail: nextTail ? liveIdentityRecord(nextTail) : null, source });
       while (sessions.size > IDENTITY_SESSION_LIMIT) {
         const oldest = sessions.keys().next().value;
         if (oldest === undefined) break;

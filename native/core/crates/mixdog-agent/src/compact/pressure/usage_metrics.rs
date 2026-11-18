@@ -134,10 +134,11 @@ fn accumulate(session: &Header, patch: &mut HeaderPatch, delta: &Value, input_ex
 
 /// `clearLastContextTokens(session, ts)`: no usable prompt split for the last call, so the window
 /// snapshot is unknown until the next measured send.
-fn clear_last(patch: &mut HeaderPatch, ts: f64) {
-    for key in ["lastInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastUncachedInputTokens", "lastContextTokens"] {
+fn clear_last(patch: &mut HeaderPatch, output: Option<&Value>, ts: f64) {
+    for key in ["lastInputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastUncachedInputTokens", "lastPromptTokens", "lastContextTokens"] {
         patch.put(key, Value::Null);
     }
+    patch.put("lastOutputTokens", output.cloned().unwrap_or(Value::Null));
     patch.put("lastContextTokensUpdatedAt", num(ts));
     patch.put("lastContextTokensStaleAfterCompact", Value::Bool(true));
 }
@@ -146,33 +147,28 @@ fn clear_last(patch: &mut HeaderPatch, ts: f64) {
 /// whole-context occupancy (a checkpoint's used tokens) still gives a measured gauge reading; the
 /// prompt and cache split stays unknown, never zero.
 fn apply_occupancy(patch: &mut HeaderPatch, context_tokens: Option<&Value>, output_tokens: Option<&Value>, ts: f64) -> bool {
-    let occupancy = number(context_tokens);
-    if !occupancy.is_finite() || occupancy <= 0.0 {
+    let Some(occupancy) = context_tokens.and_then(Value::as_f64).filter(|n| *n >= 0.0) else {
         return false;
-    }
-    patch.put("lastInputTokens", Value::Null);
-    patch.put("lastOutputTokens", num(number_or_zero(output_tokens)));
-    patch.put("lastCachedReadTokens", Value::Null);
-    patch.put("lastCacheWriteTokens", Value::Null);
-    patch.put("lastUncachedInputTokens", Value::Null);
+    };
+    clear_last(patch, output_tokens, ts);
     patch.put("lastContextTokens", num(round(occupancy)));
-    patch.put("lastContextTokensUpdatedAt", num(ts));
     patch.put("lastContextTokensStaleAfterCompact", Value::Bool(false));
     true
 }
 
 /// `setLastContextTokens(session, ..)`: the last call's prompt split plus its normalized context
-/// footprint, comparable across providers (Anthropic's `input_tokens` leaves the cache out, so it is
-/// added back). `output_in_window`: the generated output is in the window too.
+/// footprint. The prompt total is separate because Anthropic's legacy uncached figure can include
+/// cache writes, and some context footprints include generated output.
 fn set_last(patch: &mut HeaderPatch, reading: &Reading, input_excludes_cache: bool, ts: f64) {
     let Reading { input, output, cached_read, cache_write, output_in_window } = *reading;
     patch.put("lastInputTokens", num(input));
-    patch.put("lastOutputTokens", num(output));
+    patch.put("lastOutputTokens", output.map_or(Value::Null, num));
     patch.put("lastCachedReadTokens", num(cached_read));
     patch.put("lastCacheWriteTokens", num(cache_write));
     patch.put("lastUncachedInputTokens", num(uncached_input_tokens(input_excludes_cache, input, cached_read, cache_write)));
     let prompt = if input_excludes_cache { input + cached_read + cache_write } else { input };
-    patch.put("lastContextTokens", num(prompt + if output_in_window { output } else { 0.0 }));
+    patch.put("lastPromptTokens", num(prompt));
+    patch.put("lastContextTokens", num(prompt + if output_in_window { output.unwrap_or_default() } else { 0.0 }));
     patch.put("lastContextTokensUpdatedAt", num(ts));
     patch.put("lastContextTokensStaleAfterCompact", Value::Bool(false));
 }
@@ -181,7 +177,7 @@ fn set_last(patch: &mut HeaderPatch, reading: &Reading, input_excludes_cache: bo
 #[derive(Clone, Copy)]
 struct Reading {
     input: f64,
-    output: f64,
+    output: Option<f64>,
     cached_read: f64,
     cache_write: f64,
     output_in_window: bool,
@@ -221,15 +217,21 @@ pub fn iteration_metrics(session: &Header, delta: &Value, input_excludes_cache: 
     let (cached_read, cache_write) = (context("contextCachedReadTokens", "deltaCachedRead"), context("contextCacheWriteTokens", "deltaCacheWrite"));
     let measured = if input_excludes_cache { number_or_zero(cached_read) + number_or_zero(cache_write) } else { 0.0 };
     let prompt = number_or_zero(input) + measured;
-    if prompt <= 0.0 {
+    let prompt_known = match delta.get("contextPromptKnown").and_then(Value::as_bool)
+        .or_else(|| (delta["promptKnown"] == Value::Bool(false)).then_some(false))
+    {
+        Some(known) => known && input.and_then(Value::as_f64).is_some(),
+        None => prompt > 0.0,
+    };
+    if !prompt_known {
         if !apply_occupancy(&mut patch, delta.get("contextMeasuredTokens"), output, ts) {
-            clear_last(&mut patch, ts);
+            clear_last(&mut patch, output, ts);
         }
     } else {
         let in_window = delta.get("contextOutputInWindow") == Some(&Value::Bool(true));
         let reading = Reading {
             input: number_or_zero(input),
-            output: number_or_zero(output),
+            output: output.and_then(Value::as_f64),
             cached_read: number_or_zero(cached_read),
             cache_write: number_or_zero(cache_write),
             output_in_window: in_window,
@@ -284,16 +286,20 @@ pub fn terminal_usage(session: &Header, ask: &TerminalUsage<'_>) -> HeaderPatch 
     let context_input = stated("contextInputTokens").or_else(|| stated("inputTokens"));
     let measured_input = number_or_zero(context_input);
     let measured_cache = if ask.input_excludes_cache { number_or_zero(last.get("cachedTokens")) + number_or_zero(last.get("cacheWriteTokens")) } else { 0.0 };
-    if measured_input + measured_cache <= 0.0 {
+    let prompt_known = match last.get("contextPromptKnown").and_then(Value::as_bool) {
+        Some(known) => known && context_input.and_then(Value::as_f64).is_some(),
+        None => measured_input + measured_cache > 0.0,
+    };
+    if !prompt_known {
         if !apply_occupancy(&mut patch, last.get("contextTokens"), last.get("outputTokens"), ask.now) {
-            clear_last(&mut patch, ask.now);
+            clear_last(&mut patch, last.get("outputTokens"), ask.now);
         }
         return patch;
     }
     let cached_read = stated("contextCachedTokens").or_else(|| stated("cachedTokens"));
     let reading = Reading {
         input: measured_input,
-        output: number_or_zero(stated("outputTokens")),
+        output: stated("outputTokens").and_then(Value::as_f64),
         cached_read: number_or_zero(cached_read),
         cache_write: number_or_zero(stated("cacheWriteTokens")),
         output_in_window: stated("contextInputTokens").is_some(),
@@ -318,10 +324,10 @@ pub fn bump_epoch(session: &Header) -> HeaderPatch {
 
 /// `measuredContextTokens(usage)` (`loop/usage.mjs`): the provider-measured whole-context occupancy (Cursor's
 /// checkpoint `usedTokens`, kept on `Usage.raw.context_tokens` by `cursor-wire-stream-sink.mjs`), when it is a
-/// positive number; it feeds the context gauge when the provider reports no prompt count.
+/// nonnegative number; it feeds the context gauge when the provider reports no prompt count.
 pub fn measured_context_tokens(usage: &mixdog_core_api::domain::provider::Usage) -> Option<u64> {
     let value = usage.raw.as_ref()?.get("context_tokens")?.as_f64()?;
-    (value.is_finite() && value > 0.0).then(|| round(value) as u64)
+    (value.is_finite() && value >= 0.0).then(|| round(value) as u64)
 }
 
 #[cfg(test)]
@@ -330,12 +336,11 @@ mod measured_tests {
     use mixdog_core_api::domain::provider::Usage;
     use serde_json::json;
 
-    /// `measuredContextTokens(usage)`: a positive provider-measured figure, rounded as `Math.round` does.
     #[test]
-    fn a_positive_measured_occupancy_is_kept_rounded_and_anything_else_is_not() {
+    fn measured_occupancy_preserves_explicit_zero() {
         let with = |raw| Usage { raw: Some(raw), ..Default::default() };
         assert_eq!(measured_context_tokens(&with(json!({ "context_tokens": 7000.6 }))), Some(7001));
-        assert_eq!(measured_context_tokens(&with(json!({ "context_tokens": 0 }))), None);
+        assert_eq!(measured_context_tokens(&with(json!({ "context_tokens": 0 }))), Some(0));
         assert_eq!(measured_context_tokens(&with(json!({ "other": 5 }))), None);
         assert_eq!(measured_context_tokens(&Usage::default()), None);
     }

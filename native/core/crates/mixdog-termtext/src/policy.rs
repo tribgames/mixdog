@@ -40,15 +40,6 @@ fn resolve_policy(override_value: Option<&str>, windows: bool, wt_session: Optio
     }
 }
 
-fn ambiguous_wide() -> bool {
-    static POLICY: OnceLock<bool> = OnceLock::new();
-    *POLICY.get_or_init(|| {
-        let override_value = std::env::var(OVERRIDE_VARIABLE).ok();
-        let wt_session = std::env::var(WINDOWS_TERMINAL_VARIABLE).ok();
-        resolve_policy(override_value.as_deref(), cfg!(windows), wt_session.as_deref())
-    })
-}
-
 /// `displayWidthWith(text, wide)`: the width of `text` with the policy given.
 pub fn display_width_with(text: &str, wide: bool) -> usize {
     let base = string_width(text, StringWidthOptions::default());
@@ -65,11 +56,6 @@ pub fn display_width_with(text: &str, wide: bool) -> usize {
         })
         .count();
     base + extra
-}
-
-/// `displayWidth(text)`: the visible width under the policy of this process.
-pub fn display_width(text: &str) -> usize {
-    display_width_with(text, ambiguous_wide())
 }
 
 #[cfg(test)]
@@ -124,4 +110,18 @@ mod tests {
         assert_eq!(display_width_with("plain", true), 5);
         assert_eq!(display_width_with("日本", true), 4);
     }
+}
+
+
+fn ambiguous_wide() -> bool {
+    static POLICY: OnceLock<bool> = OnceLock::new();
+    *POLICY.get_or_init(|| {
+        let override_value = std::env::var(OVERRIDE_VARIABLE).ok();
+        let wt_session = std::env::var(WINDOWS_TERMINAL_VARIABLE).ok();
+        resolve_policy(override_value.as_deref(), cfg!(windows), wt_session.as_deref())
+    })
+}
+/// `displayWidth(text)`: the visible width under the policy of this process.
+pub fn display_width(text: &str) -> usize {
+    display_width_with(text, ambiguous_wide())
 }

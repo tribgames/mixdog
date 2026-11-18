@@ -53,6 +53,50 @@ fn held(what: &str) -> ! {
     }
 }
 
+/// A script whose turn commits a call named `call` and never ends (the process dies there); `told` fires once the row is durable.
+fn dies_after_call(rig: &Rig, call: &'static str, told: Arc<tokio::sync::Notify>) {
+    rig.set_script(Arc::new(move |run| {
+        let told = told.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let body = json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": call, "name": "read", "arguments": { "path": "a.txt" } }] });
+            let item = ItemCommit { iid: ItemId::from(format!("itm_{call}")), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
+            run.port.commit_item(item).await.expect("commit");
+            told.notify_one();
+            std::future::pending::<RunOutcome>().await
+        })
+    }));
+}
+
+/// `thread/modelMessages/list`: what a client reads, as (role, content) with the whole rows for the mark check.
+async fn listed(directory: &SessionDirectory, id: &mixdog_core_api::ids::ThreadId) -> Vec<serde_json::Value> {
+    let read = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": id, "start": 0 }), op: None, ctx: CallContext::internal("test") };
+    let Reply::Value(reply) = directory.request(read).await.expect("thread/modelMessages/list") else { panic!("a value reply") };
+    reply["messages"].as_array().cloned().expect("the messages")
+}
+
+/// `normalizeStaleCompactingStage` (`compaction-runner.mjs`): only the transient `compacting` stage (or `inProgress: true`) is
+/// rewritten, to `lastStage: 'interrupted'`, `inProgress: false` and `lastCheckedAt: now`; every other key and every terminal
+/// stage stays as stored.
+#[test]
+fn only_a_transient_compacting_stage_is_normalized() {
+    let header = |compaction: serde_json::Value| -> mixdog_store::schema::record::Header { serde_json::from_value(json!({ "id": "s", "compaction": compaction })).expect("a header") };
+    let change = |compaction: serde_json::Value| super::actor::stale_compacting_change(&header(compaction), 77).map(|change| serde_json::Value::Object(change.set));
+    assert_eq!(
+        change(json!({ "lastCheckedAt": 5, "lastStage": "compacting", "compactCount": 2 })),
+        Some(json!({ "compaction": { "lastCheckedAt": 77, "lastStage": "interrupted", "compactCount": 2, "inProgress": false } }))
+    );
+    assert_eq!(
+        change(json!({ "lastStage": "post_turn", "inProgress": true })),
+        Some(json!({ "compaction": { "lastStage": "interrupted", "inProgress": false, "lastCheckedAt": 77 } }))
+    );
+    for stage in ["post_turn", "manual", "auto_clear", "overflow_failed", "pre_send", "interrupted"] {
+        assert_eq!(change(json!({ "lastStage": stage, "inProgress": false })), None, "{stage}");
+    }
+    assert_eq!(super::actor::stale_compacting_change(&header(json!(null)), 77), None);
+}
+
+
 /// The child half: a no-op in a normal run. `seed` leaves a thread whose process died with a tool call unanswered; `recover`
 /// opens it with the commit hook that holds at the point `POINT` names; `verify` opens it plainly and checks the conversation.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -128,7 +172,6 @@ async fn recovery_kill_child() {
     }
     say("DONE");
 }
-
 #[allow(clippy::disallowed_methods, reason = "the parent starts the child from this test binary")]
 fn run_child(dir: &Path, stage: &str, point: Option<usize>, thread: Option<&str>) -> Ended {
     let mut command = Command::new(std::env::current_exe().expect("this test binary"));
@@ -165,29 +208,6 @@ fn run_child(dir: &Path, stage: &str, point: Option<usize>, thread: Option<&str>
     }
     panic!("the {stage} child ended without finishing: {:?}", child.wait());
 }
-
-/// A script whose turn commits a call named `call` and never ends (the process dies there); `told` fires once the row is durable.
-fn dies_after_call(rig: &Rig, call: &'static str, told: Arc<tokio::sync::Notify>) {
-    rig.set_script(Arc::new(move |run| {
-        let told = told.clone();
-        Box::pin(async move {
-            run.port.input_durable().await.expect("input durable");
-            let body = json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": call, "name": "read", "arguments": { "path": "a.txt" } }] });
-            let item = ItemCommit { iid: ItemId::from(format!("itm_{call}")), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
-            run.port.commit_item(item).await.expect("commit");
-            told.notify_one();
-            std::future::pending::<RunOutcome>().await
-        })
-    }));
-}
-
-/// `thread/modelMessages/list`: what a client reads, as (role, content) with the whole rows for the mark check.
-async fn listed(directory: &SessionDirectory, id: &mixdog_core_api::ids::ThreadId) -> Vec<serde_json::Value> {
-    let read = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": id, "start": 0 }), op: None, ctx: CallContext::internal("test") };
-    let Reply::Value(reply) = directory.request(read).await.expect("thread/modelMessages/list") else { panic!("a value reply") };
-    reply["messages"].as_array().cloned().expect("the messages")
-}
-
 /// A fork taken after a recovery inherits its rows, mark included; a kill in the fork's own turn and the recovery of it must close
 /// only the fork's turn: the parent's cancelled result and restart line are not derived again, and no client read shows the mark.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -230,7 +250,6 @@ async fn a_recovery_in_a_fork_leaves_the_rows_of_the_recovered_parent_alone() {
     assert_eq!(said(&heir_rows[..4]), said(&parent_rows), "the parent's rows come first, as they were");
     assert!(heir_rows.iter().chain(&parent_rows).all(|row| row.pointer("/meta/restartRecovery").is_none()), "no read shows the stored mark");
 }
-
 /// The kill points are every boundary a kill can leave the store at, three kinds (`CommitPoint`): before a commit's batch reaches the
 /// store, after the store acknowledged it, and between two records of one batch. The last kind is needed: the store's format
 /// (`mixdog-store/FORMAT.md` §7, "a crash is recovered automatically") keeps every complete frame of a batch the crash cut, so a
@@ -254,7 +273,6 @@ fn a_kill_at_any_write_of_a_recovery_leaves_it_to_finish_at_the_next_open() {
     }
     panic!("the recovery never ended within 64 points");
 }
-
 /// The process is killed again during a recovery that an earlier kill had cut: at every pair of write points (the first kill at the
 /// `first`-th write of the first recovery, the second at the `second`-th write of the next), the open after the second kill still
 /// leaves the cancelled result, the restart line and the cancelled end once each, in the conversation and in what an attaching client is
@@ -284,28 +302,6 @@ fn a_second_kill_during_the_recovery_leaves_each_row_once() {
     }
     assert!(pairs >= 2, "the second recovery wrote nothing to cut: {pairs}");
 }
-
-/// `normalizeStaleCompactingStage` (`compaction-runner.mjs`): only the transient `compacting` stage (or `inProgress: true`) is
-/// rewritten, to `lastStage: 'interrupted'`, `inProgress: false` and `lastCheckedAt: now`; every other key and every terminal
-/// stage stays as stored.
-#[test]
-fn only_a_transient_compacting_stage_is_normalized() {
-    let header = |compaction: serde_json::Value| -> mixdog_store::schema::record::Header { serde_json::from_value(json!({ "id": "s", "compaction": compaction })).expect("a header") };
-    let change = |compaction: serde_json::Value| super::actor::stale_compacting_change(&header(compaction), 77).map(|change| serde_json::Value::Object(change.set));
-    assert_eq!(
-        change(json!({ "lastCheckedAt": 5, "lastStage": "compacting", "compactCount": 2 })),
-        Some(json!({ "compaction": { "lastCheckedAt": 77, "lastStage": "interrupted", "compactCount": 2, "inProgress": false } }))
-    );
-    assert_eq!(
-        change(json!({ "lastStage": "post_turn", "inProgress": true })),
-        Some(json!({ "compaction": { "lastStage": "interrupted", "inProgress": false, "lastCheckedAt": 77 } }))
-    );
-    for stage in ["post_turn", "manual", "auto_clear", "overflow_failed", "pre_send", "interrupted"] {
-        assert_eq!(change(json!({ "lastStage": stage, "inProgress": false })), None, "{stage}");
-    }
-    assert_eq!(super::actor::stale_compacting_change(&header(json!(null)), 77), None);
-}
-
 /// A process that died while a compaction ran left `lastStage: 'compacting'` in the header: the next open of the session writes
 /// `interrupted` over it, before any turn.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

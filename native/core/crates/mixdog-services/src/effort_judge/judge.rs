@@ -72,8 +72,8 @@ enum Ask {
 }
 
 /// `EMBED_KEEP_WARM_MS` (`embedding-idle-lease.mjs`): how long the model stays loaded without a
-/// judgment, and how long a turn's lease holds it.
-pub const KEEP_WARM: Duration = Duration::from_secs(6 * 60);
+/// judgment, and how long a turn's lease holds it. Node's was six minutes; three here: the model is 245 MB resident.
+pub const KEEP_WARM: Duration = Duration::from_secs(3 * 60);
 
 /// `RELOAD_WAIT_MS` (`judge-client.mjs`): a turn waits this long (at least the cold wait) for a model
 /// that has loaded before and was unloaded, so a session with a turn every few minutes is judged.

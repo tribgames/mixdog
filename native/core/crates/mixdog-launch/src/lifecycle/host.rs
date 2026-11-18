@@ -40,52 +40,6 @@ fn anchor() -> Instant {
     *START.get_or_init(Instant::now)
 }
 
-impl Host for OsHost {
-    fn now_ms(&self) -> i64 {
-        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
-    }
-
-    fn monotonic_ns(&self) -> u128 {
-        anchor().elapsed().as_nanos()
-    }
-
-    fn identity_of(&self, pid: u32) -> Option<Value> {
-        identity::of_pid(pid)
-    }
-
-    fn process_exists(&self, pid: u32) -> bool {
-        mixdog_statefile::process_exists(pid)
-    }
-
-    fn parent_pid(&self) -> Option<u32> {
-        parent_pid()
-    }
-
-    fn cwd(&self) -> Option<String> {
-        std::env::current_dir().ok().map(|dir| dir.to_string_lossy().into_owned())
-    }
-
-    fn memory(&self) -> Map<String, Value> {
-        let mut counters = Map::new();
-        if let Some((rss, heap_used)) = memory() {
-            counters.insert("rss".to_owned(), rss.into());
-            counters.insert("heapUsed".to_owned(), heap_used.into());
-        }
-        counters
-    }
-
-    fn schedule(&self, delay: Duration, job: Box<dyn FnOnce() + Send>) {
-        // The thread is detached: a run that ends while it sleeps is not held up by it (Node's `timer.unref()`).
-        let spawned = std::thread::Builder::new().name("process-lifecycle".to_owned()).spawn(move || {
-            if !delay.is_zero() {
-                std::thread::sleep(delay);
-            }
-            job();
-        });
-        drop(spawned);
-    }
-}
-
 /// `process.ppid`.
 #[cfg(unix)]
 fn parent_pid() -> Option<u32> {
@@ -210,5 +164,52 @@ mod tests {
     fn a_number_is_written_in_base_36() {
         assert_eq!((base36(0), base36(35), base36(36)), ("0".to_owned(), "z".to_owned(), "10".to_owned()));
         assert_eq!(base36(1_794_625_445_678), "mwftnk8e");
+    }
+}
+
+
+impl Host for OsHost {
+    fn now_ms(&self) -> i64 {
+        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
+    }
+
+    fn monotonic_ns(&self) -> u128 {
+        anchor().elapsed().as_nanos()
+    }
+
+    fn identity_of(&self, pid: u32) -> Option<Value> {
+        identity::of_pid(pid)
+    }
+
+    fn process_exists(&self, pid: u32) -> bool {
+        mixdog_statefile::process_exists(pid)
+    }
+
+    fn parent_pid(&self) -> Option<u32> {
+        parent_pid()
+    }
+
+    fn cwd(&self) -> Option<String> {
+        std::env::current_dir().ok().map(|dir| dir.to_string_lossy().into_owned())
+    }
+
+    fn memory(&self) -> Map<String, Value> {
+        let mut counters = Map::new();
+        if let Some((rss, heap_used)) = memory() {
+            counters.insert("rss".to_owned(), rss.into());
+            counters.insert("heapUsed".to_owned(), heap_used.into());
+        }
+        counters
+    }
+
+    fn schedule(&self, delay: Duration, job: Box<dyn FnOnce() + Send>) {
+        // The thread is detached: a run that ends while it sleeps is not held up by it (Node's `timer.unref()`).
+        let spawned = std::thread::Builder::new().name("process-lifecycle".to_owned()).spawn(move || {
+            if !delay.is_zero() {
+                std::thread::sleep(delay);
+            }
+            job();
+        });
+        drop(spawned);
     }
 }

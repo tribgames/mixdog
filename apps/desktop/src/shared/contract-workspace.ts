@@ -49,6 +49,17 @@ export interface DesktopRemoteAccessSettings {
   defaultName: string;
 }
 
+/** The Connection view of `remoteAccess/state`, including the roster even without a pairing descriptor. */
+export interface DesktopRemoteConnectionState {
+  info: unknown;
+  clients: DesktopRemoteClientInfo[];
+  settings: DesktopRemoteAccessSettings | null;
+  disabled: boolean;
+  claims?: DesktopRemoteClientClaim[];
+  pairCode?: DesktopRemotePairCode | null;
+  pairCodeUnsupported?: boolean;
+}
+
 /** The 6-digit code of an open Settings → Connection screen. */
 export interface DesktopRemotePairCode {
   /** Six digits, no separator. */
@@ -446,7 +457,7 @@ export interface DesktopRendererLongTaskDiagnostic {
 
 export interface DesktopRendererComposerActionDiagnostic {
   kind: 'composer-action';
-  action: 'submit' | 'restore-queue';
+  action: 'submit' | 'restore-queue' | 'stop';
   source:
     | 'keyboard-enter'
     | 'form-submit'
@@ -455,13 +466,20 @@ export interface DesktopRendererComposerActionDiagnostic {
     | 'escape'
     | 'arrow-up'
     | 'queue-row'
-    | 'voice-submit';
+    | 'voice-submit'
+    | 'stop-button';
   turnBusy: boolean;
   queueCount: number;
   draftLength: number;
   composing: boolean;
   uptimeMs: number;
   targeted?: boolean;
+  /** A stop's answer: a turn stopped, a queued prompt handed back, nothing stopped, or the call failed. */
+  stopOutcome?: 'stopped' | 'restored' | 'nothing' | 'failed';
+  /** The core's `aborted` of a stop. */
+  aborted?: boolean;
+  /** The core's reason for a stop that stopped nothing, or the failed call's error. */
+  stopReason?: string;
 }
 
 export interface DesktopRendererWhatsNewDiagnostic {

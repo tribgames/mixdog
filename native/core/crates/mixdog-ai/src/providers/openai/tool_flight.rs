@@ -35,6 +35,7 @@ pub(super) struct ToolFlight {
 }
 
 impl ToolFlight {
+    #[cfg(test)]
     pub(super) fn in_flight(&self) -> bool {
         self.in_flight
     }

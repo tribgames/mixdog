@@ -74,7 +74,7 @@ const OVERRIDE_KEYS: [&str; 9] = [
 const REASONING_KEYS: [&str; 4] = ["levels", "wireFormat", "wireValues", "replay"];
 const DISCOVERY_KEYS: [&str; 1] = ["newModelsHidden"];
 /// v2 config fields plus the transport fields callers pass alongside them.
-const V2_TOP_LEVEL_KEYS: [&str; 17] = [
+const V2_TOP_LEVEL_KEYS: [&str; 18] = [
     "type",
     "schemaVersion",
     "name",
@@ -92,6 +92,7 @@ const V2_TOP_LEVEL_KEYS: [&str; 17] = [
     "apiKey",
     "apiKeyEnv",
     "preconnect",
+    "responsesPromptCacheKey",
 ];
 
 fn fail<T>(message: impl AsRef<str>) -> Checked<T> {
@@ -676,6 +677,9 @@ pub fn normalize_input(input: &Value, body_lone_units: usize) -> Checked<Value> 
     }
     if !request_body.is_empty() {
         out.insert("requestBody".into(), Value::Object(request_body));
+    }
+    if let Some(enabled) = optional_boolean(source.get("responsesPromptCacheKey"), "responsesPromptCacheKey")? {
+        out.insert("responsesPromptCacheKey".into(), json!(enabled));
     }
     out.insert("discovery".into(), json!({ "newModelsHidden": hidden }));
     out.insert("modelOverrides".into(), Value::Object(overrides));

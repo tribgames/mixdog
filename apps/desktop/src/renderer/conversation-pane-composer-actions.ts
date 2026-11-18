@@ -18,11 +18,11 @@ export function useConversationPaneComposerActions({
   routeSnapshot: Snapshot;
   onInheritSession?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
 }) {
+  const sourceSessionId = String(sessionAddress || routeSnapshot.sessionId || '');
+  const route = onInheritSession ? sessionModelSelection(routeSnapshot) : null;
   const latestComposerActions: ConversationComposerActions = {
     ...actions,
     onInherit: async () => {
-      const sourceSessionId = String(sessionAddress || routeSnapshot.sessionId || '');
-      const route = sessionModelSelection(routeSnapshot);
       if (!onInheritSession || !sourceSessionId || !route) {
         throw new Error(t('Inheritance is unavailable on this surface.'));
       }

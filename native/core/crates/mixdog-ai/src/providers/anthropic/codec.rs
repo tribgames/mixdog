@@ -41,6 +41,8 @@ pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 /// The Claude Code release the OAuth wire identifies as.
 pub const DEFAULT_CLI_VERSION: &str = "2.1.317";
 
+use super::client_version::ClaudeClientVersion;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Flavor {
     /// `anthropic`: API key, `x-api-key`.
@@ -154,6 +156,12 @@ impl AnthropicConfig {
         self.base_url == DEFAULT_BASE_URL || self.base_url.starts_with("https://api.anthropic.com/")
     }
 
+    /// The process switch remains a veto even when provider configuration explicitly enables threads.
+    pub fn with_message_threads(mut self, enabled: Option<bool>) -> Self {
+        self.message_threads &= enabled != Some(false);
+        self
+    }
+
     pub fn messages_url(&self) -> String {
         format!("{}/v1/messages", self.base_url.trim_end_matches('/'))
     }
@@ -163,6 +171,7 @@ pub struct AnthropicCodec {
     flavor: Flavor,
     owner: ProviderId,
     config: AnthropicConfig,
+    cli_version: Option<Arc<ClaudeClientVersion>>,
 }
 
 impl AnthropicCodec {
@@ -171,11 +180,36 @@ impl AnthropicCodec {
             flavor,
             owner: ProviderId::from("anthropic"),
             config,
+            cli_version: None,
         }
+    }
+
+    pub(super) fn with_cli_version_source(mut self, version: Option<Arc<ClaudeClientVersion>>) -> Self {
+        self.cli_version = version;
+        self
+    }
+
+    fn cli_user_agent(&self) -> String {
+        let version = self.cli_version.as_ref().map_or_else(|| self.config.cli_version.clone(), |source| source.current());
+        super::client_version::user_agent(&version)
+    }
+
+    pub(super) async fn resolve_cli_user_agent(&self) -> String {
+        if let Some(source) = &self.cli_version {
+            source.warm().await;
+        }
+        self.cli_user_agent()
     }
 
     pub fn flavor(&self) -> Flavor {
         self.flavor
+    }
+
+    /// The decoder of a request's stream, shared with the stream so a cut turn can be asked for its blocks.
+    /// `relays_updates`: the request was sent asking for progress updates ([`super::betas::sent_display_updates`]).
+    pub(super) fn decoder_with_partial(&self, request: &ModelRequest, relays_updates: bool) -> super::decoder::Shared {
+        let known = body_tool_names(self, request, ToolNames::Named);
+        super::decoder::Shared::new(AnthropicDecoder::for_model(self.owner.clone(), &request.model).with_known_tools(known).relaying_updates(relays_updates))
     }
 
     pub fn config(&self) -> &AnthropicConfig {
@@ -187,6 +221,9 @@ impl WireCodec for AnthropicCodec {
     fn transport(&self) -> TransportKind {
         TransportKind::Http1
     }
+    fn image_branch(&self, _: &ModelRequest) -> mixdog_image_egress::route::WireBranch {
+        mixdog_image_egress::route::WireBranch::AnthropicMessages
+    }
 
     /// The request a conversation's first send puts on the wire: its thread create form when it threads.
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
@@ -195,8 +232,8 @@ impl WireCodec for AnthropicCodec {
     }
 
     fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
-        let known = body_tool_names(self, request, ToolNames::Named);
-        Box::new(AnthropicDecoder::for_model(self.owner.clone(), &request.model).with_known_tools(known))
+        let relays_updates = self.encode(request).is_ok_and(|wire| super::betas::sent_display_updates(&beta_names(&wire)));
+        Box::new(self.decoder_with_partial(request, relays_updates))
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
@@ -263,6 +300,10 @@ pub(super) struct Plain {
     pub wire: WireRequest,
     /// The body's prefix fingerprint, recorded when the request is sent.
     pub prefix: super::prefix_trace::Fingerprint,
+    /// The body's cache layout, for a request whose transcript a cache owner judges, once read ([`Plain::layout`]).
+    pub manifest: Option<std::sync::Arc<mixdog_core_api::domain::cache_tail::WireManifest>>,
+    /// The body map the layout is still to be read off (the adapter reads it on the bulk CPU lane).
+    pub layout: Option<serde_json::Map<String, Value>>,
 }
 
 impl AnthropicCodec {
@@ -278,6 +319,7 @@ impl AnthropicCodec {
         let legacy_reminder =
             !split_tail_reminder(&request.messages).1.is_empty() && !(first_party && turn_scoped_model(provider, &request.model));
         (self.config.message_threads
+            && options.model_parameters.as_ref().and_then(|p| p.get("messageThreads")).and_then(Value::as_bool) != Some(false)
             && first_party
             && options.transport_scope.as_deref().is_none_or(str::is_empty)
             && options.shared_cache_prefix_count.is_none_or(|count| count == 0)
@@ -344,7 +386,7 @@ impl AnthropicCodec {
             headers.push(("anthropic-dangerous-direct-browser-access".to_owned(), "true".to_owned()));
             headers.push((
                 "user-agent".to_owned(),
-                format!("claude-cli/{} (external, sdk-cli)", self.config.cli_version),
+                self.cli_user_agent(),
             ));
             headers.push(("x-app".to_owned(), "cli".to_owned()));
         }
@@ -365,6 +407,8 @@ impl AnthropicCodec {
                 body: built.bytes,
             },
             prefix: built.prefix,
+            manifest: None,
+            layout: built.layout,
         })
     }
 }

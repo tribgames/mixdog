@@ -344,12 +344,10 @@ pub fn ax_elements(value: &CFType) -> Vec<CFType> {
         .collect()
 }
 
+/// One attribute write: an operation of the executor's port, handed over to the provider (refused once its scope is revoked:
+/// answered `kAXErrorCannotComplete`).
 pub fn ax_set(element: AXUIElementRef, attribute: &str, value: &CFType) -> i32 {
-    let name = cfstr(attribute);
-    // SAFETY: element is live; name and value are valid CF objects.
-    unsafe {
-        AXUIElementSetAttributeValue(element, name.as_concrete_TypeRef(), value.as_CFTypeRef())
-    }
+    crate::port::macos::ax_set(element, attribute, value)
 }
 
 pub fn ax_settable(element: AXUIElementRef, attribute: &str) -> bool {
@@ -362,10 +360,9 @@ pub fn ax_settable(element: AXUIElementRef, attribute: &str) -> bool {
     status == kAXErrorSuccess && settable != 0
 }
 
+/// One action, an operation of the executor's port, as [`ax_set`].
 pub fn ax_perform(element: AXUIElementRef, action: &str) -> i32 {
-    let name = cfstr(action);
-    // SAFETY: element is live; name is a CFString.
-    unsafe { AXUIElementPerformAction(element, name.as_concrete_TypeRef()) }
+    crate::port::macos::ax_perform(element, action)
 }
 
 pub fn ax_actions(element: AXUIElementRef) -> Vec<String> {

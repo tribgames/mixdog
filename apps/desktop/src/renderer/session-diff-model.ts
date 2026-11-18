@@ -1,5 +1,6 @@
 import { projectRelativeFilePath } from './markdown-url';
-import { parseUnifiedDiff } from './renderer-logic.mjs';
+import { hasLeadingDiffContent, parseUnifiedDiff, parseUnifiedDiffSection } from './renderer-logic.mjs';
+import { type RowListIndex, rowListIndexBuilder } from './session-diff-row-index';
 
 type SessionDiffFile = {
   /** Root + path identity; two roots may show the same relative name. */
@@ -118,12 +119,13 @@ export function sessionDiffRowTooLarge(row: SessionDiffRow): boolean {
   );
 }
 
-/** Past the set limits (files, changed lines, or `bytes` of patch text, UTF-8). */
-export function sessionDiffSetCapped(rows: readonly SessionDiffRow[], bytes: number): boolean {
+/** Past the set limits (files, changed lines, or `bytes` of patch text, UTF-8).
+ *  Past the file limit nothing per file is read. */
+export function sessionDiffSetCapped(rows: readonly SessionDiffRow[], bytes: () => number): boolean {
   if (rows.length > SET_MAX_FILES) return true;
   let lines = 0;
   for (const row of rows) lines += changedLines(row);
-  return lines > SET_MAX_LINES || bytes > SET_MAX_BYTES;
+  return lines > SET_MAX_LINES || bytes() > SET_MAX_BYTES;
 }
 
 /** One file's patch read on its own (a file-patch capability reply).
@@ -247,10 +249,253 @@ export function sessionDiffRowWithPatch(row: SessionDiffRow, patch: string): Ses
   return { ...row, parts, binary: row.binary || parts.some((part) => part.status === 'binary') };
 }
 
+/** A result's rows, its parts by file path (each file's slice) and each row's
+ *  patch digest — what every reader of the result looks up. */
+export type ParsedSessionDiff = {
+  rows: SessionDiffRow[];
+  partsByPath: ReadonlyMap<string, SessionDiffPart[]>;
+  /** FNV-1a over a row's inline patch text, by row path. */
+  digests: ReadonlyMap<string, string>;
+  /** The result's whole content (patch, files, flags) as one digest. */
+  fingerprint: string;
+  /** Where each row is, by ID and path (built with the rows). */
+  index: RowListIndex;
+};
+
+const parsedResults = new WeakMap<object, ParsedSessionDiff>();
+const parsing = new WeakMap<object, Promise<ParsedSessionDiff>>();
+const fingerprints = new WeakMap<object, string>();
+const NO_RESULT = {};
+
+/** Work done between yields to the event loop, in characters handled
+ *  (patch text scanned or parsed, file metadata hashed). Every unit of work
+ *  is at most one chunk of patch or one file, so no task grows with the
+ *  whole result. */
+export const SESSION_DIFF_PARSE_BUDGET = 64 * 1024;
+/** What one listed file counts for besides its patch text. */
+const FILE_UNIT = 256;
+/** Patch text scanned (and hashed) per unit. */
+const SCAN_CHUNK = 16 * 1024;
+/** A file header line read past a chunk's end, so a header crossing it is found. */
+const HEADER_REACH = 8 * 1024;
+
+const FNV_OFFSET = 0x811c9dc5;
+function fnv(hash: number, text: string, from = 0, to = text.length): number {
+  let next = hash;
+  for (let index = from; index < to; index += 1) next = Math.imul(next ^ text.charCodeAt(index), 0x01000193);
+  return Math.imul(next ^ 0x7c, 0x01000193);
+}
+
+/** Drives work steps (each yielding the characters it handled): all at once,
+ *  or handing the event loop back whenever the budget is spent. */
+function runSteps<T>(steps: Generator<number, T, void>): T {
+  for (;;) {
+    const step = steps.next();
+    if (step.done) return step.value;
+  }
+}
+async function runStepsYielding<T>(steps: Generator<number, T, void>): Promise<T> {
+  let spent = 0;
+  for (;;) {
+    const step = steps.next();
+    if (step.done) return step.value;
+    spent += step.value;
+    if (spent >= SESSION_DIFF_PARSE_BUDGET) {
+      spent = 0;
+      await nextTask();
+    }
+  }
+}
+
+/** File section starts: lines matching `marker` (global, multiline), found
+ *  one chunk of patch at a time; the chunks are hashed into `hash.value`. */
+function* scanSections(patch: string, marker: RegExp, hash: { value: number } | null): Generator<number, number[], void> {
+  const starts: number[] = [];
+  for (let at = 0; at < patch.length; at += SCAN_CHUNK) {
+    const end = Math.min(patch.length, at + SCAN_CHUNK);
+    if (hash) hash.value = fnv(hash.value, patch, at, end);
+    // One character before the chunk, so a line start at its first character is seen as one.
+    const from = Math.max(0, at - 1);
+    const text = patch.slice(from, Math.min(patch.length, end + HEADER_REACH));
+    marker.lastIndex = 0;
+    for (let match = marker.exec(text); match; match = marker.exec(text)) {
+      const start = from + match.index;
+      if (start >= end) break;
+      if (start >= at && (start > 0 || from === 0)) starts.push(start);
+      if (match[0].length === 0) marker.lastIndex += 1;
+    }
+    yield end - at;
+  }
+  return starts;
+}
+
+/** The result's content digest, a chunk of patch or a file per step. */
+function* fingerprintSteps(result: SessionDiffResult | null, patch: string): Generator<number, { fingerprint: string; starts: number[] | null }, void> {
+  const hash = { value: FNV_OFFSET };
+  const { files: _files, patch: _patch, ...flags } = (result ?? {}) as SessionDiffResult;
+  hash.value = fnv(hash.value, JSON.stringify(flags));
+  // The patch is scanned for its file sections while it is hashed.
+  const starts = yield* scanSections(patch, /^diff --git .+$/gm, hash);
+  for (const file of Array.isArray(result?.files) ? result.files : []) {
+    const text = JSON.stringify(file) ?? '';
+    hash.value = fnv(hash.value, text);
+    yield text.length;
+  }
+  return { fingerprint: `${patch.length}:${(hash.value >>> 0).toString(36)}`, starts };
+}
+
+/** A result's content digest: the one its parse took, else taken now. */
+export function sessionDiffFingerprint(result: SessionDiffResult | null): string {
+  const key = result ?? NO_RESULT;
+  let fingerprint = fingerprints.get(key);
+  if (fingerprint === undefined) {
+    fingerprint = runSteps(fingerprintSteps(result, typeof result?.patch === 'string' ? result.patch : '')).fingerprint;
+    fingerprints.set(key, fingerprint);
+  }
+  return fingerprint;
+}
+
+/** A digest rejects unequal answers cheaply; it cannot establish equality.
+ * Compare wire metadata one file at a time without serializing the patch. */
+function* exactDiffSteps(left: SessionDiffResult, right: SessionDiffResult): Generator<number, boolean, void> {
+  const { patch, files, ...flags } = left;
+  const { patch: otherPatch, files: others, ...otherFlags } = right;
+  if (patch !== otherPatch || files?.length !== others?.length || JSON.stringify(flags) !== JSON.stringify(otherFlags)) {
+    return false;
+  }
+  for (let i = 0; files && i < files.length; i++) {
+    if (JSON.stringify(files[i]) !== JSON.stringify(others?.[i])) return false;
+    yield FILE_UNIT;
+  }
+  return true;
+}
+
+export function sameSessionDiffContent(left: SessionDiffResult | null, right: SessionDiffResult | null): boolean {
+  if (left === right) return true;
+  if (!left || !right || sessionDiffFingerprint(left) !== sessionDiffFingerprint(right)) return false;
+  const known = parsedResults.get(left);
+  return (known !== undefined && known === parsedResults.get(right)) || runSteps(exactDiffSteps(left, right));
+}
+
+/** One macrotask: input and rendering queued meanwhile run before the next step. */
+function nextTask(): Promise<void> {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      resolve();
+    };
+    channel.port2.postMessage(null);
+  });
+}
+
+/** Parses a result in steps of bounded work, handing the renderer back to
+ *  input between them; once per result object (a read's answer), then looked
+ *  up. An answer equal to `held` shares its parse. */
+export function parseSessionDiff(
+  result: SessionDiffResult | null,
+  held: SessionDiffResult | null = null
+): Promise<ParsedSessionDiff> {
+  const key = result ?? NO_RESULT;
+  const known = parsedResults.get(key);
+  if (known) return Promise.resolve(known);
+  let running = parsing.get(key);
+  if (!running) {
+    running = runStepsYielding(sessionDiffParseSteps(result, held)).then((parsed) => {
+      parsedResults.set(key, parsed);
+      return parsed;
+    });
+    running.finally(() => parsing.delete(key));
+    parsing.set(key, running);
+  }
+  return running;
+}
+
+/** A result's parse: the one already done for it, else done now in one go
+ *  (a result that never went through a read: a primed cache, an empty answer). */
+export function parsedSessionDiff(result: SessionDiffResult | null): ParsedSessionDiff {
+  const key = result ?? NO_RESULT;
+  let parsed = parsedResults.get(key);
+  if (!parsed) {
+    parsed = runSteps(sessionDiffParseSteps(result, null));
+    parsedResults.set(key, parsed);
+  }
+  return parsed;
+}
+
+export function sessionDiffRowsOf(result: SessionDiffResult | null): SessionDiffRow[] {
+  return parsedSessionDiff(result).rows;
+}
+
+/** One file's slice of a parsed result's patch ("" when it has no part). */
+export function sessionDiffFileSlice(parsed: ParsedSessionDiff, rel: string): string {
+  const target = cleanPath(rel);
+  if (!target) return '';
+  return (parsed.partsByPath.get(target) ?? []).map((part) => part.patch).join('\n');
+}
+
+function patchDigest(parts: readonly SessionDiffPart[]): string {
+  let hash = 0x811c9dc5;
+  for (const part of parts) {
+    for (let index = 0; index < part.patch.length; index += 1) {
+      hash = Math.imul(hash ^ part.patch.charCodeAt(index), 0x01000193);
+    }
+    hash = Math.imul(hash ^ 0x7c, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 export function buildSessionDiffRows(result: SessionDiffResult | null): SessionDiffRow[] {
+  return sessionDiffRowsOf(result);
+}
+
+/** The file sections' [start, end) ranges, as splitUnifiedDiff cuts them. */
+function* sectionRanges(patch: string, gitStarts: number[]): Generator<number, Array<[number, number]>, void> {
+  if (!patch) return [];
+  let starts = gitStarts;
+  if (starts.length === 0) starts = yield* scanSections(patch, /^---\s.+(?:\r\n|\r|\n)\+\+\+\s.+$/gm, null);
+  if (starts.length === 0) return [[0, patch.length]];
+  const ranges: Array<[number, number]> = starts.map((start, index) => [start, starts[index + 1] ?? patch.length]);
+  const first = starts[0] as number;
+  if (first > 0) {
+    const lead = patch.slice(0, first).replace(/\r\n?/g, '\n');
+    if (hasLeadingDiffContent(lead)) ranges.unshift([0, first]);
+    yield first;
+  }
+  return ranges;
+}
+
+/** The parse as steps, each a bounded unit of work that yields the characters
+ *  it handled: the content digest (a chunk of patch or a file each, finding
+ *  the file sections on the way), then one file section each, then one listed
+ *  file each. */
+function* sessionDiffParseSteps(
+  result: SessionDiffResult | null,
+  held: SessionDiffResult | null
+): Generator<number, ParsedSessionDiff, void> {
   const patch = typeof result?.patch === 'string' ? result.patch : '';
+  const { fingerprint, starts } = yield* fingerprintSteps(result, patch);
+  fingerprints.set(result ?? NO_RESULT, fingerprint);
+  // The same content as the held answer: its parse serves this one too.
+  const heldParse = held ? parsedResults.get(held) : undefined;
+  if (heldParse && held && result && fingerprints.get(held) === fingerprint && (yield* exactDiffSteps(held, result))) {
+    return heldParse;
+  }
+  let ranges: Array<[number, number]> = [];
+  try {
+    ranges = yield* sectionRanges(patch, starts ?? []);
+  } catch {
+    ranges = [];
+  }
   const partsByPath = new Map<string, SessionDiffPart[]>();
-  for (const part of parsePatchParts(patch)) {
+  for (const [start, end] of ranges) {
+    yield end - start;
+    let part: SessionDiffPart;
+    try {
+      part = parseUnifiedDiffSection(patch.slice(start, end).replace(/\r\n?/g, '\n'));
+    } catch {
+      continue;
+    }
     const path = partPath(part);
     if (!path) continue;
     const parts = partsByPath.get(path) || [];
@@ -258,7 +503,13 @@ export function buildSessionDiffRows(result: SessionDiffResult | null): SessionD
     partsByPath.set(path, parts);
   }
   const rows: SessionDiffRow[] = [];
+  const index = rowListIndexBuilder();
+  const digests = new Map<string, string>();
   const seen = new Set<string>();
+  const listedPaths = new Set<string>();
+  /** A file's unit: its metadata plus the patch text it digests. */
+  const fileUnit = (parts: readonly SessionDiffPart[]) =>
+    FILE_UNIT + parts.reduce((total, part) => total + part.patch.length, 0);
   for (const file of Array.isArray(result?.files) ? result.files : []) {
     const path = cleanPath(file?.path);
     const id = cleanPath(file?.id) || path;
@@ -282,10 +533,14 @@ export function buildSessionDiffRows(result: SessionDiffResult | null): SessionD
       parts,
       ...(omitted ? { patchOmitted: true } : {}),
     });
+    index.add(rows[rows.length - 1] as SessionDiffRow, rows.length - 1);
+    listedPaths.add(path);
+    if (parts.length) digests.set(path, patchDigest(parts));
+    yield fileUnit(parts);
   }
-  const listedPaths = new Set(rows.map((row) => row.path));
   for (const [path, parts] of partsByPath) {
     if (listedPaths.has(path)) continue;
+    digests.set(path, patchDigest(parts));
     const measured = sumPartStats(parts);
     rows.push({
       id: path,
@@ -300,6 +555,8 @@ export function buildSessionDiffRows(result: SessionDiffResult | null): SessionD
       unmeasured: false,
       parts,
     });
+    index.add(rows[rows.length - 1] as SessionDiffRow, rows.length - 1);
+    yield fileUnit(parts);
   }
-  return rows;
+  return { rows, partsByPath, digests, fingerprint, index: index.finish(rows) };
 }

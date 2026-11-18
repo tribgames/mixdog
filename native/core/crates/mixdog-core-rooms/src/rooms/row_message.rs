@@ -251,9 +251,18 @@ pub fn room_row_message(row: &Value, now_ms: i64) -> Result<Value, String> {
 mod tests {
     use super::*;
 
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/rooms/row_message/golden.json");
+    #[test]
+    fn key_order_is_nodes() {
+        let message = room_row_message(&json!({ "id": "s", "kind": "speech", "speaker": "a", "name": "A", "text": "t", "at": 1, "to": ["b"] }), 0).unwrap();
+        let keys: Vec<_> = message["meta"]["room"].as_object().unwrap().keys().cloned().collect();
+        assert_eq!(keys, ["kind", "speaker", "name", "to", "toName"]);
+    }
 
+
+    #[cfg(node_twin)]
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/rooms/row_message/golden.json");
     /// Every recorded Node row: the canonical descriptor, the stored message, or the refusal.
+    #[cfg(node_twin)]
     #[test]
     fn every_recorded_row_equals_node() {
         let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
@@ -274,12 +283,5 @@ mod tests {
         }
         let bare = room_row_message(&json!({ "id": "i1", "kind": "interrupted" }), 777).unwrap();
         assert_eq!(bare, golden["noAt"]);
-    }
-
-    #[test]
-    fn key_order_is_nodes() {
-        let message = room_row_message(&json!({ "id": "s", "kind": "speech", "speaker": "a", "name": "A", "text": "t", "at": 1, "to": ["b"] }), 0).unwrap();
-        let keys: Vec<_> = message["meta"]["room"].as_object().unwrap().keys().cloned().collect();
-        assert_eq!(keys, ["kind", "speaker", "name", "to", "toName"]);
     }
 }

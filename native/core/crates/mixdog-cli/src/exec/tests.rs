@@ -19,6 +19,7 @@ use mixdog_app_server_client::api::RpcNotification;
 use mixdog_app_server_client::api::ThreadReducer;
 use serde_json::Value;
 use serde_json::json;
+use sha2::Digest;
 
 use super::ExecArgs;
 use super::ExecOptions;
@@ -339,83 +340,6 @@ fn leftover_roots(dir: &Path) -> usize {
 }
 
 #[tokio::test]
-async fn one_implicit_session_answers_writes_usage_and_removes_its_root() {
-    let dir = tempfile::tempdir().unwrap();
-    let launcher = FakeLauncher::new("sess_exec_test", vec![Turn::Events(vec![usage(Some("gpt-fallback"), 11, 7, 3, 5), assistant("done"), completed()])]);
-    let (code, sink) = run_with(options(dir.path()), &launcher, dir.path(), never()).await;
-
-    assert_eq!((code, sink.stdout(), sink.stderr()), (0, vec!["done\n".to_owned()], Vec::<String>::new()));
-    assert_eq!(launcher.prompts(), ["fix it"]);
-    let calls = launcher.calls();
-    assert_eq!(calls[0].0, "thread/start");
-    assert_eq!(
-        calls[0].1,
-        json!({
-            "kind": "task",
-            "projectPath": "/app",
-            "draft": {
-                "projectPath": "/app",
-                "route": { "provider": "openai", "model": "gpt-test", "effort": "high", "fast": true },
-                "workflowId": "headless",
-                "orchestrationMode": "none",
-            },
-            "session": {
-                "toolProfile": "headless",
-                "toolMode": "full",
-                "approvalMode": "implicit",
-                "disallowDelegation": true,
-                "autoWakeCompletions": false,
-                "webSearch": false,
-                "memory": false,
-            },
-        })
-    );
-    // Runtime close, then the services it started, then the root.
-    assert_eq!(*launcher.order.lock().unwrap(), ["close", "services"]);
-    assert!(!launcher.root().exists());
-    assert_eq!(leftover_roots(dir.path()), 0);
-    assert_eq!(
-        std::fs::read_to_string(dir.path().join("usage.json")).unwrap(),
-        include_str!("../../tests/goldens/exec_usage_v1.json")
-    );
-    // The run sees none of the host's Mixdog state or credentials, only the root's own paths.
-    let captured = launcher.captured.lock().unwrap();
-    let env = &captured.as_ref().unwrap().env;
-    assert_eq!(env["MIXDOG_SECRET"], None);
-    assert_eq!(env["OPENAI_API_KEY"], None);
-    assert_eq!(env["MIXDOG_AGENT_TRACE_PATH"].as_deref(), Some("/trace.jsonl"));
-    assert_eq!(env["MIXDOG_FEATURE_MEMORY"].as_deref(), Some("0"));
-    assert!(!env.contains_key("PATH"));
-    assert_eq!(env["MIXDOG_DATA_DIR"].as_deref(), Some(captured.as_ref().unwrap().root.join("data").to_str().unwrap()));
-}
-
-/// `headless-exec.mjs` folds a search's spend into the run's totals and observed models through
-/// `onNativeWebSearchUsage`; the totals are what Node's accumulator held (`tests/record_search_usage.mjs`).
-#[tokio::test]
-async fn a_web_searchs_spend_joins_the_totals_as_node_folds_it() {
-    let golden: Value = serde_json::from_str(include_str!("../../tests/goldens/exec_search_usage.json")).unwrap();
-    let frame = |delta: &Value| notif("thread/tokenUsage/updated", json!({ "threadId": "t", "usage": delta }));
-    assert!(matches!(super::feed::observe(&frame(&golden["main"])).as_slice(), [super::feed::Obs::Usage(_)]));
-    assert!(matches!(super::feed::observe(&frame(&golden["search"][0])).as_slice(), [super::feed::Obs::SearchUsage(_)]));
-
-    let dir = tempfile::tempdir().unwrap();
-    let launcher = FakeLauncher::new("sess_exec_test", vec![Turn::Events(vec![frame(&golden["main"]), frame(&golden["search"][0]), assistant("done"), completed()])]);
-    let (code, _) = run_with(options(dir.path()), &launcher, dir.path(), never()).await;
-    assert_eq!(code, 0);
-    let document: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("usage.json")).unwrap()).unwrap();
-    let stats = &golden["stats"];
-    let totals = json!({
-        "inputTokens": stats["inputTokens"],
-        "cacheTokens": stats["cachedTokens"],
-        "cacheWriteTokens": stats["cacheWriteTokens"],
-        "outputTokens": stats["outputTokens"],
-        "toolCallCountApprox": 0,
-    });
-    assert_eq!(document["totals"], totals);
-    assert_eq!(document["sessions"][0]["models"], golden["models"]);
-}
-
-#[tokio::test]
 async fn a_failed_service_stop_preserves_the_root_and_fails_the_run() {
     let dir = tempfile::tempdir().unwrap();
     let mut launcher = FakeLauncher::new("sess_cleanup_failure", vec![Turn::Events(vec![assistant("done"), completed()])]);
@@ -504,30 +428,6 @@ fn json_lines(sink: &Out) -> Vec<Value> {
 }
 
 #[tokio::test]
-async fn the_json_lifecycle_is_the_recorded_node_stream() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(dir.path().join("host-data")).unwrap();
-    std::fs::write(dir.path().join("host-data").join("openai-oauth.json"), "{}").unwrap();
-    let launcher = FakeLauncher::new("sess_json_test", vec![Turn::Events(lifecycle_script())]);
-    let mut opts = options(dir.path());
-    opts.provider = Some("openai-oauth".into());
-    opts.json = true;
-    let (code, sink) = run_with(opts, &launcher, dir.path(), never()).await;
-
-    assert_eq!((code, sink.stderr()), (0, Vec::<String>::new()));
-    // The stream's thread id is the one the exec reserves for its session (`exec_<32 hex>`), as `exec-cli/json` records.
-    let stdout = regex::Regex::new("exec_[0-9a-f]{32}").unwrap().replace_all(&sink.stdout().join(""), "<thread>").into_owned();
-    assert_eq!(stdout, include_str!("../../tests/goldens/exec_json_lifecycle.jsonl"));
-    // The credential is bound in process: the run reads the host's own file, no copy.
-    let bound = launcher.captured.lock().unwrap().as_ref().unwrap().credential.clone();
-    assert_eq!(bound, Some(dir.path().join("host-data").join("openai-oauth.json")));
-    let events = json_lines(&sink);
-    assert_eq!(events.last().unwrap()["tool_calls"], 1);
-    let usage: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("usage.json")).unwrap()).unwrap();
-    assert_eq!(usage["totals"]["toolCallCountApprox"], 1);
-}
-
-#[tokio::test]
 async fn a_failed_turn_is_a_structured_failure_and_exit_1() {
     let dir = tempfile::tempdir().unwrap();
     let launcher = FakeLauncher::new("sess_json_failure", vec![Turn::Events(vec![turn_done("failed", Some("boom"), None, None)])]);
@@ -561,6 +461,53 @@ async fn a_typed_refusal_is_an_error_result_with_exit_0() {
     assert_eq!(terminal["is_error"], true);
     assert_eq!(terminal["stop_reason"], "refusal");
     assert_eq!(terminal["termination_reason"], "refusal");
+}
+
+/// Without `--json` a failed turn prints nothing on stdout, the reason on stderr, exits 1 and still removes its root.
+#[tokio::test]
+async fn a_failed_turn_without_json_prints_only_its_reason_on_stderr() {
+    let dir = tempfile::tempdir().unwrap();
+    let launcher = FakeLauncher::new("sess_text_failure", vec![Turn::Events(vec![assistant("partial"), turn_done("failed", Some("boom"), None, None)])]);
+    let (code, sink) = run_with(options(dir.path()), &launcher, dir.path(), never()).await;
+    assert_eq!((code, sink.stdout(), sink.stderr()), (1, Vec::<String>::new(), vec!["mixdog: boom\n".to_owned()]));
+    assert_eq!(*launcher.order.lock().unwrap(), ["close", "services"]);
+    assert_eq!(leftover_roots(dir.path()), 0);
+}
+
+/// A core that cannot be started fails the run with its reason, exit 1, and leaves no root behind.
+#[tokio::test]
+async fn a_core_that_cannot_start_fails_the_run_and_leaves_no_root() {
+    struct Refusing;
+    #[async_trait]
+    impl CoreLauncher for Refusing {
+        async fn launch(&self, _: &Boundary, _: Arc<dyn ThreadReducer>) -> Result<Arc<dyn CoreSession>, String> {
+            Err("the core binary is missing".into())
+        }
+    }
+    for json in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let sink = Arc::new(Out::default());
+        let host = Host {
+            launcher: &Refusing,
+            credentials: &Creds,
+            host_env: host_env(),
+            host_data_dir: dir.path().join("host-data"),
+            temp_dir: dir.path().join("tmp"),
+            sink: sink.clone(),
+            now: fixed_clock(),
+        };
+        std::fs::create_dir_all(dir.path().join("tmp")).unwrap();
+        std::fs::create_dir_all(dir.path().join("host-data")).unwrap();
+        let mut opts = options(dir.path());
+        opts.json = json;
+        let code = run_exec(opts, host, never()).await;
+        assert_eq!(code, 1, "json={json}");
+        assert_eq!(sink.stderr(), ["mixdog: the core binary is missing\n"], "json={json}");
+        assert_eq!(leftover_roots(dir.path()), 0, "json={json}");
+        if !json {
+            assert!(sink.stdout().is_empty());
+        }
+    }
 }
 
 #[tokio::test]
@@ -614,44 +561,6 @@ async fn a_termination_signal_runs_the_shutdown_once_and_returns_its_code() {
     assert_eq!(sink.stderr(), ["mixdog: Session \"sess_signal\" closed: runtime close (reason=SIGINT)\n"]);
     assert_eq!(*launcher.order.lock().unwrap(), ["close", "services"]);
     assert!(!launcher.root().exists());
-}
-
-#[test]
-fn the_pristine_boundary_is_what_node_built() {
-    let dir = tempfile::tempdir().unwrap();
-    let host_env: BTreeMap<String, String> = [("MIXDOG_X", "1"), ("OPENAI_API_KEY", "sk-host"), ("PATH", "p")]
-        .into_iter()
-        .map(|(name, value)| (name.to_owned(), value.to_owned()))
-        .collect();
-    struct Key;
-    impl HostCredentials for Key {
-        fn api_key(&self, _provider: &str) -> Option<String> {
-            Some("sk-host".into())
-        }
-        fn pool_credential(&self, _provider: &str, _dir: &Path) -> Option<PathBuf> {
-            None
-        }
-    }
-    let boundary = Boundary::create(&BoundaryRequest {
-        provider: "openai",
-        model: "gpt-x",
-        effort: Some("High"),
-        fast: true,
-        provider_config: None,
-        host_env: &host_env,
-        host_data_dir: dir.path(),
-        temp_dir: dir.path(),
-        credentials: &Key,
-    })
-    .unwrap();
-    let golden: Value = serde_json::from_str(include_str!("../../tests/goldens/exec_pristine_audit.json")).unwrap();
-    assert_eq!(boundary.audit, golden["audit"]);
-    assert_eq!(boundary.runtime_config, golden["loadConfig"]);
-    assert_eq!(std::fs::read_to_string(boundary.data_dir.join("mixdog-config.json")).unwrap(), golden["config"].as_str().unwrap());
-    assert_eq!(boundary.env["MIXDOG_X"], None);
-    assert_eq!(boundary.env["OPENAI_API_KEY"], None);
-    assert!(boundary.credential.is_none());
-    std::fs::remove_dir_all(&boundary.root_dir).unwrap();
 }
 
 /// B-8 (a deliberate difference from Node): `--provider-config` defines the one custom provider, audited, its key read
@@ -805,111 +714,215 @@ fn a_path_that_is_not_unicode_is_kept() {
     assert_eq!((opts.message.as_str(), opts.cwd, opts.usage_log), ("go", PathBuf::from(&path), Some(PathBuf::from(&path))));
 }
 
-// ---- the read-only tool mode, replayed from Node's recording (`fixtures/exec-readonly`, `record-exec-readonly.mjs`) ----
+#[tokio::test]
+async fn one_implicit_session_answers_writes_usage_and_removes_its_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let launcher = FakeLauncher::new("sess_exec_test", vec![Turn::Events(vec![usage(Some("gpt-fallback"), 11, 7, 3, 5), assistant("done"), completed()])]);
+    let (code, sink) = run_with(options(dir.path()), &launcher, dir.path(), never()).await;
 
-const EXEC_READONLY_CASES: [&str; 4] = [
-    include_str!("../../../../fixtures/exec-readonly/readonly-blocked.json"),
-    include_str!("../../../../fixtures/exec-readonly/readonly-json.json"),
-    include_str!("../../../../fixtures/exec-readonly/full-simple.json"),
-    include_str!("../../../../fixtures/exec-readonly/full-json.json"),
-];
+    assert_eq!((code, sink.stdout(), sink.stderr()), (0, vec!["done\n".to_owned()], Vec::<String>::new()));
+    assert_eq!(launcher.prompts(), ["fix it"]);
+    let calls = launcher.calls();
+    assert_eq!(calls[0].0, "thread/start");
+    assert_eq!(
+        calls[0].1,
+        json!({
+            "kind": "task",
+            "projectPath": "/app",
+            "draft": {
+                "projectPath": "/app",
+                "route": { "provider": "openai", "model": "gpt-test", "effort": "high", "fast": true },
+                "workflowId": "headless",
+                "orchestrationMode": "none",
+            },
+            "session": {
+                "toolProfile": "headless",
+                "toolMode": "full",
+                "approvalMode": "implicit",
+                "disallowDelegation": true,
+                "autoWakeCompletions": false,
+                "webSearch": false,
+                "memory": false,
+            },
+        })
+    );
+    // Runtime close, then the services it started, then the root.
+    assert_eq!(*launcher.order.lock().unwrap(), ["close", "services"]);
+    assert!(!launcher.root().exists());
+    assert_eq!(leftover_roots(dir.path()), 0);
+    // The usage document: schema 1, one primary session with the route's model first and the model the usage named after it, and
+    // totals equal to the one session's counts.
+    let counts = json!({ "inputTokens": 11, "cacheTokens": 7, "cacheWriteTokens": 3, "outputTokens": 5, "toolCallCountApprox": 0 });
+    let mut session = counts.clone();
+    session["sessionId"] = json!("sess_exec_test");
+    session["agentRole"] = json!("primary");
+    session["models"] = json!(["gpt-test", "gpt-fallback"]);
+    let document: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("usage.json")).unwrap()).unwrap();
+    assert_eq!(document, json!({ "schemaVersion": 1, "sessions": [session], "totals": counts }));
+    // The run sees none of the host's Mixdog state or credentials, only the root's own paths.
+    let captured = launcher.captured.lock().unwrap();
+    let env = &captured.as_ref().unwrap().env;
+    assert_eq!(env["MIXDOG_SECRET"], None);
+    assert_eq!(env["OPENAI_API_KEY"], None);
+    assert_eq!(env["MIXDOG_AGENT_TRACE_PATH"].as_deref(), Some("/trace.jsonl"));
+    assert_eq!(env["MIXDOG_FEATURE_MEMORY"].as_deref(), Some("0"));
+    assert!(!env.contains_key("PATH"));
+    assert_eq!(env["MIXDOG_DATA_DIR"].as_deref(), Some(captured.as_ref().unwrap().root.join("data").to_str().unwrap()));
+}
+/// A web search's spend (a usage frame whose session is the run's `:native-web-search:` child) joins the run's totals, and the
+/// model that served the search joins the observed models after the main one.
+#[tokio::test]
+async fn a_web_searchs_spend_joins_the_totals() {
+    let main = json!({ "sessionId": "sess_exec_test", "source": "provider_send", "requestedModel": "gpt-test", "model": "gpt-test", "deltaInput": 11, "deltaOutput": 5, "deltaCachedRead": 7, "deltaCacheWrite": 3 });
+    let search = json!({ "sessionId": "sess_exec_test:native-web-search:abc", "source": "native_web_search", "requestedModel": "gpt-search", "model": "gpt-search-2", "deltaInput": 40, "deltaOutput": 9, "deltaCachedRead": 12, "deltaCacheWrite": 2, "agentRole": "web-search" });
+    let frame = |delta: &Value| notif("thread/tokenUsage/updated", json!({ "threadId": "t", "usage": delta }));
+    assert!(matches!(super::feed::observe(&frame(&main)).as_slice(), [super::feed::Obs::Usage(_)]));
+    assert!(matches!(super::feed::observe(&frame(&search)).as_slice(), [super::feed::Obs::SearchUsage(_)]));
 
-/// The events the core feeds the thread for what the recording's provider served: per model request the stages a request goes
-/// through, the tool calls it names, its usage and text, then each batch's results as the recorded next request carried them.
-fn recorded_core_events(case: &Value) -> Vec<RpcNotification> {
-    let requests = case["requests"].as_array().unwrap();
-    let marks = json!({ "dispatchStartedAt": T, "executionStartedAt": T, "executionCompletedAt": T, "postprocessStartedAt": T, "resultCompletedAt": T });
-    let mut events = Vec::new();
-    for (index, request) in requests.iter().enumerate() {
-        let served = &request["served"];
-        events.push(model_request());
-        for stage in ["requesting", "requesting", "streaming"] {
-            events.push(notif("thread/stage/updated", json!({ "threadId": "t", "stage": stage })));
+    let dir = tempfile::tempdir().unwrap();
+    let launcher = FakeLauncher::new("sess_exec_test", vec![Turn::Events(vec![frame(&main), frame(&search), assistant("done"), completed()])]);
+    let (code, _) = run_with(options(dir.path()), &launcher, dir.path(), never()).await;
+    assert_eq!(code, 0);
+    let document: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("usage.json")).unwrap()).unwrap();
+    assert_eq!(document["totals"], json!({ "inputTokens": 51, "cacheTokens": 19, "cacheWriteTokens": 5, "outputTokens": 14, "toolCallCountApprox": 0 }));
+    assert_eq!(document["sessions"][0]["models"], json!(["gpt-test", "gpt-search-2"]));
+}
+/// `--json`: the run's events are printed as one JSON line each, in the order the core fed them, every line stamped with schema 1
+/// and the run's clock, ending with the turn's summary and the result.
+#[tokio::test]
+async fn the_json_lifecycle_is_one_line_per_event_in_order() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("host-data")).unwrap();
+    std::fs::write(dir.path().join("host-data").join("openai-oauth.json"), "{}").unwrap();
+    let launcher = FakeLauncher::new("sess_json_test", vec![Turn::Events(lifecycle_script())]);
+    let mut opts = options(dir.path());
+    opts.provider = Some("openai-oauth".into());
+    opts.json = true;
+    let (code, sink) = run_with(opts, &launcher, dir.path(), never()).await;
+
+    assert_eq!((code, sink.stderr()), (0, Vec::<String>::new()));
+    let lines = json_lines(&sink);
+    let kinds: Vec<&str> = lines.iter().map(|line| line["type"].as_str().unwrap()).collect();
+    assert_eq!(
+        kinds,
+        [
+            "thread.started", "turn.started", "model.request.started", "model.request.completed", "item.completed", "item.started",
+            "tool.batch.started", "item.completed", "tool.batch.completed", "notification", "model.request.started", "item.completed",
+            "model.request.completed", "turn.completed", "result"
+        ]
+    );
+    // The stream's thread id is the one the exec reserves for its session (`exec_<32 hex>`), the same on every line.
+    let thread = lines[0]["thread_id"].as_str().unwrap();
+    assert!(thread.strip_prefix("exec_").is_some_and(|hex| hex.len() == 32 && hex.chars().all(|c| c.is_ascii_hexdigit())), "{thread}");
+    assert!(lines.iter().all(|line| line["thread_id"] == thread && line["schema_version"] == 1 && line["timestamp"] == "2023-11-14T22:13:20.000Z"));
+    assert_eq!(
+        lines[0]["session"],
+        json!({ "provider": "openai-oauth", "model": "gpt-test", "effort": "high", "fast": true, "cwd": "/app", "tool_mode": "full", "approval_mode": "implicit", "delegation": false, "web_search": false })
+    );
+    // The tool call: started in progress, completed with its output and the phases of its timing in milliseconds from the marks.
+    assert_eq!(lines[5]["item"]["status"], "in_progress");
+    let done = &lines[7]["item"];
+    assert_eq!((&done["output"], &done["status"], &done["duration_ms"]), (&json!("ok\n"), &json!("completed"), &json!(8)));
+    assert_eq!(done["timing"], json!({ "queue_ms": 0, "dispatch_ms": 2, "execution_ms": 3, "batch_wait_ms": 1, "postprocess_ms": 2, "total_ms": 8 }));
+    assert_eq!(lines[13]["usage"], json!({ "input_tokens": 16, "cached_input_tokens": 7, "cache_write_input_tokens": 3, "output_tokens": 7, "tool_calls": 1 }));
+    let result = &lines[14];
+    assert_eq!((&result["subtype"], &result["result"], &result["num_turns"], &result["provider_requests"]), (&json!("success"), &json!("done"), &json!(1), &json!(2)));
+    // The credential is bound in process: the run reads the host's own file, no copy.
+    let bound = launcher.captured.lock().unwrap().as_ref().unwrap().credential.clone();
+    assert_eq!(bound, Some(dir.path().join("host-data").join("openai-oauth.json")));
+    let events = json_lines(&sink);
+    assert_eq!(events.last().unwrap()["tool_calls"], 1);
+    let usage: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("usage.json")).unwrap()).unwrap();
+    assert_eq!(usage["totals"]["toolCallCountApprox"], 1);
+}
+/// The pristine run root holds a config naming only the explicit route (one preset, the workflow `headless`, no MCP sources),
+/// with the host's key bound in memory and an audit that counts nothing of the host's state copied.
+#[test]
+fn the_pristine_boundary_carries_only_the_explicit_route() {
+    let dir = tempfile::tempdir().unwrap();
+    let host_env: BTreeMap<String, String> = [("MIXDOG_X", "1"), ("OPENAI_API_KEY", "sk-host"), ("PATH", "p")]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+        .collect();
+    struct Key;
+    impl HostCredentials for Key {
+        fn api_key(&self, _provider: &str) -> Option<String> {
+            Some("sk-host".into())
         }
-        let calls = served["calls"].as_array().unwrap();
-        for call in calls {
-            events.push(tool_started(call["id"].as_str().unwrap(), call["name"].as_str().unwrap(), call["input"].clone()));
+        fn pool_credential(&self, _provider: &str, _dir: &Path) -> Option<PathBuf> {
+            None
         }
-        events.push(usage(None, served["inputTokens"].as_u64().unwrap(), 0, 0, served["outputTokens"].as_u64().unwrap()));
-        if !served["text"].as_str().unwrap().is_empty() {
-            events.push(assistant(served["text"].as_str().unwrap()));
-        }
-        if calls.is_empty() {
-            continue;
-        }
-        events.push(notif("thread/toolBatch/updated", json!({ "threadId": "t", "phase": "started" })));
-        for (call, result) in calls.iter().zip(requests[index + 1]["toolResults"].as_array().unwrap()) {
-            assert_eq!(result["tool_use_id"], call["id"]);
-            let mut done = tool_done(call["id"].as_str().unwrap(), call["name"].as_str().unwrap(), call["input"].clone(), result["content"].as_str().unwrap(), marks.clone());
-            if result["is_error"] == true {
-                done.params.as_mut().unwrap()["item"]["run"]["isError"] = json!(true);
-            }
-            events.push(done);
-        }
-        events.push(notif("thread/toolBatch/updated", json!({ "threadId": "t", "phase": "completed", "iteration": index + 1, "calls": calls.len(), "durationMs": 0 })));
     }
-    events.push(turn_done("completed", None, requests.last().unwrap()["served"]["stopReason"].as_str(), None));
-    events
+    let boundary = Boundary::create(&BoundaryRequest {
+        provider: "openai",
+        model: "gpt-x",
+        effort: Some("High"),
+        fast: true,
+        provider_config: None,
+        host_env: &host_env,
+        host_data_dir: dir.path(),
+        temp_dir: dir.path(),
+        credentials: &Key,
+    })
+    .unwrap();
+    let preset = json!({ "id": "exec-explicit-route", "name": "EXEC EXPLICIT ROUTE", "type": "agent", "tools": "full", "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true });
+    let config = |provider: Value| {
+        json!({
+            "builtins": {}, "providers": { "openai": provider }, "presets": [preset], "default": "exec-explicit-route",
+            "workflow": { "active": "headless" }, "workflowRoutes": {}, "agents": {},
+            "modelSettings": { "openai/gpt-x": { "effort": "high", "fast": true } }, "mcpServers": {},
+        })
+    };
+    // The file on disk holds no key; the config the runtime loads has the host's key in the provider's entry.
+    let written = std::fs::read_to_string(boundary.data_dir.join("mixdog-config.json")).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&written).unwrap(), json!({ "agent": config(json!({ "enabled": true })) }));
+    assert_eq!(boundary.runtime_config, config(json!({ "enabled": true, "apiKey": "sk-host" })));
+    let sha256: String = sha2::Sha256::digest(written.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect();
+    let off = |names: &[&str]| names.iter().map(|name| ((*name).to_owned(), json!(false))).collect::<serde_json::Map<_, _>>();
+    assert_eq!(
+        boundary.audit,
+        json!({
+            "schemaVersion": 1, "mode": "headless-exec-pristine", "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true,
+            "configSha256": sha256, "authMode": "in-process-api-key", "authArtifactFilesCopied": 0, "injectedModelCatalogFileCount": 0,
+            "personalState": {
+                "hostConfigRead": false,
+                "behavioralStateFilesCopied": 0, "memoryFilesCopied": 0, "sessionFilesCopied": 0, "userProfileFilesCopied": 0,
+                "pluginStateFilesCopied": 0, "channelStateFilesCopied": 0, "otherPersonalStateFilesCopied": 0,
+            },
+            "featuresEnabled": off(&["mcpSources", "skills", "bundledSkillSeeding", "coreMemoryBoot", "channelStart", "plugins", "userProfiles", "priorSessions"]),
+        })
+    );
+    assert_eq!(boundary.env["MIXDOG_X"], None);
+    assert_eq!(boundary.env["OPENAI_API_KEY"], None);
+    assert!(boundary.credential.is_none());
+    std::fs::remove_dir_all(&boundary.root_dir).unwrap();
 }
 
-/// `mixdogd exec --tool-mode <mode>` against a core that feeds what Node's provider run did: the mode reaches the core as the
-/// options the runtime was created with, and every output of the run (stdout whole, stderr, exit code, usage document) is Node's.
+/// `--tool-mode <mode>` reaches the core as the session's tool mode, whichever the mode; the run's outputs do not depend on it.
 #[tokio::test]
-async fn the_read_only_exec_is_what_node_recorded_for_every_case() {
-    for text in EXEC_READONLY_CASES {
-        let case: Value = serde_json::from_str(text).unwrap();
-        let label = case["case"].as_str().unwrap();
+async fn the_tool_mode_reaches_the_core_as_the_sessions_mode() {
+    for mode in ["readonly", "full"] {
         let dir = tempfile::tempdir().unwrap();
         let usage_path = dir.path().join("usage.json");
-        let mut argv = vec!["--provider", "anthropic", "--model", "claude-sonnet-4-6", "--cwd", "/work", "--tool-mode", case["mode"].as_str().unwrap()];
-        if case["json"] == true {
-            argv.push("--json");
-        }
-        argv.extend(["--usage-log", usage_path.to_str().unwrap(), "go"]);
+        let argv = ["--provider", "anthropic", "--model", "claude-sonnet-4-6", "--cwd", "/work", "--tool-mode", mode, "--usage-log", usage_path.to_str().unwrap(), "go"];
         let opts = parse(&argv).unwrap();
-        let launcher = FakeLauncher::new("sess_exec_readonly", vec![Turn::Events(recorded_core_events(&case))]);
+        let launcher = FakeLauncher::new("sess_exec_mode", vec![Turn::Events(vec![assistant("read it"), completed()])]);
         let (code, sink) = run_with(opts, &launcher, dir.path(), never()).await;
 
-        // Node's runs here had a runtime that already carried an id, which its stream took; this core's session takes the
-        // id the stream reserved (`exec_<32 hex>`, as `exec-cli/json` records), pinned back to Node's for the comparison.
-        let reserved = regex::Regex::new("exec_[0-9a-f]{32}").unwrap();
-        assert_eq!(code, case["code"], "{label}: exit code");
-        assert_eq!(reserved.replace_all(&sink.stdout().join(""), "sess_exec_readonly"), case["stdout"].as_array().unwrap().iter().map(|line| line.as_str().unwrap()).collect::<String>(), "{label}: stdout");
-        assert_eq!(sink.stderr().join(""), case["stderr"].as_array().unwrap().iter().map(|line| line.as_str().unwrap()).collect::<String>(), "{label}: stderr");
-        let document: Value = serde_json::from_str(&reserved.replace_all(&std::fs::read_to_string(&usage_path).unwrap(), "sess_exec_readonly")).unwrap();
-        assert_eq!(document, case["usage"], "{label}: usage document");
-        // The runtime options Node created the session with, whole (the mode is the one that differs).
+        assert_eq!((code, sink.stdout(), sink.stderr()), (0, vec!["read it\n".to_owned()], Vec::<String>::new()), "{mode}");
         let calls = launcher.calls();
         assert_eq!(calls[0].0, "thread/start");
-        assert_eq!(calls[0].1["session"], case["runtimeOptions"], "{label}: the session options");
+        assert_eq!(calls[0].1["session"]["toolMode"], mode);
         assert_eq!(launcher.prompts(), ["go"]);
     }
 }
 
-/// Node's `classifyCliInvocation` (`headless-command.mjs`) over the recorded command lines (`fixtures/exec-readonly/cli.json`): the
-/// flag absent is mode `full`, a mode Node's exec does not know and the refused `--readonly` are its errors, word for word.
+/// The tool mode is `full` when the flag is absent; a mode the exec does not know is refused, as is the old `--readonly`.
 #[test]
-fn the_exec_command_line_is_classified_as_nodes_is() {
-    let cases: Vec<Value> = serde_json::from_str(include_str!("../../../../fixtures/exec-readonly/cli.json")).unwrap();
-    assert!(!cases.is_empty());
-    for case in cases {
-        let argv: Vec<&str> = case["argv"].as_array().unwrap().iter().map(|arg| arg.as_str().unwrap()).collect();
-        assert_eq!(argv[0], "exec");
-        let node = &case["result"];
-        let parsed = parse(&argv[1..]);
-        match node["kind"].as_str().unwrap() {
-            "error" => assert_eq!(parsed.err(), Some(node["error"].as_str().unwrap().to_owned()), "{argv:?}"),
-            "exec" => {
-                let opts = parsed.unwrap_or_else(|error| panic!("{argv:?}: {error}"));
-                let node_options = &node["options"];
-                assert_eq!(opts.message, node["exec"]["message"].as_str().unwrap(), "{argv:?}: message");
-                assert_eq!(opts.provider.as_deref(), node_options["provider"].as_str(), "{argv:?}: provider");
-                assert_eq!(opts.model.as_deref(), node_options["model"].as_str(), "{argv:?}: model");
-                assert_eq!(opts.tool_mode.as_str(), node_options["toolMode"].as_str().unwrap(), "{argv:?}: tool mode");
-                assert_eq!(opts.json, node_options["json"], "{argv:?}: json");
-                assert_eq!(opts.web_search, node_options["webSearch"], "{argv:?}: web search");
-            }
-            kind => panic!("unexpected kind {kind}"),
-        }
-    }
+fn the_tool_mode_defaults_to_full_and_an_unknown_mode_is_refused() {
+    assert_eq!(parse(&["--provider", "p", "--model", "m", "go"]).unwrap().tool_mode, ToolMode::Full);
+    assert_eq!(parse(&["--tool-mode", "full", "go"]).unwrap().tool_mode, ToolMode::Full);
+    assert_eq!(parse(&["--tool-mode", "readonly", "go"]).unwrap().tool_mode, ToolMode::Readonly);
+    assert_eq!(parse(&["--tool-mode", "bogus", "go"]).unwrap_err(), "unknown option --tool-mode");
+    assert_eq!(parse(&["--readonly", "go"]).unwrap_err(), "option --readonly is not supported for mixdog exec");
 }

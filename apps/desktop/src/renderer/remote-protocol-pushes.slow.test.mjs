@@ -5,10 +5,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { builtCoreBin } from './built-core.mjs';
 import { replayPushes } from '../../../../benchmarks/rust-core/recorders/lib/phone-pushes-replay.mjs';
 
 const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-pushes/golden.json', import.meta.url), 'utf8'));
-const exe = process.env.MIXDOGD_BIN || 'C:\\mixdog-build\\pool\\w11-target\\debug\\mixdogd.exe';
+const exe = builtCoreBin();
 
 test('the phone page on the core is given what Node gave it', async (t) => {
   const results = await replayPushes({ exe, golden, only: process.env.PHONE_PUSHES_ONLY });

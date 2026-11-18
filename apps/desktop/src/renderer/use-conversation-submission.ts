@@ -78,7 +78,6 @@ export function useConversationSubmission(
     setOptimisticPrompts,
     settledItems,
     queued: pane.snapshot.queued,
-    busy: Boolean(pane.snapshot.busy),
     transcriptSessionKey,
     promotedOwnDraft,
   });

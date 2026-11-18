@@ -143,6 +143,100 @@ fn classify_poll(reply: &Reply) -> Poll<JsonValue> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::oauth::CredentialIo;
+    use crate::oauth::http::testing::Scripted;
+    use crate::oauth::http::testing::finish;
+    use crate::oauth::pace::FakePace;
+
+    struct Browser;
+
+    const STARTED: &str = r#"{"device_code":"dc-1","user_code":"AB-12","verification_uri":"https://accounts.x.ai/device","verification_uri_complete":"https://accounts.x.ai/device?c=AB-12","interval":1,"expires_in":60}"#;
+
+    #[test]
+    fn the_issuers_answer_is_held_to_the_grok_clis_rules() {
+        let reply = |body: &str| Reply { status: 200, headers: Vec::new(), body: body.as_bytes().to_vec() };
+        let device = device_of(&reply(r#"{"device_code":"d","user_code":"A-1","verification_uri":"https://x.ai/d","expires_in":5,"interval":0}"#)).unwrap();
+        // Zero clamps the interval to one second; a short expiry is raised to ten minutes.
+        assert_eq!((device.interval, device.expires_in), (Duration::from_secs(1), Duration::from_secs(600)));
+        let omitted = device_of(&reply(r#"{"device_code":"d","user_code":"A-1","verification_uri":"https://x.ai/d","expires_in":900}"#)).unwrap();
+        assert_eq!(omitted.interval, Duration::from_secs(5));
+        for bad in [
+            r#"{"device_code":"d","user_code":"A 1","verification_uri":"https://x.ai/d","expires_in":9}"#,
+            r#"{"device_code":"d","user_code":"A1","verification_uri":"ftp://x.ai/d","expires_in":9}"#,
+            r#"{"device_code":"d","user_code":"A1","verification_uri":"http://evil.test/d","expires_in":9}"#,
+            r#"{"device_code":"d","user_code":"A1","verification_uri":"https://x.ai/d","expires_in":"9"}"#,
+            r#"{"device_code":"d","user_code":"A1","verification_uri":"https://x.ai/d","expires_in":9,"interval":1.5}"#,
+        ] {
+            assert!(device_of(&reply(bad)).is_err(), "{bad}");
+        }
+        let local = device_of(&reply(r#"{"device_code":"d","user_code":"A1","verification_uri":"http://localhost:9/d","expires_in":9}"#));
+        assert!(local.is_ok(), "http is allowed for localhost only");
+    }
+
+
+    #[async_trait]
+    impl LoginFlow for Browser {
+        fn target(&self) -> &LoginTarget {
+            unreachable!("the target of the device flow is read")
+        }
+        async fn start(&self) -> Result<Box<dyn LoginSession>, LoginError> {
+            Err(LoginError::Busy)
+        }
+    }
+    fn flow(http: Arc<Scripted>, dir: &tempfile::TempDir) -> GrokDeviceLogin {
+        let tokens = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(dir.path().join("grok-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+        GrokDeviceLogin::new(http, file, Arc::new(FakePace::default()), "https://auth.x.ai/oauth2/token", Arc::new(Browser)).unwrap()
+    }
+    #[tokio::test]
+    async fn the_code_is_shown_polled_with_the_device_grant_and_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let http = Scripted::new(&[
+            (200, STARTED),
+            (400, r#"{"error":"authorization_pending"}"#),
+            (400, r#"{"error":"slow_down"}"#),
+            (200, r#"{"access_token":"a.b.c","refresh_token":"r","expires_in":3600}"#),
+        ]);
+        let session = flow(http.clone(), &dir).start().await.expect("a device flow");
+        let states = finish(session.as_ref()).await;
+        assert!(matches!(
+            states.first(),
+            Some(LoginState::DeviceCode { user_code, verification_uri, .. })
+                if user_code == "AB-12" && verification_uri == "https://accounts.x.ai/device?c=AB-12"
+        ));
+        assert!(matches!(states.last(), Some(LoginState::Done { .. })), "{states:?}");
+        let seen = http.seen.lock().unwrap();
+        assert_eq!(seen[0].url, "https://auth.x.ai/oauth2/device/code");
+        let poll = String::from_utf8_lossy(&seen[1].body).into_owned();
+        assert!(poll.contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code"), "{poll}");
+        assert!(poll.contains("device_code=dc-1"), "{poll}");
+        assert!(dir.path().join("grok-oauth.json").exists());
+    }
+    #[tokio::test]
+    async fn an_issuer_without_a_device_flow_leaves_the_sign_in_to_the_browser_flow() {
+        let dir = tempfile::tempdir().unwrap();
+        let outcome = flow(Scripted::new(&[(404, "")]), &dir).start().await;
+        assert!(matches!(outcome, Err(LoginError::Busy)));
+    }
+    #[tokio::test]
+    async fn only_pending_and_slow_down_keep_the_poll_going() {
+        let dir = tempfile::tempdir().unwrap();
+        let denied = flow(Scripted::new(&[(200, STARTED), (400, r#"{"error":"access_denied"}"#)]), &dir).start().await.unwrap();
+        assert_eq!(finish(denied.as_ref()).await.last(), Some(&LoginState::Failed(LoginFailure::Denied)));
+        let expired = flow(Scripted::new(&[(200, STARTED), (400, r#"{"error":"expired_token"}"#)]), &dir).start().await.unwrap();
+        assert_eq!(finish(expired.as_ref()).await.last(), Some(&LoginState::Failed(LoginFailure::Expired)));
+        let other = flow(Scripted::new(&[(200, STARTED), (500, r#"{"error":"server_error"}"#)]), &dir).start().await.unwrap();
+        assert!(matches!(
+            finish(other.as_ref()).await.last(),
+            Some(LoginState::Failed(LoginFailure::Failed { message, .. })) if message == "[grok-oauth] device token 500: server_error"
+        ));
+    }
+}
+
+
 pub struct GrokDeviceLogin {
     target: LoginTarget,
     http: Arc<dyn HttpSend>,
@@ -154,7 +248,6 @@ pub struct GrokDeviceLogin {
     browser: Arc<dyn LoginFlow>,
     running: Arc<AtomicBool>,
 }
-
 impl GrokDeviceLogin {
     pub fn new(
         http: Arc<dyn HttpSend>,
@@ -174,7 +267,6 @@ impl GrokDeviceLogin {
         })
     }
 }
-
 #[async_trait]
 impl LoginFlow for GrokDeviceLogin {
     fn target(&self) -> &LoginTarget {
@@ -247,101 +339,5 @@ impl LoginFlow for GrokDeviceLogin {
             file.replace(saved_document(&tokens)).await.map_err(|_| failed("storage", "the tokens could not be stored"))?;
             Ok((!tokens.email.is_empty()).then_some(tokens.email))
         }))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::oauth::CredentialIo;
-    use crate::oauth::http::testing::Scripted;
-    use crate::oauth::http::testing::finish;
-    use crate::oauth::pace::FakePace;
-
-    struct Browser;
-
-    #[async_trait]
-    impl LoginFlow for Browser {
-        fn target(&self) -> &LoginTarget {
-            unreachable!("the target of the device flow is read")
-        }
-        async fn start(&self) -> Result<Box<dyn LoginSession>, LoginError> {
-            Err(LoginError::Busy)
-        }
-    }
-
-    fn flow(http: Arc<Scripted>, dir: &tempfile::TempDir) -> GrokDeviceLogin {
-        let tokens = mixdog_rt::testing::tokens();
-        let file = CredentialFile::new(dir.path().join("grok-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
-        GrokDeviceLogin::new(http, file, Arc::new(FakePace::default()), "https://auth.x.ai/oauth2/token", Arc::new(Browser)).unwrap()
-    }
-
-    const STARTED: &str = r#"{"device_code":"dc-1","user_code":"AB-12","verification_uri":"https://accounts.x.ai/device","verification_uri_complete":"https://accounts.x.ai/device?c=AB-12","interval":1,"expires_in":60}"#;
-
-    #[tokio::test]
-    async fn the_code_is_shown_polled_with_the_device_grant_and_saved() {
-        let dir = tempfile::tempdir().unwrap();
-        let http = Scripted::new(&[
-            (200, STARTED),
-            (400, r#"{"error":"authorization_pending"}"#),
-            (400, r#"{"error":"slow_down"}"#),
-            (200, r#"{"access_token":"a.b.c","refresh_token":"r","expires_in":3600}"#),
-        ]);
-        let session = flow(http.clone(), &dir).start().await.expect("a device flow");
-        let states = finish(session.as_ref()).await;
-        assert!(matches!(
-            states.first(),
-            Some(LoginState::DeviceCode { user_code, verification_uri, .. })
-                if user_code == "AB-12" && verification_uri == "https://accounts.x.ai/device?c=AB-12"
-        ));
-        assert!(matches!(states.last(), Some(LoginState::Done { .. })), "{states:?}");
-        let seen = http.seen.lock().unwrap();
-        assert_eq!(seen[0].url, "https://auth.x.ai/oauth2/device/code");
-        let poll = String::from_utf8_lossy(&seen[1].body).into_owned();
-        assert!(poll.contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code"), "{poll}");
-        assert!(poll.contains("device_code=dc-1"), "{poll}");
-        assert!(dir.path().join("grok-oauth.json").exists());
-    }
-
-    #[tokio::test]
-    async fn an_issuer_without_a_device_flow_leaves_the_sign_in_to_the_browser_flow() {
-        let dir = tempfile::tempdir().unwrap();
-        let outcome = flow(Scripted::new(&[(404, "")]), &dir).start().await;
-        assert!(matches!(outcome, Err(LoginError::Busy)));
-    }
-
-    #[tokio::test]
-    async fn only_pending_and_slow_down_keep_the_poll_going() {
-        let dir = tempfile::tempdir().unwrap();
-        let denied = flow(Scripted::new(&[(200, STARTED), (400, r#"{"error":"access_denied"}"#)]), &dir).start().await.unwrap();
-        assert_eq!(finish(denied.as_ref()).await.last(), Some(&LoginState::Failed(LoginFailure::Denied)));
-        let expired = flow(Scripted::new(&[(200, STARTED), (400, r#"{"error":"expired_token"}"#)]), &dir).start().await.unwrap();
-        assert_eq!(finish(expired.as_ref()).await.last(), Some(&LoginState::Failed(LoginFailure::Expired)));
-        let other = flow(Scripted::new(&[(200, STARTED), (500, r#"{"error":"server_error"}"#)]), &dir).start().await.unwrap();
-        assert!(matches!(
-            finish(other.as_ref()).await.last(),
-            Some(LoginState::Failed(LoginFailure::Failed { message, .. })) if message == "[grok-oauth] device token 500: server_error"
-        ));
-    }
-
-    #[test]
-    fn the_issuers_answer_is_held_to_the_grok_clis_rules() {
-        let reply = |body: &str| Reply { status: 200, headers: Vec::new(), body: body.as_bytes().to_vec() };
-        let device = device_of(&reply(r#"{"device_code":"d","user_code":"A-1","verification_uri":"https://x.ai/d","expires_in":5,"interval":0}"#)).unwrap();
-        // Zero clamps the interval to one second; a short expiry is raised to ten minutes.
-        assert_eq!((device.interval, device.expires_in), (Duration::from_secs(1), Duration::from_secs(600)));
-        let omitted = device_of(&reply(r#"{"device_code":"d","user_code":"A-1","verification_uri":"https://x.ai/d","expires_in":900}"#)).unwrap();
-        assert_eq!(omitted.interval, Duration::from_secs(5));
-        for bad in [
-            r#"{"device_code":"d","user_code":"A 1","verification_uri":"https://x.ai/d","expires_in":9}"#,
-            r#"{"device_code":"d","user_code":"A1","verification_uri":"ftp://x.ai/d","expires_in":9}"#,
-            r#"{"device_code":"d","user_code":"A1","verification_uri":"http://evil.test/d","expires_in":9}"#,
-            r#"{"device_code":"d","user_code":"A1","verification_uri":"https://x.ai/d","expires_in":"9"}"#,
-            r#"{"device_code":"d","user_code":"A1","verification_uri":"https://x.ai/d","expires_in":9,"interval":1.5}"#,
-        ] {
-            assert!(device_of(&reply(bad)).is_err(), "{bad}");
-        }
-        let local = device_of(&reply(r#"{"device_code":"d","user_code":"A1","verification_uri":"http://localhost:9/d","expires_in":9}"#));
-        assert!(local.is_ok(), "http is allowed for localhost only");
     }
 }

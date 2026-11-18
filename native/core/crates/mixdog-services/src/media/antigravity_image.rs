@@ -18,7 +18,8 @@ use tokio_util::sync::CancellationToken;
 use super::adapter_http::JsonPost;
 use super::download::AdapterError;
 use super::gemini_image::{gemini_image_request_body, pick_gemini_image_part};
-use super::image_api::{GeneratedImage, ImageReference, truthy};
+use super::image_api::{GeneratedImage, truthy};
+use super::references::{References, Target};
 use super::upstream::upstream_error;
 use super::usage::gemini_usage;
 
@@ -90,9 +91,11 @@ pub fn antigravity_image_parts(sse_text: &str) -> StreamParts {
 
 /// `generateImage({ model, prompt, options, references, signal })`.
 #[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
-pub async fn generate_image(http: &dyn JsonPost, session: &dyn AntigravitySession, model: &str, prompt: &str, options: &Value, references: &[ImageReference], cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
+pub async fn generate_image(http: &dyn JsonPost, session: &dyn AntigravitySession, model: &str, prompt: &str, options: &Value, references: &References, cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
     let auth = session.auth().await?;
-    let mut request = match gemini_image_request_body(prompt, options, references) {
+    let url = format!("{}/v1internal:streamGenerateContent?alt=sse", session.endpoint());
+    let references = references.prepare(&Target { endpoint: &url, account: &auth.project_id, model, operation: "image-generation" }).await?;
+    let mut request = match gemini_image_request_body(prompt, options, &references) {
         Value::Object(map) => map,
         _ => Map::new(),
     };
@@ -105,7 +108,6 @@ pub async fn generate_image(http: &dyn JsonPost, session: &dyn AntigravitySessio
         ("Accept".to_owned(), "text/event-stream".to_owned()),
     ];
     headers.extend(session.headers());
-    let url = format!("{}/v1internal:streamGenerateContent?alt=sse", session.endpoint());
     let reply = http.post(&url, &headers, &body, REQUEST_TIMEOUT, cancel).await.map_err(|failure| AdapterError::plain(failure.message))?;
     if !(200..300).contains(&reply.status) {
         return Err(upstream_error("Antigravity image", reply.status, &reply.body).into());

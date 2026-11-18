@@ -4,9 +4,11 @@ import { EventEmitter } from 'node:events';
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { helperTest } from './lib/tree-helper-gate.mjs';
 import { endTree, helperPath, runTree, spawnTree } from './lib/process-tree.mjs';
 import { assertNothingInside, assertTreeEnded, leakGuard, pidsOfExecutable, processesInside, startTimeOf } from './lib/process-probe.mjs';
+
+const test = helperTest();
 
 const PROCESS_TREE = new URL('./lib/process-tree.mjs', import.meta.url).href;
 const PROBE = new URL('./lib/process-probe.mjs', import.meta.url).href;

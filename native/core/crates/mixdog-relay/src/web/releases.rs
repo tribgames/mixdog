@@ -6,14 +6,9 @@
 //! `index.json` is the registry below (written atomically by the deploy tool) and `<releaseId>/` is one complete staged
 //! renderer tree per release.
 //!
-//! Selection rule ([`ReleaseIndex::select`]), first match wins:
-//! 1. the device reported a renderer release id (shell version hash) that a retained release carries: that release;
-//! 2. the device reported an app version equal to a retained release's desktop version: the newest such release;
-//! 3. the device reported an app version and some retained release is for an older or equal desktop version: the highest
-//!    such version (a desktop newer than every retained release gets the newest one);
-//! 4. everything else (old desktops that never report a version, versions older than every retained release): the legacy
-//!    release, the renderer that was current when this feature shipped;
-//! 5. no legacy release registered: the newest release.
+//! Selection rule ([`ReleaseIndex::select`]): choose the exact desktop version, preferring its exact shell hash. An
+//! adopted shell without version metadata can be identified by its exact hash unless a known version contradicts it.
+//! Only a desktop that reports neither identifier gets the legacy/default fallback.
 //!
 //! Retention rule ([`ReleaseIndex::plan_retention`]): the legacy release is never collected; the newest
 //! [`KEEP_LATEST_RELEASES`] releases are kept; any release still selected for a device seen within
@@ -279,7 +274,7 @@ impl ReleaseIndex {
     pub fn read(releases_dir: impl AsRef<Path>) -> Result<Option<Self>, ReleaseIndexError> {
         let bytes = match mixdog_fsio::read(&Unlaned, releases_dir.as_ref().join(RELEASE_INDEX_FILE)) {
             Ok(bytes) => bytes,
-            Err(error) if matches!(error.kind(), io::ErrorKind::NotFound | io::ErrorKind::NotADirectory) => return Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
         };
         Self::parse(&js::parse_bytes(&bytes)?).map(Some)
@@ -305,38 +300,23 @@ impl ReleaseIndex {
 
     /// `selectRelease`: the registry entry a device should be served; see the rule at the top.
     pub fn select(&self, report: &DeviceReport) -> Option<&ReleaseEntry> {
-        if !report.renderer_release.is_empty()
-            && let Some(hit) = newest_of(self.non_legacy().filter(|entry| entry.shell_version == report.renderer_release))
-        {
-            return Some(hit);
-        }
+        let hash_matches = |entry: &ReleaseEntry| !report.renderer_release.is_empty() && entry.shell_version == report.renderer_release;
+        let exact = || {
+            self.releases.iter().filter(move |entry| !report.app_version.is_empty() && entry.desktop_version == report.app_version)
+        };
         if !report.app_version.is_empty() {
-            if let Some(exact) = newest_of(self.non_legacy().filter(|entry| entry.desktop_version == report.app_version)) {
-                return Some(exact);
+            if let Some(hit) = newest_of(exact().filter(|entry| hash_matches(entry))) {
+                return Some(hit);
             }
-            if let Some(wanted) = parse_version(&report.app_version) {
-                let mut best: Option<(&ReleaseEntry, [f64; 3])> = None;
-                for entry in self.non_legacy() {
-                    let Some(version) = parse_version(&entry.desktop_version) else { continue };
-                    if compare_versions(&version, &wanted) == Ordering::Greater {
-                        continue;
-                    }
-                    let better = match &best {
-                        None => true,
-                        Some((held, held_version)) => match compare_versions(&version, held_version) {
-                            Ordering::Greater => true,
-                            Ordering::Equal => entry.added_at >= held.added_at,
-                            Ordering::Less => false,
-                        },
-                    };
-                    if better {
-                        best = Some((entry, version));
-                    }
-                }
-                if let Some((entry, _)) = best {
-                    return Some(entry);
-                }
+            if let Some(adopted) = self.legacy_release().filter(|entry| entry.desktop_version.is_empty() && hash_matches(entry))
+                && !self.releases.iter().any(|entry| !entry.desktop_version.is_empty() && hash_matches(entry))
+            {
+                return Some(adopted);
             }
+            return newest_of(exact());
+        }
+        if !report.renderer_release.is_empty() {
+            return newest_of(self.releases.iter().filter(|entry| hash_matches(entry)));
         }
         self.legacy_release().or_else(|| newest_of(self.non_legacy()))
     }
@@ -400,20 +380,22 @@ fn newest_of<'a>(entries: impl Iterator<Item = &'a ReleaseEntry>) -> Option<&'a 
     best
 }
 
-/// Answer of [`RendererCatalog::legacy_for`]: the desktop is served the legacy renderer and must update to `min_version`.
+/// Answer of [`RendererCatalog::legacy_for`]: the native phone app should show its update-PC page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LegacyNotice {
     pub min_version: String,
 }
 
+type CatalogIndex = Result<Option<Arc<ReleaseIndex>>, Arc<ReleaseIndexError>>;
+
 struct IndexCache {
-    index: Option<Arc<ReleaseIndex>>,
+    index: CatalogIndex,
     expires_at: i64,
 }
 
 /// `createRendererCatalog`: resolves the renderer tree to serve for a device. Without a registry it is the plain renderer
 /// directory, so a relay that was never given releases behaves exactly as before. The registry is read again at most once
-/// per [`CATALOG_CACHE_MS`], and one that cannot be read or is invalid counts as none.
+/// per [`CATALOG_CACHE_MS`]. An invalid or unreadable registry never enables single-renderer mode.
 pub struct RendererCatalog {
     renderer_dir: PathBuf,
     releases_dir: PathBuf,
@@ -433,7 +415,7 @@ impl RendererCatalog {
             releases_dir: releases_dir.into(),
             cache_ms,
             clock,
-            cache: Mutex::new(IndexCache { index: None, expires_at: 0 }),
+            cache: Mutex::new(IndexCache { index: Ok(None), expires_at: i64::MIN }),
         }
     }
 
@@ -445,42 +427,43 @@ impl RendererCatalog {
         &self.releases_dir
     }
 
-    /// The registry, or `None` when there is none to use.
-    pub fn index(&self) -> Option<Arc<ReleaseIndex>> {
+    /// The registry, distinguishing a missing file from a failed read.
+    pub fn index(&self) -> Result<Option<Arc<ReleaseIndex>>, Arc<ReleaseIndexError>> {
         if self.releases_dir.as_os_str().is_empty() {
-            return None;
+            return Ok(None);
         }
         let time = (self.clock)();
         let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
         if time < cache.expires_at {
             return cache.index.clone();
         }
-        cache.index = ReleaseIndex::read(&self.releases_dir).ok().flatten().map(Arc::new);
+        cache.index = ReleaseIndex::read(&self.releases_dir).map(|index| index.map(Arc::new)).map_err(Arc::new);
         cache.expires_at = time + self.cache_ms;
         cache.index.clone()
     }
 
-    fn selected(&self, report: &DeviceReport) -> Option<(Arc<ReleaseIndex>, ReleaseEntry)> {
-        let registry = self.index()?;
-        let entry = registry.select(report).cloned()?;
-        Some((registry, entry))
-    }
-
-    /// The notice for a device `report` would be served the legacy release, else `None`.
+    /// Advise updating only for an unidentified legacy fallback or an older PC without a matching shell.
     pub fn legacy_for(&self, report: &DeviceReport) -> Option<LegacyNotice> {
-        let (registry, entry) = self.selected(report)?;
-        entry.legacy.then(|| LegacyNotice { min_version: registry.oldest_supported_version() })
+        let registry = self.index().ok().flatten()?;
+        let selected = registry.select(report);
+        let min_version = registry.oldest_supported_version();
+        let update = if report.app_version.is_empty() {
+            report.renderer_release.is_empty() && selected.is_some_and(|entry| entry.legacy)
+        } else {
+            selected.is_none()
+                && parse_version(&report.app_version).zip(parse_version(&min_version))
+                    .is_some_and(|(current, min)| compare_versions(&current, &min) == Ordering::Less)
+        };
+        update.then_some(LegacyNotice { min_version })
     }
 
-    /// The directory to serve `report` from: its release's tree, or the plain renderer directory when there is no registry
-    /// or the release's tree has no `index.html`.
-    pub fn dir_for(&self, report: &DeviceReport) -> PathBuf {
-        let Some((_, entry)) = self.selected(report) else { return self.renderer_dir.clone() };
+    /// The selected tree, or the plain renderer only in single-renderer mode.
+    pub fn dir_for(&self, report: &DeviceReport) -> Option<PathBuf> {
+        let Some(registry) = self.index().ok()? else {
+            return Some(self.renderer_dir.clone());
+        };
+        let entry = registry.select(report)?;
         let dir = self.releases_dir.join(&entry.id);
-        if mixdog_fsio::metadata(&Unlaned, dir.join("index.html")).is_ok_and(|info| info.is_file()) {
-            dir
-        } else {
-            self.renderer_dir.clone()
-        }
+        mixdog_fsio::metadata(&Unlaned, dir.join("index.html")).is_ok_and(|info| info.is_file()).then_some(dir)
     }
 }

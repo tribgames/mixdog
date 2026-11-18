@@ -323,12 +323,23 @@ pub fn is_heif(bytes: &[u8]) -> bool {
     brands(bytes).any(|brand| is_brand(brand, &HEIF_BRANDS))
 }
 
+/// Whether a HEIF file holds HEVC pictures (a HEIC photo) rather than AV1 ones: its primary item says so, or, where it
+/// names none, its brand does.
+fn hevc_in(container: &heif::Container, bytes: &[u8]) -> bool {
+    let hevc_item = matches!(container.item_type, Some(kind) if &kind == b"hvc1" || &kind == b"hev1");
+    let hevc_brand = container.item_type != Some(*b"av01") && brands(bytes).next().is_some_and(|brand| is_brand(brand, &HEVC_BRANDS));
+    hevc_item || hevc_brand
+}
+
+/// [`hevc_in`] for a file read from its bytes.
+pub fn is_hevc_heif(bytes: &[u8]) -> bool {
+    hevc_in(&heif::read(bytes), bytes)
+}
+
 /// Decodes the primary item (and the alpha item, when there is one) of an AVIF.
 pub fn decode_avif(bytes: &[u8], pixel_limit: u64) -> Result<AvifImage, ImagingError> {
     let container = heif::read(bytes);
-    let hevc_item = matches!(container.item_type, Some(kind) if &kind == b"hvc1" || &kind == b"hev1");
-    let hevc_brand = container.item_type != Some(*b"av01") && brands(bytes).next().is_some_and(|brand| is_brand(brand, &HEVC_BRANDS));
-    if hevc_item || hevc_brand {
+    if hevc_in(&container, bytes) {
         return Err(ImagingError::invalid(HEVC_UNSUPPORTED));
     }
     let parsed = avif_parse::read_avif(&mut Cursor::new(bytes)).map_err(|_| unreadable(bytes))?;

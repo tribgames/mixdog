@@ -4,7 +4,7 @@ import { HOST_COMPUTER_CURSOR_PREPARE, registerComputerCursor } from './computer
 
 function rig(prepare) {
   const handlers = new Map();
-  registerComputerCursor({ handleRequest: (method, run) => handlers.set(method, run) }, prepare);
+  registerComputerCursor({ handleRequest: (method, run) => handlers.set(method, run) }, { admit: () => ({ signal: new AbortController().signal, commit() {}, track() {}, trackUnfenced() {} }) }, prepare);
   return (params) => handlers.get(HOST_COMPUTER_CURSOR_PREPARE)(params, new AbortController().signal);
 }
 

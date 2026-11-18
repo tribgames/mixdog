@@ -83,7 +83,7 @@ impl Item for UiaItem<'_> {
             .map_err(|error| error.message())
     }
     fn select(&self) -> Result<(), String> {
-        self.owner.held(|| unsafe { self.pattern.Select() })
+        self.owner.held(crate::port::windows::A11y::Select(&self.pattern))
     }
 }
 
@@ -107,6 +107,7 @@ pub(super) fn exclusive(element: &UiaElement) -> Result<(), String> {
     let Some(pattern) = owning_item(element) else {
         return Ok(());
     };
+    // The settle between the select and its read-back holds nothing.
     make_alone(&UiaItem { owner: element, pattern }, &|| std::thread::sleep(Duration::from_millis(SETTLE_MS)))
 }
 

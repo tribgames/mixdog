@@ -524,37 +524,6 @@ pub trait Fetch {
 /// arrived (the body is then read without one, as `fetchWithTimeout` clears its timer on the response).
 pub struct HttpsFetch;
 
-impl Fetch for HttpsFetch {
-    fn get(&self, request: &FetchRequest<'_>) -> Result<FetchResponse, String> {
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_| "fetch failed".to_owned())?;
-        runtime.block_on(async {
-            let client = reqwest::Client::builder().build().map_err(|_| "fetch failed".to_owned())?;
-            let mut builder = client.get(request.url);
-            if let Some(tag) = request.if_none_match {
-                builder = builder.header(reqwest::header::IF_NONE_MATCH, tag);
-            }
-            let mut response = match mixdog_rt::time::timeout(request.timeout, builder.send()).await {
-                Err(_) => return Err("This operation was aborted".to_owned()),
-                Ok(Err(_)) => return Err("fetch failed".to_owned()),
-                Ok(Ok(response)) => response,
-            };
-            let header = |name: reqwest::header::HeaderName| response.headers().get(name).and_then(|value| value.to_str().ok()).map(str::to_owned);
-            let content_length = header(reqwest::header::CONTENT_LENGTH).map_or(0.0, |length| string_to_number(&length));
-            let etag = header(reqwest::header::ETAG);
-            let status = response.status().as_u16();
-            let mut body = Vec::new();
-            while (body.len() as u64) <= request.max_bytes {
-                match response.chunk().await {
-                    Ok(Some(chunk)) => body.extend_from_slice(&chunk),
-                    Ok(None) => break,
-                    Err(_) => return Err("terminated".to_owned()),
-                }
-            }
-            Ok(FetchResponse { status, content_length: if content_length.is_nan() { 0.0 } else { content_length }, etag, body })
-        })
-    }
-}
-
 /// `responseBytes(response, maximum, label)`.
 pub fn response_bytes(response: &FetchResponse, maximum: u64, label: &str) -> Result<Vec<u8>, String> {
     if !(200..300).contains(&response.status) {
@@ -766,5 +735,37 @@ mod tests {
         assert_eq!(response_bytes(&declared, 4, "X").unwrap_err(), "X exceeds the download size limit");
         let missing = FetchResponse { status: 404, ..ok };
         assert_eq!(response_bytes(&missing, 4, "X").unwrap_err(), "X download failed with HTTP 404");
+    }
+}
+
+
+impl Fetch for HttpsFetch {
+    fn get(&self, request: &FetchRequest<'_>) -> Result<FetchResponse, String> {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_| "fetch failed".to_owned())?;
+        runtime.block_on(async {
+            let client = reqwest::Client::builder().build().map_err(|_| "fetch failed".to_owned())?;
+            let mut builder = client.get(request.url);
+            if let Some(tag) = request.if_none_match {
+                builder = builder.header(reqwest::header::IF_NONE_MATCH, tag);
+            }
+            let mut response = match mixdog_rt::time::timeout(request.timeout, builder.send()).await {
+                Err(_) => return Err("This operation was aborted".to_owned()),
+                Ok(Err(_)) => return Err("fetch failed".to_owned()),
+                Ok(Ok(response)) => response,
+            };
+            let header = |name: reqwest::header::HeaderName| response.headers().get(name).and_then(|value| value.to_str().ok()).map(str::to_owned);
+            let content_length = header(reqwest::header::CONTENT_LENGTH).map_or(0.0, |length| string_to_number(&length));
+            let etag = header(reqwest::header::ETAG);
+            let status = response.status().as_u16();
+            let mut body = Vec::new();
+            while (body.len() as u64) <= request.max_bytes {
+                match response.chunk().await {
+                    Ok(Some(chunk)) => body.extend_from_slice(&chunk),
+                    Ok(None) => break,
+                    Err(_) => return Err("terminated".to_owned()),
+                }
+            }
+            Ok(FetchResponse { status, content_length: if content_length.is_nan() { 0.0 } else { content_length }, etag, body })
+        })
     }
 }

@@ -7,10 +7,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_agent::env::Clock;
-use mixdog_ai::accounts::rotation::{AccountRotation, SendContext};
+use mixdog_agent::compact::compactor::{Handoff, HandoffSource, PlannedHandoff};
+use mixdog_agent::env::{Clock, CompactError, SeatedRoute};
+use mixdog_agent::message::AgentMessage;
 use mixdog_ai::registry::providers::ProviderRegistry;
-use mixdog_ai::registry::warm::{RequestFacts, RequestTail, WarmLedger};
 use mixdog_ai::service::model_proxy_inline::AttachmentReader;
 use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_core_api::ids::ThreadId;
@@ -18,16 +18,15 @@ use mixdog_protocol::ProviderId;
 use mixdog_services::memory::sensitive::SensitiveStore;
 use mixdog_store::schema::record::Header;
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 use super::attachment_reference::{AttachmentFiles, ReferencedMedia};
-use super::cache::RequestCacheTail;
 use super::compaction_redactor::SensitiveRedactor;
 use super::compactors::{CompactionFacts, CompactionWorld};
 use super::media::{AttachmentFacts, MediaLowering};
-use super::side_question_store::SideQuestionStore;
+use super::side_question_store::{NoSavedRequest, SideQuestionStore};
 use mixdog_core_config::config::Config;
 use super::summary_host::SummaryServices;
+use super::summary_routes::{ForkSender, SavedRequest, SessionFork, SummaryRoutes};
 
 /// What a registered provider declares of its wire (Node reads `provider.nativePdf` and
 /// `provider.nativeDocuments` off the provider object the registry holds; here they are the
@@ -41,36 +40,16 @@ impl RegisteredRouteTraits {
         Self { registry }
     }
 
-    /// `providerNativePdf(name)`: a pure lookup of the instance registered under the lower-cased
-    /// name; a name nothing registered is treated as native.
+    /// Like route admission, follows retired provider IDs without building a new adapter.
     pub fn native_pdf(&self, provider: &str) -> bool {
-        self.registry.registered(&provider.to_lowercase()).is_none_or(|adapter| adapter.native_pdf())
+        self.registry.registered_for_route(&provider.to_lowercase()).is_none_or(|adapter| adapter.native_pdf())
     }
 
     /// `provider.nativeDocuments === false`: the registered provider takes no document block of any
     /// kind. A name nothing registered declares nothing.
     pub fn no_documents(&self, provider: &str) -> bool {
-        self.registry.registered(&provider.to_lowercase()).is_some_and(|adapter| adapter.native_documents() == Some(false))
+        self.registry.registered_for_route(&provider.to_lowercase()).is_some_and(|adapter| adapter.native_documents() == Some(false))
     }
-}
-
-/// `sessionAccountId`'s recovery of a binding the process does not hold in memory (the in-memory
-/// one is read first, by the rotation): the session's provider state, then the newest message
-/// whose `providerMetadata.accountRouting` names this provider. Only a binding recorded for this
-/// provider counts, a session that switched providers carries another roster's ids.
-fn bound_account(provider: &str, state: Option<&Value>, messages: &[Value]) -> Option<String> {
-    let text = |value: &Value, key: &str| value.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()).map(str::to_owned);
-    let from_state = state.and_then(|state| {
-        let account = text(state, "providerAccountId")?;
-        (text(state, "providerAccountProvider").as_deref() == Some(provider)).then(|| text(state, "providerSessionAccountId").unwrap_or(account))
-    });
-    from_state.or_else(|| {
-        messages.iter().rev().find_map(|message| {
-            let routing = message.get("providerMetadata")?.get("accountRouting")?;
-            let account = text(routing, "accountId")?;
-            (routing.get("provider").and_then(Value::as_str) == Some(provider)).then(|| text(routing, "sessionAccountId").unwrap_or(account))
-        })
-    })
 }
 
 /// The route's provider as the compaction reads it from the session header.
@@ -84,48 +63,15 @@ fn route_provider(header: &Header) -> &str {
     header.get("provider").and_then(Value::as_str).map_or("", mixdog_js::js_trim)
 }
 
-/// A session's request state over the process's cache-warm ledger, account rotation, clock and the
-/// saved requests the loop's sends record.
+/// A session's request state: the saved requests the loop's sends record.
 pub struct ProcessSessionRequests {
-    ledger: WarmLedger,
-    rotation: Arc<AccountRotation>,
-    clock: Arc<dyn Clock>,
     /// The store the loop's sends record into; the one SideWiring shares.
     pub saved: Arc<SideQuestionStore>,
 }
 
 impl ProcessSessionRequests {
-    pub fn new(ledger: WarmLedger, rotation: Arc<AccountRotation>, clock: Arc<dyn Clock>, saved: Arc<SideQuestionStore>) -> Self {
-        Self { ledger, rotation, clock, saved }
-    }
-
-    /// The tail of the next request on the session's own route (`shouldCompactForExpiredAgentCache`):
-    /// `isAgentOwner(session)`, the cache strategy's `messages` tier, `Number(lastProviderSendAt)`
-    /// and the account `requestAccountId` plans, bound by the process's in-memory binding, else the
-    /// stored provider state, else the newest of the request's messages that records a routing.
-    async fn request_tail(&self, thread: &ThreadId, header: &Header, messages: &[Value]) -> RequestTail {
-        let provider = route_provider(header).to_owned();
-        let model = header.get("model").and_then(Value::as_str).unwrap_or_default().to_owned();
-        let last_send = mixdog_js::to_number_of(header.get("lastProviderSendAt"));
-        let facts = RequestFacts {
-            session_id: thread.as_str().to_owned(),
-            provider: provider.clone(),
-            model: model.clone(),
-            agent_owner: is_agent_owner(header),
-
-            five_minute_tail: header.get("providerCacheOpts").and_then(|opts| opts.get("cacheStrategy")).and_then(|strategy| strategy.get("messages")).and_then(Value::as_str)
-                == Some("5m"),
-            last_provider_send_at: if last_send > 0.0 { last_send as u64 } else { 0 },
-            now_ms: self.clock.now_ms().max(0) as u64,
-        };
-        let ctx = SendContext {
-            model,
-            session_id: Some(thread.as_str().to_owned()),
-            bound_hint: bound_account(&provider, header.get("providerState"), messages),
-            cancel: CancellationToken::new(),
-            implicit_plan_usage: None,
-        };
-        RequestTail::plan(self.ledger.clone(), &self.rotation, facts, &ctx).await
+    pub fn new(saved: Arc<SideQuestionStore>) -> Self {
+        Self { saved }
     }
 }
 
@@ -148,66 +94,14 @@ pub struct CompactionServices {
     /// The runtime around a session's summary route plan.
     pub summaries: Arc<SummaryServices>,
 }
-
-pub struct ProcessCompactionWorld {
-    services: CompactionServices,
-}
-
-impl ProcessCompactionWorld {
-    pub fn new(services: CompactionServices) -> Self {
-        Self { services }
-    }
-}
-
-#[async_trait]
-impl CompactionWorld for ProcessCompactionWorld {
-    async fn facts(&self, thread: &ThreadId, header: &Header, prior: &[Value]) -> CompactionFacts {
-        let s = &self.services;
-        let provider = route_provider(header);
-        // One store view serves the priced media, the tool-result media and the references.
-        let media = Arc::new(MediaLowering::new(
-            thread.clone(),
-            s.docs.clone(),
-            s.reader.clone(),
-            s.attachment_facts.clone(),
-            s.routes.no_documents(provider),
-            ProviderId::from(provider),
-        ));
-        CompactionFacts {
-            media: media.clone(),
-            tool_media: media.clone(),
-            native_pdf: s.routes.native_pdf(provider),
-            attachments: Arc::new(ReferencedMedia::new(s.files.clone(), s.attachment_facts.clone(), media).with_reader(s.reader.clone())),
-            redactor: Arc::new(SensitiveRedactor::new(s.sensitive.clone(), thread.as_str())),
-            cache: Arc::new(RequestCacheTail::new(s.requests.request_tail(thread, header, prior).await)),
-            summary: s.summaries.host(thread, header),
-            saved_request: s.requests.saved.saved_request(thread),
-            fork_sender: s.requests.saved.fork_sender(thread),
-        }
-    }
-
-    /// `config.compaction` of the agent config `loadConfig()` returns.
-    fn compaction_config(&self) -> Option<Value> {
-        self.services.config.agent().get("compaction").cloned()
-    }
-
-    fn retire_fork(&self, thread: &ThreadId) {
-        self.services.requests.saved.retire_compaction_fork(thread);
-    }
-}
 #[cfg(test)]
 pub(crate) mod tests {
     use async_trait::async_trait;
     use mixdog_agent::boundary::CompactSettings;
-    use mixdog_agent::compact::summary_run::{SummaryCall, SummaryFailure, SummaryResponse, SummaryRoute, SummarySender};
-    use mixdog_agent::message::AgentMessage;
     use mixdog_agent::offload::{Artifact, ArtifactStore};
-    use mixdog_ai::accounts::rotation::UsageProbe;
-    use mixdog_ai::accounts::AccountStore;
     use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelsDevSource};
-    use mixdog_ai::oauth::{CredentialIo, SystemPace};
+    use mixdog_ai::oauth::CredentialIo;
     use mixdog_ai::registry::providers::ProviderBuilder;
-    use mixdog_ai::registry::warm::WarmUse;
     use mixdog_ai::service::model_proxy_inline::ReadError;
     use mixdog_ai::transport::http::{HttpResponse, HttpSend};
     use mixdog_core_api::domain::common::AbsPath;
@@ -229,7 +123,7 @@ pub(crate) mod tests {
     use crate::run_host::compactors::SessionCompactors;
     use crate::run_host::host_seams::CompactorSource;
     use crate::run_host::media::StoredFacts;
-    use crate::run_host::summary_routes::{ForkSender, SavedRequest, SessionRoute};
+    use crate::run_host::summary_routes::SessionRoute;
     use mixdog_core_session::session::StoredRows;
 
     const NOW: i64 = 1_800_000_000_000;
@@ -292,21 +186,11 @@ pub(crate) mod tests {
             Ok(())
         }
     }
-    impl Blobs for NoBlobs {
-        fn text_within(&self, _: &str, _: u64) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
-            Ok(None)
-        }
-    }
     struct Fixed;
     impl Clock for Fixed {
         fn now_ms(&self) -> i64 {
             NOW
         }
-    }
-    struct NoProbe;
-    #[async_trait]
-    impl UsageProbe for NoProbe {
-        async fn measure(&self, _: &str, _: &str, _: bool) {}
     }
     struct Offline;
     #[async_trait]
@@ -376,21 +260,6 @@ pub(crate) mod tests {
             Ok(false)
         }
     }
-    struct Tagged;
-    #[async_trait]
-    impl ForkSender for Tagged {
-        async fn send(&self, _: &SummaryRoute) -> Result<SummaryResponse, SummaryFailure> {
-            Err(SummaryFailure::Failed("saved".to_owned()))
-        }
-    }
-    struct Quiet;
-    #[async_trait]
-    impl SummarySender for Quiet {
-        async fn send(&self, _: &str, _: &str, _: &SummaryCall) -> Result<SummaryResponse, SummaryFailure> {
-            unreachable!()
-        }
-    }
-
     /// A registry that holds what a config enabling these providers leaves it.
     async fn registry_of(config: Value) -> Arc<ProviderRegistry> {
         let registry = Arc::new(ProviderRegistry::new(Arc::new(Builder)));
@@ -400,88 +269,7 @@ pub(crate) mod tests {
 
     /// `anthropic` and `openai` take a PDF; `groq` declares it does not.
     async fn registry() -> Arc<ProviderRegistry> {
-        registry_of(json!({ "anthropic": { "enabled": true }, "openai": { "enabled": true }, "groq": { "enabled": true, "nativePdf": false } })).await
-    }
-
-    fn saved(sent_at: u64) -> SavedRequest {
-        SavedRequest {
-            provider_name: "anthropic".into(),
-            model: "m".into(),
-            messages_tier: Some("5m".into()),
-            catalog_supports_prompt_caching: true,
-            sent_at,
-            settled: false,
-            compacted: false,
-            prompt_tokens: 10,
-            shared_prefix_messages: 2,
-        }
-    }
-
-    /// The services over the real ones and a config file under dir; the cache-warm ledger and the
-    /// saved-request store are the caller's to record into.
-    pub(crate) async fn services_with(
-        dir: &std::path::Path,
-        agent: Value,
-        sensitive: Arc<SensitiveStore>,
-        ledger: WarmLedger,
-        saved: Arc<SideQuestionStore>,
-    ) -> CompactionServices {
-        services_over(dir, agent, sensitive, ledger, saved, registry().await, Map::new()).await
-    }
-
-    /// [`services_with`] over the providers `registry` holds, with `snapshot` as the configuration
-    /// the summary reads.
-    pub(crate) async fn services_over(
-        dir: &std::path::Path,
-        agent: Value,
-        sensitive: Arc<SensitiveStore>,
-        ledger: WarmLedger,
-        saved: Arc<SideQuestionStore>,
-        registry: Arc<ProviderRegistry>,
-        snapshot: Map<String, Value>,
-    ) -> CompactionServices {
-        let tokens = mixdog_rt::testing::tokens();
-        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let path = dir.join("mixdog-config.json");
-        crate::run_host::fixture_fs::write(&path, serde_json::to_vec(&json!({ "agent": agent })).unwrap());
-        let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-        let clock: Arc<dyn Clock> = Arc::new(Fixed);
-        let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-        let rotation = Arc::new(AccountRotation::new(AccountStore::new(dir.join("accounts"), io), Arc::new(NoProbe), Arc::new(SystemPace)));
-        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
-        let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
-        let summaries = SummaryServices::new(SummaryDeps {
-            registry: registry.clone(),
-            catalog,
-            config: Arc::new(move || snapshot.clone()),
-            env: Arc::new(|_| None),
-            clock: clock.clone(),
-            data_dir: AbsPath::new(dir).unwrap(),
-            files: Arc::new(MockFileService::default()),
-            processes: Arc::new(MockProcessManager::default()),
-            progress: Arc::new(MockProgress::default()),
-            io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
-        });
-        CompactionServices {
-            config,
-            sensitive,
-            docs: Arc::new(Docs),
-            reader: Arc::new(Store),
-            attachment_facts: Arc::new(Recorded),
-            files: Arc::new(Files),
-            routes: RegisteredRouteTraits::new(registry),
-            requests: ProcessSessionRequests::new(ledger, rotation, clock, saved),
-            summaries: Arc::new(summaries),
-        }
-    }
-
-    /// The services over the real ones, for a test that records nothing into them.
-    pub(crate) async fn services(dir: &std::path::Path, agent: Value, sensitive: Arc<SensitiveStore>) -> CompactionServices {
-        services_with(dir, agent, sensitive, WarmLedger::new(), Arc::new(SideQuestionStore::new())).await
-    }
-
-    async fn world(dir: &std::path::Path, agent: Value, sensitive: Arc<SensitiveStore>) -> ProcessCompactionWorld {
-        ProcessCompactionWorld::new(services(dir, agent, sensitive).await)
+        registry_of(json!({ "anthropic": { "enabled": true }, "openai": { "enabled": true }, "groq": { "enabled": true, "nativePdf": false }, "opencode-go-oauth": { "enabled": true, "nativePdf": false } })).await
     }
 
     fn header(provider: &str) -> Header {
@@ -493,22 +281,12 @@ pub(crate) mod tests {
         ThreadId::from("sess_a".to_owned())
     }
 
-    #[tokio::test]
-    async fn the_compaction_config_is_the_saved_agent_configs() {
-        let dir = tempfile::tempdir().unwrap();
-        let saved = json!({ "summaryMode": "self", "useMaintainer": false });
-        let with = world(dir.path(), json!({ "compaction": saved }), Arc::default()).await;
-        assert_eq!(with.compaction_config(), Some(saved));
-        let other = tempfile::tempdir().unwrap();
-        assert_eq!(world(other.path(), json!({}), Arc::default()).await.compaction_config(), None);
-    }
-
     /// `providerNativePdf(name)`: what the registered adapter declares, whatever its name; an
     /// unregistered name is native, and the name is lower-cased before the lookup.
     #[tokio::test]
     async fn a_route_takes_a_pdf_natively_as_its_registered_adapter_declares() {
         let routes = RegisteredRouteTraits::new(registry().await);
-        for (provider, native) in [("anthropic", true), ("Anthropic", true), ("openai", true), ("groq", false), ("never-registered", true), ("", true)] {
+        for (provider, native) in [("anthropic", true), ("Anthropic", true), ("openai", true), ("groq", false), ("opencode-go", false), ("never-registered", true), ("", true)] {
             assert_eq!(routes.native_pdf(provider), native, "{provider:?}");
         }
         // A model-proxy reports the traits of the machine's real instance: neither list of names holds.
@@ -545,92 +323,186 @@ pub(crate) mod tests {
         assert!(!is_agent_owner(json!({}).as_object().unwrap()));
     }
 
-    #[test]
-    fn a_binding_is_recovered_from_the_state_then_the_newest_matching_message() {
-        let state = json!({ "providerAccountId": "a1", "providerAccountProvider": "openai-oauth", "providerSessionAccountId": "a0" });
-        assert_eq!(bound_account("openai-oauth", Some(&state), &[]), Some("a0".to_owned()));
-        assert_eq!(bound_account("anthropic-oauth", Some(&state), &[]), None, "another roster's ids");
-        let unbound = json!({ "providerAccountId": "a1", "providerAccountProvider": "openai-oauth", "providerSessionAccountId": "" });
-        assert_eq!(bound_account("openai-oauth", Some(&unbound), &[]), Some("a1".to_owned()));
-        assert_eq!(bound_account("openai-oauth", Some(&json!({ "providerAccountProvider": "openai-oauth" })), &[]), None);
-        assert_eq!(bound_account("openai-oauth", None, &[]), None);
-
-        let routed = |provider: &str, account: &str, session: Option<&str>| {
-            let mut routing = json!({ "provider": provider, "accountId": account });
-            if let Some(session) = session {
-                routing["sessionAccountId"] = json!(session);
-            }
-            json!({ "role": "assistant", "content": "x", "providerMetadata": { "accountRouting": routing } })
-        };
-        let messages = [
-            routed("openai-oauth", "old", None),
-            routed("openai-oauth", "m1", Some("bound")),
-            routed("anthropic-oauth", "other", None),
-            json!({ "role": "user", "content": "no routing" }),
-        ];
-        assert_eq!(bound_account("openai-oauth", None, &messages), Some("bound".to_owned()), "the newest message of this provider, its session binding first");
-        assert_eq!(bound_account("anthropic-oauth", None, &messages), Some("other".to_owned()));
-        assert_eq!(bound_account("gemini", None, &messages), None);
-        assert_eq!(bound_account("openai-oauth", Some(&state), &messages), Some("a0".to_owned()), "the state outranks the messages");
-        assert_eq!(bound_account("openai-oauth", Some(&json!({ "providerAccountId": "a1", "providerAccountProvider": "gemini" })), &messages), Some("bound".to_owned()), "a state of another provider falls through");
+    /// The services over the real ones and a config file under dir; the saved-request store is the
+    /// caller's to record into.
+    pub(crate) async fn services_with(
+        dir: &std::path::Path,
+        agent: Value,
+        sensitive: Arc<SensitiveStore>,
+        saved: Arc<SideQuestionStore>,
+    ) -> CompactionServices {
+        services_over(dir, agent, sensitive, saved, registry().await, Map::new()).await
     }
-
+    /// [`services_with`] over the providers `registry` holds, with `snapshot` as the configuration
+    /// the summary reads.
+    pub(crate) async fn services_over(
+        dir: &std::path::Path,
+        agent: Value,
+        sensitive: Arc<SensitiveStore>,
+        saved: Arc<SideQuestionStore>,
+        registry: Arc<ProviderRegistry>,
+        snapshot: Map<String, Value>,
+    ) -> CompactionServices {
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let path = dir.join("mixdog-config.json");
+        crate::run_host::fixture_fs::write(&path, serde_json::to_vec(&json!({ "agent": agent })).unwrap());
+        let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+        let clock: Arc<dyn Clock> = Arc::new(Fixed);
+        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+        let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
+        let summaries = SummaryServices::new(SummaryDeps {
+            registry: registry.clone(),
+            catalog,
+            config: Arc::new(move || snapshot.clone()),
+            env: Arc::new(|_| None),
+            clock: clock.clone(),
+            data_dir: AbsPath::new(dir).unwrap(),
+            files: Arc::new(MockFileService::default()),
+            processes: Arc::new(MockProcessManager::default()),
+            progress: Arc::new(MockProgress::default()),
+            io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+        });
+        CompactionServices {
+            config,
+            sensitive,
+            docs: Arc::new(Docs),
+            reader: Arc::new(Store),
+            attachment_facts: Arc::new(Recorded),
+            files: Arc::new(Files),
+            routes: RegisteredRouteTraits::new(registry),
+            requests: ProcessSessionRequests::new(saved),
+            summaries: Arc::new(summaries),
+        }
+    }
+    /// The services over the real ones, for a test that records nothing into them.
+    pub(crate) async fn services(dir: &std::path::Path, agent: Value, sensitive: Arc<SensitiveStore>) -> CompactionServices {
+        services_with(dir, agent, sensitive, Arc::new(SideQuestionStore::new())).await
+    }
+    async fn world(dir: &std::path::Path, agent: Value, sensitive: Arc<SensitiveStore>) -> ProcessCompactionWorld {
+        ProcessCompactionWorld::new(services(dir, agent, sensitive).await)
+    }
+    #[tokio::test]
+    async fn the_compaction_config_is_the_saved_agent_configs() {
+        let dir = tempfile::tempdir().unwrap();
+        let saved = json!({ "summaryMode": "self", "useMaintainer": false });
+        let with = world(dir.path(), json!({ "compaction": saved }), Arc::default()).await;
+        assert_eq!(with.compaction_config(), Some(saved));
+        let other = tempfile::tempdir().unwrap();
+        assert_eq!(world(other.path(), json!({}), Arc::default()).await.compaction_config(), None);
+    }
     #[tokio::test]
     async fn the_facts_are_the_sessions_own_services() {
         let dir = tempfile::tempdir().unwrap();
         let sensitive = Arc::new(SensitiveStore::default());
         sensitive.remember("sess_a", &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "text": "s3cret", "sensitive": true } } })]);
-        let ledger = WarmLedger::new();
-        let store = Arc::new(SideQuestionStore::new());
-        let world = ProcessCompactionWorld::new(services_with(dir.path(), json!({}), sensitive, ledger.clone(), store.clone()).await);
+        let world = world(dir.path(), json!({}), sensitive).await;
 
         let facts = world.facts(&thread(), &header(" anthropic "), &[]).await;
         assert!(facts.native_pdf, "the trimmed provider is the route's");
         assert!(!world.facts(&thread(), &header("groq"), &[]).await.native_pdf);
         assert_eq!(facts.redactor.redact(vec![json!({ "role": "user", "content": "s3cret" })]), [json!({ "role": "user", "content": "[redacted]" })]);
-        assert!(facts.saved_request.is_none());
         assert_eq!(facts.summary.session(), SessionRoute { provider: " anthropic ".into(), model: "m".into(), context_window: None, summary_model: None }, "the summary route is the session's stored provider text");
-
-        let sent = store.capture(&thread(), saved(5), Arc::new(Tagged), crate::run_host::side_question_store::tests_material(), false);
-        store.settle(&sent, Some(mixdog_agent::response::ModelResponse::default()));
-        let facts = world.facts(&thread(), &header("anthropic"), &[]).await;
-        assert_eq!(facts.saved_request.map(|r| (r.sent_at, r.settled)), Some((5, true)));
-        let route = SummaryRoute {
-            step: mixdog_agent::compact::summary_run::RouteStep::Session,
-            provider_name: "anthropic".into(),
-            model: "m".into(),
-            context_window: 0,
-            calibration: 1.0,
-            fast: false,
-            effort: None,
-            sender: Arc::new(Quiet),
-        };
-        assert!(matches!(facts.fork_sender.send(&route).await, Err(SummaryFailure::Failed(tag)) if tag == "saved"));
     }
 
-    /// The cache tail of the session's next request: its owner, its `messages` tier, its last send and
-    /// the account the roster plans (`''` without a roster, none when a roster provider has no account).
     #[tokio::test]
-    async fn the_cache_tail_is_the_sessions_next_request() {
-        let dir = tempfile::tempdir().unwrap();
-        let ledger = WarmLedger::new();
-        ledger.record("sess_a", WarmUse { at: 1_700_000_000_000, provider: "anthropic".into(), model: "m".into(), account_id: String::new() });
-        let world = ProcessCompactionWorld::new(services_with(dir.path(), json!({}), Arc::default(), ledger, Arc::new(SideQuestionStore::new())).await);
-        let mut session = header("anthropic");
-        session.insert("owner".into(), json!(" Agent "));
-        session.insert("providerCacheOpts".into(), json!({ "cacheStrategy": { "messages": "5m" } }));
-        session.insert("lastProviderSendAt".into(), json!("1600000000000"));
-        let cache = world.facts(&thread(), &session, &[]).await.cache;
-        assert!(cache.agent_owner() && cache.five_minute_tail());
-        assert_eq!((cache.last_provider_send_at(), cache.now_ms()), (1_600_000_000_000, NOW as u64));
-        assert_eq!((cache.last_use_at(), cache.route_use_at()), (1_700_000_000_000, Some(1_700_000_000_000)));
+    async fn the_fold_summarizes_the_round_that_settled_after_compactor_assembly() {
+        use mixdog_agent::env::{CompactRequest, CompactTrigger};
+        use mixdog_agent::message::{ToolKind, content_text};
+        use mixdog_agent::response::ModelResponse;
+        use mixdog_core_api::domain::mock::MockAttempt;
+        use mixdog_core_api::domain::provider::{RequestOptions, ToolCall};
 
-        let lead = world.facts(&thread(), &header("anthropic"), &[]).await.cache;
-        assert!(!lead.agent_owner() && !lead.five_minute_tail());
-        assert_eq!(lead.last_provider_send_at(), 0, "never sent");
-        // anthropic-oauth keeps a roster, and this install has no account on it.
-        assert_eq!(world.facts(&thread(), &header("anthropic-oauth"), &[]).await.cache.route_use_at(), None);
+        use crate::run_host::side_requests::{RunSide, SideRequests};
+
+        let dir = tempfile::tempdir().unwrap();
+        let services = services(dir.path(), json!({ "compaction": { "summaryMode": "self" } }), Arc::default()).await;
+        let side = SideRequests {
+            store: services.requests.saved.clone(),
+            caching: Arc::new(|_, _| true),
+            docs: services.docs.clone(),
+            reader: services.reader.clone(),
+            facts: services.attachment_facts.clone(),
+            clock: Arc::new(Fixed),
+        };
+        let thread = thread();
+        let tap = |thread, provider: Arc<MockProvider>| side.tap(RunSide {
+            thread, provider_name: "openai".into(), provider, agent_owner: false,
+        });
+        let request = |messages: &[AgentMessage]| ModelRequest {
+            model: "m".into(),
+            messages: messages.iter().map(AgentMessage::wire).collect(),
+            tools: Vec::new(),
+            options: RequestOptions::default(),
+        };
+        let reply = |content: &str| ModelResponse { content: content.into(), ..ModelResponse::default() };
+        let provider = |text: &str| Arc::new(MockProvider::new([MockAttempt::Body(format!("t:{text}\ndone\n").into_bytes())]));
+        let old = provider("summary of the prior turn");
+        tap(thread.clone(), old.clone()).begin(&request(&[AgentMessage::user("old request")])).settle(&reply("old reply"));
+
+        let compactors = SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(services)), Arc::new(Fixed));
+        let mut header = header("openai");
+        header.insert("contextWindow".into(), json!(200_000));
+        let compactor = compactors.compactor(&thread, &header, &[], CompactorInput {
+            settings: CompactSettings { context_window: Some(200_000), ..CompactSettings::default() },
+            rows: Arc::new(StoredRows::new()),
+            archive: Arc::new(Archive),
+            blobs: Arc::new(NoBlobs),
+        }).await.unwrap();
+
+        let latest = provider("summary of the settled work");
+        let mut messages = vec![
+            AgentMessage::user("current request"),
+            AgentMessage::assistant("checking the build", vec![ToolCall {
+                id: "check".into(), name: "check_build".into(), arguments: json!({}), native_type: None,
+            }]),
+            AgentMessage::tool_text("check", "Build succeeded", ToolKind::Normal),
+        ];
+        tap(thread, latest.clone()).begin(&request(&messages)).settle(&reply("second round"));
+        messages.push(AgentMessage::assistant("second round", Vec::new()));
+        let other = provider("summary of a different session");
+        tap(ThreadId::from("other"), other.clone()).begin(&request(&messages)).settle(&reply("unrelated reply"));
+
+        let output = compactor.compact(CompactRequest {
+            messages: &messages,
+            budget_tokens: 10_000,
+            trigger: CompactTrigger::Auto,
+            require_reduction: false,
+            reference_latest_attachments: false,
+            active_turn: true,
+            latest_user_prefix: "",
+        }).await.unwrap();
+
+        assert!(output.summary_route.is_some_and(|route| route.forked));
+        assert!(output.messages.iter().any(|m| content_text(&m.message.content).contains("summary of the settled work")));
+        let calls = |provider: &MockProvider| provider.attempts.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!((calls(&latest), calls(&old), calls(&other)), (1, 0, 0));
     }
+    /// `SessionCompactors` builds a real compactor over the real world: the session's threshold of
+    /// 1 token summarizes even a one-line chat, and a window-less route has no policy.
+    #[tokio::test]
+    async fn session_compactors_build_a_compactor_over_the_real_world() {
+        let dir = tempfile::tempdir().unwrap();
+        let world = Arc::new(world(dir.path(), json!({ "compaction": { "summaryMode": "self" } }), Arc::default()).await);
+        let compactors = SessionCompactors::new(world, Arc::new(Fixed));
+        let rows = Arc::new(StoredRows::new());
+        let input = |window: Option<u64>| CompactorInput {
+            settings: CompactSettings { context_window: window, request_reserve_tokens: 1_200, configured_reserve_tokens: 800, token_calibration: 1.25, ..CompactSettings::default() },
+            rows: rows.clone(),
+            archive: Arc::new(Archive),
+            blobs: Arc::new(NoBlobs),
+        };
+        let compactor = compactors.compactor(&thread(), &header("anthropic"), &[], input(Some(200_000))).await.expect("a compactor");
+        assert!(compactor.estimate_tokens(&[AgentMessage::user("hello"), AgentMessage::assistant("hi", Vec::new())]) > 0);
+        assert!(compactors.compactor(&thread(), &header("anthropic"), &[], input(None)).await.is_none(), "no window, no policy");
+    }
+
+    impl Blobs for NoBlobs {
+        fn text_within(&self, _: &str, _: u64) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
+            Ok(None)
+        }
+    }
+
 
     /// Node's attachment preflight (`runPreSendCompactPass` at `agentLoop`'s request boundary;
     /// `fixtures/session-gaps/attachment-preflight.json`, `record-session-gaps.mjs`): real PDFs and a PNG in the real
@@ -640,6 +512,7 @@ pub(crate) mod tests {
     /// messages and Node's continuation (none after a rewrite), the run ends with Node's continuation and leaves
     /// Node's transcript.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn the_attachment_preflight_rewrites_each_turn_as_nodes_pre_send_pass() {
         use base64::Engine as _;
         use mixdog_agent::env::{AllowAll, CommitError, DrainRequest, NoGuards, NullObserver, Rewrite, SteerEntry, SteerSource, Ticket, TranscriptSink};
@@ -891,7 +764,7 @@ pub(crate) mod tests {
                 config.compact = None;
                 config.attachments = Some(reader.clone());
                 config.options.provider_state = continuation.clone();
-                let output = Run::new(env, CancellationToken::new(), provider.clone(), ToolSet::new(Vec::new()), tool_env, config, transcript.clone(), RunCarry::default())
+                let output = Run::new(env, tokio_util::sync::CancellationToken::new(), provider.clone(), ToolSet::new(Vec::new()), tool_env, config, transcript.clone(), RunCarry::default())
                     .run()
                     .await
                     .unwrap_or_else(|f| panic!("{name} turn {n}: {:?}", f.error));
@@ -942,23 +815,151 @@ pub(crate) mod tests {
             }
         }
     }
+}
 
-    /// `SessionCompactors` builds a real compactor over the real world: the session's threshold of
-    /// 1 token summarizes even a one-line chat, and a window-less route has no policy.
-    #[tokio::test]
-    async fn session_compactors_build_a_compactor_over_the_real_world() {
-        let dir = tempfile::tempdir().unwrap();
-        let world = Arc::new(world(dir.path(), json!({ "compaction": { "summaryMode": "self" } }), Arc::default()).await);
-        let compactors = SessionCompactors::new(world, Arc::new(Fixed));
-        let rows = Arc::new(StoredRows::new());
-        let input = |window: Option<u64>| CompactorInput {
-            settings: CompactSettings { context_window: window, request_reserve_tokens: 1_200, configured_reserve_tokens: 800, token_calibration: 1.25, ..CompactSettings::default() },
-            rows: rows.clone(),
-            archive: Arc::new(Archive),
-            blobs: Arc::new(NoBlobs),
+pub struct ProcessCompactionWorld {
+    services: CompactionServices,
+}
+impl ProcessCompactionWorld {
+    pub fn new(services: CompactionServices) -> Self {
+        Self { services }
+    }
+}
+
+struct FoldHandoff {
+    planned: PlannedHandoff,
+    thread: ThreadId,
+    clock: Arc<dyn Clock>,
+    store: Arc<SideQuestionStore>,
+    summaries: Arc<SummaryServices>,
+    /// The provider and model the session is seated on: the only route whose saved request this fold may fork.
+    seated: (String, String),
+}
+
+/// The provider and model a session header seats it on.
+fn seated_identity(header: &Header) -> (String, String) {
+    let model = header.get("model").and_then(Value::as_str).map_or("", mixdog_js::js_trim);
+    (route_provider(header).to_owned(), model.to_owned())
+}
+
+/// The saved request a fold may fork, given the one the store offers (its own selection and forgetting rules are
+/// unchanged): only a request sent on the route the session is seated on. The entry a model fallback left behind was sent on
+/// the departing route, so it forks nothing here until a request of the destination replaces it and settles.
+fn fork_on_seated(seated: &(String, String), offered: Option<(SavedRequest, Arc<dyn ForkSender>)>) -> (Option<SavedRequest>, Arc<dyn ForkSender>) {
+    match offered {
+        Some((saved, sender)) if saved.provider_name == seated.0 && saved.model == seated.1 => (Some(saved), sender),
+        _ => (None, Arc::new(NoSavedRequest) as _),
+    }
+}
+
+#[cfg(test)]
+mod seated_fork_tests {
+    use super::*;
+
+    fn entry(provider: &str, model: &str) -> Option<(SavedRequest, Arc<dyn ForkSender>)> {
+        let saved = SavedRequest {
+            provider_name: provider.into(),
+            model: model.into(),
+            messages_tier: None,
+            catalog_supports_prompt_caching: true,
+            sent_at: 1,
+            settled: true,
+            compacted: false,
+            prompt_tokens: 9,
+            shared_prefix_messages: 1,
         };
-        let compactor = compactors.compactor(&thread(), &header("anthropic"), &[], input(Some(200_000))).await.expect("a compactor");
-        assert!(compactor.estimate_tokens(&[AgentMessage::user("hello"), AgentMessage::assistant("hi", Vec::new())]) > 0);
-        assert!(compactors.compactor(&thread(), &header("anthropic"), &[], input(None)).await.is_none(), "no window, no policy");
+        Some((saved, Arc::new(NoSavedRequest)))
+    }
+
+    /// The Fable entry a quota fallback left behind forks nothing for the GPT destination; the entry of a GPT request that
+    /// settled afterwards (it replaces the Fable one in the store) is forked, whether or not the turn is the original one.
+    #[test]
+    fn only_a_request_sent_on_the_seated_route_is_forked() {
+        let seated = ("openai-oauth".to_owned(), "gpt-6.2-astra".to_owned());
+        assert!(fork_on_seated(&seated, entry("anthropic-oauth", "claude-fable-5-2")).0.is_none());
+        assert!(fork_on_seated(&seated, entry("openai-oauth", "gpt-6.2-sol")).0.is_none(), "the same provider's other model is another route");
+        assert_eq!(fork_on_seated(&seated, entry("openai-oauth", "gpt-6.2-astra")).0.map(|saved| saved.prompt_tokens), Some(9));
+        assert!(fork_on_seated(&seated, None).0.is_none());
+    }
+}
+
+#[async_trait]
+impl HandoffSource for FoldHandoff {
+    async fn triggered(&self, messages: &[AgentMessage]) -> bool {
+        self.planned.triggered(messages).await
+    }
+
+    /// A model fallback moved the run: the summary routes resolve from the seated route, and the budgets are its own.
+    fn resized(&self, seated: &SeatedRoute) -> Option<Arc<dyn HandoffSource>> {
+        let planned = self.planned.sized(&seated.settings)?;
+        let resolver = Arc::new(SummaryRoutes::new(self.summaries.host(&self.thread, &seated.header)));
+        Some(Arc::new(FoldHandoff {
+            planned: PlannedHandoff { resolver, ..planned },
+            thread: self.thread.clone(),
+            clock: self.clock.clone(),
+            store: self.store.clone(),
+            summaries: self.summaries.clone(),
+            seated: seated_identity(&seated.header),
+        }))
+    }
+
+    async fn handoff(&self, messages: &[AgentMessage], budget_tokens: u64) -> Result<Handoff, CompactError> {
+        let (saved, sender) = fork_on_seated(&self.seated, self.store.compaction_fork(&self.thread));
+        // The loop can settle more tool rounds after assembly. Warmth, sizing and the send
+        // must all use this fold's entry, not independently look up whatever is latest.
+        let planned = PlannedHandoff {
+            fork: Arc::new(SessionFork::new(saved, self.clock.clone(), sender)),
+            parts: self.planned.parts.clone(),
+            resolver: self.planned.resolver.clone(),
+            config: self.planned.config.clone(),
+        };
+        planned.handoff(messages, budget_tokens).await
+    }
+}
+
+#[async_trait]
+impl CompactionWorld for ProcessCompactionWorld {
+    async fn facts(&self, thread: &ThreadId, header: &Header, _prior: &[Value]) -> CompactionFacts {
+        let s = &self.services;
+        let provider = route_provider(header);
+        // One store view serves the priced media, the tool-result media and the references.
+        let media = Arc::new(MediaLowering::new(
+            thread.clone(),
+            s.docs.clone(),
+            s.reader.clone(),
+            s.attachment_facts.clone(),
+            s.routes.no_documents(provider),
+            ProviderId::from(provider),
+        ));
+        CompactionFacts {
+            media: media.clone(),
+            tool_media: media.clone(),
+            native_pdf: s.routes.native_pdf(provider),
+            attachments: Arc::new(ReferencedMedia::new(s.files.clone(), s.attachment_facts.clone(), media).with_reader(s.reader.clone())),
+            redactor: Arc::new(SensitiveRedactor::new(s.sensitive.clone(), thread.as_str())),
+            summary: s.summaries.host(thread, header),
+            saved_request: None,
+            fork_sender: Arc::new(NoSavedRequest),
+        }
+    }
+
+    fn handoff(&self, thread: &ThreadId, header: &Header, clock: &Arc<dyn Clock>, planned: PlannedHandoff) -> Arc<dyn HandoffSource> {
+        Arc::new(FoldHandoff {
+            planned,
+            thread: thread.clone(),
+            clock: clock.clone(),
+            store: self.services.requests.saved.clone(),
+            summaries: self.services.summaries.clone(),
+            seated: seated_identity(header),
+        })
+    }
+
+    /// `config.compaction` of the agent config `loadConfig()` returns.
+    fn compaction_config(&self) -> Option<Value> {
+        self.services.config.agent().get("compaction").cloned()
+    }
+
+    fn retire_fork(&self, thread: &ThreadId) {
+        self.services.requests.saved.retire_compaction_fork(thread);
     }
 }

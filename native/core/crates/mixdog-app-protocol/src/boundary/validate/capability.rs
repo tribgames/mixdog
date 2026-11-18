@@ -229,6 +229,7 @@ const CAPABILITIES: &[(&str, &str, &[&str])] = &[
     ("thread/goal/clear", "goalControl", &[]),
     ("thread/goal/control", "goalControl", &[]),
     ("thread/goal/set", "goalControl", &[]),
+    ("thread/imageRecovery", "imageRecovery", &["action"]),
     ("thread/inheritancePreflight", "inheritancePreflight", &[]),
     ("thread/listShellJobs", "listShellJobs", &[]),
     ("thread/listStoppableShellJobs", "listStoppableShellJobs", &[]),

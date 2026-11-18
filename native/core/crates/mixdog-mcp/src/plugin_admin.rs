@@ -32,6 +32,18 @@ use mixdog_statefile::update_json;
 use mixdog_statefile::with_lock;
 
 const REGISTRY_VERSION: u64 = 1;
+
+/// `loadRegistry` (`plugin-admin.mjs:40`): the registry's plugin entries; a damaged `registry.json` is set aside and
+/// `registry.json.bak` restored as [`mixdog_statefile::read_json`] describes, a missing or unrecoverable one is empty.
+/// The one reader of the admin path and of the hook bus.
+pub(crate) fn read_registry_entries(lane: &InLane<MaintenanceIo>, path: &Path) -> std::io::Result<Vec<Value>> {
+    let has_list = |v: &Value| {
+        if v.get("plugins").is_some_and(Value::is_array) { Ok(()) } else { Err(Invalid::Damaged("plugin registry has no plugin list".to_owned())) }
+    };
+    let opts = Opts { secret: true, ..Opts::default() };
+    let value = read_json(lane, path, Some(&has_list), &opts)?;
+    Ok(value.and_then(|v| v.get("plugins").and_then(Value::as_array).cloned()).unwrap_or_default())
+}
 const MUTATION_LOCK_TIMEOUT: Duration = Duration::from_millis(130_000);
 const REGISTRY_LOCK_TIMEOUT: Duration = Duration::from_millis(2_000);
 const MUTATION_LOCK_STALE: Duration = Duration::from_millis(10 * 60_000);
@@ -230,12 +242,7 @@ impl PluginAdmin {
     /// The registry; a damaged one is handled as [`mixdog_statefile::read_json`] describes and a
     /// missing or unrecoverable one starts empty. I/O errors are errors.
     fn load_registry(&self, lane: &InLane<MaintenanceIo>) -> Result<Vec<Value>> {
-        let has_list = |v: &Value| {
-            if v.get("plugins").is_some_and(Value::is_array) { Ok(()) } else { Err(Invalid::Damaged("plugin registry has no plugin list".to_owned())) }
-        };
-        let opts = Opts { secret: true, ..Opts::default() };
-        let value = read_json(lane, &self.registry_path(), Some(&has_list), &opts).map_err(io)?;
-        Ok(value.and_then(|v| v.get("plugins").and_then(Value::as_array).cloned()).unwrap_or_default())
+        read_registry_entries(lane, &self.registry_path()).map_err(io)
     }
 
     /// `mutateRegistry`: runs `mutate` on the registry under its lock and writes the result (with

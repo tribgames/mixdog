@@ -87,7 +87,6 @@ use crate::providers::google::auth::RequestAuth;
 use crate::providers::google::auth::antigravity::FileTokenStore;
 use crate::providers::google::auth::vertex;
 use crate::providers::google::serving::VertexPlace;
-use crate::providers::google::serving::env_location;
 use crate::providers::google::traits::ModelTraits;
 use crate::providers::grok;
 use crate::providers::grok::auth::GrokCredential;
@@ -180,16 +179,26 @@ pub struct DefaultProviderBuilder {
     capabilities: std::sync::Mutex<HashMap<String, Arc<dyn CachedModelInfo>>>,
     /// The roster walk of every custom provider's key pool (quota strikes, session bindings).
     key_rotation: AccountRotation,
+    custom_rejected_history: Arc<custom::responses::RejectedHistory>,
     /// The resizer every Messages engine fits its images with (`prepareAnthropicImages`); none where the host has no
     /// extension host.
     images: Option<Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>>,
     /// The roster walk of the account providers' sends ([`Self::bind_account_rotation`]). The host's one rotation is
     /// built after the registry (it measures through the usage service, which reads the registry), so it arrives late.
     account_rotation: Arc<std::sync::OnceLock<AccountRotation>>,
+    /// The stored plan readings an account provider with no roster is admitted by ([`Self::bind_usage_snapshots`]);
+    /// bound late for the same reason as the rotation.
+    usage_snapshots: Arc<std::sync::OnceLock<Arc<dyn crate::warmer::gate::UsageSnapshots>>>,
     /// The roster account this builder's credentials are fixed to: an account engine's builder ([`OAuthEngines`]).
     /// `None` follows the provider's current account.
     fixed_account: Option<String>,
+    /// The listed models of each account provider's compatible engines, by provider. Its accounts are rows of one roster:
+    /// the engine that follows the current account and each account's own read what the provider's one listing returned
+    /// (Node kept a provider's listed models once per process, whichever instance sent). A rebuild starts a new table.
+    account_models: AccountModels,
 }
+
+type AccountModels = Arc<std::sync::Mutex<HashMap<String, Arc<crate::providers::compat::models::ModelTable>>>>;
 
 impl DefaultProviderBuilder {
     pub fn new(env: BuilderEnv) -> Self {
@@ -199,9 +208,12 @@ impl DefaultProviderBuilder {
             metadata_project: tokio::sync::OnceCell::new(),
             capabilities: std::sync::Mutex::default(),
             key_rotation,
+            custom_rejected_history: Arc::default(),
             images: None,
             account_rotation: Arc::default(),
+            usage_snapshots: Arc::default(),
             fixed_account: None,
+            account_models: Arc::default(),
         }
     }
 
@@ -210,6 +222,12 @@ impl DefaultProviderBuilder {
     /// provider sends on its current account alone. A second bind is ignored.
     pub fn bind_account_rotation(&self, rotation: AccountRotation) {
         let _ = self.account_rotation.set(rotation);
+    }
+
+    /// The stored plan readings that refuse a send of an account provider with no roster before it goes on the wire
+    /// once its plan window is proven spent. Without them such a provider is always sent. A second bind is ignored.
+    pub fn bind_usage_snapshots(&self, snapshots: Arc<dyn crate::warmer::gate::UsageSnapshots>) {
+        let _ = self.usage_snapshots.set(snapshots);
     }
 
     /// Every Messages engine this builder builds fits its images with `resizer`.
@@ -223,8 +241,9 @@ impl DefaultProviderBuilder {
         self.images.clone().map(|resizer| crate::providers::anthropic::images::ImageFitter::new(resizer, self.env.gzip_lane))
     }
 
-    /// A custom provider with additional API keys sends through its key roster (`createCustomKeyPoolProvider`);
-    /// one without sends with its primary key alone.
+    /// A custom provider sends through its key roster (`createCustomKeyPoolProvider`): with additional API keys the
+    /// roster walks them, without any every send is its primary key's. Either way each request goes out on an engine
+    /// fixed to the one key it was sent with, and its continuation state is that key id's.
     async fn build_custom_pool(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
         let primary = self.build_custom(name, cfg)?;
         let ids: Vec<String> = cfg
@@ -232,18 +251,24 @@ impl DefaultProviderBuilder {
             .and_then(Value::as_array)
             .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
             .unwrap_or_default();
-        if ids.is_empty() {
-            return Ok(primary);
-        }
         let mut keys = Vec::with_capacity(ids.len());
         for id in ids {
             let engine = self.custom_key_engine(name, cfg, &id).await;
             keys.push((id, engine));
         }
-        Ok(Arc::new(super::key_pool::KeyPoolAdapter::new(name, primary, keys, self.key_rotation.clone())))
+        let own = Arc::new(CustomOwnKey {
+            name: name.to_owned(),
+            cfg: cfg.clone(),
+            env: self.env.clone(),
+            images: self.images.clone(),
+            keyless: primary.clone(),
+            rejected_history: self.custom_rejected_history.clone(),
+            pinned: std::sync::Mutex::default(),
+        });
+        Ok(Arc::new(super::key_pool::KeyPoolAdapter::new(name, primary, own, keys, self.key_rotation.clone())))
     }
 
-    /// `customKeyEngine`: the provider's configuration with the additional key as its only key source.
+    /// `customKeyEngine`: the provider's configuration with the additional key, read once, as its only key.
     async fn custom_key_engine(&self, name: &str, cfg: &Value, id: &str) -> super::key_pool::KeyEngine {
         let key = self
             .env
@@ -254,14 +279,59 @@ impl DefaultProviderBuilder {
         if key.is_empty() {
             return Err(format!("An additional API key of {name} is not readable; enter it again in its settings."));
         }
-        let mut config = cfg.clone();
-        if let Some(object) = config.as_object_mut() {
-            // The key is the only source: an environment variable names the primary key alone.
-            object.shift_remove("apiKeyEnv");
-            object.shift_remove(super::providers::CUSTOM_KEY_IDS);
-            object.insert("apiKey".into(), json!(key));
+        Ok(self.custom_parts(name, cfg, CustomCredential::Pinned(Some(key)))?.adapter)
+    }
+}
+
+/// A custom provider's primary key as its pool sends with it: the key the configuration resolves to (settings, the
+/// named environment variable, the keychain) is read once per request, and the request goes out on an engine built
+/// with that key alone, so a key saved meanwhile reaches the next request and never this one's refresh.
+struct CustomOwnKey {
+    name: String,
+    cfg: Value,
+    env: BuilderEnv,
+    images: Option<Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>>,
+    /// The provider's own adapter: a keyless endpoint (`auth: none`) reads no key, so it is fixed already.
+    keyless: Arc<dyn ProviderAdapter>,
+    rejected_history: Arc<custom::responses::RejectedHistory>,
+    /// The key read last (`None`: none) and the engine built with it.
+    pinned: std::sync::Mutex<Option<(Option<String>, Arc<dyn ProviderAdapter>)>>,
+}
+
+#[async_trait]
+impl super::key_pool::OwnKey for CustomOwnKey {
+    async fn pinned(&self) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
+        if text(&self.cfg, "auth") == Some("none") {
+            return Ok(self.keyless.clone());
         }
-        self.build_custom_parts(name, &config).map(|parts| parts.adapter)
+        // `CustomKey::header`: a key that cannot be read fails the request in env mode and sends none otherwise.
+        let key = match ProviderKey::primary(self.env.keys.clone(), &self.name, key_config(&self.cfg)).key().await {
+            Ok(key) => Some(key),
+            Err(_) => match text(&self.cfg, "apiKeyEnv") {
+                Some(var) => {
+                    let mut err = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
+                    err.message = format!("API key environment variable {var} is not set");
+                    return Err(err);
+                }
+                None => None,
+            },
+        };
+        if let Some((_, engine)) = self.pinned.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().filter(|(held, _)| *held == key) {
+            return Ok(engine.clone());
+        }
+        let mut builder = DefaultProviderBuilder::new(self.env.clone());
+        builder.images = self.images.clone();
+        builder.custom_rejected_history = self.rejected_history.clone();
+        let engine = builder
+            .custom_parts(&self.name, &self.cfg, CustomCredential::Pinned(key.clone()))
+            .map_err(|message| super::key_pool::plain(ErrorKind::Unknown, None, message))?
+            .adapter;
+        *self.pinned.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((key, engine.clone()));
+        Ok(engine)
+    }
+
+    fn built(&self) -> Option<Arc<dyn ProviderAdapter>> {
+        self.pinned.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().map(|(_, engine)| engine.clone())
     }
 }
 
@@ -410,14 +480,79 @@ impl ApiKeySource for FileKey {
     }
 }
 
+struct MimoKey {
+    file: CredentialFile,
+    http: Arc<dyn HttpSend>,
+}
+
+#[async_trait]
+impl ApiKeySource for MimoKey {
+    async fn key(&self) -> Result<String, ProviderError> {
+        self.routed_key(false).await.map(|(key, _)| key)
+    }
+
+    async fn reload(&self) -> Result<String, ProviderError> {
+        self.key().await
+    }
+
+    async fn routed_key(&self, discover: bool) -> Result<(String, Option<String>), ProviderError> {
+        use mixdog_core_api::domain::login::LoginFailure;
+        let file = self.file.pinned().await;
+        let stored = match file.load::<MimoCredentials>().await {
+            Probe::Present(stored) if !stored.api_key.is_empty() => stored,
+            Probe::Present(_) | Probe::Absent => return Err(reauth("not signed in to mimo-oauth")),
+            Probe::Unreadable => {
+                let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
+                error.message = "the stored mimo-oauth login cannot be read right now".into();
+                return Err(error);
+            }
+        };
+        file.keep(&[&stored.api_key]);
+        if !discover {
+            let base = stored.base_url().to_owned();
+            return Ok((stored.api_key, Some(base)));
+        }
+        let routed = crate::providers::compat::login::mimo::ensure_token_plan_base_url(&self.http, &file, stored).await
+            .map_err(|failure| match failure {
+                LoginFailure::Failed { code, message } if code == "invalid_grant" => {
+                    let mut error = reauth(&message);
+                    error.status = Some(401);
+                    error.code = Some(code);
+                    error
+                }
+                failure => {
+                    let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
+                    error.message = match failure {
+                        LoginFailure::Failed { message, .. } => message,
+                        other => format!("{other:?}"),
+                    };
+                    error
+                }
+            })?;
+        let base = routed.base_url().to_owned();
+        Ok((routed.api_key, Some(base)))
+    }
+}
+
 /// A custom provider's credential header, read per request: `None` for a
 /// keyless endpoint, and for a missing key outside env mode. In env mode an
-/// unset variable fails before any request is sent, and a 401 re-reads it.
+/// unset variable fails before any request is sent, and a 401 re-reads it
+/// where the key is the configuration's (`refreshable`).
 struct CustomKey {
-    source: Option<Arc<ProviderKey>>,
+    source: Option<Arc<dyn ApiKeySource>>,
     env: Option<String>,
     header: &'static str,
     bearer: bool,
+    refreshable: bool,
+}
+
+/// Where a custom engine's key comes from.
+enum CustomCredential {
+    /// The provider's configuration, read per request (the provider's own adapter: its listing and the setup probes).
+    Configured,
+    /// One key for the engine's life, never replaced by a 401's re-read (an engine a pool request is pinned to); `None`
+    /// sends no key.
+    Pinned(Option<String>),
 }
 
 #[async_trait]
@@ -442,7 +577,7 @@ impl Credential for CustomKey {
     }
 
     fn refreshable(&self) -> bool {
-        self.source.is_some()
+        self.refreshable
     }
 }
 
@@ -595,9 +730,14 @@ impl OpenCodeKey {
     async fn token(&self, force: bool) -> Result<String, ProviderError> {
         match self.0.ensure_fresh(force).await {
             Ok(credentials) => Ok(credentials.access_token),
-            Err(RefreshError::Reauth(message, _)) => Err(reauth(&format!("OpenCode sign-in expired: {message}"))),
-            Err(RefreshError::Failed(message, _)) => {
+            Err(RefreshError::Reauth(message, status)) => {
+                let mut err = reauth(&format!("OpenCode sign-in expired: {message}"));
+                err.status = Some(status);
+                Err(err)
+            }
+            Err(RefreshError::Failed(message, status)) => {
                 let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
+                err.status = status;
                 err.message = message;
                 Err(err)
             }
@@ -608,10 +748,16 @@ impl OpenCodeKey {
 #[async_trait]
 impl ApiKeySource for OpenCodeKey {
     async fn key(&self) -> Result<String, ProviderError> {
+        if let Ok(token) = crate::providers::compat::login::opencode_go::GATEWAY_CREDENTIAL.try_with(|credential| credential.access_token.clone()) {
+            return Ok(token);
+        }
         self.token(false).await
     }
     async fn reload(&self) -> Result<String, ProviderError> {
         self.token(true).await
+    }
+    fn opencode_auth(&self) -> Option<&OpenCodeGoAuth> {
+        Some(&self.0)
     }
 }
 
@@ -688,23 +834,32 @@ impl DefaultProviderBuilder {
         ProviderKey::primary(self.env.keys.clone(), provider, key_config(cfg))
     }
 
-    async fn build_anthropic(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-        let mut config = AnthropicConfig::new(self.env.anthropic_caps.clone());
+    fn build_anthropic_api_key(&self, cfg: &Value) -> Arc<dyn ProviderAdapter> {
+        let mut config = AnthropicConfig::new(self.env.anthropic_caps.clone()).with_message_threads(flag(cfg, "messageThreads"));
         if let Some(url) = text(cfg, "baseURL") {
             config.base_url = url.trim_end_matches('/').to_owned();
         }
         config.disable_beta_headers = flag(cfg, "disableBetaHeaders").unwrap_or(false);
         config.extra_headers = string_pairs(cfg, "extraHeaders");
         config.listing = self.env.listing.clone();
+        let keys = self.key_source("anthropic", cfg);
+        // The API-key provider posts through the Anthropic client, the user's headers as its `defaultHeaders`
+        // (anthropic.mjs:116-125).
+        let http = Arc::new(GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::Anthropic, &config.extra_headers));
+        adapter(AnthropicAdapter::api_key(config, http, keys, self.env.gzip_lane).with_images(self.fitter()))
+    }
+
+    async fn build_anthropic_oauth(&self, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+        // The subscription bearer is for Anthropic's own Messages endpoint, not configurable API-key endpoints.
+        let mut config = AnthropicConfig::new(self.env.anthropic_caps.clone()).with_message_threads(flag(cfg, "messageThreads"));
+        config.disable_beta_headers = flag(cfg, "disableBetaHeaders").unwrap_or(false);
+        config.listing = self.env.listing.clone();
         let http = self.env.http.clone();
-        if name == "anthropic" {
-            let keys = self.key_source(name, cfg);
-            // The API-key provider posts through the Anthropic client, the user's headers as its `defaultHeaders`
-            // (anthropic.mjs:116-125).
-            let http = Arc::new(GatewayHttp::new(http).through_sdk(Sdk::Anthropic, &config.extra_headers));
-            return Ok(adapter(AnthropicAdapter::api_key(config, http, keys, self.env.gzip_lane).with_images(self.fitter())));
+        let mut session = OAuthSession::new(self.file("anthropic-oauth")?, http.clone());
+        if let Some(versions) = &self.env.client_versions {
+            session = session.with_cli_version_source(versions.claude());
         }
-        let session = Arc::new(OAuthSession::new(self.file(name)?, http.clone()));
+        let session = Arc::new(session);
         let enterprise = session.stored().await.map(|s| s.is_enterprise()).unwrap_or(false);
         Ok(adapter(
             AnthropicAdapter::oauth(config, http, session, enterprise, self.env.gzip_lane)
@@ -731,19 +886,23 @@ impl DefaultProviderBuilder {
         let facts = self.env.openai_facts.clone();
         let (transport, mode) = openai_transport(self.env.env.var("MIXDOG_OAI_TRANSPORT"));
         let (config, credentials): (OpenAiConfig, Arc<dyn CredentialSource>) = if name == "openai" {
+            let store = flag(cfg, "store").unwrap_or(true)
+                && !self.env.env.var("MIXDOG_OAI_STORE").is_some_and(|raw| {
+                    matches!(mixdog_js::js_trim(&raw).to_ascii_lowercase().as_str(), "0" | "false" | "off" | "no")
+                });
             (
-                OpenAiConfig::api_key(flag(cfg, "store").unwrap_or(true), facts, context),
+                OpenAiConfig::api_key(store, facts, context),
                 Arc::new(OpenAiKey(self.key_source(name, cfg))),
             )
         } else {
             (
-                OpenAiConfig::codex(false, true, self.env.codex_identity.clone(), facts, context),
+                OpenAiConfig::codex(false, self.env.codex_identity.clone(), facts, context),
                 Arc::new(OpenAiOAuth::new(self.file(name)?, self.env.http.clone())),
             )
         };
         Ok(adapter(OpenAiAdapter::new(
             ProviderId::from(name),
-            OpenAiCodec::new(config, transport),
+            OpenAiCodec::new(config.with_prompt_cache_lanes(cfg), transport),
             AdapterLinks {
                 http: self.env.http.clone(),
                 dial: self.env.dial.clone(),
@@ -772,6 +931,7 @@ impl DefaultProviderBuilder {
             base_url: base_url.or_else(|| text(cfg, "baseURL").map(|u| u.trim_end_matches('/').to_owned())),
             client_version: self.env.client_version.clone(),
             extra_headers,
+            environment: (profile.id == "xai").then(|| crate::providers::compat::chat::EnvSource(self.env.env.clone())),
             ..CompatConfig::for_profile(profile)
         }
     }
@@ -810,17 +970,18 @@ impl DefaultProviderBuilder {
             .with_images(self.fitter())
     }
 
-    /// xAI's API mode (`useXaiResponsesApi`): Responses unless the request, config or environment names Chat.
+    fn xai_config_value(cfg: &Value, primary: &str, legacy: &str) -> Option<String> {
+        cfg.get(primary).filter(|value| !value.is_null())
+            .or_else(|| cfg.get(legacy).filter(|value| !value.is_null()))
+            .map(mixdog_js::value_to_string)
+    }
+
+    /// The provider default; the gateway applies any per-request override.
     fn xai_wire(&self, cfg: &Value) -> Wire {
-        let raw = text(cfg, "apiMode")
-            .or_else(|| text(cfg, "xaiApiMode"))
-            .map(str::to_owned)
+        let raw = Self::xai_config_value(cfg, "apiMode", "xaiApiMode")
             .or_else(|| self.env.env.var("MIXDOG_XAI_API_MODE"))
             .or_else(|| self.env.env.var("MIXDOG_XAI_RESPONSES"));
-        match raw.map(|v| v.trim().to_lowercase()) {
-            Some(mode) if ["0", "false", "off", "chat", "chat-completions", "chat_completions"].contains(&mode.as_str()) => Wire::Chat,
-            _ => Wire::Responses,
-        }
+        crate::providers::compat::xai_transport::request_wire(raw.as_deref(), Wire::Responses)
     }
 
     async fn build_compat(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -829,15 +990,11 @@ impl DefaultProviderBuilder {
             "xai" => (CompatProfile::xai(), self.key_source(name, cfg), None),
             "deepseek" => (CompatProfile::deepseek(), self.key_source(name, cfg), None),
             "openrouter" => (CompatProfile::openrouter(), self.key_source(name, cfg), None),
-            "mimo-oauth" => {
-                let file = self.file(name)?;
-                // The gateway the login named; the default when none was stored.
-                let base = match file.load::<MimoCredentials>().await {
-                    Probe::Present(c) => Some(c.base_url().to_owned()),
-                    _ => None,
-                };
-                (CompatProfile::mimo_oauth(), Arc::new(FileKey { file, provider: "mimo-oauth" }), base)
-            }
+            "mimo-oauth" => (
+                CompatProfile::mimo_oauth(),
+                Arc::new(MimoKey { file: self.file(name)?, http: self.env.http.clone() }),
+                None,
+            ),
             "command-code-oauth" => (
                 CompatProfile::command_code_oauth(),
                 Arc::new(FileKey { file: self.file(name)?, provider: "command-code-oauth" }),
@@ -860,13 +1017,18 @@ impl DefaultProviderBuilder {
             }
             other => return Err(format!("unknown enabled provider: {other}")),
         };
-        let config = self.compat_config(&profile, cfg, base_url, login_headers);
+        let mut config = self.compat_config(&profile, cfg, base_url, login_headers);
+        if crate::accounts::ACCOUNT_PROVIDERS.contains(&name) {
+            let mut tables = self.account_models.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            config.models = tables.entry(name.to_owned()).or_insert_with(|| config.models.clone()).clone();
+        }
         // The OpenAI client's `defaultHeaders`: the gateway's own headers and the user's (MiMo's through its
         // `extraHeaders`, mimo-oauth.mjs:172).
         let defaults: Vec<(String, String)> =
             profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).chain(config.extra_headers.iter().cloned()).collect();
         let http: Arc<dyn crate::transport::HttpSend> = Arc::new(GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::OpenAi, &defaults));
-        let codec = CompatChatCodec::new(profile.clone(), config.clone());
+        let codec = CompatChatCodec::new(profile.clone(), config.clone())
+            .with_cache_control(flag(cfg, "chatCacheControl"));
         let chat_base = codec.base_url().to_owned();
         let model_wires = cfg
             .get("modelWires")
@@ -889,8 +1051,15 @@ impl DefaultProviderBuilder {
             self.declare(name, account.clone());
         }
         let responses = || -> Arc<dyn ProviderAdapter> {
-            let codec = CompatResponsesCodec::new(profile.clone(), config.clone(), TransportKind::Http1);
+            let codec = CompatResponsesCodec::new(profile.clone(), config.clone(), TransportKind::Http1)
+                .with_prompt_cache_key(flag(cfg, "responsesPromptCacheKey"));
             Arc::new(ResponsesEngine::new(account.clone(), codec))
+        };
+        let xai_responses = || -> Arc<dyn ProviderAdapter> {
+            let codec = CompatResponsesCodec::new(profile.clone(), config.clone(), TransportKind::Http1);
+            let transport = Self::xai_config_value(cfg, "responsesTransport", "transport");
+            Arc::new(ResponsesEngine::new(account.clone(), codec)
+                .with_xai_websocket(self.env.dial.clone(), transport, self.env.env.clone()))
         };
         // The gateway's own identifying headers, then the user's (`extraHeaders`), ride every wire.
         let mut identifying: Vec<(String, String)> =
@@ -910,7 +1079,7 @@ impl DefaultProviderBuilder {
         let rows: Arc<dyn CachedModelInfo> = account.clone();
         let untuned = |_: &mut AnthropicConfig| {};
         let (engines, pick, session_header): GatewayEngines = match name {
-            "xai" => (vec![(Wire::Responses, responses())], WirePick::Fixed(self.xai_wire(cfg)), false),
+            "xai" => (vec![(Wire::Responses, xai_responses())], WirePick::Fixed(self.xai_wire(cfg)), false),
             "muse-code-oauth" => (vec![(Wire::Responses, responses())], WirePick::Fixed(Wire::Responses), false),
             "deepseek" => {
                 let base = format!("{}/anthropic", messages_base(&chat_base));
@@ -1134,7 +1303,7 @@ impl DefaultProviderBuilder {
             if key.trim().is_empty() {
                 return Err("[vertex-ai] the Vertex AI API key is not configured".into());
             }
-            return Ok(adapter(google::vertex_express(key.trim(), http, traits)));
+            return Ok(adapter(google::vertex_express_at(key.trim(), text(cfg, "location"), http, traits)));
         }
         let credential = if mode == Some("adc") {
             match self.adc_text().await? {
@@ -1163,12 +1332,13 @@ impl DefaultProviderBuilder {
                 })?,
             },
         };
-        let environment = env_location(|n| self.env.env.var(n), "");
-        let place = VertexPlace::project(project, text(cfg, "location"), environment.as_deref());
+        let mut place = VertexPlace::project(project, text(cfg, "location"), None);
+        if mode == Some("adc") {
+            place = place.with_gcloud_principal(credential.principal());
+        }
         let auth = vertex::VertexAuth::new(http.clone(), credential, Box::new(now_ms_u64));
         let identity = auth.identity().to_owned();
-        let auth: Arc<dyn RequestAuth> = Arc::new(auth);
-        Ok(adapter(google::vertex(place, auth, identity, http, traits, self.env.anthropic_caps.clone()).with_images(self.fitter())))
+        Ok(self.project_vertex(place, Arc::new(auth), identity))
     }
 
     /// No gcloud login: the metadata server's default service account, when a
@@ -1193,12 +1363,17 @@ impl DefaultProviderBuilder {
                 .find_map(|name| env.var(name).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()))
                 .unwrap_or(served.clone()),
         };
-        let environment = env_location(|n| self.env.env.var(n), "");
-        let place = VertexPlace::project(project, text(cfg, "location"), environment.as_deref());
+        let place = VertexPlace::project(project, text(cfg, "location"), None)
+            .with_gcloud_principal("The metadata server's service account");
         let auth = vertex_metadata::MetadataAuth::new(http.clone(), &served, Box::new(now_ms_u64));
         let identity = auth.identity().to_owned();
-        let auth: Arc<dyn RequestAuth> = Arc::new(auth);
-        Ok(adapter(google::vertex(place, auth, identity, http, self.env.google_traits.clone(), self.env.anthropic_caps.clone()).with_images(self.fitter())))
+        Ok(self.project_vertex(place, Arc::new(auth), identity))
+    }
+
+    fn project_vertex(&self, place: VertexPlace, auth: Arc<dyn RequestAuth>, identity: String) -> Arc<dyn ProviderAdapter> {
+        adapter(google::vertex(place, auth, identity, self.env.http.clone(), self.env.google_traits.clone(), self.env.anthropic_caps.clone())
+            .with_vertex_environment(self.env.env.clone())
+            .with_images(self.fitter()))
     }
 
     async fn build_antigravity(&self, name: &str) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -1214,7 +1389,10 @@ impl DefaultProviderBuilder {
         )
         .await
         .map_err(|e| e.message)?;
-        Ok(adapter(built))
+        // Node's cache is always in the plugin data folder (`makeModelCache`'s `getPluginData()`), whatever
+        // `ANTIGRAVITY_OAUTH_CREDENTIALS_PATH` says about the credential file.
+        let cache = crate::providers::google::roster_cache::RosterCache::new(self.env.accounts.data_dir().to_path_buf(), self.env.io);
+        Ok(adapter(built.with_roster_cache(cache).restore_roster().await))
     }
 
     fn build_custom(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -1227,6 +1405,10 @@ impl DefaultProviderBuilder {
     /// A custom provider with its model listing at hand: the setup probes read the listing's
     /// own discovery error (`customDiscoveryError`), which the adapter's `models()` hides.
     pub fn build_custom_parts(&self, name: &str, cfg: &Value) -> Result<CustomParts, String> {
+        self.custom_parts(name, cfg, CustomCredential::Configured)
+    }
+
+    fn custom_parts(&self, name: &str, cfg: &Value, credential: CustomCredential) -> Result<CustomParts, String> {
         // `instantiateProvider` hands the constructor the entry without its additional key ids, and `createCustomProvider` throws
         // what `normalizeCustomProviderConfig` throws: an entry the normalizer refuses is not built.
         let mut stored = cfg.clone();
@@ -1268,16 +1450,19 @@ impl DefaultProviderBuilder {
         // variable alone), and a 401 reloads it.
         let keyless = text(cfg, "auth") == Some("none");
         let key = |header: &'static str, bearer: bool| -> Arc<dyn Credential> {
-            Arc::new(CustomKey {
-                source: (!keyless).then(|| self.key_source(name, cfg)),
-                env: text(cfg, "apiKeyEnv").map(str::to_owned),
-                header,
-                bearer,
-            })
+            let (source, refreshable): (Option<Arc<dyn ApiKeySource>>, bool) = match &credential {
+                _ if keyless => (None, false),
+                CustomCredential::Configured => (Some(self.key_source(name, cfg) as Arc<dyn ApiKeySource>), true),
+                CustomCredential::Pinned(key) => (key.clone().map(|key| Arc::new(FixedKey(key)) as Arc<dyn ApiKeySource>), false),
+            };
+            Arc::new(CustomKey { source, env: text(cfg, "apiKeyEnv").map(str::to_owned), header, bearer, refreshable })
         };
         let retry = CompatProfile::plain("custom", "http://127.0.0.1/v1", crate::providers::compat::profile::CredentialKind::Keyless)
             .retry_policy();
-        let request = CustomRequestConfig { base_url: base_url.clone(), headers, request_body, model_body, model_headers };
+        let request = CustomRequestConfig {
+            base_url: base_url.clone(), headers, request_body, model_body, model_headers,
+            responses_prompt_cache_key: flag(entry, "responsesPromptCacheKey"),
+        };
         let mut engines: Vec<(Wire, Arc<dyn ProviderAdapter>)> = Vec::new();
         if !served.contains(&protocol_wire) {
             return Err("[custom-provider] the protocol wire is not served".into());
@@ -1335,10 +1520,17 @@ impl DefaultProviderBuilder {
                         key("authorization", true),
                         retry.clone(),
                     );
-                    Arc::new(match listing {
+                    let engine = match listing {
                         Some(listing) => engine.with_listing(listing),
                         None => engine,
-                    })
+                    };
+                    if *other == Wire::Responses {
+                        Arc::new(custom::responses::ResponsesAdapter::new(
+                            engine, reasoning.clone(), self.custom_rejected_history.clone(),
+                        ))
+                    } else {
+                        Arc::new(engine)
+                    }
                 }
             };
             engines.push((*wire, engine));
@@ -1413,7 +1605,13 @@ impl DefaultProviderBuilder {
             let slot = self.env.keys.slot(name, &key_config(cfg));
             Arc::new(ApiKeyAccess::new(http.clone(), key, slot))
         } else {
-            Arc::new(FileAccess::new(http.clone(), self.file(name)?))
+            // `CURSOR_ACCESS_TOKEN` stands in for the default account's file only.
+            let env_token = if self.fixed_account.as_deref().is_none_or(|account| account == "default") {
+                self.env.env.key_var("CURSOR_ACCESS_TOKEN")
+            } else {
+                None
+            };
+            Arc::new(FileAccess::new(http.clone(), self.file(name)?).with_env_token(env_token))
         };
         let built = Arc::new(CursorAdapter::new(
             name,
@@ -1434,7 +1632,8 @@ impl DefaultProviderBuilder {
             return self.build_custom_pool(name, cfg).await;
         }
         match name {
-            "anthropic" | "anthropic-oauth" => self.build_anthropic(name, cfg).await,
+            "anthropic" => Ok(self.build_anthropic_api_key(cfg)),
+            "anthropic-oauth" => self.build_anthropic_oauth(cfg).await,
             "openai" | "openai-oauth" => self.build_openai(name, cfg),
             "gemini" => self.build_gemini(name, cfg).await,
             "vertex-ai" => self.build_vertex(name, cfg).await,
@@ -1482,25 +1681,28 @@ impl DefaultProviderBuilder {
     }
 }
 
-/// An account provider's engines (`createAccountPoolProvider`'s `account(id)`). The provider's current account sends
-/// on the provider's own adapter, the one every send used before the pool: its connections, the transport the
-/// prewarm opened and the state it keeps per session are the ones the send finds, and a roster that never switches
-/// builds nothing more. Any other account (the one a send moves to at a limit, or a session's own under the
-/// headroom policy) sends on an adapter built on first use over that account's own credential file, so its token,
-/// its refresh and its per-session state never meet another account's. Node binds each instance to its account
-/// through `withProviderAccount`; here the binding is the file the engine is built on.
+/// An account provider's engines (`createAccountPoolProvider`'s `account(id)`). Every account, the provider's current
+/// one included, sends on an adapter built on first use over that account's own credential file, so its token, its
+/// refresh and its per-session state never meet another account's, and the roster's selection moving while a request
+/// is out cannot move its credential. Node binds each instance to its account through `withProviderAccount` and sends
+/// the current account's requests on that bound instance too (`active()`); here the binding is the file the engine is
+/// built on, and the state and replay a request carries are that row's (`boundAccountSend`'s
+/// `servedBy(...) === row.id`). The provider's own adapter, which follows the current account at each credential read,
+/// answers everything but the requests.
 ///
 /// Divergence from Node: the provider-side session id is not rewritten per account (`accountScopedSessionId`). Node
 /// scopes it because one provider instance's connections are keyed by session; here each account has its own
 /// engine, and the visible session id keeps reaching every engine's `release_session`.
 struct OAuthEngines {
-    /// The provider's own adapter, which follows the current account.
-    primary: Arc<dyn ProviderAdapter>,
     provider: String,
     cfg: Value,
     env: BuilderEnv,
     images: Option<Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>>,
     rotation: Arc<std::sync::OnceLock<AccountRotation>>,
+    snapshots: Arc<std::sync::OnceLock<Arc<dyn crate::warmer::gate::UsageSnapshots>>>,
+    /// The provider's builder's table of listed models, which each account's engine shares.
+    models: AccountModels,
+    /// Each account's engine, by roster row.
     built: std::sync::Mutex<HashMap<String, Arc<dyn ProviderAdapter>>>,
     /// One build at a time: two sends that reach a new account together share its engine.
     // This protects no data: a single FIFO permit serializes asynchronous engine construction.
@@ -1514,7 +1716,18 @@ impl OAuthEngines {
     }
 }
 
-/// `ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY` (`antigravity-retry-policy.mjs:198-210`), the one provider that declares an
+/// A plan meter cannot be applied to a configured endpoint override. Only count settings the provider's
+/// constructor actually reads; for example, Anthropic OAuth always sends to its first-party endpoint.
+pub fn plan_meters_describe(provider: &str, cfg: &Value) -> bool {
+    match provider {
+        // `build_compat` accepts these overrides; MiMo prefers its account's login-provided endpoint.
+        "mimo-oauth" | "command-code-oauth" | "muse-code-oauth" | "opencode-go-oauth" => text(cfg, "baseURL").is_none(),
+        "devin-oauth" => text(cfg, "baseUrl").is_none(),
+        _ => true,
+    }
+}
+
+/// `ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY`(`antigravity-retry-policy.mjs:198-210`), the one provider that declares an
 /// `accountCooldownPolicy`.
 fn antigravity_cooldown_policy() -> crate::accounts::rotation::CooldownPolicy {
     crate::accounts::rotation::CooldownPolicy {
@@ -1534,11 +1747,8 @@ impl super::key_pool::AccountEngines for OAuthEngines {
         self.rotation.get().cloned()
     }
 
-    async fn engine(&self, account: &str, home: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
-        // `home` is the current account as the send began: the adapter that follows it is that account's.
-        if account == home {
-            return Ok(self.primary.clone());
-        }
+    /// The engine built over `account`'s own credential file: it reads that row's credential whatever the roster selects.
+    async fn pinned(&self, account: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
         if let Some(engine) = self.existing(account) {
             return Ok(engine);
         }
@@ -1549,6 +1759,7 @@ impl super::key_pool::AccountEngines for OAuthEngines {
         let mut builder = DefaultProviderBuilder::new(self.env.clone());
         builder.images = self.images.clone();
         builder.fixed_account = Some(account.to_owned());
+        builder.account_models = self.models.clone();
         let engine = builder
             .build_engine(&self.provider, &self.cfg)
             .await
@@ -1565,13 +1776,33 @@ impl super::key_pool::AccountEngines for OAuthEngines {
         (self.provider == "antigravity-oauth").then(antigravity_cooldown_policy)
     }
 
-    /// Before the pool stamped answers every send went out on the provider's current account.
-    async fn home(&self) -> String {
-        self.env.accounts.current_slot(&self.provider).await
+    /// A subscription meter is the plan's own: a destination the configuration redirects to another service has no
+    /// proven scope to it, so no meter (a roster account's or the implicit one) is applied there.
+    fn plan_meters_apply(&self) -> bool {
+        plan_meters_describe(&self.provider, &self.cfg)
     }
 
-    fn state_bound(&self) -> bool {
-        true
+    async fn implicit_plan_usage(&self) -> Option<crate::accounts::Account> {
+        // Only the provider's own OAuth sign-in in the default slot, and only a reading measured under that very
+        // sign-in: an API key, another credential's reading or a roster account's never gates this send.
+        if !self.plan_meters_apply() {
+            return None;
+        }
+        let accounts = &self.env.accounts;
+        if accounts.current_slot(&self.provider).await != "default"
+            || (self.provider == "cursor-oauth" && self.env.env.key_var("CURSOR_ACCESS_TOKEN").is_some_and(|token| !token.is_empty()))
+        {
+            return None;
+        }
+        let stamp = accounts.quota_credential(&self.provider, "default").await?;
+        let (windows, checked_at) = self.snapshots.get()?.cached_bound(&self.provider, &stamp).await?;
+        let mut row = crate::accounts::Account::new("default");
+        row.usage = Some(crate::accounts::Usage { windows, checked_at });
+        Some(row)
+    }
+
+    async fn home(&self) -> String {
+        self.env.accounts.current_slot(&self.provider).await
     }
 }
 
@@ -1581,6 +1812,7 @@ impl ProviderBuilder for DefaultProviderBuilder {
     /// version before each send and learns a Grok minimum from a 426.
     async fn build(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
         self.capabilities.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(name);
+        self.account_models.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(name);
         let built = self.build_engine(name, cfg).await?;
         if !crate::accounts::ACCOUNT_PROVIDERS.contains(&name) {
             return Ok(built);
@@ -1588,12 +1820,13 @@ impl ProviderBuilder for DefaultProviderBuilder {
         // `createAccountPoolProvider` (registry.mjs:234): the adapter built above follows the current account and
         // answers everything but the send; a send walks the roster, each account on an engine of its own.
         let engines = Arc::new(OAuthEngines {
-            primary: built.clone(),
             provider: name.to_owned(),
             cfg: cfg.clone(),
             env: self.env.clone(),
             images: self.images.clone(),
             rotation: self.account_rotation.clone(),
+            snapshots: self.usage_snapshots.clone(),
+            models: self.account_models.clone(),
             built: std::sync::Mutex::default(),
             building: tokio::sync::Semaphore::new(1),
         });

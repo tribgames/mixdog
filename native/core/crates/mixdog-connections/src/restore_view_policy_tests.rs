@@ -27,17 +27,13 @@ use tokio::sync::{Notify, broadcast, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::host_store::{SshHostRecord, SshHostSettings, SshHostStore};
-use crate::link::LinkSpec;
+use crate::link::{LinkOpen, LinkSpec};
 use crate::link_machine::{LinkState, LinkViewState, ModelLogin};
 use crate::paths::ConnectionsPaths;
 use crate::policy::{self, Callers};
 use crate::restore::{Restore, RestoreLinks, RestoreWindows};
 use crate::view::{ConnectionsFeed, FeedLink, FeedLinks};
 use crate::window_restore_store::WindowRestoreStore;
-
-fn io() -> DurabilityIo {
-    mixdog_rt::testing::tokens().durability_io
-}
 
 // ---- policy
 
@@ -160,23 +156,12 @@ fn record(id: &str, target: &str) -> SshHostRecord {
     SshHostRecord { id: id.to_owned(), name: format!("name-{id}"), target: target.to_owned(), last_connected_at: None, settings: None }
 }
 
-async fn stores(dir: &Path, saved: Vec<SshHostRecord>, remembered: &[&str]) -> (Arc<SshHostStore>, Arc<WindowRestoreStore>) {
-    let paths = ConnectionsPaths::new(dir);
-    let hosts = Arc::new(SshHostStore::load(&paths, io()).await);
-    for record in saved {
-        hosts.save(record).await.unwrap();
-    }
-    let store = Arc::new(WindowRestoreStore::new(&paths, io()));
-    for id in remembered {
-        store.remember(id).await.unwrap();
-    }
-    (hosts, store)
-}
-
 #[derive(Default)]
 struct Links {
     /// The failure message of the servers whose connect fails.
     fail: HashMap<String, String>,
+    existing: BTreeSet<String>,
+    closed: Mutex<Vec<String>>,
     /// Reported by every connect before it settles.
     phases: Vec<SessionPhase>,
     /// A server whose connect waits for this after reporting its phases.
@@ -186,7 +171,7 @@ struct Links {
 
 #[async_trait]
 impl RestoreLinks for Links {
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<(), ConnectError> {
+    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<LinkOpen, ConnectError> {
         let cwd = context.settings.as_ref().and_then(|settings| settings.remote_cwd.clone());
         self.opened.lock().unwrap().push((spec.id.clone(), context.askpass.is_none(), cwd));
         if let Some(progress) = &progress {
@@ -200,9 +185,14 @@ impl RestoreLinks for Links {
             }
         }
         match self.fail.get(&spec.id) {
-            Some(message) => Err(ConnectError::Bootstrap(RemoteBootstrapError { code: "failed".into(), message: message.clone(), detail: None })),
-            None => Ok(()),
+            Some(message) => Err(ConnectError::Bootstrap(RemoteBootstrapError { code: "failed".into(), message: message.clone(), detail: None, notice: None })),
+            None if self.existing.contains(&spec.id) => Ok(LinkOpen::Reused),
+            None => Ok(LinkOpen::Owned(1)),
         }
+    }
+
+    async fn rollback(&self, id: &str, _token: u64) {
+        self.closed.lock().unwrap().push(id.to_owned());
     }
 }
 
@@ -230,91 +220,12 @@ fn sorted<T: Ord>(mut list: Vec<T>) -> Vec<T> {
     list
 }
 
-#[tokio::test]
-async fn restore_view_policy_reopens_remembered_saved_servers_in_batch_mode() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut with_folder = record("a", "one.example.com");
-    with_folder.settings = Some(SshHostSettings { remote_cwd: Some("~/work".into()), ..SshHostSettings::default() });
-    let (hosts, store) = stores(dir.path(), vec![with_folder, record("b", "two.example.com"), record("c", "three.example.com")], &["a", "b", "gone"]).await;
-    let (links, windows) = (Arc::new(Links::default()), Arc::new(Windows::default()));
-    let restore = Restore::new(store.clone(), hosts);
-
-    restore.run(links.clone(), windows.clone()).await.unwrap();
-
-    let opened = sorted(links.opened.lock().unwrap().clone());
-    assert_eq!(opened, [("a".to_owned(), true, Some("~/work".to_owned())), ("b".to_owned(), true, None)], "every remembered saved server, batch mode, its settings");
-    assert_eq!(sorted(windows.opened.lock().unwrap().clone()), [("a".to_owned(), "name-a".to_owned()), ("b".to_owned(), "name-b".to_owned())]);
-    assert!(restore.progress().borrow().is_empty(), "a ready reopening leaves the list");
-    assert_eq!(store.list().await.unwrap(), ["a", "b"], "a server no longer saved is forgotten");
-}
-
 #[test]
 fn restore_view_policy_attempt_context_writes_the_target_diagnostics_ring() {
     let context = crate::restore::attempt_context(&record("a", "user@one.example.com:2222"));
     let target = mixdog_ssh::command::parse_ssh_target("user@one.example.com:2222").unwrap();
     assert_eq!(context.diagnostics_key, Some(mixdog_ssh::diagnostics::diagnostics_key_for(&target)), "the ring connections/ssh/diagnosticsLog reads");
     assert!(context.askpass.is_none(), "batch mode");
-}
-
-#[tokio::test]
-async fn restore_view_policy_setting_off_reopens_nothing() {
-    let dir = tempfile::tempdir().unwrap();
-    let (hosts, store) = stores(dir.path(), vec![record("a", "one.example.com")], &["a"]).await;
-    store.set_enabled(false).await.unwrap();
-    let (links, windows) = (Arc::new(Links::default()), Arc::new(Windows::default()));
-
-    Restore::new(store.clone(), hosts).run(links.clone(), windows.clone()).await.unwrap();
-
-    assert!(links.opened.lock().unwrap().is_empty());
-    assert!(windows.opened.lock().unwrap().is_empty());
-    assert_eq!(store.list().await.unwrap(), ["a"], "the remembered windows are kept for the next time the setting is on");
-}
-
-#[tokio::test]
-async fn restore_view_policy_failed_reopening_stays_with_its_message() {
-    let dir = tempfile::tempdir().unwrap();
-    let (hosts, store) = stores(dir.path(), vec![record("a", "one.example.com"), record("b", "two.example.com"), record("c", "three.example.com")], &["a", "b", "c"]).await;
-    let links = Arc::new(Links { fail: HashMap::from([("a".to_owned(), "Permission denied".to_owned())]), ..Links::default() });
-    let windows = Arc::new(Windows { refuse: HashMap::from([("c".to_owned(), "The window did not open.".to_owned())]), ..Windows::default() });
-    let restore = Restore::new(store, hosts);
-
-    restore.run(links, windows.clone()).await.unwrap();
-
-    let mut rows = restore.progress().borrow().clone();
-    rows.sort_by(|a, b| a.id.cmp(&b.id));
-    let failed = |id: &str, message: &str| ServerRestoreProgress {
-        id: id.to_owned(),
-        name: format!("name-{id}"),
-        phase: ServerRestorePhase::Failed,
-        message: Some(message.to_owned()),
-    };
-    assert_eq!(rows, [failed("a", "Permission denied"), failed("c", "The window did not open.")]);
-    assert_eq!(windows.opened.lock().unwrap().clone(), [("b".to_owned(), "name-b".to_owned())], "only the ready link gets its window");
-}
-
-#[tokio::test]
-async fn restore_view_policy_progress_follows_the_connect_phases() {
-    let dir = tempfile::tempdir().unwrap();
-    let (hosts, store) = stores(dir.path(), vec![record("a", "one.example.com")], &["a"]).await;
-    let gate = Arc::new(Notify::new());
-    let links = Arc::new(Links {
-        phases: vec![SessionPhase::Check { detail: "linux-x64".into() }, SessionPhase::Install, SessionPhase::Start, SessionPhase::Ready],
-        held: Some(("a".to_owned(), gate.clone())),
-        ..Links::default()
-    });
-    let restore = Arc::new(Restore::new(store, hosts));
-    let mut progress = restore.progress();
-    let running = {
-        let (restore, windows) = (restore.clone(), Arc::new(Windows::default()));
-        tokio::spawn(async move { restore.run(links, windows).await })
-    };
-
-    // The link's own `Ready` is not the reopening's: the row stays at `start` until the window is open too.
-    let row = progress.wait_for(|rows| rows.iter().any(|row| row.phase == ServerRestorePhase::Start)).await.unwrap().clone();
-    assert_eq!((row[0].id.as_str(), row[0].name.as_str(), row[0].message.as_deref()), ("a", "name-a", None));
-    gate.notify_one();
-    running.await.unwrap().unwrap();
-    assert!(progress.borrow().is_empty());
 }
 
 // ---- the feed
@@ -438,15 +349,6 @@ struct Rig {
     feed: ConnectionsFeed,
 }
 
-async fn rig(link_ids: &[&str]) -> Rig {
-    let dir = tempfile::tempdir().unwrap();
-    let (hosts, store) = stores(dir.path(), vec![record("a", "one.example.com")], &[]).await;
-    let (feeds, links) = (Recording::new(), FakeLinks::new(link_ids));
-    let restore = Restore::new(store.clone(), hosts.clone());
-    let feed = ConnectionsFeed::start(feeds.clone(), links.clone(), hosts, store, &restore);
-    Rig { _dir: dir, feeds, links, feed }
-}
-
 /// The latest value a tap heard for a key: from a snapshot's sections or an update.
 fn value_of(notes: &[Value], key: &str) -> Option<Value> {
     let mut latest = None;
@@ -460,6 +362,142 @@ fn value_of(notes: &[Value], key: &str) -> Option<Value> {
     latest
 }
 
+
+fn io() -> DurabilityIo {
+    mixdog_rt::testing::tokens().durability_io
+}
+async fn stores(dir: &Path, saved: Vec<SshHostRecord>, remembered: &[&str]) -> (Arc<SshHostStore>, Arc<WindowRestoreStore>) {
+    let paths = ConnectionsPaths::new(dir);
+    let hosts = Arc::new(SshHostStore::load(&paths, io()).await);
+    for record in saved {
+        hosts.save(record).await.unwrap();
+    }
+    let store = Arc::new(WindowRestoreStore::new(&paths, io()));
+    for id in remembered {
+        store.remember(id).await.unwrap();
+    }
+    (hosts, store)
+}
+#[tokio::test]
+async fn restore_view_policy_reopens_remembered_saved_servers_in_batch_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut with_folder = record("a", "one.example.com");
+    with_folder.settings = Some(SshHostSettings { remote_cwd: Some("~/work".into()), ..SshHostSettings::default() });
+    let (hosts, store) = stores(dir.path(), vec![with_folder, record("b", "two.example.com"), record("c", "three.example.com")], &["a", "b", "gone"]).await;
+    let (links, windows) = (Arc::new(Links::default()), Arc::new(Windows::default()));
+    let restore = Restore::new(store.clone(), hosts);
+
+    restore.run(links.clone(), windows.clone()).await.unwrap();
+
+    let opened = sorted(links.opened.lock().unwrap().clone());
+    assert_eq!(opened, [("a".to_owned(), true, Some("~/work".to_owned())), ("b".to_owned(), true, None)], "every remembered saved server, batch mode, its settings");
+    assert_eq!(sorted(windows.opened.lock().unwrap().clone()), [("a".to_owned(), "name-a".to_owned()), ("b".to_owned(), "name-b".to_owned())]);
+    assert!(restore.progress().borrow().is_empty(), "a ready reopening leaves the list");
+    assert_eq!(store.list().await.unwrap(), ["a", "b"], "a server no longer saved is forgotten");
+}
+#[tokio::test]
+async fn restore_view_policy_a_server_forgotten_while_its_reopening_waits_for_its_turn_is_not_reopened() {
+    let dir = tempfile::tempdir().unwrap();
+    let (hosts, store) = stores(dir.path(), vec![record("a", "one.example.com")], &["a"]).await;
+    let (links, windows) = (Arc::new(Links::default()), Arc::new(Windows::default()));
+    let restore = Arc::new(Restore::new(store, hosts.clone()));
+    let mut progress = restore.progress();
+    // A forget holds the server's turn; the reopening read the list before it.
+    let turn = hosts.turn(&mixdog_ssh::command::parse_ssh_target("one.example.com").unwrap().key()).await;
+    let running = {
+        let (restore, links, windows) = (restore.clone(), links.clone(), windows.clone());
+        tokio::spawn(async move { restore.run(links, windows).await })
+    };
+    // The reopening has picked the row it read, and goes on to open it.
+    progress.wait_for(|rows| rows.iter().any(|row| row.id == "a")).await.unwrap();
+    hosts.forget("a").await.unwrap();
+    drop(turn);
+    running.await.unwrap().unwrap();
+
+    assert!(links.opened.lock().unwrap().is_empty(), "the forgotten server is not reopened");
+    assert!(windows.opened.lock().unwrap().is_empty());
+}
+#[tokio::test]
+async fn restore_view_policy_setting_off_reopens_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (hosts, store) = stores(dir.path(), vec![record("a", "one.example.com")], &["a"]).await;
+    store.set_enabled(false).await.unwrap();
+    let (links, windows) = (Arc::new(Links::default()), Arc::new(Windows::default()));
+
+    Restore::new(store.clone(), hosts).run(links.clone(), windows.clone()).await.unwrap();
+
+    assert!(links.opened.lock().unwrap().is_empty());
+    assert!(windows.opened.lock().unwrap().is_empty());
+    assert_eq!(store.list().await.unwrap(), ["a"], "the remembered windows are kept for the next time the setting is on");
+}
+#[tokio::test]
+async fn restore_view_policy_failed_reopening_stays_with_its_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let (hosts, store) = stores(
+        dir.path(),
+        vec![record("a", "one.example.com"), record("b", "two.example.com"), record("c", "three.example.com"), record("d", "four.example.com")],
+        &["a", "b", "c", "d"],
+    ).await;
+    let links = Arc::new(Links {
+        fail: HashMap::from([("a".to_owned(), "Permission denied".to_owned())]),
+        existing: BTreeSet::from(["d".to_owned()]),
+        ..Links::default()
+    });
+    let refused = "The window did not open.";
+    let windows = Arc::new(Windows {
+        refuse: HashMap::from([("c".to_owned(), refused.to_owned()), ("d".to_owned(), refused.to_owned())]),
+        ..Windows::default()
+    });
+    let restore = Restore::new(store.clone(), hosts.clone());
+
+    restore.run(links.clone(), windows.clone()).await.unwrap();
+
+    let mut rows = restore.progress().borrow().clone();
+    rows.sort_by(|a, b| a.id.cmp(&b.id));
+    let failed = |id: &str, message: &str| ServerRestoreProgress {
+        id: id.to_owned(),
+        name: format!("name-{id}"),
+        phase: ServerRestorePhase::Failed,
+        message: Some(message.to_owned()),
+    };
+    assert_eq!(rows, [failed("a", "Permission denied"), failed("c", refused), failed("d", refused)]);
+    assert_eq!(windows.opened.lock().unwrap().clone(), [("b".to_owned(), "name-b".to_owned())], "only the ready link gets its window");
+    assert_eq!(*links.closed.lock().unwrap(), ["c"], "only a newly opened link with a refused window is detached");
+    assert_eq!(store.list().await.unwrap(), ["a", "b", "c", "d"]);
+    assert_eq!(hosts.list().len(), 4);
+}
+#[tokio::test]
+async fn restore_view_policy_progress_follows_the_connect_phases() {
+    let dir = tempfile::tempdir().unwrap();
+    let (hosts, store) = stores(dir.path(), vec![record("a", "one.example.com")], &["a"]).await;
+    let gate = Arc::new(Notify::new());
+    let links = Arc::new(Links {
+        phases: vec![SessionPhase::Check { detail: "linux-x64".into() }, SessionPhase::Install, SessionPhase::Start, SessionPhase::Ready],
+        held: Some(("a".to_owned(), gate.clone())),
+        ..Links::default()
+    });
+    let restore = Arc::new(Restore::new(store, hosts));
+    let mut progress = restore.progress();
+    let running = {
+        let (restore, windows) = (restore.clone(), Arc::new(Windows::default()));
+        tokio::spawn(async move { restore.run(links, windows).await })
+    };
+
+    // The link's own `Ready` is not the reopening's: the row stays at `start` until the window is open too.
+    let row = progress.wait_for(|rows| rows.iter().any(|row| row.phase == ServerRestorePhase::Start)).await.unwrap().clone();
+    assert_eq!((row[0].id.as_str(), row[0].name.as_str(), row[0].message.as_deref()), ("a", "name-a", None));
+    gate.notify_one();
+    running.await.unwrap().unwrap();
+    assert!(progress.borrow().is_empty());
+}
+async fn rig(link_ids: &[&str]) -> Rig {
+    let dir = tempfile::tempdir().unwrap();
+    let (hosts, store) = stores(dir.path(), vec![record("a", "one.example.com")], &[]).await;
+    let (feeds, links) = (Recording::new(), FakeLinks::new(link_ids));
+    let restore = Restore::new(store.clone(), hosts.clone());
+    let feed = ConnectionsFeed::start(feeds.clone(), links.clone(), hosts, store, &restore);
+    Rig { _dir: dir, feeds, links, feed }
+}
 #[tokio::test]
 async fn restore_view_policy_feed_carries_hosts_restore_link_and_ports() {
     let rig = rig(&["a"]).await;
@@ -473,7 +511,6 @@ async fn restore_view_policy_feed_carries_hosts_restore_link_and_ports() {
     assert_eq!(value_of(&notes, "link/a").unwrap()["state"]["status"], "connected");
     assert_eq!(value_of(&notes, "ports/a").unwrap()["forwards"], serde_json::json!([]));
 }
-
 #[tokio::test]
 async fn restore_view_policy_feed_publishes_a_link_state_change() {
     let rig = rig(&["a"]).await;
@@ -490,7 +527,6 @@ async fn restore_view_policy_feed_publishes_a_link_state_change() {
     assert_eq!(update["params"]["value"]["state"]["settingsRequired"], true);
     assert_eq!(update["params"]["section"], "connections");
 }
-
 #[tokio::test]
 async fn restore_view_policy_feed_for_one_connection_carries_its_keys_and_the_shared_ones() {
     let rig = rig(&["a", "b"]).await;
@@ -506,7 +542,6 @@ async fn restore_view_policy_feed_for_one_connection_carries_its_keys_and_the_sh
     let notes = tap.notifications_until(|notes| notes.iter().any(|note| note["params"]["value"]["rttMs"] == 7)).await;
     assert_eq!(keys(&notes), set(&["hosts", "restore", "link/a", "ports/a"]));
 }
-
 #[tokio::test]
 async fn restore_view_policy_feed_for_one_connection_hears_the_host_list_change() {
     let rig = rig(&["a"]).await;
@@ -521,7 +556,6 @@ async fn restore_view_policy_feed_for_one_connection_hears_the_host_list_change(
         .await;
     assert!(notes.iter().any(|note| note["params"]["key"] == "hosts"));
 }
-
 #[tokio::test]
 async fn restore_view_policy_feed_publishes_an_ended_link_as_removed() {
     let rig = rig(&["a"]).await;
@@ -533,7 +567,6 @@ async fn restore_view_policy_feed_publishes_an_ended_link_as_removed() {
     let notes = tap.notifications_until(|notes| !keys(notes).contains("link/a") && !keys(notes).contains("ports/a")).await;
     assert!(notes.iter().any(|note| note["params"]["key"] == "link/a" && note["params"]["removed"] == Value::Bool(true)));
 }
-
 #[tokio::test]
 async fn restore_view_policy_feed_follows_a_link_that_attaches_later() {
     let rig = rig(&[]).await;

@@ -25,6 +25,7 @@ use crate::provider_case::Endpoint;
 use crate::provider_case::ErrorSide;
 use crate::provider_case::within;
 use crate::replay_errors::Left;
+#[cfg(node_twin)]
 use crate::replay_world::Events;
 
 const SET: &str = "openai-ws-handshake";
@@ -40,6 +41,7 @@ fn caller_headers(upgrade: &Exact) -> Vec<(String, String)> {
         .collect()
 }
 
+#[cfg(node_twin)]
 async fn replay(case: &Case) {
     let id = case.id.as_str();
     let recorded = case.recorded();
@@ -104,9 +106,11 @@ async fn replay(case: &Case) {
     recorded.get("outcome").get("error").assert_error(&format!("{SET} {id} error"), ErrorSide::Send(&Left::of(&sent, &got)));
 }
 
+#[cfg(node_twin)]
 pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: SET, run: every_case_replays_as_nodes }];
 
 /// Every case of the set, in one test: the set's drop holds each to its comparison.
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load(SET);

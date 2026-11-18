@@ -2,8 +2,6 @@
 //! the product's catalog world (the model caps and OpenAI facts the builder takes from `mixdog-core`'s `CatalogCaps` /
 //! `CatalogOpenAiFacts`).
 
-use futures::StreamExt as _;
-
 use crate::provider_case::CaseSet;
 use crate::provider_case::Endpoint;
 use crate::provider_case::within;

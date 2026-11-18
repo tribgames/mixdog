@@ -265,6 +265,10 @@ impl FallbackStore {
 
 #[async_trait]
 impl SecretStore for FallbackStore {
+    async fn probe_keychain(&self, interactive: bool) -> Result<(), SecretError> {
+        self.keychain.probe_keychain(interactive).await
+    }
+
     async fn get(&self, account: &str) -> Result<Option<String>, SecretError> {
         match self.keychain.get(account).await {
             Ok(Some(value)) => Ok(Some(value)),
@@ -340,47 +344,6 @@ mod tests {
         assert_eq!(encode_component("a/b c"), "a%2Fb%20c");
     }
 
-    /// The private files Node's `setSecret` wrote on a host with no keychain provider
-    /// (`record-process-services.mjs`, `keychain-cjs.cjs` run as Linux): the file of an account is
-    /// `encodeURIComponent(account).secret` and holds the value as it is.
-    const NODE_FILES: &str = include_str!("../../../fixtures/process-services/secrets.json");
-
-    #[test]
-    fn the_file_of_an_account_is_the_one_node_wrote() {
-        let golden: serde_json::Value = serde_json::from_str(NODE_FILES).unwrap();
-        let files = SecretsFiles::new(Path::new("data"));
-        let recorded = golden["fallback"]["files"].as_object().unwrap();
-        for case in golden["fallback"]["cases"].as_array().unwrap() {
-            let account = case["account"].as_str().unwrap();
-            let name = files.file(account).file_name().unwrap().to_str().unwrap().to_owned();
-            assert_eq!(recorded[&name].as_str(), case["value"].as_str(), "{account}");
-        }
-        assert_eq!(recorded.len(), golden["fallback"]["cases"].as_array().unwrap().len());
-    }
-
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
-    async fn a_file_node_wrote_is_read_and_labelled_a_fallback() {
-        use std::os::unix::fs::PermissionsExt;
-        let golden: serde_json::Value = serde_json::from_str(NODE_FILES).unwrap();
-        let data = tempfile::tempdir().unwrap();
-        let dir = data.path().join("secrets");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
-        for (name, content) in golden["fallback"]["files"].as_object().unwrap() {
-            std::fs::write(dir.join(name), content.as_str().unwrap()).unwrap();
-            std::fs::set_permissions(dir.join(name), std::fs::Permissions::from_mode(0o600)).unwrap();
-        }
-        let store = FallbackStore::new(Arc::new(crate::MemoryStore::default()), data.path(), mixdog_rt::testing::tokens().durability_io);
-        for case in golden["fallback"]["cases"].as_array().unwrap() {
-            let account = case["account"].as_str().unwrap();
-            assert_eq!(store.get(account).await.unwrap().as_deref(), case["expected"].as_str(), "{account}");
-            assert_eq!(store.is_fallback(account).await.unwrap(), case["hasFallback"].as_bool().unwrap(), "{account}");
-        }
-        let absent = &golden["fallback"]["absent"];
-        assert_eq!(store.is_fallback(absent["account"].as_str().unwrap()).await.unwrap(), absent["hasFallback"].as_bool().unwrap());
-    }
-
     #[cfg(target_os = "linux")]
     #[test]
     fn the_file_layout_is_private_and_a_loosened_one_is_refused() {
@@ -398,5 +361,33 @@ mod tests {
         std::fs::set_permissions(files.file("acct"), std::fs::Permissions::from_mode(0o600)).unwrap();
         fs_unix::remove(&files, "acct").unwrap();
         assert_eq!(fs_unix::get(&files, "acct").unwrap(), None);
+    }
+
+
+    /// The file of an account is `encodeURIComponent(account).secret` under `secrets/`, and holds the value as it is.
+    #[test]
+    fn the_file_of_an_account_is_its_uri_encoded_name() {
+        let files = SecretsFiles::new(Path::new("data"));
+        for (account, name) in [("plain", "plain.secret"), ("a/b c", "a%2Fb%20c.secret"), ("é", "%C3%A9.secret"), ("mcp-oauth.ab12", "mcp-oauth.ab12.secret")] {
+            assert_eq!(files.file(account).file_name().unwrap().to_str().unwrap(), name, "{account}");
+            assert_eq!(files.file(account).parent().unwrap(), Path::new("data").join("secrets"));
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn a_private_file_in_the_store_is_read_and_labelled_a_fallback() {
+        use std::os::unix::fs::PermissionsExt;
+        let data = tempfile::tempdir().unwrap();
+        let dir = data.path().join("secrets");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::write(dir.join("a%2Fb.secret"), "value with spaces").unwrap();
+        std::fs::set_permissions(dir.join("a%2Fb.secret"), std::fs::Permissions::from_mode(0o600)).unwrap();
+        let store = FallbackStore::new(Arc::new(crate::MemoryStore::default()), data.path(), mixdog_rt::testing::tokens().durability_io);
+        assert_eq!(store.get("a/b").await.unwrap().as_deref(), Some("value with spaces"));
+        assert!(store.is_fallback("a/b").await.unwrap());
+        assert_eq!(store.get("absent").await.unwrap(), None);
+        assert!(!store.is_fallback("absent").await.unwrap());
     }
 }

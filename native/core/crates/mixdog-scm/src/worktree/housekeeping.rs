@@ -260,6 +260,100 @@ fn unrecorded_links(record: &WorktreeRecord) -> Result<Vec<String>, (&'static st
     Ok(found)
 }
 
+/// `{kind, path?, error?}` as the records keep what a removal left behind.
+pub(crate) fn remnant(kind: &str, path: Option<&str>, error: Option<&str>) -> RemovalRemnant {
+    RemovalRemnant { kind: kind.into(), path: path.map(str::to_owned), name: None, error: error.map(str::to_owned) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_prune_drops_only_the_admin_dir_of_a_gone_unlocked_checkout() {
+        let dir = tempfile::tempdir().unwrap();
+        let common = dir.path().join("common");
+        let gone = dir.path().join("gone");
+        let admin = common.join("worktrees").join("a");
+        std::fs::create_dir_all(&admin).unwrap();
+        std::fs::write(admin.join("gitdir"), format!("{}\n", gone.join(".git").display())).unwrap();
+        std::fs::write(admin.join("locked"), "").unwrap();
+        assert!(!prune_registration(&common, &gone, false), "locked stays");
+        assert!(prune_registration(&common, &gone, true));
+        assert!(!admin.exists());
+        std::fs::create_dir_all(&gone).unwrap();
+        assert!(!prune_registration(&common, &gone, true), "an existing checkout is never pruned");
+    }
+
+    #[test]
+    fn an_unrecorded_directory_link_is_found_and_a_recorded_one_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let checkout = dir.path().join("co");
+        let target = dir.path().join("target");
+        std::fs::create_dir_all(checkout.join("sub")).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        let link = checkout.join("sub").join("deps");
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_dir(&target, &link).is_ok() || std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(&link).arg(&target).output().is_ok_and(|o| o.status.success());
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&target, &link).is_ok();
+        assert!(made);
+        let mut record = crate::worktree::retention::test_record(&checkout);
+        assert_eq!(unrecorded_links(&record).unwrap(), ["sub/deps"]);
+        record.extra.insert(
+            "resources".into(),
+            serde_json::json!({ "includes": [{ "rel": "sub/deps", "path": link.to_string_lossy(), "mode": "link", "status": "created" }] }),
+        );
+        assert!(unrecorded_links(&record).unwrap().is_empty());
+        assert!(std::fs::read_dir(&target).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn a_legacy_descriptor_retains_journals_before_and_after_runtime_adoption() {
+        let dir = tempfile::tempdir().unwrap();
+        let checkout = dir.path().join("co");
+        let root = checkout.join("proj");
+        let digest: String = Sha256::digest(resolved_text(&root).as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+        let old = dir.path().join("electron-profile").join(EDITOR_RECOVERY).join(&digest);
+        let data = dir.path().join("data");
+        let journals = data.join(mixdog_workspace::recovery::JOURNALS_DIR);
+        let staged = data.join("desktop").join(EDITOR_RECOVERY).join(&digest);
+        let current = journals.join(&digest);
+        let mut record = crate::worktree::retention::test_record(&checkout);
+        record.extra.insert("editorRecoveryStores".into(), serde_json::json!([{ "root": root, "directory": old }]));
+        let descriptor = record.extra.clone();
+        std::fs::create_dir_all(&staged).unwrap();
+        std::fs::write(staged.join("journal"), "pending recovery").unwrap();
+        assert!(!old.exists());
+        assert_eq!(retained_store(&record, &journals), Some(root.to_string_lossy().into_owned()));
+        std::fs::create_dir_all(&journals).unwrap();
+        std::fs::rename(&staged, &current).unwrap();
+        assert_eq!(retained_store(&record, &journals), Some(root.to_string_lossy().into_owned()));
+        std::fs::remove_file(current.join("journal")).unwrap();
+        assert_eq!(retained_store(&record, &journals), None);
+        assert_eq!(record.extra, descriptor, "probing must not expand persisted descriptors");
+    }
+
+    #[test]
+    fn a_store_with_any_entry_is_retained_and_a_missing_one_is_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let checkout = dir.path().join("co");
+        let root = checkout.join("proj");
+        let digest: String = Sha256::digest(resolved_text(&root).as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+        let store = dir.path().join("data").join(EDITOR_RECOVERY).join(digest);
+        let mut record = crate::worktree::retention::test_record(&checkout);
+        record.extra.insert("editorRecoveryStores".into(), serde_json::json!([{ "root": root, "directory": store }]));
+        assert_eq!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)), None);
+        std::fs::create_dir_all(&store).unwrap();
+        assert_eq!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)), None, "an empty store is clear");
+        std::fs::write(store.join("journal"), "x").unwrap();
+        assert!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)).is_some());
+        record.extra.insert("editorRecoveryStores".into(), serde_json::json!([{ "root": root, "directory": dir.path() }]));
+        assert_eq!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)), Some(record.path.clone()), "a malformed descriptor retains");
+    }
+}
+
+
 impl Worktrees {
     /// git's registration of the record's checkout, if any: the listed paths are canonical, so
     /// the record's is compared canonical too (`samePath`).
@@ -399,98 +493,5 @@ impl Worktrees {
                 ))
             }
         }
-    }
-}
-
-/// `{kind, path?, error?}` as the records keep what a removal left behind.
-pub(crate) fn remnant(kind: &str, path: Option<&str>, error: Option<&str>) -> RemovalRemnant {
-    RemovalRemnant { kind: kind.into(), path: path.map(str::to_owned), name: None, error: error.map(str::to_owned) }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_prune_drops_only_the_admin_dir_of_a_gone_unlocked_checkout() {
-        let dir = tempfile::tempdir().unwrap();
-        let common = dir.path().join("common");
-        let gone = dir.path().join("gone");
-        let admin = common.join("worktrees").join("a");
-        std::fs::create_dir_all(&admin).unwrap();
-        std::fs::write(admin.join("gitdir"), format!("{}\n", gone.join(".git").display())).unwrap();
-        std::fs::write(admin.join("locked"), "").unwrap();
-        assert!(!prune_registration(&common, &gone, false), "locked stays");
-        assert!(prune_registration(&common, &gone, true));
-        assert!(!admin.exists());
-        std::fs::create_dir_all(&gone).unwrap();
-        assert!(!prune_registration(&common, &gone, true), "an existing checkout is never pruned");
-    }
-
-    #[test]
-    fn an_unrecorded_directory_link_is_found_and_a_recorded_one_is_not() {
-        let dir = tempfile::tempdir().unwrap();
-        let checkout = dir.path().join("co");
-        let target = dir.path().join("target");
-        std::fs::create_dir_all(checkout.join("sub")).unwrap();
-        std::fs::create_dir_all(&target).unwrap();
-        let link = checkout.join("sub").join("deps");
-        #[cfg(windows)]
-        let made = std::os::windows::fs::symlink_dir(&target, &link).is_ok() || std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(&link).arg(&target).output().is_ok_and(|o| o.status.success());
-        #[cfg(unix)]
-        let made = std::os::unix::fs::symlink(&target, &link).is_ok();
-        assert!(made);
-        let mut record = crate::worktree::retention::test_record(&checkout);
-        assert_eq!(unrecorded_links(&record).unwrap(), ["sub/deps"]);
-        record.extra.insert(
-            "resources".into(),
-            serde_json::json!({ "includes": [{ "rel": "sub/deps", "path": link.to_string_lossy(), "mode": "link", "status": "created" }] }),
-        );
-        assert!(unrecorded_links(&record).unwrap().is_empty());
-        assert!(std::fs::read_dir(&target).unwrap().next().is_none());
-    }
-
-    #[test]
-    fn a_legacy_descriptor_retains_journals_before_and_after_runtime_adoption() {
-        let dir = tempfile::tempdir().unwrap();
-        let checkout = dir.path().join("co");
-        let root = checkout.join("proj");
-        let digest: String = Sha256::digest(resolved_text(&root).as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
-        let old = dir.path().join("electron-profile").join(EDITOR_RECOVERY).join(&digest);
-        let data = dir.path().join("data");
-        let journals = data.join(mixdog_workspace::recovery::JOURNALS_DIR);
-        let staged = data.join("desktop").join(EDITOR_RECOVERY).join(&digest);
-        let current = journals.join(&digest);
-        let mut record = crate::worktree::retention::test_record(&checkout);
-        record.extra.insert("editorRecoveryStores".into(), serde_json::json!([{ "root": root, "directory": old }]));
-        let descriptor = record.extra.clone();
-        std::fs::create_dir_all(&staged).unwrap();
-        std::fs::write(staged.join("journal"), "pending recovery").unwrap();
-        assert!(!old.exists());
-        assert_eq!(retained_store(&record, &journals), Some(root.to_string_lossy().into_owned()));
-        std::fs::create_dir_all(&journals).unwrap();
-        std::fs::rename(&staged, &current).unwrap();
-        assert_eq!(retained_store(&record, &journals), Some(root.to_string_lossy().into_owned()));
-        std::fs::remove_file(current.join("journal")).unwrap();
-        assert_eq!(retained_store(&record, &journals), None);
-        assert_eq!(record.extra, descriptor, "probing must not expand persisted descriptors");
-    }
-
-    #[test]
-    fn a_store_with_any_entry_is_retained_and_a_missing_one_is_clear() {
-        let dir = tempfile::tempdir().unwrap();
-        let checkout = dir.path().join("co");
-        let root = checkout.join("proj");
-        let digest: String = Sha256::digest(resolved_text(&root).as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
-        let store = dir.path().join("data").join(EDITOR_RECOVERY).join(digest);
-        let mut record = crate::worktree::retention::test_record(&checkout);
-        record.extra.insert("editorRecoveryStores".into(), serde_json::json!([{ "root": root, "directory": store }]));
-        assert_eq!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)), None);
-        std::fs::create_dir_all(&store).unwrap();
-        assert_eq!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)), None, "an empty store is clear");
-        std::fs::write(store.join("journal"), "x").unwrap();
-        assert!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)).is_some());
-        record.extra.insert("editorRecoveryStores".into(), serde_json::json!([{ "root": root, "directory": dir.path() }]));
-        assert_eq!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)), Some(record.path.clone()), "a malformed descriptor retains");
     }
 }

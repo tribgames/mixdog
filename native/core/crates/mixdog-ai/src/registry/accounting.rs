@@ -118,6 +118,7 @@ pub struct UsageRow {
 pub struct Facts {
     pub input_tokens: Option<f64>,
     pub input_tokens_known: Option<bool>,
+    pub output_tokens_known: bool,
     pub output_tokens: f64,
     pub cached_tokens: f64,
     pub cache_write_tokens: f64,
@@ -127,10 +128,11 @@ pub struct Facts {
 }
 
 impl Facts {
-    /// A completed call that reported no usage: unknown input, unpriced.
+    /// A completed call that reported no usage: unknown input and output, unpriced.
     pub const UNMEASURED: Facts = Facts {
         input_tokens: None,
         input_tokens_known: Some(false),
+        output_tokens_known: false,
         output_tokens: 0.0,
         cached_tokens: 0.0,
         cache_write_tokens: 0.0,
@@ -142,6 +144,7 @@ impl Facts {
     pub const FAILED: Facts = Facts {
         input_tokens: Some(0.0),
         input_tokens_known: None,
+        output_tokens_known: false,
         output_tokens: 0.0,
         cached_tokens: 0.0,
         cache_write_tokens: 0.0,
@@ -162,6 +165,7 @@ impl From<&Usage> for Facts {
         Facts {
             input_tokens: Some(usage.input_tokens as f64),
             input_tokens_known: None,
+            output_tokens_known: true,
             output_tokens: usage.output_tokens as f64,
             cached_tokens: usage.cache_read_tokens as f64,
             cache_write_tokens: usage.cache_write_tokens as f64,
@@ -206,6 +210,9 @@ pub struct SendIdentity {
 pub struct Abandoned {
     pub facts: Facts,
     pub model: Option<String>,
+    account: Option<String>,
+    /// The speed tier of the abandoned attempt's own dispatched request.
+    pub speed_tier: String,
 }
 
 /// What a completed send produced.
@@ -228,8 +235,8 @@ pub struct Completed {
 /// How a send ended.
 pub enum Outcome<'a> {
     Completed(Completed),
-    /// The user cancelled; `reported` is the last usage the stream showed.
-    Cancelled { reported: Option<Facts> },
+    /// The user cancelled; `reported` is the last observed usage and `model` is its serving model when known.
+    Cancelled { reported: Option<Facts>, model: Option<String> },
     Failed(&'a ProviderError),
 }
 
@@ -320,6 +327,18 @@ pub fn make_usage_record(
     pricing: &dyn UsagePricing,
     new_id: &dyn Fn() -> String,
 ) -> Result<UsageRow, String> {
+    make_usage_record_with(args, "", pricing, new_id)
+}
+
+/// [`make_usage_record`] for a request whose dispatched speed tier is known (`speed_tier`: `priority`, `fast`,
+/// `ultrafast`, or empty). The tier is only written beside the price snapshot as `sentSpeedTier`, for the ledger to group
+/// the call under Fast or Ultra Fast: price, cost and totals are those of the same record without it.
+pub fn make_usage_record_with(
+    args: &RecordArgs,
+    speed_tier: &str,
+    pricing: &dyn UsagePricing,
+    new_id: &dyn Fn() -> String,
+) -> Result<UsageRow, String> {
     let provider = text(&args.provider);
     let model = text(&args.model);
     let requested_model = text(&args.requested_model);
@@ -370,7 +389,7 @@ pub fn make_usage_record(
         cost_usd = Some(0.0);
     }
     let no_usage = failed_empty && !cost_usd.is_some_and(|cost| cost != 0.0 && !cost.is_nan());
-    let rates_obj = if reported || kind == "local" {
+    let mut rates_obj = if reported || kind == "local" {
         let mut own = serde_json::Map::new();
         own.insert("requestedModel".into(), rate_field(&priced.rates, "requestedModel").unwrap_or(Value::Null));
         own.insert("pricingModel".into(), rate_field(&priced.rates, "pricingModel").unwrap_or(Value::Null));
@@ -385,6 +404,13 @@ pub fn make_usage_record(
     } else {
         priced.rates.clone()
     };
+    // The request projection needs evidence, not a different numeric accounting value.
+    if !facts.output_tokens_known && !no_usage {
+        rates_obj.insert("outputTokensKnown".into(), Value::Bool(false));
+    }
+    if !speed_tier.is_empty() {
+        rates_obj.insert("sentSpeedTier".into(), json!(speed_tier));
+    }
     let cost_source = if no_usage {
         NO_USAGE_COST_SOURCE
     } else if kind == "local" {
@@ -504,6 +530,8 @@ fn first_output_ms(provider: &str, generation_ms: Option<f64>, stream_ms: f64) -
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod timing_tests;
 
 /// One send's accounting: collects the attempts the broker abandoned and
 /// writes the rows when the send ends.
@@ -515,7 +543,10 @@ pub struct SendAccounting {
     new_id: Arc<dyn Fn() -> String + Send + Sync>,
     /// Read for every row written (`usage-accounting.mjs:161`), not once for the send.
     account: Option<Arc<dyn AccountOf>>,
+    pinned_account: Option<String>,
     abandoned: Vec<Abandoned>,
+    /// The speed tier the latest attempt dispatched (see [`Self::note_attempt_speed`]).
+    speed_tier: String,
 }
 
 /// What recording did: the last write failure, if any (`usageAccountingError`).
@@ -556,6 +587,10 @@ pub(crate) fn wall_ms() -> i64 {
 }
 
 impl SendAccounting {
+    pub(super) fn has_sink(&self) -> bool {
+        self.sink.is_some()
+    }
+
     /// `sink` is `None` while no ledger is open: nothing is recorded.
     pub fn new(identity: SendIdentity, pricing: Arc<dyn UsagePricing>, sink: Option<Arc<dyn UsageSink>>) -> Self {
         Self {
@@ -565,7 +600,9 @@ impl SendAccounting {
             now: Arc::new(wall_ms),
             new_id: Arc::new(random_uuid),
             account: None,
+            pinned_account: None,
             abandoned: Vec::new(),
+            speed_tier: String::new(),
         }
     }
 
@@ -586,13 +623,27 @@ impl SendAccounting {
         self
     }
 
-    /// A provider-local retry abandoned an attempt the provider still billed
-    /// (`noteAbandonedUsage`): the enclosing send records it with its own row.
-    pub fn note_abandoned(&mut self, usage: &Usage, model: Option<String>) {
-        self.abandoned.push(Abandoned { facts: Facts::from(usage), model });
+    /// The speed tier of the request the send's latest attempt dispatched
+    /// (`SendIdentity::dispatched_speed_tier`; empty when it sent nothing or standard speed). It only groups the
+    /// rows for display: it never reaches the price, which the request's own pricing tier alone decides.
+    pub fn note_attempt_speed(&mut self, tier: String) {
+        self.speed_tier = tier;
     }
 
-    async fn save(&self, row: Row<'_>, recorded: &mut Recorded) {
+    pub(super) fn note_account(&mut self, account: Option<String>) {
+        self.pinned_account = account;
+    }
+
+    /// A provider-local retry abandoned an attempt the provider still billed
+    /// (`noteAbandonedUsage`): the enclosing send records it with its own row, under the speed of the attempt that was
+    /// abandoned, which is the latest one noted until the next attempt dispatches.
+    pub fn note_abandoned(&mut self, usage: &Usage, model: Option<String>) {
+        self.abandoned.push(Abandoned {
+            facts: Facts::from(usage), model, speed_tier: self.speed_tier.clone(), account: self.pinned_account.clone(),
+        });
+    }
+
+    async fn save(&self, row: Row<'_>, speed_tier: &str, pinned: Option<&str>, recorded: &mut Recorded) {
         let Some(sink) = &self.sink else { return };
         let identity = &self.identity;
         let completed = row.completed;
@@ -624,10 +675,11 @@ impl SendAccounting {
         }
         let stream_ms = completed.map_or(0.0, |c| (c.stream_ended_at - identity.started_at) as f64);
         // `currentProviderAccountId` throws inside the row's construction: nothing is written.
-        let read = match &self.account {
-            Some(roster) if ACCOUNT_PROVIDERS.contains(&identity.provider.as_str()) => roster.of(&identity.provider).await,
-            Some(_) => Ok(String::new()),
-            None => identity.account.clone(),
+        let read = match (pinned, &self.account) {
+            (Some(account), _) => Ok(account.to_owned()),
+            (_, Some(roster)) if ACCOUNT_PROVIDERS.contains(&identity.provider.as_str()) => roster.of(&identity.provider).await,
+            (_, Some(_)) => Ok(String::new()),
+            (_, None) => identity.account.clone(),
         };
         let account = match read {
             Ok(account) => account,
@@ -673,7 +725,7 @@ impl SendAccounting {
                 .unwrap_or(Some(row.id.clone())),
             facts,
         };
-        let outcome = match make_usage_record(&args, self.pricing.as_ref(), self.new_id.as_ref()) {
+        let outcome = match make_usage_record_with(&args, speed_tier, self.pricing.as_ref(), self.new_id.as_ref()) {
             Ok(built) => sink.record_queued(built).await,
             Err(error) => Err(error),
         };
@@ -694,7 +746,7 @@ impl SendAccounting {
                     timed: false,
                     outcome: None,
                 };
-                self.save(row, recorded).await;
+                self.save(row, &attempt.speed_tier, attempt.account.as_deref(), recorded).await;
             }
         }
     }
@@ -707,12 +759,12 @@ impl SendAccounting {
         let request_id = self.identity.request_id.clone();
         self.save_abandoned(&mut recorded).await;
         match outcome {
-            Outcome::Cancelled { reported } => {
+            Outcome::Cancelled { reported, model } => {
                 // A user's cancel is not a request outcome: what it reported is
                 // the request's row, marked `cancelled` so the request log leaves it out.
                 if let Some(facts) = reported.filter(Facts::recordable) {
-                    let row = Row { id: request_id, facts: Some(facts), model: None, completed: None, timed: false, outcome: Some(RowOutcome::Cancelled { attempts: abandoned + 1 }) };
-                    self.save(row, &mut recorded).await;
+                    let row = Row { id: request_id, facts: Some(facts), model, completed: None, timed: false, outcome: Some(RowOutcome::Cancelled { attempts: abandoned + 1 }) };
+                    self.save(row, &self.speed_tier, self.pinned_account.as_deref(), &mut recorded).await;
                 }
             }
             Outcome::Failed(error) => {
@@ -732,7 +784,7 @@ impl SendAccounting {
                     timed: false,
                     outcome: Some(RowOutcome::Failed { attempts: abandoned + 1 }),
                 };
-                self.save(row, &mut recorded).await;
+                self.save(row, &self.speed_tier, self.pinned_account.as_deref(), &mut recorded).await;
             }
             Outcome::Completed(done) => {
                 let row = Row {
@@ -743,7 +795,7 @@ impl SendAccounting {
                     timed: true,
                     outcome: Some(RowOutcome::Completed { attempts: abandoned + 1 }),
                 };
-                self.save(row, &mut recorded).await;
+                self.save(row, &self.speed_tier, self.pinned_account.as_deref(), &mut recorded).await;
             }
         }
         recorded

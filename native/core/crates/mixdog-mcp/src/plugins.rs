@@ -5,6 +5,7 @@
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use mixdog_js::js_trim;
 use mixdog_js::js_object_keys as ordered_keys;
@@ -88,13 +89,19 @@ fn json_error_message(message: &str) -> String {
 
 /// `readJsonFile(path, errors)`: the parsed file, or the message Node records for it.
 fn read_json(lane: &InLane<MaintenanceIo>, path: &Path) -> Result<Value, String> {
-    let read = mixdog_statefile::read_content(path);
-    let bytes = match read {
-        Ok(Some(bytes)) => bytes,
-        Ok(None) => return Err("cannot read file (ENOENT)".to_owned()),
-        Err(error) => return Err(unreadable(lane, path, &error)),
-    };
-    let text = String::from_utf8_lossy(&bytes);
+    read_json_bytes(lane, path).and_then(|bytes| parse_json(&bytes))
+}
+
+fn read_json_bytes(lane: &InLane<MaintenanceIo>, path: &Path) -> Result<Vec<u8>, String> {
+    match mixdog_statefile::read_content(path) {
+        Ok(Some(bytes)) => Ok(bytes),
+        Ok(None) => Err("cannot read file (ENOENT)".to_owned()),
+        Err(error) => Err(unreadable(lane, path, &error)),
+    }
+}
+
+fn parse_json(bytes: &[u8]) -> Result<Value, String> {
+    let text = String::from_utf8_lossy(bytes);
     mixdog_js::json_parse(&text).map_err(|_| {
         let message = mixdog_js::v8_json_parse_error(&text).unwrap_or_else(|| unreachable!("the parser refused a text V8 accepts"));
         json_error_message(&message)
@@ -143,34 +150,24 @@ pub struct RegisteredPlugin {
 /// `<data>/plugins/registry.json`; entries whose root is missing are skipped.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
 pub fn read_registry(lane: &InLane<MaintenanceIo>, data_dir: &Path) -> Vec<RegisteredPlugin> {
-    let Ok(registry) = read_json(lane, &data_dir.join("plugins").join("registry.json")) else {
+    let Ok(plugins) = crate::plugin_admin::read_registry_entries(lane, &data_dir.join("plugins").join("registry.json")) else {
         return Vec::new();
     };
-    registry
-        .get("plugins")
-        .and_then(Value::as_array)
-        .map(|plugins| {
-            plugins
+    plugins
+        .iter()
+        .filter_map(|entry| {
+            let root = PathBuf::from(entry.get("root")?.as_str()?);
+            if !root.exists() {
+                return None;
+            }
+            let id = ["id", "name"]
                 .iter()
-                .filter_map(|entry| {
-                    let root = PathBuf::from(entry.get("root")?.as_str()?);
-                    if !root.exists() {
-                        return None;
-                    }
-                    let id = ["id", "name"]
-                        .iter()
-                        .find_map(|k| entry.get(*k).and_then(Value::as_str).filter(|s| !s.is_empty()))
-                        .unwrap_or_default()
-                        .to_owned();
-                    Some(RegisteredPlugin {
-                        id,
-                        root,
-                        enabled: entry.get("enabled").and_then(Value::as_bool) != Some(false),
-                    })
-                })
-                .collect()
+                .find_map(|k| entry.get(*k).and_then(Value::as_str).filter(|s| !s.is_empty()))
+                .unwrap_or_default()
+                .to_owned();
+            Some(RegisteredPlugin { id, root, enabled: entry.get("enabled").and_then(Value::as_bool) != Some(false) })
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -207,14 +204,13 @@ fn server_problem(entry: &Value) -> Option<String> {
     }
 }
 
-struct Collector<'a> {
-    lane: &'a InLane<MaintenanceIo>,
+struct Collector {
     /// In the order the keys were first declared; a later declaration of a key replaces it in place.
     servers: Vec<DeclaredServer>,
     errors: Vec<DeclarationError>,
 }
 
-impl Collector<'_> {
+impl Collector {
     fn error(&mut self, source: &Path, key: Option<&str>, message: impl Into<String>) {
         self.errors.push(DeclarationError {
             source: source.to_path_buf(),
@@ -255,8 +251,8 @@ impl Collector<'_> {
         }
     }
 
-    fn load_file(&mut self, path: &Path) {
-        match read_json(self.lane, path) {
+    fn load_file(&mut self, path: &Path, file: &DeclarationFile) {
+        match file.json() {
             Ok(doc) => {
                 if let Some(map) = self.server_map(&doc, path, "") {
                     self.add_all(map, path);
@@ -266,8 +262,10 @@ impl Collector<'_> {
         }
     }
 
-    #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-    fn load_declared_path(&mut self, root: &Path, relative: &Value, manifest: &Path, where_: &str) {
+    fn load_declared_path(
+        &mut self, root: &Path, relative: &Value, manifest: &Path, where_: &str,
+        read: &mut impl FnMut(&Path) -> Arc<DeclarationFile>,
+    ) {
         let Some(text) = relative.as_str().filter(|s| !js_trim(s).is_empty()) else {
             self.error(manifest, None, format!("{where_}MCP path must be a non-empty string"));
             return;
@@ -277,37 +275,75 @@ impl Collector<'_> {
             self.error(manifest, None, format!("{where_}MCP path must be relative and stay inside the plugin root"));
             return;
         };
-        if !path.exists() {
+        let file = read(&path);
+        if !file.exists() {
             self.error(manifest, None, format!("{where_}MCP file not found"));
             return;
         }
-        self.load_file(&path);
+        self.load_file(&path, &file);
+    }
+}
+
+pub(crate) enum DeclarationFile {
+    Missing,
+    Unreadable(String),
+    Bytes(Vec<u8>),
+}
+
+impl DeclarationFile {
+    #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
+    pub(crate) fn read(lane: &InLane<MaintenanceIo>, path: &Path) -> Self {
+        if !path.exists() {
+            return Self::Missing;
+        }
+        match read_json_bytes(lane, path) {
+            Ok(bytes) => Self::Bytes(bytes),
+            Err(error) => Self::Unreadable(error),
+        }
+    }
+
+    fn exists(&self) -> bool {
+        !matches!(self, Self::Missing)
+    }
+
+    fn json(&self) -> Result<Value, String> {
+        match self {
+            Self::Missing => Err("cannot read file (ENOENT)".to_owned()),
+            Self::Unreadable(error) => Err(error.clone()),
+            Self::Bytes(bytes) => parse_json(bytes),
+        }
     }
 }
 
 /// What a plugin declares for MCP: `<root>/.mcp.json` first, then the manifest `mcpServers`
 /// (a path, an inline object, or a list mixing both). Later sources override earlier ones by
 /// key. Never fails for plugin content; errors carry locations and field names, never values.
-#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
 pub fn load_declarations(lane: &InLane<MaintenanceIo>, root: &Path) -> PluginMcpDeclarations {
-    let mut collector = Collector { lane, servers: Vec::new(), errors: Vec::new() };
-    let found = MANIFEST_FILES.iter().find(|f| root.join(f).exists()).copied();
+    load_declarations_from(root, |path| Arc::new(DeclarationFile::read(lane, path)))
+}
+
+pub(crate) fn load_declarations_from(root: &Path, mut read: impl FnMut(&Path) -> Arc<DeclarationFile>) -> PluginMcpDeclarations {
+    let mut collector = Collector { servers: Vec::new(), errors: Vec::new() };
+    let found = MANIFEST_FILES.into_iter().find_map(|name| {
+        // Join by component so diagnostics use the host's own separators.
+        let path = name.split('/').fold(root.to_path_buf(), |path, part| path.join(part));
+        let file = read(&path);
+        file.exists().then_some((name, path, file))
+    });
     let mcp_json = root.join(".mcp.json");
-    let has_mcp_json = mcp_json.exists();
-    let format = match found {
-        Some(file) => format_of(file),
-        None if has_mcp_json => PluginFormat::Claude,
+    let default_file = read(&mcp_json);
+    let format = match &found {
+        Some((name, _, _)) => format_of(name),
+        None if default_file.exists() => PluginFormat::Claude,
         None => PluginFormat::None,
     };
-    if has_mcp_json {
-        collector.load_file(&mcp_json);
+    if default_file.exists() {
+        collector.load_file(&mcp_json, &default_file);
     }
-    if let Some(file) = found {
-        // Joined by component, as Node joins `rel.split('/')`, so the separators are the host's own.
-        let path = file.split('/').fold(root.to_path_buf(), |path, part| path.join(part));
+    if let Some((_, path, file)) = found {
         // The file found is the one read, whatever the later manifests hold; one that cannot be
         // read or parsed is reported and declares nothing.
-        let doc = match read_json(lane, &path) {
+        let doc = match file.json() {
             Ok(doc) => doc,
             Err(message) => {
                 collector.error(&path, None, message);
@@ -316,7 +352,7 @@ pub fn load_declarations(lane: &InLane<MaintenanceIo>, root: &Path) -> PluginMcp
         };
         match doc.as_object().and_then(|object| object.get("mcpServers")) {
             None => {}
-            Some(Value::String(_)) => collector.load_declared_path(root, &doc["mcpServers"], &path, "\"mcpServers\": "),
+            Some(Value::String(_)) => collector.load_declared_path(root, &doc["mcpServers"], &path, "\"mcpServers\": ", &mut read),
             Some(Value::Array(members)) => {
                 for (index, member) in members.iter().enumerate() {
                     let where_ = format!("\"mcpServers\"[{index}]: ");
@@ -325,7 +361,7 @@ pub fn load_declarations(lane: &InLane<MaintenanceIo>, root: &Path) -> PluginMcp
                             collector.add_all(map, &path);
                         }
                     } else {
-                        collector.load_declared_path(root, member, &path, &where_);
+                        collector.load_declared_path(root, member, &path, &where_, &mut read);
                     }
                 }
             }
@@ -432,5 +468,29 @@ mod tests {
         }));
         assert_eq!(intents.len(), 1);
         assert_eq!(intents["p"], json!({"s": {"enabled": false, "env": {"A": "2"}, "url": "https://x"}}));
+    }
+
+
+    /// The hook bus reads the registry as the admin path does (`loadRegistry`): a damaged `registry.json` is set aside and
+    /// `registry.json.bak` restored, instead of reading as no plugins.
+    #[tokio::test]
+    async fn a_damaged_registry_is_recovered_from_its_backup_for_the_hooks() {
+        let data = tempfile::tempdir().unwrap();
+        let root = data.path().join("p1");
+        std::fs::create_dir_all(&root).unwrap();
+        let plugins = data.path().join("plugins");
+        std::fs::create_dir_all(&plugins).unwrap();
+        let good = json!({"version": 1, "plugins": [{"id": "p1", "root": root.to_str().unwrap(), "enabled": true}]});
+        std::fs::write(plugins.join("registry.json"), "{ not json").unwrap();
+        std::fs::write(plugins.join("registry.json.bak"), good.to_string()).unwrap();
+        let dir = data.path().to_owned();
+        use mixdog_rt::LaneToken as _;
+        let read = mixdog_rt::testing::tokens()
+            .maintenance_io
+            .submit(&tokio_util::sync::CancellationToken::new(), move |lane| read_registry(lane, &dir))
+            .unwrap()
+            .await
+            .unwrap();
+        assert_eq!(read, vec![RegisteredPlugin { id: "p1".to_owned(), root, enabled: true }]);
     }
 }

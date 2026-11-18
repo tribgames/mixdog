@@ -36,28 +36,6 @@ pub trait IceClock: Send + Sync {
     fn wall_ms(&self) -> u64;
 }
 
-pub struct SystemClock {
-    start: std::time::Instant,
-}
-
-impl Default for SystemClock {
-    fn default() -> Self {
-        Self { start: std::time::Instant::now() }
-    }
-}
-
-impl IceClock for SystemClock {
-    fn monotonic_ms(&self) -> u64 {
-        self.start.elapsed().as_millis() as u64
-    }
-
-    fn wall_ms(&self) -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64)
-    }
-}
-
 /// How long before expiry a credential stops being served: one coturn allocation lifetime, but
 /// never more than half the credential's own life.
 pub fn refresh_margin(life_ms: u64) -> u64 {
@@ -126,25 +104,42 @@ struct State {
     epoch: u64,
 }
 
+
+pub struct SystemClock {
+    start: std::time::Instant,
+}
+impl Default for SystemClock {
+    fn default() -> Self {
+        Self { start: std::time::Instant::now() }
+    }
+}
+impl IceClock for SystemClock {
+    fn monotonic_ms(&self) -> u64 {
+        self.start.elapsed().as_millis() as u64
+    }
+
+    fn wall_ms(&self) -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64)
+    }
+}
 pub struct RemoteIceServers<C: IceClock = SystemClock> {
     clock: C,
     state: Mutex<State>,
     /// One request at a time: a caller that waits finds the cache the first one filled.
     refreshing: tokio::sync::Semaphore,
 }
-
 impl RemoteIceServers<SystemClock> {
     pub fn new() -> Self {
         Self::with_clock(SystemClock::default())
     }
 }
-
 impl Default for RemoteIceServers<SystemClock> {
     fn default() -> Self {
         Self::new()
     }
 }
-
 impl<C: IceClock> RemoteIceServers<C> {
     pub fn with_clock(clock: C) -> Self {
         Self { clock, state: Mutex::new(State::default()), refreshing: tokio::sync::Semaphore::new(1) }

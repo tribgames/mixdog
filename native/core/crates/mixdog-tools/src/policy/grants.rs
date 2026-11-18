@@ -6,8 +6,13 @@
 //! A grant is keyed by agent + action; `agent` scope names the agent, `always`
 //! stands for every agent (`*`), and an agent's own grant wins over an
 //! every-agent one. `once` is never stored, and neither is `session` (that is
-//! [`super::SessionGrants`]). Payments and permanent deletes are never allowed.
-//! A tool key is only ever an every-agent `allow`.
+//! [`super::SessionGrants`]). What a person allows from a card is a tool
+//! (`tool:<identity>`), never an action category; a category holds only a
+//! `block`, or the browser's own `allow`. Payments and permanent deletes are
+//! never allowed. A stored `allow` of a connector category (all that 1.4.5 and
+//! the builds since wrote when a card was answered "always") does not say which
+//! tool was meant, so it is dropped on load and grants nothing: the person is
+//! asked once more, and the next answer is stored for the tool.
 
 use std::fmt;
 use std::sync::Mutex;
@@ -99,10 +104,17 @@ pub fn grant_id(agent_id: &str, action: &GrantKey) -> String {
     format!("grant_{}", &hex[..24])
 }
 
+/// Whether a stored row can exist: an `allow` of what may be allowed or a
+/// `block` of a category, under the id its own owner and key give. A row whose
+/// id is not that (a hand-edited owner or action) is damaged: what it would
+/// grant and what revoking it removes would be two different rows.
 fn valid(grant: &Grant) -> bool {
+    if grant.id != grant_id(&grant.agent_id, &grant.action) {
+        return false;
+    }
     match grant.mode {
         PermissionMode::Ask => false,
-        PermissionMode::Allow => !grant.action.is_tool() || grant.agent_id == ANY_AGENT,
+        PermissionMode::Allow => grant.action.may_be_allowed(),
         PermissionMode::Block => !grant.action.is_tool(),
     }
 }
@@ -142,9 +154,6 @@ impl GrantTable {
     /// the every-agent grant.
     pub fn mode_for(&self, agent_id: &str, action: &GrantKey, shared_only: bool) -> PermissionMode {
         match self.deciding(agent_id, action, shared_only) {
-            Some(g) if g.mode == PermissionMode::Allow && !action.rememberable() => {
-                PermissionMode::Ask
-            }
             Some(g) => g.mode,
             None => PermissionMode::Ask,
         }
@@ -164,16 +173,13 @@ impl GrantTable {
         at_ms: i64,
         no_widen: bool,
     ) -> Result<Option<Grant>, WouldWiden> {
-        if mode == PermissionMode::Allow && !action.rememberable() {
+        if mode == PermissionMode::Allow && !action.may_be_allowed() {
+            return Ok(None);
+        }
+        if action.is_tool() && mode == PermissionMode::Block {
             return Ok(None);
         }
         let owner = field(agent_id);
-        if action.is_tool()
-            && (mode == PermissionMode::Block
-                || (mode == PermissionMode::Allow && owner != ANY_AGENT))
-        {
-            return Ok(None);
-        }
         let id = grant_id(&owner, action);
         let shared_id = grant_id(ANY_AGENT, action);
         let grant = (mode != PermissionMode::Ask).then(|| Grant {
@@ -229,7 +235,7 @@ impl GrantTable {
     }
 
     /// The profile's permission table for `agent_id`: every action kind with
-    /// its mode, then one row per tool allowed for every agent.
+    /// its mode, then one row per tool allowed for it (its own, else every agent's).
     pub fn permissions(&self, agent_id: &str) -> Vec<PermissionRow> {
         let mut rows: Vec<PermissionRow> = mixdog_core_api::domain::approval::ActionKind::ALL
             .into_iter()
@@ -241,21 +247,29 @@ impl GrantTable {
                         .deciding(agent_id, &action, false)
                         .is_some_and(|g| g.agent_id == ANY_AGENT);
                 PermissionRow {
-                    rememberable: action.rememberable(),
+                    rememberable: action.may_be_allowed(),
                     action,
                     mode,
                     shared,
                 }
             })
             .collect();
-        rows.extend(self.grants.iter().filter(|g| g.action.is_tool()).map(|g| {
-            PermissionRow {
-                action: g.action.clone(),
-                mode: PermissionMode::Allow,
-                rememberable: true,
-                shared: true,
-            }
-        }));
+        let applying = self.applying_to(agent_id);
+        rows.extend(
+            applying
+                .iter()
+                .filter(|g| g.action.is_tool())
+                .filter(|g| {
+                    g.agent_id != ANY_AGENT
+                        || !applying.iter().any(|own| own.action == g.action && own.agent_id != ANY_AGENT)
+                })
+                .map(|g| PermissionRow {
+                    action: g.action.clone(),
+                    mode: PermissionMode::Allow,
+                    rememberable: true,
+                    shared: g.agent_id == ANY_AGENT,
+                }),
+        );
         rows
     }
 
@@ -312,8 +326,6 @@ impl fmt::Display for StoreError {
         f.write_str(&self.0)
     }
 }
-
-impl std::error::Error for StoreError {}
 
 /// Persistence of grants and audit. A read failure is an error, never "no
 /// grant": the gate fails closed.
@@ -431,26 +443,17 @@ mod tests {
     #[test]
     fn an_agents_own_grant_wins_over_the_every_agent_one() {
         let mut table = GrantTable::default();
+        let submit = kind(ActionKind::BrowserSubmit);
         table
-            .grant("a", &kind(ActionKind::Comment), ApprovalRemember::Always, "", 1)
+            .grant("a", &submit, ApprovalRemember::Always, "", 1)
             .expect("shared allow");
-        assert_eq!(
-            table.mode_for("b", &kind(ActionKind::Comment), false),
-            PermissionMode::Allow
-        );
+        assert_eq!(table.mode_for("b", &submit, false), PermissionMode::Allow);
         table
-            .set_mode("b", &kind(ActionKind::Comment), PermissionMode::Block, "", 2, false)
+            .set_mode("b", &submit, PermissionMode::Block, "", 2, false)
             .expect("set");
-        assert_eq!(
-            table.mode_for("b", &kind(ActionKind::Comment), false),
-            PermissionMode::Block
-        );
-        assert_eq!(
-            table.mode_for("b", &kind(ActionKind::Comment), true),
-            PermissionMode::Allow
-        );
+        assert_eq!(table.mode_for("b", &submit, false), PermissionMode::Block);
+        assert_eq!(table.mode_for("b", &submit, true), PermissionMode::Allow);
     }
-
     #[test]
     fn payments_and_deletes_can_never_be_allowed() {
         let mut table = GrantTable::default();
@@ -480,14 +483,17 @@ mod tests {
     }
 
     #[test]
-    fn a_tool_is_only_ever_allowed_for_every_agent_and_never_blocked() {
+    fn a_tool_is_allowed_for_one_agent_or_every_agent_and_never_blocked() {
         let mut table = GrantTable::default();
         let shell = GrantKey::tool("shell").expect("key");
-        assert_eq!(table.grant("a", &shell, ApprovalRemember::Agent, "", 0), None);
         assert_eq!(
             table.set_mode("*", &shell, PermissionMode::Block, "", 0, false),
             Ok(None)
         );
+        assert!(table.grant("a", &shell, ApprovalRemember::Agent, "", 0).is_some());
+        assert_eq!(table.mode_for("a", &shell, false), PermissionMode::Allow);
+        assert_eq!(table.mode_for("z", &shell, false), PermissionMode::Ask, "another agent is asked");
+        assert_eq!(table.mode_for("a", &shell, true), PermissionMode::Ask, "not an every-agent allow");
         assert!(table.grant("a", &shell, ApprovalRemember::Always, "", 0).is_some());
         assert_eq!(table.mode_for("z", &shell, false), PermissionMode::Allow);
         // The same revoke ("ask") by any agent turns the shared row back to asking.
@@ -495,64 +501,110 @@ mod tests {
             .set_mode("z", &shell, PermissionMode::Ask, "", 1, false)
             .expect("ask");
         assert_eq!(table.mode_for("z", &shell, false), PermissionMode::Ask);
-        assert!(table.rows().is_empty());
     }
 
+    #[test]
+    fn a_connector_category_is_never_allowed_as_a_whole() {
+        let mut table = GrantTable::default();
+        for k in [ActionKind::Comment, ActionKind::Email, ActionKind::Message, ActionKind::Trash] {
+            assert_eq!(table.grant("a", &kind(k), ApprovalRemember::Agent, "", 0), None, "{k:?}");
+            assert_eq!(table.grant("a", &kind(k), ApprovalRemember::Always, "", 0), None, "{k:?}");
+            assert_eq!(table.mode_for("a", &kind(k), false), PermissionMode::Ask);
+        }
+        assert!(table.rows().is_empty());
+    }
     #[test]
     fn no_widen_refuses_lifting_a_block_and_leaves_the_table_unchanged() {
         let mut table = GrantTable::default();
         table
-            .set_mode("a", &kind(ActionKind::Email), PermissionMode::Block, "", 0, false)
+            .set_mode("a", &kind(ActionKind::BrowserPost), PermissionMode::Block, "", 0, false)
             .expect("block");
         let before = table.clone();
         assert_eq!(
-            table.set_mode("a", &kind(ActionKind::Email), PermissionMode::Allow, "", 1, true),
+            table.set_mode("a", &kind(ActionKind::BrowserPost), PermissionMode::Allow, "", 1, true),
             Err(WouldWiden)
         );
         assert_eq!(table, before);
         // Back to asking also lifts the block; keeping it is allowed.
         assert_eq!(
-            table.set_mode("a", &kind(ActionKind::Email), PermissionMode::Ask, "", 2, true),
+            table.set_mode("a", &kind(ActionKind::BrowserPost), PermissionMode::Ask, "", 2, true),
             Err(WouldWiden)
         );
         assert!(
             table
-                .set_mode("a", &kind(ActionKind::Email), PermissionMode::Block, "", 3, true)
+                .set_mode("a", &kind(ActionKind::BrowserPost), PermissionMode::Block, "", 3, true)
                 .is_ok()
         );
     }
 
     #[test]
     fn grant_ids_are_stable_24_hex_digests_of_agent_and_action() {
-        let id = grant_id("a", &kind(ActionKind::Email));
+        let id = grant_id("a", &kind(ActionKind::BrowserPost));
         assert!(id.starts_with("grant_"));
         assert_eq!(id.len(), "grant_".len() + 24);
-        assert_eq!(id, grant_id("a", &kind(ActionKind::Email)));
-        assert_ne!(id, grant_id("b", &kind(ActionKind::Email)));
+        assert_eq!(id, grant_id("a", &kind(ActionKind::BrowserPost)));
+        assert_ne!(id, grant_id("b", &kind(ActionKind::BrowserPost)));
     }
 
     #[test]
-    fn the_permission_table_lists_every_kind_then_shared_tool_rows() {
+    fn the_permission_table_lists_every_kind_then_the_tools_allowed_for_the_agent() {
         let mut table = GrantTable::default();
-        table.grant("a", &GrantKey::tool("shell").expect("key"), ApprovalRemember::Always, "", 0);
-        table.grant("a", &kind(ActionKind::Form), ApprovalRemember::Always, "", 0);
+        let tool = |name: &str| GrantKey::tool(name).expect("key");
+        table.grant("a", &tool("shell"), ApprovalRemember::Always, "", 0);
+        table.grant("x", &tool("mine"), ApprovalRemember::Agent, "", 0);
+        table.grant("x", &tool("shell"), ApprovalRemember::Agent, "", 0);
+        table.grant("other", &tool("theirs"), ApprovalRemember::Agent, "", 0);
+        table.grant("a", &kind(ActionKind::BrowserSubmit), ApprovalRemember::Always, "", 0);
         let rows = table.permissions("x");
-        assert_eq!(rows.len(), ActionKind::ALL.len() + 1);
-        let form = rows.iter().find(|r| r.action == kind(ActionKind::Form)).expect("form");
-        assert!(form.shared && form.mode == PermissionMode::Allow);
-        assert_eq!(rows.last().map(|r| r.action.render()), Some("tool:shell".to_owned()));
+        assert_eq!(rows.len(), ActionKind::ALL.len() + 2);
+        let submit = rows.iter().find(|r| r.action == kind(ActionKind::BrowserSubmit)).expect("submit");
+        assert!(submit.shared && submit.mode == PermissionMode::Allow);
+        let comment = rows.iter().find(|r| r.action == kind(ActionKind::Comment)).expect("comment");
+        assert!(!comment.rememberable, "a connector category cannot be allowed as a whole");
+        let tools: Vec<(String, bool)> = rows[ActionKind::ALL.len()..].iter().map(|r| (r.action.render(), r.shared)).collect();
+        // Its own allow of a tool is listed once, in place of the every-agent one.
+        assert_eq!(tools, [("tool:mine".to_owned(), false), ("tool:shell".to_owned(), false)]);
     }
-
     #[test]
     fn rows_that_cannot_exist_are_dropped_on_load() {
-        let bad = Grant {
-            id: "x".into(),
+        let row = |action: GrantKey, mode: PermissionMode| Grant {
+            id: grant_id("a", &action),
             agent_id: "a".into(),
-            action: GrantKey::Tool("shell".into()),
-            mode: PermissionMode::Allow,
+            action,
+            mode,
             device: String::new(),
             at_ms: 0,
         };
-        assert!(GrantTable::from_rows([bad]).rows().is_empty());
+        let kept = GrantTable::from_rows([
+            row(GrantKey::Tool("shell".into()), PermissionMode::Allow),
+            row(GrantKey::Kind(ActionKind::Email), PermissionMode::Block),
+            row(GrantKey::Kind(ActionKind::BrowserSubmit), PermissionMode::Allow),
+        ]);
+        assert_eq!(kept.rows().len(), 3);
+        let dropped = GrantTable::from_rows([
+            row(GrantKey::Tool("shell".into()), PermissionMode::Block),
+            row(GrantKey::Kind(ActionKind::Email), PermissionMode::Allow),
+            row(GrantKey::Kind(ActionKind::Payment), PermissionMode::Allow),
+        ]);
+        assert!(dropped.rows().is_empty(), "a category allow says no tool, so it grants nothing");
+    }
+
+    /// Regression: a row's owner and action were read on their own, so a hand-edited owner or action granted under
+    /// the edited fields while revoking named the row's id.
+    #[test]
+    fn a_row_whose_id_is_not_its_owner_and_action_grants_nothing() {
+        let shell = GrantKey::tool("shell").expect("key");
+        let edited = |id: String, agent: &str, action: GrantKey| Grant { id, agent_id: agent.into(), action, mode: PermissionMode::Allow, device: String::new(), at_ms: 0 };
+        let table = GrantTable::from_rows([
+            // Another agent's row with its owner changed to every agent.
+            edited(grant_id("mailer", &shell), ANY_AGENT, shell.clone()),
+            // A row of one tool with its action changed to another tool.
+            edited(grant_id("mailer", &GrantKey::tool("notes").expect("key")), "mailer", shell.clone()),
+        ]);
+        assert!(table.rows().is_empty());
+        for agent in ["mailer", "scribe"] {
+            assert_eq!(table.mode_for(agent, &shell, false), PermissionMode::Ask, "{agent}");
+        }
     }
 }
+impl std::error::Error for StoreError {}

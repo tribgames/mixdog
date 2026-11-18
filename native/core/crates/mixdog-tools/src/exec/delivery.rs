@@ -19,18 +19,6 @@ const HEAD_MAX_CHARS: f64 = 1_000.0;
 const TAIL_CHARS: f64 = 2_000.0;
 const LINE_MAX_CHARS: usize = 2_000;
 
-/// `MIXDOG_SHELL_DELIVERY_MAX_CHARS`: the whole-delivery cap (a positive integer, else 6000).
-pub fn delivery_full_chars() -> f64 {
-    static FULL: LazyLock<f64> = LazyLock::new(|| {
-        std::env::var("MIXDOG_SHELL_DELIVERY_MAX_CHARS")
-            .ok()
-            .and_then(|raw| parse_int_prefix(&raw))
-            .filter(|n| *n > 0)
-            .map_or(6_000.0, |n| n as f64)
-    });
-    *FULL
-}
-
 /// JavaScript `parseInt(text, 10)`: optional sign and leading digits.
 pub fn parse_int_prefix(text: &str) -> Option<i64> {
     let trimmed = mixdog_js::js_trim_start(text);
@@ -127,27 +115,6 @@ impl Piece {
     }
 }
 
-/// Step 3 when only the two ends of a long range were read: `total_*` describe the whole range.
-pub fn edges_piece(head_text: &str, tail_text: &str, total_bytes: usize, total_lines: usize, path: &str) -> Piece {
-    let head_text = head_text.to_owned();
-    let tail_text = tail_text.to_owned();
-    let path = path.to_owned();
-    Piece {
-        natural: f64::INFINITY,
-        render: Box::new(move |budget| {
-            let scale = budget / delivery_full_chars();
-            let head = head_of(&escape_harness_tags(&head_text), scale);
-            let tail = tail_of(&escape_harness_tags(&tail_text), 0, scale);
-            let omitted = Omitted {
-                lines: total_lines.saturating_sub(count_newlines(&head)).saturating_sub(count_newlines(&tail)),
-                bytes: total_bytes.saturating_sub(head.len()).saturating_sub(tail.len()),
-                path: &path,
-            };
-            join_head_tail(&head, &tail, &omitted)
-        }),
-    }
-}
-
 /// `(text with long lines cut, units cut)`.
 fn cut_long_lines(text: &str) -> (String, usize) {
     if utf16_len(text) <= LINE_MAX_CHARS {
@@ -166,38 +133,6 @@ fn cut_long_lines(text: &str) -> (String, usize) {
         })
         .collect();
     (lines.join("\n"), cut)
-}
-
-/// Steps 2, 3 and 5 on prepared text. `path` names where the whole (uncut) text can be read.
-pub fn text_piece(text: &str, path: &str) -> Piece {
-    let (cut_text, cut) = cut_long_lines(text);
-    let shown = escape_harness_tags(&cut_text);
-    let whole = if cut > 0 {
-        let sep = if shown.ends_with('\n') { "" } else { "\n" };
-        format!("{shown}{sep}{}\n", omission_marker(&Omitted { lines: 0, bytes: cut, path }))
-    } else {
-        shown.clone()
-    };
-    let path = path.to_owned();
-    Piece {
-        natural: utf16_len(&whole) as f64,
-        render: Box::new(move |budget| {
-            if (utf16_len(&whole) as f64) <= budget {
-                return whole.clone();
-            }
-            let scale = budget / delivery_full_chars();
-            let head = head_of(&shown, scale);
-            let head_len = utf16_len(&head);
-            let tail = tail_of(&shown, head_len, scale);
-            let units = u16s(&shown);
-            let middle = slice16(&units, head_len, units.len().saturating_sub(utf16_len(&tail)));
-            join_head_tail(
-                &head,
-                &tail,
-                &Omitted { lines: count_newlines(&middle), bytes: middle.len(), path: &path },
-            )
-        }),
-    }
 }
 
 /// Max-min fair split of `budget` over the streams' natural lengths.
@@ -234,12 +169,6 @@ pub fn fit_pieces(pieces: &[Piece], budget: f64) -> Vec<String> {
         .collect()
 }
 
-/// Steps 1–5 for a whole string.
-pub fn shell_text_piece(text: &str, path: &str) -> Piece {
-    let prepared = prepare_shell_text(text, &mut CarriageReturnFolder::default());
-    text_piece(&prepared, path)
-}
-
 /// `renderShellOutputBody`: stdout, a break when it lacks one, stderr; `(no output)` when empty.
 pub fn render_shell_output_body(stdout: &str, stderr: &str) -> String {
     let gap = if !stdout.is_empty() && !stderr.is_empty() && !stdout.ends_with('\n') { "\n" } else { "" };
@@ -250,28 +179,6 @@ pub fn render_shell_output_body(stdout: &str, stderr: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn short_text_is_delivered_whole_and_long_text_keeps_both_ends() {
-        let piece = shell_text_piece("hello\n", "/log");
-        assert_eq!(fit_pieces(&[piece], 6000.0), vec!["hello\n".to_owned()]);
-
-        let body: String = (0..3000).map(|i| format!("line {i}\n")).collect();
-        let delivered = fit_pieces(&[shell_text_piece(&body, "/log/out")], 6000.0).remove(0);
-        assert!(delivered.starts_with("line 0\nline 1\n"));
-        assert!(delivered.ends_with("line 2999\n"));
-        assert!(delivered.contains("lines, "));
-        assert!(delivered.contains(" omitted — read with offset/limit or grep, full log: /log/out]\n"));
-        assert!(utf16_len(&delivered) < 3_500);
-    }
-
-    #[test]
-    fn an_over_long_line_is_cut_with_a_marker() {
-        let line = "x".repeat(2_500);
-        let delivered = fit_pieces(&[shell_text_piece(&line, "/l")], 6000.0).remove(0);
-        assert!(delivered.starts_with(&"x".repeat(2_000)));
-        assert!(delivered.contains(" … [500 chars cut]\n[… 0 lines, 0.5 KB omitted — read with offset/limit or grep, full log: /l]\n"));
-    }
 
     #[test]
     fn streams_share_one_budget_fairly() {
@@ -292,4 +199,95 @@ mod tests {
         assert_eq!(parse_int_prefix("  -4"), Some(-4));
         assert_eq!(parse_int_prefix("abc"), None);
     }
+
+
+    #[test]
+    fn short_text_is_delivered_whole_and_long_text_keeps_both_ends() {
+        let piece = shell_text_piece("hello\n", "/log");
+        assert_eq!(fit_pieces(&[piece], 6000.0), vec!["hello\n".to_owned()]);
+
+        let body: String = (0..3000).map(|i| format!("line {i}\n")).collect();
+        let delivered = fit_pieces(&[shell_text_piece(&body, "/log/out")], 6000.0).remove(0);
+        assert!(delivered.starts_with("line 0\nline 1\n"));
+        assert!(delivered.ends_with("line 2999\n"));
+        assert!(delivered.contains("lines, "));
+        assert!(delivered.contains(" omitted — read with offset/limit or grep, full log: /log/out]\n"));
+        assert!(utf16_len(&delivered) < 3_500);
+    }
+    #[test]
+    fn an_over_long_line_is_cut_with_a_marker() {
+        let line = "x".repeat(2_500);
+        let delivered = fit_pieces(&[shell_text_piece(&line, "/l")], 6000.0).remove(0);
+        assert!(delivered.starts_with(&"x".repeat(2_000)));
+        assert!(delivered.contains(" … [500 chars cut]\n[… 0 lines, 0.5 KB omitted — read with offset/limit or grep, full log: /l]\n"));
+    }
+}
+
+
+/// `MIXDOG_SHELL_DELIVERY_MAX_CHARS`: the whole-delivery cap (a positive integer, else 6000).
+pub fn delivery_full_chars() -> f64 {
+    static FULL: LazyLock<f64> = LazyLock::new(|| {
+        std::env::var("MIXDOG_SHELL_DELIVERY_MAX_CHARS")
+            .ok()
+            .and_then(|raw| parse_int_prefix(&raw))
+            .filter(|n| *n > 0)
+            .map_or(6_000.0, |n| n as f64)
+    });
+    *FULL
+}
+/// Step 3 when only the two ends of a long range were read: `total_*` describe the whole range.
+pub fn edges_piece(head_text: &str, tail_text: &str, total_bytes: usize, total_lines: usize, path: &str) -> Piece {
+    let head_text = head_text.to_owned();
+    let tail_text = tail_text.to_owned();
+    let path = path.to_owned();
+    Piece {
+        natural: f64::INFINITY,
+        render: Box::new(move |budget| {
+            let scale = budget / delivery_full_chars();
+            let head = head_of(&escape_harness_tags(&head_text), scale);
+            let tail = tail_of(&escape_harness_tags(&tail_text), 0, scale);
+            let omitted = Omitted {
+                lines: total_lines.saturating_sub(count_newlines(&head)).saturating_sub(count_newlines(&tail)),
+                bytes: total_bytes.saturating_sub(head.len()).saturating_sub(tail.len()),
+                path: &path,
+            };
+            join_head_tail(&head, &tail, &omitted)
+        }),
+    }
+}
+/// Steps 2, 3 and 5 on prepared text. `path` names where the whole (uncut) text can be read.
+pub fn text_piece(text: &str, path: &str) -> Piece {
+    let (cut_text, cut) = cut_long_lines(text);
+    let shown = escape_harness_tags(&cut_text);
+    let whole = if cut > 0 {
+        let sep = if shown.ends_with('\n') { "" } else { "\n" };
+        format!("{shown}{sep}{}\n", omission_marker(&Omitted { lines: 0, bytes: cut, path }))
+    } else {
+        shown.clone()
+    };
+    let path = path.to_owned();
+    Piece {
+        natural: utf16_len(&whole) as f64,
+        render: Box::new(move |budget| {
+            if (utf16_len(&whole) as f64) <= budget {
+                return whole.clone();
+            }
+            let scale = budget / delivery_full_chars();
+            let head = head_of(&shown, scale);
+            let head_len = utf16_len(&head);
+            let tail = tail_of(&shown, head_len, scale);
+            let units = u16s(&shown);
+            let middle = slice16(&units, head_len, units.len().saturating_sub(utf16_len(&tail)));
+            join_head_tail(
+                &head,
+                &tail,
+                &Omitted { lines: count_newlines(&middle), bytes: middle.len(), path: &path },
+            )
+        }),
+    }
+}
+/// Steps 1–5 for a whole string.
+pub fn shell_text_piece(text: &str, path: &str) -> Piece {
+    let prepared = prepare_shell_text(text, &mut CarriageReturnFolder::default());
+    text_piece(&prepared, path)
 }

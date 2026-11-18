@@ -34,23 +34,6 @@ pub struct ReattachReport {
     task: JoinHandle<()>,
 }
 
-impl ReattachReport {
-    /// Starts watching `link`. Must be called inside a tokio runtime.
-    pub fn attach(link: &ServerLink) -> ReattachReport {
-        let sources = ReattachSources {
-            sessions: link.feed().sessions(),
-            states: link.feed().session_states(),
-            view: link.view(),
-            model_calls: link.model_calls(),
-        };
-        Self::start(link.notices().clone(), sources)
-    }
-
-    pub(crate) fn start(notices: broadcast::Sender<ConnectionNotice>, sources: ReattachSources) -> ReattachReport {
-        ReattachReport { task: tokio::spawn(run(notices, sources)) }
-    }
-}
-
 impl Drop for ReattachReport {
     fn drop(&mut self) {
         self.task.abort();
@@ -139,6 +122,222 @@ struct Report {
     generation: u64,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::link_machine::ModelLogin;
+    use mixdog_protocol::ThreadSummary;
+    use serde_json::json;
+
+    #[test]
+    fn a_completed_count_that_is_no_number_counts_the_call_as_answered_as_javascript_did() {
+        let call = |done: Value, count: Value| json!({ "kind": "tool", "id": "t", "completedCount": done, "count": count });
+        // Number("x") is NaN and NaN < 1 is false; Number("") and Number(null) are 0.
+        assert!(!tool_call_unanswered(&call(json!("x"), json!(2))));
+        assert!(!tool_call_unanswered(&call(json!({}), json!(null))));
+        assert!(tool_call_unanswered(&call(json!(""), json!(2))));
+        assert!(tool_call_unanswered(&call(json!(null), json!(null))));
+        assert!(tool_call_unanswered(&call(json!(" 1 "), json!(2))));
+        assert!(!tool_call_unanswered(&call(json!(2), json!(2))));
+        assert!(tool_call_unanswered(&call(json!(false), json!("abc"))));
+        assert!(!tool_call_unanswered(&call(json!(true), json!(0))));
+    }
+
+    struct Rig {
+        notices: broadcast::Receiver<ConnectionNotice>,
+        sessions: watch::Sender<Vec<SessionSummaryLite>>,
+        states: broadcast::Sender<SessionStateChange>,
+        view: watch::Sender<LinkViewState>,
+        calls: broadcast::Sender<ProxyCallSettled>,
+        _report: ReattachReport,
+    }
+
+    fn view(state: LinkState) -> LinkViewState {
+        LinkViewState { connection_id: "s".into(), state, rtt_ms: None, terminals_available: true, model_login: ModelLogin::Pc }
+    }
+
+    fn row(id: &str, title: &str, running: bool) -> SessionSummaryLite {
+        let summary: ThreadSummary = serde_json::from_value(json!({
+            "id": id, "preview": "", "title": title, "updatedAt": 0, "messageCount": 0, "cwd": "", "classification": null,
+            "projectPath": null, "working": running
+        }))
+        .unwrap();
+        SessionSummaryLite {
+            id: id.into(),
+            title: title.into(),
+            preview: String::new(),
+            running,
+            updated_at: 0,
+            activity_at: 0,
+            message_count: 0,
+            archived: false,
+            agent_session: false,
+            awaiting_approval: false,
+            awaiting_question: false,
+            agent_home: None,
+            summary,
+        }
+    }
+
+    fn state(id: &str, busy: bool, tools: Value) -> SessionStateChange {
+        SessionStateChange {
+            session_id: id.into(),
+            state: if busy { SessionRunState::Running } else { SessionRunState::Idle },
+            started_at: None,
+            snapshot: json!({ "busy": busy, "items": tools }),
+        }
+    }
+
+    fn rig() -> Rig {
+        let (notices, receiver) = broadcast::channel(16);
+        let (sessions, sessions_rx) = watch::channel(Vec::new());
+        let (states, states_rx) = broadcast::channel(16);
+        let (view_tx, view_rx) = watch::channel(view(LinkState::Connected));
+        let (calls, calls_rx) = broadcast::channel(16);
+        let report = ReattachReport::start(
+            notices,
+            ReattachSources { sessions: sessions_rx, states: states_rx, view: view_rx, model_calls: calls_rx },
+        );
+        Rig { notices: receiver, sessions, states, view: view_tx, calls, _report: report }
+    }
+
+    fn lost() -> LinkState {
+        LinkState::Reconnecting { attempt: 1, next_retry_at_ms: None, countdown_ms: None }
+    }
+
+    async fn settle() {
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_fresh_session_list_decides_finished_and_continued() {
+        let mut rig = rig();
+        rig.sessions.send(vec![row("a", "Alpha", true), row("b", "Beta", true)]).unwrap();
+        settle().await;
+        rig.view.send(view(lost())).unwrap();
+        settle().await;
+        rig.view.send(view(LinkState::Connected)).unwrap();
+        settle().await;
+        rig.sessions.send(vec![row("a", "Alpha", false), row("b", "Beta", true)]).unwrap();
+        settle().await;
+        assert_eq!(
+            rig.notices.try_recv().unwrap(),
+            ConnectionNotice::Reattached { finished: vec!["Alpha".into()], continued: vec!["Beta".into()], interrupted_model_calls: 0 }
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn abandoned_model_calls_are_counted_and_an_empty_outage_says_nothing() {
+        let mut rig = rig();
+        rig.view.send(view(lost())).unwrap();
+        settle().await;
+        rig.calls.send(ProxyCallSettled { provider: "p".into(), outcome: CallOutcome::Abandoned, failure: None }).unwrap();
+        rig.calls.send(ProxyCallSettled { provider: "p".into(), outcome: CallOutcome::Answered, failure: None }).unwrap();
+        settle().await;
+        rig.view.send(view(LinkState::Connected)).unwrap();
+        settle().await;
+        rig.sessions.send(Vec::new()).unwrap();
+        settle().await;
+        assert_eq!(
+            rig.notices.try_recv().unwrap(),
+            ConnectionNotice::Reattached { finished: vec![], continued: vec![], interrupted_model_calls: 1 }
+        );
+        // A second outage with nothing to tell.
+        rig.view.send(view(lost())).unwrap();
+        settle().await;
+        rig.view.send(view(LinkState::Connected)).unwrap();
+        settle().await;
+        rig.sessions.send(vec![row("x", "X", false)]).unwrap();
+        settle().await;
+        assert!(rig.notices.try_recv().is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_call_still_unanswered_when_the_turn_ends_is_reported_once() {
+        let mut rig = rig();
+        let tools = json!([{"kind": "tool", "id": "t1"}, {"kind": "tool", "id": "t2", "result": {}}]);
+        rig.states.send(state("a", true, tools.clone())).unwrap();
+        settle().await;
+        rig.view.send(view(lost())).unwrap();
+        settle().await;
+        rig.view.send(view(LinkState::Connected)).unwrap();
+        settle().await;
+        rig.sessions.send(vec![row("a", "Alpha", true)]).unwrap();
+        settle().await;
+        // The turn is still running: the call may yet get its result.
+        rig.states.send(state("a", true, tools.clone())).unwrap();
+        settle().await;
+        assert!(rig.notices.try_recv().is_err());
+        rig.states.send(state("a", false, tools)).unwrap();
+        settle().await;
+        assert_eq!(
+            rig.notices.try_recv().unwrap(),
+            ConnectionNotice::OutcomeUnknown { session_id: "a".into(), tool_ids: vec!["t1".into()] }
+        );
+        rig.states.send(state("a", false, json!([{"kind": "tool", "id": "t1"}]))).unwrap();
+        settle().await;
+        assert!(rig.notices.try_recv().is_err());
+    }
+
+
+    #[tokio::test(start_paused = true)]
+    async fn the_known_list_is_used_after_the_wait() {
+        let mut rig = rig();
+        rig.sessions.send(vec![row("a", "Alpha", true)]).unwrap();
+        settle().await;
+        rig.view.send(view(lost())).unwrap();
+        settle().await;
+        rig.view.send(view(LinkState::Connected)).unwrap();
+        settle().await;
+        assert!(rig.notices.try_recv().is_err());
+        tokio::time::advance(Duration::from_millis(REATTACH_SESSIONS_WAIT_MS + 1)).await;
+        settle().await;
+        assert!(matches!(rig.notices.try_recv().unwrap(), ConnectionNotice::Reattached { .. }));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_second_drop_before_the_report_is_one_outage() {
+        let mut rig = rig();
+        rig.sessions.send(vec![row("a", "Alpha", true)]).unwrap();
+        settle().await;
+        rig.view.send(view(lost())).unwrap();
+        settle().await;
+        rig.view.send(view(LinkState::Connected)).unwrap();
+        settle().await;
+        rig.view.send(view(LinkState::Paused)).unwrap();
+        settle().await;
+        tokio::time::advance(Duration::from_millis(REATTACH_SESSIONS_WAIT_MS + 1)).await;
+        settle().await;
+        assert!(rig.notices.try_recv().is_err());
+        rig.view.send(view(LinkState::Connected)).unwrap();
+        settle().await;
+        rig.sessions.send(vec![row("a", "Alpha", false)]).unwrap();
+        settle().await;
+        assert_eq!(
+            rig.notices.try_recv().unwrap(),
+            ConnectionNotice::Reattached { finished: vec!["Alpha".into()], continued: vec![], interrupted_model_calls: 0 }
+        );
+    }
+}
+
+
+impl ReattachReport {
+    /// Starts watching `link`. Must be called inside a tokio runtime.
+    pub fn attach(link: &ServerLink) -> ReattachReport {
+        let sources = ReattachSources {
+            sessions: link.feed().sessions(),
+            states: link.feed().session_states(),
+            view: link.view(),
+            model_calls: link.model_calls(),
+        };
+        Self::start(link.notices().clone(), sources)
+    }
+
+    pub(crate) fn start(notices: broadcast::Sender<ConnectionNotice>, sources: ReattachSources) -> ReattachReport {
+        ReattachReport { task: tokio::spawn(run(notices, sources)) }
+    }
+}
 impl Report {
     fn emit(&self, notice: ConnectionNotice) {
         // Nobody listening is no failure: the window may be gone.
@@ -262,7 +461,6 @@ impl Report {
         }
     }
 }
-
 async fn run(notices: broadcast::Sender<ConnectionNotice>, mut sources: ReattachSources) {
     let (wake, mut woken) = mpsc::unbounded_channel();
     let mut report = Report {
@@ -310,204 +508,5 @@ async fn run(notices: broadcast::Sender<ConnectionNotice>, mut sources: Reattach
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::link_machine::ModelLogin;
-    use mixdog_protocol::ThreadSummary;
-    use serde_json::json;
-
-    #[test]
-    fn a_completed_count_that_is_no_number_counts_the_call_as_answered_as_javascript_did() {
-        let call = |done: Value, count: Value| json!({ "kind": "tool", "id": "t", "completedCount": done, "count": count });
-        // Number("x") is NaN and NaN < 1 is false; Number("") and Number(null) are 0.
-        assert!(!tool_call_unanswered(&call(json!("x"), json!(2))));
-        assert!(!tool_call_unanswered(&call(json!({}), json!(null))));
-        assert!(tool_call_unanswered(&call(json!(""), json!(2))));
-        assert!(tool_call_unanswered(&call(json!(null), json!(null))));
-        assert!(tool_call_unanswered(&call(json!(" 1 "), json!(2))));
-        assert!(!tool_call_unanswered(&call(json!(2), json!(2))));
-        assert!(tool_call_unanswered(&call(json!(false), json!("abc"))));
-        assert!(!tool_call_unanswered(&call(json!(true), json!(0))));
-    }
-
-    struct Rig {
-        notices: broadcast::Receiver<ConnectionNotice>,
-        sessions: watch::Sender<Vec<SessionSummaryLite>>,
-        states: broadcast::Sender<SessionStateChange>,
-        view: watch::Sender<LinkViewState>,
-        calls: broadcast::Sender<ProxyCallSettled>,
-        _report: ReattachReport,
-    }
-
-    fn view(state: LinkState) -> LinkViewState {
-        LinkViewState { connection_id: "s".into(), state, rtt_ms: None, terminals_available: true, model_login: ModelLogin::Pc }
-    }
-
-    fn row(id: &str, title: &str, running: bool) -> SessionSummaryLite {
-        let summary: ThreadSummary = serde_json::from_value(json!({
-            "id": id, "preview": "", "title": title, "updatedAt": 0, "messageCount": 0, "cwd": "", "classification": null,
-            "projectPath": null, "working": running
-        }))
-        .unwrap();
-        SessionSummaryLite {
-            id: id.into(),
-            title: title.into(),
-            preview: String::new(),
-            running,
-            updated_at: 0,
-            activity_at: 0,
-            message_count: 0,
-            archived: false,
-            agent_session: false,
-            awaiting_approval: false,
-            awaiting_question: false,
-            agent_home: None,
-            summary,
-        }
-    }
-
-    fn state(id: &str, busy: bool, tools: Value) -> SessionStateChange {
-        SessionStateChange {
-            session_id: id.into(),
-            state: if busy { SessionRunState::Running } else { SessionRunState::Idle },
-            started_at: None,
-            snapshot: json!({ "busy": busy, "items": tools }),
-        }
-    }
-
-    fn rig() -> Rig {
-        let (notices, receiver) = broadcast::channel(16);
-        let (sessions, sessions_rx) = watch::channel(Vec::new());
-        let (states, states_rx) = broadcast::channel(16);
-        let (view_tx, view_rx) = watch::channel(view(LinkState::Connected));
-        let (calls, calls_rx) = broadcast::channel(16);
-        let report = ReattachReport::start(
-            notices,
-            ReattachSources { sessions: sessions_rx, states: states_rx, view: view_rx, model_calls: calls_rx },
-        );
-        Rig { notices: receiver, sessions, states, view: view_tx, calls, _report: report }
-    }
-
-    fn lost() -> LinkState {
-        LinkState::Reconnecting { attempt: 1, next_retry_at_ms: None, countdown_ms: None }
-    }
-
-    async fn settle() {
-        for _ in 0..8 {
-            tokio::task::yield_now().await;
-        }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn the_fresh_session_list_decides_finished_and_continued() {
-        let mut rig = rig();
-        rig.sessions.send(vec![row("a", "Alpha", true), row("b", "Beta", true)]).unwrap();
-        settle().await;
-        rig.view.send(view(lost())).unwrap();
-        settle().await;
-        rig.view.send(view(LinkState::Connected)).unwrap();
-        settle().await;
-        rig.sessions.send(vec![row("a", "Alpha", false), row("b", "Beta", true)]).unwrap();
-        settle().await;
-        assert_eq!(
-            rig.notices.try_recv().unwrap(),
-            ConnectionNotice::Reattached { finished: vec!["Alpha".into()], continued: vec!["Beta".into()], interrupted_model_calls: 0 }
-        );
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn the_known_list_is_used_after_the_wait() {
-        let mut rig = rig();
-        rig.sessions.send(vec![row("a", "Alpha", true)]).unwrap();
-        settle().await;
-        rig.view.send(view(lost())).unwrap();
-        settle().await;
-        rig.view.send(view(LinkState::Connected)).unwrap();
-        settle().await;
-        assert!(rig.notices.try_recv().is_err());
-        tokio::time::advance(Duration::from_millis(REATTACH_SESSIONS_WAIT_MS + 1)).await;
-        settle().await;
-        assert!(matches!(rig.notices.try_recv().unwrap(), ConnectionNotice::Reattached { .. }));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn abandoned_model_calls_are_counted_and_an_empty_outage_says_nothing() {
-        let mut rig = rig();
-        rig.view.send(view(lost())).unwrap();
-        settle().await;
-        rig.calls.send(ProxyCallSettled { provider: "p".into(), outcome: CallOutcome::Abandoned, failure: None }).unwrap();
-        rig.calls.send(ProxyCallSettled { provider: "p".into(), outcome: CallOutcome::Answered, failure: None }).unwrap();
-        settle().await;
-        rig.view.send(view(LinkState::Connected)).unwrap();
-        settle().await;
-        rig.sessions.send(Vec::new()).unwrap();
-        settle().await;
-        assert_eq!(
-            rig.notices.try_recv().unwrap(),
-            ConnectionNotice::Reattached { finished: vec![], continued: vec![], interrupted_model_calls: 1 }
-        );
-        // A second outage with nothing to tell.
-        rig.view.send(view(lost())).unwrap();
-        settle().await;
-        rig.view.send(view(LinkState::Connected)).unwrap();
-        settle().await;
-        rig.sessions.send(vec![row("x", "X", false)]).unwrap();
-        settle().await;
-        assert!(rig.notices.try_recv().is_err());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_call_still_unanswered_when_the_turn_ends_is_reported_once() {
-        let mut rig = rig();
-        let tools = json!([{"kind": "tool", "id": "t1"}, {"kind": "tool", "id": "t2", "result": {}}]);
-        rig.states.send(state("a", true, tools.clone())).unwrap();
-        settle().await;
-        rig.view.send(view(lost())).unwrap();
-        settle().await;
-        rig.view.send(view(LinkState::Connected)).unwrap();
-        settle().await;
-        rig.sessions.send(vec![row("a", "Alpha", true)]).unwrap();
-        settle().await;
-        // The turn is still running: the call may yet get its result.
-        rig.states.send(state("a", true, tools.clone())).unwrap();
-        settle().await;
-        assert!(rig.notices.try_recv().is_err());
-        rig.states.send(state("a", false, tools)).unwrap();
-        settle().await;
-        assert_eq!(
-            rig.notices.try_recv().unwrap(),
-            ConnectionNotice::OutcomeUnknown { session_id: "a".into(), tool_ids: vec!["t1".into()] }
-        );
-        rig.states.send(state("a", false, json!([{"kind": "tool", "id": "t1"}]))).unwrap();
-        settle().await;
-        assert!(rig.notices.try_recv().is_err());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_second_drop_before_the_report_is_one_outage() {
-        let mut rig = rig();
-        rig.sessions.send(vec![row("a", "Alpha", true)]).unwrap();
-        settle().await;
-        rig.view.send(view(lost())).unwrap();
-        settle().await;
-        rig.view.send(view(LinkState::Connected)).unwrap();
-        settle().await;
-        rig.view.send(view(LinkState::Paused)).unwrap();
-        settle().await;
-        tokio::time::advance(Duration::from_millis(REATTACH_SESSIONS_WAIT_MS + 1)).await;
-        settle().await;
-        assert!(rig.notices.try_recv().is_err());
-        rig.view.send(view(LinkState::Connected)).unwrap();
-        settle().await;
-        rig.sessions.send(vec![row("a", "Alpha", false)]).unwrap();
-        settle().await;
-        assert_eq!(
-            rig.notices.try_recv().unwrap(),
-            ConnectionNotice::Reattached { finished: vec!["Alpha".into()], continued: vec![], interrupted_model_calls: 0 }
-        );
     }
 }

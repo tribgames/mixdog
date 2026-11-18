@@ -15,7 +15,8 @@ use tokio_util::sync::CancellationToken;
 use super::log;
 use crate::bots::delivery::env::RetryTimer;
 use crate::memory::error::{MemoryError, Result};
-use crate::memory::pg::db::Db;
+use crate::memory::lifecycle::{Owned, Scope};
+use crate::memory::pg::db::{Db, transaction};
 
 const KEY_PREFIX: &str = "cycle_request.";
 
@@ -96,16 +97,15 @@ pub async fn claim_and_mark_scheduled_cycle(db: &Db, kind: &str, interval_ms: f6
     let safe_reason = slice_utf16(reason, 80);
     let attempt = async {
         let (schedule, request) = (schedule_key(kind, signature)?, request_key(kind, signature)?);
-        let mut client = db.client().await?;
-        let tx = client.transaction().await?;
-        let claimed = tx.query(CLAIM_SLOT, &[&schedule, &now, &next_allowed_at, &safe_reason]).await?;
-        if claimed.is_empty() {
-            tx.commit().await?;
-            return Ok::<bool, MemoryError>(false);
-        }
-        tx.execute(UPSERT_CYCLE_REQUEST, &[&request, &now, &safe_reason]).await?;
-        tx.commit().await?;
-        Ok(true)
+        transaction(db, async |tx| {
+            let claimed = tx.query(CLAIM_SLOT, &[&schedule, &now, &next_allowed_at, &safe_reason]).await?;
+            if claimed.is_empty() {
+                return Ok::<bool, MemoryError>(false);
+            }
+            tx.execute(UPSERT_CYCLE_REQUEST, &[&request, &now, &safe_reason]).await?;
+            Ok(true)
+        })
+        .await
     };
     match attempt.await {
         Ok(claimed) => Claim { claimed, next_allowed_at },
@@ -136,17 +136,14 @@ pub async fn mark_cycle_request(db: &Db, kind: &str, reason: &str, signature: &s
 /// `consumeCycleRequests`: the pending count, drained to zero under a row lock.
 pub async fn consume_cycle_requests(db: &Db, kind: &str, signature: &str, now: i64) -> Result<f64> {
     let key = request_key(kind, signature)?;
-    let mut client = db.client().await?;
-    let tx = client.transaction().await?;
+    transaction(db, async |tx| {
     let selected = tx.query("SELECT value FROM meta WHERE key = $1 FOR UPDATE", &[&key]).await?;
     let Some(row) = selected.first() else {
-        tx.commit().await?;
         return Ok(0.0);
     };
     let value: Option<Value> = row.get(0);
     let count = to_number_of(value.as_ref().and_then(|v| v.get("count")).or(Some(&Value::from(0))));
     if !count.is_finite() || count <= 0.0 {
-        tx.commit().await?;
         return Ok(0.0);
     }
     let drained = count.min(2_147_483_647.0) as i32;
@@ -163,17 +160,13 @@ pub async fn consume_cycle_requests(db: &Db, kind: &str, signature: &str, now: i
         &[&key, &now, &drained],
     )
     .await?;
-    tx.commit().await?;
     Ok(count)
+    })
+    .await
 }
 
 /// The environment the coalescing limits read: a variable's value, none when unset.
 pub type EnvLookup<'a> = &'a dyn Fn(&str) -> Option<String>;
-
-/// The process environment.
-pub fn process_env(name: &str) -> Option<String> {
-    std::env::var(name).ok()
-}
 
 /// `names`: the direct key, the key under `coalesce` and the environment variable.
 fn resolve_setting(env: EnvLookup<'_>, config: &Value, names: (&str, &str, &str), fallback: f64, min: f64, max: f64) -> f64 {
@@ -184,24 +177,12 @@ fn resolve_setting(env: EnvLookup<'_>, config: &Value, names: (&str, &str, &str)
     value.floor().clamp(min, max)
 }
 
-pub fn resolve_coalesce_max_drains(config: &Value, fallback: f64) -> f64 {
-    resolve_coalesce_max_drains_in(&process_env, config, fallback)
-}
-
 pub fn resolve_coalesce_max_drains_in(env: EnvLookup<'_>, config: &Value, fallback: f64) -> f64 {
     resolve_setting(env, config, ("coalesce_max_drains", "max_drains", "MIXDOG_MEMORY_CYCLE_COALESCE_MAX_DRAINS"), fallback, 0.0, 10.0)
 }
 
-pub fn resolve_coalesce_retry_delay_ms(config: &Value, fallback: f64) -> f64 {
-    resolve_coalesce_retry_delay_ms_in(&process_env, config, fallback)
-}
-
 pub fn resolve_coalesce_retry_delay_ms_in(env: EnvLookup<'_>, config: &Value, fallback: f64) -> f64 {
     resolve_setting(env, config, ("coalesce_retry_delay_ms", "retry_delay_ms", "MIXDOG_MEMORY_CYCLE_COALESCE_RETRY_MS"), fallback, 50.0, 60_000.0)
-}
-
-pub fn resolve_coalesce_max_retries(config: &Value, fallback: f64) -> f64 {
-    resolve_coalesce_max_retries_in(&process_env, config, fallback)
 }
 
 pub fn resolve_coalesce_max_retries_in(env: EnvLookup<'_>, config: &Value, fallback: f64) -> f64 {
@@ -216,6 +197,8 @@ pub struct RetryTimers {
     pending: Mutex<HashMap<String, CancellationToken>>,
     /// How a retry waits: the daemon's retry timer, a test's own.
     timer: Arc<dyn RetryTimer>,
+    /// The database's scope: a retry is its work from the moment it is scheduled.
+    scope: Scope,
 }
 
 /// Resolves once `timer` has run out `delay`.
@@ -225,54 +208,14 @@ pub async fn wait(timer: &dyn RetryTimer, delay: Duration) {
     let _ = rx.await;
 }
 
-impl RetryTimers {
-    pub fn new(timer: Arc<dyn RetryTimer>) -> Arc<Self> {
-        Arc::new(Self { pending: Mutex::default(), timer })
-    }
-
-    /// `scheduleCoalescedCycleRetry`: false when one is already pending for the key. The delay
-    /// runs on `spawn`; once it elapses the key is free again and `runner` runs to its end
-    /// (cancelling only stops timers still waiting).
-    pub fn schedule(self: &Arc<Self>, kind: &str, signature: &str, config: &Value, runner: RetryRunner) -> Result<bool> {
-        let key = request_key(kind, signature)?;
-        let token = CancellationToken::new();
-        {
-            let mut pending = self.pending.lock().expect("retry timers");
-            if pending.contains_key(&key) {
-                return Ok(false);
-            }
-            pending.insert(key.clone(), token.clone());
-        }
-        let delay = Duration::from_millis(resolve_coalesce_retry_delay_ms(config, 1000.0) as u64);
-        let (timers, kind, timer) = (Arc::clone(self), kind.to_owned(), Arc::clone(&self.timer));
-        spawn_work("memory-cycle-retry", async move {
-            tokio::select! {
-                () = token.cancelled() => return,
-                () = wait(timer.as_ref(), delay) => {}
-            }
-            timers.pending.lock().expect("retry timers").remove(&key);
-            if let Err(error) = runner().await {
-                log(&format!("[{kind}] coalesced retry failed: {error}\n"));
-            }
-        });
-        Ok(true)
-    }
-
-    /// `cancelCoalescedCycleRetries`: how many waiting timers were stopped.
-    pub fn cancel_all(&self) -> usize {
-        let mut pending = self.pending.lock().expect("retry timers");
-        let cancelled = pending.len();
-        for token in pending.values() {
-            token.cancel();
-        }
-        pending.clear();
-        cancelled
-    }
-}
-
-/// Spawns a cycle task on the work executor.
+/// Spawns a task on the work executor (task reports; nothing of the memory database).
 pub(crate) fn spawn_work(name: &'static str, fut: impl Future<Output = ()> + Send + 'static) -> tokio::task::JoinHandle<()> {
     mixdog_rt::spawn(name, mixdog_rt::TaskClass::Work, fut)
+}
+
+/// Starts a cycle or watcher task as work of the database's scope (registered before it starts; `None` when the scope refused it: it never ran).
+pub(crate) fn spawn_in(scope: &Scope, name: &'static str, fut: impl Future<Output = ()> + Send + 'static) -> Option<Owned<()>> {
+    scope.spawn(name, fut)
 }
 
 #[cfg(test)]
@@ -286,6 +229,7 @@ mod tests {
         assert!(request_key("cycle2", "x").is_err());
     }
 
+
     #[test]
     fn limits_follow_direct_then_nested_then_env_then_fallback() {
         let direct = serde_json::json!({"coalesce_max_retries": 7.9, "coalesce": {"max_retries": 2}});
@@ -295,5 +239,67 @@ mod tests {
         assert_eq!(resolve_coalesce_max_retries(&serde_json::json!({}), 3.0), 3.0);
         assert_eq!(resolve_coalesce_retry_delay_ms(&serde_json::json!({"coalesce_retry_delay_ms": 1}), 1000.0), 50.0);
         assert_eq!(resolve_coalesce_max_drains(&serde_json::json!({"coalesce_max_drains": null}), 1.0), 0.0);
+    }
+}
+
+
+/// The process environment.
+pub fn process_env(name: &str) -> Option<String> {
+    std::env::var(name).ok()
+}
+pub fn resolve_coalesce_max_drains(config: &Value, fallback: f64) -> f64 {
+    resolve_coalesce_max_drains_in(&process_env, config, fallback)
+}
+pub fn resolve_coalesce_retry_delay_ms(config: &Value, fallback: f64) -> f64 {
+    resolve_coalesce_retry_delay_ms_in(&process_env, config, fallback)
+}
+pub fn resolve_coalesce_max_retries(config: &Value, fallback: f64) -> f64 {
+    resolve_coalesce_max_retries_in(&process_env, config, fallback)
+}
+impl RetryTimers {
+    pub fn new(timer: Arc<dyn RetryTimer>, scope: Scope) -> Arc<Self> {
+        Arc::new(Self { pending: Mutex::default(), timer, scope })
+    }
+
+    /// `scheduleCoalescedCycleRetry`: false when one is already pending for the key. The delay
+    /// runs on `spawn`; once it elapses the key is free again and `runner` runs to its end
+    /// (cancelling only stops timers still waiting).
+    pub fn schedule(self: &Arc<Self>, kind: &str, signature: &str, config: &Value, runner: RetryRunner) -> Result<bool> {
+        let key = request_key(kind, signature)?;
+        let token = CancellationToken::new();
+        let delay = Duration::from_millis(resolve_coalesce_retry_delay_ms(config, 1000.0) as u64);
+        let (timers, kind, timer, cancel) = (Arc::clone(self), kind.to_owned(), Arc::clone(&self.timer), token.clone());
+        let mut pending = self.pending.lock().expect("retry timers");
+        if pending.contains_key(&key) {
+            return Ok(false);
+        }
+        let retry_key = key.clone();
+        // Registered before the key is published: a pending key always has its work.
+        let registered = spawn_in(&self.scope, "memory-cycle-retry", async move {
+            tokio::select! {
+                () = cancel.cancelled() => return,
+                () = wait(timer.as_ref(), delay) => {}
+            }
+            timers.pending.lock().expect("retry timers").remove(&retry_key);
+            if let Err(error) = runner().await {
+                log(&format!("[{kind}] coalesced retry failed: {error}\n"));
+            }
+        });
+        if registered.is_none() {
+            return Ok(false);
+        }
+        pending.insert(key, token);
+        Ok(true)
+    }
+
+    /// `cancelCoalescedCycleRetries`: how many waiting timers were stopped.
+    pub fn cancel_all(&self) -> usize {
+        let mut pending = self.pending.lock().expect("retry timers");
+        let cancelled = pending.len();
+        for token in pending.values() {
+            token.cancel();
+        }
+        pending.clear();
+        cancelled
     }
 }

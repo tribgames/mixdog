@@ -2,8 +2,8 @@
 //! descriptor, or standard encryption (2.3.4.5) with a binary header. Anything outside those two schemes (extensible
 //! encryption, a cipher or chaining mode the spec allows but Office does not write) is "unsupported", never a guess.
 //!
-//! The agile descriptor is XML, read with quick-xml's namespace-aware reader (the parser the Node port read it with,
-//! saxes, is namespace-aware too). No external entity is resolved and only the predefined ones are known; a DTD is
+//! The agile descriptor is XML, read with quick-xml's namespace-aware reader (namespace-aware, as the schema needs;
+//! a text pattern would not be). No external entity is resolved and only the predefined ones are known; a DTD is
 //! refused outright.
 
 use std::collections::HashMap;

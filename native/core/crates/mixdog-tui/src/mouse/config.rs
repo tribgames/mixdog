@@ -19,27 +19,6 @@ pub struct MouseConfig {
     pub statusline_band_rows: usize,
 }
 
-impl MouseConfig {
-    /// The configuration `lookup` names (`None` for an unset variable).
-    pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>, statusline_band_rows: usize) -> Self {
-        let paint_interval_ms = lookup("MIXDOG_TUI_SELECTION_PAINT_MS")
-            .map(|raw| mixdog_js::string_to_number(&raw).floor())
-            .filter(|parsed| parsed.is_finite() && *parsed >= 1.0)
-            .map_or(SELECTION_PAINT_INTERVAL_MS, |parsed| if parsed >= u64::MAX as f64 { u64::MAX } else { parsed as u64 });
-        Self {
-            tuning: ScrollTuning::from_lookup(&lookup),
-            paint_interval_ms,
-            windows_terminal: ModeEnv::from_vars(&lookup).windows_terminal,
-            statusline_band_rows,
-        }
-    }
-
-    /// The configuration of the process environment.
-    pub fn from_env(statusline_band_rows: usize) -> Self {
-        Self::from_lookup(|name| std::env::var(name).ok(), statusline_band_rows)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -63,5 +42,27 @@ mod tests {
         assert!(config(&[("WT_SESSION", "abc")]).windows_terminal);
         assert!(!config(&[("WT_SESSION", "")]).windows_terminal);
         assert!(!config(&[]).windows_terminal);
+    }
+}
+
+
+impl MouseConfig {
+    /// The configuration `lookup` names (`None` for an unset variable).
+    pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>, statusline_band_rows: usize) -> Self {
+        let paint_interval_ms = lookup("MIXDOG_TUI_SELECTION_PAINT_MS")
+            .map(|raw| mixdog_js::string_to_number(&raw).floor())
+            .filter(|parsed| parsed.is_finite() && *parsed >= 1.0)
+            .map_or(SELECTION_PAINT_INTERVAL_MS, |parsed| if parsed >= u64::MAX as f64 { u64::MAX } else { parsed as u64 });
+        Self {
+            tuning: ScrollTuning::from_lookup(&lookup),
+            paint_interval_ms,
+            windows_terminal: ModeEnv::from_vars(&lookup).windows_terminal,
+            statusline_band_rows,
+        }
+    }
+
+    /// The configuration of the process environment.
+    pub fn from_env(statusline_band_rows: usize) -> Self {
+        Self::from_lookup(|name| std::env::var(name).ok(), statusline_band_rows)
     }
 }

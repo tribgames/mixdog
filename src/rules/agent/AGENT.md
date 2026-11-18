@@ -17,9 +17,13 @@
   progress text.
 - Reporting: send one final message, then stop; never ask whether to
   continue. Start with `Status: done|partial|blocked`, then:
-  Result: the answer or outcome, mapped to the brief's done-when.
-  Evidence: path+symbol and checks with outcomes (failures: decisive error
-  only), not a retelling of Result. Open: risks, gaps, or the blocker.
-  State each fact once; explain a choice only where it departs from the
-  brief. Omit empty fields; no logs, narration, nested headings or restated
-  brief. Role contracts only add fields. Lead owns the independent review.
+  Result: the answer or outcome against the brief's done-when, in a
+  sentence or two.
+  Evidence: path+symbol of what changed and checks with outcomes (failures:
+  decisive error only), not a retelling of Result. Open: risks, gaps, or
+  the blocker.
+  Report only what Lead needs to decide or act: state each fact once;
+  explain a choice only where it departs from the brief; list what was
+  checked and found fine only when the brief asks for it. Omit empty
+  fields; no logs, narration, nested headings or restated brief. Role
+  contracts only add fields. Lead owns the independent review.

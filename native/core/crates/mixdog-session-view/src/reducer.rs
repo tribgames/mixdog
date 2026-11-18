@@ -34,6 +34,7 @@ use crate::rows::coalesce;
 use crate::rows::fld;
 use crate::rows::js_string;
 use crate::rows::merge_tool_rows_steps;
+use crate::rows::item_rows;
 use crate::rows::row_of;
 use crate::rows::rows_of;
 use crate::rows::text;
@@ -422,8 +423,15 @@ pub fn initial_steps(snapshot: &Json, mut yield_point: impl FnMut()) -> Json {
         _ => &[],
     };
     let mut rows: Vec<Row> = Vec::new();
+    let mut live: Option<Live> = None;
     for (at, item) in source.iter().enumerate() {
-        rows.extend(rows_of(item));
+        // The reply the turn is streaming (the core's in-progress item, its text so far) is the live row `item/started` and its
+        // deltas made, not a settled row: the next delta extends it.
+        let streaming = text(fld(Some(item), "type")) == "agentMessage" && text(fld(fld(Some(item), "meta"), "status")) == "inProgress";
+        match streaming.then(|| row_of(item)).flatten() {
+            Some(row) => live = Some(live_of(Some(item), &row)),
+            None => rows.extend(rows_of(item)),
+        }
         if at % ITEMS_PER_STEP == ITEMS_PER_STEP - 1 {
             yield_point();
         }
@@ -444,6 +452,7 @@ pub fn initial_steps(snapshot: &Json, mut yield_point: impl FnMut()) -> Json {
         frames: 0,
         framed_revision: revision,
     };
+    fold.set_live(live);
     fold.merge(yield_point);
     fold.into_state()
 }
@@ -528,9 +537,20 @@ fn identity_of(id: &str) -> Map<String, Value> {
     identity
 }
 
+/// The live text of an `agentMessage` item: the row it settles as, without its text (`item/started` and a snapshot's in-progress
+/// reply make the same live row).
+fn live_of(item: Opt, row: &Row) -> Live {
+    let mut identity = row.value.as_object().cloned().unwrap_or_default();
+    let shown = identity.shift_remove("text");
+    identity.insert("kind".to_owned(), json!("assistant"));
+    identity.insert("streaming".to_owned(), json!(true));
+    Live { id: js_string(fld(item, "id")), identity, text: shown.as_ref().and_then(Value::as_str).unwrap_or("").to_owned() }
+}
+
 fn apply_item(state: &Json, completed: bool, params: Opt) -> Json {
     let item = fld(params, "item");
-    let Some(row) = row_of(item.unwrap_or(&Value::Null)) else { return state.clone() };
+    let mut batched = item_rows(item.unwrap_or(&Value::Null)).into_iter();
+    let Some(row) = batched.next() else { return state.clone() };
     let mut fold = Fold::from_state(state);
     // Archiving updates the held window; rows outside it are read by history,
     // never appended below the compaction boundary.
@@ -540,12 +560,7 @@ fn apply_item(state: &Json, completed: bool, params: Opt) -> Json {
         return state.clone();
     }
     if text(fld(item, "type")) == "agentMessage" && !completed {
-        let mut identity = row.value.as_object().cloned().unwrap_or_default();
-        let shown = identity.shift_remove("text");
-        identity.insert("kind".to_owned(), json!("assistant"));
-        identity.insert("streaming".to_owned(), json!(true));
-        let live = Live { id: js_string(fld(item, "id")), identity, text: shown.as_ref().and_then(Value::as_str).unwrap_or("").to_owned() };
-        fold.set_live(Some(live));
+        fold.set_live(Some(live_of(item, &row)));
         return fold.into_state();
     }
     let id = fld(item, "id");
@@ -553,7 +568,14 @@ fn apply_item(state: &Json, completed: bool, params: Opt) -> Json {
         fold.live = None;
     }
     fold.upsert(row);
+    for card in batched {
+        fold.upsert(card);
+    }
     fold.structure_revision += 1;
+    // A room log's row and the view that landed with it are one revision: the view rides on the row's notification.
+    if let Some(view) = fld(params, "roomView") {
+        with_section(&mut fold.fields, &Section::Field { key: "roomView", field: "roomView" }, Some(view));
+    }
     fold.merge(|| {});
     fold.into_state()
 }
@@ -678,6 +700,27 @@ mod tests {
         assert!(rows[2].get("archived").is_none());
         live = reducer.apply(&live, &note("item/completed", json!({ "item": call("read-2", false) })));
         assert_ne!(live["transcript"][0]["archived"], true, "a card with a retained member stays live");
+    }
+
+    /// A room log's row and the view that landed with it are folded as one step: the state after the row's notification already
+    /// holds the view, so nobody is told of the row without it.
+    #[test]
+    fn a_row_carries_the_room_view_it_landed_with() {
+        let reducer = SessionReducer;
+        let mut state = reducer.initial(&snapshot(json!({ "roomView": { "busy": true, "typing": { "id": "t1" } } }), false));
+        let deciding = json!({ "busy": true, "deciding": true, "typing": { "id": "room-deciding" } });
+        let words = json!({ "type": "agentMessage", "id": "m1", "text": "hi", "meta": {} });
+        state = reducer.apply(&state, &note("item/completed", json!({ "threadId": "t", "item": words, "roomView": deciding.clone() })));
+        assert_eq!((state["items"][0]["id"].clone(), fields(&state)["roomView"].clone()), (json!("m1"), deciding.clone()));
+        // A row without a view leaves the view as it stands.
+        let more = json!({ "type": "agentMessage", "id": "m2", "text": "again", "meta": {} });
+        state = reducer.apply(&state, &note("item/completed", json!({ "threadId": "t", "item": more })));
+        assert_eq!(fields(&state)["roomView"], deciding);
+        // `roomView: null` is the clear, riding with its row; an absent one (above) changed nothing.
+        let last = json!({ "type": "agentMessage", "id": "m3", "text": "bye", "meta": {} });
+        state = reducer.apply(&state, &note("item/completed", json!({ "threadId": "t", "item": last, "roomView": null })));
+        assert!(fields(&state).get("roomView").is_none_or(Value::is_null));
+        assert_eq!(state["items"][2]["id"], "m3");
     }
 
     #[test]

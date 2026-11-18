@@ -298,6 +298,21 @@ test('a modal opened during a confirm does not inert itself, and closing it re-l
   assert.equal(inertCount(), 0);
 });
 
+test('a prompt can carry a description above its field', async () => {
+  const { promptAction } = await import('./app-confirm.tsx');
+  mountPage();
+  let result;
+  await act(async () => {
+    result = promptAction('Reset to abc', { value: 'mixed', label: 'Reset to abc', description: 'soft\nmixed\nhard' });
+  });
+  await settle();
+  assert.equal(dialogs()[0].querySelector('p').textContent, 'soft\nmixed\nhard');
+  assert.equal(dialogs()[0].querySelector('input').value, 'mixed');
+  await act(async () => button('Continue').click());
+  assert.equal(await result, 'mixed');
+  await settle();
+});
+
 test('an alert has one Close button and resolves', async () => {
   mountPage();
   let done = false;

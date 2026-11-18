@@ -22,6 +22,7 @@ use crate::session::SessionDirectory;
 use super::worktree_host::JobCwd;
 use super::worktree_host::LeadActivity;
 use super::worktree_host::LiveSession;
+use super::worktree_host::Move;
 use super::worktree_host::SessionView;
 use super::worktree_host::Undo;
 use super::worktree_host::WorkspaceChange;
@@ -213,6 +214,37 @@ impl WorkspaceHost for SessionWorkspaceHost {
     }
 
     async fn apply(&self, session_id: &str, change: WorkspaceChange) -> Result<Undo, ScmFailure> {
+        self.apply_to(session_id, change, true).await
+    }
+
+    async fn retarget_worker(&self, worker_id: &str, cwd: &str, moved: Option<Move>) -> Result<Undo, ScmFailure> {
+        let change = WorkspaceChange { cwd: cwd.to_owned(), workspace: Value::Null, moved, desktop_session: None };
+        self.apply_to(worker_id, change, false).await
+    }
+
+    async fn copy_project_identity(&self, project_path: &str, worktree_path: &str) -> Result<bool, ScmFailure> {
+        self.runtime.copy_project_identity(project_path, worktree_path).await
+    }
+
+    async fn run_pending_setup(&self, session_id: &str, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        let workspace = self.session(session_id).and_then(|view| view.workspace);
+        let run = self.setup.run_pending(session_id, workspace.as_ref(), cancel).await?;
+        if let Some(notice) = run.notice {
+            let mut set = Map::new();
+            set.insert("pendingSetupNotice".into(), json!({ "revision": notice.revision, "content": notice.content }));
+            self.save(session_id, set, Vec::new()).await?;
+        }
+        if run.cancelled {
+            return Err(ScmFailure::Cancelled);
+        }
+        Ok(())
+    }
+}
+
+impl SessionWorkspaceHost {
+    /// The workspace change of one session. `lead`: the Lead itself, whose runtime cwd, last-session cwd and pool row follow
+    /// and whose cwd-applied hooks run; a worker of the Lead (`retargetWorkers`) only has its cwd and prompt context moved.
+    async fn apply_to(&self, session_id: &str, change: WorkspaceChange, lead: bool) -> Result<Undo, ScmFailure> {
         let header = self.header(session_id).ok_or_else(|| plain("session: the session is not loaded"))?;
         let prior_cwd = self.runtime.runtime_cwd(session_id);
         let prior_keys: Vec<(&'static str, Option<Value>)> = KEYS.iter().map(|key| (*key, header.get(*key).cloned())).collect();
@@ -232,9 +264,11 @@ impl WorkspaceHost for SessionWorkspaceHost {
         }
         let mut undos: Vec<Undo> = Vec::new();
         if moves {
-            self.runtime.set_runtime_cwd(session_id, &change.cwd).await?;
-            let (runtime, id, back) = (self.runtime.clone(), session_id.to_owned(), prior_cwd.clone());
-            undos.push(undo_with(async move { runtime.set_runtime_cwd(&id, &back).await }));
+            if lead {
+                self.runtime.set_runtime_cwd(session_id, &change.cwd).await?;
+                let (runtime, id, back) = (self.runtime.clone(), session_id.to_owned(), prior_cwd.clone());
+                undos.push(undo_with(async move { runtime.set_runtime_cwd(&id, &back).await }));
+            }
             let context = match self.runtime.workspace_context(session_id, &change.cwd).await {
                 Ok(context) => context,
                 Err(error) => {
@@ -276,7 +310,8 @@ impl WorkspaceHost for SessionWorkspaceHost {
         self.lock().remove(session_id);
         // `applyResolvedCwd` warms the code graph on every apply, the same folder included
         // (`cwd-apply.mjs:73`, `:85-90`).
-        if let Some(handle) = self.directory.handle(&ThreadId::from(session_id))
+        if lead
+            && let Some(handle) = self.directory.handle(&ThreadId::from(session_id))
             && let Err(error) = handle.cwd_applied(moves)
         {
             tracing::warn!("code-graph warm for the applied cwd not scheduled: {error}");
@@ -302,24 +337,6 @@ impl WorkspaceHost for SessionWorkspaceHost {
                 Ok(())
             })
         }))
-    }
-
-    async fn copy_project_identity(&self, project_path: &str, worktree_path: &str) -> Result<bool, ScmFailure> {
-        self.runtime.copy_project_identity(project_path, worktree_path).await
-    }
-
-    async fn run_pending_setup(&self, session_id: &str, cancel: &CancellationToken) -> Result<(), ScmFailure> {
-        let workspace = self.session(session_id).and_then(|view| view.workspace);
-        let run = self.setup.run_pending(session_id, workspace.as_ref(), cancel).await?;
-        if let Some(notice) = run.notice {
-            let mut set = Map::new();
-            set.insert("pendingSetupNotice".into(), json!({ "revision": notice.revision, "content": notice.content }));
-            self.save(session_id, set, Vec::new()).await?;
-        }
-        if run.cancelled {
-            return Err(ScmFailure::Cancelled);
-        }
-        Ok(())
     }
 }
 

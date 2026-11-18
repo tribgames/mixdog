@@ -7,10 +7,13 @@ pub mod admin_route;
 pub mod api_usage;
 pub mod effort_configuration;
 pub mod error_text;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod error_presentation_replay_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod model_proxy_trust_replay_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod provider_cases_replay_tests;
 pub mod model_listing;

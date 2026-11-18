@@ -6,6 +6,7 @@ import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { app, safeStorage, type Session } from 'electron';
 import type { BrowserCookieJar } from './cookie-jar';
+import { CookieSignOutScopes, signOutCookieMatcher } from './cookie-sign-out-scopes';
 import { clearPendingPauses, readVaultFile } from './credential-vault-file';
 import { CredentialVault, maskedCredentialLabel, secureOrigin } from './credential-vault';
 import {
@@ -45,6 +46,7 @@ const CAPABILITY_PROBE_TIMEOUT_MS = 5_000;
 const AUTOMATIC_BACKUPS_KEPT = 3;
 const AUTOMATIC_JOB_ID = 'automatic-cookie-import';
 const AUTO_STATE_FILE = 'browser-cookie-auto-import.json';
+const SIGN_OUT_SCOPES_FILE = 'browser-cookie-sign-out-scopes.json';
 const execFileAsync = promisify(execFile);
 const unsealVault = (sealed: Buffer): string => safeStorage.decryptString(sealed);
 
@@ -416,8 +418,10 @@ export class BrowserProfileImportService {
   private readonly historyFile: string;
   private readonly keyStore: AppBoundKeyStore;
   private readonly autoState: CookieAutoImportStateStore;
+  private readonly signOutScopes: CookieSignOutScopes;
   private readonly keyReuseSupport = new Map<string, boolean>();
   private activeJobId = '';
+  private cookieMutations: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly options: BrowserProfileImportOptions) {
     this.historyFile = join(options.userDataDirectory, 'browser-imported-history.json');
@@ -426,6 +430,20 @@ export class BrowserProfileImportService {
       options.keyEncryption ?? safeStorage
     );
     this.autoState = new CookieAutoImportStateStore(join(options.userDataDirectory, AUTO_STATE_FILE));
+    this.signOutScopes = new CookieSignOutScopes(join(options.userDataDirectory, SIGN_OUT_SCOPES_FILE));
+  }
+
+  withCookieMutation<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.cookieMutations.then(work);
+    this.cookieMutations = next.catch(() => undefined);
+    return next;
+  }
+
+  withSiteSignOut(site: string, work: () => Promise<number>): Promise<number> {
+    return this.withCookieMutation(async () => {
+      await this.signOutScopes.add(site);
+      return await work();
+    });
   }
 
   /** The record of the latest automatic/manual cookie imports (no secrets). */
@@ -481,6 +499,7 @@ export class BrowserProfileImportService {
       this.keyStore.forget(),
       this.autoState.clear(),
     ]);
+    await this.signOutScopes.clear();
   }
 
   /** Chrome's lock file in the user-data folder this importer reads: it exists exactly while Chrome runs. */
@@ -700,6 +719,17 @@ export class BrowserProfileImportService {
     request: BrowserImportRequest,
     onProgress: (progress: BrowserImportProgress) => void
   ): Promise<BrowserImportResult> {
+    if (this.activeJobId && this.activeJobId !== AUTOMATIC_JOB_ID) {
+      throw new Error('Another browser import is already running.');
+    }
+    const run = () => this.runProfileImport(request, onProgress);
+    return request.items.includes('cookies') ? await this.withCookieMutation(run) : await run();
+  }
+
+  private async runProfileImport(
+    request: BrowserImportRequest,
+    onProgress: (progress: BrowserImportProgress) => void
+  ): Promise<BrowserImportResult> {
     if (this.activeJobId) throw new Error('Another browser import is already running.');
     this.activeJobId = request.jobId || 'pending';
     try {
@@ -752,7 +782,12 @@ export class BrowserProfileImportService {
   /** One cookie import with no window: for the scheduler, which only calls it
    *  while Chrome is closed. It never launches the elevated helper (no UAC
    *  prompt) and records how it went for the settings page. */
-  async runAutomaticCookieImport(profileId: string): Promise<AutoCookieImportOutcome> {
+  runAutomaticCookieImport(profileId: string, stillSelected: () => boolean = () => true): Promise<AutoCookieImportOutcome> {
+    return this.withCookieMutation(() => this.importCookiesAutomatically(profileId, stillSelected));
+  }
+
+  private async importCookiesAutomatically(profileId: string, stillSelected: () => boolean): Promise<AutoCookieImportOutcome> {
+    if (!stillSelected()) return { state: 'skipped', reason: 'selection-changed' };
     if (this.activeJobId) return { state: 'skipped', reason: 'busy' };
     this.activeJobId = AUTOMATIC_JOB_ID;
     try {
@@ -767,9 +802,10 @@ export class BrowserProfileImportService {
       if (identity !== undefined && (await this.autoState.read()).importedStores?.[profileId] === identity) {
         return { state: 'skipped', reason: 'unchanged' };
       }
-      return { state: 'imported', count: await this.importCookies(profileId, true) };
+      const count = await this.importCookies(profileId, stillSelected);
+      return count === undefined ? { state: 'skipped', reason: 'selection-changed' } : { state: 'imported', count };
     } catch (error) {
-      return await this.recordAutomaticFailure(error);
+      return await this.recordAutomaticFailure(profileId, error);
     } finally {
       this.activeJobId = '';
       // Housekeeping only: a leftover snapshot is harmless and the next run prunes again.
@@ -777,15 +813,15 @@ export class BrowserProfileImportService {
     }
   }
 
-  private async recordAutomaticFailure(error: unknown): Promise<AutoCookieImportOutcome> {
+  private async recordAutomaticFailure(profileId: string, error: unknown): Promise<AutoCookieImportOutcome> {
     if (error instanceof SavedKeyUnavailableError) {
-      await this.autoState.update({ needsManualImport: true, lastError: undefined });
+      await this.autoState.updateProfile(profileId, { needsManualImport: true, lastError: undefined });
       return { state: 'needs-manual-import' };
     }
     // Chrome opened after the process check: not a failure, the next run retries.
     if (errorMessage(error) === NATIVE_FAILURE.chromeRunning) return { state: 'skipped', reason: 'chrome-running' };
     const message = cleanError(error);
-    await this.autoState.update({ lastError: message });
+    await this.autoState.updateProfile(profileId, { lastError: message });
     return { state: 'failed', error: message };
   }
 
@@ -808,10 +844,15 @@ export class BrowserProfileImportService {
     }
   }
 
-  private async importCookies(profileId: string, automatic = false): Promise<number> {
+  private importCookies(profileId: string): Promise<number>;
+  private importCookies(profileId: string, stillSelected: () => boolean): Promise<number | undefined>;
+  private async importCookies(profileId: string, stillSelected?: () => boolean): Promise<number | undefined> {
+    const automatic = stillSelected !== undefined;
+    const blocked = automatic ? signOutCookieMatcher(await this.signOutScopes.read()) : undefined;
     // Measured before the read: a change made while reading shows up at the next run.
     const identity = await this.cookieStoreIdentity(profileId);
     const report = parseBrowserCookieReport(await this.readCookieReport(profileId, automatic));
+    if (stillSelected && !stillSelected()) return undefined;
     if (report.appBoundKey) {
       const grant = report.appBoundKey;
       // Drop the report's reference so the key text is not kept for the rest of the import.
@@ -819,23 +860,26 @@ export class BrowserProfileImportService {
       await this.keepAppBoundKey(grant);
     }
     const encryption = this.options.keyEncryption ?? safeStorage;
-    const imported = await importBrowserCookies(
-      { cookies: this.options.cookieJar || this.options.partition.cookies },
-      report.cookies,
-      async (existing) => {
-        if (!encryption.isEncryptionAvailable()) {
-          throw new Error('Credential encryption is unavailable; cookie import was not started.');
-        }
-        const backupDirectory = join(this.options.userDataDirectory, 'browser-import-backups');
-        await mkdir(backupDirectory, { recursive: true });
-        await writeFile(
-          join(backupDirectory, `cookies-${automatic ? 'auto-' : ''}${Date.now()}-${randomUUID()}.bin`),
-          encryption.encryptString(JSON.stringify({ version: 1, cookies: existing })),
-          { mode: 0o600, flag: 'wx' }
-        );
-      },
-      report.failures
-    );
+    const partition = { cookies: this.options.cookieJar || this.options.partition.cookies };
+    // Manual import is explicit consent for this run only. It does not
+    // release the block for future automatic imports from any profile.
+    const cookies = blocked ? report.cookies.filter((cookie) => !blocked(cookie.domain)) : report.cookies;
+    const backup: Parameters<typeof importBrowserCookies>[2] = async (existing) => {
+      if (!encryption.isEncryptionAvailable()) {
+        throw new Error('Credential encryption is unavailable; cookie import was not started.');
+      }
+      const backupDirectory = join(this.options.userDataDirectory, 'browser-import-backups');
+      await mkdir(backupDirectory, { recursive: true });
+      await writeFile(
+        join(backupDirectory, `cookies-${automatic ? 'auto-' : ''}${Date.now()}-${randomUUID()}.bin`),
+        encryption.encryptString(JSON.stringify({ version: 1, cookies: existing })),
+        { mode: 0o600, flag: 'wx' }
+      );
+    };
+    const imported = stillSelected
+      ? await importBrowserCookies(partition, cookies, backup, report.failures, stillSelected)
+      : await importBrowserCookies(partition, cookies, backup, report.failures);
+    if (imported === undefined) return undefined;
     // Status for the settings page; failing to write it must not undo an import that worked.
     await this.autoState
       .recordImport(profileId, { lastImportAt: Date.now(), lastCount: imported }, identity)

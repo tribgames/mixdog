@@ -48,9 +48,11 @@ impl NextRequestSource {
         let handle = directory.handle(thread)?;
         let header = handle.live_header().header();
         let surface = handle.surface().borrow().clone();
+        // Read as one load with the rows: the request carries the generation of the history it was built from.
+        let generation = directory.deps().cache_tail.generation(thread.as_str(), header.get("cacheTailBook"));
         let prior = directory.model_context(thread).read().await.ok()?;
-        let (provider, request) = parts.next_request(thread, &header, &surface, prior).await?;
-        Some((header, SideMaterial { request, provider }))
+        let (provider, request) = parts.next_request(thread, &header, &surface, (prior, generation)).await?;
+        Some((header, SideMaterial { request: Arc::new(request), provider }))
     }
 
     /// `lastSentMainRequest`: what the cache warmer replays after a restart lost the in-memory
@@ -58,12 +60,13 @@ impl NextRequestSource {
     /// `with_tail_reminder`) cut back to the last request that was sent, with its send time.
     pub async fn last_sent(&self, thread: &ThreadId) -> Option<LastSent> {
         let (header, material) = self.rebuilt(thread).await?;
-        let (request, sent_at) = last_sent_of(material.request, &header)?;
+        // The kept request is the sent one without its tail reminder.
+    let (request, sent_at) = last_sent_of(mixdog_agent::without_tail_reminder(&material.request), &header)?;
         let text = |key: &str| header.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
         let owner = text("ownerSessionId");
         let parent = text("parentSessionId");
         Some(LastSent {
-            material: SideMaterial { request, ..material },
+            material: SideMaterial { request: Arc::new(request), ..material },
             sent_at,
             provider_name: text("provider"),
             // `session.ownerSessionId || session.parentSessionId`.
@@ -84,8 +87,9 @@ impl NextRequestSource {
         let handle = directory.handle(thread).ok_or_else(|| format!("thread {} is not loaded", thread.as_str()))?;
         let header = handle.live_header().header();
         let surface = handle.surface().borrow().clone();
+        let generation = directory.deps().cache_tail.generation(thread.as_str(), header.get("cacheTailBook"));
         let prior = directory.model_context(thread).read().await.map_err(|_| "the thread's rows could not be read".to_owned())?;
-        match parts.snapshot_request(thread, &header, &surface, prior, user_message).await {
+        match parts.snapshot_request(thread, &header, &surface, (prior, generation), user_message).await {
             Some((provider, request)) => super::request_snapshot::snapshot(&header, &*provider, &request),
             None => Ok(Value::Null),
         }
@@ -144,13 +148,45 @@ impl NextMainRequest for NextRequestSource {
     async fn next(&self, thread: &ThreadId) -> Option<SideMaterial> {
         self.rebuilt(thread).await.map(|(_, material)| material)
     }
+
+    async fn compact(&self, thread: &ThreadId) -> Result<(), String> {
+        use mixdog_core_api::ThreadHandle as _;
+        let (directory, _) = self.bound.get().ok_or("the session directory is not bound")?;
+        let directory = directory.upgrade().ok_or("the session directory is gone")?;
+        let handle = directory.handle(thread).ok_or_else(|| format!("thread {} is not loaded", thread.as_str()))?;
+        let op = format!("side-compact-{}", uuid::Uuid::new_v4());
+        let request = mixdog_core_api::CoreRequest {
+            method: mixdog_core_api::ids::Method("thread/compact/start"),
+            // Decided by the session at the moment it would start: refused once anything else runs there.
+            params: serde_json::json!({ "threadId": thread.as_str(), "opId": op, "options": { "idleOnly": true } }),
+            op: Some(mixdog_core_api::ids::OpId::from(op.as_str())),
+            ctx: mixdog_core_api::call::CallContext::internal("side-question"),
+        };
+        match handle.request(request).await {
+            // No compactor for the session (no context window): nothing was compacted.
+            Ok(mixdog_core_api::Reply::Value(serde_json::Value::Null)) => Err("the transcript could not be compacted".to_owned()),
+            // Refused at its start: a turn or another compaction runs on the session now.
+            Ok(mixdog_core_api::Reply::Value(answer)) if answer.get("changed") == Some(&serde_json::Value::Bool(false)) && answer.get("reason").is_some() => {
+                Err(answer.get("reason").and_then(serde_json::Value::as_str).unwrap_or("the session is busy").to_owned())
+            }
+            Ok(_) => Ok(()),
+            Err(error) => Err(error.to_string()),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use mixdog_core_api::domain::provider::{Content, Message, RequestOptions};
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::Content;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::Message;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::RequestOptions;
+    #[cfg(node_twin)]
     use serde_json::Value;
 
+    #[cfg(node_twin)]
     use super::*;
 
     /// `lastSentMainRequest` (`fixtures/last-sent/golden.json`, from the real Node function over
@@ -158,6 +194,7 @@ mod tests {
     /// (a closed or agent-owned session, no conversation, an unregistered provider) are decided
     /// by the rebuild itself, `HostRunParts::next_request`.
     #[test]
+    #[cfg(node_twin)]
     fn the_last_sent_request_is_the_one_node_replays() {
         let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/last-sent/golden.json")).expect("fixture");
         let mut answered = 0;
@@ -203,3 +240,4 @@ mod tests {
         assert!(answered >= 4, "the golden covers requests that are replayed");
     }
 }
+

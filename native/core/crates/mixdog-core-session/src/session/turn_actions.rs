@@ -38,9 +38,6 @@ use serde_json::json;
 
 use super::SessionDirectory;
 use super::composer_image;
-use super::staged_originals::STAGED_ORIGINALS_MAX_BYTES;
-use super::staged_originals::STAGED_ORIGINALS_TTL_MS;
-use super::staged_originals::StageLimits;
 
 pub const AGENT_CONTROL: &str = "thread/agentControl";
 pub const STAGE_ATTACHMENT_ORIGINAL: &str = "thread/stageAttachmentOriginal";
@@ -62,6 +59,7 @@ pub(super) fn control_caller(thread: &ThreadId, header: &mixdog_store::schema::r
             host_pid: Some(positive_int(header.get("clientHostPid")).unwrap_or_else(|| u64::from(std::process::id()))),
         },
         cwd: clean(header.get("cwd")),
+        ..Caller::default()
     }
 }
 
@@ -106,12 +104,7 @@ impl TurnActionsService {
     async fn stage(&self, bytes: Vec<u8>) -> Result<String, String> {
         let deps = self.directory.deps();
         let originals = deps.staged_originals.clone();
-        let limits = StageLimits {
-            now_ms: deps.clock.now_ms(),
-            max_bytes: STAGED_ORIGINALS_MAX_BYTES,
-            ttl_ms: STAGED_ORIGINALS_TTL_MS,
-        };
-        mixdog_core_base::support::on_lane_wait(deps.lanes.durability, &mixdog_rt::CancellationToken::new(), move |lane| originals.stage(lane, &bytes, limits))
+        mixdog_core_base::support::on_lane_wait(deps.lanes.durability, &mixdog_rt::CancellationToken::new(), move |lane| originals.stage(lane, &bytes))
             .await
             .map_err(|error| format!("{error:?}"))?
     }

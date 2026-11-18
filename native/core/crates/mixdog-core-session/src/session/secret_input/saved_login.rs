@@ -553,11 +553,15 @@ pub async fn pixels_allowed(registry: &SavedLoginRegistry, mode: &str, window_id
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::sync::atomic::AtomicUsize;
+    #[cfg(node_twin)]
     use std::time::Duration;
 
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     /// Recorded from the real desktop code (`benchmarks/rust-core/recorders/record-saved-login.mjs`).
     fn golden(name: &str) -> Value {
         let text = match name {
@@ -569,14 +573,17 @@ mod tests {
         serde_json::from_str(text).unwrap()
     }
 
+    #[cfg(node_twin)]
     fn turn_of(value: &Value) -> SavedLoginTurn {
         SavedLoginTurn { session: value["session"].as_str().unwrap().to_owned(), turn: value["turn"].as_u64().unwrap_or(0) }
     }
 
+    #[cfg(node_twin)]
     fn guard_json(guard: &PixelGuard) -> Value {
         json!({ "session": guard.turn.session, "turn": guard.turn.turn, "windowId": guard.window_id, "pid": guard.pid })
     }
 
+    #[cfg(node_twin)]
     #[tokio::test(start_paused = true)]
     async fn the_registry_follows_the_recorded_scenarios() {
         for case in golden("registry.json")["cases"].as_array().unwrap() {
@@ -632,13 +639,17 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     const SESSION: &str = "saved-login-session";
+    #[cfg(node_twin)]
     const LABEL: &str = "j•••e@example.com";
 
+    #[cfg(node_twin)]
     fn target() -> Value {
         json!({ "window_id": "hwnd:0x1", "pid": "4242", "start_time": "133700000000000001", "origin": "https://login.example.com", "document_id": "42.1.4.5.1.20", "runtime_id": "42.1.4.5.1.77", "field": "password", "value_length": 0 })
     }
 
+    #[cfg(node_twin)]
     struct Vault {
         values: Value,
         origin: String,
@@ -646,6 +657,7 @@ mod tests {
         lookups: Mutex<Vec<Value>>,
     }
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl SavedLoginVault for Vault {
         async fn value(&self, url: &str, account: &str, field: SavedLoginField) -> Result<SavedLoginValue, String> {
@@ -657,6 +669,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Logins {
         enabled: bool,
         /// Auto login reads after which the setting reads off.
@@ -665,6 +678,7 @@ mod tests {
         vault: Vault,
     }
 
+    #[cfg(node_twin)]
     impl SavedLogins for Logins {
         fn enabled(&self) -> bool {
             let read = self.reads.fetch_add(1, Ordering::SeqCst) + 1;
@@ -675,12 +689,14 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Worker {
         check: Value,
         typed: Value,
         requests: Mutex<Vec<Value>>,
     }
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl SavedLoginWorker for Worker {
         async fn call(&self, request: &Value, before_send: Option<&mut (dyn FnMut() -> Result<(), String> + Send)>) -> Result<Value, String> {
@@ -697,6 +713,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn a_fill_goes_as_the_recorded_desktop_fill_went() {
         let doc = golden("fill.json");
@@ -746,11 +763,13 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Pids {
         known: Value,
         reads: AtomicUsize,
     }
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl WindowPids for Pids {
         async fn window_pid(&self, window_id: &str) -> Result<Option<String>, String> {
@@ -762,6 +781,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn the_capture_gate_follows_the_recorded_scenarios() {
         for case in golden("pixels.json")["cases"].as_array().unwrap() {
@@ -780,5 +800,306 @@ mod tests {
             assert_eq!(json!(got), case["outcome"], "{name}");
             assert_eq!(json!(pids.reads.load(Ordering::SeqCst)), case["pidReads"], "{name}: the process is read at most once, and only when needed");
         }
+    }
+}
+
+
+/// The saved-login rules from the code's contract: what a fill sends and refuses, what stays out of the model's sight, and
+/// when each protection ends.
+#[cfg(test)]
+mod rule_tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::time::Duration;
+
+    use super::*;
+
+    const SESSION: &str = "s1";
+    const LABEL: &str = "j•••e@example.com";
+    const PASSWORD: &str = "Pa55-\"word\"\\x";
+
+    fn turn(session: &str, number: u64) -> SavedLoginTurn {
+        SavedLoginTurn { session: session.to_owned(), turn: number }
+    }
+
+    fn guard(session: &str, number: u64, window: &str, pid: &str) -> PixelGuard {
+        PixelGuard { turn: turn(session, number), window_id: window.to_owned(), pid: pid.to_owned() }
+    }
+
+    fn page() -> Value {
+        json!({ "window_id": "hwnd:0x1", "pid": "4242", "origin": "https://login.example.com", "field": "password" })
+    }
+
+    struct Vault {
+        origin: String,
+        fails: Option<String>,
+        lookups: Mutex<Vec<(String, String, &'static str)>>,
+    }
+
+    #[async_trait]
+    impl SavedLoginVault for Vault {
+        async fn value(&self, url: &str, account: &str, field: SavedLoginField) -> Result<SavedLoginValue, String> {
+            self.lookups.lock().unwrap().push((url.to_owned(), account.to_owned(), field.as_str()));
+            if let Some(message) = &self.fails {
+                return Err(message.clone());
+            }
+            let value = if field == SavedLoginField::Password { PASSWORD } else { "jane.doe@example.com" };
+            Ok(SavedLoginValue { value: value.to_owned(), label: LABEL.to_owned(), origin: self.origin.clone() })
+        }
+    }
+
+    struct Logins {
+        enabled: bool,
+        off_after: Option<usize>,
+        reads: AtomicUsize,
+        vault: Vault,
+    }
+
+    impl Logins {
+        fn on() -> Self {
+            Self { enabled: true, off_after: None, reads: AtomicUsize::new(0), vault: Vault { origin: "https://login.example.com".to_owned(), fails: None, lookups: Mutex::new(Vec::new()) } }
+        }
+    }
+
+    impl SavedLogins for Logins {
+        fn enabled(&self) -> bool {
+            let read = self.reads.fetch_add(1, Ordering::SeqCst) + 1;
+            !matches!(self.off_after, Some(after) if read > after) && self.enabled
+        }
+        fn vault(&self) -> &dyn SavedLoginVault {
+            &self.vault
+        }
+    }
+
+    struct Worker {
+        check: Value,
+        typed: Result<Value, String>,
+        requests: Mutex<Vec<Value>>,
+    }
+
+    impl Worker {
+        fn ok() -> Self {
+            Self { check: json!({ "ok": true, "result": { "saved_login_target": page() } }), typed: Ok(json!({ "ok": true, "result": { "effect": "confirmed" } })), requests: Mutex::new(Vec::new()) }
+        }
+        fn actions(&self) -> Vec<String> {
+            self.requests.lock().unwrap().iter().map(|request| request["action"].as_str().unwrap().to_owned()).collect()
+        }
+    }
+
+    #[async_trait]
+    impl SavedLoginWorker for Worker {
+        async fn call(&self, request: &Value, before_send: Option<&mut (dyn FnMut() -> Result<(), String> + Send)>) -> Result<Value, String> {
+            if let Some(before_send) = before_send {
+                before_send()?;
+            }
+            self.requests.lock().unwrap().push(request.clone());
+            if request["action"] == "saved_login_check" { Ok(self.check.clone()) } else { self.typed.clone() }
+        }
+    }
+
+    fn command(field: &str) -> Value {
+        json!({ "field": field, "saved_account": LABEL, "window_id": "hwnd:0x1", "runtime_id": "rt", "turn_id": 7, "session_id": SESSION })
+    }
+
+    async fn fill(registry: &Arc<SavedLoginRegistry>, command: &Value, logins: &Logins, worker: &Worker, windows: bool, admit: bool) -> Result<Value, String> {
+        let _admitted = admit.then(|| registry.admit(&turn(SESSION, 7)).unwrap());
+        let ok = || Ok(());
+        let hide = |text: &str| registry.redact(text);
+        fill_saved_login(command, logins, worker, &FillContext { registry, windows, assert_runnable: &ok, redact: &hide }).await
+    }
+
+    fn refused(outcome: Result<Value, String>) -> String {
+        outcome.expect_err("the fill is refused")
+    }
+
+    /// A password reaches the page once, only for an admitted fill of a checked window on the origin the vault saved it for; the
+    /// reply names the label and origin and never the value; every spelling of the value is hidden from then on, for every
+    /// session; the window's pixels are held back.
+    #[tokio::test]
+    async fn a_password_fill_writes_once_and_leaves_the_value_hidden_and_the_pixels_held() {
+        let registry = SavedLoginRegistry::new();
+        let (logins, worker) = (Logins::on(), Worker::ok());
+        let reply = fill(&registry, &command("password"), &logins, &worker, true, true).await.expect("filled");
+        assert_eq!(worker.actions(), ["saved_login_check", "saved_login_type"]);
+        assert_eq!(worker.requests.lock().unwrap()[1]["text"], PASSWORD, "the value goes to the worker only");
+        assert_eq!(logins.vault.lookups.lock().unwrap().clone(), [("https://login.example.com".to_owned(), LABEL.to_owned(), "password")]);
+        assert_eq!(reply["result"]["saved_login"], json!({ "account": LABEL, "origin": "https://login.example.com", "field": "password" }));
+        assert!(!reply.to_string().contains("Pa55"), "the model never sees the value: {reply}");
+        assert!(reply["result"]["text"].as_str().unwrap().contains("pixels of this browser are withheld until this turn ends"));
+        assert_eq!(registry.redact(&format!("echo {PASSWORD} and {}", serde_json::to_string(PASSWORD).unwrap())), "echo [saved login] and \"[saved login]\"");
+        assert_eq!(registry.pixel_guards(), [guard(SESSION, 7, "hwnd:0x1", "4242")]);
+    }
+
+    /// A username is an identifier: filled with no redaction and no pixel hold.
+    #[tokio::test]
+    async fn a_username_fill_hides_nothing_and_holds_no_pixels() {
+        let registry = SavedLoginRegistry::new();
+        let (logins, worker) = (Logins::on(), Worker::ok());
+        let reply = fill(&registry, &command("username"), &logins, &worker, true, true).await.expect("filled");
+        assert!(reply["result"]["text"].as_str().unwrap().contains("is not hidden from you"));
+        assert_eq!(registry.redact("jane.doe@example.com"), "jane.doe@example.com");
+        assert!(registry.pixel_guards().is_empty());
+    }
+
+    /// Each refusal sends no input at all: nothing is written, and the vault is not asked unless the refusal came after it.
+    #[tokio::test]
+    async fn each_refusal_before_the_write_sends_no_input() {
+        let mut cases: Vec<(&str, Value, Logins, Worker, bool, bool, &str)> = Vec::new();
+        cases.push(("not Windows", command("password"), Logins::on(), Worker::ok(), false, true, "saved_login_unavailable: saved logins are filled on Windows only for now; no input was sent"));
+        cases.push(("Auto login off", command("password"), Logins { enabled: false, ..Logins::on() }, Worker::ok(), true, true, "saved_login_unavailable: Auto login is off in Settings (인증 관리); no input was sent"));
+        cases.push(("another field", command("otp"), Logins::on(), Worker::ok(), true, true, "invalid_input: field must be username or password; one-time codes, passkeys, security keys and app approvals are the user's step (handoff_user takeover)"));
+        let mut no_account = command("password");
+        no_account["saved_account"] = json!("  ");
+        cases.push(("no account", no_account, Logins::on(), Worker::ok(), true, true, "invalid_input: saved_account must name a saved login"));
+        let mut no_window = command("password");
+        no_window["window_id"] = json!(" ");
+        cases.push(("no window", no_window, Logins::on(), Worker::ok(), true, true, "fill_saved_login requires an exact window_id before dispatch"));
+        let mut no_turn = command("password");
+        no_turn["turn_id"] = json!(0);
+        cases.push(("no turn", no_turn, Logins::on(), Worker::ok(), true, true, "saved_login_unavailable: the request names no runtime and agent turn to scope its protection to; no input was sent"));
+        cases.push(("not admitted", command("password"), Logins::on(), Worker::ok(), true, false, "saved_login_unavailable: the fill was not admitted by the bridge for its runtime and turn; no input was sent"));
+        for (name, command, logins, worker, windows, admit, want) in cases {
+            let registry = SavedLoginRegistry::new();
+            assert_eq!(refused(fill(&registry, &command, &logins, &worker, windows, admit).await), want, "{name}");
+            assert!(worker.requests.lock().unwrap().is_empty(), "{name}: the worker was not asked");
+            assert!(logins.vault.lookups.lock().unwrap().is_empty(), "{name}: the vault was not asked");
+            assert!(registry.pixel_guards().is_empty() && registry.redact(PASSWORD) == PASSWORD, "{name}");
+        }
+    }
+
+    /// A vault miss, a vault answer for another origin, and an Auto login that went off during the lookup all stop before the value
+    /// is sent, and a window the worker would not check is the worker's own answer.
+    #[tokio::test]
+    async fn a_lookup_that_fails_or_disagrees_stops_before_the_value_is_sent() {
+        let registry = SavedLoginRegistry::new();
+        let mut logins = Logins::on();
+        logins.vault.fails = Some("no saved login for j•••e@example.com.".to_owned());
+        let worker = Worker::ok();
+        assert_eq!(refused(fill(&registry, &command("password"), &logins, &worker, true, true).await), "saved_login_unavailable: no saved login for j•••e@example.com; no input was sent");
+        assert_eq!(worker.actions(), ["saved_login_check"]);
+
+        let mut other_origin = Logins::on();
+        other_origin.vault.origin = "https://evil.example.com".to_owned();
+        let worker = Worker::ok();
+        assert_eq!(
+            refused(fill(&registry, &command("password"), &other_origin, &worker, true, true).await),
+            "saved_login_refused: the page origin could not be matched exactly to the saved login; no input was sent"
+        );
+        assert_eq!(worker.actions(), ["saved_login_check"]);
+
+        let off_during = Logins { off_after: Some(1), ..Logins::on() };
+        let worker = Worker::ok();
+        assert_eq!(
+            refused(fill(&registry, &command("password"), &off_during, &worker, true, true).await),
+            "saved_login_unavailable: saved_login_unavailable: Auto login is off in Settings (인증 관리); no input was sent; no input was sent"
+        );
+        assert_eq!(worker.actions(), ["saved_login_check"]);
+        assert!(registry.pixel_guards().is_empty() && registry.redact(PASSWORD) == PASSWORD);
+
+        let mut unchecked = Worker::ok();
+        unchecked.check = json!({ "ok": false, "error": "the window is not a browser" });
+        assert_eq!(refused(fill(&registry, &command("password"), &Logins::on(), &unchecked, true, true).await), "the window is not a browser");
+    }
+
+    /// A write that was sent and not clearly answered is "possibly written" and is not retried; the worker's error text never
+    /// carries the value.
+    #[tokio::test]
+    async fn a_write_with_no_clear_answer_is_unconfirmed_and_hides_the_value() {
+        let registry = SavedLoginRegistry::new();
+        let mut worker = Worker::ok();
+        worker.typed = Err(format!("the field said {PASSWORD}."));
+        let message = refused(fill(&registry, &command("password"), &Logins::on(), &worker, true, true).await);
+        assert_eq!(message, "saved_login_unconfirmed: the saved password was sent but no clear answer came back (the field said [saved login]); it may have been written and is not retried");
+        assert_eq!(worker.actions(), ["saved_login_check", "saved_login_type"], "one write, no retry");
+    }
+
+    /// The registry: a fill of a settled turn (or an older one) is refused; settling waits for the fills it covers and then retires
+    /// their redaction and pixel guards; another session's entries stay; `forget` settles every turn of a session at once.
+    #[tokio::test(start_paused = true)]
+    async fn settling_waits_for_the_running_fills_then_retires_their_protection() {
+        let registry = SavedLoginRegistry::new();
+        assert!(registry.remember(&turn("a", 3), &["secret-a".to_owned()]));
+        assert!(registry.remember(&turn("b", 1), &["secret-b".to_owned()]));
+        assert!(registry.arm_pixels(guard("a", 3, "w1", "10")));
+        let running = registry.admit(&turn("a", 3)).expect("admitted");
+        assert!(registry.admitted(&turn("a", 3)));
+
+        let settling = tokio::spawn({
+            let registry = registry.clone();
+            async move { registry.settle(&turn("a", 3)).await }
+        });
+        mixdog_rt::time::sleep(Duration::from_millis(5)).await;
+        assert!(!settling.is_finished(), "the running fill is waited for");
+        assert!(registry.admit(&turn("a", 3)).is_err(), "no new fill of the settled turn is admitted meanwhile");
+        assert!(registry.admit(&turn("a", 2)).is_err(), "nor of an older one");
+        assert_eq!(registry.redact("secret-a"), "[saved login]", "still hidden while the fill runs");
+        drop(running);
+        settling.await.unwrap();
+        assert_eq!(registry.redact("secret-a secret-b"), "secret-a [saved login]", "a's entry retired, b's stays");
+        assert!(registry.pixel_guards().is_empty());
+        assert!(registry.admit(&turn("a", 4)).is_ok(), "a newer turn is admitted");
+
+        registry.forget("b").await;
+        assert_eq!(registry.redact("secret-b"), "secret-b");
+        assert_eq!(registry.admit(&turn("b", 1)).err().unwrap(), "its agent turn has already ended");
+    }
+
+    /// What `remember` and `arm_pixels` take: a fill with no session or turn 0, no spelling, or no window or process registers
+    /// nothing; an empty spelling is skipped; the longest value is replaced first; the same guard is armed once.
+    #[test]
+    fn the_registry_takes_only_complete_entries_and_replaces_the_longest_value_first() {
+        let registry = SavedLoginRegistry::new();
+        assert!(!registry.remember(&turn("", 1), &["x".to_owned()]));
+        assert!(!registry.remember(&turn("a", 0), &["x".to_owned()]));
+        assert!(!registry.remember(&turn("a", 1), &[]));
+        assert!(registry.remember(&turn("a", 1), &[String::new(), "abc".to_owned(), "abcdef".to_owned(), "abc".to_owned()]));
+        assert_eq!(registry.spellings(), ["abc", "abcdef"]);
+        assert_eq!(registry.redact("abcdef abc"), "[saved login] [saved login]");
+        assert!(!registry.arm_pixels(guard("a", 1, "", "10")));
+        assert!(!registry.arm_pixels(guard("a", 1, "w", "")));
+        assert!(!registry.arm_pixels(guard("a", 0, "w", "10")));
+        assert!(registry.arm_pixels(guard("a", 1, "W1", "10")));
+        assert!(registry.arm_pixels(guard("a", 1, "w1", "10")));
+        assert_eq!(registry.pixel_guards().len(), 1, "a window id is the same in either case");
+    }
+
+    struct Pids {
+        known: Vec<(&'static str, Result<Option<&'static str>, &'static str>)>,
+        reads: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl WindowPids for Pids {
+        async fn window_pid(&self, window_id: &str) -> Result<Option<String>, String> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            match self.known.iter().find(|(id, _)| *id == window_id) {
+                Some((_, Ok(pid))) => Ok(pid.map(str::to_owned)),
+                Some((_, Err(message))) => Err((*message).to_owned()),
+                None => Ok(None),
+            }
+        }
+    }
+
+    /// While a guard stands no pixels of the filled window or of any window of its process leave, and no full-screen pixels; an
+    /// accessibility read carries none and passes; a window whose process cannot be read is refused.
+    #[tokio::test]
+    async fn pixels_are_withheld_for_the_filled_window_and_its_process_and_nothing_else() {
+        const HELD: &str = "capture_withheld: pixels of a browser a saved-login password was filled into are withheld until the end of this agent turn; read it with mode \"ax\" or capture in a later turn";
+        let registry = SavedLoginRegistry::new();
+        let pids = |known| Pids { known, reads: AtomicUsize::new(0) };
+        let none = pids(vec![]);
+        assert_eq!(pixels_allowed(&registry, "capture", "w1", &none).await, Ok(()), "no guard: everything passes");
+        assert!(registry.arm_pixels(guard("a", 1, "w1", "10")));
+        assert_eq!(pixels_allowed(&registry, "capture", "W1", &none).await.unwrap_err(), HELD, "the filled window, whatever its case");
+        assert_eq!(none.reads.load(Ordering::SeqCst), 0, "the process is not read when the window is the guard's");
+        assert_eq!(pixels_allowed(&registry, "ax", "w1", &none).await, Ok(()), "an accessibility read carries no pixels");
+        assert_eq!(pixels_allowed(&registry, "capture", "", &none).await.unwrap_err(), HELD, "a full screen");
+        let same_process = pids(vec![("w2", Ok(Some("10")))]);
+        assert_eq!(pixels_allowed(&registry, "capture", "w2", &same_process).await.unwrap_err(), HELD);
+        let other_process = pids(vec![("w3", Ok(Some("99")))]);
+        assert_eq!(pixels_allowed(&registry, "capture", "w3", &other_process).await, Ok(()));
+        assert_eq!(other_process.reads.load(Ordering::SeqCst), 1);
+        let unreadable = pids(vec![("w4", Err("unreadable"))]);
+        assert_eq!(pixels_allowed(&registry, "capture", "w4", &unreadable).await.unwrap_err(), HELD, "fail closed");
+        assert_eq!(pixels_allowed(&registry, "capture", "w5", &none).await.unwrap_err(), HELD, "a process nobody knows is fail closed too");
     }
 }

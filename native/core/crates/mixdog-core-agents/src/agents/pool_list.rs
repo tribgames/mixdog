@@ -35,8 +35,7 @@ use super::quiet_progress::{display_progress_stage, last_progress_at};
 type Row = Map<String, Value>;
 
 #[cfg(test)]
-#[path = "pool_list_quiet_replay.rs"]
-mod quiet_replay;
+mod rows_tests;
 
 const TAG_TOMBSTONE_TTL_MS: f64 = 7.0 * 24.0 * 60.0 * 60.0 * 1000.0;
 const AGENT_PANE_VISIBLE_MS: f64 = 60.0 * 60.0 * 1000.0;
@@ -48,6 +47,7 @@ const SESSION_CANCEL_FIELDS: [&str; 7] = ["cancelStatus", "status", "state", "la
 static WORKING: LazyLock<JsRegex> = LazyLock::new(|| {
     JsRegex::new_static(r"^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$", "i")
 });
+static QUEUED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:queued|pending|starting|resource_wait)$", "i"));
 static CANCELLED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:cancelled|canceled|killed)$", "i"));
 static CANCEL_UNCONFIRMED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:cancel[-_\s]?(?:unconfirmed|pending))$", "i"));
 static FAILED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:error|fail|failed|timeout)$", "i"));
@@ -57,7 +57,7 @@ static YEAR_PREFIX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^
 static STORED_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(SESSION_ID_PATTERN.0, SESSION_ID_PATTERN.1));
 
 /// The header fields the pool reads of a worker session record (`WORKER_HEADER_FIELDS`).
-pub const HEADER_FIELDS: [&str; 33] = [
+pub const HEADER_FIELDS: [&str; 34] = [
     "owner",
     "agent",
     "sourceType",
@@ -68,6 +68,7 @@ pub const HEADER_FIELDS: [&str; 33] = [
     "model",
     "effort",
     "fast",
+    "modelParameters",
     "autoEffort",
     "createdAt",
     "updatedAt",
@@ -104,6 +105,10 @@ pub struct PoolError(pub String);
 pub trait PoolStore: Send + Sync {
     async fn agent_index(&self) -> Option<Value>;
     async fn lead_index(&self) -> Option<Value>;
+    /// Both indexes of one read: a store that builds them from one load answers both at once, so a listing loads once.
+    async fn indexes(&self) -> (Option<Value>, Option<Value>) {
+        (self.agent_index().await, self.lead_index().await)
+    }
     /// One answer per id, in order.
     async fn headers(&self, session_ids: &[String]) -> Vec<Option<Row>>;
 }
@@ -134,8 +139,13 @@ pub trait PoolLive: Send + Sync {
     fn running(&self) -> HashSet<String>;
     /// `activeBackgroundTaskSessionIds({ surface: 'shell', awaitedOnly: true })`.
     fn awaiting_shell(&self) -> HashSet<String>;
-    /// The live session record of `session_id` (`_liveSessions.get`), when this process holds one.
-    fn live_session(&self, session_id: &str) -> Option<Value>;
+    /// The live session record of `session_id` (`_liveSessions.get`), when this process holds one: the header as the
+    /// session holds it, shared and not copied (a list reads it for every agent row).
+    fn live_session(&self, session_id: &str) -> Option<std::sync::Arc<Row>>;
+    /// The request route of this child in its active turn; absent until its first send.
+    fn request_route(&self, _session_id: &str) -> Option<Arc<Row>> {
+        None
+    }
     fn runtime_entry(&self, session_id: &str) -> Option<RuntimeEntry>;
     /// `groupUsageTokens(groups)`: owner to the ledger token known for its group.
     fn ledger_tokens(&self, groups: &[(String, Vec<String>)]) -> HashMap<String, String>;
@@ -412,6 +422,7 @@ struct Assembly<'a> {
     running: &'a HashSet<String>,
     headers: &'a Headers,
     idle_since: &'a mut Row,
+    live: &'a dyn PoolLive,
 }
 
 impl Assembly<'_> {
@@ -454,9 +465,15 @@ impl Assembly<'_> {
         let declared_status = Some(clean_value(row.get("status"))).filter(|s| !s.is_empty()).unwrap_or_else(|| "running".into());
         let declared_stage = Some(clean_value(first_truthy(&[row.get("stage"), row.get("status")]))).filter(|s| !s.is_empty()).unwrap_or_else(|| "running".into());
         let life = lifecycle(row);
-        let declared_working = status_is(&WORKING, if life.is_empty() { "running" } else { &life });
+        let declared_working = status_is(&WORKING, if life.is_empty() { "running" } else { &life })
+            || status_is(&QUEUED, &life);
         let cancel = effective_cancel(row, session);
         let working = cancel.is_none() && self.running.contains(&session_id);
+        let request_route = working.then(|| self.live.request_route(&session_id)).flatten();
+        let live_queue = (working && request_route.is_none())
+            .then(|| self.live.runtime_entry(&session_id))
+            .flatten()
+            .and_then(|entry| entry.liveness.get("stage").and_then(Value::as_str).filter(|stage| status_is(&QUEUED, stage)).map(str::to_owned));
         let completed = status_is(&COMPLETED, &life);
         let unconfirmed_cancel = cancel.as_ref().is_some_and(|cancel| status_is(&CANCEL_UNCONFIRMED, &cancel.status));
         if !working && !unconfirmed_cancel && (cancel.is_some() || !declared_working) {
@@ -472,8 +489,11 @@ impl Assembly<'_> {
         if let Some(cancel) = &cancel {
             shown_status = cancel.status.clone();
             shown_stage = cancel_stage(cancel, &declared_stage);
+        } else if let Some(stage) = live_queue {
+            shown_status = "queued".into();
+            shown_stage = stage;
         } else if working {
-            if !declared_working {
+            if !declared_working || status_is(&QUEUED, &declared_status) || status_is(&QUEUED, &declared_stage) {
                 shown_status = "running".into();
                 shown_stage = "running".into();
             }
@@ -492,11 +512,23 @@ impl Assembly<'_> {
         out.insert("parentSessionId".into(), parent_session_id(row, session));
         out.insert("title".into(), text_or_null(clean_value(first_truthy(&[row.get("title"), session_get("title")]))));
         out.insert("agent".into(), text_or_null(clean_value(first_truthy(&[row.get("agent"), session_get("agent")]))));
-        out.insert("provider".into(), text_or_null(clean_value(first_truthy(&[row.get("provider"), session_get("provider")]))));
-        out.insert("model".into(), text_or_null(clean_value(first_truthy(&[row.get("model"), session_get("model")]))));
-        out.insert("effort".into(), text_or_null(clean_value(first_truthy(&[row.get("effort"), session_get("effort")]))));
-        out.insert("fast".into(), Value::Bool(row.get("fast") == Some(&Value::Bool(true)) || session_get("fast") == Some(&Value::Bool(true))));
-        if row.get("autoEffort") == Some(&Value::Bool(false)) || session_get("autoEffort") == Some(&Value::Bool(false)) {
+        // The index describes launch; borrowing any of its fields can combine two routes.
+        let route = request_route.as_deref().or(if working || declared_working { None } else { session });
+        let route_get = |key: &str| route.and_then(|r| r.get(key));
+        for key in ["provider", "model", "effort"] {
+            out.insert(key.into(), text_or_null(clean_value(route_get(key))));
+        }
+        out.insert("fast".into(), route_get("fast").and_then(Value::as_bool).map_or(Value::Null, Value::Bool));
+        if let Some(parameters) = route_get("modelParameters").filter(|v| v.as_object().is_some_and(|p| !p.is_empty())) {
+            out.insert("modelParameters".into(), parameters.clone());
+        }
+        if let Some(request) = &request_route {
+            out.insert("routeObserved".into(), Value::Bool(true));
+            // A header for another route (e.g. during a hop) cannot describe this request's Auto setting.
+            if session.is_some_and(|saved| ["provider", "model"].iter().all(|key| saved.get(*key) == request.get(*key))) {
+                out.insert("autoEffort".into(), Value::Bool(session_get("autoEffort") != Some(&Value::Bool(false))));
+            }
+        } else if route_get("autoEffort") == Some(&Value::Bool(false)) {
             out.insert("autoEffort".into(), Value::Bool(false));
         }
         out.insert("status".into(), json!(shown_status));
@@ -629,11 +661,13 @@ impl AgentPool {
 
     /// `listStoredAgentWorkersAsync` laid over by the daemon's live state, rows in Node's order.
     pub async fn list(&self) -> Result<Vec<Value>, PoolError> {
-        let (agent_index, lead_index) = (self.store.agent_index().await, self.store.lead_index().await);
+        let (agent_index, lead_index) = self.store.indexes().await;
         let child_rows = worker_rows(agent_index.as_ref());
         let mut ids: Vec<String> = Vec::new();
-        let want = |ids: &mut Vec<String>, id: String| {
-            if !id.is_empty() && !ids.contains(&id) {
+        // Order kept by the Vec, membership by the set: a pool of a thousand rows is not scanned once per row.
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut want = |ids: &mut Vec<String>, id: String| {
+            if !id.is_empty() && seen.insert(id.clone()) {
                 ids.push(id);
             }
         };
@@ -706,7 +740,7 @@ impl AgentPool {
             tombstone_blocks(&work, find_tombstone(&work, &tombstones))
         };
         let mut idle_since = self.idle_since.lock().unwrap_or_else(|e| e.into_inner());
-        let mut pass = Assembly { now, running, headers, idle_since: &mut idle_since };
+        let mut pass = Assembly { now, running, headers, idle_since: &mut idle_since, live: &*self.live };
         let mut by_session = Row::new();
         for row in child_rows.iter().filter(|row| !is_reaped(&clean_value(get(row, "sessionId")))) {
             if let Some(projected) = pass.project_child(row) {
@@ -744,7 +778,7 @@ impl AgentPool {
     /// `withLiveTodo`, `withLiveUsage`, `withLedgerToken` and `withTurnProgress`, in Node's order.
     fn lay_live(&self, rows: Vec<Value>) -> Vec<Value> {
         let mut rows: Vec<Row> = rows.into_iter().filter_map(|row| if let Value::Object(row) = row { Some(row) } else { None }).collect();
-        let sessions: Vec<Option<Value>> = rows.iter().map(|row| self.live_of(row)).collect();
+        let sessions: Vec<Option<std::sync::Arc<Row>>> = rows.iter().map(|row| self.live_of(row)).collect();
         for (row, live) in rows.iter_mut().zip(&sessions) {
             let Some(live) = live else { continue };
             row.shift_remove("todo");
@@ -754,7 +788,7 @@ impl AgentPool {
         }
         for (row, live) in rows.iter_mut().zip(&sessions) {
             let Some(live) = live else { continue };
-            let (usage, tool_calls) = usage_totals(live.as_object());
+            let (usage, tool_calls) = usage_totals(Some(live));
             if let Some(usage) = usage {
                 row.insert("usage".into(), usage);
             }
@@ -785,7 +819,7 @@ impl AgentPool {
         rows.into_iter().map(|row| Value::Object(self.with_progress(row, &awaiting))).collect()
     }
 
-    fn live_of(&self, row: &Row) -> Option<Value> {
+    fn live_of(&self, row: &Row) -> Option<std::sync::Arc<Row>> {
         row.get("sessionId").and_then(Value::as_str).filter(|id| !id.is_empty()).and_then(|id| self.live.live_session(id))
     }
 
@@ -856,7 +890,3 @@ fn iso(ms: f64) -> Option<String> {
         fields.year, fields.month, fields.day, fields.hour, fields.minute, fields.second, fields.millisecond
     ))
 }
-
-#[cfg(test)]
-#[path = "pool_list_usage_tests.rs"]
-mod usage_tests;

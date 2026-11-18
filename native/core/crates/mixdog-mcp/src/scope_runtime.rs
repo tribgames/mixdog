@@ -10,7 +10,7 @@
 //! * **Serialization.** Every scope has one chain ([`SerialChain`]); an operation resolves its
 //!   configuration *inside* its turn, so it is never older than the operation before it.
 //! * **Generations.** The hub keeps each scope's generation and release mark
-//!   ([`McpHub::apply_at`]): an operation applies only if the scope is unreleased and no newer full
+//!   ([`McpHub::apply_at_tracked`]): an operation applies only if the scope is unreleased and no newer full
 //!   connect was requested since it was, checked and applied under one lock. A release makes every
 //!   operation in flight or queued void at once and for ever (the mark is never cleared). The first
 //!   connect's generation is reserved when the scope is registered, before any request can see it.
@@ -32,6 +32,7 @@ use std::sync::MutexGuard;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use mixdog_rt::CancellationToken;
 use mixdog_rt::SerialChain;
 use mixdog_rt::TaskClass;
 use tokio::sync::watch;
@@ -116,6 +117,8 @@ struct Cell {
     turns: Arc<SerialChain>,
     /// True once the first connect settled, or the scope was released.
     ready: watch::Sender<bool>,
+    /// Requested connection operations, including the first connect and work behind it.
+    pending: watch::Sender<usize>,
     /// How many callers wait at the readiness barrier now (for whoever must know they arrived).
     waiting: watch::Sender<usize>,
     /// The same count over every scope ([`ScopeRuntime::waiting_all`]).
@@ -129,6 +132,21 @@ struct Cell {
 impl Cell {
     fn cwd(&self) -> String {
         lock(&self.cwd).clone()
+    }
+}
+
+struct PendingConnect(Arc<Cell>);
+
+impl PendingConnect {
+    fn begin(cell: &Arc<Cell>) -> Self {
+        cell.pending.send_modify(|pending| *pending += 1);
+        Self(cell.clone())
+    }
+}
+
+impl Drop for PendingConnect {
+    fn drop(&mut self) {
+        self.0.pending.send_modify(|pending| *pending -= 1);
     }
 }
 
@@ -284,24 +302,69 @@ impl ScopeRuntime {
     /// 0 disables the wait, as the connect may then never settle. Returns at once when the scope is not open or its
     /// first connect settled.
     pub async fn await_initial(&self, scope: &str) {
-        self.await_initial_within(scope, Duration::MAX).await;
+        self.await_connect_within(scope, Duration::MAX, false).await;
     }
 
-    /// [`await_initial`](Self::await_initial) that waits no longer than `cap` (`awaitInitialConnect(maxWaitMs)`).
+    /// Waits for the current connection work, including a replacement requested during the first
+    /// connect. The same cap covers configuration resolution and all superseding work.
     pub async fn await_initial_within(&self, scope: &str, cap: Duration) {
+        self.await_connect_within(scope, cap, true).await;
+    }
+
+    async fn await_connect_within(&self, scope: &str, cap: Duration, follow_current: bool) {
         let Some(cell) = self.cell(scope) else { return };
-        if *cell.ready.borrow() {
+        if cap.is_zero() || (!follow_current && *cell.ready.borrow()) {
             return;
         }
-        // `syncScopeRoot` before the connect (mcp-glue/connect.mjs:111).
-        self.hub.set_scope_root(&cell.scope, &cell.cwd());
-        let resolved = self.configs.resolve(&cell.scope, &cell.cwd(), None).await;
-        let budgets: Vec<Option<Duration>> = resolved.configs.iter().filter(|c| c.enabled).map(|c| c.startup_timeout).collect();
-        if budgets.contains(&None) {
+        let mut pending = cell.pending.subscribe();
+        let count = *pending.borrow_and_update();
+        if follow_current && count == 0
+            && self.hub.pending_starts(&cell.scope).is_empty()
+            && !pending.has_changed().unwrap_or(false)
+        {
             return;
         }
-        let budget = budgets.into_iter().flatten().max().unwrap_or(crate::config::DEFAULT_STARTUP_TIMEOUT).min(cap);
-        let _ = mixdog_rt::time::timeout(budget, Self::ready(&cell)).await;
+        let wait = async {
+            // `syncScopeRoot` before the connect (mcp-glue/connect.mjs:111).
+            self.hub.set_scope_root(&cell.scope, &cell.cwd());
+            let resolved = self.configs.resolve(&cell.scope, &cell.cwd(), None).await;
+            let budgets: Vec<Option<Duration>> = resolved.configs.iter().filter(|c| c.enabled).map(|c| c.startup_timeout).collect();
+            if budgets.contains(&None) {
+                return;
+            }
+            let budget = budgets.into_iter().flatten().max().unwrap_or(crate::config::DEFAULT_STARTUP_TIMEOUT);
+            let settle = async {
+                if !follow_current {
+                    Self::ready(&cell).await;
+                    return;
+                }
+                let _waiting = AtWaiting::enter(&cell);
+                loop {
+                    let count = *pending.borrow_and_update();
+                    if self.hub.is_released(&cell.scope) {
+                        return;
+                    }
+                    if count == 0 {
+                        let starting = self.hub.pending_starts(&cell.scope);
+                        if starting.is_empty() && !pending.has_changed().unwrap_or(false) {
+                            return;
+                        }
+                        tokio::select! {
+                            _ = pending.changed() => {},
+                            () = Self::started(starting) => {},
+                        }
+                    } else {
+                        let _ = pending.changed().await;
+                    }
+                }
+            };
+            let _ = mixdog_rt::time::timeout(budget, settle).await;
+        };
+        if cap == Duration::MAX {
+            wait.await;
+        } else {
+            let _ = mixdog_rt::time::timeout(cap, wait).await;
+        }
     }
 
     /// [`open`](Self::open) without the wait: the scope is registered and its first connect started
@@ -335,19 +398,24 @@ impl ScopeRuntime {
                         cwd: Mutex::new(cwd.to_owned()),
                         turns: SerialChain::new(),
                         ready,
+                        pending: watch::channel(0).0,
                         waiting,
                         waiting_all: self.waiting_all.clone(),
                         failure: Mutex::new(None),
                     });
                     table.cells.insert(key.clone(), cell.clone());
-                    (cell, Some(generation))
+                    let pending = PendingConnect::begin(&cell);
+                    (cell, Some((generation, pending)))
                 }
             }
         };
-        if let Some(generation) = first {
+        if let Some((generation, pending)) = first {
             let runtime = Arc::clone(self);
             let opening = cell.clone();
-            drop(mixdog_rt::spawn("mcp.scope.open", TaskClass::Work, async move { runtime.first_connect(&opening, generation).await }));
+            drop(mixdog_rt::spawn("mcp.scope.open", TaskClass::Work, async move {
+                let _pending = pending;
+                runtime.first_connect(&opening, generation).await;
+            }));
         }
         Ok(cell)
     }
@@ -435,6 +503,7 @@ impl ScopeRuntime {
     /// Runs `op` on `scope` after the scope's first connect and everything queued before it.
     pub async fn run(self: &Arc<Self>, scope: &str, op: Op) {
         let Some(cell) = self.cell(scope) else { return };
+        let _pending = PendingConnect::begin(&cell);
         Self::ready(&cell).await;
         let Some(generation) = self.requested(&cell, &op) else { return };
         self.run_cell(&cell, &op, generation).await;
@@ -459,9 +528,11 @@ impl ScopeRuntime {
         cells
             .into_iter()
             .filter_map(|cell| {
+                let pending = PendingConnect::begin(&cell);
                 let generation = self.requested(&cell, op)?;
                 let (runtime, op) = (Arc::clone(self), op.clone());
                 Some(mixdog_rt::spawn("mcp.scope.fan-out", TaskClass::Work, async move {
+                    let _pending = pending;
                     Self::ready(&cell).await;
                     runtime.run_cell(&cell, &op, generation).await;
                 }))
@@ -509,43 +580,30 @@ impl ScopeRuntime {
         }
     }
 
-    /// `op` on the servers of `scope`; every change goes through [`McpHub::apply_at`], so a release
+    /// `op` on the servers of `scope`; every change goes through [`McpHub::apply_at_tracked`], so a release
     /// or a newer full connect during the awaits above and below voids the rest.
     async fn connect(&self, scope: &str, generation: u64, op: &Op, resolved: Resolved) {
         let Resolved { mut configs, targets, .. } = resolved;
         match op {
             Op::Reset => {
-                if !self.hub.apply_at(scope, generation, Vec::new(), &|_| true) {
-                    return;
-                }
+                let Some(work) = self.hub.apply_at_tracked(scope, generation, Vec::new(), &|_| true) else { return };
+                Self::closed(work.closing).await;
                 let names: Vec<String> = configs.iter().filter(|c| c.enabled).map(|c| c.name.clone()).collect();
-                if self.hub.apply_at(scope, generation, configs, &|_| true) {
-                    Self::settled(self.awaited(scope, &names)).await;
+                if let Some(replacement) = self.hub.apply_after_at(scope, generation, configs, &|_| true, &work.previous) {
+                    tokio::join!(Self::closed(replacement.closing), Self::settled(self.awaited(scope, &names)));
                 }
             }
             Op::Reconcile => {
-                // The apply connects new and changed servers and those whose last connect failed
-                // (a sign-in or a stored credential may have changed), once each.
-                let before: HashSet<String> = self
-                    .hub
-                    .servers_in(scope)
-                    .iter()
-                    .filter(|s| !matches!(&*s.state(), ServerState::Failed { .. }))
-                    .map(|s| s.name().to_owned())
-                    .collect();
-                let names: Vec<String> = configs.iter().filter(|c| c.enabled).map(|c| c.name.clone()).collect();
-                if !self.hub.apply_at(scope, generation, configs, &|_| true) {
-                    return;
-                }
-                Self::settled(self.awaited(scope, &names.iter().filter(|n| !before.contains(*n)).cloned().collect::<Vec<_>>())).await;
+                let Some(work) = self.hub.apply_at_tracked(scope, generation, configs, &|_| true) else { return };
+                tokio::join!(Self::closed(work.closing), Self::started(work.starting));
             }
             Op::Only(_, enabled) => {
                 if !*enabled {
                     // Turning off one account changes its connector's private connections;
                     // the connector remains live while its configuration has enabled accounts.
                     configs.retain(|c| !targets.contains(&c.name) || (!c.accounts.is_empty() && c.enabled));
-                    if self.hub.apply_at(scope, generation, configs, &|_| false) {
-                        Self::settled(self.awaited(scope, &targets)).await;
+                    if let Some(work) = self.hub.apply_at_tracked(scope, generation, configs, &|_| false) {
+                        tokio::join!(Self::closed(work.closing), Self::settled(self.awaited(scope, &targets)));
                     }
                     return;
                 }
@@ -556,9 +614,7 @@ impl ScopeRuntime {
                     .filter(|s| configs.iter().any(|c| c.name == s.name() && c == s.config()) && !matches!(&*s.state(), ServerState::Failed { .. }))
                     .collect();
                 // The toggle connects its own servers only (`reconnectSingleMcpServer`).
-                if !self.hub.apply_at(scope, generation, configs, &|name| targets.iter().any(|t| t == name)) {
-                    return;
-                }
+                let Some(work) = self.hub.apply_at_tracked(scope, generation, configs, &|name| targets.iter().any(|t| t == name)) else { return };
                 let waits = self.awaited(scope, &targets);
                 // A connection another scope shares is not restarted: `reconnectSingleMcpServer` gives up only this
                 // scope's use of it and adopts it again (`_closeServer`, `connectServer`, mcp/client.mjs:1367-1374, 1425-1426).
@@ -567,8 +623,22 @@ impl ScopeRuntime {
                         let _ = server.reconnect().await;
                     }
                 }
-                Self::settled(waits).await;
+                tokio::join!(Self::closed(work.closing), Self::settled(waits));
             }
+        }
+    }
+
+    async fn closed(tasks: Vec<JoinHandle<()>>) {
+        for task in tasks {
+            if let Err(error) = task.await {
+                tracing::error!(%error, "MCP server teardown did not finish");
+            }
+        }
+    }
+
+    async fn started(tasks: Vec<CancellationToken>) {
+        for task in tasks {
+            task.cancelled().await;
         }
     }
 
@@ -591,14 +661,14 @@ impl ScopeRuntime {
     async fn settled(servers: Vec<(Arc<McpServer>, bool)>) {
         for (server, in_place) in servers {
             let mut rx = server.subscribe();
-            // A server whose startup budget is disabled may never stop starting: it is not waited for.
-            let Some(budget) = server.config().startup_timeout else { continue };
             let done = rx.wait_for(|s| match &**s {
                 ServerState::Starting => false,
                 ServerState::Failed { .. } => !(in_place && server.is_dead()),
                 _ => true,
             });
-            let _ = mixdog_rt::time::timeout(budget + Duration::from_secs(5), done).await;
+            if let Some(budget) = server.config().startup_timeout {
+                let _ = mixdog_rt::time::timeout(budget + Duration::from_secs(5), done).await;
+            }
         }
     }
 
@@ -635,6 +705,7 @@ impl ScopeRuntime {
         };
         for (cell, servers) in retired {
             cell.ready.send_replace(true);
+            cell.pending.send_modify(|_| {});
             drop(mixdog_rt::spawn("mcp.scope.release", TaskClass::Work, close_retired(servers)));
         }
     }

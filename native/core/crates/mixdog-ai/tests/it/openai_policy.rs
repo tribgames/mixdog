@@ -1,8 +1,7 @@
-//! The OpenAI retry policy value against the numbers Node's own modules
-//! export (`fixtures/providers/oracles/openai-retry-policy-golden.json`,
-//! read from `openai-retry-policy.mjs` and the send paths by the recorder).
-
-#![allow(clippy::disallowed_methods, reason = "test-only: reads a recorded fixture synchronously")]
+//! The OpenAI retry policy as the product runs it: the request row (the initial POST) retries 4 times and the stream row
+//! (a Responses stream, the WebSocket handshake and pre-output failures) 5 times on a 200 ms base doubling, server advice
+//! replaces a step in full, and a connection failure waits on the 5/10/20/40/60 s ladder with its last step repeating and
+//! never gives up. The numbers are the documented ones of `providers/openai/policy.rs`, spelled out here.
 
 use std::time::Duration;
 
@@ -18,21 +17,12 @@ use mixdog_core_api::domain::retry::RetryClass;
 use mixdog_core_api::domain::retry::RetryDecider;
 use mixdog_core_api::domain::retry::RetryState;
 use mixdog_core_api::domain::retry::Verdict;
-use serde_json::Value;
 
 /// A draw of 0.5 puts a symmetric jitter on its centre: the bare step.
 const MID: JitterSamples = JitterSamples { step: 0.5, advice: 0.5 };
 
-fn golden() -> Value {
-    let path = format!(
-        "{}/../../fixtures/providers/oracles/openai-retry-policy-golden.json",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
-}
-
-fn millis(values: &Value) -> Vec<Duration> {
-    values.as_array().unwrap().iter().map(|v| Duration::from_millis(v.as_u64().unwrap())).collect()
+fn ms(values: &[u64]) -> Vec<Duration> {
+    values.iter().map(|v| Duration::from_millis(*v)).collect()
 }
 
 /// The wait of each retry in turn until the row gives up (at most `limit`).
@@ -63,34 +53,22 @@ fn the_value_passes_the_policy_conformance() {
 }
 
 #[test]
-fn the_request_row_retries_as_the_http_loop_does() {
-    let golden = golden();
+fn the_request_row_retries_four_times_on_a_doubling_200_ms_step_then_gives_up() {
     let (waited, ended) = waits(RetryClass::Request, &server_error(), 20);
-    assert_eq!(waited, millis(&golden["requestWaitsMs"]));
-    assert_eq!(waited.len() as u64, golden["requestMaxRetries"].as_u64().unwrap());
+    assert_eq!(waited, ms(&[200, 400, 800, 1600]));
     assert_eq!(ended, Some(Verdict::Exhausted));
 }
 
 #[test]
-fn the_stream_row_retries_as_the_ws_send_does() {
-    let golden = golden();
+fn the_stream_row_retries_five_times_on_the_same_steps_then_gives_up() {
     let (waited, ended) = waits(RetryClass::Midstream, &server_error(), 20);
-    assert_eq!(waited, millis(&golden["midstreamWaitsMs"]));
-    assert_eq!(waited.len() as u64, golden["midstreamRetries"].as_u64().unwrap());
+    assert_eq!(waited, ms(&[200, 400, 800, 1600, 3200]));
     assert_eq!(ended, Some(Verdict::Exhausted));
-    // The handshake shares the stream budget: attempts = retries + 1.
-    assert_eq!(golden["handshakeMaxAttempts"].as_u64().unwrap(), waited.len() as u64 + 1);
 }
 
 #[test]
 fn server_advice_replaces_the_step_in_full() {
-    let golden = golden();
-    for kind in golden["adviceRetryableKinds"].as_array().unwrap() {
-        let kind = match kind.as_str().unwrap() {
-            "overloaded" => ErrorKind::Overloaded,
-            "rate_limited" => ErrorKind::RateLimited,
-            _ => ErrorKind::Transient,
-        };
+    for kind in [ErrorKind::Transient, ErrorKind::Overloaded, ErrorKind::RateLimited] {
         for class in [RetryClass::Request, RetryClass::Midstream] {
             let mut err = ProviderError::new(kind, DeliveryState::Accepted);
             err.retry_after = Some(Duration::from_secs(90));
@@ -102,15 +80,10 @@ fn server_advice_replaces_the_step_in_full() {
 
 #[test]
 fn a_connect_failure_waits_for_the_network_without_end() {
-    let golden = golden();
-    assert_eq!(golden["providerRetryPolicy"]["openaiOauth"]["unboundedConnectionRetry"], true);
-    assert_eq!(golden["providerRetryPolicy"]["openai"]["unboundedConnectionRetry"], true);
-    let ladder = millis(&golden["connectionLadderMs"]);
     let err = ProviderError::transport(TransportFault::Connect { os_code: None }, DeliveryState::NotSent);
     let (waited, ended) = waits(RetryClass::Connection, &err, 100);
     assert_eq!(ended, None, "never exhausted");
     assert_eq!(waited.len(), 100);
-    for (n, wait) in waited.iter().enumerate() {
-        assert_eq!(*wait, ladder[n.min(ladder.len() - 1)], "retry {}", n + 1);
-    }
+    assert_eq!(waited[..5], ms(&[5_000, 10_000, 20_000, 40_000, 60_000])[..]);
+    assert!(waited[5..].iter().all(|wait| *wait == Duration::from_secs(60)), "the last step repeats");
 }

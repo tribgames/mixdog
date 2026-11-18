@@ -217,6 +217,19 @@ impl SessionTool {
 
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     async fn control(&self, ctx: &ToolContext, args: &Value, action: &str, target: &str) -> ToolOutcome {
+        if matches!(action, "read" | "send" | "cancel" | "delete") && target.is_empty() {
+            return Err(invalid("session_id", format!("session: session_id is required for action={action}")));
+        }
+        let required_text = match action {
+            "send" => Some("prompt"),
+            "create" => Some("brief"),
+            _ => None,
+        };
+        if let Some(key) = required_text
+            && !args.get(key).and_then(Value::as_str).is_some_and(|s| !mixdog_js::js_trim(s).is_empty())
+        {
+            return Err(invalid(key, format!("session: {key} is required for action={action}")));
+        }
         let caller = self.port.caller(&ctx.thread_id).await;
         if action == "create" && caller.attended_agent.is_empty() {
             return Err(denied(
@@ -237,9 +250,6 @@ impl SessionTool {
         }
         let mut rest = args.clone();
         let attachments = rest.as_object_mut().and_then(|o| o.shift_remove("attachments"));
-        if attachments.is_some() && action != "send" && action != "create" {
-            return Err(invalid("attachments", format!("session: attachments apply to send and create, not action={action}")));
-        }
         let attachment_parts = match &attachments {
             Some(names) => self.port.resolve_attachments(&ctx.thread_id, names, &ctx.cwd, "session").await?,
             None => Vec::new(),
@@ -291,6 +301,9 @@ impl Tool for SessionTool {
             raw_action.to_lowercase()
         };
         let action = action.as_str();
+        if args.get("attachments").is_some() && !matches!(action, "send" | "create") {
+            return Err(invalid("attachments", format!("session: attachments apply to send and create, not action={action}")));
+        }
         if self.facts.is_heartbeat(thread).await && !HEARTBEAT_ACTIONS.contains(&action) {
             let why = if matches!(action, "create" | "send") {
                 HEARTBEAT_NO_HANDOFF.to_owned()

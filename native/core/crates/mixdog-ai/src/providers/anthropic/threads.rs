@@ -513,7 +513,7 @@ impl Threads {
         let generation_id = inner.next;
         let generation = inner.scopes.entry(input.scope.to_owned()).or_insert_with(|| Generation { id: generation_id, records: HashMap::new() });
         let generation_id = generation.id;
-        generation.records.insert(input.provider.to_owned(), Record { token, in_flight: true, state: None, disabled_account: None, retry: None });
+        let displaced = generation.records.insert(input.provider.to_owned(), Record { token, in_flight: true, state: None, disabled_account: None, retry: None });
         let replay = replayed || input.directive.is_some_and(|d| d.replay);
         let carried = if mode == Mode::Continue || retry.is_some() { prior.clone() } else { None };
         let after_replay = mode == Mode::Continue && prior.as_ref().is_some_and(|s| s.from_replay);
@@ -534,7 +534,7 @@ impl Threads {
             resends,
             group: input.send_group.map(str::to_owned),
         };
-        Plan { mode, body: wire, betas, blocker, after_replay, directive: input.directive, session: Some(ThreadSession::new(claim)) }
+        Plan { mode, body: wire, betas, blocker, after_replay, directive: input.directive, session: Some(ThreadSession::new(claim)), displaced }
     }
 
     /// Drops every thread record of a conversation scope (a new generation): the session closed, was deleted,
@@ -629,11 +629,29 @@ pub struct Plan {
     after_replay: bool,
     directive: Option<Directive>,
     session: Option<ThreadSession>,
+    /// The conversation's record this plan took the place of.
+    displaced: Option<Record>,
 }
 
 impl Plan {
     fn unthreaded(body: &Value, betas: &[String]) -> Self {
-        Self { mode: Mode::None, body: body.clone(), betas: betas.to_vec(), blocker: None, after_replay: false, directive: None, session: None }
+        Self { mode: Mode::None, body: body.clone(), betas: betas.to_vec(), blocker: None, after_replay: false, directive: None, session: None, displaced: None }
+    }
+
+    /// The planned write was refused before any byte left: the conversation is as it was before this plan, so the write
+    /// that follows continues the stored response this one would have.
+    pub fn unsent(mut self) {
+        let Some(session) = self.session.take() else { return };
+        let claim = &session.claim;
+        let mut inner = claim.threads.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if claim.owned(&mut inner).is_none() {
+            return;
+        }
+        let Some(generation) = inner.scopes.get_mut(&claim.scope) else { return };
+        match self.displaced.take() {
+            Some(record) => generation.records.insert(claim.provider.clone(), record),
+            None => generation.records.remove(&claim.provider),
+        };
     }
 
     /// The send's session: it feeds on the response stream, settles the conversation when dropped and records

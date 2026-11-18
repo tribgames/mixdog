@@ -17,6 +17,8 @@ import { t } from './i18n';
 import { describeError, ErrorNotice, errorWithKind } from './ErrorNotice';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 import type { Snapshot, TranscriptItem } from './desktop-types';
+import { ImageRefusalActions } from './ImageRefusalActions';
+import { imageRefusalOf } from './image-refusal';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
 import { submissionIdentity, transcriptRowArchived, turnPromptText, type TranscriptRowModel } from './transcript-rows';
 import { showsResponseFooter, TranscriptResponseFooter, TranscriptRow } from './transcript-row';
@@ -120,6 +122,10 @@ export function useConversationComposerActions({
       pending: true,
       accepted: false,
       submittedAt: trackedSubmittedAt,
+      // The time the durable row is stamped with: a chat lays the bubble out
+      // with its time line and day divider (agent-chat-place.ts), so the
+      // durable row replaces it at the same height instead of growing it.
+      at: trackedSubmittedAt,
       queuedBehindTurn: queuedBehindTurnAtSubmit.current,
       settledUserBaseline: settledUsersRef.current,
       ...(images.length ? { images } : {}),
@@ -353,8 +359,11 @@ function errorRowNode(
     onRetryTurn,
     onOpenSettings,
     turnCards,
+    sessionId,
   }: {
     turnCards?: TurnCardsSeat;
+    /** The session whose conversation the failure belongs to: the image fixes are made on it. */
+    sessionId: string;
     readOnly: boolean;
     retryDisabled: boolean;
     settledItems: readonly TranscriptItem[];
@@ -374,6 +383,8 @@ function errorRowNode(
   );
   const failureKind = describeError(errors.at(-1)).kind;
   const reauth = failureKind === 'reauth' || failureKind === 'authentication';
+  // A refused image send names the images and offers the local fixes beside it (never a retry of the same refusal).
+  const imageRefusal = imageRefusalOf(row.failures.at(-1)?.item?.errorKind);
   // A retry of these would only repeat the same refusal. A sign-in failure
   // keeps its retry: after signing in again the same turn can run.
   const retryable = !['policy', 'entitlement', 'billing', 'service-tier'].includes(failureKind);
@@ -382,7 +393,9 @@ function errorRowNode(
       className="transcript-error-notice"
       errors={errors}
       action={
-        reauth && !readOnly ? (
+        imageRefusal && !readOnly ? (
+          <ImageRefusalActions refusal={imageRefusal} sessionId={sessionId} />
+        ) : reauth && !readOnly ? (
           <button type="button" onClick={() => onOpenSettings('providers')}>
             {t('Sign in again')}
           </button>
@@ -458,6 +471,7 @@ export function transcriptRowNode(
       onRetryTurn,
       onOpenSettings,
       turnCards,
+      sessionId: String(snapshot.sessionId || ''),
     });
   }
   if (row._tag === 'Thinking') {

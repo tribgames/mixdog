@@ -1,8 +1,0 @@
-{
-  "input": {
-    "action": "detect"
-  },
-  "isError": false,
-  "text": "{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"microsoftOffice\\\":\\\"<host>\\\",\\\"portable\\\":{\\\"ooxml\\\":true,\\\"pdf\\\":true,\\\"formats\\\":[\\\"docx\\\",\\\"dotx\\\",\\\"docm\\\",\\\"dotm\\\",\\\"xlsx\\\",\\\"xltx\\\",\\\"xlsm\\\",\\\"xltm\\\",\\\"pptx\\\",\\\"potx\\\",\\\"pptm\\\",\\\"potm\\\",\\\"csv\\\",\\\"tsv\\\",\\\"pdf\\\"],\\\"pdfSecurity\\\":{\\\"available\\\":\\\"<host>\\\",\\\"backend\\\":\\\"qpdf\\\"},\\\"pdfUnicodeFont\\\":\\\"<host>\\\",\\\"pdfOcr\\\":{\\\"available\\\":\\\"<host>\\\",\\\"backend\\\":\\\"<host>\\\",\\\"cachedLanguages\\\":\\\"<host>\\\",\\\"cachePath\\\":\\\"<WORK>\\\\\\\\office-data\\\\\\\\office\\\\\\\\ocr\\\\\\\\languages\\\",\\\"note\\\":\\\"A language not listed is downloaded on first use; without network access only the cached ones work.\\\"}},\\\"pendingTransactions\\\":[],\\\"designLibrary\\\":{\\\"enabled\\\":false}}\"}]}",
-  "tool": "office"
-}

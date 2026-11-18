@@ -53,6 +53,11 @@ pub trait GateEnv: Send + Sync {
     /// `resolveMcpToolAccount(name, args, { scopeId, conversation })`: the account a connector call
     /// is bound to, `Ok(None)` when its server holds none; `Err` is the refusal the model sees.
     async fn connector_account(&self, thread: &ThreadId, header: &Header, call: &GateCall) -> Result<Option<BoundAccount>, String>;
+    /// The tools the user's settings switch off at this moment, from the in-memory config (no probe, no I/O). An env with no
+    /// live settings switches nothing off.
+    fn live_setting_denied(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 pub struct SessionGate {
@@ -156,6 +161,10 @@ impl GateSession for SessionGate {
             return Ok(None);
         }
         self.env.connector_account(&self.thread, &self.header.header(), call).await
+    }
+
+    fn live_setting_denied(&self) -> Vec<String> {
+        self.env.live_setting_denied()
     }
 }
 

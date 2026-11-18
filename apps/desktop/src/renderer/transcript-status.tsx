@@ -733,6 +733,15 @@ function AnimatedCompletionMark() {
   );
 }
 
+export function ModelSwitchDivider({ label }: { label: string }) {
+  return (
+    <div className="compaction-divider" role="status">
+      <ArrowLeftRight className="compaction-icon" size={16} aria-hidden="true" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
 export function CompletionStatus({
   item,
   animateComplete: animate = false,
@@ -763,14 +772,11 @@ export function CompletionStatus({
   }
   if (item.kind === 'statusdone' && item.status === 'model-switched') {
     return (
-      <div className="compaction-divider" role="status">
-        <ArrowLeftRight className="compaction-icon" size={16} aria-hidden="true" />
-        <span>
-          {t('Switched to {{model}}', {
-            model: modelDisplayName(String(item.modelId || ''), String(item.provider || '')),
-          })}
-        </span>
-      </div>
+      <ModelSwitchDivider
+        label={t('Switched to {{model}}', {
+          model: modelDisplayName(String(item.modelId || ''), String(item.provider || '')),
+        })}
+      />
     );
   }
   if (item.kind === 'statusdone' && item.status === 'workflow-switched') {

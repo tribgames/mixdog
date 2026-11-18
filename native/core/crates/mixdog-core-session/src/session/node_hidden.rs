@@ -87,6 +87,7 @@ mod tests {
         assert!(parse_hidden("{}").is_empty());
     }
 
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[allow(clippy::disallowed_methods, reason = "test setup writes the file")]
     async fn the_import_runs_once_and_keeps_the_file() {

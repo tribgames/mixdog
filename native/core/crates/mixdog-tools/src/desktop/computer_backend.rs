@@ -78,6 +78,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::computer_abort;
 use super::computer_abort::RestorePoints;
+use super::computer_authority::RevocationReport;
+pub use super::computer_authority::Authority;
 use super::computer_budget::CommandBudget;
 use super::computer_budget::InFlight;
 use super::computer_budget::LiveProcess;
@@ -243,6 +245,78 @@ impl Default for ComputerShared {
     }
 }
 
+/// The session-level commands that end work (`execution_end`, `session_release`, `session_abort`, `turn_settle`): they pass an
+/// [`Authority`] that Computer Use switched off has not yet revoked, to a helper or host that is already there (they release what it
+/// holds), and never start one. A revoked scope sends none of them: its cleanup is `revoke_and_stop`'s.
+pub(super) fn is_lifecycle(action: &str) -> bool {
+    matches!(action, "execution_end" | "session_release" | "session_abort" | "turn_settle")
+}
+
+/// The line on a helper's stdin that revokes its scope (read by its input thread, never behind the running command), and the line on its
+/// stdout that acknowledges it.
+const REVOKE_LINE: &[u8] = b"@@MIXDOG_REVOKE@@\n";
+const REVOKED_MARKER: &str = "@@MIXDOG_REVOKED@@";
+
+/// Revokes one helper process created under a revoked scope: the revocation goes on its control path, or, for a run that reads no
+/// input (an `--abort-cleanup`), the process is stopped. `acknowledged` is told once the helper acknowledged the revocation or exited,
+/// whichever comes first; each acknowledgement line the helper writes (its first says admission closed, later ones the cleanup) is
+/// kept on `authority` as the helper's report, in its meaning. The result, once it exited, is whether it exited 0 (it released what it
+/// held: its teardown confirmed). There is no deadline: a helper that does not answer stays stopping.
+async fn revoke_process(manager: Arc<dyn ProcessManager>, handle: ProcessHandle, authority: Authority, acknowledged: oneshot::Sender<()>) -> bool {
+    let mut acknowledged = Some(acknowledged);
+    let subscribed = match manager.subscribe(&handle, Some(0)) {
+        Err(ProcessError::ReplayUnavailable { oldest }) => manager.subscribe(&handle, Some(oldest)),
+        other => other,
+    };
+    // A process the manager no longer knows is gone, and nothing confirms what it released.
+    let Ok(mut events) = subscribed else {
+        helper_ended(&authority, &handle, false);
+        return false;
+    };
+    // The revocation, then the end of the input: an idle helper waits on its next request line, and the end of the input is what ends
+    // its loop, so that it releases what it holds and exits.
+    if manager.write_stdin_whole(&handle, REVOKE_LINE.to_vec()).await.is_err() || manager.close_stdin(&handle).is_err() {
+        let _ = manager.kill(&handle);
+    }
+    let mut lines = LineSplitter::default();
+    while let Some(event) = events.next().await {
+        match event {
+            ProcessEvent::Output { stream: OutputStream::Stdout, bytes, .. } => {
+                for line in lines.push(&bytes).0 {
+                    let Some(report) = line.strip_prefix(REVOKED_MARKER) else { continue };
+                    authority.record_revocation(&helper_executor(&handle), RevocationReport::from_line(report));
+                    if let Some(acknowledged) = acknowledged.take() {
+                        let _ = acknowledged.send(());
+                    }
+                }
+            }
+            ProcessEvent::Output { .. } => {}
+            ProcessEvent::Exited { exit, .. } => {
+                let clean = exit.killed.is_none() && matches!(exit.status, mixdog_core_api::domain::process::ExitStatus::Code(0));
+                helper_ended(&authority, &handle, clean);
+                return clean;
+            }
+        }
+    }
+    helper_ended(&authority, &handle, false);
+    false
+}
+
+/// A helper's final report once it is gone: nothing of it can admit any more (admission closed), and its cleanup is what its last
+/// report said only when that was complete and it exited 0; any other end (no report, a pending one, a crash, a kill, a lost
+/// process) is unconfirmed. Kept on the scope like its other reports, so a wait for the cleanup to settle wakes on it.
+fn helper_ended(authority: &Authority, handle: &ProcessHandle, clean: bool) {
+    use super::computer_authority::RevocationCleanup;
+    let executor = helper_executor(handle);
+    let last = authority.revocation_reports().into_iter().find(|(name, _)| *name == executor).map(|(_, report)| report);
+    let mut last = last.unwrap_or_else(|| RevocationReport::from_json(&Value::Null));
+    last.admission_closed = true;
+    if !(clean && last.cleanup == RevocationCleanup::Complete) {
+        last.cleanup = RevocationCleanup::Unconfirmed;
+    }
+    authority.record_revocation(&executor, last);
+}
+
 /// The actions whose reply carries the observation that follows them (`autoCapture` of the action table): the window operations,
 /// a launch and a menu. The steps of an `act` are observed once, after the last (`computer_act`).
 const AUTO_CAPTURE_ACTIONS: [&str; 7] = ["focus_window", "move_window", "window_state", "close_window", "terminate_process", "launch", "invoke_menu"];
@@ -272,22 +346,35 @@ fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-struct Host {
-    handle: ProcessHandle,
-    /// The helper's operating-system process id (what the spawn answered).
-    pid: u32,
-    pending: Pending,
-    alive: Arc<AtomicBool>,
-    /// Turns true once the process has exited and `pump` has failed its waiters.
-    exited: watch::Receiver<bool>,
+/// Revokes, each on its control path and all at once, the helper processes created under the revoked `authority`
+/// ([`revoke_process`]). Once every one acknowledged or exited: true when each closed its admission, as its report states (one that
+/// exited without a report has no admission left), false when one acknowledged without stating it. `cleaning` counts those not yet
+/// exited, and `released` is told, as each exits, whether it released what it held. No deadline: one that does not answer keeps this
+/// waiting.
+pub async fn revoke_launched(manager: Arc<dyn ProcessManager>, authority: &Authority, cleaning: Arc<std::sync::atomic::AtomicUsize>, released: Arc<dyn Fn(bool) + Send + Sync>) -> bool {
+    let mut acknowledgements = Vec::new();
+    for handle in authority.launched() {
+        let (acknowledged, acknowledgement) = oneshot::channel();
+        acknowledgements.push(acknowledgement);
+        let (manager, released, tally, authority) = (manager.clone(), released.clone(), Tally::up(&cleaning), authority.clone());
+        tokio::spawn(async move {
+            let confirmed = revoke_process(manager, handle, authority, acknowledged).await;
+            drop(tally);
+            released(confirmed);
+        });
+    }
+    // An error is the sender gone: the process exited, which confirms as an acknowledgement does.
+    let _ = futures::future::join_all(acknowledgements).await;
+    let reports = authority.revocation_reports();
+    authority.launched().iter().all(|handle| {
+        let executor = helper_executor(handle);
+        reports.iter().find(|(name, _)| *name == executor).is_none_or(|(_, report)| report.closure_confirmed())
+    })
 }
 
-impl Host {
-    /// Kills the helper and waits for its exit, so a cleanup run that follows starts after it.
-    async fn stop(mut self, manager: &dyn ProcessManager) {
-        let _ = manager.kill(&self.handle);
-        let _ = self.exited.wait_for(|exited| *exited).await.is_ok();
-    }
+/// The name a helper's revocation report is kept under on its scope.
+fn helper_executor(handle: &ProcessHandle) -> String {
+    format!("helper {handle}")
 }
 
 /// Splits the helper's stdout into lines the way `BufRead::lines` does.
@@ -323,57 +410,6 @@ impl LineSplitter {
             return None;
         }
         String::from_utf8(std::mem::take(&mut self.partial)).ok()
-    }
-}
-
-/// Where the helper's output lines go: replies to the requests they answer, foreground-lease asks to the relay (which
-/// answers on stdin outside the turn gate), pointer progress to the desktop's overlay.
-struct Readers {
-    pending: Pending,
-    relay: computer_lease::Relay,
-    pointer: computer_feedback::Pointer,
-    /// Told once the helper's output has ended and its waiters are failed (`ProcessComputerBackend::watch_for_death`).
-    gone: Arc<tokio::sync::Notify>,
-    /// The helper counts as a live process until its output has ended.
-    live: Option<LiveProcess>,
-}
-
-/// Hands one output line to its reader; any other line is the helper's own noise.
-fn deliver(readers: &Readers, line: &str) {
-    if let Some(body) = line.strip_prefix(computer_lease::LINE_MARKER) {
-        readers.relay.on_line(body);
-        return;
-    }
-    if let Some(body) = line.strip_prefix(computer_feedback::LINE_MARKER) {
-        readers.pointer.on_line(body);
-        return;
-    }
-    let Some(body) = line.strip_prefix(RESPONSE_MARKER) else { return };
-    let (id, outcome) = if body.len() > MAX_RESPONSE_BYTES {
-        // Too large to trust or parse; the id is still the number after `"id":`.
-        let text = "computer_response_too_large: worker output exceeded byte limit".to_owned();
-        (leading_id(body), Err(HelperFailure { text, result: None }))
-    } else {
-        match serde_json::from_str::<Value>(body) {
-            Ok(value) => (value.get("id").and_then(Value::as_i64), envelope(value)),
-            Err(_) => return,
-        }
-    };
-    let waiter = id.and_then(|id| locked(&readers.pending).remove(&id));
-    // What the desktop's lease owner did for the action joins the helper's own account (`worker-pool.ts`); a failed reply
-    // drops them.
-    let facts = id.and_then(|id| readers.relay.take_facts(id));
-    let outcome = match (outcome, facts) {
-        (Ok(mut result), Some(facts)) => {
-            let mut lock = result.get("foreground_lock").and_then(Value::as_object).cloned().unwrap_or_default();
-            lock.insert("host".into(), facts);
-            result.insert("foreground_lock".into(), Value::Object(lock));
-            Ok(result)
-        }
-        (outcome, _) => outcome,
-    };
-    if let Some(waiter) = waiter {
-        waiter(outcome);
     }
 }
 
@@ -479,6 +515,1442 @@ fn fail_waiters(pending: &Pending, alive: &AtomicBool) {
     }
 }
 
+/// Runs a process to its exit; true when it exited with code 0 (the cleanup's confirmation).
+async fn run_to_exit(manager: &dyn ProcessManager, request: SpawnRequest) -> bool {
+    let handle = request.handle.clone();
+    if manager.spawn(request).await.is_err() {
+        return false;
+    }
+    let Ok(mut events) = manager.subscribe(&handle, Some(0)) else { return false };
+    while let Some(event) = events.next().await {
+        if let ProcessEvent::Exited { exit, .. } = event {
+            return matches!(exit.status, mixdog_core_api::domain::process::ExitStatus::Code(0));
+        }
+    }
+    false
+}
+
+/// What a backend keeps of its commands under the data directory: the run history, the failure bundles and the frames
+/// `image_output: "file"` moves out of the conversation.
+pub(super) struct DataFiles {
+    runs: RunLog,
+    failures: FailureBundles,
+    pub(super) images: ImageOutput,
+}
+
+impl DataFiles {
+    fn under(data_dir: &Path) -> Self {
+        Self { runs: RunLog::new(data_dir), failures: FailureBundles::new(data_dir), images: ImageOutput::new(data_dir) }
+    }
+
+    /// One diagnostic row of the session's failure bundle (`recordDiagnostic`).
+    pub(super) fn diagnose(&self, session: &str, row: &Map<String, Value>) {
+        self.failures.record(session, row);
+    }
+}
+
+/// Told when this session's visible execution opens and closes: the edges of `executing`, which the
+/// computer-use pill follows (`beginCommand` / `endExecution` of Node's coordinator).
+pub trait ExecutionObserver: Send + Sync {
+    /// An action ran with no execution open. `observe_only` is the setting that action read.
+    fn began(&self, observe_only: bool);
+    /// The open execution ended: `execution_end`, an abort, a release or a cancelled call.
+    fn ended(&self);
+    /// A helper cleanup started or finished, which the section's `cleanupState` shows.
+    fn cleanup_changed(&self) {}
+}
+
+fn leading_id(body: &str) -> Option<i64> {
+    let rest = body.split("\"id\":").nth(1)?;
+    js_trim_start(rest).split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+}
+
+/// A reply envelope: its `result` object, or its `error` text with the `result` an `ok:false` reply carried.
+fn envelope(value: Value) -> Reply {
+    let Value::Object(mut object) = value else { return Ok(Map::new()) };
+    let result = match object.shift_remove("result") {
+        Some(Value::Object(result)) => Some(result),
+        _ => None,
+    };
+    if object.get("ok").and_then(Value::as_bool) == Some(false) {
+        let text = object.get("error").and_then(Value::as_str).unwrap_or("computer host request failed").to_string();
+        return Err(HelperFailure { text, result });
+    }
+    Ok(result.unwrap_or_default())
+}
+
+/// The reply of a semantic action the core runs itself (a saved-login fill), shaped from the helper-style result as the host shapes
+/// an action's reply (`semanticActionReply`: `ok`, `message`, `effect`, `verified`, `goal_verified`, `delivery`, `verdict`, ...).
+pub fn semantic_payload(action: &str, result: &Map<String, Value>) -> Map<String, Value> {
+    computer_reply::payload(action, result)
+}
+
+/// What Node's client answers when no desktop publishes the bridge: an error result of its own, with no recovery.
+pub fn bridge_unavailable() -> ComputerError {
+    ComputerError::Failed { code: REPORTED_CODE.into(), message: format!("Error: {BRIDGE_UNAVAILABLE_MESSAGE}") }
+}
+
+fn host_exited() -> ComputerError {
+    ComputerError::Failed { code: "computer_host_exited".into(), message: "the computer host stopped".into() }
+}
+
+/// The words of an error as the model reads them.
+pub(super) fn error_text(error: &ComputerError) -> String {
+    match error {
+        ComputerError::Failed { message, .. } => message.clone(),
+        ComputerError::Unavailable { reason } | ComputerError::InvalidInput { reason } => reason.clone(),
+        ComputerError::Denied => "denied".to_owned(),
+        ComputerError::Cancelled => "cancelled".to_owned(),
+    }
+}
+
+pub(super) fn unsupported(reason: &str) -> ComputerError {
+    ComputerError::Unavailable { reason: reason.into() }
+}
+
+fn host_error(message: &str) -> ComputerError {
+    let code = error_code(message);
+    ComputerError::Failed { code: if code.is_empty() { "computer_failed".into() } else { code }, message: message.to_string() }
+}
+
+pub(super) fn text_of(result: &Map<String, Value>) -> String {
+    match result.get("text") {
+        Some(Value::String(text)) => text.clone(),
+        _ => "OK".into(),
+    }
+}
+
+/// Tool parts of one helper result: its text, and its image when it carries one
+/// (`validateComputerReply` bounds both).
+pub(super) fn parts_of(result: &Map<String, Value>) -> Result<Vec<ToolPart>, ComputerError> {
+    let invalid = |reason: &str| ComputerError::Failed { code: "computer_invalid_reply".into(), message: reason.into() };
+    let text = text_of(result);
+    if utf16_len(&text) > MAX_TEXT_CHARS {
+        return Err(invalid("computer bridge returned invalid or oversized text"));
+    }
+    let mut parts = vec![ToolPart::Text(text)];
+    let image = match (result.get("image_base64"), result.get("image")) {
+        (Some(Value::String(data)), _) => Some(("image/png", data.as_str())),
+        (_, Some(Value::Object(image))) => match (image.get("mimeType").and_then(Value::as_str), image.get("data").and_then(Value::as_str)) {
+            (Some(mime @ ("image/png" | "image/jpeg")), Some(data)) => Some((mime, data)),
+            _ => return Err(invalid("computer bridge returned an invalid or oversized image")),
+        },
+        _ => None,
+    };
+    if let Some((mime, data)) = image {
+        if data.len() > MAX_IMAGE_CHARS {
+            return Err(invalid("computer bridge returned an invalid or oversized image"));
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .map_err(|_| invalid("computer bridge returned an invalid or oversized image"))?;
+        parts.push(ToolPart::Image { mime: mime.into(), data: ImageData::Bytes(bytes), width: None, height: None });
+    }
+    Ok(parts)
+}
+
+/// The frame a reply text names: its `frame_id` field, or the `frame_id=<id>` its description carries.
+fn frame_id_of(text: &str) -> Option<String> {
+    if let Ok(Value::Object(payload)) = serde_json::from_str::<Value>(text) {
+        return payload.get("frame_id").and_then(Value::as_str).map(str::to_owned);
+    }
+    let rest = text.split("frame_id=").nth(1)?;
+    rest.split(|c: char| c.is_whitespace() || c == ';').next().filter(|id| !id.is_empty()).map(str::to_owned)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A helper that exits yields its final report: complete only after a complete report and a clean exit; a pending report, a
+    /// crash, or no report at all is unconfirmed, and admission is closed either way (nothing of it can admit any more).
+    #[test]
+    fn a_helper_that_exits_yields_a_final_report_for_its_scope() {
+        use super::super::computer_authority::RevocationCleanup;
+        let handle = ProcessHandle("h-exit".into());
+        let executor = helper_executor(&handle);
+        let report = |authority: &Authority| authority.revocation_reports().into_iter().find(|(name, _)| *name == executor).map(|(_, report)| report).unwrap();
+        let cases: [(Option<&str>, bool, RevocationCleanup); 4] = [
+            (Some(r#"{"admission":"closed","cleanup":"complete"}"#), true, RevocationCleanup::Complete),
+            (Some(r#"{"admission":"closed","cleanup":"pending"}"#), true, RevocationCleanup::Unconfirmed),
+            (Some(r#"{"admission":"closed","cleanup":"complete"}"#), false, RevocationCleanup::Unconfirmed),
+            (None, true, RevocationCleanup::Unconfirmed),
+        ];
+        for (line, clean, cleanup) in cases {
+            let authority = Authority::default();
+            if let Some(line) = line {
+                authority.record_revocation(&executor, RevocationReport::from_line(line));
+            }
+            let mut watch = authority.watch_reports();
+            watch.borrow_and_update();
+            helper_ended(&authority, &handle, clean);
+            assert!(watch.has_changed().unwrap(), "the final report wakes a wait for the cleanup");
+            let ended = report(&authority);
+            assert!(ended.admission_closed);
+            assert_eq!(ended.cleanup, cleanup, "{line:?} clean={clean}");
+        }
+    }
+
+    /// A revisioned report no newer than the one held (a snapshot answered after a pushed change) changes nothing.
+    #[test]
+    fn a_stale_revision_is_not_applied() {
+        use super::super::computer_authority::RevocationCleanup;
+        let authority = Authority::default();
+        authority.record_revocation("desktop", RevocationReport::from_json(&json!({"revision": 2, "admission": "closed", "cleanup": "complete"})));
+        authority.record_revocation("desktop", RevocationReport::from_json(&json!({"revision": 1, "admission": "closed", "cleanup": "pending"})));
+        assert_eq!(authority.revocation_reports()[0].1.cleanup, RevocationCleanup::Complete);
+        authority.record_revocation("desktop", RevocationReport::from_json(&json!({"revision": 3, "admission": "closed", "cleanup": "unconfirmed"})));
+        assert_eq!(authority.revocation_reports()[0].1.cleanup, RevocationCleanup::Unconfirmed);
+    }
+
+    /// The text the model reads for a helper that cannot start is Node's, recorded from the real
+    /// `child_process.spawn` (`record-computer-spawn-error.mjs`): a missing file and a missing
+    /// directory are asynchronous ENOENT with the path; a file that is not an executable is
+    /// A dropped or refused queued scan remains eligible for recovery.
+    #[test]
+    fn a_dropped_or_rejected_pre_recovery_scan_does_not_claim_the_directory() {
+        use std::future::{Future, pending, ready};
+        use std::task::{Context, Poll, Waker};
+        let paths = Mutex::new(std::collections::HashSet::new());
+        let path = Path::new("owned-scan-fixture");
+        let mut context = Context::from_waker(Waker::noop());
+        let mut cancelled = Box::pin(scan_before_claim(&paths, path, pending::<Result<(), String>>()));
+        assert!(matches!(cancelled.as_mut().poll(&mut context), Poll::Pending));
+        drop(cancelled);
+        assert!(!locked(&paths).contains(path));
+        let mut rejected = Box::pin(scan_before_claim(&paths, path, ready(Err::<(), _>("lane admission failed".to_owned()))));
+        assert!(matches!(rejected.as_mut().poll(&mut context), Poll::Ready(None)));
+        drop(rejected);
+        assert!(!locked(&paths).contains(path));
+        let mut scanned = Box::pin(scan_before_claim(&paths, path, ready(Ok::<_, String>(()))));
+        assert!(matches!(scanned.as_mut().poll(&mut context), Poll::Ready(Some(()))));
+        drop(scanned);
+        // Once replay can start, cancellation must keep the same once-per-folder
+        // claim the old synchronous scan established before its first replay await.
+        assert!(locked(&paths).contains(path));
+    }
+
+    fn input(value: Value) -> Map<String, Value> {
+        value.as_object().cloned().unwrap_or_default()
+    }
+
+    #[test]
+    fn error_codes_and_replies() {
+        assert_eq!(error_code("Error: Stale_Target: gone"), "stale_target");
+        assert_eq!(error_code("no code here"), "");
+        assert_eq!(error_code("capture_source_unavailable|x"), "capture_source_unavailable");
+        let result = input(json!({"text":"hi","image_base64":"aGk="}));
+        let parts = parts_of(&result).unwrap();
+        assert_eq!(parts[0], ToolPart::Text("hi".into()));
+        assert_eq!(parts[1], ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(b"hi".to_vec()), width: None, height: None });
+        assert!(parts_of(&input(json!({"image":{"data":"aGk=","mimeType":"image/gif"}}))).is_err());
+        assert_eq!(envelope(json!({"id":1,"ok":false,"error":"x"})), Err(HelperFailure { text: "x".into(), result: None }));
+        assert_eq!(leading_id("{\"id\": 42,\"ok\":true"), Some(42));
+    }
+
+    /// An `ok:false` reply keeps the `result` it carried (a capture's `capture_cleanup`), and its text is the error as before.
+    #[test]
+    fn a_failed_reply_keeps_the_result_it_carried() {
+        let reply = envelope(json!({"id":1,"ok":false,"error":"capture_failed: x","result":{"capture_cleanup":{"status":"unconfirmed"}}}));
+        let failure = reply.unwrap_err();
+        assert_eq!(failure.text, "capture_failed: x");
+        assert_eq!(failure.result.as_ref().and_then(|result| result.get("capture_cleanup")), Some(&json!({"status":"unconfirmed"})));
+        assert_eq!(failure.into_error(), ComputerError::Failed { code: "capture_failed".into(), message: "capture_failed: x".into() });
+        assert_eq!(envelope(json!({"id":2,"ok":true,"result":{"text":"a"}})), Ok(input(json!({"text":"a"}))));
+    }
+
+    #[test]
+    fn output_is_split_into_lines_like_buf_read_lines() {
+        let mut lines = LineSplitter::default();
+        assert_eq!(lines.push(b"one\r\ntw"), (vec!["one".to_owned()], false));
+        assert_eq!(lines.push(b"o\n\nthr"), (vec!["two".to_owned(), String::new()], false));
+        assert_eq!(lines.push(b"ee"), (Vec::<String>::new(), false));
+        assert_eq!(lines.finish(), Some("three".to_owned()));
+        assert_eq!(lines.finish(), None);
+        let (done, broken) = lines.push(b"ok\n\xff\nlater\n");
+        assert_eq!((done, broken), (vec!["ok".to_owned()], true));
+    }
+
+    struct Script(std::collections::VecDeque<ProcessEvent>);
+
+    #[async_trait]
+    impl EventSource<ProcessEvent> for Script {
+        async fn next(&mut self) -> Option<ProcessEvent> {
+            self.0.pop_front()
+        }
+    }
+
+    type Feeds = Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<ProcessEvent>>>;
+
+    /// A helper that answers every request line `ok` (except a `hang`, a `fail` that carries a result, and a `chatty` that
+    /// writes side lines first) and a cleanup run that exits 0, with no OS process behind it: the backend's own launch, write and
+    /// reply code runs, on every platform. It keeps every start and every request line.
+    #[derive(Default)]
+    struct Answering {
+        senders: Feeds,
+        receivers: Mutex<HashMap<String, tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>>,
+        seq: AtomicU64,
+        spawned: Mutex<Vec<SpawnRequest>>,
+        lines: Mutex<Vec<Value>>,
+        /// The cleanup runs exit 1 instead of 0.
+        failing_cleanup: AtomicBool,
+        /// The helper takes every request and answers none of them.
+        silent: AtomicBool,
+        /// The pixels of window `w1` are answered with an error instead of a frame.
+        capture_refused: AtomicBool,
+    }
+
+    struct Feed(tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>);
+
+    #[async_trait]
+    impl EventSource<ProcessEvent> for Feed {
+        async fn next(&mut self) -> Option<ProcessEvent> {
+            self.0.recv().await
+        }
+    }
+
+    impl Answering {
+        fn emit(&self, handle: &ProcessHandle, event: impl FnOnce(u64) -> ProcessEvent) {
+            let seq = self.seq.fetch_add(1, Ordering::SeqCst);
+            let sender = locked(&self.senders).get(&handle.0).cloned().expect("a spawned handle");
+            // A helper that already exited has no listener left.
+            let _ = sender.send(event(seq));
+        }
+
+        fn say(&self, handle: &ProcessHandle, line: String) {
+            self.emit(handle, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: format!("{line}\n").into_bytes() });
+        }
+
+        fn exit(seq: u64, killed: Option<mixdog_core_api::domain::process::KillReason>) -> ProcessEvent {
+            Self::exit_with(seq, 0, killed)
+        }
+
+        fn exit_with(seq: u64, code: i32, killed: Option<mixdog_core_api::domain::process::KillReason>) -> ProcessEvent {
+            use mixdog_core_api::domain::process::ExitStatus;
+            use mixdog_core_api::domain::process::ProcessExit;
+            ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(code), killed } }
+        }
+    }
+
+    #[async_trait]
+    impl ProcessManager for Answering {
+        async fn spawn(&self, request: SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, ProcessError> {
+            let (send, receive) = tokio::sync::mpsc::unbounded_channel();
+            locked(&self.senders).insert(request.handle.0.clone(), send);
+            locked(&self.receivers).insert(request.handle.0.clone(), receive);
+            locked(&self.spawned).push(request.clone());
+            if !request.stdin_piped {
+                let code = i32::from(self.failing_cleanup.load(Ordering::SeqCst));
+                self.emit(&request.handle, |seq| Self::exit_with(seq, code, None));
+            }
+            Ok(mixdog_core_api::domain::process::SpawnedProcess { handle: request.handle, pid: 1 })
+        }
+
+        fn subscribe(&self, handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            let receive = locked(&self.receivers).remove(&handle.0).ok_or(ProcessError::UnknownHandle)?;
+            Ok(Box::new(Feed(receive)))
+        }
+
+        async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+            let request: Value = serde_json::from_slice(&bytes).expect("a request line");
+            locked(&self.lines).push(request.clone());
+            let id = &request["id"];
+            match request["action"].as_str() {
+                _ if self.silent.load(Ordering::SeqCst) => {}
+                Some("hang") => {}
+                Some("window_capture") if request["window_id"] == "w1" && self.capture_refused.load(Ordering::SeqCst) => {
+                    self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "window_target_not_found: w1 is closed"})))
+                }
+                Some("window_capture") if request["window_id"] == "w1" => self.say(
+                    handle,
+                    format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"text": "fresh", "image_base64": "aGk="}})),
+                ),
+                Some("focus_window") => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "stale_target: window w1 is gone"}))),
+                Some("move_window") => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "window_not_movable: w1"}))),
+                Some("die") => self.emit(handle, |seq| Self::exit(seq, None)),
+                Some("stuck") => self.say(
+                    handle,
+                    format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"observer_ready": false, "observer_reason": "monitor_unresponsive"}})),
+                ),
+                Some("ready") => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"observer_ready": true}}))),
+                Some("fail") => self.say(
+                    handle,
+                    format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "capture_failed: x", "result": {"capture_cleanup": {"status": "unconfirmed"}}})),
+                ),
+                Some("chatty") => {
+                    self.say(handle, format!("@@MIXDOG_FGLOCK@@ acquire {id} 1 0 200 5.000"));
+                    self.say(handle, format!("@@MIXDOG_POINTER@@{}", json!({"id": id, "ok": false, "error": "not a reply"})));
+                    self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"text": "ok"}})));
+                }
+                _ => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"text": "ok"}}))),
+            }
+            Ok(())
+        }
+
+        fn close_stdin(&self, _: &ProcessHandle) -> Result<(), ProcessError> {
+            Err(ProcessError::StdinClosed)
+        }
+
+        fn resize_pty(&self, _: &ProcessHandle, _: mixdog_core_api::domain::process::PtySize) -> Result<(), ProcessError> {
+            Err(ProcessError::NotPty)
+        }
+
+        fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+            self.emit(handle, |seq| Self::exit(seq, Some(mixdog_core_api::domain::process::KillReason::Requested)));
+            Ok(())
+        }
+
+        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    #[derive(Default)]
+    struct Edges(Mutex<Vec<String>>);
+
+    impl ExecutionObserver for Edges {
+        fn began(&self, observe_only: bool) {
+            locked(&self.0).push(format!("began:{observe_only}"));
+        }
+        fn ended(&self) {
+            locked(&self.0).push("ended".into());
+        }
+    }
+
+    fn cleanup_args(spawned: &[SpawnRequest]) -> Vec<&'static str> {
+        spawned
+            .iter()
+            .map(|request| match &request.command {
+                CommandSpec::Argv { args, .. } if args.first().is_some_and(|arg| arg == "--abort-cleanup") => "cleanup",
+                CommandSpec::Argv { .. } => "resident",
+                _ => "other",
+            })
+            .collect()
+    }
+
+    /// The scripts and DLL cache an older build's PowerShell host left are removed at the first start; a script of a process
+    /// that still lives, and anything else in the folder, stays.
+    #[test]
+    fn the_files_the_retired_powershell_host_left_are_swept() {
+        let data = tempfile::tempdir().unwrap();
+        let dead = format!("computer-host-2000000000-{}.ps1", "ab12".repeat(6));
+        let live = format!("computer-host-{}-{}.ps1", std::process::id(), "cd34".repeat(6));
+        for name in [dead.as_str(), live.as_str(), "computer-host-x-ab.ps1", "notes.ps1"] {
+            std::fs::write(data.path().join(name), b"x").unwrap();
+        }
+        std::fs::create_dir_all(data.path().join("host-cache")).unwrap();
+        std::fs::write(data.path().join("host-cache").join("mixdog-computer-host-0123456789abcdef.dll"), b"x").unwrap();
+        sweep_retired_host_files(data.path());
+        assert!(!data.path().join(&dead).exists() && !data.path().join("host-cache").exists());
+        assert!(data.path().join(&live).exists() && data.path().join("computer-host-x-ab.ps1").exists() && data.path().join("notes.ps1").exists());
+        assert_eq!(retired_script_pid("computer-host-12-ab.ps1"), Some(12));
+        assert_eq!(retired_script_pid("computer-host-12-.ps1"), None);
+    }
+
+
+    fn text_of_first(parts: &[ToolPart]) -> String {
+        let Some(ToolPart::Text(text)) = parts.first() else { panic!("a text part") };
+        text.clone()
+    }
+
+    fn list_history(limit: u64) -> ComputerRequest {
+        ComputerRequest { action: ComputerAction::List, input: json!({"kind": "history", "limit": limit}) }
+    }
+
+    /// What a pointer hold gives up, and for which session.
+    #[derive(Default)]
+    struct Pointers {
+        released: Mutex<Vec<String>>,
+    }
+
+
+
+    #[cfg(unix)]
+    mod host {
+        use mixdog_rt::LaneToken;
+
+        use super::*;
+
+        /// Writes an executable script on the maintenance lane.
+        async fn write_script(path: &std::path::Path, script: &'static str) {
+            let (path, opts) = (path.to_path_buf(), mixdog_statefile::Opts { mode: 0o755, ..mixdog_statefile::Opts::default() });
+            mixdog_rt::testing::tokens()
+                .maintenance_io
+                .submit_wait(&CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &path, script.as_bytes(), &opts).unwrap())
+                .await
+                .unwrap()
+                .await
+                .unwrap();
+        }
+
+        /// The text of a file the stand-in helper wrote; `None` while it is missing.
+        fn written(path: std::path::PathBuf) -> Option<String> {
+            mixdog_statefile::read_content(&path).unwrap().map(|bytes| String::from_utf8(bytes).unwrap())
+        }
+
+        /// A stand-in helper: answers each request with its id and echoes the action.
+        async fn fake_host(dir: &std::path::Path) -> PathBuf {
+            let path = dir.join("fake-host.sh");
+            let script = r#"#!/bin/sh
+if [ "$1" = "--abort-cleanup" ]; then echo cleaned > "$(dirname "$0")/cleanup"; exit 0; fi
+while read -r line; do
+  id=$(echo "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  case "$line" in
+    *hang*) sleep 30;;
+    *) echo "@@MIXCU@@{\"id\":$id,\"ok\":true,\"result\":{\"text\":\"ok $line\"}}";;
+  esac
+done
+"#;
+            write_script(&path, script).await;
+            path
+
+        }
+
+        /// A stand-in helper that also logs each request line it is sent.
+        async fn logging_host(dir: &std::path::Path) -> PathBuf {
+            let path = dir.join("logging-host.sh");
+            let script = r#"#!/bin/sh
+if [ "$1" = "--abort-cleanup" ]; then echo cleaned >> "$(dirname "$0")/cleanup"; exit 0; fi
+while read -r line; do
+  echo "$line" >> "$(dirname "$0")/log"
+  id=$(echo "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  echo "@@MIXCU@@{\"id\":$id,\"ok\":true,\"result\":{\"text\":\"ok\"}}"
+done
+"#;
+            write_script(&path, script).await;
+            path
+
+        }
+
+        fn log(dir: &std::path::Path) -> String {
+            written(dir.join("log")).unwrap_or_default()
+        }
+
+        /// `execution_end` lets go of held input and keeps the helper warm, and only when an
+        /// execution is open; `session_abort` stops the helper and runs the cleanup; `session_release`
+        /// drops the session's refs first. A session that was aborted owns nothing in the helper.
+        #[tokio::test]
+        async fn the_session_control_actions_follow_nodes_lifecycle() {
+            let dir = tempfile::tempdir().unwrap();
+            let tokens = mixdog_rt::testing::tokens();
+            let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
+            let backend = ProcessComputerBackend::new(ComputerConfig::new(logging_host(dir.path()).await, "s1"), manager);
+            let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+
+            assert!(!backend.end_execution().await, "nothing is open before the first action");
+            assert!(!backend.is_bound());
+            backend.run(read(), CancellationToken::new()).await.unwrap();
+            assert!(backend.is_bound());
+            assert!(backend.end_execution().await);
+            assert!(log(dir.path()).lines().last().unwrap().contains("\"release_held_input\""), "{}", log(dir.path()));
+            assert!(backend.status().active, "the helper stays warm for a follow-up turn");
+            assert!(!backend.end_execution().await, "an ended execution is not ended twice");
+
+            backend.run(read(), CancellationToken::new()).await.unwrap();
+            assert!(backend.abort_session().await);
+            assert!(written(dir.path().join("cleanup")).is_some());
+            assert!(!backend.status().active);
+            assert!(!backend.is_bound(), "an aborted session owns nothing in the helper");
+            assert!(!backend.end_execution().await, "an abort closes the execution");
+
+            backend.run(read(), CancellationToken::new()).await.unwrap();
+            assert!(backend.release_session().await);
+            let sent = log(dir.path());
+            assert!(sent.lines().last().unwrap().contains("\"release_session\""), "{sent}");
+            assert_eq!(written(dir.path().join("cleanup")).unwrap().lines().count(), 2);
+            assert!(!backend.status().active && !backend.is_bound());
+        }
+
+        #[tokio::test]
+        async fn runs_an_action_through_the_resident_host_and_cleans_up_on_cancel() {
+            let dir = tempfile::tempdir().unwrap();
+            let tokens = mixdog_rt::testing::tokens();
+            let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
+            let backend = ProcessComputerBackend::new(ComputerConfig::new(fake_host(dir.path()).await, "s1"), manager);
+            let parts = backend
+                .run(ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) }, CancellationToken::new())
+                .await
+                .unwrap();
+            let ToolPart::Text(text) = &parts[0] else { panic!("text part") };
+            assert!(text.contains("clipboard_read") && text.contains("\"session_id\":\"s1\""), "{text}");
+            assert!(backend.status().active);
+
+            let cancel = CancellationToken::new();
+            let trip = cancel.clone();
+            tokio::spawn(async move {
+                mixdog_rt::time::sleep(Duration::from_millis(200)).await;
+                trip.cancel();
+            });
+            let hung = backend
+                .run(ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"write","text":"hang"}) }, cancel)
+                .await;
+            assert_eq!(hung, Err(ComputerError::Cancelled));
+            assert!(written(dir.path().join("cleanup")).is_some());
+            assert!(!backend.status().active);
+        }
+
+        /// The cancel fires while the command is in flight and the helper never answers: the wait
+        /// ends as `Cancelled` (cancel is checked before the reply), and the helper is retired,
+        /// which kills it and runs `--abort-cleanup`. No timing: the token is already fired when
+        /// the wait starts.
+        #[tokio::test]
+        async fn a_cancel_during_the_wait_retires_the_helper() {
+            let dir = tempfile::tempdir().unwrap();
+            let tokens = mixdog_rt::testing::tokens();
+            let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
+            let backend = ProcessComputerBackend::new(ComputerConfig::new(fake_host(dir.path()).await, "s1"), manager);
+            let cancel = CancellationToken::new();
+            let receive = backend.send(input(json!({"action":"hang"})), &cancel).await.unwrap();
+            assert!(backend.status().active);
+            assert!(written(dir.path().join("cleanup")).is_none());
+
+            cancel.cancel();
+            let ended = backend.wait_reply(receive, COMMAND_TIMEOUT, &cancel).await;
+
+            assert_eq!(ended, Err(ComputerError::Cancelled));
+            assert!(written(dir.path().join("cleanup")).is_some());
+            assert!(!backend.status().active);
+        }
+    }
+
+
+
+    #[async_trait]
+    impl crate::desktop::computer_pointer::PointerHost for Pointers {
+        fn release_pointer(&self, session: &str) {
+            locked(&self.released).push(session.to_owned());
+        }
+
+        fn is_running(&self, _: &str) -> bool {
+            false
+        }
+
+        async fn release_cursor_theme(&self, _: &str) {}
+    }
+
+
+
+    /// A stale target refused an input action on a window: the exact window is captured again before the call ends (the refusal
+    /// stays the call's error when that capture cannot be made); a refusal that is not stale, or a read, captures nothing.
+    #[tokio::test]
+    async fn a_stale_refusal_of_an_input_on_a_window_asks_for_a_capture_of_that_window() {
+        let window = |operation: &str| ComputerRequest { action: ComputerAction::Window, input: json!({"operation": operation, "window_id": "w1"}) };
+        let captures = |manager: &Answering| locked(&manager.lines).iter().filter(|line| !matches!(line["action"].as_str(), Some("focus_window" | "move_window")) && line["window_id"] == "w1").count();
+
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        let refused = backend.run(window("focus"), CancellationToken::new()).await.unwrap();
+        assert!(matches!(&refused[0], ToolPart::Text(text) if text.starts_with("Error: stale_target: window w1 is gone") && text.contains("window w1 was captured again below")), "{refused:?}");
+        // The capture's own parts follow the refusal: the pixels' text, then their image.
+        let fresh = refused.iter().position(|part| *part == ToolPart::Text("fresh".into())).unwrap_or_else(|| panic!("{refused:?}"));
+        let image = ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(b"hi".to_vec()), width: None, height: None };
+        assert!(fresh > 0 && refused[fresh + 1..].contains(&image), "{refused:?}");
+        assert!(captures(&manager) > 0, "{:?}", locked(&manager.lines));
+
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        let moved = ComputerRequest { action: ComputerAction::Window, input: json!({"operation": "move", "window_id": "w1", "x": 1}) };
+        backend.run(moved, CancellationToken::new()).await.unwrap_err();
+        assert!(locked(&manager.lines).iter().any(|line| line["action"] == "move_window"), "{:?}", locked(&manager.lines));
+        assert_eq!(captures(&manager), 0, "{:?}", locked(&manager.lines));
+    }
+
+
+    /// A recapture that fails leaves the original refusal as the call's error, and the model reads it with its recovery.
+    #[tokio::test]
+    async fn a_failed_recapture_keeps_the_original_refusal_and_its_recovery() {
+        let manager = Arc::new(Answering::default());
+        manager.capture_refused.store(true, Ordering::SeqCst);
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        let focus = ComputerRequest { action: ComputerAction::Window, input: json!({"operation": "focus", "window_id": "w1"}) };
+        let error = backend.run(focus, CancellationToken::new()).await.unwrap_err();
+        assert!(locked(&manager.lines).iter().any(|line| line["action"] == "window_capture" && line["window_id"] == "w1"), "{:?}", locked(&manager.lines));
+        let ComputerError::Failed { code, message } = &error else { panic!("{error:?}") };
+        let args = json!({"action": "window", "input": {"window_id": "w1"}});
+        let text = super::super::computer::failure_text(code, message, &args);
+        assert!(text.starts_with("Error: stale_target: window w1 is gone"), "{text}");
+        assert!(text.contains("Recovery: Capture window w1 again"), "{text}");
+        assert!(!text.contains("captured again below"), "{text}");
+    }
+
+
+    /// The readers of a helper with no desktop.
+    fn readers(pending: &Pending) -> Readers {
+        Readers {
+            pending: pending.clone(),
+            relay: computer_lease::Relay::new(Arc::new(Answering::default()), ProcessHandle("h".into()), pending.clone(), None),
+            pointer: computer_feedback::Pointer::new(None, "s1"),
+            gone: Arc::default(),
+            live: None,
+        }
+    }
+
+
+    #[tokio::test]
+    async fn replies_are_delivered_before_the_waiters_of_an_exited_host_are_failed() {
+        use mixdog_core_api::domain::process::ExitStatus;
+        use mixdog_core_api::domain::process::ProcessExit;
+
+        let pending: Pending = Arc::default();
+        let outcomes = Arc::new(Mutex::new(Vec::new()));
+        for id in [1, 2] {
+            let outcomes = outcomes.clone();
+            locked(&pending).insert(id, Box::new(move |outcome| locked(&outcomes).push((id, outcome))));
+        }
+        let output = |seq, stream, text: &str| ProcessEvent::Output { seq, stream, bytes: text.as_bytes().to_vec() };
+        let events = Script(
+            [
+                output(0, OutputStream::Stdout, "noise\n@@MIXCU@@{\"id\":1,\"ok\":tr"),
+                output(1, OutputStream::Stderr, "ignored\n"),
+                output(2, OutputStream::Stdout, "ue,\"result\":{\"text\":\"a\"}}\r\n"),
+                ProcessEvent::Exited { seq: 3, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } },
+            ]
+            .into(),
+        );
+        let alive = Arc::new(AtomicBool::new(true));
+        let (done, exited) = watch::channel(false);
+        pump(Box::new(events), readers(&pending), alive.clone(), done).await;
+        assert!(!alive.load(Ordering::SeqCst));
+        assert!(*exited.borrow());
+        let outcomes = locked(&outcomes);
+        assert_eq!(outcomes[0].0, 1);
+        assert_eq!(outcomes[0].1.as_ref().unwrap().get("text"), Some(&json!("a")));
+        assert_eq!(outcomes[1].0, 2);
+        assert!(outcomes[1].1.as_ref().unwrap_err().text.starts_with("computer_host_exited"));
+    }
+
+
+    /// Foreground-lease and pointer lines go to their readers: neither answers nor fails the request in flight, even one that
+    /// looks like its reply, and the reply that follows them is delivered.
+    #[tokio::test]
+    async fn side_lines_never_answer_or_fail_a_request() {
+        use mixdog_core_api::domain::process::ExitStatus;
+        use mixdog_core_api::domain::process::ProcessExit;
+
+        let pending: Pending = Arc::default();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let into = seen.clone();
+        locked(&pending).insert(1, Box::new(move |outcome| locked(&into).push(outcome)));
+        let output = |seq, text: &str| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: text.as_bytes().to_vec() };
+        let events = Script(
+            [
+                output(0, "@@MIXDOG_FGLOCK@@ acquire 1 1 0 200 5.000\n@@MIXDOG_POINTER@@{\"id\":1,\"ok\":false,\"error\":\"not a reply\"}\n"),
+                output(1, "@@MIXDOG_FGLOCK@@{\"id\":1\n@@MIXCU@@{\"id\":1,\"ok\":true,\"result\":{\"text\":\"a\"}}\n"),
+                ProcessEvent::Exited { seq: 2, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } },
+            ]
+            .into(),
+        );
+        let (done, _exited) = watch::channel(false);
+        pump(Box::new(events), readers(&pending), Arc::new(AtomicBool::new(true)), done).await;
+        // Had a side line answered or failed request 1, its waiter would hold that outcome and the reply would find none.
+        let want: Vec<Reply> = vec![Ok(input(json!({"text":"a"})))];
+        assert_eq!(*locked(&seen), want);
+    }
+
+
+    /// The edges of an open execution, which the computer pill follows, with a helper that starts and answers: the
+    /// first action opens it (a second inside it does not), and `execution_end`, an abort, a release and a
+    /// cancelled call each close it once. Runs on Windows too: the helper is the manager's seam, not a shell script.
+    #[tokio::test]
+    async fn the_execution_edges_of_a_started_helper_reach_the_observer() {
+        let edges = Arc::new(Edges::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default())).with_observer(edges.clone());
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        let seen = || std::mem::take(&mut *locked(&edges.0));
+
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(backend.status().active, "the helper started and answered");
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert_eq!(seen(), ["began:false"], "the second action runs inside the open execution");
+        assert!(backend.end_execution().await);
+        assert_eq!(seen(), ["ended"]);
+        assert!(!backend.end_execution().await);
+        assert_eq!(seen(), Vec::<String>::new(), "nothing was open");
+
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(backend.abort_session().await);
+        assert_eq!(seen(), ["began:false", "ended"]);
+
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(backend.release_session().await);
+        assert_eq!(seen(), ["began:false", "ended"]);
+
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        let cancel = CancellationToken::new();
+        let receive = backend.send(input(json!({"action":"hang"})), &cancel).await.unwrap();
+        cancel.cancel();
+        assert_eq!(backend.wait_reply(receive, COMMAND_TIMEOUT, &cancel).await, Err(ComputerError::Cancelled));
+        assert_eq!(seen(), ["began:false", "ended"], "a cancelled call aborts the session");
+    }
+
+
+    /// A cleanup the helper cannot confirm (timeout, dead helper, abort) hands the desktop to the user, also once the session's
+    /// execution has closed (no session is open here), while the command keeps its own error (`lifecycle-abort.ts:unconfirmedCleanup`).
+    #[tokio::test]
+    async fn an_unconfirmed_cleanup_hands_the_desktop_to_the_user() {
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        let started = || {
+            let manager = Arc::new(Answering::default());
+            let control = Arc::new(UserControlState::default());
+            let shared = ComputerShared { user_control: control.clone(), ..ComputerShared::default() };
+            (ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared), manager, control)
+        };
+        let held = |control: &UserControlState| control.section().map(|section| section.reason);
+
+        let (backend, manager, control) = started();
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(backend.abort_session().await);
+        assert_eq!(held(&control), None, "a confirmed cleanup holds nothing");
+
+        manager.failing_cleanup.store(true, Ordering::SeqCst);
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(!backend.abort_session().await);
+        assert_eq!(held(&control).as_deref(), Some("input_cleanup_unconfirmed"));
+
+        let (backend, manager, control) = started();
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        manager.failing_cleanup.store(true, Ordering::SeqCst);
+        let cancel = CancellationToken::new();
+        let receive = backend.send(input(json!({"action":"hang"})), &cancel).await.unwrap();
+        let waited = backend.wait_reply(receive, Duration::from_millis(50), &cancel).await;
+        assert!(matches!(waited, Err(ComputerError::Failed { ref code, .. }) if code == "computer_command_timeout"), "{waited:?}");
+        assert_eq!(held(&control).as_deref(), Some("input_cleanup_unconfirmed"));
+
+        let (backend, manager, control) = started();
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        manager.failing_cleanup.store(true, Ordering::SeqCst);
+        let error = backend.call(input(json!({"action":"die"})), &CancellationToken::new()).await.unwrap_err();
+        assert!(matches!(&error, ComputerError::Failed { code, .. } if code == "computer_host_exited"), "{error:?}");
+        assert_eq!(held(&control).as_deref(), Some("input_cleanup_unconfirmed"));
+    }
+
+
+    /// A cleanup that did not confirm stays latched: Resume retries it once and leaves the desktop with the person while it still
+    /// does not confirm, and releases it when it does (`recoverLatchedCleanup`, `resumeByUser`).
+    #[tokio::test]
+    async fn a_latched_cleanup_is_recovered_before_resume() {
+        let manager = Arc::new(Answering::default());
+        let control = Arc::new(UserControlState::new(Duration::ZERO));
+        let shared = ComputerShared { user_control: control.clone(), ..ComputerShared::default() };
+        let backend = Arc::new(ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared));
+        control.register("s1", Arc::downgrade(&backend));
+        let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        backend.run(read, CancellationToken::new()).await.unwrap();
+        manager.failing_cleanup.store(true, Ordering::SeqCst);
+        assert!(!backend.abort_session().await);
+        assert!(control.is_latched());
+        assert_eq!(control.section().map(|section| section.reason).as_deref(), Some("input_cleanup_unconfirmed"));
+        assert!(!control.resume_verified(None).await, "the click alone does not clear it");
+        assert!(control.is_latched() && control.section().is_some());
+        manager.failing_cleanup.store(false, Ordering::SeqCst);
+        assert!(control.resume_verified(None).await);
+        assert!(!control.is_latched());
+        assert_eq!(control.section(), None);
+    }
+
+
+    /// A session holds four commands pending (`createComputerCommandBudget`): the fifth concurrent one through `run` is refused with
+    /// nothing queued, in the host's words, and a command that ended frees its slot.
+    #[tokio::test]
+    async fn the_fifth_concurrent_command_of_a_session_is_refused() {
+        let manager = Arc::new(Answering::default());
+        manager.silent.store(true, Ordering::SeqCst);
+        let shared = ComputerShared::default();
+        let backend = Arc::new(ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared.clone()));
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        let tokens: Vec<CancellationToken> = (0..4).map(|_| CancellationToken::new()).collect();
+        let running: Vec<_> = tokens
+            .iter()
+            .map(|token| {
+                let (backend, token) = (backend.clone(), token.clone());
+                tokio::spawn(async move { backend.run(read(), token).await })
+            })
+            .collect();
+        for _ in 0..500 {
+            if shared.budget.pending_of("s1") == 4 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(shared.budget.pending_of("s1"), 4, "four commands are pending");
+        let sent = locked(&manager.lines).len();
+        let fifth = backend.run(read(), CancellationToken::new()).await;
+        assert!(
+            matches!(&fifth, Err(ComputerError::Failed { code, message })
+                if code == "computer_capacity_exhausted" && message == "computer_capacity_exhausted: pending command limit reached; no input was queued"),
+            "{fifth:?}"
+        );
+        assert_eq!(locked(&manager.lines).len(), sent, "the refused command wrote nothing to the helper");
+        assert_eq!(shared.budget.pending_of("s1"), 4, "a refused command takes no slot");
+        for token in &tokens {
+            token.cancel();
+        }
+        for task in running {
+            assert!(task.await.unwrap().is_err(), "a cancelled command ends in an error");
+        }
+        assert_eq!(shared.budget.pending_of("s1"), 0, "the slots came back");
+    }
+
+
+    /// One marker per backend, in the helper's range: the resident helper, its `--abort-cleanup` run and the helper started
+    /// again after the abort all carry it, so the cleanup releases exactly what the helper injected.
+    #[tokio::test]
+    async fn the_resident_helper_and_its_cleanup_carry_one_input_marker() {
+        let manager = Arc::new(Answering::default());
+        let data = tempfile::tempdir().unwrap();
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "s1") };
+        let backend = ProcessComputerBackend::new(config, manager.clone());
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(backend.abort_session().await);
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+
+        let spawned = locked(&manager.spawned).clone();
+        let args = |request: &SpawnRequest| match &request.command {
+            CommandSpec::Argv { args, .. } => args.clone(),
+            other => panic!("an argv command, got {other:?}"),
+        };
+        assert_eq!(spawned.iter().map(args).collect::<Vec<_>>(), [vec![], vec!["--abort-cleanup".to_owned()], vec![]], "resident, cleanup, resident");
+        let markers: Vec<Option<String>> = spawned
+            .iter()
+            .map(|request| request.env.set.iter().find(|(name, _)| name == "MIXDOG_COMPUTER_INPUT_MARKER").map(|(_, value)| value.clone()))
+            .collect();
+        let marker: i64 = markers[0].as_deref().expect("the resident helper carries the marker").parse().expect("a number");
+        assert!((1..=i64::from(i32::MAX)).contains(&marker), "{marker}");
+        assert!(markers.iter().all(|each| *each == markers[0]), "{markers:?}");
+        // The ledger the resident helper records into is the one the cleanup run replays.
+        let ledgers: Vec<Option<String>> = spawned
+            .iter()
+            .map(|request| request.env.set.iter().find(|(name, _)| name == "MIXDOG_COMPUTER_INACTIVE_LEDGER").map(|(_, value)| value.clone()))
+            .collect();
+        assert!(ledgers[0].is_some() && ledgers.iter().all(|each| *each == ledgers[0]), "{ledgers:?}");
+        assert!(data.path().join("computer").join("ledgers").is_dir());
+        // No desktop offers the lock here.
+        assert!(spawned.iter().all(|request| request.env.set.iter().all(|(name, _)| name != "MIXDOG_COMPUTER_HOST_FOREGROUND_LOCK")));
+        // Every run is the computer helper's (its job lets the cursor watchdog break away); only the cleanup is time-limited.
+        assert!(spawned.iter().all(|request| matches!(request.owner, ProcessOwner::ComputerHelper { scope: Some(_) })));
+        let limits: Vec<Option<Duration>> = spawned.iter().map(|request| request.time_limit).collect();
+        assert_eq!(limits, [None, Some(ABORT_CLEANUP_TIME_LIMIT), None]);
+    }
+
+
+    /// The request a helper run is made from names the computer helper as its owner.
+    #[test]
+    fn a_helper_request_is_owned_by_the_computer_helper() {
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()));
+        let request = backend.request(vec![], true, vec![]).unwrap();
+        assert!(matches!(request.owner, ProcessOwner::ComputerHelper { scope: Some(_) }));
+        assert_eq!(request.time_limit, None);
+    }
+
+
+    async fn wait_dead(backend: &ProcessComputerBackend) {
+        for _ in 0..1_000 {
+            let dead = locked(&backend.host).as_ref().is_some_and(|host| !host.alive.load(Ordering::SeqCst));
+            if dead {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("the helper did not register its exit");
+    }
+
+
+    /// A helper that exits while a request waits on it is cleaned up (`--abort-cleanup`) before the next one starts.
+    #[tokio::test]
+    async fn a_helper_that_exits_during_a_request_is_cleaned_up() {
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        let cancel = CancellationToken::new();
+        let error = backend.call(input(json!({"action":"die"})), &cancel).await.unwrap_err();
+        assert!(matches!(&error, ComputerError::Failed { code, .. } if code == "computer_host_exited"), "{error:?}");
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup"]);
+        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup", "resident"]);
+    }
+
+
+    /// A helper that exits between requests is cleaned up before its replacement starts, and when an execution ends.
+    #[tokio::test]
+    async fn a_helper_that_exits_between_requests_is_cleaned_up_before_a_respawn() {
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        let cancel = CancellationToken::new();
+        let exit_helper = || {
+            let handle = locked(&manager.spawned).last().expect("a helper").handle.clone();
+            manager.emit(&handle, |seq| Answering::exit(seq, None));
+        };
+        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
+        exit_helper();
+        wait_dead(&backend).await;
+        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup", "resident"]);
+
+        backend.executing.store(true, Ordering::SeqCst);
+        exit_helper();
+        wait_dead(&backend).await;
+        assert!(backend.end_execution().await);
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup", "resident", "cleanup"]);
+        assert!(!backend.has_live_host());
+    }
+
+
+    /// A helper that exits with no request waiting is cleaned up when its exit is seen, and once: the next command only starts
+    /// the replacement.
+    #[tokio::test]
+    async fn a_helper_that_exits_while_idle_is_cleaned_up_when_it_is_seen() {
+        let manager = Arc::new(Answering::default());
+        let backend = Arc::new(ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()));
+        backend.watch_for_death();
+        let cancel = CancellationToken::new();
+        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
+        let handle = locked(&manager.spawned).last().expect("a helper").handle.clone();
+        manager.emit(&handle, |seq| Answering::exit(seq, None));
+        for _ in 0..1_000 {
+            if cleanup_args(&locked(&manager.spawned)) == ["resident", "cleanup"] {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup"]);
+        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup", "resident"]);
+    }
+
+
+    /// A helper whose observer keeps answering `monitor_unresponsive` is retired; one reply that says it is ready starts the count over.
+    #[tokio::test]
+    async fn a_helper_with_an_unresponsive_observer_is_retired() {
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        let cancel = CancellationToken::new();
+        for action in ["stuck", "stuck", "ready", "stuck", "stuck"] {
+            backend.call(input(json!({"action": action})), &cancel).await.unwrap();
+        }
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident"]);
+        assert!(backend.has_live_host());
+        backend.call(input(json!({"action":"stuck"})), &cancel).await.unwrap();
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup"]);
+        assert!(!backend.has_live_host());
+    }
+
+
+    /// A failure's text counts toward the limit only when it says the observation was lost to the monitor; a frame from before a
+    /// respawn ("original observation is unavailable (monitor_unresponsive)") is not the observer of this helper failing.
+    #[test]
+    fn only_a_lost_observation_text_counts_as_an_unresponsive_observer() {
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()));
+        let failed = |text: &str| -> Reply { Err(HelperFailure { text: text.into(), result: None }) };
+        let stale = "input_observation_unavailable: original observation is unavailable (monitor_unresponsive)";
+        for _ in 0..UNRESPONSIVE_LIMIT + 1 {
+            assert!(!backend.observer_stuck(&failed(stale)));
+        }
+        let lost = "input_observation_unavailable: input observation lost (monitor_unresponsive)";
+        let stuck: Vec<bool> = (0..UNRESPONSIVE_LIMIT).map(|_| backend.observer_stuck(&failed(lost))).collect();
+        assert_eq!(stuck, [false, false, true]);
+    }
+
+
+    /// The ledgers a dead core left are replayed once, before the first helper of this process starts, each with the marker its
+    /// name carries, and removed once confirmed; a later backend on the same folder does not touch the ledgers there.
+    #[tokio::test]
+    async fn the_ledgers_a_dead_core_left_are_swept_before_the_first_helper() {
+        let manager = Arc::new(Answering::default());
+        let data = tempfile::tempdir().unwrap();
+        let folder = computer_env::ledger_folder(data.path());
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("old-123.ledger"), b"x").unwrap();
+        std::fs::write(folder.join("keep.txt"), b"x").unwrap();
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "s1") };
+        let backend = ProcessComputerBackend::new(config.clone(), manager.clone());
+        backend.call(input(json!({"action":"clipboard_read"})), &CancellationToken::new()).await.unwrap();
+
+        let spawned = locked(&manager.spawned).clone();
+        assert_eq!(cleanup_args(&spawned), ["cleanup", "resident"]);
+        let env = |name: &str| spawned[0].env.set.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone());
+        assert_eq!(env("MIXDOG_ABORT_LEDGERS"), Some(folder.join("old-123.ledger").to_string_lossy().into_owned()));
+        assert_eq!(env("MIXDOG_COMPUTER_INPUT_MARKER").as_deref(), Some("123"));
+        assert_eq!(env("MIXDOG_COMPUTER_INACTIVE_LEDGER"), None);
+        assert!(!folder.join("old-123.ledger").exists() && folder.join("keep.txt").exists());
+
+        std::fs::write(folder.join("live-9.ledger"), b"x").unwrap();
+        let second = Arc::new(Answering::default());
+        let other = ProcessComputerBackend::new(ComputerConfig { session_id: "s2".into(), ..config }, second.clone());
+        other.call(input(json!({"action":"clipboard_read"})), &CancellationToken::new()).await.unwrap();
+        assert_eq!(cleanup_args(&locked(&second.spawned)), ["resident"]);
+        assert!(folder.join("live-9.ledger").exists());
+    }
+
+
+    /// The receipt a dead core's helper left holding a key is released by a cleanup run that is told its file and marker, and the
+    /// file removed once it confirmed; one that holds nothing is removed without a run, and the resident helper is told the file
+    /// its own receipt lives in, beside its ledger.
+    #[tokio::test]
+    async fn the_receipts_a_dead_core_left_are_released_before_the_first_helper() {
+        let manager = Arc::new(Answering::default());
+        let data = tempfile::tempdir().unwrap();
+        let folder = computer_env::ledger_folder(data.path());
+        std::fs::create_dir_all(&folder).unwrap();
+        let mut held = vec![0u8; 8192];
+        held[0] = 1;
+        std::fs::write(folder.join("old-321.receipt"), &held).unwrap();
+        std::fs::write(folder.join("idle-5.receipt"), vec![0u8; 8192]).unwrap();
+        std::fs::write(folder.join("keep.txt"), b"x").unwrap();
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "s1") };
+        let backend = ProcessComputerBackend::new(config, manager.clone());
+        backend.call(input(json!({"action":"clipboard_read"})), &CancellationToken::new()).await.unwrap();
+
+        let spawned = locked(&manager.spawned).clone();
+        assert_eq!(cleanup_args(&spawned), ["cleanup", "resident"], "only the receipt that held something is run");
+        let env = |at: usize, name: &str| spawned[at].env.set.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone());
+        assert_eq!(env(0, RECEIPT_FILE_ENV), Some(folder.join("old-321.receipt").to_string_lossy().into_owned()));
+        assert_eq!(env(0, "MIXDOG_COMPUTER_INPUT_MARKER").as_deref(), Some("321"));
+        assert_eq!(env(0, "MIXDOG_ABORT_LEDGERS"), None);
+        assert_eq!(env(1, RECEIPT_FILE_ENV), Some(receipt_path(&computer_env::ledger_path(data.path(), "s1", backend.marker)).to_string_lossy().into_owned()));
+        assert!(!folder.join("old-321.receipt").exists() && !folder.join("idle-5.receipt").exists() && folder.join("keep.txt").exists());
+    }
+
+
+    /// A failed reply's `result` reaches the reader that asks for it, while `call` reports the failure's text as before.
+    #[tokio::test]
+    async fn a_helper_failure_reaches_the_caller_with_its_result() {
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()));
+        let cancel = CancellationToken::new();
+        let failure = backend.exchange(input(json!({"action":"fail"})), COMMAND_TIMEOUT, &cancel).await.unwrap().unwrap_err();
+        assert_eq!(failure.result.as_ref().and_then(|result| result.get("capture_cleanup")), Some(&json!({"status":"unconfirmed"})));
+        assert_eq!(
+            backend.call(input(json!({"action":"fail"})), &cancel).await,
+            Err(ComputerError::Failed { code: "capture_failed".into(), message: "capture_failed: x".into() })
+        );
+        assert!(backend.status().active, "a refusal leaves the helper running");
+    }
+
+
+    /// `list kind="apps"` is the helper's own `list_apps`, a read.
+    #[tokio::test]
+    async fn the_app_list_is_the_helpers_list_apps() {
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        backend.run(ComputerRequest { action: ComputerAction::List, input: json!({"kind":"apps","query":"x"}) }, CancellationToken::new()).await.unwrap();
+        let sent: Vec<Value> = locked(&manager.lines).iter().filter(|line| line["action"] != "window_snapshot").cloned().collect();
+        assert_eq!(sent.iter().map(|line| line["action"].clone()).collect::<Vec<_>>(), [json!("list_apps")]);
+        assert_eq!(sent[0]["query"], "x");
+    }
+
+
+    /// A helper that writes foreground-lease and pointer lines before its reply still answers the request with that reply.
+    #[tokio::test]
+    async fn side_lines_from_a_running_helper_are_consumed() {
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()));
+        let result = backend.call(input(json!({"action":"chatty"})), &CancellationToken::new()).await.unwrap();
+        assert_eq!(result.get("text"), Some(&json!("ok")));
+        assert!(backend.status().active);
+    }
+
+
+    /// The observation-only setting is read on every call: turned on between two executions, the second opens observing only
+    /// and its request goes to the helper as a read-only run, while the release that ends it never does.
+    #[tokio::test]
+    async fn the_observation_only_setting_is_read_on_every_call() {
+        let manager = Arc::new(Answering::default());
+        let edges = Arc::new(Edges::default());
+        let on = Arc::new(AtomicBool::new(false));
+        let setting = on.clone();
+        let shared = ComputerShared { observe_only: Arc::new(move || setting.load(Ordering::SeqCst)), ..ComputerShared::default() };
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared).with_observer(edges.clone());
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(!backend.status().observe_only);
+        assert!(backend.end_execution().await);
+        on.store(true, Ordering::SeqCst);
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(backend.status().observe_only);
+        assert!(backend.end_execution().await);
+
+        assert_eq!(*locked(&edges.0), ["began:false", "ended", "began:true", "ended"]);
+        let read_only: Vec<(Value, Option<Value>)> = locked(&manager.lines)
+            .iter()
+            .filter(|line| line["action"] != "window_snapshot")
+            .map(|line| (line["action"].clone(), line.get("read_only").cloned()))
+            .collect();
+        assert_eq!(
+            read_only,
+            [
+                (json!("clipboard_read"), None),
+                (json!("release_held_input"), None),
+                (json!("clipboard_read"), Some(json!(true))),
+                (json!("release_held_input"), None)
+            ]
+        );
+    }
+
+
+    /// A capture that failed leaves the attempts its reply carried in the run record of the command.
+    #[test]
+    fn a_failed_capture_keeps_its_attempts_in_the_run_record() {
+        let data = tempfile::tempdir().unwrap();
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "attempts-1") };
+        let backend = ProcessComputerBackend::new(config, Arc::new(Answering::default()));
+        let rows = json!([
+            {"backend": "print_window", "scope": "target", "status": "failed", "elapsed_ms": 12, "code": "capture_timeout"},
+            {"backend": "wgc", "scope": "owner", "status": "failed", "elapsed_ms": 30, "code": "capture_denied"},
+        ]);
+        let result = input(json!({"capture_attempts": rows}));
+        backend.note_failed_capture(&HelperFailure { text: "capture_denied: x".into(), result: Some(result) });
+        let failure = ComputerError::Failed { code: "capture_denied".into(), message: "capture_denied: x".into() };
+        backend.keep_record(&input(json!({"action": "capture", "window_id": "hwnd:0x2"})), Instant::now(), &Err(failure));
+        let kept = backend.files.as_ref().unwrap().runs.history("attempts-1", 5);
+        let attempts = &kept["history"][0]["capture_attempts"];
+        assert_eq!((attempts.as_array().map(Vec::len), attempts[1]["scope"].clone()), (Some(2), json!("owner")));
+    }
+
+
+    /// Every command that reaches the host leaves its line in the run history; `list kind="history"` reads the session's lines back,
+    /// newest last, without what was typed or pasted; a command that failed also leaves the bundle of its session.
+    #[tokio::test]
+    async fn the_run_history_is_kept_and_listed() {
+        let data = tempfile::tempdir().unwrap();
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "history-1") };
+        let backend = ProcessComputerBackend::new(config, Arc::new(Answering::default()));
+        let clipboard = |input: Value| ComputerRequest { action: ComputerAction::Clipboard, input };
+        backend.run(clipboard(json!({"operation": "read"})), CancellationToken::new()).await.unwrap();
+        backend.run(clipboard(json!({"operation": "write", "text": "secret words"})), CancellationToken::new()).await.unwrap();
+        let failure = ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: the frame is gone".into() };
+        backend.keep_record(&input(json!({"action": "click", "window_id": "hwnd:0x2"})), Instant::now(), &Err(failure));
+
+        let listed = backend.run(list_history(10), CancellationToken::new()).await.unwrap();
+        let text = text_of_first(&listed);
+        let history: Value = serde_json::from_str(&text).unwrap();
+        let actions: Vec<&str> = history["history"].as_array().unwrap().iter().map(|row| row["action"].as_str().unwrap()).collect();
+        assert_eq!((actions, history["returned"].clone()), (vec!["clipboard_read", "clipboard_write", "click"], json!(3)));
+        let last = &history["history"][2];
+        assert_eq!((last["ok"].clone(), last["error"].clone(), last["session"].clone()), (json!(false), json!("stale_frame"), json!("history-1")));
+        assert!(!text.contains("secret words"), "what was typed never reaches the history: {text}");
+
+        // The listing itself is a command of the session, and the limit bounds what comes back.
+        let again = backend.run(list_history(2), CancellationToken::new()).await.unwrap();
+        let again: Value = serde_json::from_str(&text_of_first(&again)).unwrap();
+        assert_eq!(again["history"].as_array().unwrap().len(), 2);
+        assert_eq!(again["history"][1]["action"], "list_history");
+
+        let bundles: Vec<String> = std::fs::read_dir(data.path().join("computer-failures")).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert!(bundles.iter().any(|name| name.starts_with("failure-")), "{bundles:?}");
+    }
+
+
+    /// A backend with no data directory keeps no history: the listing is empty, not an error.
+    #[tokio::test]
+    async fn without_a_data_directory_the_history_is_empty() {
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "history-2"), Arc::new(Answering::default()));
+        let listed = backend.run(list_history(5), CancellationToken::new()).await.unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&text_of_first(&listed)).unwrap(), json!({"history": [], "returned": 0}));
+    }
+
+
+    /// A foreground command arms its session's pointer hold when it ends; another session's foreground command gives it up first, and
+    /// the end of a turn gives up the one that is left.
+    #[tokio::test]
+    async fn a_foreground_command_holds_the_pointer_until_another_session_or_the_turn_takes_it() {
+        let pointers = Arc::new(Pointers::default());
+        let shared = ComputerShared { pointer_hold: Some(Arc::new(PointerHold::new(pointers.clone()))), ..ComputerShared::default() };
+        let write = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation": "write", "text": "x"}) };
+        let first = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default())).with_shared(shared.clone());
+        let second = ProcessComputerBackend::new(ComputerConfig::new("helper", "s2"), Arc::new(Answering::default())).with_shared(shared);
+        first.run(write(), CancellationToken::new()).await.unwrap();
+        assert!(locked(&pointers.released).is_empty(), "the hold outlives the command");
+
+        second.run(write(), CancellationToken::new()).await.unwrap();
+        assert_eq!(*locked(&pointers.released), ["s1"], "the other session's command took the one pointer");
+
+        assert!(second.end_execution().await);
+        assert_eq!(*locked(&pointers.released), ["s1", "s2"], "the turn's end gives the pointer back at once");
+    }
+
+
+    /// A command off the lane (`requiresForegroundLane` false) neither arms a hold nor ends another's.
+    #[tokio::test]
+    async fn a_command_off_the_lane_holds_no_pointer() {
+        let pointers = Arc::new(Pointers::default());
+        let shared = ComputerShared { pointer_hold: Some(Arc::new(PointerHold::new(pointers.clone()))), ..ComputerShared::default() };
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default())).with_shared(shared);
+        backend.run(list_history(5), CancellationToken::new()).await.unwrap();
+        assert!(backend.end_execution().await);
+        assert!(locked(&pointers.released).is_empty());
+    }
+
+
+    /// The helper a Linux session starts is told the span of the displays the desktop reports (`desktopBoundsEnvironment`).
+    #[tokio::test]
+    async fn a_linux_helper_is_started_with_the_span_of_the_displays() {
+        use super::super::computer_pixels::fakes::Desktop;
+        let displays = json!([
+            {"index": 0, "id": "11", "primary": true, "scale_factor": 1.0, "width": 1920, "height": 1080, "x": 0, "y": 0},
+            {"index": 1, "id": "12", "primary": false, "scale_factor": 1.0, "width": 1280, "height": 1024, "x": -1280, "y": -100},
+        ]);
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone())
+            .with_linux_session(computer_linux::Env::new())
+            .with_desktop(Arc::new(Desktop::new(displays, json!({}))));
+        backend.call(input(json!({"action": "clipboard_read"})), &CancellationToken::new()).await.unwrap();
+        let spawned = locked(&manager.spawned).clone();
+        let bounds = spawned[0].env.set.iter().find(|(name, _)| name == "MIXDOG_COMPUTER_DESKTOP_BOUNDS").map(|(_, value)| value.clone());
+        assert_eq!(bounds.as_deref(), Some("-1280,-100,3200,1180"));
+    }
+
+
+    /// A zoom of a display's frame is cut from the display through the desktop, never from a window by the helper; a frame of a window
+    /// still goes to the helper.
+    #[tokio::test]
+    async fn a_zoom_of_a_display_frame_is_read_from_the_desktop() {
+        use super::super::computer_frames::DisplaySource;
+        use super::super::computer_frames::Frame;
+        use super::super::computer_pixels::fakes::Blobs;
+        use super::super::computer_pixels::fakes::Desktop;
+        let displays = json!([{"index": 0, "id": "12", "primary": true, "scale_factor": 1.0, "width": 1920, "height": 1080, "x": -1920, "y": -200}]);
+        let reply = json!({
+            "blob": {"digest": "sha256:aaaa", "byteLength": 4, "mimeType": "image/jpeg"},
+            "captureWidth": 480, "captureHeight": 270,
+            "source": {"x": -1920, "y": -200, "width": 960, "height": 540, "scaleFactor": 1.0, "displayId": "12", "windowId": null},
+            "backend": "screen", "capturedAt": 1.0, "attempts": [],
+        });
+        let desktop = Arc::new(Desktop::new(displays, reply));
+        let blobs: Arc<dyn ComputerBlobs> = Arc::new(Blobs([("sha256:aaaa".to_owned(), b"jpeg".to_vec())].into()));
+        let manager = Arc::new(Answering::default());
+        let shared = ComputerShared { blobs: Some(blobs), ..ComputerShared::default() };
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared).with_desktop(desktop.clone());
+        let frame = Frame {
+            id: "frame-d".into(),
+            window_id: None,
+            related_window_ids: None,
+            origin_x: -1920,
+            origin_y: -200,
+            physical_width: 1920,
+            physical_height: 1080,
+            capture_width: 960,
+            capture_height: 540,
+            idle: None,
+        };
+        backend.frames.remember_display(frame, DisplaySource { display_id: "12".into(), x: -1920, y: -200, width: 1920, height: 1080, scale_factor: 1.0 });
+
+        let zoom = input(json!({"action": "zoom", "frame_id": "frame-d", "region": [0, 0, 480, 270]}));
+        let parts = backend.zoom(zoom, &CancellationToken::new()).await.unwrap();
+        assert!(text_of_first(&parts).starts_with("Zoom of frame-d region (0,0)-(480,270)"), "{parts:?}");
+        let asked = locked(&desktop.asked).clone();
+        assert!(asked.iter().any(|(method, params)| method == "host/computer/pixels" && params["region"]["width"] == 960), "{asked:?}");
+        assert!(locked(&manager.lines).iter().all(|line| line["action"] != "window_capture"), "the helper was not asked for a window");
+    }
+
+
+
+
+
+
+
+    /// A missing helper names the path it could not start; Windows' EFTYPE (not an executable) is a bare `spawn EFTYPE`.
+    #[test]
+    fn a_helper_that_cannot_start_is_worded_as_a_spawn_error() {
+        let missing = PathBuf::from("C:\\tmp\\gone-helper");
+        assert_eq!(
+            node_spawn_message(&missing, &ProcessError::ProgramNotFound { program: String::new() }),
+            Some("computer host failed to start: spawn C:\\tmp\\gone-helper ENOENT".to_owned())
+        );
+        if cfg!(windows) {
+            assert_eq!(
+                node_spawn_message(&PathBuf::from("C:\\tmp\\plain.txt"), &ProcessError::Io { os_code: Some(193) }),
+                Some("spawn EFTYPE".to_owned())
+            );
+        }
+        // Node words an EACCES start like ENOENT (also asynchronous, with the path); a refusal
+        // that is not an OS failure keeps the backend's own wording.
+        assert_eq!(
+            node_spawn_message(Path::new("/x/h"), &ProcessError::PermissionDenied).as_deref(),
+            Some("computer host failed to start: spawn /x/h EACCES")
+        );
+        assert_eq!(node_spawn_message(Path::new("/x/h"), &ProcessError::LimitReached { limit: 1 }), None);
+    }
+}
+
+
+
+
+
+
+
+struct Host {
+    handle: ProcessHandle,
+    /// The helper's operating-system process id (what the spawn answered).
+    pid: u32,
+    pending: Pending,
+    alive: Arc<AtomicBool>,
+    /// Turns true once the process has exited and `pump` has failed its waiters.
+    exited: watch::Receiver<bool>,
+}
+
+
+impl Host {
+    /// Kills the helper and waits for its exit, so a cleanup run that follows starts after it.
+    async fn stop(mut self, manager: &dyn ProcessManager) {
+        let _ = manager.kill(&self.handle);
+        let _ = self.exited.wait_for(|exited| *exited).await.is_ok();
+    }
+}
+
+
+/// Where the helper's output lines go: replies to the requests they answer, foreground-lease asks to the relay (which
+/// answers on stdin outside the turn gate), pointer progress to the desktop's overlay.
+struct Readers {
+    pending: Pending,
+    relay: computer_lease::Relay,
+    pointer: computer_feedback::Pointer,
+    /// Told once the helper's output has ended and its waiters are failed (`ProcessComputerBackend::watch_for_death`).
+    gone: Arc<tokio::sync::Notify>,
+    /// The helper counts as a live process until its output has ended.
+    live: Option<LiveProcess>,
+}
+
+
+/// Hands one output line to its reader; any other line is the helper's own noise.
+fn deliver(readers: &Readers, line: &str) {
+    if let Some(body) = line.strip_prefix(computer_lease::LINE_MARKER) {
+        readers.relay.on_line(body);
+        return;
+    }
+    if let Some(body) = line.strip_prefix(computer_feedback::LINE_MARKER) {
+        readers.pointer.on_line(body);
+        return;
+    }
+    let Some(body) = line.strip_prefix(RESPONSE_MARKER) else { return };
+    let (id, outcome) = if body.len() > MAX_RESPONSE_BYTES {
+        // Too large to trust or parse; the id is still the number after `"id":`.
+        let text = "computer_response_too_large: worker output exceeded byte limit".to_owned();
+        (leading_id(body), Err(HelperFailure { text, result: None }))
+    } else {
+        match serde_json::from_str::<Value>(body) {
+            Ok(value) => (value.get("id").and_then(Value::as_i64), envelope(value)),
+            Err(_) => return,
+        }
+    };
+    let waiter = id.and_then(|id| locked(&readers.pending).remove(&id));
+    // What the desktop's lease owner did for the action joins the helper's own account (`worker-pool.ts`); a failed reply
+    // drops them.
+    let facts = id.and_then(|id| readers.relay.take_facts(id));
+    let outcome = match (outcome, facts) {
+        (Ok(mut result), Some(facts)) => {
+            let mut lock = result.get("foreground_lock").and_then(Value::as_object).cloned().unwrap_or_default();
+            lock.insert("host".into(), facts);
+            result.insert("foreground_lock".into(), Value::Object(lock));
+            Ok(result)
+        }
+        (outcome, _) => outcome,
+    };
+    if let Some(waiter) = waiter {
+        waiter(outcome);
+    }
+}
+
+
 /// Reads the helper's output events until it exits.
 async fn pump(mut events: Box<dyn EventSource<ProcessEvent>>, mut readers: Readers, alive: Arc<AtomicBool>, exited: watch::Sender<bool>) {
     let mut lines = LineSplitter::default();
@@ -513,20 +1985,6 @@ async fn pump(mut events: Box<dyn EventSource<ProcessEvent>>, mut readers: Reade
     readers.gone.notify_one();
 }
 
-/// Runs a process to its exit; true when it exited with code 0 (the cleanup's confirmation).
-async fn run_to_exit(manager: &dyn ProcessManager, request: SpawnRequest) -> bool {
-    let handle = request.handle.clone();
-    if manager.spawn(request).await.is_err() {
-        return false;
-    }
-    let Ok(mut events) = manager.subscribe(&handle, Some(0)) else { return false };
-    while let Some(event) = events.next().await {
-        if let ProcessEvent::Exited { exit, .. } = event {
-            return matches!(exit.status, mixdog_core_api::domain::process::ExitStatus::Code(0));
-        }
-    }
-    false
-}
 
 pub struct ProcessComputerBackend {
     pub(super) config: ComputerConfig,
@@ -571,31 +2029,19 @@ pub struct ProcessComputerBackend {
     /// The `capture_attempts` a failed capture's helper reply carried, kept for the run record of the command that failed
     /// (`attachCaptureAttempts`, `captureAttemptsFromError`); taken by `keep_record`.
     failed_capture_attempts: Mutex<Option<Value>>,
+    /// The scope this backend acts under: checked where a command is handed to the helper or the desktop, committed by the process
+    /// manager where a helper is created, named in every desktop request.
+    authority: Authority,
+    /// `revoke_and_stop`, run once: every caller after the first waits for the same acknowledgement.
+    revocation: tokio::sync::OnceCell<bool>,
 }
 
-/// What a backend keeps of its commands under the data directory: the run history, the failure bundles and the frames
-/// `image_output: "file"` moves out of the conversation.
-pub(super) struct DataFiles {
-    runs: RunLog,
-    failures: FailureBundles,
-    pub(super) images: ImageOutput,
-}
-
-impl DataFiles {
-    fn under(data_dir: &Path) -> Self {
-        Self { runs: RunLog::new(data_dir), failures: FailureBundles::new(data_dir), images: ImageOutput::new(data_dir) }
-    }
-
-    /// One diagnostic row of the session's failure bundle (`recordDiagnostic`).
-    pub(super) fn diagnose(&self, session: &str, row: &Map<String, Value>) {
-        self.failures.record(session, row);
-    }
-}
 
 /// The environment the Linux preflight reads, taken afresh for each action.
 pub(super) struct LinuxSession {
     pub(super) env: Box<dyn Fn() -> computer_linux::Env + Send + Sync>,
 }
+
 
 impl LinuxSession {
     /// The machine this process runs on; no session on any other platform.
@@ -611,16 +2057,6 @@ impl LinuxSession {
     }
 }
 
-/// Told when this session's visible execution opens and closes: the edges of `executing`, which the
-/// computer-use pill follows (`beginCommand` / `endExecution` of Node's coordinator).
-pub trait ExecutionObserver: Send + Sync {
-    /// An action ran with no execution open. `observe_only` is the setting that action read.
-    fn began(&self, observe_only: bool);
-    /// The open execution ended: `execution_end`, an abort, a release or a cancelled call.
-    fn ended(&self);
-    /// A helper cleanup started or finished, which the section's `cleanupState` shows.
-    fn cleanup_changed(&self) {}
-}
 
 impl ProcessComputerBackend {
     /// Reports the execution's edges to `observer`.
@@ -696,7 +2132,20 @@ impl ProcessComputerBackend {
             cleaning: Arc::default(),
             arrivals: computer_settle::Arrivals::default(),
             failed_capture_attempts: Mutex::new(None),
+            authority: Authority::default(),
+            revocation: tokio::sync::OnceCell::new(),
         }
+    }
+
+    /// Acts, and starts helpers, only under `authority` (one scope per backend, made by the pool).
+    pub fn with_authority(mut self, authority: Authority) -> Self {
+        self.authority = authority;
+        self
+    }
+
+    /// The scope this backend acts under.
+    pub fn authority(&self) -> &Authority {
+        &self.authority
     }
 
     /// Keeps the attempts a failed capture reported for the run record of the command that fails with it.
@@ -906,7 +2355,8 @@ impl ProcessComputerBackend {
             pty: None,
             stdin_piped,
             output: OutputMode::Separate,
-            owner: ProcessOwner::ComputerHelper,
+            // Created only while this backend's scope holds, and found by its revocation (the manager's launch commit).
+            owner: ProcessOwner::ComputerHelper { scope: Some(self.authority.launch_scope()) },
             // A cleanup run is bounded as Node's (`lifecycle-abort.ts` `ABORT_CLEANUP_TIMEOUT_MS`): a hung one is killed and
             // reads as unconfirmed, and never holds the turn or a sweep.
             time_limit: (!stdin_piped).then_some(ABORT_CLEANUP_TIME_LIMIT),
@@ -938,6 +2388,10 @@ impl ProcessComputerBackend {
     }
 
     async fn spawn(&self) -> Result<Host, ComputerError> {
+        // The first look, before the preparation (the ledger sweep, the desktop's bounds) is awaited. It does not bind: the binding check
+        // is the process manager's launch commit, taken at the creation itself, so a revocation during the preparation, or while the
+        // launch waits in the manager's queue, starts nothing.
+        self.authority.check()?;
         let unavailable = |error: String| ComputerError::Unavailable {
             reason: format!("computer_backend_unavailable: cannot start {}: {error}", self.config.binary.display()),
         };
@@ -947,9 +2401,10 @@ impl ProcessComputerBackend {
         let request = self.resident(self.desktop_bounds().await).await?;
         let handle = request.handle.clone();
         let live = self.shared.live.hold();
-        let spawned = self.manager.spawn(request).await.map_err(|error| match node_spawn_message(&self.config.binary, &error) {
-            Some(text) => ComputerError::Unavailable { reason: text },
-            None => unavailable(format!("{error:?}")),
+        let spawned = self.manager.spawn(request).await.map_err(|error| match (&error, node_spawn_message(&self.config.binary, &error)) {
+            (ProcessError::Revoked, _) => bridge_unavailable(),
+            (_, Some(text)) => ComputerError::Unavailable { reason: text },
+            (_, None) => unavailable(format!("{error:?}")),
         })?;
         let events = match self.manager.subscribe(&handle, Some(0)) {
             Ok(events) => events,
@@ -986,6 +2441,7 @@ impl ProcessComputerBackend {
         } else {
             computer_feedback::mark(&mut command, self.desktop.as_ref());
         }
+        let lifecycle = is_lifecycle(text(&command, "action"));
         let line = Value::Object(command).to_string();
         if line.len() > MAX_REQUEST_BYTES {
             return Err(ComputerError::InvalidInput {
@@ -994,6 +2450,8 @@ impl ProcessComputerBackend {
         }
         let (reply, receive) = oneshot::channel();
         let _turn = self.turn.enter(cancel).await.map_err(|_| ComputerError::Cancelled)?;
+        // The switch may have gone off, or this backend been revoked, while the request waited for the lane or the turn.
+        self.admitted(lifecycle)?;
         // The pool's in-flight cap counts dispatched requests, not ones still waiting for the turn, and refuses before a helper
         // is even started (`worker-pool.ts:270`).
         let slot = self.shared.in_flight.begin()?;
@@ -1016,6 +2474,9 @@ impl ProcessComputerBackend {
                 live
             }
         };
+        // Last look before the request leaves: a start that took time may have outlived the switch. The helper enforces the
+        // revocation itself at each primitive, so a request that leaves just before it commits nothing after it.
+        self.admitted(lifecycle)?;
         locked(&pending).insert(id, Box::new(move |outcome| {
             drop(slot);
             drop(reply.send(outcome));
@@ -1037,12 +2498,60 @@ impl ProcessComputerBackend {
         Ok(receive)
     }
 
+    /// Whether a command may still be handed over: a lifecycle command while the scope is not revoked (it releases what a live helper
+    /// holds, Computer Use switched off or not), any other while the scope is open.
+    fn admitted(&self, lifecycle: bool) -> Result<(), ComputerError> {
+        if lifecycle {
+            if self.authority.is_revoked() { Err(bridge_unavailable()) } else { Ok(()) }
+        } else {
+            self.authority.check()
+        }
+    }
+
+    /// The cleanup of a revoked scope, separate from an ordinary release: the scope is revoked (if it was not yet), and each helper
+    /// process created under it is revoked on its control path, which it takes without waiting for the command it runs; it then
+    /// refuses every primitive, lets go of the input it holds (its one teardown capability: no focus restore, no pointer move, no
+    /// capture) and exits. A run that reads no input is stopped. Nothing is started, no cleanup process included. True once every such
+    /// process acknowledged or exited (off is confirmed); a process that does not answer keeps this waiting (stopping), with no deadline.
+    /// What a process released is known when it exits: a teardown it did not confirm is recorded as an unconfirmed cleanup.
+    pub async fn revoke_and_stop(&self) -> bool {
+        *self.revocation.get_or_init(|| self.stop_revoked()).await
+    }
+
+    async fn stop_revoked(&self) -> bool {
+        self.authority.revoke();
+        self.close_execution();
+        self.bound.store(false, Ordering::SeqCst);
+        let (control, session) = (self.shared.user_control.clone(), self.config.session_id.clone());
+        let (hold, observer) = (self.shared.pointer_hold.clone(), self.observer.clone());
+        self.cleanup_changed();
+        // What a helper did not release stays recorded as the session's unconfirmed cleanup.
+        revoke_launched(self.manager.clone(), &self.authority, self.cleaning.clone(), Arc::new(move |released: bool| {
+            if !released {
+                control.cleanup_unconfirmed(&session);
+                if let Some(hold) = &hold {
+                    hold.paused();
+                }
+            }
+            if let Some(observer) = &observer {
+                observer.cleanup_changed();
+            }
+        }))
+        .await
+    }
+
     /// Stops the helper and releases whatever input it held, from a fresh process. True when that
-    /// cleanup confirmed.
+    /// cleanup confirmed. A revoked scope starts no cleanup process: its helpers are stopped by `revoke_and_stop`.
     pub(super) async fn retire(&self) -> bool {
+        if self.authority.is_revoked() {
+            return self.revoke_and_stop().await;
+        }
         // Under the turn: a request that found no helper cannot start a new one under this marker and ledger while the
         // cleanup still runs.
         let _turn = self.turn.enter(&CancellationToken::new()).await;
+        if self.authority.is_revoked() {
+            return self.revoke_and_stop().await;
+        }
         let host = locked(&self.host).take();
         if let Some(host) = host {
             host.stop(&*self.manager).await;
@@ -1052,6 +2561,9 @@ impl ProcessComputerBackend {
 
     /// One `--abort-cleanup` run with this session's restore points and ledger; true when it exited 0.
     async fn run_cleanup(&self) -> bool {
+        if self.authority.is_revoked() {
+            return self.revoke_and_stop().await;
+        }
         let confirmed = {
             let (_job, _live) = (Tally::up(&self.cleaning), self.shared.live.hold());
             self.cleanup_changed();
@@ -1061,6 +2573,10 @@ impl ProcessComputerBackend {
             }
         };
         self.cleanup_changed();
+        // Revoked while it was being started or ran: the run was refused or stopped, and the revocation's own stop answers instead.
+        if !confirmed && self.authority.is_revoked() {
+            return self.revoke_and_stop().await;
+        }
         confirmed
     }
 
@@ -1286,7 +2802,10 @@ impl ProcessComputerBackend {
     }
 
     /// The desktop that serves the computer host's reads, or Node's refusal when none does (`client.mjs` `BRIDGE_UNAVAILABLE_MESSAGE`).
+    /// The channel is the pool's scoped one (`ScopedDesktop`): every request of capture, zoom, lease and feedback names this backend's
+    /// scope, and none is sent or answered once it is revoked.
     pub(super) fn desktop(&self) -> Result<&Arc<dyn HostChannel>, ComputerError> {
+        self.authority.check()?;
         match &self.desktop {
             Some(desktop) if desktop.serves(HostCapability::Computer) => Ok(desktop),
             _ => Err(bridge_unavailable()),
@@ -1309,11 +2828,16 @@ impl ProcessComputerBackend {
     }
 }
 
+
 impl Drop for ProcessComputerBackend {
     fn drop(&mut self) {
         // Ends watch_for_death's tasks.
         self.gone.notify_one();
         self.arrivals.wake.notify_one();
+        // A revoked scope's helpers are stopped by its revocation, which lets them release their input; nothing is started here.
+        if self.authority.is_revoked() {
+            return;
+        }
         let held = locked(&self.host).take();
         let Some(host) = held else { return };
         let manager = self.manager.clone();
@@ -1335,94 +2859,6 @@ impl Drop for ProcessComputerBackend {
     }
 }
 
-fn leading_id(body: &str) -> Option<i64> {
-    let rest = body.split("\"id\":").nth(1)?;
-    js_trim_start(rest).split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
-}
-
-/// A reply envelope: its `result` object, or its `error` text with the `result` an `ok:false` reply carried.
-fn envelope(value: Value) -> Reply {
-    let Value::Object(mut object) = value else { return Ok(Map::new()) };
-    let result = match object.shift_remove("result") {
-        Some(Value::Object(result)) => Some(result),
-        _ => None,
-    };
-    if object.get("ok").and_then(Value::as_bool) == Some(false) {
-        let text = object.get("error").and_then(Value::as_str).unwrap_or("computer host request failed").to_string();
-        return Err(HelperFailure { text, result });
-    }
-    Ok(result.unwrap_or_default())
-}
-
-/// The reply of a semantic action the core runs itself (a saved-login fill), shaped from the helper-style result as the host shapes
-/// an action's reply (`semanticActionReply`: `ok`, `message`, `effect`, `verified`, `goal_verified`, `delivery`, `verdict`, ...).
-pub fn semantic_payload(action: &str, result: &Map<String, Value>) -> Map<String, Value> {
-    computer_reply::payload(action, result)
-}
-
-/// What Node's client answers when no desktop publishes the bridge: an error result of its own, with no recovery.
-fn bridge_unavailable() -> ComputerError {
-    ComputerError::Failed { code: REPORTED_CODE.into(), message: format!("Error: {BRIDGE_UNAVAILABLE_MESSAGE}") }
-}
-
-fn host_exited() -> ComputerError {
-    ComputerError::Failed { code: "computer_host_exited".into(), message: "the computer host stopped".into() }
-}
-
-/// The words of an error as the model reads them.
-pub(super) fn error_text(error: &ComputerError) -> String {
-    match error {
-        ComputerError::Failed { message, .. } => message.clone(),
-        ComputerError::Unavailable { reason } | ComputerError::InvalidInput { reason } => reason.clone(),
-        ComputerError::Denied => "denied".to_owned(),
-        ComputerError::Cancelled => "cancelled".to_owned(),
-    }
-}
-
-pub(super) fn unsupported(reason: &str) -> ComputerError {
-    ComputerError::Unavailable { reason: reason.into() }
-}
-
-fn host_error(message: &str) -> ComputerError {
-    let code = error_code(message);
-    ComputerError::Failed { code: if code.is_empty() { "computer_failed".into() } else { code }, message: message.to_string() }
-}
-
-pub(super) fn text_of(result: &Map<String, Value>) -> String {
-    match result.get("text") {
-        Some(Value::String(text)) => text.clone(),
-        _ => "OK".into(),
-    }
-}
-
-/// Tool parts of one helper result: its text, and its image when it carries one
-/// (`validateComputerReply` bounds both).
-pub(super) fn parts_of(result: &Map<String, Value>) -> Result<Vec<ToolPart>, ComputerError> {
-    let invalid = |reason: &str| ComputerError::Failed { code: "computer_invalid_reply".into(), message: reason.into() };
-    let text = text_of(result);
-    if utf16_len(&text) > MAX_TEXT_CHARS {
-        return Err(invalid("computer bridge returned invalid or oversized text"));
-    }
-    let mut parts = vec![ToolPart::Text(text)];
-    let image = match (result.get("image_base64"), result.get("image")) {
-        (Some(Value::String(data)), _) => Some(("image/png", data.as_str())),
-        (_, Some(Value::Object(image))) => match (image.get("mimeType").and_then(Value::as_str), image.get("data").and_then(Value::as_str)) {
-            (Some(mime @ ("image/png" | "image/jpeg")), Some(data)) => Some((mime, data)),
-            _ => return Err(invalid("computer bridge returned an invalid or oversized image")),
-        },
-        _ => None,
-    };
-    if let Some((mime, data)) = image {
-        if data.len() > MAX_IMAGE_CHARS {
-            return Err(invalid("computer bridge returned an invalid or oversized image"));
-        }
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(data)
-            .map_err(|_| invalid("computer bridge returned an invalid or oversized image"))?;
-        parts.push(ToolPart::Image { mime: mime.into(), data: ImageData::Bytes(bytes), width: None, height: None });
-    }
-    Ok(parts)
-}
 
 #[async_trait]
 impl ComputerSecretHost for ProcessComputerBackend {
@@ -1441,6 +2877,8 @@ impl ComputerSecretHost for ProcessComputerBackend {
         // session's budget, waits out the person's pause outside the lane, takes the desktop's lane and the person's hold, and what
         // interrupts it yields the session (`runCommand`). A command the person's hold answers instead of running is a refusal here.
         let held = |parts: Vec<ToolPart>| parts.into_iter().find_map(|part| if let ToolPart::Text(text) = part { Some(text) } else { None }).unwrap_or_else(|| "computer command was held".to_owned());
+        // Off is reported as off, before the person's hold or the budget can answer in their own words; `send` looks again where it acts.
+        self.authority.check().map_err(message_of)?;
         let cancel = CancellationToken::new();
         let _slot = self.shared.budget.acquire(&self.config.session_id).map_err(message_of)?;
         let control = &self.shared.user_control;
@@ -1460,6 +2898,7 @@ impl ComputerSecretHost for ProcessComputerBackend {
         self.secret_focus.store(true, Ordering::SeqCst);
     }
 }
+
 
 #[async_trait]
 impl ComputerBackend for ProcessComputerBackend {
@@ -1502,6 +2941,7 @@ impl ComputerBackend for ProcessComputerBackend {
         ComputerStatus { active, observe_only: self.observe_only(), controller: None }
     }
 }
+
 
 impl ProcessComputerBackend {
     /// One command from its admission to the helper's reply; `run` adds the recapture a stale refusal calls for.
@@ -1737,14 +3177,6 @@ impl ProcessComputerBackend {
     }
 }
 
-/// The frame a reply text names: its `frame_id` field, or the `frame_id=<id>` its description carries.
-fn frame_id_of(text: &str) -> Option<String> {
-    if let Ok(Value::Object(payload)) = serde_json::from_str::<Value>(text) {
-        return payload.get("frame_id").and_then(Value::as_str).map(str::to_owned);
-    }
-    let rest = text.split("frame_id=").nth(1)?;
-    rest.split(|c: char| c.is_whitespace() || c == ';').next().filter(|id| !id.is_empty()).map(str::to_owned)
-}
 
 /// The text a display's pixels are recognized with is the helper's (`ocr_image`), as the window captures' own is.
 #[async_trait]
@@ -1755,1140 +3187,5 @@ impl DisplayOcr for ProcessComputerBackend {
         command.insert("ocr_language".into(), json!(language));
         command.insert("max_ocr_words".into(), json!(limit));
         self.call_with(command, OCR_IMAGE_TIMEOUT, cancel).await
-    }
-}
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The text the model reads for a helper that cannot start is Node's, recorded from the real
-    /// `child_process.spawn` (`record-computer-spawn-error.mjs`): a missing file and a missing
-    /// directory are asynchronous ENOENT with the path; a file that is not an executable is
-    /// A dropped or refused queued scan remains eligible for recovery.
-    #[test]
-    fn a_dropped_or_rejected_pre_recovery_scan_does_not_claim_the_directory() {
-        use std::future::{Future, pending, ready};
-        use std::task::{Context, Poll, Waker};
-        let paths = Mutex::new(std::collections::HashSet::new());
-        let path = Path::new("owned-scan-fixture");
-        let mut context = Context::from_waker(Waker::noop());
-        let mut cancelled = Box::pin(scan_before_claim(&paths, path, pending::<Result<(), String>>()));
-        assert!(matches!(cancelled.as_mut().poll(&mut context), Poll::Pending));
-        drop(cancelled);
-        assert!(!locked(&paths).contains(path));
-        let mut rejected = Box::pin(scan_before_claim(&paths, path, ready(Err::<(), _>("lane admission failed".to_owned()))));
-        assert!(matches!(rejected.as_mut().poll(&mut context), Poll::Ready(None)));
-        drop(rejected);
-        assert!(!locked(&paths).contains(path));
-        let mut scanned = Box::pin(scan_before_claim(&paths, path, ready(Ok::<_, String>(()))));
-        assert!(matches!(scanned.as_mut().poll(&mut context), Poll::Ready(Some(()))));
-        drop(scanned);
-        // Once replay can start, cancellation must keep the same once-per-folder
-        // claim the old synchronous scan established before its first replay await.
-        assert!(locked(&paths).contains(path));
-    }
-
-    /// Windows' EFTYPE, thrown without one (the recording is Windows').
-    #[test]
-    fn a_helper_that_cannot_start_is_worded_as_nodes_spawn_error() {
-        let golden: Value = serde_json::from_str(include_str!("golden/computer_spawn_error.json")).unwrap();
-        let mut checked = 0;
-        for case in golden["cases"].as_array().unwrap() {
-            let error = match case["code"].as_str().unwrap() {
-                "ENOENT" => ProcessError::ProgramNotFound { program: String::new() },
-                "EFTYPE" if cfg!(windows) => ProcessError::Io { os_code: Some(193) },
-                _ => continue,
-            };
-            let binary = PathBuf::from(case["binary"].as_str().unwrap().replace("<DIR>", "C:\\tmp"));
-            let want = case["text"].as_str().unwrap().replace("<DIR>", "C:\\tmp");
-            assert_eq!(node_spawn_message(&binary, &error), Some(want), "{}", case["name"]);
-            checked += 1;
-        }
-        assert!(checked >= 2);
-        // Node words an EACCES start like ENOENT (also asynchronous, with the path); a refusal
-        // that is not an OS failure keeps the backend's own wording.
-        assert_eq!(
-            node_spawn_message(Path::new("/x/h"), &ProcessError::PermissionDenied).as_deref(),
-            Some("computer host failed to start: spawn /x/h EACCES")
-        );
-        assert_eq!(node_spawn_message(Path::new("/x/h"), &ProcessError::LimitReached { limit: 1 }), None);
-    }
-
-    fn input(value: Value) -> Map<String, Value> {
-        value.as_object().cloned().unwrap_or_default()
-    }
-
-    /// A stale target refused an input action on a window: the exact window is captured again before the call ends (the refusal
-    /// stays the call's error when that capture cannot be made); a refusal that is not stale, or a read, captures nothing.
-    #[tokio::test]
-    async fn a_stale_refusal_of_an_input_on_a_window_asks_for_a_capture_of_that_window() {
-        let window = |operation: &str| ComputerRequest { action: ComputerAction::Window, input: json!({"operation": operation, "window_id": "w1"}) };
-        let captures = |manager: &Answering| locked(&manager.lines).iter().filter(|line| !matches!(line["action"].as_str(), Some("focus_window" | "move_window")) && line["window_id"] == "w1").count();
-
-        let manager = Arc::new(Answering::default());
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
-        let refused = backend.run(window("focus"), CancellationToken::new()).await.unwrap();
-        assert!(matches!(&refused[0], ToolPart::Text(text) if text.starts_with("Error: stale_target: window w1 is gone") && text.contains("window w1 was captured again below")), "{refused:?}");
-        // The capture's own parts follow the refusal: the pixels' text, then their image.
-        let fresh = refused.iter().position(|part| *part == ToolPart::Text("fresh".into())).unwrap_or_else(|| panic!("{refused:?}"));
-        let image = ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(b"hi".to_vec()), width: None, height: None };
-        assert!(fresh > 0 && refused[fresh + 1..].contains(&image), "{refused:?}");
-        assert!(captures(&manager) > 0, "{:?}", locked(&manager.lines));
-
-        let manager = Arc::new(Answering::default());
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
-        let moved = ComputerRequest { action: ComputerAction::Window, input: json!({"operation": "move", "window_id": "w1", "x": 1}) };
-        backend.run(moved, CancellationToken::new()).await.unwrap_err();
-        assert!(locked(&manager.lines).iter().any(|line| line["action"] == "move_window"), "{:?}", locked(&manager.lines));
-        assert_eq!(captures(&manager), 0, "{:?}", locked(&manager.lines));
-    }
-
-    /// A recapture that fails leaves the original refusal as the call's error, and the model reads it with its recovery.
-    #[tokio::test]
-    async fn a_failed_recapture_keeps_the_original_refusal_and_its_recovery() {
-        let manager = Arc::new(Answering::default());
-        manager.capture_refused.store(true, Ordering::SeqCst);
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
-        let focus = ComputerRequest { action: ComputerAction::Window, input: json!({"operation": "focus", "window_id": "w1"}) };
-        let error = backend.run(focus, CancellationToken::new()).await.unwrap_err();
-        assert!(locked(&manager.lines).iter().any(|line| line["action"] == "window_capture" && line["window_id"] == "w1"), "{:?}", locked(&manager.lines));
-        let ComputerError::Failed { code, message } = &error else { panic!("{error:?}") };
-        let args = json!({"action": "window", "input": {"window_id": "w1"}});
-        let text = super::super::computer::failure_text(code, message, &args);
-        assert!(text.starts_with("Error: stale_target: window w1 is gone"), "{text}");
-        assert!(text.contains("Recovery: Capture window w1 again"), "{text}");
-        assert!(!text.contains("captured again below"), "{text}");
-    }
-
-    #[test]
-    fn error_codes_and_replies() {
-        assert_eq!(error_code("Error: Stale_Target: gone"), "stale_target");
-        assert_eq!(error_code("no code here"), "");
-        assert_eq!(error_code("capture_source_unavailable|x"), "capture_source_unavailable");
-        let result = input(json!({"text":"hi","image_base64":"aGk="}));
-        let parts = parts_of(&result).unwrap();
-        assert_eq!(parts[0], ToolPart::Text("hi".into()));
-        assert_eq!(parts[1], ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(b"hi".to_vec()), width: None, height: None });
-        assert!(parts_of(&input(json!({"image":{"data":"aGk=","mimeType":"image/gif"}}))).is_err());
-        assert_eq!(envelope(json!({"id":1,"ok":false,"error":"x"})), Err(HelperFailure { text: "x".into(), result: None }));
-        assert_eq!(leading_id("{\"id\": 42,\"ok\":true"), Some(42));
-    }
-
-    /// An `ok:false` reply keeps the `result` it carried (a capture's `capture_cleanup`), and its text is the error as before.
-    #[test]
-    fn a_failed_reply_keeps_the_result_it_carried() {
-        let reply = envelope(json!({"id":1,"ok":false,"error":"capture_failed: x","result":{"capture_cleanup":{"status":"unconfirmed"}}}));
-        let failure = reply.unwrap_err();
-        assert_eq!(failure.text, "capture_failed: x");
-        assert_eq!(failure.result.as_ref().and_then(|result| result.get("capture_cleanup")), Some(&json!({"status":"unconfirmed"})));
-        assert_eq!(failure.into_error(), ComputerError::Failed { code: "capture_failed".into(), message: "capture_failed: x".into() });
-        assert_eq!(envelope(json!({"id":2,"ok":true,"result":{"text":"a"}})), Ok(input(json!({"text":"a"}))));
-    }
-
-    #[test]
-    fn output_is_split_into_lines_like_buf_read_lines() {
-        let mut lines = LineSplitter::default();
-        assert_eq!(lines.push(b"one\r\ntw"), (vec!["one".to_owned()], false));
-        assert_eq!(lines.push(b"o\n\nthr"), (vec!["two".to_owned(), String::new()], false));
-        assert_eq!(lines.push(b"ee"), (Vec::<String>::new(), false));
-        assert_eq!(lines.finish(), Some("three".to_owned()));
-        assert_eq!(lines.finish(), None);
-        let (done, broken) = lines.push(b"ok\n\xff\nlater\n");
-        assert_eq!((done, broken), (vec!["ok".to_owned()], true));
-    }
-
-    struct Script(std::collections::VecDeque<ProcessEvent>);
-
-    #[async_trait]
-    impl EventSource<ProcessEvent> for Script {
-        async fn next(&mut self) -> Option<ProcessEvent> {
-            self.0.pop_front()
-        }
-    }
-
-    /// The readers of a helper with no desktop.
-    fn readers(pending: &Pending) -> Readers {
-        Readers {
-            pending: pending.clone(),
-            relay: computer_lease::Relay::new(Arc::new(Answering::default()), ProcessHandle("h".into()), pending.clone(), None),
-            pointer: computer_feedback::Pointer::new(None, "s1"),
-            gone: Arc::default(),
-            live: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn replies_are_delivered_before_the_waiters_of_an_exited_host_are_failed() {
-        use mixdog_core_api::domain::process::ExitStatus;
-        use mixdog_core_api::domain::process::ProcessExit;
-
-        let pending: Pending = Arc::default();
-        let outcomes = Arc::new(Mutex::new(Vec::new()));
-        for id in [1, 2] {
-            let outcomes = outcomes.clone();
-            locked(&pending).insert(id, Box::new(move |outcome| locked(&outcomes).push((id, outcome))));
-        }
-        let output = |seq, stream, text: &str| ProcessEvent::Output { seq, stream, bytes: text.as_bytes().to_vec() };
-        let events = Script(
-            [
-                output(0, OutputStream::Stdout, "noise\n@@MIXCU@@{\"id\":1,\"ok\":tr"),
-                output(1, OutputStream::Stderr, "ignored\n"),
-                output(2, OutputStream::Stdout, "ue,\"result\":{\"text\":\"a\"}}\r\n"),
-                ProcessEvent::Exited { seq: 3, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } },
-            ]
-            .into(),
-        );
-        let alive = Arc::new(AtomicBool::new(true));
-        let (done, exited) = watch::channel(false);
-        pump(Box::new(events), readers(&pending), alive.clone(), done).await;
-        assert!(!alive.load(Ordering::SeqCst));
-        assert!(*exited.borrow());
-        let outcomes = locked(&outcomes);
-        assert_eq!(outcomes[0].0, 1);
-        assert_eq!(outcomes[0].1.as_ref().unwrap().get("text"), Some(&json!("a")));
-        assert_eq!(outcomes[1].0, 2);
-        assert!(outcomes[1].1.as_ref().unwrap_err().text.starts_with("computer_host_exited"));
-    }
-
-    /// Foreground-lease and pointer lines go to their readers: neither answers nor fails the request in flight, even one that
-    /// looks like its reply, and the reply that follows them is delivered.
-    #[tokio::test]
-    async fn side_lines_never_answer_or_fail_a_request() {
-        use mixdog_core_api::domain::process::ExitStatus;
-        use mixdog_core_api::domain::process::ProcessExit;
-
-        let pending: Pending = Arc::default();
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let into = seen.clone();
-        locked(&pending).insert(1, Box::new(move |outcome| locked(&into).push(outcome)));
-        let output = |seq, text: &str| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: text.as_bytes().to_vec() };
-        let events = Script(
-            [
-                output(0, "@@MIXDOG_FGLOCK@@ acquire 1 1 0 200 5.000\n@@MIXDOG_POINTER@@{\"id\":1,\"ok\":false,\"error\":\"not a reply\"}\n"),
-                output(1, "@@MIXDOG_FGLOCK@@{\"id\":1\n@@MIXCU@@{\"id\":1,\"ok\":true,\"result\":{\"text\":\"a\"}}\n"),
-                ProcessEvent::Exited { seq: 2, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } },
-            ]
-            .into(),
-        );
-        let (done, _exited) = watch::channel(false);
-        pump(Box::new(events), readers(&pending), Arc::new(AtomicBool::new(true)), done).await;
-        // Had a side line answered or failed request 1, its waiter would hold that outcome and the reply would find none.
-        let want: Vec<Reply> = vec![Ok(input(json!({"text":"a"})))];
-        assert_eq!(*locked(&seen), want);
-    }
-
-    type Feeds = Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<ProcessEvent>>>;
-
-    /// A helper that answers every request line `ok` (except a `hang`, a `fail` that carries a result, and a `chatty` that
-    /// writes side lines first) and a cleanup run that exits 0, with no OS process behind it: the backend's own launch, write and
-    /// reply code runs, on every platform. It keeps every start and every request line.
-    #[derive(Default)]
-    struct Answering {
-        senders: Feeds,
-        receivers: Mutex<HashMap<String, tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>>,
-        seq: AtomicU64,
-        spawned: Mutex<Vec<SpawnRequest>>,
-        lines: Mutex<Vec<Value>>,
-        /// The cleanup runs exit 1 instead of 0.
-        failing_cleanup: AtomicBool,
-        /// The helper takes every request and answers none of them.
-        silent: AtomicBool,
-        /// The pixels of window `w1` are answered with an error instead of a frame.
-        capture_refused: AtomicBool,
-    }
-
-    struct Feed(tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>);
-
-    #[async_trait]
-    impl EventSource<ProcessEvent> for Feed {
-        async fn next(&mut self) -> Option<ProcessEvent> {
-            self.0.recv().await
-        }
-    }
-
-    impl Answering {
-        fn emit(&self, handle: &ProcessHandle, event: impl FnOnce(u64) -> ProcessEvent) {
-            let seq = self.seq.fetch_add(1, Ordering::SeqCst);
-            let sender = locked(&self.senders).get(&handle.0).cloned().expect("a spawned handle");
-            // A helper that already exited has no listener left.
-            let _ = sender.send(event(seq));
-        }
-
-        fn say(&self, handle: &ProcessHandle, line: String) {
-            self.emit(handle, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: format!("{line}\n").into_bytes() });
-        }
-
-        fn exit(seq: u64, killed: Option<mixdog_core_api::domain::process::KillReason>) -> ProcessEvent {
-            Self::exit_with(seq, 0, killed)
-        }
-
-        fn exit_with(seq: u64, code: i32, killed: Option<mixdog_core_api::domain::process::KillReason>) -> ProcessEvent {
-            use mixdog_core_api::domain::process::ExitStatus;
-            use mixdog_core_api::domain::process::ProcessExit;
-            ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(code), killed } }
-        }
-    }
-
-    #[async_trait]
-    impl ProcessManager for Answering {
-        async fn spawn(&self, request: SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, ProcessError> {
-            let (send, receive) = tokio::sync::mpsc::unbounded_channel();
-            locked(&self.senders).insert(request.handle.0.clone(), send);
-            locked(&self.receivers).insert(request.handle.0.clone(), receive);
-            locked(&self.spawned).push(request.clone());
-            if !request.stdin_piped {
-                let code = i32::from(self.failing_cleanup.load(Ordering::SeqCst));
-                self.emit(&request.handle, |seq| Self::exit_with(seq, code, None));
-            }
-            Ok(mixdog_core_api::domain::process::SpawnedProcess { handle: request.handle, pid: 1 })
-        }
-
-        fn subscribe(&self, handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
-            let receive = locked(&self.receivers).remove(&handle.0).ok_or(ProcessError::UnknownHandle)?;
-            Ok(Box::new(Feed(receive)))
-        }
-
-        async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
-            let request: Value = serde_json::from_slice(&bytes).expect("a request line");
-            locked(&self.lines).push(request.clone());
-            let id = &request["id"];
-            match request["action"].as_str() {
-                _ if self.silent.load(Ordering::SeqCst) => {}
-                Some("hang") => {}
-                Some("window_capture") if request["window_id"] == "w1" && self.capture_refused.load(Ordering::SeqCst) => {
-                    self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "window_target_not_found: w1 is closed"})))
-                }
-                Some("window_capture") if request["window_id"] == "w1" => self.say(
-                    handle,
-                    format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"text": "fresh", "image_base64": "aGk="}})),
-                ),
-                Some("focus_window") => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "stale_target: window w1 is gone"}))),
-                Some("move_window") => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "window_not_movable: w1"}))),
-                Some("die") => self.emit(handle, |seq| Self::exit(seq, None)),
-                Some("stuck") => self.say(
-                    handle,
-                    format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"observer_ready": false, "observer_reason": "monitor_unresponsive"}})),
-                ),
-                Some("ready") => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"observer_ready": true}}))),
-                Some("fail") => self.say(
-                    handle,
-                    format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "capture_failed: x", "result": {"capture_cleanup": {"status": "unconfirmed"}}})),
-                ),
-                Some("chatty") => {
-                    self.say(handle, format!("@@MIXDOG_FGLOCK@@ acquire {id} 1 0 200 5.000"));
-                    self.say(handle, format!("@@MIXDOG_POINTER@@{}", json!({"id": id, "ok": false, "error": "not a reply"})));
-                    self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"text": "ok"}})));
-                }
-                _ => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"text": "ok"}}))),
-            }
-            Ok(())
-        }
-
-        fn close_stdin(&self, _: &ProcessHandle) -> Result<(), ProcessError> {
-            Err(ProcessError::StdinClosed)
-        }
-
-        fn resize_pty(&self, _: &ProcessHandle, _: mixdog_core_api::domain::process::PtySize) -> Result<(), ProcessError> {
-            Err(ProcessError::NotPty)
-        }
-
-        fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
-            self.emit(handle, |seq| Self::exit(seq, Some(mixdog_core_api::domain::process::KillReason::Requested)));
-            Ok(())
-        }
-
-        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
-            Vec::new()
-        }
-    }
-
-    #[derive(Default)]
-    struct Edges(Mutex<Vec<String>>);
-
-    impl ExecutionObserver for Edges {
-        fn began(&self, observe_only: bool) {
-            locked(&self.0).push(format!("began:{observe_only}"));
-        }
-        fn ended(&self) {
-            locked(&self.0).push("ended".into());
-        }
-    }
-
-    /// The edges of an open execution, which the computer pill follows, with a helper that starts and answers: the
-    /// first action opens it (a second inside it does not), and `execution_end`, an abort, a release and a
-    /// cancelled call each close it once. Runs on Windows too: the helper is the manager's seam, not a shell script.
-    #[tokio::test]
-    async fn the_execution_edges_of_a_started_helper_reach_the_observer() {
-        let edges = Arc::new(Edges::default());
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default())).with_observer(edges.clone());
-        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
-        let seen = || std::mem::take(&mut *locked(&edges.0));
-
-        backend.run(read(), CancellationToken::new()).await.unwrap();
-        assert!(backend.status().active, "the helper started and answered");
-        backend.run(read(), CancellationToken::new()).await.unwrap();
-        assert_eq!(seen(), ["began:false"], "the second action runs inside the open execution");
-        assert!(backend.end_execution().await);
-        assert_eq!(seen(), ["ended"]);
-        assert!(!backend.end_execution().await);
-        assert_eq!(seen(), Vec::<String>::new(), "nothing was open");
-
-        backend.run(read(), CancellationToken::new()).await.unwrap();
-        assert!(backend.abort_session().await);
-        assert_eq!(seen(), ["began:false", "ended"]);
-
-        backend.run(read(), CancellationToken::new()).await.unwrap();
-        assert!(backend.release_session().await);
-        assert_eq!(seen(), ["began:false", "ended"]);
-
-        backend.run(read(), CancellationToken::new()).await.unwrap();
-        let cancel = CancellationToken::new();
-        let receive = backend.send(input(json!({"action":"hang"})), &cancel).await.unwrap();
-        cancel.cancel();
-        assert_eq!(backend.wait_reply(receive, COMMAND_TIMEOUT, &cancel).await, Err(ComputerError::Cancelled));
-        assert_eq!(seen(), ["began:false", "ended"], "a cancelled call aborts the session");
-    }
-
-    /// A cleanup the helper cannot confirm (timeout, dead helper, abort) hands the desktop to the user, also once the session's
-    /// execution has closed (no session is open here), while the command keeps its own error (`lifecycle-abort.ts:unconfirmedCleanup`).
-    #[tokio::test]
-    async fn an_unconfirmed_cleanup_hands_the_desktop_to_the_user() {
-        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
-        let started = || {
-            let manager = Arc::new(Answering::default());
-            let control = Arc::new(UserControlState::default());
-            let shared = ComputerShared { user_control: control.clone(), ..ComputerShared::default() };
-            (ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared), manager, control)
-        };
-        let held = |control: &UserControlState| control.section().map(|section| section.reason);
-
-        let (backend, manager, control) = started();
-        backend.run(read(), CancellationToken::new()).await.unwrap();
-        assert!(backend.abort_session().await);
-        assert_eq!(held(&control), None, "a confirmed cleanup holds nothing");
-
-        manager.failing_cleanup.store(true, Ordering::SeqCst);
-        backend.run(read(), CancellationToken::new()).await.unwrap();
-        assert!(!backend.abort_session().await);
-        assert_eq!(held(&control).as_deref(), Some("input_cleanup_unconfirmed"));
-
-        let (backend, manager, control) = started();
-        backend.run(read(), CancellationToken::new()).await.unwrap();
-        manager.failing_cleanup.store(true, Ordering::SeqCst);
-        let cancel = CancellationToken::new();
-        let receive = backend.send(input(json!({"action":"hang"})), &cancel).await.unwrap();
-        let waited = backend.wait_reply(receive, Duration::from_millis(50), &cancel).await;
-        assert!(matches!(waited, Err(ComputerError::Failed { ref code, .. }) if code == "computer_command_timeout"), "{waited:?}");
-        assert_eq!(held(&control).as_deref(), Some("input_cleanup_unconfirmed"));
-
-        let (backend, manager, control) = started();
-        backend.run(read(), CancellationToken::new()).await.unwrap();
-        manager.failing_cleanup.store(true, Ordering::SeqCst);
-        let error = backend.call(input(json!({"action":"die"})), &CancellationToken::new()).await.unwrap_err();
-        assert!(matches!(&error, ComputerError::Failed { code, .. } if code == "computer_host_exited"), "{error:?}");
-        assert_eq!(held(&control).as_deref(), Some("input_cleanup_unconfirmed"));
-    }
-
-    /// A cleanup that did not confirm stays latched: Resume retries it once and leaves the desktop with the person while it still
-    /// does not confirm, and releases it when it does (`recoverLatchedCleanup`, `resumeByUser`).
-    #[tokio::test]
-    async fn a_latched_cleanup_is_recovered_before_resume() {
-        let manager = Arc::new(Answering::default());
-        let control = Arc::new(UserControlState::new(Duration::ZERO));
-        let shared = ComputerShared { user_control: control.clone(), ..ComputerShared::default() };
-        let backend = Arc::new(ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared));
-        control.register("s1", Arc::downgrade(&backend));
-        let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
-        backend.run(read, CancellationToken::new()).await.unwrap();
-        manager.failing_cleanup.store(true, Ordering::SeqCst);
-        assert!(!backend.abort_session().await);
-        assert!(control.is_latched());
-        assert_eq!(control.section().map(|section| section.reason).as_deref(), Some("input_cleanup_unconfirmed"));
-        assert!(!control.resume_verified(None).await, "the click alone does not clear it");
-        assert!(control.is_latched() && control.section().is_some());
-        manager.failing_cleanup.store(false, Ordering::SeqCst);
-        assert!(control.resume_verified(None).await);
-        assert!(!control.is_latched());
-        assert_eq!(control.section(), None);
-    }
-
-    /// A session holds four commands pending (`createComputerCommandBudget`): the fifth concurrent one through `run` is refused with
-    /// nothing queued, in the host's words, and a command that ended frees its slot.
-    #[tokio::test]
-    async fn the_fifth_concurrent_command_of_a_session_is_refused() {
-        let manager = Arc::new(Answering::default());
-        manager.silent.store(true, Ordering::SeqCst);
-        let shared = ComputerShared::default();
-        let backend = Arc::new(ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared.clone()));
-        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
-        let tokens: Vec<CancellationToken> = (0..4).map(|_| CancellationToken::new()).collect();
-        let running: Vec<_> = tokens
-            .iter()
-            .map(|token| {
-                let (backend, token) = (backend.clone(), token.clone());
-                tokio::spawn(async move { backend.run(read(), token).await })
-            })
-            .collect();
-        for _ in 0..500 {
-            if shared.budget.pending_of("s1") == 4 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        assert_eq!(shared.budget.pending_of("s1"), 4, "four commands are pending");
-        let sent = locked(&manager.lines).len();
-        let fifth = backend.run(read(), CancellationToken::new()).await;
-        assert!(
-            matches!(&fifth, Err(ComputerError::Failed { code, message })
-                if code == "computer_capacity_exhausted" && message == "computer_capacity_exhausted: pending command limit reached; no input was queued"),
-            "{fifth:?}"
-        );
-        assert_eq!(locked(&manager.lines).len(), sent, "the refused command wrote nothing to the helper");
-        assert_eq!(shared.budget.pending_of("s1"), 4, "a refused command takes no slot");
-        for token in &tokens {
-            token.cancel();
-        }
-        for task in running {
-            assert!(task.await.unwrap().is_err(), "a cancelled command ends in an error");
-        }
-        assert_eq!(shared.budget.pending_of("s1"), 0, "the slots came back");
-    }
-
-    /// One marker per backend, in the helper's range: the resident helper, its `--abort-cleanup` run and the helper started
-    /// again after the abort all carry it, so the cleanup releases exactly what the helper injected.
-    #[tokio::test]
-    async fn the_resident_helper_and_its_cleanup_carry_one_input_marker() {
-        let manager = Arc::new(Answering::default());
-        let data = tempfile::tempdir().unwrap();
-        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "s1") };
-        let backend = ProcessComputerBackend::new(config, manager.clone());
-        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
-        backend.run(read(), CancellationToken::new()).await.unwrap();
-        assert!(backend.abort_session().await);
-        backend.run(read(), CancellationToken::new()).await.unwrap();
-
-        let spawned = locked(&manager.spawned).clone();
-        let args = |request: &SpawnRequest| match &request.command {
-            CommandSpec::Argv { args, .. } => args.clone(),
-            other => panic!("an argv command, got {other:?}"),
-        };
-        assert_eq!(spawned.iter().map(args).collect::<Vec<_>>(), [vec![], vec!["--abort-cleanup".to_owned()], vec![]], "resident, cleanup, resident");
-        let markers: Vec<Option<String>> = spawned
-            .iter()
-            .map(|request| request.env.set.iter().find(|(name, _)| name == "MIXDOG_COMPUTER_INPUT_MARKER").map(|(_, value)| value.clone()))
-            .collect();
-        let marker: i64 = markers[0].as_deref().expect("the resident helper carries the marker").parse().expect("a number");
-        assert!((1..=i64::from(i32::MAX)).contains(&marker), "{marker}");
-        assert!(markers.iter().all(|each| *each == markers[0]), "{markers:?}");
-        // The ledger the resident helper records into is the one the cleanup run replays.
-        let ledgers: Vec<Option<String>> = spawned
-            .iter()
-            .map(|request| request.env.set.iter().find(|(name, _)| name == "MIXDOG_COMPUTER_INACTIVE_LEDGER").map(|(_, value)| value.clone()))
-            .collect();
-        assert!(ledgers[0].is_some() && ledgers.iter().all(|each| *each == ledgers[0]), "{ledgers:?}");
-        assert!(data.path().join("computer").join("ledgers").is_dir());
-        // No desktop offers the lock here.
-        assert!(spawned.iter().all(|request| request.env.set.iter().all(|(name, _)| name != "MIXDOG_COMPUTER_HOST_FOREGROUND_LOCK")));
-        // Every run is the computer helper's (its job lets the cursor watchdog break away); only the cleanup is time-limited.
-        assert!(spawned.iter().all(|request| matches!(request.owner, ProcessOwner::ComputerHelper)));
-        let limits: Vec<Option<Duration>> = spawned.iter().map(|request| request.time_limit).collect();
-        assert_eq!(limits, [None, Some(ABORT_CLEANUP_TIME_LIMIT), None]);
-    }
-
-    /// The request a helper run is made from names the computer helper as its owner.
-    #[test]
-    fn a_helper_request_is_owned_by_the_computer_helper() {
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()));
-        let request = backend.request(vec![], true, vec![]).unwrap();
-        assert!(matches!(request.owner, ProcessOwner::ComputerHelper));
-        assert_eq!(request.time_limit, None);
-    }
-
-    fn cleanup_args(spawned: &[SpawnRequest]) -> Vec<&'static str> {
-        spawned
-            .iter()
-            .map(|request| match &request.command {
-                CommandSpec::Argv { args, .. } if args.first().is_some_and(|arg| arg == "--abort-cleanup") => "cleanup",
-                CommandSpec::Argv { .. } => "resident",
-                _ => "other",
-            })
-            .collect()
-    }
-
-    async fn wait_dead(backend: &ProcessComputerBackend) {
-        for _ in 0..1_000 {
-            let dead = locked(&backend.host).as_ref().is_some_and(|host| !host.alive.load(Ordering::SeqCst));
-            if dead {
-                return;
-            }
-            tokio::task::yield_now().await;
-        }
-        panic!("the helper did not register its exit");
-    }
-
-    /// A helper that exits while a request waits on it is cleaned up (`--abort-cleanup`) before the next one starts.
-    #[tokio::test]
-    async fn a_helper_that_exits_during_a_request_is_cleaned_up() {
-        let manager = Arc::new(Answering::default());
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
-        let cancel = CancellationToken::new();
-        let error = backend.call(input(json!({"action":"die"})), &cancel).await.unwrap_err();
-        assert!(matches!(&error, ComputerError::Failed { code, .. } if code == "computer_host_exited"), "{error:?}");
-        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup"]);
-        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
-        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup", "resident"]);
-    }
-
-    /// A helper that exits between requests is cleaned up before its replacement starts, and when an execution ends.
-    #[tokio::test]
-    async fn a_helper_that_exits_between_requests_is_cleaned_up_before_a_respawn() {
-        let manager = Arc::new(Answering::default());
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
-        let cancel = CancellationToken::new();
-        let exit_helper = || {
-            let handle = locked(&manager.spawned).last().expect("a helper").handle.clone();
-            manager.emit(&handle, |seq| Answering::exit(seq, None));
-        };
-        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
-        exit_helper();
-        wait_dead(&backend).await;
-        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
-        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup", "resident"]);
-
-        backend.executing.store(true, Ordering::SeqCst);
-        exit_helper();
-        wait_dead(&backend).await;
-        assert!(backend.end_execution().await);
-        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup", "resident", "cleanup"]);
-        assert!(!backend.has_live_host());
-    }
-
-    /// A helper that exits with no request waiting is cleaned up when its exit is seen, and once: the next command only starts
-    /// the replacement.
-    #[tokio::test]
-    async fn a_helper_that_exits_while_idle_is_cleaned_up_when_it_is_seen() {
-        let manager = Arc::new(Answering::default());
-        let backend = Arc::new(ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()));
-        backend.watch_for_death();
-        let cancel = CancellationToken::new();
-        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
-        let handle = locked(&manager.spawned).last().expect("a helper").handle.clone();
-        manager.emit(&handle, |seq| Answering::exit(seq, None));
-        for _ in 0..1_000 {
-            if cleanup_args(&locked(&manager.spawned)) == ["resident", "cleanup"] {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup"]);
-        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
-        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup", "resident"]);
-    }
-
-    /// A helper whose observer keeps answering `monitor_unresponsive` is retired; one reply that says it is ready starts the count over.
-    #[tokio::test]
-    async fn a_helper_with_an_unresponsive_observer_is_retired() {
-        let manager = Arc::new(Answering::default());
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
-        let cancel = CancellationToken::new();
-        for action in ["stuck", "stuck", "ready", "stuck", "stuck"] {
-            backend.call(input(json!({"action": action})), &cancel).await.unwrap();
-        }
-        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident"]);
-        assert!(backend.has_live_host());
-        backend.call(input(json!({"action":"stuck"})), &cancel).await.unwrap();
-        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup"]);
-        assert!(!backend.has_live_host());
-    }
-
-    /// A failure's text counts toward the limit only when it says the observation was lost to the monitor; a frame from before a
-    /// respawn ("original observation is unavailable (monitor_unresponsive)") is not the observer of this helper failing.
-    #[test]
-    fn only_a_lost_observation_text_counts_as_an_unresponsive_observer() {
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()));
-        let failed = |text: &str| -> Reply { Err(HelperFailure { text: text.into(), result: None }) };
-        let stale = "input_observation_unavailable: original observation is unavailable (monitor_unresponsive)";
-        for _ in 0..UNRESPONSIVE_LIMIT + 1 {
-            assert!(!backend.observer_stuck(&failed(stale)));
-        }
-        let lost = "input_observation_unavailable: input observation lost (monitor_unresponsive)";
-        let stuck: Vec<bool> = (0..UNRESPONSIVE_LIMIT).map(|_| backend.observer_stuck(&failed(lost))).collect();
-        assert_eq!(stuck, [false, false, true]);
-    }
-
-    /// The ledgers a dead core left are replayed once, before the first helper of this process starts, each with the marker its
-    /// name carries, and removed once confirmed; a later backend on the same folder does not touch the ledgers there.
-    #[tokio::test]
-    async fn the_ledgers_a_dead_core_left_are_swept_before_the_first_helper() {
-        let manager = Arc::new(Answering::default());
-        let data = tempfile::tempdir().unwrap();
-        let folder = computer_env::ledger_folder(data.path());
-        std::fs::create_dir_all(&folder).unwrap();
-        std::fs::write(folder.join("old-123.ledger"), b"x").unwrap();
-        std::fs::write(folder.join("keep.txt"), b"x").unwrap();
-        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "s1") };
-        let backend = ProcessComputerBackend::new(config.clone(), manager.clone());
-        backend.call(input(json!({"action":"clipboard_read"})), &CancellationToken::new()).await.unwrap();
-
-        let spawned = locked(&manager.spawned).clone();
-        assert_eq!(cleanup_args(&spawned), ["cleanup", "resident"]);
-        let env = |name: &str| spawned[0].env.set.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone());
-        assert_eq!(env("MIXDOG_ABORT_LEDGERS"), Some(folder.join("old-123.ledger").to_string_lossy().into_owned()));
-        assert_eq!(env("MIXDOG_COMPUTER_INPUT_MARKER").as_deref(), Some("123"));
-        assert_eq!(env("MIXDOG_COMPUTER_INACTIVE_LEDGER"), None);
-        assert!(!folder.join("old-123.ledger").exists() && folder.join("keep.txt").exists());
-
-        std::fs::write(folder.join("live-9.ledger"), b"x").unwrap();
-        let second = Arc::new(Answering::default());
-        let other = ProcessComputerBackend::new(ComputerConfig { session_id: "s2".into(), ..config }, second.clone());
-        other.call(input(json!({"action":"clipboard_read"})), &CancellationToken::new()).await.unwrap();
-        assert_eq!(cleanup_args(&locked(&second.spawned)), ["resident"]);
-        assert!(folder.join("live-9.ledger").exists());
-    }
-
-    /// The receipt a dead core's helper left holding a key is released by a cleanup run that is told its file and marker, and the
-    /// file removed once it confirmed; one that holds nothing is removed without a run, and the resident helper is told the file
-    /// its own receipt lives in, beside its ledger.
-    #[tokio::test]
-    async fn the_receipts_a_dead_core_left_are_released_before_the_first_helper() {
-        let manager = Arc::new(Answering::default());
-        let data = tempfile::tempdir().unwrap();
-        let folder = computer_env::ledger_folder(data.path());
-        std::fs::create_dir_all(&folder).unwrap();
-        let mut held = vec![0u8; 8192];
-        held[0] = 1;
-        std::fs::write(folder.join("old-321.receipt"), &held).unwrap();
-        std::fs::write(folder.join("idle-5.receipt"), vec![0u8; 8192]).unwrap();
-        std::fs::write(folder.join("keep.txt"), b"x").unwrap();
-        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "s1") };
-        let backend = ProcessComputerBackend::new(config, manager.clone());
-        backend.call(input(json!({"action":"clipboard_read"})), &CancellationToken::new()).await.unwrap();
-
-        let spawned = locked(&manager.spawned).clone();
-        assert_eq!(cleanup_args(&spawned), ["cleanup", "resident"], "only the receipt that held something is run");
-        let env = |at: usize, name: &str| spawned[at].env.set.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone());
-        assert_eq!(env(0, RECEIPT_FILE_ENV), Some(folder.join("old-321.receipt").to_string_lossy().into_owned()));
-        assert_eq!(env(0, "MIXDOG_COMPUTER_INPUT_MARKER").as_deref(), Some("321"));
-        assert_eq!(env(0, "MIXDOG_ABORT_LEDGERS"), None);
-        assert_eq!(env(1, RECEIPT_FILE_ENV), Some(receipt_path(&computer_env::ledger_path(data.path(), "s1", backend.marker)).to_string_lossy().into_owned()));
-        assert!(!folder.join("old-321.receipt").exists() && !folder.join("idle-5.receipt").exists() && folder.join("keep.txt").exists());
-    }
-
-    /// The scripts and DLL cache an older build's PowerShell host left are removed at the first start; a script of a process
-    /// that still lives, and anything else in the folder, stays.
-    #[test]
-    fn the_files_the_retired_powershell_host_left_are_swept() {
-        let data = tempfile::tempdir().unwrap();
-        let dead = format!("computer-host-2000000000-{}.ps1", "ab12".repeat(6));
-        let live = format!("computer-host-{}-{}.ps1", std::process::id(), "cd34".repeat(6));
-        for name in [dead.as_str(), live.as_str(), "computer-host-x-ab.ps1", "notes.ps1"] {
-            std::fs::write(data.path().join(name), b"x").unwrap();
-        }
-        std::fs::create_dir_all(data.path().join("host-cache")).unwrap();
-        std::fs::write(data.path().join("host-cache").join("mixdog-computer-host-0123456789abcdef.dll"), b"x").unwrap();
-        sweep_retired_host_files(data.path());
-        assert!(!data.path().join(&dead).exists() && !data.path().join("host-cache").exists());
-        assert!(data.path().join(&live).exists() && data.path().join("computer-host-x-ab.ps1").exists() && data.path().join("notes.ps1").exists());
-        assert_eq!(retired_script_pid("computer-host-12-ab.ps1"), Some(12));
-        assert_eq!(retired_script_pid("computer-host-12-.ps1"), None);
-    }
-
-    /// A failed reply's `result` reaches the reader that asks for it, while `call` reports the failure's text as before.
-    #[tokio::test]
-    async fn a_helper_failure_reaches_the_caller_with_its_result() {
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()));
-        let cancel = CancellationToken::new();
-        let failure = backend.exchange(input(json!({"action":"fail"})), COMMAND_TIMEOUT, &cancel).await.unwrap().unwrap_err();
-        assert_eq!(failure.result.as_ref().and_then(|result| result.get("capture_cleanup")), Some(&json!({"status":"unconfirmed"})));
-        assert_eq!(
-            backend.call(input(json!({"action":"fail"})), &cancel).await,
-            Err(ComputerError::Failed { code: "capture_failed".into(), message: "capture_failed: x".into() })
-        );
-        assert!(backend.status().active, "a refusal leaves the helper running");
-    }
-
-    /// `list kind="apps"` is the helper's own `list_apps`, a read.
-    #[tokio::test]
-    async fn the_app_list_is_the_helpers_list_apps() {
-        let manager = Arc::new(Answering::default());
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
-        backend.run(ComputerRequest { action: ComputerAction::List, input: json!({"kind":"apps","query":"x"}) }, CancellationToken::new()).await.unwrap();
-        let sent: Vec<Value> = locked(&manager.lines).iter().filter(|line| line["action"] != "window_snapshot").cloned().collect();
-        assert_eq!(sent.iter().map(|line| line["action"].clone()).collect::<Vec<_>>(), [json!("list_apps")]);
-        assert_eq!(sent[0]["query"], "x");
-    }
-
-    /// A helper that writes foreground-lease and pointer lines before its reply still answers the request with that reply.
-    #[tokio::test]
-    async fn side_lines_from_a_running_helper_are_consumed() {
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()));
-        let result = backend.call(input(json!({"action":"chatty"})), &CancellationToken::new()).await.unwrap();
-        assert_eq!(result.get("text"), Some(&json!("ok")));
-        assert!(backend.status().active);
-    }
-
-    /// The observation-only setting is read on every call: turned on between two executions, the second opens observing only
-    /// and its request goes to the helper as a read-only run, while the release that ends it never does.
-    #[tokio::test]
-    async fn the_observation_only_setting_is_read_on_every_call() {
-        let manager = Arc::new(Answering::default());
-        let edges = Arc::new(Edges::default());
-        let on = Arc::new(AtomicBool::new(false));
-        let setting = on.clone();
-        let shared = ComputerShared { observe_only: Arc::new(move || setting.load(Ordering::SeqCst)), ..ComputerShared::default() };
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared).with_observer(edges.clone());
-        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
-
-        backend.run(read(), CancellationToken::new()).await.unwrap();
-        assert!(!backend.status().observe_only);
-        assert!(backend.end_execution().await);
-        on.store(true, Ordering::SeqCst);
-        backend.run(read(), CancellationToken::new()).await.unwrap();
-        assert!(backend.status().observe_only);
-        assert!(backend.end_execution().await);
-
-        assert_eq!(*locked(&edges.0), ["began:false", "ended", "began:true", "ended"]);
-        let read_only: Vec<(Value, Option<Value>)> = locked(&manager.lines)
-            .iter()
-            .filter(|line| line["action"] != "window_snapshot")
-            .map(|line| (line["action"].clone(), line.get("read_only").cloned()))
-            .collect();
-        assert_eq!(
-            read_only,
-            [
-                (json!("clipboard_read"), None),
-                (json!("release_held_input"), None),
-                (json!("clipboard_read"), Some(json!(true))),
-                (json!("release_held_input"), None)
-            ]
-        );
-    }
-
-
-    fn text_of_first(parts: &[ToolPart]) -> String {
-        let Some(ToolPart::Text(text)) = parts.first() else { panic!("a text part") };
-        text.clone()
-    }
-
-    fn list_history(limit: u64) -> ComputerRequest {
-        ComputerRequest { action: ComputerAction::List, input: json!({"kind": "history", "limit": limit}) }
-    }
-
-    /// A capture that failed leaves the attempts its reply carried in the run record of the command.
-    #[test]
-    fn a_failed_capture_keeps_its_attempts_in_the_run_record() {
-        let data = tempfile::tempdir().unwrap();
-        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "attempts-1") };
-        let backend = ProcessComputerBackend::new(config, Arc::new(Answering::default()));
-        let rows = json!([
-            {"backend": "print_window", "scope": "target", "status": "failed", "elapsed_ms": 12, "code": "capture_timeout"},
-            {"backend": "wgc", "scope": "owner", "status": "failed", "elapsed_ms": 30, "code": "capture_denied"},
-        ]);
-        let result = input(json!({"capture_attempts": rows}));
-        backend.note_failed_capture(&HelperFailure { text: "capture_denied: x".into(), result: Some(result) });
-        let failure = ComputerError::Failed { code: "capture_denied".into(), message: "capture_denied: x".into() };
-        backend.keep_record(&input(json!({"action": "capture", "window_id": "hwnd:0x2"})), Instant::now(), &Err(failure));
-        let kept = backend.files.as_ref().unwrap().runs.history("attempts-1", 5);
-        let attempts = &kept["history"][0]["capture_attempts"];
-        assert_eq!((attempts.as_array().map(Vec::len), attempts[1]["scope"].clone()), (Some(2), json!("owner")));
-    }
-
-    /// Every command that reaches the host leaves its line in the run history; `list kind="history"` reads the session's lines back,
-    /// newest last, without what was typed or pasted; a command that failed also leaves the bundle of its session.
-    #[tokio::test]
-    async fn the_run_history_is_kept_and_listed() {
-        let data = tempfile::tempdir().unwrap();
-        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "history-1") };
-        let backend = ProcessComputerBackend::new(config, Arc::new(Answering::default()));
-        let clipboard = |input: Value| ComputerRequest { action: ComputerAction::Clipboard, input };
-        backend.run(clipboard(json!({"operation": "read"})), CancellationToken::new()).await.unwrap();
-        backend.run(clipboard(json!({"operation": "write", "text": "secret words"})), CancellationToken::new()).await.unwrap();
-        let failure = ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: the frame is gone".into() };
-        backend.keep_record(&input(json!({"action": "click", "window_id": "hwnd:0x2"})), Instant::now(), &Err(failure));
-
-        let listed = backend.run(list_history(10), CancellationToken::new()).await.unwrap();
-        let text = text_of_first(&listed);
-        let history: Value = serde_json::from_str(&text).unwrap();
-        let actions: Vec<&str> = history["history"].as_array().unwrap().iter().map(|row| row["action"].as_str().unwrap()).collect();
-        assert_eq!((actions, history["returned"].clone()), (vec!["clipboard_read", "clipboard_write", "click"], json!(3)));
-        let last = &history["history"][2];
-        assert_eq!((last["ok"].clone(), last["error"].clone(), last["session"].clone()), (json!(false), json!("stale_frame"), json!("history-1")));
-        assert!(!text.contains("secret words"), "what was typed never reaches the history: {text}");
-
-        // The listing itself is a command of the session, and the limit bounds what comes back.
-        let again = backend.run(list_history(2), CancellationToken::new()).await.unwrap();
-        let again: Value = serde_json::from_str(&text_of_first(&again)).unwrap();
-        assert_eq!(again["history"].as_array().unwrap().len(), 2);
-        assert_eq!(again["history"][1]["action"], "list_history");
-
-        let bundles: Vec<String> = std::fs::read_dir(data.path().join("computer-failures")).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
-        assert!(bundles.iter().any(|name| name.starts_with("failure-")), "{bundles:?}");
-    }
-
-    /// A backend with no data directory keeps no history: the listing is empty, not an error.
-    #[tokio::test]
-    async fn without_a_data_directory_the_history_is_empty() {
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "history-2"), Arc::new(Answering::default()));
-        let listed = backend.run(list_history(5), CancellationToken::new()).await.unwrap();
-        assert_eq!(serde_json::from_str::<Value>(&text_of_first(&listed)).unwrap(), json!({"history": [], "returned": 0}));
-    }
-
-    /// What a pointer hold gives up, and for which session.
-    #[derive(Default)]
-    struct Pointers {
-        released: Mutex<Vec<String>>,
-    }
-
-    #[async_trait]
-    impl crate::desktop::computer_pointer::PointerHost for Pointers {
-        fn release_pointer(&self, session: &str) {
-            locked(&self.released).push(session.to_owned());
-        }
-
-        fn is_running(&self, _: &str) -> bool {
-            false
-        }
-
-        async fn release_cursor_theme(&self, _: &str) {}
-    }
-
-    /// A foreground command arms its session's pointer hold when it ends; another session's foreground command gives it up first, and
-    /// the end of a turn gives up the one that is left.
-    #[tokio::test]
-    async fn a_foreground_command_holds_the_pointer_until_another_session_or_the_turn_takes_it() {
-        let pointers = Arc::new(Pointers::default());
-        let shared = ComputerShared { pointer_hold: Some(Arc::new(PointerHold::new(pointers.clone()))), ..ComputerShared::default() };
-        let write = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation": "write", "text": "x"}) };
-        let first = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default())).with_shared(shared.clone());
-        let second = ProcessComputerBackend::new(ComputerConfig::new("helper", "s2"), Arc::new(Answering::default())).with_shared(shared);
-        first.run(write(), CancellationToken::new()).await.unwrap();
-        assert!(locked(&pointers.released).is_empty(), "the hold outlives the command");
-
-        second.run(write(), CancellationToken::new()).await.unwrap();
-        assert_eq!(*locked(&pointers.released), ["s1"], "the other session's command took the one pointer");
-
-        assert!(second.end_execution().await);
-        assert_eq!(*locked(&pointers.released), ["s1", "s2"], "the turn's end gives the pointer back at once");
-    }
-
-    /// A command off the lane (`requiresForegroundLane` false) neither arms a hold nor ends another's.
-    #[tokio::test]
-    async fn a_command_off_the_lane_holds_no_pointer() {
-        let pointers = Arc::new(Pointers::default());
-        let shared = ComputerShared { pointer_hold: Some(Arc::new(PointerHold::new(pointers.clone()))), ..ComputerShared::default() };
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default())).with_shared(shared);
-        backend.run(list_history(5), CancellationToken::new()).await.unwrap();
-        assert!(backend.end_execution().await);
-        assert!(locked(&pointers.released).is_empty());
-    }
-
-    /// The helper a Linux session starts is told the span of the displays the desktop reports (`desktopBoundsEnvironment`).
-    #[tokio::test]
-    async fn a_linux_helper_is_started_with_the_span_of_the_displays() {
-        use super::super::computer_pixels::fakes::Desktop;
-        let displays = json!([
-            {"index": 0, "id": "11", "primary": true, "scale_factor": 1.0, "width": 1920, "height": 1080, "x": 0, "y": 0},
-            {"index": 1, "id": "12", "primary": false, "scale_factor": 1.0, "width": 1280, "height": 1024, "x": -1280, "y": -100},
-        ]);
-        let manager = Arc::new(Answering::default());
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone())
-            .with_linux_session(computer_linux::Env::new())
-            .with_desktop(Arc::new(Desktop::new(displays, json!({}))));
-        backend.call(input(json!({"action": "clipboard_read"})), &CancellationToken::new()).await.unwrap();
-        let spawned = locked(&manager.spawned).clone();
-        let bounds = spawned[0].env.set.iter().find(|(name, _)| name == "MIXDOG_COMPUTER_DESKTOP_BOUNDS").map(|(_, value)| value.clone());
-        assert_eq!(bounds.as_deref(), Some("-1280,-100,3200,1180"));
-    }
-
-    /// A zoom of a display's frame is cut from the display through the desktop, never from a window by the helper; a frame of a window
-    /// still goes to the helper.
-    #[tokio::test]
-    async fn a_zoom_of_a_display_frame_is_read_from_the_desktop() {
-        use super::super::computer_frames::DisplaySource;
-        use super::super::computer_frames::Frame;
-        use super::super::computer_pixels::fakes::Blobs;
-        use super::super::computer_pixels::fakes::Desktop;
-        let displays = json!([{"index": 0, "id": "12", "primary": true, "scale_factor": 1.0, "width": 1920, "height": 1080, "x": -1920, "y": -200}]);
-        let reply = json!({
-            "blob": {"digest": "sha256:aaaa", "byteLength": 4, "mimeType": "image/jpeg"},
-            "captureWidth": 480, "captureHeight": 270,
-            "source": {"x": -1920, "y": -200, "width": 960, "height": 540, "scaleFactor": 1.0, "displayId": "12", "windowId": null},
-            "backend": "screen", "capturedAt": 1.0, "attempts": [],
-        });
-        let desktop = Arc::new(Desktop::new(displays, reply));
-        let blobs: Arc<dyn ComputerBlobs> = Arc::new(Blobs([("sha256:aaaa".to_owned(), b"jpeg".to_vec())].into()));
-        let manager = Arc::new(Answering::default());
-        let shared = ComputerShared { blobs: Some(blobs), ..ComputerShared::default() };
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared).with_desktop(desktop.clone());
-        let frame = Frame {
-            id: "frame-d".into(),
-            window_id: None,
-            related_window_ids: None,
-            origin_x: -1920,
-            origin_y: -200,
-            physical_width: 1920,
-            physical_height: 1080,
-            capture_width: 960,
-            capture_height: 540,
-            idle: None,
-        };
-        backend.frames.remember_display(frame, DisplaySource { display_id: "12".into(), x: -1920, y: -200, width: 1920, height: 1080, scale_factor: 1.0 });
-
-        let zoom = input(json!({"action": "zoom", "frame_id": "frame-d", "region": [0, 0, 480, 270]}));
-        let parts = backend.zoom(zoom, &CancellationToken::new()).await.unwrap();
-        assert!(text_of_first(&parts).starts_with("Zoom of frame-d region (0,0)-(480,270)"), "{parts:?}");
-        let asked = locked(&desktop.asked).clone();
-        assert!(asked.iter().any(|(method, params)| method == "host/computer/pixels" && params["region"]["width"] == 960), "{asked:?}");
-        assert!(locked(&manager.lines).iter().all(|line| line["action"] != "window_capture"), "the helper was not asked for a window");
-    }
-
-    #[cfg(unix)]
-    mod host {
-        use mixdog_rt::LaneToken;
-
-        use super::*;
-
-        /// Writes an executable script on the maintenance lane.
-        async fn write_script(path: &std::path::Path, script: &'static str) {
-            let (path, opts) = (path.to_path_buf(), mixdog_statefile::Opts { mode: 0o755, ..mixdog_statefile::Opts::default() });
-            mixdog_rt::testing::tokens()
-                .maintenance_io
-                .submit_wait(&CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &path, script.as_bytes(), &opts).unwrap())
-                .await
-                .unwrap()
-                .await
-                .unwrap();
-        }
-
-        /// The text of a file the stand-in helper wrote; `None` while it is missing.
-        fn written(path: std::path::PathBuf) -> Option<String> {
-            mixdog_statefile::read_content(&path).unwrap().map(|bytes| String::from_utf8(bytes).unwrap())
-        }
-
-        /// A stand-in helper: answers each request with its id and echoes the action.
-        async fn fake_host(dir: &std::path::Path) -> PathBuf {
-            let path = dir.join("fake-host.sh");
-            let script = r#"#!/bin/sh
-if [ "$1" = "--abort-cleanup" ]; then echo cleaned > "$(dirname "$0")/cleanup"; exit 0; fi
-while read -r line; do
-  id=$(echo "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
-  case "$line" in
-    *hang*) sleep 30;;
-    *) echo "@@MIXCU@@{\"id\":$id,\"ok\":true,\"result\":{\"text\":\"ok $line\"}}";;
-  esac
-done
-"#;
-            write_script(&path, script).await;
-            path
-
-        }
-
-        /// A stand-in helper that also logs each request line it is sent.
-        async fn logging_host(dir: &std::path::Path) -> PathBuf {
-            let path = dir.join("logging-host.sh");
-            let script = r#"#!/bin/sh
-if [ "$1" = "--abort-cleanup" ]; then echo cleaned >> "$(dirname "$0")/cleanup"; exit 0; fi
-while read -r line; do
-  echo "$line" >> "$(dirname "$0")/log"
-  id=$(echo "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
-  echo "@@MIXCU@@{\"id\":$id,\"ok\":true,\"result\":{\"text\":\"ok\"}}"
-done
-"#;
-            write_script(&path, script).await;
-            path
-
-        }
-
-        fn log(dir: &std::path::Path) -> String {
-            written(dir.join("log")).unwrap_or_default()
-        }
-
-        /// `execution_end` lets go of held input and keeps the helper warm, and only when an
-        /// execution is open; `session_abort` stops the helper and runs the cleanup; `session_release`
-        /// drops the session's refs first. A session that was aborted owns nothing in the helper.
-        #[tokio::test]
-        async fn the_session_control_actions_follow_nodes_lifecycle() {
-            let dir = tempfile::tempdir().unwrap();
-            let tokens = mixdog_rt::testing::tokens();
-            let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
-            let backend = ProcessComputerBackend::new(ComputerConfig::new(logging_host(dir.path()).await, "s1"), manager);
-            let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
-
-            assert!(!backend.end_execution().await, "nothing is open before the first action");
-            assert!(!backend.is_bound());
-            backend.run(read(), CancellationToken::new()).await.unwrap();
-            assert!(backend.is_bound());
-            assert!(backend.end_execution().await);
-            assert!(log(dir.path()).lines().last().unwrap().contains("\"release_held_input\""), "{}", log(dir.path()));
-            assert!(backend.status().active, "the helper stays warm for a follow-up turn");
-            assert!(!backend.end_execution().await, "an ended execution is not ended twice");
-
-            backend.run(read(), CancellationToken::new()).await.unwrap();
-            assert!(backend.abort_session().await);
-            assert!(written(dir.path().join("cleanup")).is_some());
-            assert!(!backend.status().active);
-            assert!(!backend.is_bound(), "an aborted session owns nothing in the helper");
-            assert!(!backend.end_execution().await, "an abort closes the execution");
-
-            backend.run(read(), CancellationToken::new()).await.unwrap();
-            assert!(backend.release_session().await);
-            let sent = log(dir.path());
-            assert!(sent.lines().last().unwrap().contains("\"release_session\""), "{sent}");
-            assert_eq!(written(dir.path().join("cleanup")).unwrap().lines().count(), 2);
-            assert!(!backend.status().active && !backend.is_bound());
-        }
-
-        #[tokio::test]
-        async fn runs_an_action_through_the_resident_host_and_cleans_up_on_cancel() {
-            let dir = tempfile::tempdir().unwrap();
-            let tokens = mixdog_rt::testing::tokens();
-            let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
-            let backend = ProcessComputerBackend::new(ComputerConfig::new(fake_host(dir.path()).await, "s1"), manager);
-            let parts = backend
-                .run(ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) }, CancellationToken::new())
-                .await
-                .unwrap();
-            let ToolPart::Text(text) = &parts[0] else { panic!("text part") };
-            assert!(text.contains("clipboard_read") && text.contains("\"session_id\":\"s1\""), "{text}");
-            assert!(backend.status().active);
-
-            let cancel = CancellationToken::new();
-            let trip = cancel.clone();
-            tokio::spawn(async move {
-                mixdog_rt::time::sleep(Duration::from_millis(200)).await;
-                trip.cancel();
-            });
-            let hung = backend
-                .run(ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"write","text":"hang"}) }, cancel)
-                .await;
-            assert_eq!(hung, Err(ComputerError::Cancelled));
-            assert!(written(dir.path().join("cleanup")).is_some());
-            assert!(!backend.status().active);
-        }
-
-        /// The cancel fires while the command is in flight and the helper never answers: the wait
-        /// ends as `Cancelled` (cancel is checked before the reply), and the helper is retired,
-        /// which kills it and runs `--abort-cleanup`. No timing: the token is already fired when
-        /// the wait starts.
-        #[tokio::test]
-        async fn a_cancel_during_the_wait_retires_the_helper() {
-            let dir = tempfile::tempdir().unwrap();
-            let tokens = mixdog_rt::testing::tokens();
-            let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
-            let backend = ProcessComputerBackend::new(ComputerConfig::new(fake_host(dir.path()).await, "s1"), manager);
-            let cancel = CancellationToken::new();
-            let receive = backend.send(input(json!({"action":"hang"})), &cancel).await.unwrap();
-            assert!(backend.status().active);
-            assert!(written(dir.path().join("cleanup")).is_none());
-
-            cancel.cancel();
-            let ended = backend.wait_reply(receive, COMMAND_TIMEOUT, &cancel).await;
-
-            assert_eq!(ended, Err(ComputerError::Cancelled));
-            assert!(written(dir.path().join("cleanup")).is_some());
-            assert!(!backend.status().active);
-        }
     }
 }

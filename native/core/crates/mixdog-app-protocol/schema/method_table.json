@@ -82,6 +82,26 @@
     },
     {
       "class": "C0",
+      "method": "feed/heads",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "v2::feed::FeedHeadsParams",
+      "result": "v2::feed::FeedHeadsResponse",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C0",
       "method": "op/status",
       "mutation": {
         "kind": "none"
@@ -195,8 +215,7 @@
       },
       "origins": [
         "local",
-        "ssh",
-        "relay"
+        "ssh"
       ],
       "params": "v2::approval::ApprovalProvideSecretParams",
       "result": "v2::feed::EmptyResult",
@@ -1661,6 +1680,30 @@
         "relay"
       ],
       "params": "ThreadResizeImageParams",
+      "result": "JsonValue",
+      "scope": {
+        "field": "threadId",
+        "kind": "threadOrNone"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "thread/imageRecovery",
+      "mutation": {
+        "domain": "thread",
+        "kind": "op"
+      },
+      "opScope": {
+        "domain": "thread",
+        "field": "threadId",
+        "kind": "threadOrDomain"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "ThreadImageRecoveryParams",
       "result": "JsonValue",
       "scope": {
         "field": "threadId",
@@ -8502,7 +8545,9 @@
       "params": "TransferWriteChunkParams",
       "result": "v2::feed::EmptyResult",
       "scope": {
-        "kind": "none"
+        "field": "transferId",
+        "kind": "keyed",
+        "namespace": "transferUpload"
       }
     },
     {
@@ -8523,7 +8568,9 @@
       "params": "TransferCommitParams",
       "result": "JsonValue",
       "scope": {
-        "kind": "none"
+        "field": "transferId",
+        "kind": "keyed",
+        "namespace": "transferUpload"
       }
     },
     {
@@ -8542,7 +8589,9 @@
       "params": "TransferAbortParams",
       "result": "JsonValue",
       "scope": {
-        "kind": "none"
+        "field": "transferId",
+        "kind": "keyed",
+        "namespace": "transferUpload"
       }
     },
     {
@@ -10428,7 +10477,7 @@
         "local"
       ],
       "params": "ConnectionsIdParams",
-      "result": "v2::feed::EmptyResult",
+      "result": "SshForgetResult",
       "scope": {
         "kind": "none"
       }
@@ -12457,6 +12506,11 @@
     },
     {
       "delivery": null,
+      "method": "host/computer/scopeReport",
+      "params": "HostComputerScopeReportParams"
+    },
+    {
+      "delivery": null,
       "method": "model/proxy/event",
       "params": "ModelProxyEventParams"
     },
@@ -12719,6 +12773,11 @@
     },
     {
       "delivery": "connection",
+      "method": "visualize/changed",
+      "params": "VisualizeChangedParams"
+    },
+    {
+      "delivery": "connection",
       "method": "modelProxy/run/event",
       "params": "ModelProxyRunEventParams"
     },
@@ -12726,6 +12785,11 @@
       "delivery": "connection",
       "method": "model/proxy/cancel",
       "params": "ModelProxyCancelParams"
+    },
+    {
+      "delivery": "connection",
+      "method": "model/proxy/tail",
+      "params": "ModelProxyTailParams"
     },
     {
       "delivery": "connection",
@@ -13346,6 +13410,12 @@
       "params": "HostComputerPermissionsParams",
       "requires": "host.computer",
       "result": "HostComputerPermissionsResult"
+    },
+    {
+      "method": "host/computer/revokeScopes",
+      "params": "HostComputerRevokeScopesParams",
+      "requires": "host.computer",
+      "result": "HostComputerRevokeScopesResult"
     },
     {
       "method": "host/computer/command",

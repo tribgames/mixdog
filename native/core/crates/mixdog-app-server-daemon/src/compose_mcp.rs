@@ -42,7 +42,7 @@ use mixdog_core_config::tool_modules::ToolModules;
 use mixdog_core_config::tool_modules::builtin_feature_active;
 use mixdog_core_config::tool_modules::value::feature_env_override;
 use mixdog_core_config::tool_modules::value::module_enabled;
-use mixdog_core_config::tool_modules::with_grandfathered_builtins;
+use mixdog_core_config::tool_modules::adopted_stored_agent;
 use mixdog_core_ports::ports::setup_actions::CallerScope;
 use mixdog_core_ports::ports::setup_actions::SetupActions;
 use mixdog_core_ports::ports::setup_actions::SetupCallers;
@@ -90,7 +90,12 @@ use crate::setup_status::ServiceStatus;
 
 /// What a `requires: browser|computer|terminal|visualize` skill asks: whether the desktop's bridge
 /// for the tool is up (Node reads the bridge discovery file, `builtin-features.mjs`).
+#[async_trait::async_trait]
 pub trait BridgeFeatures: Send + Sync {
+    /// Looks again at what a feature's presence depends on that only the file system can tell (where the computer helper is). Asked at
+    /// each listing of the tools, before `present` and `registered` are read.
+    async fn refresh(&self) {}
+
     fn present(&self, feature: &str) -> bool;
     /// Whether this core registered the tool the bridge drives (Node registers every one). The skill gate and the setup status
     /// (`bridge_feature_on`) report a feature whose tool is missing as off whatever its bridge or its `MIXDOG_FEATURE_*`
@@ -116,7 +121,12 @@ impl ComputerGatedBridges {
     }
 }
 
+#[async_trait::async_trait]
 impl BridgeFeatures for ComputerGatedBridges {
+    async fn refresh(&self) {
+        self.inner.refresh().await;
+    }
+
     fn present(&self, feature: &str) -> bool {
         if feature == "computer" {
             return crate::computer_gate::computer_feature_present(&self.config.desktop_settings(), &*self.host);
@@ -274,12 +284,6 @@ impl mixdog_services::media::SelectedAccounts for AccountPoolSelected {
 /// The agent crate's `Clock` over the session crate's: both are "epoch milliseconds".
 pub struct AgentClock(pub Arc<dyn mixdog_core_session::session::Clock>);
 
-impl mixdog_agent::env::Clock for AgentClock {
-    fn now_ms(&self) -> i64 {
-        self.0.now_ms()
-    }
-}
-
 /// One `ChangeSink` over several watch owners: every batch goes to each, and each keeps only the watch ids it registered.
 pub struct FanOutSink(pub Vec<Arc<dyn mixdog_workspace::watcher::ChangeSink>>);
 
@@ -296,15 +300,6 @@ impl mixdog_workspace::watcher::ChangeSink for FanOutSink {
 /// from. Reads the same late directory cell the other views read; a job exists only inside a turn, so the directory is bound by then.
 pub struct LateBoardNotifier(pub Arc<mixdog_core::run_host::compose_parts::LateDirectory>);
 
-#[async_trait::async_trait]
-impl mixdog_tools::exec::TaskNotifier for LateBoardNotifier {
-    async fn finished(&self, owner: &mixdog_protocol::ThreadId, surface: &str, task_id: &str, status: &str, notification: String) {
-        if let Some(directory) = self.0.directory() {
-            mixdog_tools::exec::TaskNotifier::finished(&*directory, owner, surface, task_id, status, notification).await;
-        }
-    }
-}
-
 /// The sessions' toasts for the MCP service (`SessionToasts`): the session directory is built after the services, so it is read through the late cell.
 pub struct LateSessionToasts(pub Arc<mixdog_core::run_host::compose_parts::LateDirectory>);
 
@@ -316,19 +311,6 @@ impl mixdog_mcp::mcp_service::SessionToasts for LateSessionToasts {
 
     fn incarnation(&self, thread: &str) -> Option<Arc<dyn mixdog_mcp::mcp_service::Incarnation>> {
         mixdog_mcp::mcp_service::SessionToasts::incarnation(&*self.0.directory()?, thread)
-    }
-}
-
-/// The usage queue as a sink for callers that hold one sink for life (`QueuedLedger`): each row asks the source, as `ProcessInputs.ledger` does.
-pub struct SourcedSink(pub Arc<dyn Fn() -> Option<Arc<dyn mixdog_ai::registry::accounting::UsageSink>> + Send + Sync>);
-
-#[async_trait::async_trait]
-impl mixdog_ai::registry::accounting::UsageSink for SourcedSink {
-    async fn record_queued(&self, row: mixdog_ai::registry::accounting::UsageRow) -> Result<(), String> {
-        match (self.0)() {
-            Some(sink) => sink.record_queued(row).await,
-            None => Err("no usage ledger".to_owned()),
-        }
     }
 }
 
@@ -359,11 +341,7 @@ const CONFIG_FEATURES: [&str; 8] = ["webSearch", "memory", "git", "office", "tid
 impl SkillSettingsSource for ConfigSkillSettings {
     fn current(&self) -> SkillSettings {
         let agent = self.config.agent();
-        // Node reads `getConfigSnapshot`, which always carries `presets` (a user-mark key), so a
-        // config without a `builtins` section is always grandfathered; the raw document may lack it.
-        let mut profiled = agent.clone();
-        profiled.entry("presets").or_insert_with(|| Value::Object(Map::new()));
-        let doc = with_grandfathered_builtins(&profiled);
+        let doc = adopted_stored_agent(&agent);
         let env = |name: &str| (self.env)(name);
         let onnx = mixdog_services::tool_state::onnx_runtime_supported();
         let mut active: HashSet<String> =
@@ -643,6 +621,7 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
         settings.clone(),
         &inputs.skills_watch,
     );
+    catalog.watch_roots(inputs.skills_watch.clone(), McpGlue::skill_watch_targets(admin.clone(), package_root.join("src").join("defaults")));
     let glue = McpGlue::new(GlueInputs {
         hub: hub.clone(),
         config: ext_config.clone(),
@@ -785,35 +764,6 @@ mod tests {
         }
     }
 
-    /// With no bridge file the `computer` feature is the user switch and a host that serves it; the other features keep asking the bridge.
-    #[tokio::test]
-    async fn computer_follows_the_gate_and_the_rest_the_bridge() {
-        struct Files;
-        impl BridgeFeatures for Files {
-            fn present(&self, feature: &str) -> bool {
-                feature == "terminal"
-            }
-        }
-        let tokens = mixdog_rt::testing::tokens();
-        let mut configs = Vec::new();
-        let dir = tempfile::tempdir().unwrap();
-        for (index, on) in [true, false].into_iter().enumerate() {
-            let path = dir.path().join(format!("config-{index}.json"));
-            std::fs::write(&path, serde_json::json!({ "desktop": { "computerControl": on } }).to_string()).unwrap();
-            let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-            configs.push(Config::open(path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap().0);
-        }
-        let gated = |on: bool, claimed: bool, helper: bool| {
-            let config = configs[if on { 0 } else { 1 }].clone();
-            ComputerGatedBridges::new(Arc::new(Files), config, Arc::new(Claim(claimed, helper)))
-        };
-        assert!(gated(true, true, false).present("computer"), "a desktop claimed host.computer");
-        assert!(gated(true, false, true).present("computer"), "a TUI-hosted core with a helper");
-        assert!(!gated(true, false, false).present("computer"), "nothing serves it");
-        assert!(!gated(false, true, true).present("computer"), "the user switch is off");
-        assert!(gated(false, false, false).present("terminal") && !gated(true, true, true).present("browser"));
-    }
-
     struct Memory(std::sync::Mutex<std::collections::HashMap<String, String>>);
 
     #[async_trait]
@@ -877,11 +827,6 @@ mod tests {
     }
     impl HookObserver for Quiet {
         fn emit(&self, _: &str, _: Value) {}
-    }
-    impl GitRunner for Quiet {
-        fn run(&self, _: &[String], _: std::time::Duration) -> Result<String, String> {
-            Err("no git".into())
-        }
     }
     #[async_trait]
     impl SettingsEffects for Quiet {
@@ -1025,8 +970,8 @@ mod tests {
         fn changes(&self) -> tokio::sync::watch::Receiver<u64> {
             self.0.subscribe()
         }
-        async fn prepare_builtin_feature(&self, _: &str, _: Option<&[String]>) -> Result<(), String> {
-            Ok(())
+        async fn prepare_builtin_feature(&self, _: &str, _: Option<&[String]>) -> Result<Option<Value>, String> {
+            Ok(None)
         }
         async fn stop_local_provider_server(&self) {}
         async fn sync_local_provider_registry(&self, _: bool) {}
@@ -1058,6 +1003,73 @@ mod tests {
         feeds: Arc<mixdog_core_api::mock::MockScopedFeeds>,
     }
 
+    /// A session layer that knows which scope each thread's stored header names.
+    struct Headers(std::sync::Mutex<std::collections::HashMap<String, String>>);
+
+    impl Headers {
+        fn of(pairs: &[(&str, &str)]) -> Self {
+            Self(std::sync::Mutex::new(pairs.iter().map(|(thread, scope)| ((*thread).to_owned(), (*scope).to_owned())).collect()))
+        }
+    }
+
+    #[async_trait]
+    impl McpSurface for Headers {
+        async fn current_cwd(&self, thread: Option<&str>) -> Result<PathBuf, String> {
+            Quiet.current_cwd(thread).await
+        }
+        async fn thread_scope(&self, thread: &str) -> Result<Option<String>, String> {
+            Ok(self.0.lock().unwrap().get(thread).cloned())
+        }
+        async fn refresh_surface(&self) {}
+        async fn tool_names(&self) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn open_browser(&self, _: &str) {}
+        fn announce_plugins(&self) {}
+        async fn flush_skills_save(&self) {}
+    }
+
+    #[test]
+    fn visualize_needs_its_module_on_as_well_as_the_bridge() {
+        let off = settings(serde_json::json!({"modules": {"visualize": {"enabled": false}}}), &[], &["visualize"]);
+        assert!(!off.gate.active_features.contains("visualize"));
+        let on = settings(serde_json::json!({}), &[], &["visualize"]);
+        assert!(on.gate.active_features.contains("visualize"));
+    }
+
+    /// With no bridge file the `computer` feature is the user switch and a host that serves it; the other features keep asking the bridge.
+    #[tokio::test]
+    async fn computer_follows_the_gate_and_the_rest_the_bridge() {
+        struct Files;
+        impl BridgeFeatures for Files {
+            fn present(&self, feature: &str) -> bool {
+                feature == "terminal"
+            }
+        }
+        let tokens = mixdog_rt::testing::tokens();
+        let mut configs = Vec::new();
+        let dir = tempfile::tempdir().unwrap();
+        for (index, on) in [true, false].into_iter().enumerate() {
+            let path = dir.path().join(format!("config-{index}.json"));
+            std::fs::write(&path, serde_json::json!({ "desktop": { "computerControl": on } }).to_string()).unwrap();
+            let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+            configs.push(Config::open(path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap().0);
+        }
+        let gated = |on: bool, claimed: bool, helper: bool| {
+            let config = configs[if on { 0 } else { 1 }].clone();
+            ComputerGatedBridges::new(Arc::new(Files), config, Arc::new(Claim(claimed, helper)))
+        };
+        assert!(gated(true, true, false).present("computer"), "a desktop claimed host.computer");
+        assert!(gated(true, false, true).present("computer"), "a TUI-hosted core with a helper");
+        assert!(!gated(true, false, false).present("computer"), "nothing serves it");
+        assert!(!gated(false, true, true).present("computer"), "the user switch is off");
+        assert!(gated(false, false, false).present("terminal") && !gated(true, true, true).present("browser"));
+    }
+    impl GitRunner for Quiet {
+        fn run(&self, _: &[String], _: std::time::Duration) -> Result<String, String> {
+            Err("no git".into())
+        }
+    }
     async fn compose_over(surface: Arc<dyn McpSurface>) -> Composed {
         let dir = tempfile::tempdir().unwrap();
         let data = dir.path().join("data");
@@ -1142,7 +1154,6 @@ mod tests {
         });
         Composed { composed, extensions, dir, data, feeds }
     }
-
     /// The composition over a temp data dir: every `mcp/*`, `connector/*` and `skills/*` method
     /// resolves to a real service, each served by exactly one, and a call reaches the data dir.
     #[tokio::test(flavor = "multi_thread")]
@@ -1169,7 +1180,6 @@ mod tests {
         let tools = call(&owner("connector/listConnectorTools"), "connector/listConnectorTools", serde_json::json!({"connectorId": "nope"})).await;
         assert!(tools.is_array() || tools.is_object(), "{tools}");
     }
-
     /// The composed MCP service publishes its sign-in flows on the core's scoped feeds: a sign-in begun
     /// through `mcp/beginMcpOAuthLogin` opens `login:<flowId>`, whose snapshot is what the flow's status read
     /// answers (a configured server whose address serves no request fails the flow at once, so the feed holds its
@@ -1212,33 +1222,6 @@ mod tests {
         assert_eq!(seen[0]["params"]["feedId"], feed_id.0.as_str());
         assert_eq!(seen[0]["params"]["state"], read);
     }
-
-    /// A session layer that knows which scope each thread's stored header names.
-    struct Headers(std::sync::Mutex<std::collections::HashMap<String, String>>);
-
-    impl Headers {
-        fn of(pairs: &[(&str, &str)]) -> Self {
-            Self(std::sync::Mutex::new(pairs.iter().map(|(thread, scope)| ((*thread).to_owned(), (*scope).to_owned())).collect()))
-        }
-    }
-
-    #[async_trait]
-    impl McpSurface for Headers {
-        async fn current_cwd(&self, thread: Option<&str>) -> Result<PathBuf, String> {
-            Quiet.current_cwd(thread).await
-        }
-        async fn thread_scope(&self, thread: &str) -> Result<Option<String>, String> {
-            Ok(self.0.lock().unwrap().get(thread).cloned())
-        }
-        async fn refresh_surface(&self) {}
-        async fn tool_names(&self) -> Result<Vec<String>, String> {
-            Ok(Vec::new())
-        }
-        fn open_browser(&self, _: &str) {}
-        fn announce_plugins(&self) {}
-        async fn flush_skills_save(&self) {}
-    }
-
     /// A management call made on a child thread reads the scope the child inherited from the session
     /// that spawned it (`spawn-plan.mjs:108`; the child's header names its parent's scope), not only the
     /// scope its own session opened: the status of the parent's servers is the same through either thread,
@@ -1348,7 +1331,8 @@ mod tests {
         let reconnected = write.await.unwrap();
         assert!(reconnected["servers"].is_array(), "{reconnected}");
         boot.await.unwrap();
-    }    /// The control thread (`thread/start{kind:"control"}`) is seeded in the runtime scope, so a call
+    }
+    /// The control thread (`thread/start{kind:"control"}`) is seeded in the runtime scope, so a call
     /// naming it and a call naming no thread read the same servers of the same scope, and no second
     /// connection set exists besides the runtime scope and the sessions' own.
     #[tokio::test(flavor = "multi_thread")]
@@ -1382,6 +1366,25 @@ mod tests {
         assert_eq!(rows(serde_json::json!({})).await[0]["status"], "failed");
         assert_eq!(hub.servers_in(&runtime_scope).len(), 1);
     }
+
+
+    #[cfg(node_twin)]
+    /// The skill gate reads the same install decision as the panel: over every stored shape of Node's writers it activates the
+    /// features Node's adopted config activates (`record-builtin-grandfathering.mjs`, the `read` cases).
+    #[test]
+    fn the_skill_gate_activates_the_features_nodes_adopted_config_does() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/builtin-grandfathering-twin.json");
+        let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        for case in twin["cases"].as_array().unwrap().iter().filter(|case| case["op"] == "read") {
+            let stored = &twin["shapes"][case["shape"].as_str().unwrap()];
+            let agent = if stored.is_null() { serde_json::json!({}) } else { stored.clone() };
+            let features = settings(agent, &[], &[]).gate.active_features;
+            for id in ["git", "memory", "office", "tidy"] {
+                assert_eq!(features.contains(id), case["active"][id].as_bool().unwrap(), "{} {id}", case["shape"]);
+            }
+        }
+    }
+    #[cfg(node_twin)]
     /// `tests/golden/skilllist.json` (recorded from Node by `skilllist.mjs`): the skill list of a
     /// sample setup, every row and what a session offers at three folders under two configs.
     #[tokio::test(flavor = "multi_thread")]
@@ -1435,12 +1438,139 @@ mod tests {
         }
     }
 
-    #[test]
-    fn visualize_needs_its_module_on_as_well_as_the_bridge() {
-        let off = settings(serde_json::json!({"modules": {"visualize": {"enabled": false}}}), &[], &["visualize"]);
-        assert!(!off.gate.active_features.contains("visualize"));
-        let on = settings(serde_json::json!({}), &[], &["visualize"]);
-        assert!(on.gate.active_features.contains("visualize"));
+    fn skill_doc(name: &str, description: &str, extra: &str) -> String {
+        format!("---\nname: {name}\ndescription: {description}\n{extra}---\n\n# {name}\n\nBody.\n")
+    }
+
+    /// The sample setup: a global folder, enabled and disabled registered plugins, and the package bundle.
+    fn write_skill_setup(root: &std::path::Path) {
+        let base = root.to_string_lossy().replace('\\', "/");
+        let requires = |list: &str| format!("metadata:\n  requires: {list}\n");
+        let files: Vec<(&str, String)> = vec![
+            ("data/skills/alpha/SKILL.md", skill_doc("alpha", "Use when alpha (global).", "")),
+            ("data/skills/beta/SKILL.md", skill_doc("beta", "Use when beta.", "when_to_use: Beta trigger\n")),
+            ("data/skills/gamma/SKILL.md", skill_doc("gamma", "Use when gamma.", "")),
+            ("data/skills/wrongname/SKILL.md", skill_doc("other-name", "Folder differs.", "")),
+            ("data/skills/emptied/SKILL.md", String::new()),
+            ("data/skills/nested/deep/inner/SKILL.md", skill_doc("inner", "Use when nested.", "")),
+            ("data/skills/needs-git/SKILL.md", skill_doc("needs-git", "Needs git.", &requires("git"))),
+            ("data/skills/needs-office/SKILL.md", skill_doc("needs-office", "Needs office.", &requires("[office, webSearch]"))),
+            (
+                "data/plugins/registry.json",
+                serde_json::json!({ "plugins": [
+                    { "id": "plug-a", "root": format!("{base}/plugins/a"), "enabled": true },
+                    { "id": "plug-off", "root": format!("{base}/plugins/off"), "enabled": false },
+                    { "name": "plug-name", "root": format!("{base}/plugins/named") },
+                    { "id": "plug-gone", "root": format!("{base}/plugins/gone") },
+                    { "id": "plug-manifest", "root": format!("{base}/plugins/manifest") },
+                ] })
+                .to_string(),
+            ),
+            ("plugins/a/skills/alpha/SKILL.md", skill_doc("alpha", "Plugin alpha (shadowed by the global one).", "")),
+            ("plugins/a/skills/topic/sub/SKILL.md", skill_doc("plugin-topic", "Use when topic (nested plugin layout).", "")),
+            ("plugins/off/skills/off-skill/SKILL.md", skill_doc("off-skill", "Disabled plugin.", "")),
+            ("plugins/named/skills/named-skill/SKILL.md", skill_doc("named-skill", "Plugin known by name only.", "")),
+            ("plugins/manifest/plugin.json", serde_json::json!({ "skills": ["./extra/", "../escape", "/abs", ""] }).to_string()),
+            ("plugins/manifest/skills/own/SKILL.md", skill_doc("own", "Conventional root.", "")),
+            ("plugins/manifest/extra/more/SKILL.md", skill_doc("more", "Manifest root.", "")),
+            ("package/defaults/plugin.json", serde_json::json!({ "name": "mixdog-defaults" }).to_string()),
+            ("package/defaults/skills/bundled/SKILL.md", skill_doc("bundled", "Use when bundled.", "")),
+            ("package/defaults/skills/alpha/SKILL.md", skill_doc("alpha", "Bundled alpha (shadowed).", "")),
+            ("package/defaults/skills/bundled-git/SKILL.md", skill_doc("bundled-git", "Bundled, needs git.", &requires("git"))),
+        ];
+        for (rel, text) in files {
+            let path = root.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        for folder in ["proj1/sub", "proj2", "elsewhere"] {
+            std::fs::create_dir_all(root.join(folder)).unwrap();
+        }
+    }
+
+    type SkillRow = (String, String, Option<String>);
+
+    /// The catalog over the sample setup under `agent` (its `{base}` is the setup's folder): every skill, and the names a session is
+    /// offered at three folders.
+    async fn skill_lists(agent: &str) -> (Vec<SkillRow>, Vec<Vec<String>>) {
+        let dir = tempfile::tempdir().unwrap();
+        write_skill_setup(dir.path());
+        let agent = agent.replace("{base}", &dir.path().to_string_lossy().replace('\\', "/"));
+        let Value::Object(agent) = serde_json::from_str::<Value>(&agent).unwrap() else { unreachable!() };
+        let data = dir.path().join("data");
+        let admin = Arc::new(PluginAdmin::new(data.clone(), Arc::new(Quiet), Arc::new(|| {})));
+        let reader: EnvReader = Arc::new(|_| None);
+        let settings: Arc<dyn SkillSettingsSource> = Arc::new(ConfigSkillSettings::new(Arc::new(Doc(agent)), reader, Arc::new(Bridges(&[]))));
+        let catalog = SkillCatalog::new(data, mixdog_rt::testing::tokens().maintenance_io, McpGlue::skill_roots(admin, dir.path().join("package").join("defaults")), settings, &SkillsWatch::new());
+        let all = catalog.skills().await.unwrap().iter().map(|s| (s.name.clone(), format!("{:?}", s.source).to_lowercase(), s.plugin.clone())).collect();
+        let mut visible = Vec::new();
+        for folder in ["proj1/sub", "proj2", "elsewhere"] {
+            visible.push(catalog.visible(&dir.path().join(folder)).await.unwrap().into_iter().map(|s| s.name).collect());
+        }
+        (all, visible)
+    }
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    const EVERY_SKILL: [&str; 12] = ["alpha", "beta", "gamma", "needs-git", "needs-office", "inner", "plugin-topic", "named-skill", "own", "more", "bundled", "bundled-git"];
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_setup_lists_every_global_plugin_and_bundled_skill_and_offers_them_all_when_nothing_is_disabled() {
+        let (all, visible) = skill_lists(r#"{"skills":{"disabled":[]}}"#).await;
+        let listed: Vec<&str> = all.iter().map(|(name, ..)| name.as_str()).collect();
+        assert_eq!(listed, EVERY_SKILL, "a global skill shadows the plugin's and the bundle's of its name; a mismatched folder, an empty file and a disabled or missing plugin list nothing");
+        assert_eq!(all[6], ("plugin-topic".to_owned(), "plugin".to_owned(), Some("plug-a".to_owned())));
+        assert_eq!(all[8], ("own".to_owned(), "plugin".to_owned(), Some("plug-manifest".to_owned())));
+        assert_eq!(all[10], ("bundled".to_owned(), "builtin".to_owned(), None));
+        for offered in &visible {
+            assert_eq!(*offered, names(&EVERY_SKILL), "every folder is offered every skill");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn disabled_scoped_and_uninstalled_skills_are_not_offered_to_a_session_but_stay_in_the_list() {
+        let agent = r#"{"skills":{"disabled":[" Beta ","OWN"]},"builtins":{"git":{"installed":true},"office":{"installed":false}},"extensionScopes":{"skills":{"gamma":["{base}/proj1"]},"plugins":{"plug-a":["{base}/proj2"]}}}"#;
+        let (all, visible) = skill_lists(agent).await;
+        assert_eq!(all.len(), 12, "disabling hides a skill from a session, not from the list");
+        assert_eq!(visible[0], names(&["alpha", "gamma", "needs-git", "inner", "named-skill", "more", "bundled", "bundled-git"]), "in proj1: gamma is scoped there, plug-a is not");
+        assert_eq!(visible[1], names(&["alpha", "needs-git", "inner", "plugin-topic", "named-skill", "more", "bundled", "bundled-git"]), "in proj2: plug-a is scoped there, gamma is not");
+        assert_eq!(visible[2], names(&["alpha", "needs-git", "inner", "named-skill", "more", "bundled", "bundled-git"]), "elsewhere neither scoped extension; beta and own are disabled (case and padding ignored) and needs-office needs an uninstalled feature");
     }
 }
 
+
+
+impl mixdog_agent::env::Clock for AgentClock {
+    fn now_ms(&self) -> i64 {
+        self.0.now_ms()
+    }
+}
+#[async_trait::async_trait]
+impl mixdog_tools::exec::TaskNotifier for LateBoardNotifier {
+    async fn finished(&self, owner: &mixdog_protocol::ThreadId, surface: &str, task_id: &str, status: &str, notification: String) {
+        if let Some(directory) = self.0.directory() {
+            mixdog_tools::exec::TaskNotifier::finished(&*directory, owner, surface, task_id, status, notification).await;
+        }
+    }
+
+    async fn finished_at_hop(&self, owner: &mixdog_protocol::ThreadId, surface: &str, task_id: &str, status: &str, notification: String, hop: u32) {
+        if let Some(directory) = self.0.directory() {
+            mixdog_tools::exec::TaskNotifier::finished_at_hop(&*directory, owner, surface, task_id, status, notification, hop).await;
+        }
+    }
+}
+
+
+/// The usage queue as a sink for callers that hold one sink for life (`QueuedLedger`): each row asks the source, as `ProcessInputs.ledger` does.
+pub struct SourcedSink(pub Arc<dyn Fn() -> Option<Arc<dyn mixdog_ai::registry::accounting::UsageSink>> + Send + Sync>);
+#[async_trait::async_trait]
+impl mixdog_ai::registry::accounting::UsageSink for SourcedSink {
+    async fn record_queued(&self, row: mixdog_ai::registry::accounting::UsageRow) -> Result<(), String> {
+        match (self.0)() {
+            Some(sink) => sink.record_queued(row).await,
+            None => Err("no usage ledger".to_owned()),
+        }
+    }
+}

@@ -6,7 +6,7 @@ import { installTestDom } from '../test-support/test-dom.mjs';
 
 const entry = (revision, value) => ({ section: 'toolModules', key: null, revision, value });
 
-async function mountCard(t, entries) {
+async function mountCard(t, entries, fallback) {
   const { window, root } = installTestDom(t, { rootId: 'root' });
   let push = () => {};
   const asked = [];
@@ -18,7 +18,7 @@ async function mountCard(t, entries) {
     },
   };
   const { useAutoEffortStatus } = await import('./auto-effort-status.ts');
-  const Card = () => React.createElement('p', null, JSON.stringify(useAutoEffortStatus()));
+  const Card = () => React.createElement('p', null, JSON.stringify(useAutoEffortStatus(fallback)));
   await act(async () => root.render(React.createElement(Card)));
   await act(async () => {});
   return { asked, push: (e) => act(async () => push({ kind: 'sections', changes: [{ section: 'toolModules', key: null, entry: e }] })) };
@@ -33,7 +33,14 @@ test('the Auto reasoning card shows the section pushed with the app snapshot and
   assert.deepEqual(card.asked, [], 'no status read goes out');
 });
 
-test('without the section the card has no state of its own', async (t) => {
+test('without a feed or a request answer the card has no state of its own', async (t) => {
   await mountCard(t, []);
   assert.equal(document.body.textContent, '{}');
+});
+
+test('a requested status covers a missing feed until its first push', async (t) => {
+  const card = await mountCard(t, [], { installed: true, enabled: false });
+  assert.match(document.body.textContent, /"enabled":false/);
+  await card.push(entry(1, { autoEffort: { installed: true, enabled: true } }));
+  assert.match(document.body.textContent, /"enabled":true/);
 });

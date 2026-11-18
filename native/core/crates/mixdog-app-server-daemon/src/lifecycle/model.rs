@@ -16,6 +16,11 @@ pub use mixdog_app_protocol::mgmt::StateName;
 pub use mixdog_app_protocol::mgmt::StopMode;
 pub use mixdog_app_protocol::mgmt::StopReason;
 
+/// The text of a forced stop (`StopMode::Force`, the desktop's quit): 1.4.5's forced `/stop` left through its SIGTERM path, a process-exit reason
+/// (`PROCESS_EXIT_REASON`), so the sessions' agents are closed first and their rows settle as failed `process-restart` by this core. It is also
+/// what the exit record (the crash capture's `shutdown: <text>`) shows of this exit. It must keep matching that pattern (`exit|quit|shutdown|sig...`).
+pub const FORCED_STOP_TEXT: &str = "desktop quit: forced stop";
+
 /// What the registrant tells the core about a unit of work.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActivityInfo {

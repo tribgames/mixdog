@@ -64,8 +64,6 @@ impl std::fmt::Display for PaintError {
     }
 }
 
-impl std::error::Error for PaintError {}
-
 /// The result of a degrading paint (`renderSomOverlay`'s `{image, rendered, error}`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Overlay {
@@ -656,3 +654,6 @@ mod tests {
         assert_eq!(pixel(&painted, 20, 30), [0x29, 0xd3, 0xff]);
     }
 }
+
+
+impl std::error::Error for PaintError {}

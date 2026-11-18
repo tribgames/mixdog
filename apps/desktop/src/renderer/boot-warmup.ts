@@ -41,9 +41,6 @@ export const BOOT_WARMUP = Object.freeze({
   /** The most recent sidebar sessions not open in a pane, so the first
    *  click after launch paints from the lane, not a cold disk parse. */
   recentTranscript: 62,
-  /** Hidden mount of the composer's full model list, so the Model row opens
-   *  onto rows that already exist. */
-  modelCatalog: 65,
   commandSurfaceModule: 72,
   /** The subscription usage that dialog opens on, so its first open paints
    *  instead of waiting on a cold ledger read. */

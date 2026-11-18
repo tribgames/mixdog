@@ -58,6 +58,70 @@ pub struct Registry {
     path: PathBuf,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(id: &str) -> WorktreeRecord {
+        WorktreeRecord {
+            id: id.into(),
+            repo_common_dir: "/r/.git".into(),
+            project_path: "/r".into(),
+            path: format!("/w/{id}"),
+            branch: Some(id.into()),
+            base_commit: None,
+            created_at: 1,
+            owner_session_id: None,
+            state: "ready".into(),
+            merge_target: None,
+            shared_session_ids: Vec::new(),
+            extra: Map::new(),
+        }
+    }
+
+    #[test]
+    fn records_round_trip_with_unknown_fields_and_survive_damage() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Registry::new(dir.path());
+        let mut first = record("one");
+        first.extra.insert("projectSubdir".into(), Value::String("pkg".into()));
+        registry.put(first.clone()).unwrap();
+        registry.put(record("abc")).unwrap();
+        assert_eq!(registry.get("one").unwrap(), Some(first));
+        assert_eq!(registry.read().unwrap().keys().map(String::as_str).collect::<Vec<_>>(), ["one", "abc"]);
+        assert!(!registry.insert(record("abc")).unwrap());
+        // A truncated file is set aside and the last good copy restored.
+        std::fs::write(dir.path().join(STORE_DIR).join("registry.json"), b"{\"version\":1,\"entr").unwrap();
+        let restored = registry.read().unwrap();
+        assert_eq!(restored.len(), 1, "the backup holds the state before the last write");
+        registry.delete("one").unwrap();
+        assert!(registry.get("one").unwrap().is_none());
+    }
+
+
+    #[cfg(node_twin)]
+    include!("node-twin/registry.rs");
+
+    /// A branch a phone sent cut inside an emoji is stored as a lone surrogate escape: the registry reads it as U+FFFD, reads every
+    /// other record whole, and the next write keeps both.
+    #[test]
+    fn a_registry_holding_half_an_emoji_is_read_whole_and_kept_by_the_next_write() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(STORE_DIR)).unwrap();
+        let file = dir.path().join(STORE_DIR).join("registry.json");
+        let text = r#"{"version":1,"entries":{"cut":{"id":"cut","repoCommonDir":"/r/.git","projectPath":"/r","path":"/w/cut","branch":"fix-\ud83d","createdAt":1,"state":"ready"}}}"#;
+        std::fs::write(&file, text).unwrap();
+        let registry = Registry::new(dir.path());
+        let read = registry.read().unwrap();
+        assert_eq!(read["cut"].branch.as_deref(), Some("fix-\u{fffd}"));
+        assert!(registry.insert(record("second")).unwrap());
+        let written = Registry::parse(&std::fs::read(&file).unwrap()).unwrap();
+        assert_eq!(written.entries.keys().collect::<Vec<_>>(), ["cut", "second"]);
+        assert_eq!(written.entries["cut"].branch.as_deref(), Some("fix-\u{fffd}"));
+    }
+}
+
+
 impl Registry {
     pub fn new(data_dir: &Path) -> Self {
         Self {
@@ -148,70 +212,5 @@ impl Registry {
             self.write(&entries)?;
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn record(id: &str) -> WorktreeRecord {
-        WorktreeRecord {
-            id: id.into(),
-            repo_common_dir: "/r/.git".into(),
-            project_path: "/r".into(),
-            path: format!("/w/{id}"),
-            branch: Some(id.into()),
-            base_commit: None,
-            created_at: 1,
-            owner_session_id: None,
-            state: "ready".into(),
-            merge_target: None,
-            shared_session_ids: Vec::new(),
-            extra: Map::new(),
-        }
-    }
-
-    #[test]
-    fn records_round_trip_with_unknown_fields_and_survive_damage() {
-        let dir = tempfile::tempdir().unwrap();
-        let registry = Registry::new(dir.path());
-        let mut first = record("one");
-        first.extra.insert("projectSubdir".into(), Value::String("pkg".into()));
-        registry.put(first.clone()).unwrap();
-        registry.put(record("abc")).unwrap();
-        assert_eq!(registry.get("one").unwrap(), Some(first));
-        assert_eq!(registry.read().unwrap().keys().map(String::as_str).collect::<Vec<_>>(), ["one", "abc"]);
-        assert!(!registry.insert(record("abc")).unwrap());
-        // A truncated file is set aside and the last good copy restored.
-        std::fs::write(dir.path().join(STORE_DIR).join("registry.json"), b"{\"version\":1,\"entr").unwrap();
-        let restored = registry.read().unwrap();
-        assert_eq!(restored.len(), 1, "the backup holds the state before the last write");
-        registry.delete("one").unwrap();
-        assert!(registry.get("one").unwrap().is_none());
-    }
-
-    /// Node's registry holding a branch cut inside an emoji (`native/core/fixtures/lone-surrogate-files`,
-    /// record-lone-surrogate-files.mjs): the core reads every record and field Node's `JSON.parse` reads (the half emoji as
-    /// U+FFFD), and the next write keeps them.
-    #[test]
-    fn a_registry_node_wrote_with_half_an_emoji_is_read_whole_and_kept_by_the_next_write() {
-        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
-        let cases: Value = serde_json::from_slice(&std::fs::read(set.join("cases.json")).unwrap()).unwrap();
-        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "worktree-registry").unwrap();
-        let file = case["file"].as_str().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join(STORE_DIR)).unwrap();
-        std::fs::copy(set.join("worktree-registry/before").join(file), dir.path().join(file)).unwrap();
-        let expected: Document = serde_json::from_value(case["nodeRead"].clone()).unwrap();
-        let registry = Registry::new(dir.path());
-        assert_eq!(registry.read().unwrap(), expected.entries);
-        let second: WorktreeRecord = serde_json::from_value(case["op"]["insert"].clone()).unwrap();
-        assert!(registry.insert(second.clone()).unwrap());
-        let mut after = expected.entries;
-        after.insert(second.id.clone(), second);
-        let written = Registry::parse(&std::fs::read(dir.path().join(file)).unwrap()).unwrap();
-        assert_eq!(written.entries, after);
-        assert_eq!(written.entries.keys().collect::<Vec<_>>(), after.keys().collect::<Vec<_>>());
     }
 }

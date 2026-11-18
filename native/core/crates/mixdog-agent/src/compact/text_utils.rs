@@ -99,27 +99,6 @@ fn is_text_reference(part: &ContentPart) -> bool {
     matches!(part, ContentPart::File { source: BinarySource::AttachmentRef(_), text: Some(_), .. })
 }
 
-/// `referencedText` over the summarizer's input: each stored text attachment becomes its text,
-/// bounded, and a gone blob `[attachment unavailable]`. A transient read error fails the
-/// compaction instead of shrinking it.
-pub async fn with_referenced_text(
-    seam: &dyn super::fresh::AttachmentSeam,
-    mut messages: Vec<AgentMessage>,
-) -> Result<Vec<AgentMessage>, crate::env::CompactError> {
-    for message in &mut messages {
-        let Content::Parts(parts) = &mut message.message.content else { continue };
-        for part in parts.iter_mut().filter(|p| is_text_reference(p)) {
-            let text = match seam.stored_text(part).await.map_err(crate::env::CompactError::Failed)? {
-                Some(StoredText::Text(text)) => truncate_middle(&text, ATTACHMENT_TEXT_MAX_CHARS),
-                Some(StoredText::Gone) => "[attachment unavailable]".to_owned(),
-                None => continue,
-            };
-            *part = ContentPart::Text(text, None);
-        }
-    }
-    Ok(messages)
-}
-
 /// A content as the summarizer reads it: text parts and a fixed marker per
 /// media part, joined by newlines.
 pub fn content_text(content: &Content) -> String {
@@ -284,3 +263,25 @@ mod tests {
     }
 }
 
+
+
+/// `referencedText` over the summarizer's input: each stored text attachment becomes its text,
+/// bounded, and a gone blob `[attachment unavailable]`. A transient read error fails the
+/// compaction instead of shrinking it.
+pub async fn with_referenced_text(
+    seam: &dyn super::fresh::AttachmentSeam,
+    mut messages: Vec<AgentMessage>,
+) -> Result<Vec<AgentMessage>, crate::env::CompactError> {
+    for message in &mut messages {
+        let Content::Parts(parts) = &mut message.message.content else { continue };
+        for part in parts.iter_mut().filter(|p| is_text_reference(p)) {
+            let text = match seam.stored_text(part).await.map_err(crate::env::CompactError::Failed)? {
+                Some(StoredText::Text(text)) => truncate_middle(&text, ATTACHMENT_TEXT_MAX_CHARS),
+                Some(StoredText::Gone) => "[attachment unavailable]".to_owned(),
+                None => continue,
+            };
+            *part = ContentPart::Text(text, None);
+        }
+    }
+    Ok(messages)
+}

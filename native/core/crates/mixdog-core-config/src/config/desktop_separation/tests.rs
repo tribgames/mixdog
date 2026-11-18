@@ -3,31 +3,34 @@
 //! after the real boot pass): the file after each step in bytes, the backup folders and their bytes, and what
 //! `separateDefaults` answered the first and the second time.
 
+#[cfg(node_twin)]
 use std::path::Path;
+#[cfg(node_twin)]
 use std::path::PathBuf;
 
 use serde_json::Value;
 
+#[cfg(node_twin)]
 use super::super::separation::tests::lane;
 use super::super::separation::tests::open;
 use super::super::separation::tests::put;
 
 const NOW_MS: i64 = 1_800_000_000_123;
 /// The desktop asks later than the daemon, so the two backup folders never share a name (the recorder does the same).
+#[cfg(node_twin)]
 const DESKTOP_MS: i64 = NOW_MS + 60_000;
+#[cfg(node_twin)]
 const LATER_MS: i64 = NOW_MS + 120_000;
 
-fn twin() -> Value {
-    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/desktop-separation/twin.json")).expect("twin.json")
-}
-
 /// The file at `path` as text; `None` when there is none.
+#[cfg(node_twin)]
 async fn read(path: PathBuf) -> Option<String> {
     let bytes = lane(move |_| mixdog_statefile::read_content(&path).expect("read")).await;
     bytes.map(|bytes| String::from_utf8(bytes).expect("utf8"))
 }
 
 /// The backup folders under `dir`, by name: (name, the copy's text).
+#[cfg(node_twin)]
 async fn backups(dir: &Path) -> Vec<(String, String)> {
     let folder = dir.join("backups");
     let mut names: Vec<String> = lane(move |lane| mixdog_statefile::list_dir(lane, &folder).unwrap_or_default()).await;
@@ -40,6 +43,29 @@ async fn backups(dir: &Path) -> Vec<(String, String)> {
     made
 }
 
+/// The in-memory document follows the file the pass wrote.
+#[tokio::test]
+async fn the_loaded_document_follows_the_pass() {
+    let dir = tempfile::tempdir().expect("dir");
+    put(
+        dir.path().join("mixdog-config.json"),
+        r#"{"defaultsVersion":2,"desktop":{"keepAwake":true,"runInBackground":false,"zoomFactor":1}}"#.to_owned(),
+    )
+    .await;
+    let config = open(dir.path()).await;
+    assert!(config.separate_desktop_defaults(NOW_MS).await.expect("pass"));
+    assert_eq!(
+        Value::Object((*config.full()).clone()),
+        serde_json::json!({ "defaultsVersion": 2, "desktop": { "runInBackground": false, "defaultsSeparationVersion": 1 } })
+    );
+}
+
+
+#[cfg(node_twin)]
+fn twin() -> Value {
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/desktop-separation/twin.json")).expect("twin.json")
+}
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_desktop_pass_leaves_the_file_and_the_copies_node_left() {
     let twin = twin();
@@ -79,21 +105,4 @@ async fn the_desktop_pass_leaves_the_file_and_the_copies_node_left() {
         assert_eq!(read(file).await.as_deref(), case["finalAfterSecond"].as_str(), "{name}: the file after the second run");
         assert_eq!(backups(dir.path()).await.len() as u64, case["backupsAfterSecond"].as_u64().expect("count"), "{name}: backups after the second run");
     }
-}
-
-/// The in-memory document follows the file the pass wrote.
-#[tokio::test]
-async fn the_loaded_document_follows_the_pass() {
-    let dir = tempfile::tempdir().expect("dir");
-    put(
-        dir.path().join("mixdog-config.json"),
-        r#"{"defaultsVersion":2,"desktop":{"keepAwake":true,"runInBackground":false,"zoomFactor":1}}"#.to_owned(),
-    )
-    .await;
-    let config = open(dir.path()).await;
-    assert!(config.separate_desktop_defaults(NOW_MS).await.expect("pass"));
-    assert_eq!(
-        Value::Object((*config.full()).clone()),
-        serde_json::json!({ "defaultsVersion": 2, "desktop": { "runInBackground": false, "defaultsSeparationVersion": 1 } })
-    );
 }

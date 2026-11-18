@@ -290,7 +290,7 @@ fn core_memory_write(host: &mut dyn SlashHost, args: Value, success: &str, failu
     if !host.has_store_method("memoryControl") {
         return true;
     }
-    match host.store_call("memoryControl", json!([args, {"silent": true}])) {
+    match host.store_call("memoryControl", json!([args])) {
         Ok(result) => {
             let text = if truthy(&result) { value_text(&result) } else { String::new() };
             match memory_core_result_error_text(&text) {

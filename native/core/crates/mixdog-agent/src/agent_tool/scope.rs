@@ -46,6 +46,10 @@ pub struct Scope {
 pub struct Caller {
     pub scope: Scope,
     pub cwd: String,
+    /// The model's tool call that makes this request; the jobs it starts are named on its result.
+    pub tool_call_id: Option<String>,
+    /// The bot-chain hop of the turn making the call (`turnHopOf`); 0 outside a bot chain.
+    pub hop: u32,
 }
 
 /// The ownership fields a session and the worker row describing it share.

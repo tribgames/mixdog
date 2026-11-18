@@ -408,89 +408,12 @@ pub const EVAL_SCRIPT: &str = "eval \"${MIXDOG_SHELL_SCRIPT?mixdog: shell script
 mod tests {
     use super::*;
 
-    fn vectors() -> serde_json::Value {
-        serde_json::from_str(include_str!("testdata/invocation_node_vectors.json")).unwrap()
-    }
-
     fn runtime(v: &serde_json::Value) -> SkillRuntime {
         SkillRuntime {
             platform: v["platform"].as_str().unwrap().to_owned(),
             interpreter: v["interpreter"].as_str().unwrap().to_owned(),
             entry: v["entry"].as_str().unwrap().to_owned(),
             electron: v["electron"].as_bool().unwrap(),
-        }
-    }
-
-    /// Node's launcher renderers and launcher directory for five runtimes.
-    #[test]
-    fn the_skill_launchers_equal_nodes() {
-        let vectors = vectors();
-        let cases = vectors["skillOut"].as_array().unwrap();
-        assert_eq!(cases.len(), 5);
-        for case in cases {
-            let rt = runtime(&case["runtime"]);
-            assert_eq!(render_powershell_skill_function(&rt), case["psFunction"].as_str().unwrap(), "{rt:?}");
-            assert_eq!(render_posix_skill_launcher(&rt), case["posix"].as_str().unwrap(), "{rt:?}");
-            assert_eq!(render_windows_skill_launcher(&rt), case["windows"].as_str().unwrap(), "{rt:?}");
-            let data = if rt.platform == "win32" { "C:\\data" } else { "/data" };
-            assert_eq!(skill_launcher_dir(&rt, data), case["dir"].as_str().unwrap(), "{rt:?}");
-        }
-    }
-
-    #[test]
-    fn the_powershell_prefixes_stack_once() {
-        let vectors = vectors();
-        assert_eq!(POWERSHELL_UTF8_PREFIX, vectors["utf8Prefix"].as_str().unwrap());
-        let rt = runtime(&vectors["skillOut"][2]["runtime"]);
-        let once = prefix_powershell_utf8("echo hi", Some(&rt));
-        assert_eq!(
-            once,
-            format!("{POWERSHELL_UTF8_PREFIX}\n{}\necho hi", render_powershell_skill_function(&rt))
-        );
-        // Prefixing an already prefixed command leaves one preamble and one function.
-        assert_eq!(prefix_powershell_utf8(&once, Some(&rt)), once);
-        assert_eq!(prefix_powershell_utf8("echo hi", None), format!("{POWERSHELL_UTF8_PREFIX}\necho hi"));
-    }
-
-    /// Node's `buildPowerShellFilterTeePlan` on 20 commands (token and temp dir normalised).
-    #[test]
-    fn the_filter_tee_plan_equals_nodes() {
-        let vectors = vectors();
-        let cases = vectors["tee"].as_array().unwrap();
-        assert_eq!(cases.len(), 20);
-        for case in cases {
-            let command = case["command"].as_str().unwrap();
-            let got = build_powershell_filter_tee_plan(command, "0a1b2c3d", "TMPDIR", '\\').map(|p| {
-                p.command.replace("0a1b2c3d", "TOKEN")
-            });
-            // Node's token is random hex; both sides are normalised to TOKEN.
-            let want = case["result"]["command"].as_str().map(str::to_owned);
-            assert_eq!(got, want, "{command:?}");
-        }
-    }
-
-    /// Node's `getSnapshotScript` for three shells with and without an rc file, and the payload test.
-    #[test]
-    fn the_snapshot_script_equals_nodes() {
-        let vectors = vectors();
-        let cases = vectors["snapScripts"].as_array().unwrap();
-        assert_eq!(cases.len(), 6);
-        for case in cases {
-            let script = case["script"].as_str().unwrap();
-            // The launcher directory is the machine-specific part of Node's recording.
-            let launcher = lazy_re!(r#"\nPATH='([^']*)':"\$PATH""#, "").captures(script).unwrap();
-            let launcher = launcher.get(1).unwrap().to_owned();
-            let config = case["configExists"].as_bool().unwrap().then(|| case["config"].as_str().unwrap().to_owned());
-            let got = snapshot_script(
-                case["shell"].as_str().unwrap(),
-                case["snapshot"].as_str().unwrap(),
-                config.as_deref(),
-                &launcher,
-            );
-            assert_eq!(got, script, "{}", case["shell"]);
-        }
-        for case in vectors["payloads"].as_array().unwrap() {
-            assert_eq!(snapshot_has_payload(case["content"].as_str().unwrap()), case["ok"].as_bool().unwrap(), "{case}");
         }
     }
 
@@ -512,5 +435,116 @@ mod tests {
         assert_eq!(decode_tee_capture(&utf16, true).as_deref(), Some("hi\n"));
         assert_eq!(decode_tee_capture(b"  \n", false), None);
         assert!(filter_rescue_note("x").ends_with("(tail):\nx"));
+    }
+
+
+    fn darwin_electron() -> serde_json::Value {
+        serde_json::json!({ "platform": "darwin", "interpreter": "/Applications/M.app/Contents/MacOS/M", "entry": "/a b/entry.mjs", "electron": true })
+    }
+
+    #[test]
+    fn a_skill_script_launcher_runs_the_entry_with_the_argument_vector_it_was_given() {
+        let rt = runtime(&darwin_electron());
+        assert_eq!(
+            render_posix_skill_launcher(&rt),
+            "#!/bin/sh\n# Mixdog skill-script launcher, generated for one installation. Do not edit.\nELECTRON_RUN_AS_NODE=1\nexport ELECTRON_RUN_AS_NODE\nexec '/Applications/M.app/Contents/MacOS/M' '/a b/entry.mjs' \"$@\"\n"
+        );
+        assert_eq!(
+            render_windows_skill_launcher(&rt),
+            "@echo off\r\nrem Mixdog skill-script launcher, generated for one installation. Do not edit.\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\nset \"ELECTRON_RUN_AS_NODE=1\"\r\n\"/Applications/M.app/Contents/MacOS/M\" \"/a b/entry.mjs\" %*\r\nset \"MIXDOG_SKILL_EXIT=%ERRORLEVEL%\"\r\nexit /b %MIXDOG_SKILL_EXIT%\r\n"
+        );
+        assert_eq!(
+            render_powershell_skill_function(&rt),
+            "function mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; $__mxo1 = $env:ELECTRON_RUN_AS_NODE; try { $env:MIXDOG_SKILL_ARGV = $__mxa; $env:ELECTRON_RUN_AS_NODE = '1'; & '/Applications/M.app/Contents/MacOS/M' '/a b/entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0; $env:ELECTRON_RUN_AS_NODE = $__mxo1 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }"
+        );
+        assert_eq!(skill_launcher_dir(&rt, "/data"), "/data/skill-launchers/a6d478befa15a891");
+    }
+
+    #[test]
+    fn the_launcher_of_a_plain_node_runtime_does_not_ask_for_electron_mode() {
+        let rt = runtime(&serde_json::json!({ "platform": "linux", "interpreter": "/usr/bin/node", "entry": "/opt/m/src/skill-script-entry.mjs", "electron": false }));
+        let posix = render_posix_skill_launcher(&rt);
+        assert!(posix.contains("exec '/usr/bin/node' '/opt/m/src/skill-script-entry.mjs' \"$@\""), "{posix}");
+        assert!(!posix.contains("ELECTRON_RUN_AS_NODE"), "{posix}");
+        assert!(!render_powershell_skill_function(&rt).contains("ELECTRON_RUN_AS_NODE = '1'"));
+        // A quote in the entry path is doubled inside the single-quoted PowerShell string.
+        let quoted = runtime(&serde_json::json!({ "platform": "win32", "interpreter": "C:\\node\\node.exe", "entry": "C:\\it's\\skill-script-entry.mjs", "electron": false }));
+        assert!(render_powershell_skill_function(&quoted).contains("'C:\\it''s\\skill-script-entry.mjs'"));
+    }
+
+    #[test]
+    fn a_snapshot_counts_only_when_it_captured_something() {
+        for content in ["alias -- ll=ls", "foo() {\n}", "function foo", "setopt x", "shopt -s extglob", "set -o errexit", "  alias   -- a"] {
+            assert!(snapshot_has_payload(content), "{content:?}");
+        }
+        for content in ["", "# Snapshot\nexport PATH=/x"] {
+            assert!(!snapshot_has_payload(content), "{content:?}");
+        }
+    }
+
+    #[test]
+    fn a_pipeline_into_a_filter_keeps_the_producers_exit_status_and_a_copy_of_its_output() {
+        let tee = |command: &str| build_powershell_filter_tee_plan(command, "0a1b2c3d", "TMPDIR", '\\').map(|p| p.command.replace("0a1b2c3d", "TOKEN"));
+        let wrapped = |producer: &str, filters: &str| {
+            format!("$__mixdogProducerExitTOKEN = [ref]0; & {{ $global:LASTEXITCODE = 0; {producer}; $__mixdogProducerExitTOKEN.Value = $global:LASTEXITCODE }} | Tee-Object -FilePath 'TMPDIR\\mixdog-tee-TOKEN.log' | {filters}; exit $__mixdogProducerExitTOKEN.Value")
+        };
+        assert_eq!(tee("npm test 2>&1 | Select-String FAIL"), Some(wrapped("npm test 2>&1", "Select-String FAIL")));
+        assert_eq!(tee("npm test 2>&1 | findstr FAIL"), Some(wrapped("npm test 2>&1", "findstr FAIL")));
+        assert_eq!(tee("npm test 2>&1 | % { $_ }"), Some(wrapped("npm test 2>&1", "% { $_ }")));
+        assert_eq!(tee("Get-Process | Select-String x"), Some(wrapped("Get-Process", "Select-String x")));
+        // Text before the pipeline, joined by `;`, stays in front of the wrapper.
+        assert_eq!(
+            tee("cd x; npm test 2>&1 | sls FAIL | select -First 1"),
+            Some(format!("cd x; {}", wrapped("npm test 2>&1", "sls FAIL | select -First 1")))
+        );
+    }
+
+    #[test]
+    fn a_pipeline_that_is_not_a_plain_producer_into_filters_is_not_wrapped() {
+        for command in [
+            "cd x && npm test 2>&1 | sls FAIL",
+            "a | b",
+            "npm test | Select-Object -First 5 | Out-File f",
+            "npm test > out.txt | sls x",
+            "npm test 2>&1 | Tee-Object x | sls y",
+            "npm $(x) 2>&1 | sls y",
+            "npm test\n| sls y",
+            "(npm test | sls x) -join \",\"",
+            "try { npm test | sls x } catch {}",
+            "x 2>&1 | grep y",
+            "npm test 2>&1 | sls x ; ",
+            "",
+        ] {
+            assert_eq!(build_powershell_filter_tee_plan(command, "0a1b2c3d", "TMPDIR", '\\').map(|p| p.command), None, "{command:?}");
+        }
+    }
+
+    #[test]
+    fn the_powershell_prefixes_stack_once() {
+        assert_eq!(POWERSHELL_UTF8_PREFIX, "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;");
+        let rt = runtime(&serde_json::json!({ "platform": "linux", "interpreter": "/usr/bin/node", "entry": "/opt/m/src/skill-script-entry.mjs", "electron": false }));
+        let once = prefix_powershell_utf8("echo hi", Some(&rt));
+        assert_eq!(
+            once,
+            format!("{POWERSHELL_UTF8_PREFIX}\n{}\necho hi", render_powershell_skill_function(&rt))
+        );
+        // Prefixing an already prefixed command leaves one preamble and one function.
+        assert_eq!(prefix_powershell_utf8(&once, Some(&rt)), once);
+        assert_eq!(prefix_powershell_utf8("echo hi", None), format!("{POWERSHELL_UTF8_PREFIX}\necho hi"));
+    }
+    #[test]
+    fn the_snapshot_script_dumps_functions_options_and_aliases_and_ends_with_the_sourced_path() {
+        let bash = snapshot_script("/bin/bash", "/data/shell-snapshots/snapshot-x.sh", Some("/home/u/.bashrc"), "/data/skill-launchers/ab");
+        assert!(bash.starts_with("SNAPSHOT_FILE='/data/shell-snapshots/snapshot-x.sh'\nsource '/home/u/.bashrc' < /dev/null 2>/dev/null || true\necho \"# Snapshot\" >| \"$SNAPSHOT_FILE\"\n"), "{bash}");
+        assert!(bash.contains("declare -F 2>/dev/null") && bash.contains("shopt -p 2>/dev/null | head -n 1000"), "{bash}");
+        let zsh = snapshot_script("/usr/bin/zsh", "/data/shell-snapshots/snapshot-x.sh", None, "/data/skill-launchers/ab");
+        assert!(zsh.starts_with("SNAPSHOT_FILE='/data/shell-snapshots/snapshot-x.sh'\n# no user config file\n"), "{zsh}");
+        assert!(zsh.contains("typeset +f 2>/dev/null") && zsh.contains("setopt 2>/dev/null | grep -vxE '(no)?monitor' | sed 's/^/setopt /' | head -n 1000"), "{zsh}");
+        // The sourced PATH keeps the skill launcher first and is written back single-quoted.
+        for script in [&bash, &zsh] {
+            assert!(script.contains("\nPATH='/data/skill-launchers/ab':\"$PATH\"\n"), "{script}");
+            assert!(script.contains("printf 'export PATH=' >> \"$SNAPSHOT_FILE\""), "{script}");
+            assert!(script.ends_with("exit 0\n"), "{script}");
+        }
     }
 }

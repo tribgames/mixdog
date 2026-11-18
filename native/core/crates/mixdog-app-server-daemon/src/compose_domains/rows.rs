@@ -39,28 +39,48 @@ fn relay_url(env: &super::EnvReader) -> RelayUrl {
     Arc::new(move || crate::domain_seams::remote::resolve_relay_url(env("MIXDOG_RELAY_URL").as_deref()))
 }
 
-/// The `version` of `package.json` at the package root (`package.json` `version`).
+/// The `version` of the installed `package.json` (`localPackageVersion`): an unreadable, malformed or version-less file
+/// reads as `0.0.0`, so a damaged file never stops the service and the update check offers the registry's release.
 #[allow(clippy::disallowed_methods, reason = "runs as an interactive-io lane job")]
-pub(crate) async fn package_version(package_root: &std::path::Path, lane: mixdog_rt::InteractiveIo) -> Result<String, ComposeDomainsError> {
+pub(crate) async fn package_version(package_root: &std::path::Path, lane: mixdog_rt::InteractiveIo) -> String {
     let path = package_root.join("package.json");
-    let shown = path.display().to_string();
-    let text = on_lane(lane, &CancellationToken::new(), move |_lane| std::fs::read_to_string(path))
-        .await
-        .map_err(|error| ComposeDomainsError::Build(format!("reading {shown}: {error:?}")))?
-        .map_err(|error| ComposeDomainsError::Build(format!("reading {shown}: {error}")))?;
-    let package: Value =
-        serde_json::from_str(&text).map_err(|error| ComposeDomainsError::Build(format!("{shown} is not valid: {error}")))?;
-    package
-        .get("version")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| ComposeDomainsError::Build(format!("{shown} has no version")))
+    on_lane(lane, &CancellationToken::new(), move |_lane| installed_version(&path)).await.unwrap_or_else(|_| UNKNOWN_VERSION.to_owned())
+}
+
+const UNKNOWN_VERSION: &str = "0.0.0";
+
+#[allow(clippy::disallowed_methods, reason = "runs as an interactive-io lane job")]
+fn installed_version(path: &std::path::Path) -> String {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|package| package.get("version").and_then(Value::as_str).filter(|version| !version.is_empty()).map(str::to_owned))
+        .unwrap_or_else(|| UNKNOWN_VERSION.to_owned())
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::installed_version;
+
+    #[test]
+    fn a_damaged_or_missing_version_file_reads_as_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("package.json");
+        assert_eq!(installed_version(&path), "0.0.0");
+        for body in ["{ not json", "{}", r#"{"version":""}"#, r#"{"version":7}"#] {
+            std::fs::write(&path, body).unwrap();
+            assert_eq!(installed_version(&path), "0.0.0", "{body}");
+        }
+        std::fs::write(&path, r#"{"version":"1.5.0"}"#).unwrap();
+        assert_eq!(installed_version(&path), "1.5.0");
+    }
 }
 
 pub(super) struct Rows {
     pub services: Vec<Arc<dyn DomainService>>,
     pub transfer_sources: Vec<Arc<dyn TransferSource>>,
     pub system: Arc<mixdog_spawn::service::SystemService>,
+    pub host: Arc<HostService>,
     /// The one update service: `setup` `set_auto_update` answers its `getUpdateSettings()`.
     pub update: Arc<UpdateService>,
     pub package_version: String,
@@ -90,7 +110,8 @@ pub(super) async fn build(
         Arc::new(mixdog_core_domains::domains::desktop_residual_b::network_snapshot),
         Arc::new(move || mixdog_core_domains::domains::host::PowerSink::power(&*on_network_change, mixdog_app_protocol::v2::host::PowerEvent::Resume)),
     ));
-    services.push(HostService::new(publisher, power.clone(), Arc::new(crate::compose_connections::PowerSinks(vec![power, seams.connections_power.clone()])), seams.notification_clicks.clone(), seams.browser_surfaces.clone(), seams.screen_events.clone(), seams.visualize_panes.clone()));
+    let host = HostService::new(publisher, power.clone(), Arc::new(crate::compose_connections::PowerSinks(vec![power, seams.connections_power.clone()])), seams.notification_clicks.clone(), seams.browser_surfaces.clone(), seams.screen_events.clone(), seams.visualize_panes.clone());
+    services.push(host.clone());
 
     services.push(InstructionsService::new(
         InstructionPaths {
@@ -111,7 +132,7 @@ pub(super) async fn build(
     crate::server::install_param_refs(blobs.clone(), tokens, &inputs.limits);
     transfer_sources.push(AttachmentSource::new(blobs, session_attachments, tokens));
 
-    let current_version = package_version(&inputs.paths.package_root, inputs.tokens.interactive_io).await?;
+    let current_version = package_version(&inputs.paths.package_root, inputs.tokens.interactive_io).await;
     let dev = on_lane(tokens.interactive_io, &CancellationToken::new(), {
         let root = inputs.paths.package_root.clone();
         move |lane| StagedInstaller::probe_dev_install(lane, &root)
@@ -127,7 +148,9 @@ pub(super) async fn build(
         seams.system_proxy.clone(),
         Arc::new(mixdog_scm::exec::Exec::new(inputs.processes.manager())),
         dev,
-    );
+    )
+    // The packaged desktop's updater is the only path there: this core neither stages nor announces an update.
+    .for_packaged_desktop(inputs.paths.packaged_desktop);
     let auto = config.clone();
     let update = UpdateService::new(
         UpdateConfig {
@@ -159,5 +182,5 @@ pub(super) async fn build(
 
     let system = mixdog_spawn::service::SystemService::new(inputs.scoped_feeds.clone());
     services.push(system.clone());
-    Ok(Rows { services, transfer_sources, system, update, package_version: current_version })
+    Ok(Rows { services, transfer_sources, system, host, update, package_version: current_version })
 }

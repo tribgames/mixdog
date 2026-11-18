@@ -9,14 +9,14 @@
 //! terminal event, records a failed row; one dropped before its end records a cancelled row with
 //! the last usage it showed.
 //!
-//! One `attempt` is one send. Retrying has a single owner, the loop's `RetryDecider`, so a retry
-//! the loop makes is a send of its own with its own row; Node's provider-local retries sit inside
-//! one send and so inside one row (`attempts`, the `retried` status).
+//! Billed attempts abandoned by a provider replay, account rotation or loop retry get their
+//! own rows within the logical send. Settlement never polls or reissues the provider request.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use futures::FutureExt;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::provider::{
     DeliveryState, ModelListing, ModelRequest, ModelStream, ProviderAdapter, ProviderError, RequestOptions, SendEnd, StreamEvent, TransportFault,
@@ -26,7 +26,116 @@ use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 use serde_json::Value;
 
-use super::accounting::{Completed, Facts, Outcome, SendAccounting, SendIdentity, UsagePricing, UsageSink, random_uuid, wall_ms};
+use super::accounting::{Completed, Facts, Outcome, Recorded, SendAccounting, SendIdentity, UsagePricing, UsageSink, random_uuid, wall_ms};
+
+#[derive(Default)]
+struct Journal {
+    has_sink: bool,
+    current: Report,
+    abandoned: Vec<AbandonedUsage>,
+}
+
+struct AbandonedUsage {
+    usage: Box<Usage>,
+    model: Option<Box<str>>,
+    speed: String,
+    account: Option<String>,
+}
+
+tokio::task_local! {
+    static ATTEMPT_USAGE: Arc<Mutex<Journal>>;
+}
+
+#[derive(Default)]
+struct Report {
+    observed: Option<(Usage, Option<String>)>,
+    usage: Option<Usage>,
+    served: Option<String>,
+    fallback: bool,
+    response_id: Option<String>,
+    output_at: Option<i64>,
+}
+
+impl Report {
+    fn note_billing_event(&mut self, event: &StreamEvent) {
+        match event {
+            StreamEvent::Usage(usage) => self.usage = Some(usage.clone()),
+            StreamEvent::ServedModel(model) => self.served = Some(model.clone()),
+            _ => {}
+        }
+    }
+
+    fn partial(&self) -> (Option<&Usage>, Option<&str>) {
+        match &self.observed {
+            Some((usage, model)) => (Some(usage), model.as_deref().or(self.served.as_deref())),
+            None => (self.usage.as_ref(), self.served.as_deref()),
+        }
+    }
+
+    fn fill_failure(&self, error: &mut ProviderError) {
+        let (usage, model) = self.partial();
+        if error.partial_usage.is_none() {
+            error.partial_usage = usage.cloned().map(Box::new);
+        }
+        if error.partial_usage.is_some() && error.partial_model.is_none() {
+            error.partial_model = model.map(Box::from);
+        }
+    }
+}
+
+/// A cumulative provider observation that the stream has not necessarily emitted yet.
+pub(crate) fn observe_attempt_usage(usage: Usage, model: Option<String>) {
+    let _ = ATTEMPT_USAGE.try_with(|journal| {
+        journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner).current.observed = Some((usage, model));
+    });
+}
+
+pub(crate) fn attach_observed_usage(error: &mut ProviderError) {
+    let _ = ATTEMPT_USAGE.try_with(|journal| {
+        journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner).current.fill_failure(error);
+    });
+}
+
+/// Pool preflight can hold the first event before the accounted stream has even opened.
+/// Keep it as an emitted fallback, not in place of a decoder's further-ahead observation.
+pub(super) fn observe_pool_event(event: &StreamEvent) {
+    if matches!(event, StreamEvent::Usage(_) | StreamEvent::ServedModel(_)) {
+        let _ = ATTEMPT_USAGE.try_with(|journal| {
+            journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner).current.note_billing_event(event);
+        });
+    }
+}
+
+/// Roster work can suspend after this frame but before the pool decides to surface or retry it.
+pub(super) fn observe_pool_failure(error: &mut ProviderError) {
+    attach_observed_usage(error);
+    if let Some(usage) = error.partial_usage.as_deref() {
+        observe_attempt_usage(usage.clone(), error.partial_model.as_deref().map(str::to_owned));
+    }
+}
+
+/// Transfer the abandoned bill before an internal replay overwrites the
+/// attempt's speed or is cancelled. Without an accounting owner, leave the
+/// usage on the error so the caller can settle it.
+pub(crate) fn handoff_abandoned_usage(
+    error: &mut ProviderError,
+    sent: &mixdog_core_api::domain::provider::SendIdentity,
+) -> bool {
+    ATTEMPT_USAGE.try_with(|journal| {
+        let mut journal = journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        journal.current.fill_failure(error);
+        if error.partial_usage.is_some() && !journal.has_sink {
+            return false;
+        }
+        journal.current = Report::default();
+        if let Some(usage) = error.partial_usage.take() {
+            journal.abandoned.push(AbandonedUsage {
+                usage, model: error.partial_model.take(), speed: sent.dispatched_speed_tier(), account: sent.account().map(|s| s.account),
+            });
+        }
+        true
+    }).unwrap_or(false)
+}
 
 /// The wrapped provider's stages behind the one every provider of the registry raises first: Node's admission scheduler
 /// announces a send as `requesting` once it is admitted (`admission-scheduler.mjs:592`), ahead of the adapter's own
@@ -77,10 +186,8 @@ pub fn requested_route(primary: Option<(String, String)>, provider: &str, model:
     }
 }
 
-/// The account a send is bound to (`currentProviderAccountId`), read where its row is written
-/// (`usage-accounting.mjs:161`): a send that switched accounts mid-request is recorded under the
-/// account current at that point. An unreadable roster is the error text Node's read throws inside
-/// the row's write, which fails that recording (`usageAccountingError`).
+/// Fallback for sends without a pinned roster row (`currentProviderAccountId`,
+/// `usage-accounting.mjs:161`). A dispatched account takes precedence over this live lookup.
 #[async_trait]
 pub trait AccountOf: Send + Sync {
     async fn of(&self, provider: &str) -> Result<String, String>;
@@ -152,9 +259,17 @@ pub fn adapter_input_excludes_cache(adapter: &dyn ProviderAdapter) -> bool {
 struct Held {
     accounting: SendAccounting,
     failed: Option<ProviderError>,
+    runtime: tokio::runtime::Handle,
 }
 
-type Groups = Arc<Mutex<HashMap<String, Held>>>;
+#[derive(Default)]
+struct GroupState {
+    held: HashMap<String, Held>,
+    writing: HashMap<String, Vec<Write>>,
+}
+
+type Groups = Arc<Mutex<GroupState>>;
+type Group = (String, Groups);
 
 /// `noteErrorUsage`: an attempt that is retried abandons the usage the provider billed for it.
 fn note_failed(accounting: &mut SendAccounting, failed: Option<ProviderError>) {
@@ -178,32 +293,58 @@ impl AccountedAdapter {
     }
 
     /// The accounting this attempt belongs to: its group's, while a group is open, else a new send's.
-    async fn open(&self, request: &ModelRequest) -> SendAccounting {
-        if let Some(group) = request.options.send_group.as_deref()
-            && let Some(Held { mut accounting, failed }) = self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(group)
-        {
-            note_failed(&mut accounting, failed);
-            return accounting;
+    fn open(&self, request: &ModelRequest) -> Result<SendAccounting, ProviderError> {
+        if let Some(group) = request.options.send_group.as_deref() {
+            let mut state = self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(held) = state.held.get(group)
+                && !held.accounting.has_sink()
+                && let Some(error) = held.failed.as_ref().filter(|e| e.partial_usage.is_some())
+            {
+                return Err(error.clone());
+            }
+            if let Some(Held { mut accounting, failed, .. }) = state.held.remove(group) {
+                note_failed(&mut accounting, failed);
+                return Ok(accounting);
+            }
         }
-        self.begin(request)
+        Ok(self.begin(request))
     }
 
     /// One request of the inner provider (an attempt, or its re-issue of a spent send) under the send's accounting.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn accounted(&self, request: Arc<ModelRequest>, reissue: bool) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let accounting = self.open(&request).await;
+        let accounting = self.open(&request)?;
         let group = request.options.send_group.clone().map(|id| (id, Arc::clone(&self.groups)));
-        let opened = if reissue { self.inner.recover_spent(request).await } else { self.inner.attempt(request).await };
+        let sent = request.options.send_identity.clone();
+        // This attempt starts with nothing dispatched: a previous attempt's tier never labels it, and an attempt that fails
+        // before its request is handed to the transport (credentials, admission) stays standard.
+        sent.note_dispatched_speed_tier("");
+        let journal = Arc::new(Mutex::new(Journal { has_sink: accounting.has_sink(), ..Journal::default() }));
+        let mut pending = PendingOpen {
+            open: Some(Open { accounting, sent, journal: journal.clone() }),
+            group,
+            runtime: tokio::runtime::Handle::current(),
+        };
+        let opened = ATTEMPT_USAGE.scope(journal, async {
+            if reissue { self.inner.recover_spent(request).await } else { self.inner.attempt(request).await }
+        }).await;
         match opened {
             Ok(stream) => Ok(Box::new(AccountedStream {
                 inner: stream,
-                open: Some(Open { accounting, usage: None, served: None, fallback: false, response_id: None, output_at: None }),
-                group,
+                pending,
+                terminal: None,
                 now: Arc::clone(&self.deps.now),
                 wire_left: None,
             })),
-            Err(error) => {
-                fail(accounting, group, error.clone()).await;
+            Err(mut error) => {
+                let (accounting, report) = pending.close();
+                report.fill_failure(&mut error);
+                // Neither a pre-transport cache refusal nor a local quota skip is a billable attempt.
+                let failed = (error.partial_usage.is_some() || (error.tail_refusal.is_none()
+                    && !super::key_pool::is_local_quota_refusal(&error))).then(|| error.clone());
+                if let Some(write) = hold_or_finish(accounting, pending.group.take(), failed) {
+                    write.await;
+                }
                 Err(error)
             }
         }
@@ -241,6 +382,9 @@ impl AccountedAdapter {
 impl ProviderAdapter for AccountedAdapter {
     fn id(&self) -> &ProviderId {
         self.inner.id()
+    }
+    async fn quota_eligibility(&self, model: &str) -> Option<bool> {
+        self.inner.quota_eligibility(model).await
     }
     fn codec(&self) -> &dyn WireCodec {
         self.inner.codec()
@@ -299,6 +443,9 @@ impl ProviderAdapter for AccountedAdapter {
     async fn takes_vision(&self, request: &ModelRequest) -> bool {
         self.inner.takes_vision(request).await
     }
+    async fn image_route(&self, request: &ModelRequest) -> mixdog_image_egress::route::RouteFacts {
+        self.inner.image_route(request).await
+    }
     fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
         self.inner.first_response_budget(model, parameters)
     }
@@ -331,68 +478,154 @@ impl ProviderAdapter for AccountedAdapter {
     }
 
     fn release_send(&self, group: &str) {
+        group_writes(&self.groups, group, SendEnd::Cancelled);
         self.inner.release_send(group);
     }
 
     async fn settle_send(&self, group: &str, end: SendEnd) {
+        let writes = group_writes(&self.groups, group, end);
         self.inner.settle_send(group, end).await;
-        let held = self.groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(group);
-        let Some(Held { mut accounting, failed }) = held else { return };
-        match end {
-            SendEnd::Surfaced => {
-                if let Some(error) = failed {
-                    accounting.finish(Outcome::Failed(&error)).await;
-                }
-            }
-            // The cancel ended a send whose last failure was already retried (its usage noted):
-            // only the abandoned attempts are recorded, never a request row of their own.
-            SendEnd::Cancelled => {
-                note_failed(&mut accounting, failed);
-                accounting.finish(Outcome::Cancelled { reported: None }).await;
-            }
+        for write in writes {
+            write.await;
         }
     }
 }
 
 /// An attempt failed: inside a group the failure is held for the loop's verdict (a retry makes it
 /// an abandoned attempt, `settle_send` its row); alone it is the send's failed row.
-async fn fail(accounting: SendAccounting, group: Option<(String, Groups)>, error: ProviderError) {
+fn hold_or_finish(accounting: SendAccounting, group: Option<Group>, failed: Option<ProviderError>) -> Option<Write> {
+    let held = Held { accounting, failed, runtime: tokio::runtime::Handle::current() };
     match group {
         Some((id, groups)) => {
-            groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id, Held { accounting, failed: Some(error) });
+            groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).held.insert(id, held);
+            None
         }
-        None => {
-            accounting.finish(Outcome::Failed(&error)).await;
-        }
+        None => Some(held.finish(SendEnd::Surfaced)),
+    }
+}
+
+type Write = futures::future::Shared<futures::future::BoxFuture<'static, Recorded>>;
+
+fn spawn_write(runtime: &tokio::runtime::Handle, work: impl std::future::Future<Output = Recorded> + Send + 'static) -> Write {
+    runtime.spawn(work).map(written).boxed().shared()
+}
+
+impl GroupState {
+    /// Publish under the same lock that consumed Held. Release never waits; settle can join the
+    /// same task even after release, and a release without a later settle leaves no finished entry.
+    fn track(&mut self, groups: &Groups, id: &str, write: Write, runtime: &tokio::runtime::Handle) {
+        self.writing.entry(id.to_owned()).or_default().push(write.clone());
+        let (groups, id) = (groups.clone(), id.to_owned());
+        runtime.spawn(async move {
+            write.await;
+            let mut state = groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(running) = state.writing.get_mut(&id) {
+                running.retain(|w| w.peek().is_none());
+                if running.is_empty() {
+                    state.writing.remove(&id);
+                }
+            }
+        });
+    }
+}
+
+fn group_writes(groups: &Groups, id: &str, end: SendEnd) -> Vec<Write> {
+    let mut state = groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(held) = state.held.remove(id) {
+        let runtime = held.runtime.clone();
+        state.track(groups, id, held.finish(end), &runtime);
+    }
+    state.writing.get(id).cloned().unwrap_or_default()
+}
+
+/// A ledger task failure, like a sink error, is never a reason to reissue provider work.
+fn written(result: Result<Recorded, tokio::task::JoinError>) -> Recorded {
+    result.unwrap_or_else(|error| {
+        mixdog_rt::node_stderr!("[usage-ledger] RECORD NOT SAVED: {error}");
+        Recorded { error: Some(error.to_string()), request_ms: None }
+    })
+}
+
+impl Held {
+    fn finish(self, end: SendEnd) -> Write {
+        let Self { mut accounting, failed, runtime } = self;
+        spawn_write(&runtime, async move {
+            if matches!(end, SendEnd::Surfaced) {
+                if let Some(error) = failed {
+                    return accounting.finish(Outcome::Failed(&error)).await;
+                }
+            } else {
+                note_failed(&mut accounting, failed);
+            }
+            accounting.finish(Outcome::Cancelled { reported: None, model: None }).await
+        })
     }
 }
 
 /// A send whose row is not yet written.
 struct Open {
     accounting: SendAccounting,
-    /// The last usage the stream showed (`StreamEvent::Usage` replaces).
-    usage: Option<Usage>,
-    /// The model the stream named as the one that answered (`StreamEvent::ServedModel`).
-    served: Option<String>,
-    /// The stream reported a server-side fallback (`providerMetadata.anthropicFallbacks`, usage-accounting.mjs:121).
-    fallback: bool,
-    /// The provider's id for the response (`result.responseId`, usage-accounting.mjs:130, :158).
-    response_id: Option<String>,
-    /// When the model began its output ([`StreamEvent::OutputStarted`], Node's `firstOutputAt`).
-    output_at: Option<i64>,
+    /// The send's identity as the adapter sees it: a recovery inside the stream may put another request on the wire,
+    /// whose tier is read when the row is written.
+    sent: mixdog_core_api::domain::provider::SendIdentity,
+    journal: Arc<Mutex<Journal>>,
+}
+
+/// Installed before the first inner poll (pool preflight can itself consume a billed frame).
+struct PendingOpen {
+    open: Option<Open>,
+    group: Option<Group>,
+    runtime: tokio::runtime::Handle,
+}
+
+impl PendingOpen {
+    fn write(&self, work: impl std::future::Future<Output = Recorded> + Send + 'static) -> Write {
+        if let Some((id, groups)) = &self.group {
+            let mut state = groups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let write = spawn_write(&self.runtime, work);
+            state.track(groups, id, write.clone(), &self.runtime);
+            write
+        } else {
+            spawn_write(&self.runtime, work)
+        }
+    }
+
+    fn close(&mut self) -> (SendAccounting, Report) {
+        let Open { mut accounting, sent, journal } = self.open.take().expect("attempt closed twice");
+        let Journal { current, abandoned, .. } = std::mem::take(&mut *journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        for AbandonedUsage { usage, model, speed, account } in abandoned {
+            accounting.note_account(account);
+            accounting.note_attempt_speed(speed);
+            accounting.note_abandoned(&usage, model.map(String::from));
+        }
+        accounting.note_account(sent.account().map(|s| s.account));
+        accounting.note_attempt_speed(sent.dispatched_speed_tier());
+        (accounting, current)
+    }
 }
 
 struct AccountedStream {
     inner: Box<dyn ModelStream>,
-    /// `None` once the row is written.
-    open: Option<Open>,
-    group: Option<(String, Groups)>,
+    pending: PendingOpen,
+    /// Dropping the waiter cannot cancel the write. Polling again returns the terminal event
+    /// without polling the provider a second time.
+    terminal: Option<(Write, Option<Result<StreamEvent, ProviderError>>)>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
     /// Told when the wire's terminal event is in, before the row is written ([`ModelStream::on_wire_left`]).
     wire_left: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl AccountedStream {
+    async fn written(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+        let (write, _) = self.terminal.as_mut()?;
+        let recorded = write.await;
+        let (_, mut event) = self.terminal.take()?;
+        if let Some(Ok(StreamEvent::Completed { request_ms, .. })) = &mut event {
+            *request_ms = recorded.request_ms.or(*request_ms);
+        }
+        event
+    }
+
     fn leave_wire(&self) {
         if let Some(left) = &self.wire_left {
             left();
@@ -403,63 +636,61 @@ impl AccountedStream {
 #[async_trait]
 impl ModelStream for AccountedStream {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
-        let step = self.inner.next().await;
-        let open = self.open.as_mut()?;
+        if self.terminal.is_some() {
+            return self.written().await;
+        }
+        let journal = self.pending.open.as_ref()?.journal.clone();
+        let step = ATTEMPT_USAGE.scope(journal.clone(), self.inner.next()).await;
         match step {
-            Some(Ok(StreamEvent::Usage(usage))) => {
-                open.usage = Some(usage.clone());
-                Some(Ok(StreamEvent::Usage(usage)))
-            }
-            // Node's `result.model`: the ledger books the send under the model that answered.
-            Some(Ok(StreamEvent::ServedModel(model))) => {
-                open.served = Some(model.clone());
-                Some(Ok(StreamEvent::ServedModel(model)))
-            }
-            Some(Ok(StreamEvent::ProviderMetadata(metadata))) => {
-                open.fallback = metadata.get("anthropicFallbacks").and_then(Value::as_array).is_some_and(|f| !f.is_empty());
-                Some(Ok(StreamEvent::ProviderMetadata(metadata)))
-            }
-            Some(Ok(StreamEvent::ResponseId(id))) => {
-                open.response_id = Some(id.clone());
-                Some(Ok(StreamEvent::ResponseId(id)))
-            }
-            Some(Ok(StreamEvent::OutputStarted)) => {
-                open.output_at.get_or_insert_with(|| (self.now)());
-                Some(Ok(StreamEvent::OutputStarted))
-            }
             Some(Ok(StreamEvent::Completed { stop, pricing_model, request_ms })) => {
-                let open = self.open.take()?;
+                let (accounting, report) = self.pending.close();
                 let ended = (self.now)();
+                let (partial, model) = report.partial();
                 let done = Completed {
-                    facts: open.usage.as_ref().map(Facts::from),
-                    model: open.served.clone(),
-                    fallback: open.fallback,
-                    response_id: open.response_id.clone(),
+                    facts: report.usage.as_ref().or(partial).map(Facts::from),
+                    model: report.served.clone().or_else(|| model.map(str::to_owned)),
+                    fallback: report.fallback,
+                    response_id: report.response_id,
                     pricing_model: pricing_model.clone(),
                     // The generation window: from the output's start to the stream's end (`generationWindow`,
                     // generation-window.mjs:9).
-                    generation_ms: open.output_at.map(|at| (ended - at) as f64),
+                    generation_ms: report.output_at.map(|at| (ended - at) as f64),
                     stream_ended_at: ended,
                     ..Completed::default()
                 };
                 self.leave_wire();
-                let recorded = open.accounting.finish(Outcome::Completed(done)).await;
-                Some(Ok(StreamEvent::Completed { stop, pricing_model, request_ms: recorded.request_ms.or(request_ms) }))
+                let write = self.pending.write(async move { accounting.finish(Outcome::Completed(done)).await });
+                self.terminal = Some((write, Some(Ok(StreamEvent::Completed { stop, pricing_model, request_ms }))));
+                self.written().await
             }
-            Some(Ok(event)) => Some(Ok(event)),
-            Some(Err(error)) => {
-                let open = self.open.take()?;
-                self.leave_wire();
-                fail(open.accounting, self.group.take(), error.clone()).await;
-                Some(Err(error))
+            Some(Ok(event)) => {
+                let report = &mut journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner).current;
+                report.note_billing_event(&event);
+                match &event {
+                    StreamEvent::ProviderMetadata(metadata) => {
+                        report.fallback = metadata.get("anthropicFallbacks").and_then(Value::as_array).is_some_and(|f| !f.is_empty());
+                    }
+                    StreamEvent::ResponseId(id) => report.response_id = Some(id.clone()),
+                    StreamEvent::OutputStarted => { report.output_at.get_or_insert_with(|| (self.now)()); }
+                    _ => {}
+                }
+                Some(Ok(event))
             }
-            None => {
-                // A stream may only end with its terminal event: the consumer fails it the same way.
-                let open = self.open.take()?;
+            failure => {
+                let (accounting, report) = self.pending.close();
                 self.leave_wire();
-                let error = ProviderError::transport(TransportFault::TruncatedStream, self.inner.delivery());
-                fail(open.accounting, self.group.take(), error).await;
-                None
+                let eof = failure.is_none();
+                let mut error = failure.and_then(Result::err)
+                    .unwrap_or_else(|| ProviderError::transport(TransportFault::TruncatedStream, self.inner.delivery()));
+                report.fill_failure(&mut error);
+                let write = hold_or_finish(accounting, self.pending.group.take(), Some(error.clone()));
+                let event = (!eof).then_some(Err(error));
+                if let Some(write) = write {
+                    self.terminal = Some((write, event));
+                    self.written().await
+                } else {
+                    event
+                }
             }
         }
     }
@@ -475,14 +706,16 @@ impl ModelStream for AccountedStream {
     }
 }
 
-impl Drop for AccountedStream {
-    /// Dropped before its end: the send was cancelled, and records what it showed.
+#[cfg(test)]
+mod speed_tests;
+
+impl Drop for PendingOpen {
     fn drop(&mut self) {
-        let Some(open) = self.open.take() else { return };
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
-        runtime.spawn(async move {
-            let reported = open.usage.as_ref().map(Facts::from);
-            open.accounting.finish(Outcome::Cancelled { reported }).await;
-        });
+        if self.open.is_some() {
+            let (accounting, report) = self.close();
+            let (usage, model) = report.partial();
+            let outcome = Outcome::Cancelled { reported: usage.map(Facts::from), model: model.map(str::to_owned) };
+            drop(self.write(async move { accounting.finish(outcome).await }));
+        }
     }
 }

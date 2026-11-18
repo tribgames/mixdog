@@ -25,6 +25,7 @@ export function contentLocalStorage(): Pick<Storage, 'getItem' | 'setItem' | 're
 
 /** Key prefixes (any namespace suffix included) earlier versions wrote. */
 const LEGACY_LOCAL_PREFIXES = [
+  'mixdog.remote-app-cache',
   'mixdog.desktop-session-catalog.v1',
   'mixdog.desktop.prompt-history.v1:',
   'mixdog.studio-draft.v1',

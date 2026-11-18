@@ -158,7 +158,7 @@ pub fn route_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &H
     let blocks = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(header);
     session["messages"] = Value::Array(blocks.node_messages());
     let provider = clean(session.get("provider"));
-    let migrating = super::tool_exposure::tool_exposure_migration_needed(&session, Some(&provider), &load_tool_def(surface.host));
+    let migrating = super::tool_exposure::tool_exposure_migration_needed(&session, Some(&provider), &load_tool_def(surface.host)) || !surface.retired_names(&session).is_empty();
     surface.rebuild_for_provider(&mut session, &provider);
     let messages = session.as_object_mut().expect("session object").shift_remove("messages").expect("system messages");
     let mut after = session.as_object().expect("session object").clone();
@@ -183,10 +183,26 @@ pub fn route_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &H
 /// header change of a resumed session. The tools the stored list had that the new surface does not
 /// offer (its catalog included) are logged, as Node warns.
 pub fn resumed_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, prepared: PreparedTools, hidden_agent: bool) -> HeaderChange {
+    resumed_surface_change_with_skills_gate(surface, clock, header, prepared, hidden_agent, mixdog_mcp::skill_catalog::skills_disabled_by_env())
+}
+
+fn resumed_surface_change_with_skills_gate(surface: &ToolSurface, clock: &dyn Clock, header: &Header, prepared: PreparedTools, hidden_agent: bool, skills_off: bool) -> HeaderChange {
     let old: Vec<String> = header.get("tools").and_then(Value::as_array).map(|tools| tools.iter().map(|t| clean(t.get("name"))).collect()).unwrap_or_default();
     let mut session = Value::Object(header.clone());
+    // The manager's freshly resolved list omits retired tools. On a same-route resume keep the
+    // stored surface instead; the cold fold is responsible for removing those definitions.
+    // An explicit skills-off gate is not a cold-fold retirement.
+    if !surface.retired_names(&session).is_empty() {
+        if skills_off {
+            remove_disabled_skill_loader(&mut session);
+        }
+        return header_diff(header, session.as_object().expect("session object"));
+    }
     session["toolSpec"] = prepared.tool_spec;
     session["tools"] = prepared.tools;
+    if skills_off {
+        remove_disabled_skill_loader(&mut session);
+    }
     let change = exposure_change(surface, clock, header, session.clone(), hidden_agent);
     let mut after = session;
     for key in &change.unset {
@@ -207,6 +223,15 @@ pub fn resumed_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: 
         mixdog_rt::node_stderr!("[session] Warning: {} tools no longer available: {}", missing.len(), names.join(", "));
     }
     change
+}
+
+fn remove_disabled_skill_loader(session: &mut Value) {
+    *session = super::tool_surface::surviving_entries(session, &|tool| clean(tool.get("name")).eq_ignore_ascii_case("Skill"));
+    for key in ["deferredDefaultTools", "deferredSelectedTools", "deferredDiscoveredTools", "deferredCallableTools", "deferredAnnouncedTools", "nativeDeferredDiscovery"] {
+        if let Some(Value::Array(names)) = session.get_mut(key) {
+            names.retain(|name| !clean(Some(name)).eq_ignore_ascii_case("Skill"));
+        }
+    }
 }
 
 /// The header a resume's manager step resolves the thread's tools from: `resume(id)` reopens it through
@@ -335,8 +360,8 @@ impl RouteFacts for AiRouteFacts {
         session_context_meta(&self.catalog, provider, model, seed)
     }
 
-    fn cache_opts(&self, provider: &str, session_id: &str, agent: Option<&str>, header: &Header) -> Option<Value> {
-        session_provider_cache_opts(provider, session_id, agent, header, &(self.auto_clear)())
+    fn cache_opts(&self, provider: &str, _session_id: &str, agent: Option<&str>, _header: &Header) -> Option<Value> {
+        session_provider_cache_opts(provider, agent, &(self.auto_clear)())
     }
 
     async fn surface_lookup(&self, header: &Header, previous: &Route) -> SurfaceLookup {
@@ -376,9 +401,18 @@ impl mixdog_core_session::session::ResumedTools for AiRouteFacts {
         };
         let mut change = match restored {
             Some(change) => change,
-            // The tools stay as stored, but a scope just minted for the thread is still written.
-            None if minted.is_some() => HeaderChange { set: Map::new(), unset: Vec::new() },
-            None => return None,
+            None => {
+                // The global gate still applies if preparation or restore kept the stored surface.
+                let mut session = Value::Object(header.clone());
+                if mixdog_mcp::skill_catalog::skills_disabled_by_env() {
+                    remove_disabled_skill_loader(&mut session);
+                }
+                let fallback = header_diff(header, session.as_object().expect("session object"));
+                if minted.is_none() && fallback.set.is_empty() && fallback.unset.is_empty() {
+                    return None;
+                }
+                fallback
+            }
         };
         if let Some(scope) = minted {
             change.set.insert("mcpScopeId".to_owned(), Value::String(scope));
@@ -393,7 +427,12 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::*;
-    use crate::run_host::rules::{build_base_rules, refresh_rule_variants, RulesPolicy};
+    #[cfg(node_twin)]
+    use crate::run_host::rules::RulesPolicy;
+    #[cfg(node_twin)]
+    use crate::run_host::rules::build_base_rules;
+    #[cfg(node_twin)]
+    use crate::run_host::rules::refresh_rule_variants;
 
     struct Fixed;
     impl Clock for Fixed {
@@ -404,6 +443,9 @@ mod tests {
 
     struct Host(Vec<Value>);
     impl SurfaceHost for Host {
+        fn defined(&self, _: &str) -> bool {
+            true
+        }
         fn bridge_tools(&self) -> Vec<Value> {
             self.0.clone()
         }
@@ -412,7 +454,36 @@ mod tests {
         }
     }
 
+    #[test]
+    fn same_route_resume_hides_disabled_skill_without_removing_other_retired_definitions() {
+        struct CurrentHost;
+        impl SurfaceHost for CurrentHost {
+            fn defined(&self, name: &str) -> bool { name == "read" }
+            fn bridge_tools(&self) -> Vec<Value> { Vec::new() }
+            fn mcp_server_instructions(&self, _: Option<&str>) -> Value { json!({}) }
+        }
+        let surface = ToolSurface { host: &CurrentHost, clock: &Fixed };
+        let saved = json!({
+            "owner": "agent", "provider": "openai-oauth", "model": "gpt-5",
+            "tools": [{"name": "Skill"}, {"name": "read"}, {"name": "retired"}],
+            "deferredLateToolCatalog": [{"name": "Skill"}],
+            "deferredCallableTools": ["Skill", "read"]
+        });
+        let mut header = saved.as_object().unwrap().clone();
+        let prepared = PreparedTools { tools: json!([{"name": "read"}]), tool_spec: json!("full") };
+        let change = resumed_surface_change_with_skills_gate(&surface, &Fixed, &header, prepared, false, true);
+        for key in change.unset {
+            header.shift_remove(&key);
+        }
+        header.extend(change.set);
+        assert_eq!(header["tools"], json!([{"name": "read"}, {"name": "retired"}]));
+        assert_eq!(header["deferredLateToolCatalog"], json!([]));
+        assert_eq!(header["deferredCallableTools"], json!(["read"]));
+    }
+
+    #[cfg(node_twin)]
     struct Policy;
+    #[cfg(node_twin)]
     impl RulesPolicy for Policy {
         fn hidden_agent(&self, _: Option<&str>) -> bool {
             false
@@ -422,34 +493,9 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn without_messages(value: &Value) -> Map<String, Value> {
         value.as_object().unwrap().iter().filter(|(k, _)| *k != "messages").map(|(k, v)| (k.clone(), v.clone())).collect()
-    }
-
-    /// Node's `applyAgentToolExposure(session, { existing: true })` over the deferred-surface
-    /// sessions, owned by an agent and by a lead, with and without a schema allowlist.
-    #[test]
-    fn the_route_surface_follows_node() {
-        let surface_golden: Value = serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/tool_surface.json")).expect("fixture");
-        let text = mixdog_testkit::fixture!("src/run_host/golden/route_surface_variant.json");
-        let golden: Value = serde_json::from_str(&text).expect("fixture");
-        let host = Host(surface_golden["bridgeTools"].as_array().unwrap().clone());
-        let surface = ToolSurface { host: &host, clock: &Fixed };
-        for row in golden["surface"].as_array().unwrap() {
-            if row["changed"].is_string() {
-                continue;
-            }
-            let header = row["before"].as_object().unwrap().clone();
-            let change = exposure_change(&surface, &Fixed, &header, Value::Object(header.clone()), false);
-            let mut got = header.clone();
-            for key in &change.unset {
-                got.shift_remove(key);
-            }
-            for (key, value) in change.set {
-                got.insert(key, value);
-            }
-            assert_eq!(without_messages(&Value::Object(got)), without_messages(&row["after"]), "{} {}", row["name"], row["before"]["owner"]);
-        }
     }
 
     #[test]
@@ -481,9 +527,37 @@ mod tests {
         assert_eq!(surface.pool_tool_names(&after), vec!["mcp__gmail__search_emails".to_owned()]);
     }
 
+
+    /// Node's `applyAgentToolExposure(session, { existing: true })` over the deferred-surface
+    /// sessions, owned by an agent and by a lead, with and without a schema allowlist.
+    #[test]
+    #[cfg(node_twin)]
+    fn the_route_surface_follows_node() {
+        let surface_golden: Value = serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/tool_surface.json")).expect("fixture");
+        let text = mixdog_testkit::fixture!("src/run_host/golden/route_surface_variant.json");
+        let golden: Value = serde_json::from_str(&text).expect("fixture");
+        let host = Host(surface_golden["bridgeTools"].as_array().unwrap().clone());
+        let surface = ToolSurface { host: &host, clock: &Fixed };
+        for row in golden["surface"].as_array().unwrap() {
+            if row["changed"].is_string() {
+                continue;
+            }
+            let header = row["before"].as_object().unwrap().clone();
+            let change = exposure_change(&surface, &Fixed, &header, Value::Object(header.clone()), false);
+            let mut got = header.clone();
+            for key in &change.unset {
+                got.shift_remove(key);
+            }
+            for (key, value) in change.set {
+                got.insert(key, value);
+            }
+            assert_eq!(without_messages(&Value::Object(got)), without_messages(&row["after"]), "{} {}", row["name"], row["before"]["owner"]);
+        }
+    }
     /// Node's `_refreshSessionRuleVariantsForModel` over every route pair, with the block untagged
     /// (replaced) and tagged (left alone), and a denied tool.
     #[test]
+    #[cfg(node_twin)]
     fn the_rules_variant_follows_node() {
         let rules: Value = serde_json::from_str(include_str!("golden/rules_builder.json")).expect("fixture");
         let text = mixdog_testkit::fixture!("src/run_host/golden/route_surface_variant.json");

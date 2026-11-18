@@ -64,56 +64,6 @@ struct Host {
     seen: Mutex<Vec<(&'static str, Option<String>)>>,
 }
 
-#[async_trait]
-impl ExtensionHost for Host {
-    async fn reconcile_plugins_and_announce(&self) {}
-    async fn announce(&self, _: &str) {}
-    async fn announce_without_invalidating(&self, _: &str) {}
-
-    async fn tool_names(&self) -> Result<Vec<String>, String> {
-        Ok(Vec::new())
-    }
-
-    async fn reconnect_mcp_and_announce(&self, only: Option<&str>, _: bool, _: &[String]) -> Value {
-        json!({"reconnected": only})
-    }
-
-    async fn reconnect_all_mcp_and_announce(&self) -> Value {
-        self.seen.lock().unwrap().push(("reconnect_all", request_scope()));
-        json!({})
-    }
-
-    async fn schedule_mcp_toggle(&self, _: &str, _: bool) -> Value {
-        json!({})
-    }
-
-    async fn publish_mcp_changes(&self, _: &[(String, bool)]) {}
-    async fn announce_mcp_changes(&self, _: &[(String, bool)]) {}
-
-    async fn connect_configured_mcp(&self, _: &str, _: bool) -> Value {
-        json!({})
-    }
-
-    fn invalidate_skills(&self) {}
-    async fn flush_skills_save(&self) {}
-
-    async fn current_cwd(&self, _: Option<&str>) -> Result<PathBuf, String> {
-        self.seen.lock().unwrap().push(("current_cwd", request_scope()));
-        match self.cwd_error {
-            Some(message) => Err(message.to_owned()),
-            None => Ok(std::env::temp_dir()),
-        }
-    }
-
-    async fn plugin_mcp_summary(&self, _: Option<&str>) -> Result<Value, String> {
-        Ok(Value::Object(Map::new()))
-    }
-
-    async fn skills_status(&self, _: Option<&str>) -> Value {
-        Value::Null
-    }
-}
-
 struct Runtime(Arc<Config>);
 
 #[async_trait]
@@ -383,7 +333,7 @@ async fn a_working_folder_that_cannot_be_read_is_the_failure_reported() {
 }
 
 #[tokio::test]
-async fn a_rollback_that_fails_is_the_failure_reported() {
+async fn a_rollback_that_fails_does_not_replace_the_failure_reported() {
     let add = json!({"input": {"connector": "gmail", "email": "a@example.com", "appPassword": "abcdefghijklmnop"}});
     let f = fixture(json!({}));
     f.config.fail_save.store(true, Ordering::SeqCst);
@@ -391,9 +341,9 @@ async fn a_rollback_that_fails_is_the_failure_reported() {
     assert_eq!(call(&f, "connector/addConnectorAccount", add.clone()).await.unwrap_err(), "disk full");
     assert_eq!(f.ops.kept(&gmail_app_password_secret_account("a@example.com")), None);
 
-    // The rollback fails too: that failure is what the caller gets, as in Node.
+    // The rollback fails too: the caller still gets the save's own failure.
     f.ops.fail_gmail_forget.store(true, Ordering::SeqCst);
-    assert_eq!(call(&f, "connector/addConnectorAccount", add).await.unwrap_err(), "keychain locked");
+    assert_eq!(call(&f, "connector/addConnectorAccount", add).await.unwrap_err(), "disk full");
 }
 
 /// A management request runs under the scope its `threadId` resolves to (`McpRuntime::scope_of_request`), so
@@ -409,4 +359,54 @@ async fn a_management_request_runs_under_the_scope_its_thread_resolves_to() {
         seen,
         vec![("current_cwd", Some("scope-of-t1".to_owned())), ("reconnect_all", Some("scope-of-t2".to_owned())), ("reconnect_all", None)]
     );
+}
+
+#[async_trait]
+impl ExtensionHost for Host {
+    async fn reconcile_plugins_and_announce(&self) {}
+    async fn announce(&self, _: &str) {}
+    async fn announce_without_invalidating(&self, _: &str) {}
+
+    async fn tool_names(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+
+    async fn reconnect_mcp_and_announce(&self, only: Option<&str>, _: bool, _: &[String]) -> Value {
+        json!({"reconnected": only})
+    }
+
+    async fn reconnect_all_mcp_and_announce(&self) -> Value {
+        self.seen.lock().unwrap().push(("reconnect_all", request_scope()));
+        json!({})
+    }
+
+    async fn schedule_mcp_toggle(&self, _: &str, _: bool) -> Value {
+        json!({})
+    }
+
+    async fn publish_mcp_changes(&self, _: &[(String, bool)]) {}
+    async fn announce_mcp_changes(&self, _: &[(String, bool)]) {}
+
+    async fn connect_configured_mcp(&self, _: &str, _: bool) -> Value {
+        json!({})
+    }
+
+    fn invalidate_skills(&self) {}
+    async fn flush_skills_save(&self) {}
+
+    async fn current_cwd(&self, _: Option<&str>) -> Result<PathBuf, String> {
+        self.seen.lock().unwrap().push(("current_cwd", request_scope()));
+        match self.cwd_error {
+            Some(message) => Err(message.to_owned()),
+            None => Ok(std::env::temp_dir()),
+        }
+    }
+
+    async fn plugin_mcp_summary(&self, _: Option<&str>) -> Result<Value, String> {
+        Ok(Value::Object(Map::new()))
+    }
+
+    async fn skills_status(&self, _: Option<&str>) -> Value {
+        Value::Null
+    }
 }

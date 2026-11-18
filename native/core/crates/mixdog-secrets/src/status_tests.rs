@@ -1,8 +1,4 @@
-//! The keychain health against Node's (`fixtures/keychain-status-<platform>/golden.json`,
-//! `record-keychain-status.mjs`: the real `_noteKeychainOk` / `_noteKeychainFailure` /
-//! `_noteSyncOutcome` / `keychainStatus` of `keychain-cjs.cjs`). The Windows recording is replayed
-//! here; the Linux and macOS recordings are made on those build hosts (same recorder) and replayed by
-//! the same test with their `platform`.
+//! The keychain health: how each outcome of a keychain call moves the state a user sees, and when it raises a notice.
 
 use std::sync::Arc;
 use super::MemoryStore;
@@ -11,9 +7,8 @@ use super::SecretStore;
 use super::status::StatusTracker;
 use super::status::TrackedStore;
 
-/// The golden replay. One test per recorded platform, each compiled on its own host: the Linux and
-/// macOS recordings are added with a #[cfg(target_os = ...)] test beside this one when they are made.
-#[cfg(windows)]
+/// The recorded replay of the reference runtime's health on Windows.
+#[cfg(all(windows, node_twin))]
 mod golden {
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
@@ -66,6 +61,9 @@ mod golden {
     }
 }
 
+
+
+
 /// A store that fails or never runs, on demand.
 struct Scripted(Mutex<Vec<Result<Option<String>, SecretError>>>);
 
@@ -111,4 +109,69 @@ async fn the_no_provider_report_is_a_fallback_only_on_linux() {
         store.get("a").await.unwrap_err();
         assert_eq!(tracker.snapshot().fallback, fallback);
     }
+}
+
+fn tracker_with_notices(linux: bool) -> (Arc<StatusTracker>, Arc<std::sync::atomic::AtomicUsize>) {
+    let notices = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = Arc::clone(&notices);
+    let tracker = StatusTracker::new(linux, Arc::new(move || {
+        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }));
+    (tracker, notices)
+}
+
+#[test]
+fn the_state_follows_the_words_of_the_failure() {
+    use crate::status::FailureCode;
+    let (tracker, _) = tracker_with_notices(false);
+    assert_eq!(tracker.snapshot().state, "unknown");
+    for (message, code, state) in [
+        ("keychain is not installed", FailureCode::Other, "missing"),
+        ("the keyring is locked", FailureCode::Other, "locked"),
+        ("operation timed out", FailureCode::Other, "locked"),
+        ("something else broke", FailureCode::Other, "error"),
+        ("cannot reach the keyring", FailureCode::Unreachable, "unreachable"),
+    ] {
+        tracker.note_failure(message, code);
+        assert_eq!(tracker.snapshot().state, state, "{message}");
+    }
+    tracker.note_ok();
+    assert_eq!(tracker.snapshot().state, "ok");
+}
+
+#[test]
+fn a_failure_raises_one_notice_unless_it_is_only_the_absence_of_a_keychain() {
+    use crate::status::FailureCode;
+    let (tracker, notices) = tracker_with_notices(false);
+    let count = || notices.load(std::sync::atomic::Ordering::SeqCst);
+    tracker.note_failure("something else broke", FailureCode::Other);
+    assert_eq!(count(), 1);
+    tracker.note_failure("cannot reach the keyring", FailureCode::Unreachable);
+    assert_eq!(count(), 1, "an unreachable keyring raises nothing more");
+    tracker.note_ok();
+    assert_eq!(count(), 1, "a success raises nothing");
+}
+
+#[test]
+fn only_linux_reports_the_private_file_as_a_fallback_and_only_after_a_failure() {
+    use crate::status::FailureCode;
+    for (linux, fallback) in [(true, true), (false, false)] {
+        let (tracker, _) = tracker_with_notices(linux);
+        assert!(!tracker.snapshot().fallback);
+        tracker.note_failure("no provider", FailureCode::Unavailable);
+        assert_eq!(tracker.snapshot().fallback, fallback, "linux: {linux}");
+    }
+}
+
+#[test]
+fn a_blocking_call_outcome_feeds_the_health_on_linux_only() {
+    use crate::status::FailureCode;
+    let (linux, _) = tracker_with_notices(true);
+    linux.note_sync_outcome(Some(("the keyring is locked", FailureCode::Other)));
+    assert_eq!(linux.snapshot().state, "locked");
+    linux.note_sync_outcome(None);
+    assert_eq!(linux.snapshot().state, "ok");
+    let (other, _) = tracker_with_notices(false);
+    other.note_sync_outcome(Some(("the keyring is locked", FailureCode::Other)));
+    assert_eq!(other.snapshot().state, "unknown");
 }

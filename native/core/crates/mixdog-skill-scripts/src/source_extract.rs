@@ -128,11 +128,6 @@ pub(crate) fn text(value: Option<&Value>) -> String {
     value.and_then(Value::as_str).map(|text| js_trim(text).to_owned()).unwrap_or_default()
 }
 
-/// `value.replace(/\s+/g, ' ').trim()`.
-pub(crate) fn collapse_spaces(value: &str) -> String {
-    js_words(value).collect::<Vec<_>>().join(" ")
-}
-
 /// `Number.isFinite(value)` of a JSON value, and the number.
 pub(crate) fn finite(value: Option<&Value>) -> Option<f64> {
     value.and_then(Value::as_f64).filter(|number| number.is_finite())
@@ -205,12 +200,6 @@ pub(crate) fn basename_without_extension(path: &str) -> String {
     name.strip_suffix(extension.as_str()).filter(|stem| !stem.is_empty()).unwrap_or(name).to_owned()
 }
 
-/// `path.join(directory, name)` for a resolved directory.
-pub(crate) fn join(directory: &str, name: &str) -> String {
-    let joined = if directory.ends_with(separators()) { format!("{directory}{name}") } else { format!("{directory}{}{name}", separator()) };
-    nodepath::normalize_host(&joined)
-}
-
 // ---------------------------------------------------------------------------------------------------------------------
 // source-extract
 // ---------------------------------------------------------------------------------------------------------------------
@@ -248,137 +237,11 @@ pub(crate) fn items(value: Option<&Value>) -> &[Value] {
     value.and_then(Value::as_array).map_or(&[], Vec::as_slice)
 }
 
-/// A snapshot document (pages for a PDF, slides for a PPTX, blocks or paragraphs for a DOCX, sheets for an XLSX) as
-/// blocks prefixed with the locator the facts line quotes.
-pub fn from_document(document: &Value, limit: f64) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let mut used = 0.0;
-    let mut push = |out: &mut Vec<String>, locator: String, text: Option<&Value>| {
-        let body = collapse_spaces(&string_or_empty(text));
-        if body.is_empty() || used >= limit {
-            return;
-        }
-        out.push(format!("[{locator}] {}", slice_utf16(&body, BLOCK_CHARS)));
-        used += utf16_len(&body).min(BLOCK_CHARS) as f64;
-    };
-    for page in items(get(document, "pages")) {
-        let number = template(first_present(get(page, "number"), get(page, "index")));
-        push(&mut out, format!("p{number}"), get(page, "text"));
-    }
-    for slide in items(get(document, "slides")) {
-        for shape in items(get(slide, "shapes")) {
-            if is_page_chrome(shape) {
-                continue;
-            }
-            let number = template(first_present(get(slide, "number"), get(slide, "index")));
-            push(&mut out, format!("slide {number}"), get(shape, "text"));
-        }
-    }
-    let blocks = if truthy(get(document, "blocks")) { get(document, "blocks") } else { get(document, "paragraphs") };
-    for block in items(blocks) {
-        let locator = if truthy(get(block, "page")) {
-            format!("p{}", template(get(block, "page")))
-        } else {
-            let fallback = json!(out.len() + 1);
-            format!("¶{}", template(first_present(get(block, "index"), Some(&fallback))))
-        };
-        push(&mut out, locator, get(block, "text"));
-    }
-    for sheet in items(get(document, "sheets")) {
-        for cell in items(get(sheet, "cells")) {
-            let locator = format!("{}!{}", template(get(sheet, "name")), template(get(cell, "ref")));
-            push(&mut out, locator, first_present(get(cell, "value"), get(cell, "formula")));
-        }
-    }
-    out
-}
-
 /// What one file was read into.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Extract {
     pub source: String,
     pub blocks: Vec<String>,
-}
-
-/// Reads one file into locator-prefixed blocks; `chars` is the text of `--chars`.
-pub fn extract_source<P: ReadProof>(proof: &P, target: &str, chars: &str, host: &OfficeHost<'_>) -> Result<Extract, String> {
-    let source = js_trim(target).to_owned();
-    if source.is_empty() {
-        return Err("source-extract needs a file path".to_owned());
-    }
-    let limit = string_to_number(chars);
-    if !limit.is_finite() || limit <= 0.0 {
-        return Err(format!("--chars must be a positive number, got {chars}"));
-    }
-    let cwd = host.cwd.to_string_lossy();
-    let path = nodepath::resolve_host(&[&cwd, &source]);
-    if !mixdog_fsio::exists(proof, &path).unwrap_or(false) {
-        return Err(format!("source file not found: {path}"));
-    }
-    let extension = js_to_lowercase(&extname(&path));
-    if !OFFICE_EXTENSIONS.contains(&extension.as_str()) {
-        let bytes = mixdog_fsio::read(proof, &path).map_err(|error| {
-            if mixdog_js::uv_error::error_code(&error) == Some("EISDIR") {
-                "EISDIR: illegal operation on a directory, read".to_owned()
-            } else {
-                fs_message(&error, "open", Path::new(&path))
-            }
-        })?;
-        return Ok(Extract { source, blocks: from_plain_text(&String::from_utf8_lossy(&bytes), limit) });
-    }
-    let engine = host.engine().map_err(|reason| format!("{reason}: cannot read {path}"))?;
-    let opened = engine.call(&json!({ "action": "open", "path": path, "mode": "portable", "snapshotAfter": false }), host.cwd)?;
-    let session = get(&opened, "session");
-    let with_session = |action: &str, rest: Value| {
-        let mut args = Map::new();
-        args.insert("action".to_owned(), json!(action));
-        if let Some(session) = session {
-            args.insert("session".to_owned(), session.clone());
-        }
-        if let Value::Object(rest) = rest {
-            args.extend(rest);
-        }
-        Value::Object(args)
-    };
-    let snapshot = engine.call(&with_session("snapshot", json!({ "limit": 200, "maxChars": 100_000 })), host.cwd);
-    // The session is closed without saving whether or not the snapshot came.
-    let _ = engine.call(&with_session("close", json!({ "save": false })), host.cwd);
-    let snapshot = snapshot?;
-    let document = get(&snapshot, "document").cloned().unwrap_or(Value::Null);
-    Ok(Extract { source, blocks: from_document(&document, limit) })
-}
-
-/// The text the script prints for one extract.
-pub fn format_extract(extract: &Extract) -> String {
-    let source = &extract.source;
-    let heading = format!("# {source} — {} blocks (cite the bracketed locator in the brief's facts line)", extract.blocks.len());
-    let mut lines = vec![heading, String::new()];
-    lines.extend(extract.blocks.iter().cloned());
-    lines.push(String::new());
-    lines.push(format!("# sources: {source}"));
-    lines.join("\n")
-}
-
-/// `source-extract.mjs <file> [--chars N]`.
-pub fn run_source_extract<P: ReadProof>(proof: &P, args: &[String], host: &OfficeHost<'_>) -> Outcome {
-    let mut outcome = Outcome::default();
-    let options = [OptionSpec::string("chars")];
-    let result = parse_args(args, &ParseConfig { options: &options, allow_positionals: true })
-        .map_err(|error| error.message)
-        .and_then(|parsed| {
-            if parsed.positionals.len() != 1 {
-                return Err(USAGE.to_owned());
-            }
-            extract_source(proof, &parsed.positionals[0], parsed.text("chars").unwrap_or(DEFAULT_CHARS), host)
-        });
-    match result {
-        Ok(extract) => outcome.print(&format_extract(&extract)),
-        Err(message) => {
-            outcome.eprint(&message);
-            outcome.code = 1;
-        }
-    }
-    outcome
 }
 
 #[cfg(test)]
@@ -433,6 +296,22 @@ mod tests {
     }
 
     #[test]
+    fn the_node_path_pieces_follow_node() {
+        assert_eq!(extname("/a/b.TXT"), ".TXT");
+        assert_eq!(extname("/a/.env"), "");
+        assert_eq!(extname("/a/b."), ".");
+        assert_eq!(extname("/a/.."), "");
+        assert_eq!(basename_without_extension("/a/deck.pptx"), "deck");
+        assert_eq!(dirname("/a/deck.pptx"), "/a");
+        assert_eq!(dirname("/deck.pptx"), "/");
+        assert_eq!(to_fixed_2(12.375), 12.38);
+        assert_eq!(to_fixed_2(0.125), 0.13);
+        assert_eq!(to_fixed_2(1.0049), 1.0);
+        assert_eq!(number_to_string(to_fixed_2(-0.001)), "0");
+    }
+
+
+    #[test]
     fn a_document_gives_pages_slides_blocks_and_cells_their_locators() {
         let document = json!({
             "pages": [{ "number": 3, "text": "page  three" }, { "index": 4, "text": "" }],
@@ -453,7 +332,6 @@ mod tests {
             ["[p3] page three", "[slide 2] Title", "[slide 2] body", "[p9] on nine", "[¶5] loose", "[Sheet1!B4] 12", "[Sheet1!C1] =A1"]
         );
     }
-
     #[test]
     fn a_block_is_cut_at_the_block_limit_and_the_total_at_the_chars_limit() {
         let long = "x".repeat(900);
@@ -464,7 +342,6 @@ mod tests {
         // A block that starts under the limit is taken whole; the next one is not.
         assert_eq!(from_document(&document, 100.0).len(), 1);
     }
-
     #[test]
     fn the_extract_prints_a_heading_the_blocks_and_the_sources_line() {
         let extract = Extract { source: "a.md".into(), blocks: vec!["[line 1] x".into()] };
@@ -473,7 +350,6 @@ mod tests {
             "# a.md — 1 blocks (cite the bracketed locator in the brief's facts line)\n\n[line 1] x\n\n# sources: a.md"
         );
     }
-
     #[test]
     fn a_text_file_is_read_without_the_engine_and_a_bad_chars_value_is_refused() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -490,7 +366,6 @@ mod tests {
         let usage = run_source_extract(&Unlaned, &[], &host);
         assert_eq!((usage.code, usage.stderr), (1, format!("{USAGE}\n")));
     }
-
     #[test]
     fn an_office_file_is_opened_portable_read_and_closed_without_saving() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -507,7 +382,6 @@ mod tests {
         assert_eq!((calls[1]["limit"].clone(), calls[1]["maxChars"].clone(), calls[1]["session"].clone()), (json!(200), json!(100_000), json!("s1")));
         assert_eq!(calls[2]["save"], false);
     }
-
     #[test]
     fn an_office_file_without_an_engine_reports_why_it_is_off() {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -516,19 +390,137 @@ mod tests {
         assert_eq!(outcome.code, 1);
         assert!(outcome.stderr.starts_with("the office engine is not available in this process: cannot read "));
     }
+}
 
-    #[test]
-    fn the_node_path_pieces_follow_node() {
-        assert_eq!(extname("/a/b.TXT"), ".TXT");
-        assert_eq!(extname("/a/.env"), "");
-        assert_eq!(extname("/a/b."), ".");
-        assert_eq!(extname("/a/.."), "");
-        assert_eq!(basename_without_extension("/a/deck.pptx"), "deck");
-        assert_eq!(dirname("/a/deck.pptx"), "/a");
-        assert_eq!(dirname("/deck.pptx"), "/");
-        assert_eq!(to_fixed_2(12.375), 12.38);
-        assert_eq!(to_fixed_2(0.125), 0.13);
-        assert_eq!(to_fixed_2(1.0049), 1.0);
-        assert_eq!(number_to_string(to_fixed_2(-0.001)), "0");
+
+/// `value.replace(/\s+/g, ' ').trim()`.
+pub(crate) fn collapse_spaces(value: &str) -> String {
+    js_words(value).collect::<Vec<_>>().join(" ")
+}
+/// `path.join(directory, name)` for a resolved directory.
+pub(crate) fn join(directory: &str, name: &str) -> String {
+    let joined = if directory.ends_with(separators()) { format!("{directory}{name}") } else { format!("{directory}{}{name}", separator()) };
+    nodepath::normalize_host(&joined)
+}
+/// A snapshot document (pages for a PDF, slides for a PPTX, blocks or paragraphs for a DOCX, sheets for an XLSX) as
+/// blocks prefixed with the locator the facts line quotes.
+pub fn from_document(document: &Value, limit: f64) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut used = 0.0;
+    let mut push = |out: &mut Vec<String>, locator: String, text: Option<&Value>| {
+        let body = collapse_spaces(&string_or_empty(text));
+        if body.is_empty() || used >= limit {
+            return;
+        }
+        out.push(format!("[{locator}] {}", slice_utf16(&body, BLOCK_CHARS)));
+        used += utf16_len(&body).min(BLOCK_CHARS) as f64;
+    };
+    for page in items(get(document, "pages")) {
+        let number = template(first_present(get(page, "number"), get(page, "index")));
+        push(&mut out, format!("p{number}"), get(page, "text"));
     }
+    for slide in items(get(document, "slides")) {
+        for shape in items(get(slide, "shapes")) {
+            if is_page_chrome(shape) {
+                continue;
+            }
+            let number = template(first_present(get(slide, "number"), get(slide, "index")));
+            push(&mut out, format!("slide {number}"), get(shape, "text"));
+        }
+    }
+    let blocks = if truthy(get(document, "blocks")) { get(document, "blocks") } else { get(document, "paragraphs") };
+    for block in items(blocks) {
+        let locator = if truthy(get(block, "page")) {
+            format!("p{}", template(get(block, "page")))
+        } else {
+            let fallback = json!(out.len() + 1);
+            format!("¶{}", template(first_present(get(block, "index"), Some(&fallback))))
+        };
+        push(&mut out, locator, get(block, "text"));
+    }
+    for sheet in items(get(document, "sheets")) {
+        for cell in items(get(sheet, "cells")) {
+            let locator = format!("{}!{}", template(get(sheet, "name")), template(get(cell, "ref")));
+            push(&mut out, locator, first_present(get(cell, "value"), get(cell, "formula")));
+        }
+    }
+    out
+}
+/// Reads one file into locator-prefixed blocks; `chars` is the text of `--chars`.
+pub fn extract_source<P: ReadProof>(proof: &P, target: &str, chars: &str, host: &OfficeHost<'_>) -> Result<Extract, String> {
+    let source = js_trim(target).to_owned();
+    if source.is_empty() {
+        return Err("source-extract needs a file path".to_owned());
+    }
+    let limit = string_to_number(chars);
+    if !limit.is_finite() || limit <= 0.0 {
+        return Err(format!("--chars must be a positive number, got {chars}"));
+    }
+    let cwd = host.cwd.to_string_lossy();
+    let path = nodepath::resolve_host(&[&cwd, &source]);
+    if !mixdog_fsio::exists(proof, &path).unwrap_or(false) {
+        return Err(format!("source file not found: {path}"));
+    }
+    let extension = js_to_lowercase(&extname(&path));
+    if !OFFICE_EXTENSIONS.contains(&extension.as_str()) {
+        let bytes = mixdog_fsio::read(proof, &path).map_err(|error| {
+            if mixdog_js::uv_error::error_code(&error) == Some("EISDIR") {
+                "EISDIR: illegal operation on a directory, read".to_owned()
+            } else {
+                fs_message(&error, "open", Path::new(&path))
+            }
+        })?;
+        return Ok(Extract { source, blocks: from_plain_text(&String::from_utf8_lossy(&bytes), limit) });
+    }
+    let engine = host.engine().map_err(|reason| format!("{reason}: cannot read {path}"))?;
+    let opened = engine.call(&json!({ "action": "open", "path": path, "mode": "portable", "snapshotAfter": false }), host.cwd)?;
+    let session = get(&opened, "session");
+    let with_session = |action: &str, rest: Value| {
+        let mut args = Map::new();
+        args.insert("action".to_owned(), json!(action));
+        if let Some(session) = session {
+            args.insert("session".to_owned(), session.clone());
+        }
+        if let Value::Object(rest) = rest {
+            args.extend(rest);
+        }
+        Value::Object(args)
+    };
+    let snapshot = engine.call(&with_session("snapshot", json!({ "limit": 200, "maxChars": 100_000 })), host.cwd);
+    // The session is closed without saving whether or not the snapshot came.
+    let _ = engine.call(&with_session("close", json!({ "save": false })), host.cwd);
+    let snapshot = snapshot?;
+    let document = get(&snapshot, "document").cloned().unwrap_or(Value::Null);
+    Ok(Extract { source, blocks: from_document(&document, limit) })
+}
+/// The text the script prints for one extract.
+pub fn format_extract(extract: &Extract) -> String {
+    let source = &extract.source;
+    let heading = format!("# {source} — {} blocks (cite the bracketed locator in the brief's facts line)", extract.blocks.len());
+    let mut lines = vec![heading, String::new()];
+    lines.extend(extract.blocks.iter().cloned());
+    lines.push(String::new());
+    lines.push(format!("# sources: {source}"));
+    lines.join("\n")
+}
+/// `source-extract.mjs <file> [--chars N]`.
+pub fn run_source_extract<P: ReadProof>(proof: &P, args: &[String], host: &OfficeHost<'_>) -> Outcome {
+    let mut outcome = Outcome::default();
+    let options = [OptionSpec::string("chars")];
+    let result = parse_args(args, &ParseConfig { options: &options, allow_positionals: true })
+        .map_err(|error| error.message)
+        .and_then(|parsed| {
+            if parsed.positionals.len() != 1 {
+                return Err(USAGE.to_owned());
+            }
+            extract_source(proof, &parsed.positionals[0], parsed.text("chars").unwrap_or(DEFAULT_CHARS), host)
+        });
+    match result {
+        Ok(extract) => outcome.print(&format_extract(&extract)),
+        Err(message) => {
+            outcome.eprint(&message);
+            outcome.code = 1;
+        }
+    }
+    outcome
 }

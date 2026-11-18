@@ -11,12 +11,12 @@
 //!
 //! | Step | Kill before it completes leaves | The next start (before any session opens) | A reader in this process |
 //! |---|---|---|---|
-//! | 1 plan: replacements computed, their blobs published | the old log; maybe unreferenced redacted blobs (age GC) | removes the rewrite folder; the marks died with the process, as Node's | reads the old log |
-//! | 2 `intent` published (the rewrite is decided) | old log + intent | builds, swaps, rebuilds the rows, deletes, clears | reads the old log |
+//! | 1 plan: replacements computed, their blobs published | the old log; maybe unreferenced redacted blobs (kept: nothing deletes a blob) | removes the rewrite folder; the marks died with the process, as Node's | reads the old log |
+//! | 2 `intent` published (the rewrite is decided) | old log + intent | builds, swaps, rebuilds the rows, clears | reads the old log |
 //! | 3 `building/` written, renamed to `new/` | old log + intent (+ partial `building/`) | drops `building/`/`new/`, builds again from the log and the intent | reads the old log |
 //! | 4 `sessions/<id>` renamed to `old/` | intent + `new/` + `old/`, no session folder | renames `new/` to `sessions/<id>` (no `new/`: `old/` back, then step 3) | waits: the store's read gate is held from here to step 8 |
-//! | 5 `new/` renamed to `sessions/<id>` | new log + intent + `old/` | rebuilds the rows, deletes, clears | waits |
-//! | 6 index rows rebuilt from the new log, WAL truncated; superseded blobs no record names deleted | new log + intent + `old/` | the same again (each part is idempotent) | waits |
+//! | 5 `new/` renamed to `sessions/<id>` | new log + intent + `old/` | rebuilds the rows, clears | waits |
+//! | 6 index rows rebuilt from the new log, WAL truncated (no blob is deleted) | new log + intent + `old/` | the same again (each part is idempotent) | waits |
 //! | 7 `intent` removed | new log + `old/` | removes the rewrite folder | waits |
 //! | 8 rewrite folder removed | new log | nothing | reads the new log and the new rows |
 //!
@@ -44,14 +44,12 @@
 //! they carry the session's id, and the read position must not make the watcher ingest the pre-mark lines again.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "log file I/O runs only in lane jobs (lane proof arguments)")]
 
-use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 
 use mixdog_rt::InLane;
 
-use crate::blobs::BlobPin;
 use crate::blobs::BlobStore;
 use crate::encode::encode_record;
 use crate::fold::resolve_slot;
@@ -68,7 +66,6 @@ use crate::log::log_name;
 use crate::log::read_forward_unlaned;
 use crate::schema::blob::BodyBlob;
 use crate::schema::blob::Slot;
-use crate::schema::bounded::Digest;
 use crate::schema::checkpoint::CheckpointState;
 use crate::schema::checkpoint::FramePos;
 use crate::schema::frame::ORDINAL_DIGITS;
@@ -116,8 +113,8 @@ pub enum Step {
 
 type Hook<'a> = &'a mut dyn FnMut(Step) -> Result<(), RewriteError>;
 
-/// The index step: the session's rows rebuilt from its new log, then each digest no record names any more deleted.
-pub type IndexStep<'a> = &'a mut dyn FnMut(Vec<Digest>) -> Result<(), String>;
+/// The index step: the session's rows rebuilt from its new log.
+pub type IndexStep<'a> = &'a mut dyn FnMut() -> Result<(), String>;
 
 fn stage_dir(data: &Path, session: &str) -> PathBuf {
     data.join(REWRITE_DIR).join(session)
@@ -222,36 +219,14 @@ fn inline(record: &Record, blobs: &BlobStore) -> Result<Record, String> {
         }
         Record::ModelSwitch(r) => own(&mut r.entry, None, &mut resolve)?,
         Record::Draft(r) => own(&mut r.body, None, &mut resolve)?,
+        Record::WorkStop(r) => {
+            if let Some(body) = &mut r.body {
+                own(body, None, &mut resolve)?;
+            }
+        }
         Record::Rewind(_) => {}
     }
     Ok(out)
-}
-
-/// The digests of `record`'s own out-of-line slots (every kind; no wildcard).
-fn slot_digests(record: &Record, out: &mut BTreeSet<Digest>) {
-    fn one<T>(slot: &Slot<T>, out: &mut BTreeSet<Digest>) {
-        if let Slot::Blob(blob) = slot {
-            out.insert(blob.descriptor().digest.clone());
-        }
-    }
-    match record {
-        Record::Session(r) => one(&r.header, out),
-        Record::Meta(r) => one(&r.change, out),
-        Record::Item(r) => {
-            one(&r.body, out);
-            r.prompt.iter().for_each(|p| one(p, out));
-        }
-        Record::Amend(r) => one(&r.body, out),
-        Record::Compacted(r) => one(&r.replacement, out),
-        Record::Checkpoint(r) => one(&r.state, out),
-        Record::Run(r) => r.detail.iter().for_each(|s| one(s, out)),
-        Record::Approval(r) => r.body.iter().for_each(|s| one(s, out)),
-        Record::Queue(r) => r.entry.iter().for_each(|s| one(s, out)),
-        Record::Op(r) => r.detail.iter().for_each(|s| one(s, out)),
-        Record::ModelSwitch(r) => one(&r.entry, out),
-        Record::Draft(r) => one(&r.body, out),
-        Record::Rewind(_) => {}
-    }
 }
 
 /// One log file and its committed frames (a torn tail, unacknowledged, ends the file).
@@ -309,8 +284,7 @@ fn log_error(e: impl std::fmt::Display) -> RewriteError {
 }
 
 /// Steps 1-2: every committed record of `session`'s log through `replace` (its slots inline; `None` keeps it), the
-/// replacements' blobs published, then the intent. `None` when no record changes: nothing is written. The pins keep
-/// the new blobs from GC until the index names them.
+/// replacements' blobs published, then the intent. `false` when no record changes: nothing is written.
 pub fn plan<L: WriteLane>(
     _lane: &InLane<L>,
     data: &Path,
@@ -318,7 +292,7 @@ pub fn plan<L: WriteLane>(
     io: &dyn WriterIo,
     blobs: &BlobStore,
     replace: &mut dyn FnMut(&Record) -> Option<Record>,
-) -> Result<Option<Vec<BlobPin>>, RewriteError> {
+) -> Result<bool, RewriteError> {
     plan_with(data, session, io, blobs, replace, &mut |_| Ok(()))
 }
 
@@ -329,26 +303,25 @@ fn plan_with(
     blobs: &BlobStore,
     replace: &mut dyn FnMut(&Record) -> Option<Record>,
     hook: Hook<'_>,
-) -> Result<Option<Vec<BlobPin>>, RewriteError> {
+) -> Result<bool, RewriteError> {
     let mut frames = Vec::new();
-    let mut pins = Vec::new();
     for file in read_log(&session_dir(data, session))? {
         for (record, pos, _) in &file.frames {
             let Some(next) = replace(&inline(record, blobs).map_err(RewriteError::Log)?) else { continue };
             let encoded = encode_record(next).map_err(log_error)?;
             for blob in encoded.blobs() {
-                pins.push(blobs.put_unlaned(&blob.bytes, |p, b| io.publish(p, b)).map_err(log_error)?);
+                blobs.put_unlaned(&blob.bytes, |p, b| io.publish(p, b)).map_err(log_error)?;
             }
             frames.push((pos.ordinal, String::from_utf8(encoded.payload().to_vec()).map_err(log_error)?));
         }
     }
     if frames.is_empty() {
-        return Ok(None);
+        return Ok(false);
     }
     hook(Step::Intent)?;
     let intent = serde_json::to_vec(&Intent { v: 1, frames }).map_err(log_error)?;
     fsio::publish_file_unlaned(&stage_dir(data, session).join(INTENT_FILE), &intent)?;
-    Ok(Some(pins))
+    Ok(true)
 }
 
 /// Step 3: the session's log as it is now, each frame the intent names replaced and every checkpoint's positions
@@ -363,8 +336,7 @@ fn build_with(data: &Path, session: &str, io: &dyn WriterIo, blobs: &BlobStore, 
     remove_dir(&building)?;
     remove_dir(&new)?;
     let mut moved: HashMap<u64, FramePos> = HashMap::new();
-    // The checkpoints' blobs, published before the files naming them; age keeps them from GC.
-    let mut pins = Vec::new();
+    // The checkpoints' blobs, published before the files naming them.
     for file in read_log(&session_dir(data, session))? {
         let mut out = Vec::with_capacity(file.bytes.len());
         for (record, pos, frame_len) in &file.frames {
@@ -377,7 +349,7 @@ fn build_with(data: &Path, session: &str, io: &dyn WriterIo, blobs: &BlobStore, 
                 if let Some(state) = moved_state(&state, &moved) {
                     let encoded = encode_record(Record::Checkpoint(CheckpointRecord { state: Slot::Inline(state) })).map_err(log_error)?;
                     for blob in encoded.blobs() {
-                        pins.push(blobs.put_unlaned(&blob.bytes, |p, b| io.publish(p, b)).map_err(log_error)?);
+                        blobs.put_unlaned(&blob.bytes, |p, b| io.publish(p, b)).map_err(log_error)?;
                     }
                     payload = Some(encoded.payload().to_vec());
                 }
@@ -410,25 +382,11 @@ fn move_new(data: &Path, session: &str, hook: Hook<'_>) -> Result<(), RewriteErr
     Ok(())
 }
 
-/// The out-of-line slot blobs the old log names and the new one does not: what the rewrite took a value out of.
-fn superseded(data: &Path, session: &str) -> Result<Vec<Digest>, RewriteError> {
-    let digests = |dir: &Path| -> Result<BTreeSet<Digest>, RewriteError> {
-        let mut out = BTreeSet::new();
-        for file in read_log(dir)? {
-            file.frames.iter().for_each(|(record, _, _)| slot_digests(record, &mut out));
-        }
-        Ok(out)
-    };
-    let kept = digests(&session_dir(data, session))?;
-    Ok(digests(&stage_dir(data, session).join(OLD_DIR))?.difference(&kept).cloned().collect())
-}
-
-/// Steps 6-8 over a session whose new log is in place.
+/// Steps 6-8 over a session whose new log is in place. A rewrite takes references out of the log; it deletes no blob.
 fn finish_with(data: &Path, session: &str, index: IndexStep<'_>, hook: Hook<'_>) -> Result<(), RewriteError> {
     let root = stage_dir(data, session);
-    let superseded = superseded(data, session)?;
     hook(Step::Index)?;
-    index(superseded).map_err(RewriteError::Index)?;
+    index().map_err(RewriteError::Index)?;
     hook(Step::DropIntent)?;
     let intent = root.join(INTENT_FILE);
     std::fs::remove_file(&intent).map_err(err(IoOp::Remove, &intent))?;
@@ -461,6 +419,7 @@ fn settle_with(data: &Path, session: &str, io: &dyn WriterIo, blobs: &BlobStore,
 
 /// Steps 3-5 from wherever the rewrite stands: what is left is step 6 on (`Swapped`) or nothing.
 fn settle_files(data: &Path, session: &str, io: &dyn WriterIo, blobs: &BlobStore, hook: Hook<'_>) -> Result<(), RewriteError> {
+    let _writing = crate::log_epoch::writing(session);
     let root = stage_dir(data, session);
     match pending_unlaned(data, session) {
         Pending::Clean | Pending::Swapped => {}
@@ -483,6 +442,7 @@ fn settle_files(data: &Path, session: &str, io: &dyn WriterIo, blobs: &BlobStore
 /// A rewrite cut short in this process before step 5: the session's old folder back in place if it was moved, so
 /// the session goes on over its old log; the intent stays and the next attempt or start builds again.
 pub fn undo_move<L: WriteLane>(_lane: &InLane<L>, data: &Path, session: &str) -> Result<(), IoError> {
+    let _writing = crate::log_epoch::writing(session);
     if pending_unlaned(data, session) == Pending::Moved {
         fsio::durable_rename(&stage_dir(data, session).join(OLD_DIR), &session_dir(data, session))?;
     }

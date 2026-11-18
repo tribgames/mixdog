@@ -40,11 +40,22 @@ fn with_books<R>(books: &Books, provider: &str, f: impl FnOnce(&pressure::Books<
     let owner = ProviderId::from(provider);
     let meter = MessageMeter { media: &*books.media, replay_owner: &owner };
     let signer = TranscriptSigner { meter: &meter, images: &*books.images, rows: &StoredRow };
-    f(&pressure::Books { signer: &signer, native: &books.native, agent_mode: books.agent_mode })
+    f(&pressure::Books { signer: &signer, native: &books.native, agent_mode: books.agent_mode, env: &mixdog_ai::registry::keys::ProcessEnv })
 }
 
 fn change(patch: Option<HeaderPatch>) -> Option<HeaderChange> {
     patch.map(|patch| HeaderChange { set: patch.set, unset: patch.unset })
+}
+
+/// The change with the session's transcript-cache book (`cacheTailBook`) the call's owner settled, when it changed: the
+/// authoritative receipt the next admission and a restart read. The previous record of a bare lifetime
+/// (`lastProviderCacheTail`) is dropped with the first book written.
+pub(crate) fn with_tail_book(change: Option<HeaderChange>, book: Option<&Value>) -> Option<HeaderChange> {
+    let Some(book) = book else { return change };
+    let mut change = change.unwrap_or(HeaderChange { set: Header::new(), unset: Vec::new() });
+    change.set.insert("cacheTailBook".into(), book.clone());
+    change.unset.push("lastProviderCacheTail".into());
+    Some(change)
 }
 
 /// `bumpUsageMetricsTurnId(session)`, at the start of a turn (`whileTurnDispatched`).
@@ -170,9 +181,9 @@ mod tests {
                 send_tools: Vec::new(),
                 reasoning_tokens: None,
                 reasoning_tokens_complete: false,
-                outgoing: Vec::new(),
+                outgoing: Vec::new().into(),
                 sent_at_ms: 0,
-                input_excludes_cache: excludes,
+                input_excludes_cache: excludes, tail_book: None,
             };
             let delta = super::super::live_rows::usage_delta("s", &report, 1);
             let change = usage_change(&header, report.input_excludes_cache, &delta, &[], &[], None, 0.0, 1.0).expect("a change");
@@ -184,6 +195,18 @@ mod tests {
         }
     }
 
+
+    /// The owner's book is written as it was settled, and nothing is inferred from the usage itself.
+    #[test]
+    fn the_settled_book_is_persisted_and_no_usage_alone_writes_one() {
+        let book = json!({ "v": 1, "generation": 2, "receipts": [] });
+        let change = with_tail_book(None, Some(&book)).expect("a change");
+        assert_eq!(change.set.get("cacheTailBook"), Some(&book));
+        assert_eq!(change.unset, vec!["lastProviderCacheTail".to_owned()]);
+        assert!(with_tail_book(None, None).is_none(), "a call whose owner learned nothing writes no book");
+    }
+
+    #[cfg(node_twin)]
     /// Node's own `markSessionStreamDelta` / `markSessionToolCall` over a run of events with the clock moved across the
     /// 60 s boundary (`fixtures/agent/compact/record_usage.mjs` -> `golden/heartbeat.json`). The semantic kinds ask for
     /// the heartbeat; a transport chunk, a keepalive and a tool's start (`markSessionToolCall`) never do.

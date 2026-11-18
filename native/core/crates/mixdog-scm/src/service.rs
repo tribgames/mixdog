@@ -359,6 +359,140 @@ pub fn flow_json(flow: &LoginFlowId, state: &LoginState, device: Option<&(String
     }
 }
 
+/// The service plus the `Arc` it needs to spawn work: register `ScmHandle` in the slots.
+#[derive(Clone)]
+pub struct ScmHandle(pub Arc<ScmService>);
+
+#[async_trait]
+impl DomainService for ScmHandle {
+    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        self.0.handle(&req).await
+    }
+
+    fn methods(&self) -> &'static [&'static str] {
+        &[
+            "git/status",
+            "git/branches",
+            "git/log",
+            "git/show",
+            "git/showDiff",
+            "git/showFile",
+            "git/diff",
+            "git/stashList",
+            "git/requestContext",
+            "git/cliStatus",
+            "git/globalConfig/read",
+            "git/watch",
+            "git/unwatch",
+            "git/stage",
+            "git/unstage",
+            "git/commit",
+            "git/commitPaths",
+            "git/amend",
+            "git/undoLastCommit",
+            "git/push",
+            "git/pull",
+            "git/fetch",
+            "git/sync",
+            "git/stash",
+            "git/stashPop",
+            "git/stashApply",
+            "git/stashDrop",
+            "git/createTag",
+            "git/deleteTag",
+            "git/deleteBranch",
+            "git/renameBranch",
+            "git/resetToCommit",
+            "git/revertCommit",
+            "git/revertFile",
+            "git/cherryPickCommit",
+            "git/applyPatch",
+            "git/ignore",
+            "git/continue",
+            "git/abortOperation",
+            "git/globalConfig/write",
+            "git/cli/install",
+            "github/status",
+            "github/account",
+            "github/login/start",
+            "github/login/status",
+            "github/login/openBrowser",
+            "github/login/cancel",
+            "github/logout",
+            "github/install",
+            "github/request",
+            "github/starStatus",
+            "github/star",
+            "github/pr/list",
+            "github/pr/view",
+            "github/pr/diff",
+            "github/pr/defaultBranch",
+            "github/pr/create",
+            "github/pr/checkout",
+            "github/pr/merge",
+            "review/diff/get",
+        ]
+    }
+
+    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
+        Admit::Accepted
+    }
+}
+
+#[cfg(test)]
+mod watch_tests {
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::mock::MockLimits;
+    use mixdog_core_api::mock::MockScopedFeeds;
+
+    use super::*;
+
+    fn watch() -> Arc<GitWatch> {
+        let root = std::env::temp_dir();
+        Arc::new(GitWatch {
+            feed: FeedPublisher::create(&MockScopedFeeds::new(MockLimits::default()), FeedId("git:test".into()), json!({})),
+            repo: RepoRef { common_dir: AbsPath::new(root.clone()).expect("absolute"), work_tree: AbsPath::new(root.clone()) },
+            folder: "scm.git:1:test".into(),
+            root,
+            revision: AtomicU64::new(0),
+            dirty: AtomicBool::new(false),
+            running: AtomicBool::new(false),
+            paced: Mutex::new(None),
+            holders: Mutex::new(Vec::new()),
+        })
+    }
+
+    #[test]
+    fn a_rescan_waits_one_second_after_the_last_read_and_longer_after_a_slow_one() {
+        assert_eq!(RESCAN_DEBOUNCE, Duration::from_millis(125));
+        let watch = watch();
+        assert_eq!(watch.next_scan(), None);
+        let started = Instant::now();
+        watch.scanned(started, true);
+        let due = watch.next_scan().expect("a read was timed");
+        assert!(due - Instant::now() <= RESCAN_MIN_GAP && RESCAN_MIN_GAP == Duration::from_secs(1));
+        watch.scanned(started - Duration::from_secs(4), true);
+        assert!(watch.next_scan().expect("timed") > Instant::now() + Duration::from_secs(3), "a 4 s read is not repeated back to back");
+    }
+
+    #[test]
+    fn a_watch_ends_with_its_last_holder_whoever_unwatches() {
+        let watch = watch();
+        let (one, two) = (Some(ConnectionId(1)), Some(ConnectionId(2)));
+        assert!(watch.ended());
+        watch.listen(one);
+        watch.listen(one);
+        watch.listen(two);
+        watch.unlisten(two);
+        assert_eq!(*watch.holders.lock().unwrap(), vec![one, one]);
+        watch.unlisten(two);
+        assert_eq!(*watch.holders.lock().unwrap(), vec![one], "an unwatch by another connection still counts, as Node's count does");
+        watch.unlisten(one);
+        assert!(watch.ended());
+    }
+}
+
+
 impl ScmService {
     pub fn new(
         scm: Arc<Scm>,
@@ -857,138 +991,5 @@ impl ScmService {
             other => return Err(CoreError::InvalidParams { path: "method".into(), expected: format!("a method of git, github or review, not {other}").into() }),
         };
         Ok(Reply::Value(value))
-    }
-}
-
-/// The service plus the `Arc` it needs to spawn work: register `ScmHandle` in the slots.
-#[derive(Clone)]
-pub struct ScmHandle(pub Arc<ScmService>);
-
-#[async_trait]
-impl DomainService for ScmHandle {
-    async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        self.0.handle(&req).await
-    }
-
-    fn methods(&self) -> &'static [&'static str] {
-        &[
-            "git/status",
-            "git/branches",
-            "git/log",
-            "git/show",
-            "git/showDiff",
-            "git/showFile",
-            "git/diff",
-            "git/stashList",
-            "git/requestContext",
-            "git/cliStatus",
-            "git/globalConfig/read",
-            "git/watch",
-            "git/unwatch",
-            "git/stage",
-            "git/unstage",
-            "git/commit",
-            "git/commitPaths",
-            "git/amend",
-            "git/undoLastCommit",
-            "git/push",
-            "git/pull",
-            "git/fetch",
-            "git/sync",
-            "git/stash",
-            "git/stashPop",
-            "git/stashApply",
-            "git/stashDrop",
-            "git/createTag",
-            "git/deleteTag",
-            "git/deleteBranch",
-            "git/renameBranch",
-            "git/resetToCommit",
-            "git/revertCommit",
-            "git/revertFile",
-            "git/cherryPickCommit",
-            "git/applyPatch",
-            "git/ignore",
-            "git/continue",
-            "git/abortOperation",
-            "git/globalConfig/write",
-            "git/cli/install",
-            "github/status",
-            "github/account",
-            "github/login/start",
-            "github/login/status",
-            "github/login/openBrowser",
-            "github/login/cancel",
-            "github/logout",
-            "github/install",
-            "github/request",
-            "github/starStatus",
-            "github/star",
-            "github/pr/list",
-            "github/pr/view",
-            "github/pr/diff",
-            "github/pr/defaultBranch",
-            "github/pr/create",
-            "github/pr/checkout",
-            "github/pr/merge",
-            "review/diff/get",
-        ]
-    }
-
-    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
-        Admit::Accepted
-    }
-}
-
-#[cfg(test)]
-mod watch_tests {
-    use mixdog_core_api::domain::common::AbsPath;
-    use mixdog_core_api::mock::MockLimits;
-    use mixdog_core_api::mock::MockScopedFeeds;
-
-    use super::*;
-
-    fn watch() -> Arc<GitWatch> {
-        let root = std::env::temp_dir();
-        Arc::new(GitWatch {
-            feed: FeedPublisher::create(&MockScopedFeeds::new(MockLimits::default()), FeedId("git:test".into()), json!({})),
-            repo: RepoRef { common_dir: AbsPath::new(root.clone()).expect("absolute"), work_tree: AbsPath::new(root.clone()) },
-            folder: "scm.git:1:test".into(),
-            root,
-            revision: AtomicU64::new(0),
-            dirty: AtomicBool::new(false),
-            running: AtomicBool::new(false),
-            paced: Mutex::new(None),
-            holders: Mutex::new(Vec::new()),
-        })
-    }
-
-    #[test]
-    fn a_rescan_waits_one_second_after_the_last_read_and_longer_after_a_slow_one() {
-        assert_eq!(RESCAN_DEBOUNCE, Duration::from_millis(125));
-        let watch = watch();
-        assert_eq!(watch.next_scan(), None);
-        let started = Instant::now();
-        watch.scanned(started, true);
-        let due = watch.next_scan().expect("a read was timed");
-        assert!(due - Instant::now() <= RESCAN_MIN_GAP && RESCAN_MIN_GAP == Duration::from_secs(1));
-        watch.scanned(started - Duration::from_secs(4), true);
-        assert!(watch.next_scan().expect("timed") > Instant::now() + Duration::from_secs(3), "a 4 s read is not repeated back to back");
-    }
-
-    #[test]
-    fn a_watch_ends_with_its_last_holder_whoever_unwatches() {
-        let watch = watch();
-        let (one, two) = (Some(ConnectionId(1)), Some(ConnectionId(2)));
-        assert!(watch.ended());
-        watch.listen(one);
-        watch.listen(one);
-        watch.listen(two);
-        watch.unlisten(two);
-        assert_eq!(*watch.holders.lock().unwrap(), vec![one, one]);
-        watch.unlisten(two);
-        assert_eq!(*watch.holders.lock().unwrap(), vec![one], "an unwatch by another connection still counts, as Node's count does");
-        watch.unlisten(one);
-        assert!(watch.ended());
     }
 }

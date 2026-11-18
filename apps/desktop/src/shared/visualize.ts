@@ -258,6 +258,10 @@ export interface VisualizeSessionState {
   sessionId: string;
   tabs: VisualizeTabView[];
   active: string | null;
+  /** A paired phone's snapshot read only: whether the session's agent turn is held now and since when (ms), as the producer last said
+   *  it. Absent from the live host and from older cores, whose snapshot says nothing of holds. */
+  held?: boolean;
+  heldSince?: number;
   /** The host's turn-end record of opens with nothing left to show; absent
    *  when there are none (and from older hosts: every card then draws). */
   goneOpens?: VisualizeGoneOpen[];
@@ -425,6 +429,9 @@ export interface VisualizeHostTab {
 }
 
 export interface VisualizeHostState {
+  /** A paired phone's snapshot read: the session's turn is held now, since (ms). Never on the live host's own states. */
+  held?: boolean;
+  heldSince?: number;
   sessionId: string;
   tabs: VisualizeHostTab[];
   active: string | null;
@@ -436,6 +443,8 @@ export interface VisualizeHostState {
 /** Main → daemon: the same change `DesktopVisualizeEvent` carries, with paths. */
 export interface VisualizeHostEvent {
   sessionId: string;
+  /** The host's publication number (1, 2, 3 ... over one connection): the core applies it only when it is newer than the latest of that connection. */
+  publication?: number;
   state?: VisualizeHostState;
   reveal?: boolean;
   /** With `reveal`: the tab the open or update was for. */
@@ -507,6 +516,7 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
   return {
     sessionId: state.sessionId,
     active: state.active,
+    ...(state.held === true ? { held: true, ...(Number.isFinite(state.heldSince) ? { heldSince: state.heldSince } : {}) } : {}),
     ...(Array.isArray(state.goneOpens) && state.goneOpens.length
       ? {
           goneOpens: state.goneOpens
@@ -575,3 +585,7 @@ export function remoteVisualizeState(state: VisualizeHostState): VisualizeSessio
     }),
   };
 }
+
+/** A remote export's id names its render (`{tabId, format, pane?}` after this prefix): the core's `export` transfer source draws it
+ *  when the device's download is authorized. */
+export const VISUALIZE_EXPORT_ID_PREFIX = 'visualize-export:';

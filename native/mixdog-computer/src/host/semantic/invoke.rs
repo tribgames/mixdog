@@ -35,6 +35,7 @@ impl Host {
             return Err("menu path must have 1..8 segments".into());
         }
         let a11y = self.accessibility()?;
+        // Each action of the walk is authorized on its own; the platform's port arbitrates each against the scope.
         let authorize = || self.authorize(req, info.handle);
         let outcome = a11y.invoke_menu(&info, &path, &authorize)?;
         Ok(self.action_result(

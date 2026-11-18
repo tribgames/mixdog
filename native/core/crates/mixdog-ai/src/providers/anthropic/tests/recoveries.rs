@@ -155,3 +155,60 @@ async fn the_reissue_is_the_same_request_without_streaming() {
     let err = api_adapter(http).recover_spent(Arc::new(request())).await.err().expect("the re-issue is refused");
     assert!(err.recovery_exhausted);
 }
+
+/// `_openResponse` (anthropic-oauth.mjs:932): a 404 on the subscription route reads the catalog again, and a model it no
+/// longer lists is replayed once on its family's newest id; an API key's 404 is not replayed.
+#[tokio::test]
+async fn an_unknown_model_404_refreshes_the_catalog_and_replays_on_the_family_s_current_id() {
+    let not_found = r#"{"type":"error","error":{"type":"not_found_error","message":"model: claude-sonnet-4-6"}}"#;
+    let listing = r#"{"data":[{"id":"claude-sonnet-4-5","type":"model"},{"id":"claude-sonnet-4-7","type":"model"},{"id":"claude-opus-4-7","type":"model"}],"has_more":false}"#;
+    let http = ScriptedHttp::new([Scripted::body(404, not_found), Scripted::body(200, listing), Scripted::body(200, TURN)]);
+    let store = MemoryStore::signed_in();
+    let adapter = oauth_adapter(http.clone(), store.clone());
+    let asked = Arc::new(request());
+    let stream = adapter.attempt(asked.clone()).await.expect("replayed on the current id");
+    assert_eq!(text_of(stream).await, "ok");
+    let notices: Vec<_> = asked.options.send_identity.take_stages().into_iter().filter(|(stage, _)| *stage == "notice").collect();
+    assert_eq!(
+        notices,
+        vec![("notice", Some(serde_json::json!({ "tone": "info", "message": "claude-sonnet-4-6 is no longer offered — continuing on claude-sonnet-4-7" })))]
+    );
+    let sent = http.sent();
+    assert_eq!(sent.len(), 3, "the refused request, the catalog read, the replay");
+    assert_eq!((sent[1].method.as_str(), sent[1].url.as_str()), ("GET", "https://api.anthropic.com/v1/models"));
+    assert_eq!(http.redirects()[1], crate::transport::Redirect::Error, "the bearer-authenticated catalog read must not follow redirects");
+    assert_eq!(body_of(&sent[2])["model"], "claude-sonnet-4-7");
+}
+
+/// The refresh an unknown-model refusal asks is the catalog handle's forced roster refresh (`ListingLookup::refresh_roster`, the
+/// one OpenAI's Codex route asks too, which rewrites the roster file): once for the refusal, and a second refusal of the replay
+/// is the error.
+#[tokio::test]
+async fn an_unknown_model_refusal_asks_the_catalog_handle_for_one_forced_refresh_and_a_second_refusal_surfaces() {
+    let not_found = r#"{"type":"error","error":{"type":"not_found_error","message":"model: claude-sonnet-4-6"}}"#;
+    let listing = r#"{"data":[{"id":"claude-sonnet-4-6","type":"model"}],"has_more":false}"#;
+    let asked = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let store = MemoryStore::signed_in();
+    let build = |http: Arc<ScriptedHttp>| {
+        let config = config("https://api.anthropic.com");
+        let seen = asked.clone();
+        config.listing.bind_roster_refresh(Arc::new(move |provider| {
+            seen.lock().unwrap().push(provider);
+            Box::pin(async {})
+        }));
+        let session = Arc::new(OAuthSession::new(store.file.clone(), http.clone()));
+        AnthropicAdapter::oauth(config, http, session, false, cpu_bulk())
+    };
+
+    // The model is still listed: the replay is on the same id.
+    let http = ScriptedHttp::new([Scripted::body(404, not_found), Scripted::body(200, listing), Scripted::body(200, TURN)]);
+    let stream = build(http.clone()).attempt(Arc::new(request())).await.expect("the replay answers");
+    assert_eq!(text_of(stream).await, "ok");
+    assert_eq!(*asked.lock().unwrap(), ["anthropic-oauth"], "one forced refresh");
+    assert_eq!(body_of(&http.sent()[2])["model"], "claude-sonnet-4-6");
+
+    asked.lock().unwrap().clear();
+    let http = ScriptedHttp::new([Scripted::body(404, not_found), Scripted::body(200, listing), Scripted::body(404, not_found)]);
+    assert!(build(http.clone()).attempt(Arc::new(request())).await.is_err(), "the second refusal is the answer");
+    assert_eq!((asked.lock().unwrap().len(), http.sent().len()), (1, 3), "one refresh, one replay, never more");
+}

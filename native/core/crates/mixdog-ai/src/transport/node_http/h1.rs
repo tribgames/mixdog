@@ -43,7 +43,6 @@ use super::decode::Decoder;
 use super::pool::Flight;
 use super::pool::Pool;
 use crate::transport::fault::fault_from_chain;
-use crate::transport::fault::fault_from_io;
 use crate::transport::link::BodyStream;
 
 /// `maxHeaderSize`: Node's default for the head of a response (`--max-http-header-size`, 16 KiB).
@@ -295,6 +294,8 @@ pub struct H1Body {
     decoder: Option<Decoder>,
     /// The caller has had the end (or the fault) of the message.
     done: bool,
+    /// The client number of the connection that carries the message ([`Conn::born`]).
+    born: u64,
 }
 
 impl H1Body {
@@ -310,8 +311,9 @@ impl H1Body {
             room: Notify::new(),
             gone: Notify::new(),
         });
+        let born = conn.born;
         tokio::spawn(read_message(incoming, conn, reuse, shared.clone()));
-        Self { shared, decoder, done: false }
+        Self { shared, decoder, done: false, born }
     }
 
     /// The failure ends the body.
@@ -521,13 +523,17 @@ impl BodyStream for H1Body {
         self.shared.lock().held = true;
     }
 
+    fn connection(&self) -> Option<mixdog_core_api::domain::provider::ConnectionInfo> {
+        Some(mixdog_core_api::domain::provider::ConnectionInfo { id: self.born, protocol: "http/1.1" })
+    }
+
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
         loop {
             // What the decoder can hand on from what it holds comes first, one step at a time; the next raw chunk is
             // taken only when it has nothing left.
             if let Some(decoder) = self.decoder.as_mut() {
                 match decoder.step() {
-                    Err(e) => return self.fail(fault_from_io(&e, false)),
+                    Err(_) => return self.fail(TransportFault::CorruptBody),
                     Ok(Some(step)) => return Some(Ok(Bytes::from(step))),
                     Ok(None) if self.done => {
                         self.decoder = None;

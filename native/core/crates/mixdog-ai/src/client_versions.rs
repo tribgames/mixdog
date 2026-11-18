@@ -38,6 +38,7 @@ use regex::Regex;
 use serde_json::Value;
 
 use crate::oauth::CredentialIo;
+use crate::providers::anthropic::ClaudeClientVersion;
 use crate::providers::google::auth::antigravity::VERSION_FALLBACK as ANTIGRAVITY_VERSION_FALLBACK;
 use crate::providers::google::auth::antigravity::VERSION_MANIFEST_URL as ANTIGRAVITY_MANIFEST_URL;
 use crate::registry::keys::Environment;
@@ -120,7 +121,7 @@ pub fn is_semver(text: &str) -> bool {
 }
 
 /// `compareSemver`: component-wise `Number` difference.
-fn compare_semver(a: &str, b: &str) -> Ordering {
+pub(crate) fn compare_semver(a: &str, b: &str) -> Ordering {
     let number = |part: &str| part.parse::<f64>().unwrap_or(f64::NAN);
     for (x, y) in a.split('.').zip(b.split('.')) {
         let (x, y) = (number(x), number(y));
@@ -393,6 +394,12 @@ struct AntigravityState {
     failed_at: u64,
 }
 
+/// Whether an update manifest's version is believed: one older than the pinned fallback is not, because the service gates its
+/// current models on the newer client; the fallback is used instead.
+pub(crate) fn antigravity_version_acceptable(version: &str) -> bool {
+    compare_semver(version, ANTIGRAVITY_VERSION_FALLBACK) != Ordering::Less
+}
+
 /// `ensureAntigravityVersion`: the update manifest's version, resolved once per process.
 pub struct AntigravityVersion {
     http: Arc<dyn HttpSend>,
@@ -466,7 +473,8 @@ impl AntigravityVersion {
         let headers = [("Cache-Control".to_owned(), "no-cache".to_owned()), ("User-Agent".to_owned(), "electron-builder".to_owned())];
         let found = fetch_text(self.http.as_ref(), &self.url, &headers, ANTIGRAVITY_TIMEOUT)
             .await
-            .and_then(|text| parse_antigravity_manifest_version(&text));
+            .and_then(|text| parse_antigravity_manifest_version(&text))
+            .filter(|version| antigravity_version_acceptable(version));
         if let Some(version) = &found {
             lock(&self.state).discovered = Some(version.clone());
             self.store.remember(ANTIGRAVITY_KEY, Some(version)).await;
@@ -511,11 +519,9 @@ impl Dialect {
 pub struct ClientVersions {
     codex: Arc<RemoteVersion>,
     grok: Arc<RemoteVersion>,
-    claude: Arc<RemoteVersion>,
+    claude: Arc<ClaudeClientVersion>,
     cursor: Arc<RemoteVersion>,
     antigravity: Arc<AntigravityVersion>,
-    /// `MIXDOG_CLI_VERSION`: when set, `warmCliVersion` does not look the live version up.
-    claude_env: String,
     /// `MIXDOG_GROK_CLIENT_VERSION` / `MIXDOG_CURSOR_CLIENT_VERSION`, read once as Node does.
     grok_env: String,
     cursor_env: String,
@@ -530,7 +536,7 @@ impl ClientVersions {
     }
 
     pub fn with_clock(http: Arc<dyn HttpSend>, data_dir: PathBuf, io: CredentialIo, env: Arc<dyn Environment>, now: Clock) -> Arc<Self> {
-        let store = LastKnown::new(data_dir, io, Arc::clone(&env), Arc::clone(&now));
+        let store = LastKnown::new(data_dir.clone(), io, Arc::clone(&env), Arc::clone(&now));
         let npm = |package: &str, key: &'static str| {
             RemoteVersion::new(
                 Arc::clone(&http),
@@ -546,8 +552,7 @@ impl ClientVersions {
         Arc::new(Self {
             codex: npm(CODEX_NPM_PACKAGE, "codex-cli"),
             grok: npm(GROK_NPM_PACKAGE, "grok-cli"),
-            claude: npm("@anthropic-ai/claude-code", "claude-cli"),
-            claude_env: text("MIXDOG_CLI_VERSION"),
+            claude: ClaudeClientVersion::new(npm("@anthropic-ai/claude-code", "claude-cli"), &data_dir, io, &text("MIXDOG_CLI_VERSION")),
             cursor: RemoteVersion::new(
                 Arc::clone(&http),
                 CURSOR_INSTALL_URL.to_owned(),
@@ -616,10 +621,10 @@ impl ClientVersions {
             Dialect::Cursor if self.cursor_env.is_empty() => {
                 self.cursor.warm().await;
             }
-            Dialect::Claude if self.claude_env.is_empty() => {
+            Dialect::Claude => {
                 self.claude.warm().await;
             }
-            Dialect::Grok | Dialect::Cursor | Dialect::Claude => {}
+            Dialect::Grok | Dialect::Cursor => {}
             Dialect::Antigravity => {
                 self.antigravity.ensure().await;
             }
@@ -638,6 +643,10 @@ impl ClientVersions {
         }
         *lock(&self.learned) = Some(required);
         true
+    }
+
+    pub fn claude(&self) -> Arc<ClaudeClientVersion> {
+        Arc::clone(&self.claude)
     }
 
     pub fn codex_live(self: &Arc<Self>) -> Live {

@@ -26,8 +26,6 @@ impl fmt::Display for ImportError {
     }
 }
 
-impl std::error::Error for ImportError {}
-
 /// `compareCodeUnits`: order by UTF-16 code units, which differs from byte order for characters
 /// above the Basic Multilingual Plane.
 pub fn compare_code_units(left: &str, right: &str) -> std::cmp::Ordering {
@@ -253,3 +251,6 @@ mod tests {
         assert_eq!(simple, if cfg!(windows) { PathBuf::from(r"C:\Users\x") } else { PathBuf::from(r"\\?\C:\Users\x") });
     }
 }
+
+
+impl std::error::Error for ImportError {}

@@ -4,15 +4,8 @@
 //!
 //! Node's retry and refresh exist only on Linux (`platform() !== 'linux'` answers false). There they
 //! drive a snapshot cache (`prewarmSecrets`, a TTL, background retries) that the Rust store does not
-//! have: it asks the keyring per call, so nothing is cached to go stale and there is nothing to
-//! prewarm (`prewarm_ready` is always true). What remains of the contract:
-//! * `retry(interactive)` re-asks the keyring (one lookup through the tracked store, which notes
-//!   the outcome) only when it is failing and an unlock prompt is allowed; a non-interactive retry
-//!   would prompt, which the Rust Secret Service client cannot avoid, so it changes nothing.
-//!   It answers whether the keyring is now `ok`.
-//! * `refresh` re-snapshots a cache that does not exist: it never reports a change.
-//!
-//! The Linux behaviour has no Node golden yet (recorded on the Linux build host, see the request).
+//! have: it asks the keyring per call and never caches a credential here. Focus checks the
+//! collection without prompting; an explicit retry may ask Secret Service to unlock it.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -27,10 +20,6 @@ use mixdog_secrets::StatusTracker;
 use super::provider_setup::KeychainStatus;
 use super::provider_setup::UnsafeStore;
 use super::setup_cache::KeychainLive;
-
-/// The account the retry looks up: nothing is stored under it; the answer only tells whether the
-/// keyring responds.
-const PROBE_ACCOUNT: &str = "agent.keychain-probe";
 
 pub struct HolderLive {
     tracker: Arc<StatusTracker>,
@@ -82,17 +71,24 @@ impl KeychainLive for HolderLive {
 
     async fn retry(&self, interactive: bool) -> bool {
         let state = self.tracker.snapshot().state;
-        if !self.tracker.is_linux() || state == "ok" || state == "unknown" {
+        if !interactive || !self.tracker.is_linux() || state == "ok" {
             return false;
         }
-        if interactive {
-            let _ = self.probe.get(PROBE_ACCOUNT).await;
-            self.read_unsafe_store().await;
-        }
-        self.tracker.snapshot().state == "ok"
+        let recovered = self.probe.probe_keychain(true).await.is_ok();
+        self.read_unsafe_store().await;
+        recovered
     }
 
-    async fn refresh(&self, _force: bool) -> bool {
-        false
+    async fn refresh(&self, force: bool) -> bool {
+        if !force || !self.tracker.is_linux() {
+            return false;
+        }
+        let before = self.tracker.snapshot();
+        let _ = self.probe.probe_keychain(false).await;
+        let after = self.tracker.snapshot();
+        if after.fallback {
+            self.read_unsafe_store().await;
+        }
+        before.state != after.state || before.fallback != after.fallback
     }
 }

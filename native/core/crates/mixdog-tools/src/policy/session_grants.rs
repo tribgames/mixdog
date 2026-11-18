@@ -1,56 +1,40 @@
-//! "Allow for this session": an action a person allowed from a card for the
-//! rest of ONE session (`human-gate/session-grants.mjs`). Held in memory (a
-//! restart asks again) in one registry for the whole process, keyed by session
-//! and action — never by target or payload. A grant ends when its session is
-//! reset or closed (the owner passes a `mark` naming the session's current
-//! life; a grant made under another mark is gone), or [`SESSION_GRANT_TTL`]
-//! after it was made. The registry holds at most [`MAX_SESSION_GRANTS`] grants
-//! across every session: the oldest grant goes first, whichever session made
-//! it. A key that can never be remembered is never granted.
+//! "Allow for this session": a tool a person allowed from a card for the rest of
+//! ONE conversation. Held in memory in one registry for the whole process, keyed
+//! by session and tool identity — never by target or payload. A grant lasts as long as
+//! its conversation: no time limit and no count limit. It ends when the session
+//! is closed or deleted ([`SessionGrantRegistry::forget`]), and when the session's
+//! agent changes or it is reset (the owner passes the agent and a `mark` naming
+//! the session's current life; a grant made for another agent or mark is dropped
+//! the next time that session is read or granted). A grant is memory only, so a
+//! restart of the service ends it and the person is asked again. A key that can never
+//! be remembered is never granted.
 
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::Duration;
-use std::time::Instant;
 
 use super::action::GrantKey;
-
-/// `SESSION_GRANT_TTL_MS`.
-pub const SESSION_GRANT_TTL: Duration = Duration::from_secs(12 * 60 * 60);
-
-/// `MAX_SESSION_GRANTS`: most grants the registry holds at once, over every session.
-pub const MAX_SESSION_GRANTS: usize = 256;
 
 struct Entry {
     session: String,
     action: GrantKey,
     agent_id: String,
     mark: String,
-    expires_at: Instant,
 }
 
-/// `createSessionGrants`: the process's "Allow for this session" grants, oldest first.
+/// The process's "Allow for this session" grants.
+#[derive(Default)]
 pub struct SessionGrantRegistry {
     entries: Mutex<Vec<Entry>>,
-    now: Arc<dyn Fn() -> Instant + Send + Sync>,
-    ttl: Duration,
-    max_entries: usize,
 }
 
 impl SessionGrantRegistry {
-    /// Node's settings on the wall clock.
     pub fn new() -> Arc<Self> {
-        Self::with_settings(Instant::now, SESSION_GRANT_TTL, MAX_SESSION_GRANTS)
+        Arc::default()
     }
 
-    /// `createSessionGrants({ now, ttlMs, maxEntries })`.
-    pub fn with_settings(now: impl Fn() -> Instant + Send + Sync + 'static, ttl: Duration, max_entries: usize) -> Arc<Self> {
-        Arc::new(Self { entries: Mutex::default(), now: Arc::new(now), ttl, max_entries })
-    }
-
-    /// Drops every expired grant.
-    fn prune(entries: &mut Vec<Entry>, now: Instant) {
-        entries.retain(|e| e.expires_at > now);
+    /// Drops the grants of `session` made for another agent or life than these.
+    fn drop_stale(entries: &mut Vec<Entry>, session: &str, agent_id: &str, mark: &str) {
+        entries.retain(|e| e.session != session || (e.agent_id == agent_id && e.mark == mark));
     }
 
     /// Allows `action` for `session` as `agent_id` under the session's current `mark`;
@@ -59,19 +43,16 @@ impl SessionGrantRegistry {
         if agent_id.is_empty() || !action.rememberable() {
             return false;
         }
-        let now = (self.now)();
         let mut entries = self.entries.lock().expect("session grants");
-        Self::prune(&mut entries, now);
-        entries.retain(|e| !(e.session == session && &e.action == action));
-        entries.push(Entry {
-            session: session.to_owned(),
-            action: action.clone(),
-            agent_id: agent_id.to_owned(),
-            mark: mark.to_owned(),
-            expires_at: now + self.ttl,
-        });
-        let excess = entries.len().saturating_sub(self.max_entries);
-        entries.drain(..excess);
+        Self::drop_stale(&mut entries, session, agent_id, mark);
+        if !entries.iter().any(|e| e.session == session && &e.action == action) {
+            entries.push(Entry {
+                session: session.to_owned(),
+                action: action.clone(),
+                agent_id: agent_id.to_owned(),
+                mark: mark.to_owned(),
+            });
+        }
         true
     }
 
@@ -81,18 +62,19 @@ impl SessionGrantRegistry {
         if !action.rememberable() {
             return false;
         }
-        let now = (self.now)();
         let mut entries = self.entries.lock().expect("session grants");
-        Self::prune(&mut entries, now);
-        let Some(at) = entries.iter().position(|e| e.session == session && &e.action == action) else {
-            return false;
-        };
-        let entry = &entries[at];
-        if entry.agent_id == agent_id && entry.mark == mark {
-            return true;
-        }
-        entries.remove(at);
-        false
+        Self::drop_stale(&mut entries, session, agent_id, mark);
+        entries.iter().any(|e| e.session == session && &e.action == action)
+    }
+
+    /// Ends every grant of `session`: it was closed or deleted.
+    pub fn forget(&self, session: &str) {
+        self.entries.lock().expect("session grants").retain(|e| e.session != session);
+    }
+
+    /// How many grants the registry holds for `session`.
+    pub fn held(&self, session: &str) -> usize {
+        self.entries.lock().expect("session grants").iter().filter(|e| e.session == session).count()
     }
 }
 
@@ -129,81 +111,60 @@ impl SessionGrants {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicU64;
-    use std::sync::atomic::Ordering;
-
     use mixdog_core_api::domain::approval::ActionKind;
 
     use super::*;
 
-    fn clocked() -> (SessionGrants, Arc<AtomicU64>) {
-        let base = Instant::now();
-        let ticks = Arc::new(AtomicU64::new(0));
-        let seen = ticks.clone();
-        let registry = SessionGrantRegistry::with_settings(
-            move || base + Duration::from_secs(seen.load(Ordering::SeqCst)),
-            SESSION_GRANT_TTL,
-            MAX_SESSION_GRANTS,
-        );
-        (SessionGrants::of(registry, "s"), ticks)
-    }
-
-    fn comment() -> GrantKey {
-        GrantKey::Kind(ActionKind::Comment)
+    fn tool(name: &str) -> GrantKey {
+        GrantKey::Tool(name.into())
     }
 
     #[test]
-    fn a_grant_covers_its_agent_and_mark_only() {
-        let (grants, _) = clocked();
-        assert!(grants.grant("bot", &comment(), "life-1"));
-        assert!(grants.has("bot", &comment(), "life-1"));
-        assert!(!grants.has("other", &comment(), "life-1"));
-        // A wrong agent or mark drops the grant.
-        assert!(!grants.has("bot", &comment(), "life-1"));
-        assert!(grants.grant("bot", &comment(), "life-1"));
-        assert!(!grants.has("bot", &comment(), "life-2"));
+    fn a_grant_covers_its_agent_and_mark_only_and_a_change_drops_it() {
+        let grants = SessionGrants::of(SessionGrantRegistry::new(), "s");
+        assert!(grants.grant("bot", &tool("a"), "life-1"));
+        assert!(grants.has("bot", &tool("a"), "life-1"));
+        assert!(!grants.has("other", &tool("a"), "life-1"));
+        // The agent changed: the grant is gone and does not come back.
+        assert!(!grants.has("bot", &tool("a"), "life-1"));
+        assert!(grants.grant("bot", &tool("a"), "life-1"));
+        assert!(!grants.has("bot", &tool("a"), "life-2"));
     }
 
     #[test]
-    fn a_grant_ends_after_the_ttl() {
-        let (grants, ticks) = clocked();
-        grants.grant("bot", &comment(), "m");
-        ticks.store(SESSION_GRANT_TTL.as_secs() - 1, Ordering::SeqCst);
-        assert!(grants.has("bot", &comment(), "m"));
-        ticks.store(SESSION_GRANT_TTL.as_secs(), Ordering::SeqCst);
-        assert!(!grants.has("bot", &comment(), "m"));
+    fn a_reset_drops_every_grant_of_the_session_not_only_the_one_read() {
+        let registry = SessionGrantRegistry::new();
+        let grants = SessionGrants::of(registry.clone(), "s");
+        assert!(grants.grant("bot", &tool("a"), "life-1"));
+        assert!(grants.grant("bot", &tool("b"), "life-1"));
+        assert!(!grants.has("bot", &tool("a"), "life-2"));
+        assert_eq!(registry.held("s"), 0);
     }
 
     #[test]
     fn payments_and_deletes_are_never_granted() {
-        let (grants, _) = clocked();
+        let grants = SessionGrants::of(SessionGrantRegistry::new(), "s");
         for k in [ActionKind::Payment, ActionKind::Delete] {
             assert!(!grants.grant("bot", &GrantKey::Kind(k), "m"));
             assert!(!grants.has("bot", &GrantKey::Kind(k), "m"));
         }
-        assert!(!grants.grant("", &comment(), "m"));
+        assert!(!grants.grant("", &tool("a"), "m"));
     }
 
     #[test]
-    fn the_bound_is_one_for_every_session_and_the_oldest_grant_of_any_session_goes() {
-        let registry = SessionGrantRegistry::with_settings(Instant::now, SESSION_GRANT_TTL, 2);
+    fn grants_have_no_count_limit_and_no_time_limit_and_forgetting_a_session_ends_only_its_own() {
+        let registry = SessionGrantRegistry::new();
         let of = |session: &str| SessionGrants::of(registry.clone(), session);
-        for session in ["s1", "s2", "s3"] {
-            assert!(of(session).grant("bot", &comment(), "m"));
+        for i in 0..1000 {
+            assert!(of("s1").grant("bot", &tool(&format!("t{i}")), "m"));
         }
-        assert!(!of("s1").has("bot", &comment(), "m"));
-        assert!(of("s2").has("bot", &comment(), "m"));
-        assert!(of("s3").has("bot", &comment(), "m"));
-    }
-
-    #[test]
-    fn the_oldest_grants_go_first_when_full() {
-        let (grants, _) = clocked();
-        for i in 0..MAX_SESSION_GRANTS + 1 {
-            assert!(grants.grant("bot", &GrantKey::Tool(format!("t{i}")), "m"));
+        assert!(of("s2").grant("bot", &tool("t0"), "m"));
+        for i in 0..1000 {
+            assert!(of("s1").has("bot", &tool(&format!("t{i}")), "m"), "t{i}");
         }
-        assert!(!grants.has("bot", &GrantKey::Tool("t0".into()), "m"));
-        assert!(grants.has("bot", &GrantKey::Tool("t1".into()), "m"));
-        assert!(grants.has("bot", &GrantKey::Tool(format!("t{MAX_SESSION_GRANTS}")), "m"));
+        registry.forget("s1");
+        assert_eq!(registry.held("s1"), 0);
+        assert!(!of("s1").has("bot", &tool("t0"), "m"));
+        assert!(of("s2").has("bot", &tool("t0"), "m"));
     }
 }

@@ -104,6 +104,25 @@ function panelContext(overrides = {}) {
   return context;
 }
 
+function writablePanelContext(overrides) {
+  const context = panelContext(overrides);
+  const api = {
+    ...context.api,
+    async invokeCapability({ capability, args }) {
+      if (capability === 'getTidyEngineStatus' && !context.api.readCapabilities) return { value: null };
+      assert.ok(overrides.run, `Unexpected command: ${capability}`);
+      return { value: await overrides.run(capability, args) };
+    },
+  };
+  return {
+    ...context,
+    api,
+    async run(capability, args) {
+      return (await api.invokeCapability({ capability, args })).value;
+    },
+  };
+}
+
 function deferred() {
   let resolve;
   const promise = new Promise((next) => {
@@ -191,11 +210,11 @@ test('extension settings routes collapse into Plugin and Skill', () => {
 
 test('Plugin combines built-in features and installed plugins', async () => {
   const calls = [];
-  const rendered = await renderPanel('plugins', {
+  const rendered = await renderPanel('plugins', writablePanelContext({
     async run(capability, args) {
       calls.push([capability, args]);
     },
-  });
+  }));
   try {
     assert.ok(document.querySelectorAll('[data-built-in-feature]').length > 0);
     // Built-in rows share the extension row grammar and carry no switch.
@@ -220,7 +239,7 @@ test('Plugin combines built-in features and installed plugins', async () => {
     });
     const memoryDialog = document.querySelector('[data-feature-id="memory"]');
     assert.ok(memoryDialog);
-    assert.equal((memoryDialog.textContent.match(/Memory/g) || []).length, 1);
+    assert.deepEqual([...memoryDialog.querySelectorAll('header h2')].map((heading) => heading.textContent), ['Memory']);
     assert.equal(memoryDialog.querySelector('footer'), null);
     await act(async () => {
       memoryDialog.querySelector('header button[aria-label="Close"]').click();
@@ -468,10 +487,25 @@ test('empty Plugin, Skill, and MCP categories keep their own visible empty state
   }
 });
 
+const installedDesktopFeatures = {
+  browserControl: true,
+  computerControl: true,
+  browserInstalled: true,
+  computerInstalled: true,
+};
+
 test('Browser Use and Computer Use mount at their real state without replaying an on animation', async () => {
   const settings = deferred();
+  let saved = installedDesktopFeatures;
   const api = {
-    readSettings: async () => settings.promise,
+    readSettings: async () => {
+      await settings.promise;
+      return saved;
+    },
+    updateSetting: async (key, enabled) => {
+      saved = { ...saved, [key]: enabled };
+      return saved;
+    },
     gitCliStatus: async () => ({ installed: true }),
   };
   const first = await renderPanel('plugins', { api });
@@ -483,12 +517,7 @@ test('Browser Use and Computer Use mount at their real state without replaying a
     await act(async () => {
       // Mirrors the settings store: an already-on control arrives with its
       // grandfathered install marker.
-      settings.resolve({
-        browserControl: true,
-        computerControl: true,
-        browserInstalled: true,
-        computerInstalled: true,
-      });
+      settings.resolve();
       await settings.promise;
     });
     assert.equal(document.querySelector('[data-feature-id="browser"] input').checked, true);
@@ -504,6 +533,23 @@ test('Browser Use and Computer Use mount at their real state without replaying a
     assert.equal(document.querySelector('[data-feature-id="computer"] input').checked, true);
   } finally {
     await second.cleanup();
+  }
+});
+
+test('Browser Use and Computer Use are unavailable without a desktop settings writer', async () => {
+  const rendered = await renderPanel('plugins', {
+    api: { readSettings: async () => installedDesktopFeatures },
+  });
+  try {
+    for (const id of ['browser', 'computer']) {
+      await act(async () => document.querySelector(`[data-built-in-feature="${id}"]`).click());
+      const dialog = document.querySelector(`[data-feature-id="${id}"]`);
+      assert.match(dialog.textContent, /Desktop feature settings are unavailable on this host/);
+      assert.equal(dialog.querySelector('input[type="checkbox"], button[aria-label^="Install "]'), null);
+      await act(async () => dialog.querySelector('button[aria-label="Close"]').click());
+    }
+  } finally {
+    await rendered.cleanup();
   }
 });
 
@@ -984,7 +1030,7 @@ test('Workflow card surface opens an immediate loading popup before editor data 
 
 test('Code Tidy card renders engine list, install progress, and failed engine row', async () => {
   let tidyEngineStatus = {
-    toolsDir: 'C:\\Users\\tempe\\.mixdog\\data\\tools',
+    toolsDir: 'C:\\Users\\alice\\.mixdog\\data\\tools',
     core: ['biome', 'ruff', 'shfmt', 'shellcheck', 'psscriptanalyzer'],
     engines: [
       {
@@ -1074,7 +1120,7 @@ test('Code Tidy card renders engine list, install progress, and failed engine ro
   let tidyInstallStatus = null;
   const installDeferred = deferred();
 
-  const context = panelContext({
+  const context = writablePanelContext({
     data: {
       ...panelContext().data,
       toolModules: {
@@ -1216,7 +1262,7 @@ test('Code Tidy card renders engine list, install progress, and failed engine ro
     // ExtensionNote under Engines section
     assert.match(
       dialog.textContent,
-      /Structural rules ship with Mixdog; engines download to C:\\Users\\tempe\\\.mixdog\\data\\tools\./
+      /Structural rules ship with Mixdog; engines download to C:\\Users\\alice\\\.mixdog\\data\\tools\./
     );
 
     // Info block fact
@@ -1340,7 +1386,7 @@ async function renderTidyWithPendingProbe(settledPsEngine) {
   };
   const rendered = await renderPanel(
     'plugins',
-    panelContext({
+    writablePanelContext({
       data: {
         ...panelContext().data,
         toolModules: { ...panelContext().data.toolModules, tidy: { enabled: true, installed: true } },
@@ -1431,7 +1477,7 @@ test('an installed Code Tidy with missing core engines flags setup and offers pe
   };
   const installDeferred = deferred();
   const runs = [];
-  const context = panelContext({
+  const context = writablePanelContext({
     data: {
       ...panelContext().data,
       toolModules: { ...panelContext().data.toolModules, tidy: { enabled: true, installed: true } },

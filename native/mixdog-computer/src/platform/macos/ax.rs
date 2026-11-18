@@ -252,12 +252,6 @@ impl Element for AxElement {
             )),
         }
     }
-    fn focus(&self) -> Result<(), String> {
-        match ax_set(self.raw(), "AXFocused", &cf_bool(true)) {
-            kAXErrorSuccess => Ok(()),
-            status => Err(format!("AX error {status}")),
-        }
-    }
     fn scroll(
         &self,
         horizontal: bool,
@@ -608,7 +602,7 @@ impl Accessibility for MacAccessibility {
         &self,
         window: &WindowInfo,
         path: &[String],
-        authorize: &dyn Fn() -> Result<(), String>,
+        authorize: crate::platform::Authorize<'_>,
     ) -> Result<MenuOutcome, String> {
         let app = application(window.pid as i32);
         let bar = ax_copy(app.as_CFTypeRef(), "AXMenuBar")

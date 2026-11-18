@@ -194,6 +194,12 @@ test('a deploy found behind the paint is offered to the running app', async () =
   );
 });
 
+test('explicit index navigation bypasses a still-bootable cached shell', async () => {
+  const { shellFirst } = loadWorker({ cache: shellCache('old shell'), fetchAsset: shellNetwork('matching shell') });
+  const result = await shellFirst({ url: `${WORKER_ORIGIN}/d/abc/index.html?sessionId=1`, mode: 'navigate' });
+  assert.equal(await result.response.text(), shellMarkup('matching shell'));
+});
+
 test('an unchanged shell never disturbs the running app', async () => {
   const posted = [];
   const { shellFirst } = loadWorker({

@@ -22,13 +22,6 @@ pub fn is_watchable(rel_or_base: &str) -> bool {
     is_transcript_jsonl_name(rel_or_base) && !is_skipped_watch_path(rel_or_base)
 }
 
-/// `mtimeMs` of a metadata, as a JS number.
-pub fn mtime_ms(meta: &std::fs::Metadata) -> Option<f64> {
-    let modified = meta.modified().ok()?;
-    let since = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
-    Some(since.as_secs_f64() * 1000.0)
-}
-
 /// An active transcript: its path and `mtimeMs`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Active {
@@ -36,6 +29,29 @@ pub struct Active {
     pub mtime: f64,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_follow_the_watcher() {
+        assert!(is_watchable("proj/abc.jsonl"));
+        assert!(is_watchable("proj\\abc.jsonl"));
+        assert!(!is_watchable("proj/agent-abc.jsonl"));
+        assert!(!is_watchable("proj/abc.json"));
+        assert!(!is_watchable("tmp/abc.jsonl"));
+        assert!(!is_watchable("proj/plugins/abc.jsonl"));
+        assert!(is_watchable("cached/abc.jsonl"));
+    }
+}
+
+
+/// `mtimeMs` of a metadata, as a JS number.
+pub fn mtime_ms(meta: &std::fs::Metadata) -> Option<f64> {
+    let modified = meta.modified().ok()?;
+    let since = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(since.as_secs_f64() * 1000.0)
+}
 /// Transcripts under `root/<project>/` modified within the active window. An unreadable
 /// directory or a vanished file is skipped.
 pub async fn discover_active_transcripts(lane: MaintenanceIo, root: &Path, now_ms: f64) -> Vec<Active> {
@@ -63,21 +79,5 @@ pub async fn discover_active_transcripts(lane: MaintenanceIo, root: &Path, now_m
     match job {
         Ok(job) => job.await.unwrap_or_default(),
         Err(_) => Vec::new(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn names_follow_the_watcher() {
-        assert!(is_watchable("proj/abc.jsonl"));
-        assert!(is_watchable("proj\\abc.jsonl"));
-        assert!(!is_watchable("proj/agent-abc.jsonl"));
-        assert!(!is_watchable("proj/abc.json"));
-        assert!(!is_watchable("tmp/abc.jsonl"));
-        assert!(!is_watchable("proj/plugins/abc.jsonl"));
-        assert!(is_watchable("cached/abc.jsonl"));
     }
 }

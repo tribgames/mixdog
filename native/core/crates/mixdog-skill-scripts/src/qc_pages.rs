@@ -503,124 +503,6 @@ fn qc_page<P: WriteProof>(run: &Run<'_, '_, P>, report: &mut Report, outcome: &m
     report.pages.push(entry);
 }
 
-/// `runPageQc`: `Err` is a failure thrown before the pages were worked or while the report was written.
-pub fn run_page_qc<P: WriteProof>(proof: &P, request: QcRequest<'_>, host: &OfficeHost<'_>, outcome: &mut Outcome) -> Result<Report, String> {
-    let provider = request.provider.unwrap_or_default();
-    let model = request.model.unwrap_or_default();
-    if js_trim(provider).is_empty() || js_trim(model).is_empty() {
-        return Err("explicit --provider and --model are required".to_owned());
-    }
-    let cwd = host.cwd.to_string_lossy().into_owned();
-    let deck = nodepath::resolve_host(&[&cwd, request.deck]);
-    host.engine()?;
-    let target = request.output.filter(|output| !js_trim(output).is_empty()).map(|output| nodepath::resolve_host(&[&cwd, output])).unwrap_or_default();
-    if !target.is_empty() {
-        let folder = dirname(&target);
-        mixdog_fsio::create_dir_all(proof, &folder).map_err(|error| fs_message(&error, "mkdir", Path::new(&folder)))?;
-    }
-    let initial = measure(host, &deck)?;
-    let total = items(get(&initial.document, "slides")).len();
-    let requested = parse_pages(request.pages, total)?;
-    let selected: Vec<usize> = requested.iter().copied().take(request.max_pages).collect();
-    let effort = request.effort.unwrap_or("medium").to_owned();
-    let mut report = Report {
-        ok: true,
-        deck: deck.clone(),
-        route: (provider.to_owned(), model.to_owned(), effort.clone()),
-        total,
-        pages: Vec::new(),
-        skipped_pages: requested.iter().copied().skip(request.max_pages).collect(),
-        fixed: 0,
-        polished: 0,
-        discarded: 0,
-        skipped: 0,
-        failed: 0,
-    };
-    let run = Run {
-        proof,
-        host,
-        deck,
-        total,
-        provider: provider.to_owned(),
-        model: model.to_owned(),
-        effort,
-        target: target.clone(),
-        vision: request.vision,
-    };
-    for page in selected {
-        qc_page(&run, &mut report, outcome, page);
-    }
-    if !target.is_empty() {
-        let body = json_stringify_indent(&report.to_value(), 2);
-        mixdog_fsio::write(proof, &target, body).map_err(|error| fs_message(&error, "open", Path::new(&target)))?;
-    }
-    Ok(report)
-}
-
-/// `qc-pages.mjs deck.pptx --provider P --model M --output qc-report.json [--effort E] [--pages 1-12] [--no-vision]`.
-pub fn run_qc_pages<P: WriteProof>(proof: &P, args: &[String], host: &OfficeHost<'_>) -> Outcome {
-    let mut outcome = Outcome::default();
-    let options = [
-        OptionSpec::string("provider"),
-        OptionSpec::string("model"),
-        OptionSpec::string("effort"),
-        OptionSpec::string("output"),
-        OptionSpec::string("pages"),
-        OptionSpec::boolean("no-vision"),
-    ];
-    let parsed = match parse_args(args, &ParseConfig { options: &options, allow_positionals: true }) {
-        Ok(parsed) => parsed,
-        Err(error) => {
-            outcome.eprint(&error.message);
-            outcome.code = 1;
-            return outcome;
-        }
-    };
-    let output = parsed.text("output").filter(|output| !output.is_empty());
-    let (true, Some(output)) = (parsed.positionals.len() == 1, output) else {
-        outcome.eprint(USAGE);
-        outcome.code = 1;
-        return outcome;
-    };
-    let request = QcRequest {
-        deck: &parsed.positionals[0],
-        pages: parsed.text("pages"),
-        provider: parsed.text("provider"),
-        model: parsed.text("model"),
-        effort: parsed.text("effort"),
-        output: Some(output),
-        vision: !parsed.flag("no-vision"),
-        max_pages: QC_MAX_PAGES,
-    };
-    match run_page_qc(proof, request, host, &mut outcome) {
-        Ok(report) => {
-            let cwd = host.cwd.to_string_lossy();
-            let reasons: Vec<String> =
-                report.pages.iter().map(|entry| format!("{}:{}", value_to_string(&entry["page"]), value_to_string(&entry["reason"]))).collect();
-            let line = json!({
-                "ok": report.ok,
-                "output": nodepath::resolve_host(&[&cwd, output]),
-                "fixed": report.fixed,
-                "polished": report.polished,
-                "discarded": report.discarded,
-                "skipped": report.skipped,
-                "failed": report.failed,
-                "skippedPages": report.skipped_pages,
-                "pages": reasons,
-            });
-            outcome.print(&json_stringify(&line));
-            if !report.ok {
-                outcome.code = 1;
-            }
-        }
-        Err(message) => {
-            outcome.eprint(&message);
-            outcome.code = 1;
-        }
-    }
-    outcome
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -808,6 +690,7 @@ mod tests {
         serde_json::from_slice(&mixdog_testkit::read(root.join("out/qc.json"))).expect("report")
     }
 
+
     #[test]
     fn a_fix_that_lowers_the_defects_is_adopted() {
         let (root, engine) = setup(vec![("deck.pptx", measured(2, "a")), ("deck.qc-page-1.pptx", measured(1, "a"))], Some("page1.png"));
@@ -834,7 +717,6 @@ mod tests {
         let actions: Vec<&str> = engine_calls.iter().map(|call| call["action"].as_str().expect("action")).collect();
         assert_eq!(actions, ["open", "render", "close"]);
     }
-
     #[test]
     fn a_fix_that_grows_the_defects_or_touches_another_slide_is_discarded() {
         let (root, engine) = setup(vec![("deck.pptx", measured(1, "a")), ("deck.qc-page-1.pptx", measured(2, "a"))], Some("p.png"));
@@ -854,7 +736,6 @@ mod tests {
         run_qc_pages(&Unlaned, &args(&[]), &host);
         assert_eq!(report_of(root.path())["pages"][0]["reason"], "scope");
     }
-
     #[test]
     fn a_run_that_never_replied_fails_the_report_and_a_clean_page_is_skipped() {
         let (root, engine) = setup(vec![("deck.pptx", measured(1, "a"))], Some("p.png"));
@@ -871,7 +752,6 @@ mod tests {
         let report = report_of(root.path());
         assert_eq!((report["skipped"].clone(), report["pages"][0]["reason"].clone(), report["pages"][0]["vision"].clone()), (json!(1), json!("clean"), json!(false)));
     }
-
     #[test]
     fn a_missing_renderer_leaves_the_page_to_the_geometry_read() {
         let (root, engine) = setup(vec![("deck.pptx", measured(1, "a"))], None);
@@ -881,7 +761,6 @@ mod tests {
         let page = report_of(root.path())["pages"][0].clone();
         assert_eq!((page["renderError"].clone(), page["vision"].clone(), page["reason"].clone()), (json!("no renderer"), json!(false), json!("unchanged")));
     }
-
     #[test]
     fn at_most_twenty_pages_are_worked_and_the_rest_are_named() {
         let slides: Vec<Value> = (1..=22).map(|n| json!({ "index": n, "shapes": [] })).collect();
@@ -895,7 +774,6 @@ mod tests {
         assert_eq!(report["pages"].as_array().expect("pages").len(), 20);
         assert_eq!(report["skippedPages"], json!([21, 22]));
     }
-
     #[test]
     fn a_missing_route_a_bad_selection_or_no_engine_is_refused_with_its_reason() {
         let (root, engine) = setup(vec![("deck.pptx", measured(0, "a"))], None);
@@ -911,4 +789,122 @@ mod tests {
         assert_eq!(run_qc_pages(&Unlaned, &args(&[]), &off).stderr, "the office engine is not available in this process\n");
         assert!(fixer.calls.lock().expect("calls").is_empty());
     }
+}
+
+
+/// `runPageQc`: `Err` is a failure thrown before the pages were worked or while the report was written.
+pub fn run_page_qc<P: WriteProof>(proof: &P, request: QcRequest<'_>, host: &OfficeHost<'_>, outcome: &mut Outcome) -> Result<Report, String> {
+    let provider = request.provider.unwrap_or_default();
+    let model = request.model.unwrap_or_default();
+    if js_trim(provider).is_empty() || js_trim(model).is_empty() {
+        return Err("explicit --provider and --model are required".to_owned());
+    }
+    let cwd = host.cwd.to_string_lossy().into_owned();
+    let deck = nodepath::resolve_host(&[&cwd, request.deck]);
+    host.engine()?;
+    let target = request.output.filter(|output| !js_trim(output).is_empty()).map(|output| nodepath::resolve_host(&[&cwd, output])).unwrap_or_default();
+    if !target.is_empty() {
+        let folder = dirname(&target);
+        mixdog_fsio::create_dir_all(proof, &folder).map_err(|error| fs_message(&error, "mkdir", Path::new(&folder)))?;
+    }
+    let initial = measure(host, &deck)?;
+    let total = items(get(&initial.document, "slides")).len();
+    let requested = parse_pages(request.pages, total)?;
+    let selected: Vec<usize> = requested.iter().copied().take(request.max_pages).collect();
+    let effort = request.effort.unwrap_or("medium").to_owned();
+    let mut report = Report {
+        ok: true,
+        deck: deck.clone(),
+        route: (provider.to_owned(), model.to_owned(), effort.clone()),
+        total,
+        pages: Vec::new(),
+        skipped_pages: requested.iter().copied().skip(request.max_pages).collect(),
+        fixed: 0,
+        polished: 0,
+        discarded: 0,
+        skipped: 0,
+        failed: 0,
+    };
+    let run = Run {
+        proof,
+        host,
+        deck,
+        total,
+        provider: provider.to_owned(),
+        model: model.to_owned(),
+        effort,
+        target: target.clone(),
+        vision: request.vision,
+    };
+    for page in selected {
+        qc_page(&run, &mut report, outcome, page);
+    }
+    if !target.is_empty() {
+        let body = json_stringify_indent(&report.to_value(), 2);
+        mixdog_fsio::write(proof, &target, body).map_err(|error| fs_message(&error, "open", Path::new(&target)))?;
+    }
+    Ok(report)
+}
+/// `qc-pages.mjs deck.pptx --provider P --model M --output qc-report.json [--effort E] [--pages 1-12] [--no-vision]`.
+pub fn run_qc_pages<P: WriteProof>(proof: &P, args: &[String], host: &OfficeHost<'_>) -> Outcome {
+    let mut outcome = Outcome::default();
+    let options = [
+        OptionSpec::string("provider"),
+        OptionSpec::string("model"),
+        OptionSpec::string("effort"),
+        OptionSpec::string("output"),
+        OptionSpec::string("pages"),
+        OptionSpec::boolean("no-vision"),
+    ];
+    let parsed = match parse_args(args, &ParseConfig { options: &options, allow_positionals: true }) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            outcome.eprint(&error.message);
+            outcome.code = 1;
+            return outcome;
+        }
+    };
+    let output = parsed.text("output").filter(|output| !output.is_empty());
+    let (true, Some(output)) = (parsed.positionals.len() == 1, output) else {
+        outcome.eprint(USAGE);
+        outcome.code = 1;
+        return outcome;
+    };
+    let request = QcRequest {
+        deck: &parsed.positionals[0],
+        pages: parsed.text("pages"),
+        provider: parsed.text("provider"),
+        model: parsed.text("model"),
+        effort: parsed.text("effort"),
+        output: Some(output),
+        vision: !parsed.flag("no-vision"),
+        max_pages: QC_MAX_PAGES,
+    };
+    match run_page_qc(proof, request, host, &mut outcome) {
+        Ok(report) => {
+            let cwd = host.cwd.to_string_lossy();
+            let reasons: Vec<String> =
+                report.pages.iter().map(|entry| format!("{}:{}", value_to_string(&entry["page"]), value_to_string(&entry["reason"]))).collect();
+            let line = json!({
+                "ok": report.ok,
+                "output": nodepath::resolve_host(&[&cwd, output]),
+                "fixed": report.fixed,
+                "polished": report.polished,
+                "discarded": report.discarded,
+                "skipped": report.skipped,
+                "failed": report.failed,
+                "skippedPages": report.skipped_pages,
+                "pages": reasons,
+            });
+            outcome.print(&json_stringify(&line));
+            if !report.ok {
+                outcome.code = 1;
+            }
+        }
+        Err(message) => {
+            outcome.eprint(&message);
+            outcome.code = 1;
+        }
+    }
+    outcome
 }

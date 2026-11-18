@@ -16,6 +16,7 @@ use base64::engine::general_purpose::STANDARD;
 
 use super::pressure::node_base64;
 use crate::offload::ImageCompactor;
+use crate::offload::ImageIntake;
 use crate::offload::ImageOutcome;
 
 /// `TOOL_IMAGE_TARGET_BASE64_SIZE`: an image whose base64 is no longer is left alone.
@@ -28,7 +29,6 @@ const PATCH_SIZE: u32 = 28;
 const MAX_PATCHES: u64 = 1568;
 /// `IMAGE_MIN_DIMENSION`.
 const MIN_DIMENSION: f64 = 200.0;
-const UNDECODABLE_TEXT: &str = "[image omitted: could not be decoded]";
 
 /// Why the codec gave no answer for an image.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -108,11 +108,18 @@ fn normalize_format(format: Option<&str>) -> String {
 
 pub struct ToolImageCompactor {
     codec: Arc<dyn ImageCodec>,
+    intake: Option<Arc<dyn ImageIntake>>,
 }
 
 impl ToolImageCompactor {
     pub fn new(codec: Arc<dyn ImageCodec>) -> Self {
-        Self { codec }
+        Self { codec, intake: None }
+    }
+
+    /// The attachment store the result's images are imported into.
+    pub fn with_intake(mut self, intake: Arc<dyn ImageIntake>) -> Self {
+        self.intake = Some(intake);
+        self
     }
 
     /// `compactToolResultImage`: `None` when the image is within budget, no re-encodable still,
@@ -149,33 +156,27 @@ impl ToolImageCompactor {
         Some(ImageOutcome::Compacted { data, mime: "image/jpeg".to_owned(), note })
     }
 
-    /// `rejectedImageText`: fixed text for an image no provider can take, `None` for one to keep.
-    async fn rejection(&self, base64: &str, mime: &str) -> Option<String> {
-        let raw = if mime.is_empty() { "image/png" } else { mime };
-        let mime_type = mixdog_js::js_trim(raw.split(';').next().unwrap_or_default()).to_lowercase();
-        if !matches!(mime_type.as_str(), "image/png" | "image/jpeg" | "image/gif" | "image/webp") {
-            return Some(format!("[image omitted: {mime_type} is not a supported image type]"));
-        }
-        let bytes = node_base64(base64);
-        if bytes.is_empty() {
-            return None;
-        }
-        let format = mime_type.split('/').nth(1).unwrap_or_default();
-        match self.codec.validate(&bytes, format).await {
-            Err(CodecError::Invalid) => Some(UNDECODABLE_TEXT.to_owned()),
-            Ok(()) | Err(CodecError::Environment(_)) => None,
-        }
-    }
 }
 
 #[async_trait]
 impl ImageCompactor for ToolImageCompactor {
+    async fn import_blob(&self, reference: &str) -> Option<(String, String)> {
+        self.intake.as_ref()?.store_blob(reference, "").await
+    }
+
+    /// The image, re-encoded when it is large, enters the attachment store; the store's verdict (a refusal included) is
+    /// what a send reads. An image is never replaced by text here; with no store, or one that cannot take it now, it stays.
     async fn compact(&self, data: &str, mime: &str) -> ImageOutcome {
-        if let Some(outcome) = self.reencode(data, mime).await {
-            return outcome;
-        }
-        match self.rejection(data, mime).await {
-            Some(text) => ImageOutcome::Omitted(text),
+        let outcome = self.reencode(data, mime).await;
+        let Some(intake) = &self.intake else { return outcome.unwrap_or(ImageOutcome::Keep) };
+        let reencoded = matches!(outcome, Some(ImageOutcome::Compacted { .. }));
+        let (data, mime, note) = match outcome {
+            Some(ImageOutcome::Compacted { data, mime, note }) => (data, mime, note),
+            _ => (data.to_owned(), mime.to_owned(), None),
+        };
+        match intake.store(&data, "").await {
+            Some(reference) => ImageOutcome::Stored { reference, mime, note },
+            None if reencoded => ImageOutcome::Compacted { data, mime, note },
             None => ImageOutcome::Keep,
         }
     }

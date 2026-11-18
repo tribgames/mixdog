@@ -25,7 +25,12 @@ use serde_json::json;
 
 use super::AgentDefinitions;
 use super::AgentsError;
+use super::connectors::ApprovedToolChange;
 use super::connectors::Parsed;
+use super::connectors::TOOL_ALREADY;
+use super::connectors::TOOL_NARROWED;
+use super::connectors::rank;
+use crate::setup::Approval;
 use super::connectors::Stored;
 use super::connectors::assert_not_widened;
 use super::connectors::stored_policy;
@@ -138,15 +143,27 @@ impl AgentConnectors {
         no_widen: bool,
         derive: impl FnOnce(Vec<String>, Map<String, Value>) -> (Vec<String>, Map<String, Value>) + Send,
     ) -> Result<Stored, AgentsError> {
+        self.edit_with(agent_id, no_widen, None, move |off, tools| Ok(derive(off, tools))).await
+    }
+
+    /// [`Self::edit`] where `approved` is the one change a person approved: under `no_widen` it
+    /// alone may widen, judged on the policy stored when this write's turn comes.
+    async fn edit_with(
+        &self,
+        agent_id: &str,
+        no_widen: bool,
+        approved: Option<ApprovedToolChange>,
+        derive: impl FnOnce(Vec<String>, Map<String, Value>) -> Result<(Vec<String>, Map<String, Value>), String> + Send,
+    ) -> Result<Stored, AgentsError> {
         // Node reads the installed connectors inside the turn (`editablePolicyOf(stored)`): a
         // connector installed while this edit waited is not enabled by migrating a legacy policy.
         self.agents
             .update_connector_policy_with(agent_id, self.catalog.installed(), move |stored, installed| {
                 let (off, tools) = stored.editable(&installed);
-                let (off, tools) = derive(off, tools);
+                let (off, tools) = derive(off, tools)?;
                 if no_widen {
                     let after = json!({ "off": off, "tools": tools });
-                    assert_not_widened(stored.before().as_ref(), Some(&after), None)?;
+                    assert_not_widened(stored.before().as_ref(), Some(&after), approved.as_ref())?;
                 }
                 Ok(stored_policy(off, &tools).unwrap_or(Value::Null))
             })
@@ -179,6 +196,33 @@ impl AgentConnectors {
         permission: &Value,
         no_widen: bool,
     ) -> Result<Value, AgentsError> {
+        self.write_tool_permission(agent_id, connector_id, tool_name, permission, no_widen, None).await
+    }
+
+    /// The write of a widening a person approved on a card (`withApprovedConnectorToolChange`).
+    /// The approval names the agent, the connector account, the tool and both levels, and is
+    /// spent by this one write: exactly that tool goes to exactly that level (stored once for
+    /// the connector, as the card said, so every account of it follows) and nothing else may
+    /// widen under it. The effective level is read from the policy stored when the write's turn
+    /// comes, with the default dispatch uses: lower than the level the card showed is refused
+    /// with [`TOOL_NARROWED`] (the restriction wins), at or above the approved level with
+    /// [`TOOL_ALREADY`]; in both nothing is written.
+    pub(crate) async fn set_approved_tool_permission(&self, approval: Approval) -> Result<Value, AgentsError> {
+        let (agent, server, tool, from, to) = approval.into_parts();
+        let change = ApprovedToolChange { server: server.clone(), tool: tool.clone(), from, to };
+        let level = Value::String(to.name().to_owned());
+        self.write_tool_permission(&agent, &Value::String(server), &Value::String(tool), &level, true, Some(change)).await
+    }
+
+    async fn write_tool_permission(
+        &self,
+        agent_id: &str,
+        connector_id: &Value,
+        tool_name: &Value,
+        permission: &Value,
+        no_widen: bool,
+        approved: Option<ApprovedToolChange>,
+    ) -> Result<Value, AgentsError> {
         if !permission.is_null() && permission.as_str().is_none_or(|name| Permission::parse(name).is_none()) {
             return Err(refused(format!("permission must be one of {PERMISSIONS}")));
         }
@@ -189,8 +233,20 @@ impl AgentConnectors {
         // same write.
         let group = group_id(&server);
         let permission = permission.clone();
+        let levels = approved.as_ref().map(|change| (change.from, change.to));
+        let account = server.clone();
         let stored = self
-            .edit(agent_id, no_widen, move |off, tools| {
+            .edit_with(agent_id, no_widen, approved, move |off, tools| {
+                if let Some((from, to)) = levels {
+                    // The level in force now, as dispatch reads it.
+                    let now = self.effective(&off, &tools, &account, &tool);
+                    if rank(now) < rank(from) {
+                        return Err(TOOL_NARROWED.to_owned());
+                    }
+                    if rank(now) >= rank(to) {
+                        return Err(TOOL_ALREADY.to_owned());
+                    }
+                }
                 let mut kept = Map::new();
                 for id in mixdog_js::js_object_keys(&tools) {
                     let entries = &tools[id];
@@ -209,7 +265,7 @@ impl AgentConnectors {
                     own.insert(tool.clone(), permission);
                 }
                 kept.insert(group, Value::Object(own));
-                (off, kept)
+                Ok((off, kept))
             })
             .await?;
         Ok(stored.json())
@@ -223,6 +279,12 @@ impl AgentConnectors {
             return Ok(Permission::Disabled);
         }
         Ok(self.permission(&stored.tools(), server, tool))
+    }
+
+    /// The tool's level under the policy `off`/`tools` held now (the one a write has locked), read
+    /// with the default dispatch uses.
+    fn effective(&self, off: &[String], tools: &Map<String, Value>, server: &str, tool: &str) -> Permission {
+        if off.iter().any(|id| id == server) { Permission::Disabled } else { self.permission(tools, server, tool) }
     }
 
     /// `getAgentAlwaysAllowedTools`: `[{ connector, tool }]`, the connector tools this agent may

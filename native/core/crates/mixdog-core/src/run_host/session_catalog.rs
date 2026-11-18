@@ -124,6 +124,11 @@ impl SessionCatalog {
         ToolSurface { host: self.host.as_ref(), clock: self.clock.as_ref() }.catalog_union(session)
     }
 
+    /// Whether the core registered a runner for `name`: the set a call is resolved from.
+    fn runs(&self, name: &str) -> bool {
+        ToolSurface { host: self.host.as_ref(), clock: self.clock.as_ref() }.runs(name)
+    }
+
     /// `filterSessionToolPolicy(tools, session)`: what the session's own policy lets it run.
     fn within_policy(&self, tools: &[Value], session: &Value) -> Vec<Value> {
         let denied = strings(session, "disallowedTools");
@@ -314,6 +319,9 @@ impl CatalogView for SessionCatalog {
         let available = self.available_tools(&session);
         let tool = lookup(&available, name)?;
         let name = tool_name(tool);
+        if !self.runs(&name) {
+            return Some(ToolSurface::unavailable_reason(&name));
+        }
         if let Some(refusal) = self.surfaces.surface(thread, &header).refusal(&name, None) {
             return Some(without_error_prefix(&refusal.message_for_model).to_owned());
         }
@@ -436,6 +444,9 @@ impl CatalogView for SessionCatalog {
         let eager = session.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();
         if let Some(tool) = lookup(&eager, name) {
             let direct = tool_name(tool);
+            if !self.runs(&direct) {
+                return CallResolution::Unrunnable { reason: ToolSurface::unavailable_reason(&direct), name: direct };
+            }
             let surface = self.surfaces.surface(thread, &header);
             if let Some((_, reason)) = surface.route_excluded.iter().find(|(excluded, _)| *excluded == direct) {
                 return CallResolution::Excluded(reason.clone());
@@ -448,7 +459,13 @@ impl CatalogView for SessionCatalog {
         let union = self.union(&session);
         let Some(tool) = lookup(&union, name) else { return CallResolution::NotFound };
         let canonical = tool_name(tool);
-        if deferred_available(&session, &canonical) { CallResolution::Deferred(canonical) } else { CallResolution::Unavailable(canonical) }
+        if !deferred_available(&session, &canonical) {
+            CallResolution::Unavailable(canonical)
+        } else if !self.runs(&canonical) {
+            CallResolution::Unrunnable { reason: ToolSurface::unavailable_reason(&canonical), name: canonical }
+        } else {
+            CallResolution::Deferred(canonical)
+        }
     }
 }
 
@@ -513,9 +530,14 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Host;
 
+    #[cfg(node_twin)]
     impl SurfaceHost for Host {
+        fn defined(&self, _: &str) -> bool {
+            true
+        }
         fn bridge_tools(&self) -> Vec<Value> {
             Vec::new()
         }
@@ -532,13 +554,227 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn catalog(store: &Arc<Store>) -> SessionCatalog {
         SessionCatalog::new(store.clone(), store.clone(), store.clone(), Arc::new(NoRouteExclusions), Arc::new(Host), Arc::new(Now))
     }
 
+    /// A core that registered every tool but `absent`: `load_tool` and a call consult this one set.
+    struct Without(&'static str);
+
+    impl SurfaceHost for Without {
+        fn defined(&self, _: &str) -> bool {
+            true
+        }
+        fn bridge_tools(&self) -> Vec<Value> {
+            Vec::new()
+        }
+        fn mcp_server_instructions(&self, _: Option<&str>) -> Value {
+            Value::Null
+        }
+        fn runs(&self, name: &str) -> bool {
+            name != self.0
+        }
+    }
+
+    struct Stub(mixdog_core_api::domain::tool::ToolSpec);
+
+    #[async_trait]
+    impl mixdog_core_api::domain::tool::Tool for Stub {
+        fn spec(&self) -> &mixdog_core_api::domain::tool::ToolSpec {
+            &self.0
+        }
+        async fn call(&self, _: &mixdog_core_api::domain::tool::ToolContext, _: Value) -> mixdog_core_api::domain::tool::ToolOutcome {
+            Ok(mixdog_core_api::domain::tool::ToolOutput::default())
+        }
+    }
+
+    fn stub(name: &str) -> Arc<dyn mixdog_core_api::domain::tool::Tool> {
+        Arc::new(Stub(mixdog_core_api::domain::tool::ToolSpec {
+            name: name.into(),
+            title: None,
+            trigger: None,
+            public: true,
+            aliases: Vec::new(),
+            description: String::new(),
+            input_schema: json!({}),
+            annotations: mixdog_core_api::domain::tool::ToolAnnotations::default(),
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        }))
+    }
+
+    /// The registry a core holds: the tools it registered, by name.
+    struct Registered(Vec<Arc<dyn mixdog_core_api::domain::tool::Tool>>);
+
+    impl mixdog_tools::policy::ToolResolver for Registered {
+        fn resolve(&self, _: Option<&str>, name: &str) -> Option<Arc<dyn mixdog_core_api::domain::tool::Tool>> {
+            self.0.iter().find(|tool| tool.spec().name == name).cloned()
+        }
+    }
+
+    fn definition(name: &str) -> Value {
+        json!({ "name": name, "description": format!("{name}."), "inputSchema": { "type": "object", "properties": {} } })
+    }
+
+    /// A session whose catalog holds `computer` beside the eager `read`; `exposure` is its `toolExposureMode`, if any.
+    fn catalog_session(catalog: &[&str], exposure: Option<&str>) -> Value {
+        let mut session = json!({
+            "provider": "anthropic",
+            "model": "smoke",
+            "deferredProviderMode": "native",
+            "deferredNativeTools": true,
+            "deferredSurfaceMode": "lead",
+            "tools": [definition("read")],
+            "deferredToolCatalog": catalog.iter().map(|name| definition(name)).collect::<Vec<_>>(),
+        });
+        if let Some(exposure) = exposure {
+            session["toolExposureMode"] = json!(exposure);
+        }
+        session
+    }
+
+    /// `load_tool {names}` on `session` as `host` runs it, then the tool set a turn of the session's header executes with over
+    /// `registry`: the load's answer, the header it left and the set.
+    async fn load_then_set(session: &Value, host: Arc<dyn SurfaceHost>, registry: Vec<Arc<dyn mixdog_core_api::domain::tool::Tool>>, names: &[&str]) -> (Value, Header, mixdog_agent::tools::ToolSet) {
+        let thread = ThreadId::from("t1");
+        let store = Store::of(session);
+        let catalog = SessionCatalog::new(store.clone(), store.clone(), store.clone(), Arc::new(NoRouteExclusions), host, Arc::new(Now));
+        let answer = mixdog_tools::orch::bridge::load(&catalog, &thread, &json!({ "names": names })).await.expect("an answer");
+        let header = store.0.lock().expect("store").clone();
+        let surface = HeaderToolSurfaces::new(Arc::new(NoRouteExclusions)).surface(&thread, &header);
+        let set = super::super::assemble::with_surface_registry(mixdog_agent::tools::ToolSet::new(vec![stub("read")]), Arc::new(Registered(registry)), None, &surface);
+        (serde_json::from_str(&answer).expect("a JSON answer"), header, set)
+    }
+
+    /// A deferred tool whose host is present: `load_tool` reports it loaded, and a call to it by name resolves and runs.
+    #[tokio::test]
+    async fn a_tool_load_tool_loaded_is_callable_when_its_host_is_present() {
+        let session = catalog_session(&["read", "computer"], None);
+        let (answer, header, set) = load_then_set(&session, Arc::new(Without("")), vec![stub("read"), stub("computer")], &["computer"]).await;
+        assert_eq!(answer["loaded"], json!(["computer"]));
+        assert!(answer.get("unavailable").is_none());
+        assert!(header["deferredCallableTools"].as_array().expect("callable").iter().any(|name| name == "computer"));
+        assert_eq!(set.resolve("computer").expect("a loaded tool is callable").spec().name, "computer");
+    }
+
+    /// A deferred tool whose host is absent: `load_tool` does not load it and says why, and a call to it by name is answered
+    /// with the same reason, not as unknown; the bridge's describe and `call_tool` say the same.
+    #[tokio::test]
+    async fn a_tool_whose_host_is_absent_is_unavailable_to_load_tool_and_to_a_call() {
+        let reason = ToolSurface::unavailable_reason("computer");
+        let session = catalog_session(&["read", "computer"], None);
+        let (answer, header, set) = load_then_set(&session, Arc::new(Without("computer")), vec![stub("read")], &["computer"]).await;
+        assert_eq!(answer["loaded"], json!([]));
+        assert_eq!(answer["selected"]["tools"]["unavailable"], json!([{ "name": "computer", "reason": reason }]));
+        assert!(answer["note"].as_str().expect("a note").contains(&reason));
+        assert!(!header["deferredCallableTools"].as_array().expect("callable").iter().any(|name| name == "computer"));
+        assert!(set.resolve("computer").is_none());
+        let called = set.unknown_message("computer");
+        assert_eq!(called, mixdog_agent::text::unavailable_tool_message("computer", &reason));
+        assert!(called.contains(&reason) && !called.contains("unknown tool"));
+
+        let bridged = catalog_session(&["read", "computer"], Some(super::super::tool_exposure::TOOL_EXPOSURE_BRIDGE));
+        let store = Store::of(&bridged);
+        let thread = ThreadId::from("t1");
+        let catalog = SessionCatalog::new(store.clone(), store.clone(), store, Arc::new(NoRouteExclusions), Arc::new(Without("computer")), Arc::new(Now));
+        let page: Value = serde_json::from_str(&mixdog_tools::orch::bridge::load(&catalog, &thread, &json!({ "names": ["computer"] })).await.expect("a page")).expect("json");
+        assert_eq!(page["blocked"], json!([{ "name": "computer", "reason": reason }]));
+        assert_eq!(catalog.resolve_call(&thread, "computer"), CallResolution::Unrunnable { name: "computer".to_owned(), reason: reason.clone() });
+        // The bridge's own response to the call carries that reason, not the generic catalog sentence.
+        struct Never;
+        #[async_trait]
+        impl mixdog_tools::orch::bridge::ToolDispatcher for Never {
+            async fn dispatch(&self, _: &mixdog_core_api::domain::tool::ToolContext, _: &str, _: Value) -> mixdog_core_api::domain::tool::ToolOutcome {
+                unreachable!("an unavailable target is never dispatched")
+            }
+        }
+        let call = mixdog_tools::orch::bridge::CallTool::new(Arc::new(catalog), Arc::new(Never));
+        let refused = mixdog_core_api::domain::tool::CallProjection::project(&call, &thread, &json!({ "name": "computer", "arguments": {} })).expect_err("refused");
+        assert!(refused.starts_with("Error: TOOL_UNAVAILABLE:") && refused.contains(&reason) && !refused.contains("current session catalog"), "{refused}");
+    }
+
+    /// Whether `computer` and `eagerone` can run is a switch the test flips: a registration that follows a desktop attaching.
+    struct Switch(Arc<std::sync::atomic::AtomicBool>);
+
+    impl SurfaceHost for Switch {
+        fn defined(&self, _: &str) -> bool {
+            true
+        }
+        fn bridge_tools(&self) -> Vec<Value> {
+            Vec::new()
+        }
+        fn mcp_server_instructions(&self, _: Option<&str>) -> Value {
+            Value::Null
+        }
+        fn runs(&self, name: &str) -> bool {
+            !matches!(name, "computer" | "eagerone") || self.0.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    /// The stored lists record what exists and what the session chose; what is advertised and callable is computed from them through
+    /// the availability of the moment. A session with `computer` selected and an eager-only `eagerone` while neither can run shows
+    /// neither active nor callable and its stored state is unchanged; once they can run, with no `load_tool` between, both are
+    /// active again and a call resolves.
+    #[tokio::test]
+    async fn a_selected_tool_is_active_again_when_it_becomes_runnable_and_nothing_stored_is_lost() {
+        let on = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let thread = ThreadId::from("t1");
+        let mut session = catalog_session(&["read", "computer"], None);
+        session["tools"] = json!([definition("read"), definition("eagerone")]);
+        session["deferredCallableTools"] = json!(["read", "computer"]);
+        session["deferredSelectedTools"] = json!(["read", "computer"]);
+        session["deferredDiscoveredTools"] = json!(["computer"]);
+        let store = Store::of(&session);
+        let catalog = SessionCatalog::new(store.clone(), store.clone(), store.clone(), Arc::new(NoRouteExclusions), Arc::new(Switch(on.clone())), Arc::new(Now));
+        let set_over = |registered: &[&str]| {
+            let header = store.0.lock().expect("store").clone();
+            let surface = HeaderToolSurfaces::new(Arc::new(NoRouteExclusions)).surface(&thread, &header);
+            let pool = registered.iter().map(|name| stub(name)).collect();
+            super::super::assemble::with_surface_registry(mixdog_agent::tools::ToolSet::new(vec![stub("read")]), Arc::new(Registered(pool)), None, &surface)
+        };
+        let listed = |answer: &Value, key: &str, name: &str| answer[key].as_array().expect("a list").iter().any(|entry| entry == name);
+
+        // Not runnable: neither is active, neither is discovered, no call resolves, and nothing stored changed. The probe is a load
+        // of `read`, already active: a load with no names lists the eager names alone (Node's answer), a named one the whole active set.
+        let answer: Value = serde_json::from_str(&mixdog_tools::orch::bridge::load(&catalog, &thread, &json!({ "names": ["read"] })).await.expect("an answer")).expect("json");
+        assert!(!listed(&answer, "activeTools", "computer") && !listed(&answer, "activeTools", "eagerone") && !listed(&answer, "discoveredTools", "computer"));
+        assert!(set_over(&["read"]).resolve("computer").is_none());
+        let kept = store.0.lock().expect("store").clone();
+        // The definitions are untouched; a load records what is active (it may add the eager names to the callable intent), but
+        // nothing the session had chosen is lost.
+        for key in ["tools", "deferredToolCatalog"] {
+            assert_eq!(kept[key], session[key], "{key}");
+        }
+        for key in ["deferredCallableTools", "deferredSelectedTools", "deferredDiscoveredTools"] {
+            let now = kept[key].as_array().expect("a list");
+            assert!(session[key].as_array().expect("a list").iter().all(|name| now.contains(name)), "{key}: {now:?}");
+        }
+
+        // Runnable: the same session, no load in between.
+        on.store(true, std::sync::atomic::Ordering::SeqCst);
+        let answer: Value = serde_json::from_str(&mixdog_tools::orch::bridge::load(&catalog, &thread, &json!({ "names": ["read"] })).await.expect("an answer")).expect("json");
+        assert!(listed(&answer, "activeTools", "computer") && listed(&answer, "activeTools", "eagerone"));
+        assert!(listed(&answer, "discoveredTools", "computer"));
+        assert_eq!(set_over(&["read", "computer", "eagerone"]).resolve("computer").expect("callable").spec().name, "computer");
+    }
+
+    /// A name in no catalog stays a plain unknown tool, on both sides.
+    #[tokio::test]
+    async fn a_name_in_no_catalog_is_plain_unknown() {
+        let session = catalog_session(&["read"], None);
+        let (answer, _, set) = load_then_set(&session, Arc::new(Without("computer")), vec![stub("read"), stub("computer")], &["computer"]).await;
+        assert_eq!(answer["missing"], json!(["computer"]));
+        assert!(answer.get("unavailable").is_none() && answer["selected"]["tools"].get("unavailable").is_none());
+        assert!(set.resolve("computer").is_none());
+        assert_eq!(set.unknown_message("computer"), "Error: unknown tool \"computer\"");
+    }
+
+
     /// `load_tool` and `call_tool` over the sessions of `fixtures/tool-pool/catalog.json`, as
     /// Node's `renderToolSearch` and `resolveBridgeTarget` answer them.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn describe_and_resolve_answer_as_node_does() {
         let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/tool-pool/catalog.json")).expect("fixture");
         let thread = ThreadId::from("t1");
@@ -569,10 +805,10 @@ mod tests {
             }
         }
     }
-
     /// One session across pages: a server's text is sent once, again when its text changed, and
     /// the record the page leaves (`mcpInstructionsAnnounced`, `mcpInstructionHashes`) is Node's.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_pages_instructions_are_recorded_so_the_next_page_does_not_repeat_them() {
         let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/tool-pool/catalog.json")).expect("fixture");
         let thread = ThreadId::from("t1");

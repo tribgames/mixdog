@@ -12,18 +12,6 @@ static TABLES: LazyLock<Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("default_locale/data/icu77-locale.json"))
         .expect("pinned locale maps")
 });
-static ID: LazyLock<String> = LazyLock::new(|| canonical_id(&read_system_locale()));
-
-/// ICU-style ID, cached once as ICU caches the process default.
-pub fn default_locale_id() -> &'static str {
-    &ID
-}
-
-/// V8's BCP47 default locale. C/en_US_POSIX is deliberately en-US here, whereas
-/// Date display names retain the original ICU ID through default_locale_id.
-pub fn default_locale_tag() -> String {
-    language_tag(default_locale_id())
-}
 
 fn mapped(table: &str, value: &str) -> String {
     TABLES[table]
@@ -313,27 +301,6 @@ fn read_system_locale() -> String {
         "en_US".into()
     }
 }
-#[cfg(unix)]
-fn read_system_locale() -> String {
-    // SAFETY: nullptr queries without mutating libc's process locale. Copy the
-    // returned string immediately; no pointer survives this expression.
-    let current = unsafe {
-        let p = libc::setlocale(libc::LC_MESSAGES, std::ptr::null());
-        if p.is_null() {
-            None
-        } else {
-            Some(std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned())
-        }
-    };
-    // ICU checks existence, not nonemptiness, of these variables (except Solaris).
-    let raw = current
-        .filter(|s| s != "C" && s != "POSIX")
-        .or_else(|| std::env::var("LC_ALL").ok())
-        .or_else(|| std::env::var("LC_MESSAGES").ok())
-        .or_else(|| std::env::var("LANG").ok())
-        .unwrap_or_else(|| "en_US_POSIX".into());
-    posix_id(&raw)
-}
 #[cfg(not(any(windows, unix)))]
 fn read_system_locale() -> String {
     "en_US_POSIX".into()
@@ -375,10 +342,43 @@ mod tests {
     }
 }
 
+
+static ID: LazyLock<String> = LazyLock::new(|| canonical_id(&read_system_locale()));
+/// ICU-style ID, cached once as ICU caches the process default.
+pub fn default_locale_id() -> &'static str {
+    &ID
+}
+/// V8's BCP47 default locale. C/en_US_POSIX is deliberately en-US here, whereas
+/// Date display names retain the original ICU ID through default_locale_id.
+pub fn default_locale_tag() -> String {
+    language_tag(default_locale_id())
+}
+#[cfg(unix)]
+fn read_system_locale() -> String {
+    // SAFETY: nullptr queries without mutating libc's process locale. Copy the
+    // returned string immediately; no pointer survives this expression.
+    let current = unsafe {
+        let p = libc::setlocale(libc::LC_MESSAGES, std::ptr::null());
+        if p.is_null() {
+            None
+        } else {
+            Some(std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned())
+        }
+    };
+    // ICU checks existence, not nonemptiness, of these variables (except Solaris).
+    let raw = current
+        .filter(|s| s != "C" && s != "POSIX")
+        .or_else(|| std::env::var("LC_ALL").ok())
+        .or_else(|| std::env::var("LC_MESSAGES").ok())
+        .or_else(|| std::env::var("LANG").ok())
+        .unwrap_or_else(|| "en_US_POSIX".into());
+    posix_id(&raw)
+}
 #[cfg(test)]
 #[test]
-#[ignore = "root supplies an independently queried Node default locale in MIXDOG_EXPECTED_NODE_LOCALE"]
-fn os_default_locale_matches_external_node_reference() {
-    let expected = std::env::var("MIXDOG_EXPECTED_NODE_LOCALE").expect("query Node independently before this opt-in check");
-    assert_eq!(default_locale_tag(), expected.trim());
+#[allow(clippy::disallowed_types, clippy::disallowed_methods, reason = "asks the runner's installed Node for the reference locale")]
+fn os_default_locale_matches_the_installed_node_reference() {
+    let out = std::process::Command::new("node").args(["-p", "Intl.DateTimeFormat().resolvedOptions().locale"]).output().expect("node on the path");
+    assert!(out.status.success());
+    assert_eq!(default_locale_tag(), String::from_utf8(out.stdout).unwrap().trim());
 }

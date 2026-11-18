@@ -12,6 +12,8 @@ pub const MAX_REQUEST: usize = 16 * 1024 * 1024;
 pub struct Cancellation {
     requested: AtomicBool,
     marker: Mutex<Option<PathBuf>>,
+    /// The worker's admission word: the cancellation closes it, the grant opens it.
+    word: std::sync::OnceLock<Arc<dyn crate::port::AdmissionWord>>,
 }
 impl Cancellation {
     pub fn requested(&self) -> bool { self.requested.load(Ordering::SeqCst) }
@@ -20,13 +22,28 @@ impl Cancellation {
         // prompt must already be visible when the elevated process starts.
         let marker = self.marker.lock().unwrap_or_else(|error| error.into_inner());
         self.requested.store(true, Ordering::SeqCst);
+        // The worker's admission closes here, whatever its supervisor does.
+        if let Some(word) = self.word.get() { crate::port::close_word(word.word()); }
         if let Some(path) = marker.as_ref() { let _ = std::fs::write(path, b"cancel"); }
+    }
+    /// The worker's admission word, set once before the launch; closed at once when the cancellation already came.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn fence(&self, word: Arc<dyn crate::port::AdmissionWord>) -> Result<(), String> {
+        let _marker = self.marker.lock().unwrap_or_else(|error| error.into_inner());
+        if self.requested() { crate::port::close_word(word.word()); }
+        self.word.set(word).map_err(|_| "privileged worker admission was set twice".to_string())
     }
     pub fn arm(&self, path: PathBuf) -> Result<(), String> {
         let mut marker = self.marker.lock().unwrap_or_else(|error| error.into_inner());
         if self.requested() { std::fs::write(&path, b"cancel").map_err(|error| error.to_string())?; }
         *marker = Some(path);
         Ok(())
+    }
+    /// Opens the worker's admission unless it was closed (a cancellation came first: a late grant never reopens it); whether
+    /// it is open.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn grant(&self) -> bool {
+        self.word.get().is_some_and(|word| crate::port::grant_word(word.word()))
     }
     pub fn disarm(&self) {
         // Wait out an in-flight writer before its staging directory is removed.

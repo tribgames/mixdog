@@ -1,17 +1,18 @@
 // The connection methods of the desktop API (saved SSH servers, the connect dialog, a server window's link and Ports
-// panel, reopening server windows) as calls on this window's core client: each method is one `connections/*` request,
+// panel, reopening server windows) as calls on this window's client to this PC's core: each method is one `connections/*` request,
 // and what the core pushes (the `connections` scoped feed, the connection-scoped notifications) reaches the listeners.
 // The names and types are the preload's; a failure is mapped by withDirectErrors, so its message keeps the code first
 // (ssh-error-text.ts and the port error codes read it).
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import type { DesktopApi } from '../shared/contract';
+import type { DesktopSshForgetResult } from '../shared/contract-ssh';
 import type { DesktopConnectionIdentity } from '../shared/contract-workspace';
-import { pcCoreClient } from './core-direct/client.ts';
+import { firstPcCoreOpen, pcCoreClient } from './core-direct/client.ts';
 import { withDirectErrors } from './core-direct/errors.ts';
 
 type PreloadMethods =
   | 'sshListHosts' | 'sshRenameHost' | 'sshForgetHost' | 'sshOpenHost' | 'sshConfigHosts' | 'sshInspectHostKey'
-  | 'sshConnect' | 'sshCancel' | 'sshAskpassReply' | 'sshCleanupHost' | 'sshUpdateHostSettings' | 'sshServerLogins'
+  | 'sshConnect' | 'sshCancel' | 'sshAskpassReply' | 'sshCleanupHost' | 'sshCleanupTarget' | 'sshUpdateHostSettings' | 'sshServerLogins'
   | 'sshServerLoginBegin' | 'sshServerLoginStatus' | 'sshServerLoginComplete' | 'sshServerLoginCancel'
   | 'sshServerLoginSaveKey' | 'sshServerLoginLogout' | 'sshServerLoginRemoveCustom' | 'sshDiagnosticsLog'
   | 'sshDiagnosticsCopy' | 'sshServerLog' | 'getConnectionLink' | 'retryConnection' | 'retryConnectionNow'
@@ -34,6 +35,9 @@ export type ConnectionsCoreApi = {
 export interface ConnectionsCoreDeps {
   /** The client to this PC's core, null until it is open. */
   client(): ProtocolClient<SessionFold> | null;
+  /** The window's first PC core open while it is in flight (the window renders before it): a call or a listener that finds no
+   *  client waits for it. Null once it settled, or with none. */
+  opening?(): Promise<unknown> | null;
   /** The connection this window drives (the preload's `connection`). */
   connection(): DesktopConnectionIdentity | undefined;
   /** This PC's default browser. */
@@ -79,7 +83,14 @@ function sectionChanges(note: Notification): SectionChange[] {
 }
 
 export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): ConnectionsCoreApi {
+  /** The first open in flight, when no client is open yet. */
+  const pendingOpen = (): Promise<unknown> | null => (deps.client() ? null : (deps.opening?.() ?? null));
   const call = <T>(method: string, params: unknown = {}): Promise<T> => {
+    const opening = pendingOpen();
+    if (opening) return opening.then(() => callOpen<T>(method, params), () => callOpen<T>(method, params));
+    return callOpen<T>(method, params);
+  };
+  const callOpen = <T>(method: string, params: unknown): Promise<T> => {
     const client = deps.client();
     if (!client) return Promise.reject(new Error(NO_CORE));
     return withDirectErrors((client as unknown as LooseClient).call(method, params) as Promise<T>);
@@ -157,8 +168,18 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
     }
     return true;
   };
+  /** attach(), or, while the first open is in flight, true now and attach() (then `opened`) once it settled. */
+  const attachOrDefer = (opened: () => void): boolean => {
+    const opening = pendingOpen();
+    if (!opening) return attach();
+    const later = (): void => {
+      if (attach()) opened();
+    };
+    void opening.then(later, later);
+    return true;
+  };
   const onNotification = (method: string, listener: (params: unknown) => void): (() => void) => {
-    if (!attach()) return () => undefined;
+    if (!attachOrDefer(() => undefined)) return () => undefined;
     const set = notificationListeners.get(method) ?? new Set();
     notificationListeners.set(method, set);
     set.add(listener);
@@ -167,7 +188,7 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
     };
   };
   const onSection = (listener: (change: SectionChange) => void): (() => void) => {
-    if (!attach()) return () => undefined;
+    if (!attachOrDefer(syncFeed)) return () => undefined;
     sectionListeners.add(listener);
     syncFeed();
     return () => {
@@ -201,8 +222,9 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
       return hosts();
     },
     sshForgetHost: async (id) => {
-      await call('connections/ssh/forget', { id });
-      return hosts();
+      const result = await call<{ ok: true } | Extract<DesktopSshForgetResult, { ok: false }>>('connections/ssh/forget', { id });
+      if (!result.ok) return result;
+      return { ok: true, hosts: await hosts() };
     },
     sshOpenHost: (id) => call('connections/ssh/open', { id }),
     sshConfigHosts: () => call('connections/ssh/configHosts'),
@@ -215,6 +237,7 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
       await call('connections/ssh/askpassReply', { attemptId, requestId, secret });
     },
     sshCleanupHost: (id, request) => call('connections/ssh/cleanup', { id, request }),
+    sshCleanupTarget: (target, request) => call('connections/ssh/cleanup', { target, request }),
     sshUpdateHostSettings: async (id, settings) => {
       await call('connections/ssh/updateSettings', { id, settings });
       return hosts();
@@ -322,6 +345,7 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
 
 const defaults = createConnectionsCoreApi({
   client: pcCoreClient,
+  opening: firstPcCoreOpen,
   connection: () => window.mixdogDesktop?.connection,
   openExternal: (url) => window.mixdogDesktop.openExternal(url),
 });
@@ -331,7 +355,7 @@ export const connectionsApi = defaults;
 
 export const {
   sshListHosts, sshRenameHost, sshForgetHost, sshOpenHost, sshConfigHosts, sshInspectHostKey, sshConnect, sshCancel,
-  sshAskpassReply, sshCleanupHost, sshUpdateHostSettings, sshServerLogins, sshServerLoginBegin, sshServerLoginStatus,
+  sshAskpassReply, sshCleanupHost, sshCleanupTarget, sshUpdateHostSettings, sshServerLogins, sshServerLoginBegin, sshServerLoginStatus,
   sshServerLoginComplete, sshServerLoginCancel, sshServerLoginSaveKey, sshServerLoginLogout, sshServerLoginRemoveCustom,
   sshDiagnosticsLog, sshDiagnosticsCopy, sshServerLog, getConnectionLink, retryConnection, retryConnectionNow,
   getReopenServerWindows, setReopenServerWindows, getServerRestoreProgress, listServerPorts, forwardServerPort,

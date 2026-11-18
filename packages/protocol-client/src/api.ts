@@ -26,6 +26,7 @@ import type {
   ServerRequestResolvedParams,
   ThreadResumeResponse,
 } from '@mixdog/protocol';
+import type { HealthOptions } from './health.ts';
 
 export type {
   AppSnapshotParams,
@@ -75,17 +76,32 @@ export interface Target {
 /** Inbound half. `closed` is called at most once and is the only reconnect trigger (SPEC H17). */
 export interface TransportSink {
   frame(text: string): void;
+  /** New authenticated receive progress from the core on THIS connection, before the message it belongs to is complete: called
+   *  once for each newly authenticated record (or, where the transport owns the socket, once per batch of bytes newly received from
+   *  the core's own socket) that has not yet made a complete message. Never for the transport's own keepalive (a relay's pong), an
+   *  acknowledgement, bytes that did not authenticate, a replayed or repeated record, or a record a held fragment is retried with;
+   *  never after `closed`. A completed `frame` is progress too and needs no call. Optional: a transport that cannot see receive
+   *  progress before a message is whole omits it, and for it silence is an assumption, not proof. The client holds the policy. */
+  progress?(): void;
   closed(code: number, reason: string): void;
 }
-/** Receives the completion of one request frame: it settles once the frame has been handed to the wire, and never if it was dropped first. */
+/** Receives the completion of one request frame. It resolves only when this frame completed LOCAL transport departure: the local write
+ *  finished (a socket's send callback, a carrier that reports nothing of it still buffered). Not queue admission, not receipt by the
+ *  core, not the far end's acknowledgement (which a dead link never gives). It rejects when the write failed, and never resolves for
+ *  a frame that did not leave (a connection that ended first may reject it or leave it unsettled). This is the one source of a probe's departure: the health machine
+ *  (`health.ts`) opens its observation window on it and on nothing else, and a transport that cannot give it is ineligible for a silence
+ *  verdict (it may still report an explicit loss). */
 export type SentClaim = (sent: Promise<void>) => void;
 /** Outbound half. One JSON message per text frame. */
 export interface TransportWriter {
-  /** `sent`, when given, receives a promise that settles when this frame has left the page (a transport that cannot tell never calls it). */
+  /** `sent`, when given, receives the departure receipt of this frame (see `SentClaim`); a transport that cannot tell never calls it. */
   send(text: string, sent?: SentClaim): void;
   /** One binary frame (X17 host media). Absent on transports that cannot carry one. */
   sendBinary?(data: Uint8Array): void;
   close(code: number, reason: string): void;
+  /** Settles when the receive work the transport has already accepted (authentication, assembly: its own promise chain) has been
+   *  processed and delivered to the sink. A transport that delivers synchronously has nothing to wait for and omits it. */
+  settled?(): Promise<void>;
 }
 export interface Connector {
   /** Re-resolves credentials on every call (discovery token may have changed). Rejects if no socket could be opened. */
@@ -113,6 +129,10 @@ export type ClientErrorDetail =
   /** initialize refused by the version gate; terminal, no ladder (protocol.md §4.4). */
   | { readonly kind: 'versionRefused'; readonly reason: 'clientOutdated' | 'serverOutdated'; readonly serverVersion: string; readonly clientVersion: string }
   | { readonly kind: 'unknownMethod'; readonly method: string }
+  /** The call's pre-send bound (
+equestTimeoutMs) or an explicit CallOptions.timeoutMs passed with no answer. sent: its request had been
+   * written, so a mutation may have run (a mutation fails as `opOutcomeUnknown` with this as `cause`); not sent: it never left. */
+  | { readonly kind: 'requestTimeout'; readonly method: string; readonly sent: boolean }
   /** `op/status` said the mutation never ran and now never will (fenced). The caller decides whether to issue a new op. */
   | { readonly kind: 'opNotApplied'; readonly opId: string }
   /** The outcome cannot be known: `expired` or `externalUnknown` (protocol.md §9.4, §9.6), or `statusFailed` when the
@@ -134,8 +154,22 @@ export interface ClientError extends Error {
 export interface ThreadFold<S = Json> {
   /** Position of the last notification folded in. */
   readonly feed: FeedStamp;
+  /** The order of `feed.epoch` among the epochs this realm received (`StreamPosition.order`). */
+  readonly order: number;
   readonly state: S;
 }
+
+/** A position in one feed, totally ordered within this realm: by `order` (a later-received epoch has a higher one), then by `seq`
+ *  within the epoch. Received positions (`feedPosition`) and folded ones (`ThreadFold`) are measured alike. */
+export interface StreamPosition {
+  readonly epoch: string;
+  readonly seq: number;
+  readonly order: number;
+}
+
+/** Whether `shown` is at or past `mark`. */
+export const streamPositionReached = (shown: StreamPosition, mark: StreamPosition): boolean =>
+  shown.order > mark.order || (shown.order === mark.order && shown.seq >= mark.seq);
 /**
  * Pure fold. `snapshot` is the `thread/snapshot` params; `notification` has every text blob stub already resolved.
  * Called in feed order, never concurrently, never for a notification the cursor rejected.
@@ -230,7 +264,16 @@ export interface CallOptions {
   readonly opId?: OpId;
   /** Receives the completion of this call's own request frame (the transport's `send(text, sent)`): it settles once the frame has left, and never if it was dropped first. Every method that writes a request takes it and forwards it, wherever the method waits before writing. */
   readonly sent?: SentClaim;
+  /** A deadline for this call, from the call to its answer, passed on purpose: it also bounds a request already sent. Without it a sent request stays pending while the connection is alive. */
+  readonly timeoutMs?: number;
 }
+
+export type ResumeOptions = Pick<CallOptions, 'sent' | 'timeoutMs'> & {
+  readonly join?: boolean;
+  readonly force?: boolean;
+  /** The window is the view's default, not a request to replace an existing window of another kind. */
+  readonly follow?: boolean;
+};
 
 /** Mutation params carry `opId`; the library assigns it, the caller may pin it through `CallOptions` or the params. */
 export type CallParams<P> = P extends { opId: infer O } ? Omit<P, 'opId'> & { opId?: O } : P;
@@ -257,8 +300,10 @@ export interface ProtocolClient<S = Json> {
    * `protocolViolation` when the transport has no binary lane or the frame exceeds `limits.maxMediaFrameBytes` + 16. */
   sendBinary(data: Uint8Array): void;
 
-  /** `thread/resume`. Registers the subscription for restore after reconnect, sending the folded position as `resumeFrom`. */
-  resumeThread(threadId: string, window: ResumeWindow, options?: Pick<CallOptions, 'sent'>): Promise<ThreadResumeResponse>;
+  /** Equal windows share an outstanding resume. `join` also accepts a larger window; `force` sends a new resume for recovery. */
+  resumeThread(threadId: string, window: ResumeWindow, options?: ResumeOptions): Promise<ThreadResumeResponse>;
+  /** Checks every live subscription owned by this connection, including that it still has the expected view feeds. */
+  confirmFeeds(feedIds: readonly string[]): Promise<boolean>;
   /** `thread/unsubscribe`; drops the folded thread. Never stops work (X10). */
   unsubscribeThread(threadId: string, options?: Pick<CallOptions, 'sent'>): Promise<void>;
   /** `app/subscribe`, restored on reconnect with `resumeFrom`. */
@@ -266,6 +311,11 @@ export interface ProtocolClient<S = Json> {
 
   /** The held requests (see `ClientEvent` `serverRequest`): the ones offered to every eligible connection that the core has not resolved. */
   pendingServerRequests(): readonly ServerRequest[];
+  /** The position of the last notification received on `feedId` (not yet necessarily folded); undefined when the feed is not
+   *  followed. The core writes a connection's frames in the order it queued them (a lagged lane's recovery snapshot excepted), and
+   *  queues the feed frames a mutation produced before its response: read once a response has arrived, this position is at or
+   *  past every notification that response's mutation published. Comparable with a fold's position (`ThreadFold.order`, `feed.seq`). */
+  feedPosition(feedId: string): StreamPosition | undefined;
   /** Answers a server request. A held one's validity is the core's decision (`serverRequest/resolved` follows); an addressed one is
    * ended by the answer. Throws `connectionLost` when not ready. */
   respond(id: RequestId, answer: ServerRequestAnswer): void;
@@ -274,9 +324,15 @@ export interface ProtocolClient<S = Json> {
   readBlob(ref: BlobRef, options?: Pick<CallOptions, 'sent'>): Promise<Uint8Array>;
   /** Uploads in raw chunks ≤ `server.limits.maxBlobPutChunkBytes` (`blob/put`, SPEC R1) and returns the ref to put into a request. */
   /** `options.sent` is the claim of the upload's LAST chunk: the upload is one message, which has left once its last chunk has. */
-  putBlob(bytes: Uint8Array, mediaType: string, options?: Pick<CallOptions, 'sent'>): Promise<BlobRef>;
+  putBlob(bytes: Uint8Array, mediaType: string, options?: Pick<CallOptions, 'sent'> & {
+    /** Runs after each acknowledged chunk; throwing stops the remaining upload. */
+    onChunkAccepted?(): void;
+  }): Promise<BlobRef>;
 
   on(listener: (event: ClientEvent) => void): () => void;
+  /** Whether the core sends any frame within `timeoutMs` of the check (it is asked a question it answers at once). None drops the link and the ladder opens a new one (a link that
+   * died unseen, as after a machine's sleep). False when no connection was ready to ask. */
+  checkLink(): Promise<boolean>;
   /** Closes the socket with 1000 and stops the ladder. Pending calls reject `clientClosed`. Idempotent. */
   close(): Promise<void>;
 }
@@ -294,6 +350,15 @@ export interface ConnectOptions<S = Json> {
   /** UUIDv7 by default (protocol.md §9.1). */
   readonly newOpId?: () => OpId;
   readonly ladder?: LadderConfig;
+  /** How long a call may wait before it is sent (DEFAULT_REQUEST_TIMEOUT_MS by default). It does not limit a request that was sent: that one lives as long as the connection (see healthIntervalMs). */
+  readonly requestTimeoutMs?: number;
+  /** When set, a failure before the first ready connection is retried on the ladder until this many ms have passed, then thrown;
+   * a version refusal is never retried. Unset: the first failure is thrown. */
+  readonly firstConnectDeadlineMs?: number;
+  /** Keep using the first-connect ladder after the deadline, while still bounding each handshake. */
+  readonly keepTryingFirstConnect?: boolean;
+  /** The connection's health machine (`health.ts`): its heartbeat, observation window, gap policy and clock. Tests set them. */
+  readonly health?: HealthOptions;
   /** Bounds how long the fold may hold the thread it runs on. Defaults: 8 ms, `performance.now`, a `setTimeout(0)` macrotask. */
   readonly turn?: TurnOptions;
   /** Link life-cycle lines (`link-open`, `link-down`, `link-reconnected`, `link-restore-settled`) for the host's own log: counts and times, never frames. */

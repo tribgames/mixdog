@@ -612,12 +612,18 @@ pub use mixdog_statefile::holds_no_data;
 
 /// The lock of one file: a mutation reads the state it checks and writes under it, so two
 /// writers (of any thread scope) never interleave their check and their write.
+static PATH_LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+
 pub fn path_lock(path: &Path) -> Arc<Mutex<()>> {
-    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
-    let mut locks = LOCKS
+    let mut locks = PATH_LOCKS
         .get_or_init(Default::default)
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
+    // A lock only the table holds is taken by no one: it goes, so the table holds the files in use, not every file ever
+    // written. Swept only when a new path finds the table grown, so an ordinary call costs no sweep.
+    if locks.len() >= 64 && !locks.contains_key(path) {
+        locks.retain(|_, lock| Arc::strong_count(lock) > 1);
+    }
     locks.entry(path.to_owned()).or_default().clone()
 }
 
@@ -652,20 +658,53 @@ pub fn write_atomic<L: mixdog_statefile::WriteLane>(
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "reads the recorded twins and makes real failing files on the test thread")]
 mod errno_tests {
+    #[cfg(node_twin)]
     use std::collections::BTreeMap;
 
     use super::*;
 
+    fn text(error: std::io::Error, step: FsStep) -> String {
+        match io_failure("test", &FsFailure { error, step }) {
+            CoreError::DomainError { message: Some(message), .. } => message.to_string(),
+            other => panic!("{other:?}"),
+        }
+    }
+    #[test]
+    fn an_error_with_no_errno_keeps_rusts_text() {
+        let error = std::io::Error::other("plain");
+        assert_eq!(text(error, FsStep::Write), "plain");
+    }
+
+    #[test]
+    fn a_failed_file_operation_reads_as_code_description_and_syscall() {
+        let missing = || std::io::Error::from_raw_os_error(2);
+        assert_eq!(text(missing(), FsStep::Write), "ENOENT: no such file or directory, write");
+        assert_eq!(text(missing(), FsStep::Fsync), "ENOENT: no such file or directory, fsync");
+    }
+
+    #[test]
+    fn open_rename_and_unlink_failures_name_their_paths() {
+        let missing = || std::io::Error::from(std::io::ErrorKind::NotFound);
+        assert_eq!(text(missing(), FsStep::Open("/d/a.json".into())), "ENOENT: no such file or directory, open '/d/a.json'");
+        assert_eq!(
+            text(missing(), FsStep::Rename("/d/a".into(), "/d/b".into())),
+            "ENOENT: no such file or directory, rename '/d/a' -> '/d/b'"
+        );
+        assert_eq!(text(missing(), FsStep::Unlink("/d/a".into())), "ENOENT: no such file or directory, unlink '/d/a'");
+    }
+
+
+    #[cfg(node_twin)]
     fn fixture(name: &str) -> serde_json::Value {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings").join(name);
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
     }
-
+    #[cfg(node_twin)]
     fn twin() -> serde_json::Value {
         fixture("errno-texts-twin.json")
     }
-
     /// libuv's description of every errno either recorded twin holds.
+    #[cfg(node_twin)]
     fn descriptions() -> BTreeMap<String, String> {
         let mut all = BTreeMap::new();
         for (twin, key) in [(twin(), "errnos"), (fixture("errno-win32-twin.json"), "descriptions")] {
@@ -675,13 +714,7 @@ mod errno_tests {
         }
         all
     }
-
-    fn text(error: std::io::Error, step: FsStep) -> String {
-        match io_failure("test", &FsFailure { error, step }) {
-            CoreError::DomainError { message: Some(message), .. } => message.to_string(),
-            other => panic!("{other:?}"),
-        }
-    }
+    #[cfg(node_twin)]
     #[test]
     fn every_errno_the_publication_path_reaches_has_the_description_node_prints() {
         let twin = twin();
@@ -695,7 +728,7 @@ mod errno_tests {
         }
         assert!(ERRNOS.iter().any(|(code, description)| *code == "UNKNOWN" && *description == fixture("errno-win32-twin.json")["unknown"]["description"]));
     }
-
+    #[cfg(node_twin)]
     #[test]
     fn a_failure_of_each_mapped_system_error_reads_as_node_words_it_for_write_and_fsync() {
         let known = descriptions();
@@ -708,6 +741,7 @@ mod errno_tests {
             }
         }
     }
+    #[cfg(node_twin)]
     #[test]
     fn open_rename_and_unlink_name_their_paths_as_the_recorded_node_does() {
         let twin = twin();
@@ -722,9 +756,9 @@ mod errno_tests {
             assert_eq!(text(std::io::Error::from(std::io::ErrorKind::NotFound), step), message);
         }
     }
-
     /// `uv_translate_sys_error` of the libuv Node bundles, entry for entry (`record-errno-win32.mjs`
     /// parses its source, `source.url`, and takes the numbers from the Windows SDK's winerror.h).
+    #[cfg(node_twin)]
     #[cfg(windows)]
     #[test]
     fn the_windows_table_is_libuvs_translation_entry_for_entry() {
@@ -743,9 +777,9 @@ mod errno_tests {
         let text = text(std::io::Error::from_raw_os_error(1450), FsStep::Write);
         assert_eq!(text, format!("UNKNOWN: {}, write", twin["unknown"]["description"].as_str().unwrap()));
     }
-
     /// Real Windows failures, performed here and in Node: the same call fails with the same
     /// whole message.
+    #[cfg(node_twin)]
     #[cfg(windows)]
     #[test]
     fn real_failures_read_as_the_recorded_nodes_do() {
@@ -791,11 +825,6 @@ mod errno_tests {
             assert_eq!(got.get(name), call["message"].as_str().map(str::to_owned).as_ref(), "{name}");
         }
     }
-    #[test]
-    fn an_error_with_no_errno_keeps_rusts_text() {
-        let error = std::io::Error::other("plain");
-        assert_eq!(text(error, FsStep::Write), "plain");
-    }
 }
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing {
@@ -823,17 +852,6 @@ pub mod testing {
         async fn gate(&self, _thread: &ThreadId, _ctx: &CallContext) -> Result<OpGate, CoreError> {
             Ok(self.0.clone())
         }
-    }
-
-    /// The op scopes of domain `name` over a `state/core.sqlite` in `dir`.
-    pub async fn scopes(dir: &std::path::Path, name: &str) -> OpScopes {
-        scopes_over(op_state(dir), name).await
-    }
-
-    /// The `state/core.sqlite` in `dir` that [`scopes`] keeps the op records in, for a test that closes it before `dir` goes.
-    pub fn op_state(dir: &std::path::Path) -> CoreState {
-        let t = mixdog_rt::testing::tokens();
-        CoreState::open(t.sqlite_writer_thread, t.interactive_io, &dir.join("core.sqlite")).unwrap().0
     }
 
     /// The op scopes of domain `name` over `state`.
@@ -874,6 +892,17 @@ pub mod testing {
             Reply::Subscribe(_) => panic!("never subscribes"),
         }
     }
+
+
+    /// The op scopes of domain `name` over a `state/core.sqlite` in `dir`.
+    pub async fn scopes(dir: &std::path::Path, name: &str) -> OpScopes {
+        scopes_over(op_state(dir), name).await
+    }
+    /// The `state/core.sqlite` in `dir` that [`scopes`] keeps the op records in, for a test that closes it before `dir` goes.
+    pub fn op_state(dir: &std::path::Path) -> CoreState {
+        let t = mixdog_rt::testing::tokens();
+        CoreState::open(t.sqlite_writer_thread, t.interactive_io, &dir.join("core.sqlite")).unwrap().0
+    }
 }
 
 #[cfg(test)]
@@ -894,3 +923,23 @@ mod forced_removal_tests {
         assert!(!dir.exists());
     }
 }
+
+
+#[cfg(test)]
+mod path_lock_tests {
+    use super::*;
+
+    /// A lock no caller holds leaves the table once it has grown; one a caller holds stays the same lock.
+    #[test]
+    fn the_path_lock_table_keeps_only_locks_in_use() {
+        let dir = std::env::temp_dir().join(format!("path-lock-{}", std::process::id()));
+        let held = path_lock(&dir.join("held"));
+        for n in 0..500 {
+            drop(path_lock(&dir.join(n.to_string())));
+        }
+        assert!(Arc::ptr_eq(&held, &path_lock(&dir.join("held"))), "a held lock is never replaced");
+        let mine = PATH_LOCKS.get().unwrap().lock().unwrap().keys().filter(|p| p.starts_with(&dir)).count();
+        assert!(mine < 100, "{mine} of the 501 locks are still in the table");
+    }
+}
+

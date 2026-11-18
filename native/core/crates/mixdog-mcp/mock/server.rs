@@ -137,6 +137,9 @@ fn call(shared: &Arc<Shared>, id: Value, params: &Value) {
 }
 
 fn main() {
+    if let Some(path) = std::env::var_os("MOCK_REQUIRE_STOPPED") {
+        assert!(std::path::Path::new(&path).is_file(), "predecessor still owns its resources");
+    }
     // `MOCK_STARTS`: a file that gets one line per start. `MOCK_DOWN_WHILE`: while that file
     // exists, the server exits at once (a start that fails with an unchanged configuration).
     if let Ok(starts) = std::env::var("MOCK_STARTS") {
@@ -262,5 +265,8 @@ fn main() {
             }
             _ => {}
         }
+    }
+    if let Some(path) = std::env::var_os("MOCK_STOPPED") {
+        std::fs::write(path, b"closed stdin").unwrap();
     }
 }

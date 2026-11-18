@@ -265,7 +265,13 @@ impl HostedSearchSender for ProviderSearchSender {
                     stream_ended_at: ended_at,
                     ..Completed::default()
                 }),
-                (Err(SendError::Cancelled), _) => Outcome::Cancelled { reported: last_usage.as_ref().map(Facts::from) },
+                (Err(SendError::Cancelled), _) => Outcome::Cancelled {
+                    reported: last_usage.as_ref().map(Facts::from),
+                    model: events.iter().rev().find_map(|event| match event {
+                        StreamEvent::ServedModel(model) => Some(model.clone()),
+                        _ => None,
+                    }),
+                },
                 (Err(_), Some(error)) => Outcome::Failed(error),
                 (Err(_), None) => return Err(plain("web search failed")),
             };

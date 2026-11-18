@@ -89,7 +89,12 @@ pub enum ProxyDocument {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ProxyPart {
     #[serde(rename_all = "camelCase")]
-    Text { text: String },
+    Text {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "codegen", ts(optional))]
+        cache_control: Option<JsonValue>,
+    },
     #[serde(rename_all = "camelCase")]
     Image { source: ProxyImage },
     #[serde(rename_all = "camelCase")]
@@ -226,6 +231,10 @@ pub struct ProxyOptions {
     pub prompt_cache_key: Option<String>,
     pub prompt_cache_scope: Option<String>,
     pub xai_responses_cache_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xai_api_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xai_responses_transport: Option<String>,
     pub model_parameters: Option<JsonValue>,
     pub thread: Option<ProxyThread>,
     pub parent_session_id: Option<String>,
@@ -271,6 +280,12 @@ pub struct ProxyRouteContext {
 pub enum ProxyCall {
     #[serde(rename_all = "camelCase")]
     Send { provider: String, request: Box<ProxyRequest> },
+    /// A send whose transcript a session of the server owns: the PC posts each attempt only as that owner judges it,
+    /// asking with [`ProxyEvent::TailAsk`] immediately before the POST and returning its usage with
+    /// [`ProxyEvent::TailSettle`]; the owner answers each ask with `model/proxy/tail`. A PC that does not know this call
+    /// never claims it.
+    #[serde(rename_all = "camelCase")]
+    SessionSend { provider: String, request: Box<ProxyRequest> },
     /// `listModels`; `refresh` re-reads the provider first (`_refreshModelCache`).
     #[serde(rename_all = "camelCase")]
     ListModels { provider: String, refresh: bool },
@@ -555,7 +570,13 @@ pub enum ProxyAnswer {
     #[serde(rename_all = "camelCase")]
     Sent { attempts: u32 },
     #[serde(rename_all = "camelCase")]
-    Models { models: Vec<ProxyModel> },
+    Models {
+        models: Vec<ProxyModel>,
+        /// Whether the PC has an authoritative listing, even when it is empty.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "codegen", ts(optional))]
+        complete: Option<bool>,
+    },
     #[serde(rename_all = "camelCase")]
     Usable { usable: bool },
     /// `None` for a single-wire adapter or a model no offered wire serves.
@@ -651,6 +672,9 @@ pub enum ProxyEvent {
     TextDelta { text: String },
     #[serde(rename_all = "camelCase")]
     ReasoningDelta { text: String },
+    /// A progress update of the turn: shown like text, no part of the answer's content.
+    #[serde(rename_all = "camelCase")]
+    ProgressDelta { text: String },
     #[serde(rename_all = "camelCase")]
     ReasoningReplay { replay: ProxyReplay },
     #[serde(rename_all = "camelCase")]
@@ -746,6 +770,128 @@ pub enum ProxyEvent {
     /// A retried attempt reported usage before it died; it is billed once, here.
     #[serde(rename_all = "camelCase")]
     AttemptAbandoned { usage: ProxyUsage, model: Option<String> },
+    /// A POST of a [`ProxyCall::SessionSend`] is about to go out: the session's owner judges it now, before any byte of it
+    /// is sent. `ask` names this POST in the owner's verdict and in its settlement; `route` is the serving account's
+    /// namespace as an opaque digest (never a credential); `manifest` the cache layout of the body it sends.
+    #[serde(rename_all = "camelCase")]
+    TailAsk {
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        ask: u64,
+        route: String,
+        manifest: ProxyManifest,
+    },
+    /// What the POST the owner admitted under `ask` reported (`null`: no usage arrived), once.
+    #[serde(rename_all = "camelCase")]
+    TailSettle {
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        ask: u64,
+        counters: Option<ProxyCounters>,
+    },
+}
+
+/// Where a cache marker sits on the wire (`cache_tail::Zone`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyZone {
+    Tools,
+    System,
+    Messages,
+}
+
+/// One `cache_control` marker of the body a POST sends (`cache_tail::Marker`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyMarker {
+    pub zone: ProxyZone,
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub ttl_ms: u64,
+    /// The ordinal of the marked block in wire order.
+    pub block: u32,
+    /// The prefix digest through the marked block, 64 lowercase hex digits.
+    pub digest: String,
+}
+
+/// The cache layout of the body a POST sends (`cache_tail::WireManifest`); digests are 64 lowercase hex digits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyManifest {
+    pub markers: Vec<ProxyMarker>,
+    /// The prefix digest after each block, in wire order.
+    pub boundaries: Vec<String>,
+    /// The index in `markers` of the marker that covers the session's transcript.
+    pub tail: Option<u32>,
+}
+
+/// The input-cache counters of one response, absent kept apart from zero (`cache_tail::Counters`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyCounters {
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
+    pub read: Option<u64>,
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
+    pub created: Option<u64>,
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
+    pub created5m: Option<u64>,
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
+    pub created1h: Option<u64>,
+}
+
+/// Why a session's transcript cannot be reused on the route asked (`cache_tail::Cold`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyCold {
+    Expired,
+    Unproven,
+}
+
+/// Why the owner of a session's transcript refused a POST (`cache_tail::TailRefusal`): the PC does not send it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(tag = "refusal", rename_all = "camelCase")]
+pub enum ProxyTailRefusal {
+    /// The owner compacts first, then sends the rebuilt transcript as a new call.
+    #[serde(rename_all = "camelCase")]
+    Rebuild {
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        ticket: u64,
+        cold: ProxyCold,
+    },
+    #[serde(rename_all = "camelCase")]
+    Skip { cold: ProxyCold },
+    /// Another caller rewrites the history; the owner sends again once it is decided.
+    #[serde(rename_all = "camelCase")]
+    Wait {
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        ticket: u64,
+    },
+    Stale,
+}
+
+/// The owner's answer to one [`ProxyEvent::TailAsk`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(tag = "verdict", rename_all = "camelCase")]
+pub enum ProxyVerdict {
+    /// Post it now, inside the judgement's validity: `holdsMs` after the PC asked, measured on the PC's own clock from
+    /// before its ask (the owner judged later than that), or without a time bound when absent. A verdict that lapsed
+    /// before the POST is not used: the PC settles it unsent and asks again. `generation` is the history it was judged
+    /// against and `admittedAt` the owner's instant of the judgement (never compared with the PC's clock).
+    #[serde(rename_all = "camelCase")]
+    Send {
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        generation: u64,
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        admitted_at: i64,
+        #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
+        holds_ms: Option<u64>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Refuse { refusal: ProxyTailRefusal },
 }
 
 /// How the PC's broker ended a failed send.
@@ -835,6 +981,8 @@ pub enum ProxyFault {
     TruncatedStream,
     #[serde(rename_all = "camelCase")]
     Io { os_code: Option<i32> },
+    TooManyEncodings,
+    CorruptBody,
 }
 
 /// A failed call as the sender's retry and recovery read it (the classified `ProviderError`);

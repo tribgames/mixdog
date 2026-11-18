@@ -25,7 +25,7 @@
       "id": {
         "type": "integer",
         "minimum": 1,
-        "description": "edit/delete: per-project memory index from list, paired with project_id and index_revision."
+        "description": "Required for edit/delete: active entry's scoped id from list, with its pool and index_revision. An archived_id is not editable or deletable here."
       },
       "index_revision": {
         "type": "string",
@@ -52,7 +52,7 @@
       },
       "project_id": {
         "type": "string",
-        "description": "Pool: omit for the current Project, \"common\" for common memory, or a Project slug; \"*\" is list only."
+        "description": "Pool: omit to infer from the current folder (falls back to common), \"common\" for common memory, or a Project slug; \"*\" lists all Project pools. A Project list also includes common entries; for edits/deletes use the scope on the selected row."
       },
       "agent_id": {
         "type": "string",

@@ -75,11 +75,11 @@ test('intent starts the open’s own single batch, which the open joins and draw
       )
     )
   );
-  // The open's first frame: the whole list with every diff, no placeholder.
+  // The open's first frame: the list with every mounted file's diff, no placeholder.
   assert.equal(view.document.querySelector('.initial-surface'), null);
   const stack = () => view.document.querySelector('.session-diff-stack');
   const sections = [...view.document.querySelectorAll('.session-diff-section')];
-  assert.equal(sections.length, 40);
+  assert.ok(sections.length > 0);
   for (const section of sections) {
     assert.ok(section.querySelector('.inline-diff'));
     assert.equal(section.textContent.includes('Loading diff…'), false);
@@ -182,12 +182,23 @@ function cappedSetup(t, cwd) {
   };
   // The nth pane in the document, whether it draws a file (unfolded), and a pick by header.
   const paneNode = (index) => view.document.querySelectorAll('.session-diff-pane')[index];
+  // The stack mounts only the files near its viewport: scroll the file's
+  // header (34px each while folded) into it first.
+  const reveal = (index, path) => {
+    const stack = paneNode(index).querySelector('.session-diff-stack');
+    act(() => {
+      stack.scrollTop = Number(/f(\d+)\.ts$/.exec(path)[1]) * 34;
+      stack.dispatchEvent(new view.window.Event('scroll'));
+    });
+  };
   const drawnIn = (index, path) => {
+    reveal(index, path);
     const row = paneNode(index).querySelector(`[data-session-diff-path="${path}"]`);
     assert.ok(row, `pane ${index} lists ${path}`);
     return row.dataset.collapsed === undefined;
   };
   const pickIn = async (index, path) => {
+    reveal(index, path);
     await act(async () =>
       paneNode(index).querySelector(`[data-session-diff-path="${path}"] .session-diff-section-title`).click()
     );

@@ -309,6 +309,40 @@ test('a change broadcast during a failing write shows once the queue drains', as
   assert.equal(checkbox(document, 'Taskbar flash').checked, true);
 });
 
+test('a late read cannot overwrite the notification scope announced by another window', async (t) => {
+  const made = deferredApi(makeState());
+  const { document } = await mountPanel(t, made);
+  await answerRead(made.reads[0]);
+  const { announceSetupChange } = await import('../setup-change-refresh.ts');
+  await act(async () => announceSetupChange('settings_changed'));
+  made.state.preferences.pc.scope = 'bots';
+  await act(async () => announceSetupChange('settings_changed'));
+  await answerRead(made.reads[2]);
+  await answerRead(made.reads[1]);
+  assert.equal(combo(document, 'Notification scope').textContent, 'Bot chats only');
+});
+
+test('leaving the panel saves the pending volume without playing the test sound', async (t) => {
+  const made = makeApi();
+  const saves = [];
+  let previews = 0;
+  made.api.readSettings = async () => ({ notificationVolume: 100 });
+  made.api.setNotificationVolume = async (volume) => {
+    saves.push(volume);
+    return { notificationVolume: volume };
+  };
+  made.api.previewNotificationSound = async () => { previews += 1; };
+  const { document, window, root } = await mountPanel(t, made, {}, { globals: { navigator: { userAgent: 'Windows' } } });
+  const slider = document.querySelector('input[type="range"]');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(slider, '250');
+    slider.dispatchEvent(new window.Event('input', { bubbles: true }));
+    root.render(null);
+  });
+  assert.deepEqual(saves, [250]);
+  assert.equal(previews, 0);
+});
+
 test('a failed older volume save does not undo a newer value', async (t) => {
   const made = makeApi();
   const saves = [];

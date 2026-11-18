@@ -126,7 +126,7 @@ async function withDictation({ muted = false } = {}, run) {
       if (capability === 'getVoiceStatus') {
         ctx.probes += 1;
         if (ctx.probes > 1) return new Promise(() => {});
-        return { value: { installed: true } };
+        return { value: { installed: true, enabled: true } };
       }
       if (capability === 'prepareTranscription') {
         assert.deepEqual(args, []);
@@ -183,7 +183,7 @@ async function withDictation({ muted = false } = {}, run) {
     await act(async () => {
       root.render(tree());
     });
-    assert.equal(ctx.hook.dictationInstalled, true);
+    assert.equal(ctx.hook.dictationAvailable, true);
     await run(ctx);
   } finally {
     await act(async () => {
@@ -353,6 +353,24 @@ test('a take still opening the mic when its conversation hides is discarded with
     });
     assert.equal(ctx.track.stopped, 1, 'the late stream is released at once');
     assert.equal(ctx.recorders.length, 0, 'no recorder starts off screen');
+  });
+});
+
+test('turning voice off discards a live take and prevents a new mic request', async () => {
+  await withDictation({}, async (ctx) => {
+    await ctx.openMic();
+    await ctx.fireStart();
+    await act(async () => {
+      ctx.dom.window.dispatchEvent(new ctx.dom.window.CustomEvent('mixdog:voice-runtime-changed', {
+        detail: { installed: true, enabled: false },
+      }));
+    });
+    assert.equal(ctx.recorder.state, 'inactive');
+    assert.ok(ctx.track.stopped > 0);
+    assert.equal(ctx.called('transcribeAudio'), 0);
+    assert.equal(ctx.hook.dictationAvailable, false);
+    await act(async () => ctx.hook.toggleDictation());
+    assert.equal(ctx.micRequests, 1);
   });
 });
 

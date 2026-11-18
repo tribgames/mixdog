@@ -346,6 +346,7 @@ fn further(g: &Exact, label: &str) -> &'static Exact {
     Box::leak(Box::new(found.clone()))
 }
 
+
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn the_recording_has_five_cases_and_nine_further_shapes() {
     let g = golden(SET);
@@ -359,14 +360,12 @@ async fn ready_recall_embeds_immediately_as_a_query() {
     let r = scenario_of(&g, 0, "ready recall embeds immediately as a query (test line 8)");
     run("case 1", scenario(&g, r, true, false, Warmup::Rejects(Arc::new(Exact::Null)), None, Drive::Call)).await;
 }
-
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn cold_recall_waits_for_warmup_and_keeps_dense_retrieval() {
     let g = golden(SET);
     let r = scenario_of(&g, 1, "cold recall waits for warmup and keeps dense retrieval in the same request (test line 31)");
     run("case 2", scenario(&g, r, false, true, Warmup::Resolves, Some(50), Drive::Call)).await;
 }
-
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn cold_recall_reports_warmup_failure_and_preserves_lexical_fallback() {
     let g = golden(SET);
@@ -376,7 +375,6 @@ async fn cold_recall_reports_warmup_failure_and_preserves_lexical_fallback() {
     s.reference = Some(failure);
     run("case 3", s).await;
 }
-
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn cold_recall_aborts_without_waiting_for_the_timeout() {
     let g = golden(SET);
@@ -386,7 +384,6 @@ async fn cold_recall_aborts_without_waiting_for_the_timeout() {
     (s.reference, s.reason) = (Some(reason.clone()), Some(reason));
     run("case 4", s).await;
 }
-
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn cold_recall_falls_back_after_the_bounded_wait_while_warmup_continues() {
     let g = golden(SET);
@@ -405,26 +402,22 @@ async fn cold_recall_times_out_then_the_warmup_fails_in_the_background() {
     // The late failure's identity is not part of the recorded result (the result is the timeout).
     run("further: late failure", s).await;
 }
-
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn empty_query() {
     let g = golden(SET);
     run("further: empty query", scenario(&g, further(&g, "empty query"), true, true, Warmup::Resolves, None, Drive::Call)).await;
 }
-
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn null_ish_query_is_empty() {
     let g = golden(SET);
     run("further: null query", scenario(&g, further(&g, "null-ish query is empty"), true, true, Warmup::Resolves, None, Drive::Call)).await;
 }
-
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn cold_recall_that_cannot_warm_up() {
     let g = golden(SET);
     let r = further(&g, "cold recall that cannot warm up");
     run("further: cannot warm", scenario(&g, r, false, false, Warmup::Rejects(Arc::new(Exact::Null)), Some(50), Drive::Call)).await;
 }
-
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn signal_already_aborted_before_the_call() {
     let g = golden(SET);
@@ -434,7 +427,6 @@ async fn signal_already_aborted_before_the_call() {
     (s.reference, s.reason) = (Some(reason.clone()), Some(reason));
     run("further: aborted early", s).await;
 }
-
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn signal_aborted_without_a_reason() {
     let g = golden(SET);
@@ -444,14 +436,12 @@ async fn signal_aborted_without_a_reason() {
     s.reason = Some(injected(r));
     run("further: aborted bare", s).await;
 }
-
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn zero_wait_with_an_already_resolved_warmup() {
     let g = golden(SET);
     let r = further(&g, "zero wait with an already-resolved warmup");
     run("further: zero wait", scenario(&g, r, false, true, Warmup::Resolves, Some(0), Drive::Call)).await;
 }
-
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn warmup_completes_after_a_deferred_release_before_the_wait() {
     let g = golden(SET);
@@ -459,7 +449,6 @@ async fn warmup_completes_after_a_deferred_release_before_the_wait() {
     let (release, warmup) = gate();
     run("further: deferred warmup", scenario(&g, r, false, true, warmup, Some(60_000), Drive::ReleaseAfterCall(release))).await;
 }
-
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn query_is_trimmed_before_embedding() {
     let g = golden(SET);

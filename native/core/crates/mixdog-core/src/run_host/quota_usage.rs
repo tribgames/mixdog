@@ -149,16 +149,22 @@ impl QuotaUsage for ProviderQuotaUsable {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::sync::Mutex;
 
+    #[cfg(node_twin)]
     use serde_json::json;
 
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/quota-usable/quota-usable-twin.json");
 
+    #[cfg(node_twin)]
     struct Vars(Option<&'static str>);
 
+    #[cfg(node_twin)]
     impl Environment for Vars {
         fn var(&self, name: &str) -> Option<String> {
             (name == "MIXDOG_MODEL_PROXY").then(|| self.0.map(str::to_owned)).flatten()
@@ -166,9 +172,11 @@ mod tests {
     }
 
     /// Answers `quotaUsable` as the recorded PC channel did.
+    #[cfg(node_twin)]
     struct Channel(Mutex<Vec<(String, String)>>, Result<Value, (bool, String)>);
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl QuotaChannel for Channel {
         async fn quota_usable(&self, provider: &str, model: &str) -> Result<Value, ChannelError> {
             self.0.lock().unwrap().push((provider.to_owned(), model.to_owned()));
@@ -181,6 +189,7 @@ mod tests {
     }
 
     /// The recorded roster reads and forced readings, answered in order.
+    #[cfg(node_twin)]
     struct Replay {
         case: Value,
         step: Mutex<usize>,
@@ -188,6 +197,7 @@ mod tests {
     }
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl QuotaReadings for Replay {
         async fn pool(&self, provider: &str) -> Result<Pool, String> {
             assert_eq!(provider, self.case["provider"]);
@@ -210,6 +220,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn the_readings_decide_as_nodes_provider_quota_usable() {
         let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let cases = twin["cases"].as_array().unwrap();
@@ -227,6 +238,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn the_pc_answers_and_a_disconnected_pc_reports_as_node_does() {
         let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let cases = twin["proxy"].as_array().unwrap();
@@ -255,3 +267,4 @@ mod tests {
         assert_eq!(*never.step.lock().unwrap(), 0, "proxy mode reads no roster");
     }
 }
+

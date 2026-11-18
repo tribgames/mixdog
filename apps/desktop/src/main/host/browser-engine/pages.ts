@@ -80,7 +80,8 @@ function sessionPages(host: PagesHost, sessionId: string): Array<{ guest: Guest;
   }));
   for (const [name, page] of host.sessions.backgroundPages(sessionId)) {
     if (page.window.isDestroyed() || page.guest.isDestroyed()) continue;
-    // A user's tab is shown; every other support page stays hidden (tabs-target.ts).
+    // A user's tab is shown; every other support page stays hidden (tabs-target.ts). `background` only says hidden: the
+    // engine tells the pane's own `vN` tabs from these named ones by `tabId`.
     pages.push({ guest: page.guest, tabId: name, background: page.kind !== 'user' });
   }
   return pages;

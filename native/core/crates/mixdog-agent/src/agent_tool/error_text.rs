@@ -66,4 +66,27 @@ mod tests {
         assert_eq!(PresentedErrorText.present("terminated"), "Connection to the provider was lost.");
         assert_eq!(PlainErrorText.present("terminated"), "terminated");
     }
+
+
+    /// An accepted stream cut by a connection-level error has no message: the agent task's failure text is the same sentence the
+    /// user sees, and the board keeps it as it is, never `Unknown error`.
+    #[test]
+    fn a_task_whose_stream_was_cut_names_the_lost_connection() {
+        use mixdog_core_api::domain::provider::DeliveryState;
+        use mixdog_core_api::domain::provider::ProviderError;
+        use mixdog_core_api::domain::provider::TransportFault;
+
+        use crate::run::AgentError;
+
+        for (fault, sentence) in [
+            (TransportFault::Reset, "Connection to the provider was lost (ECONNRESET)."),
+            (TransportFault::Closed, "Connection to the provider was lost (UND_ERR_SOCKET)."),
+            (TransportFault::H2GoAway { code: 2 }, "Connection to the provider was lost (ERR_HTTP2_GOAWAY_SESSION)."),
+        ] {
+            let failure = AgentError::Provider(Box::new(ProviderError::transport(fault, DeliveryState::Accepted)));
+            let text = failure.to_string();
+            assert_eq!(text, sentence);
+            assert_eq!(PresentedErrorText.present(&text), sentence);
+        }
+    }
 }

@@ -27,10 +27,12 @@ use crate::provider_case::Case;
 use crate::provider_case::CaseSet;
 use crate::provider_case::plain;
 use crate::provider_cases;
+#[cfg(node_twin)]
 use crate::replay_world;
 
 /// A recorded history: the transcript messages, an assistant turn's `providerReplay` (`{version, provider, items}`)
 /// as the replay envelope the Gemini decoder writes (`{parts}`, owned by the provider).
+#[cfg(node_twin)]
 fn history(node: &Exact) -> Vec<mixdog_core_api::domain::provider::Message> {
     node.as_array()
         .iter()
@@ -56,6 +58,7 @@ fn traits() -> Arc<CatalogGoogleTraits> {
 }
 
 /// The `contents` the codec builds for the recorded history and model, and the history as the request holds it after.
+#[cfg(node_twin)]
 fn contents(codec: &GoogleCodec, args: &[Exact]) -> (Exact, Exact) {
     let request = ModelRequest {
         model: args[1].as_str().to_owned(),
@@ -96,6 +99,7 @@ fn node_message(message: &mixdog_core_api::domain::provider::Message) -> Exact {
 }
 
 /// One recorded call's answer, and the history it left behind (a lowering call's).
+#[cfg(node_twin)]
 fn answer(call: &crate::provider_case::Call) -> (Exact, Option<Exact>) {
     let args = &call.args;
     match call.entry.rsplit('.').next().expect("an entry") {
@@ -133,6 +137,7 @@ fn answer(call: &crate::provider_case::Call) -> (Exact, Option<Exact>) {
 }
 
 /// The model turn's parts of `contents`.
+#[cfg(node_twin)]
 fn model_parts(contents: &Exact) -> Exact {
     contents.as_array().iter().find(|c| c.get("role").as_str() == "model").expect("a model turn").get("parts").clone()
 }
@@ -141,6 +146,7 @@ fn object(entries: Vec<(&str, Exact)>) -> Exact {
     Exact::Object(entries.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
 }
 
+#[cfg(node_twin)]
 fn rebuild(case: &Case, out: &[(Exact, Option<Exact>)]) -> Exact {
     let after = |i: usize| out[i].1.clone().expect("a lowering call");
     let out: Vec<Exact> = out.iter().map(|(o, _)| o.clone()).collect();
@@ -167,8 +173,10 @@ fn rebuild(case: &Case, out: &[(Exact, Option<Exact>)]) -> Exact {
     }
 }
 
+#[cfg(node_twin)]
 pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "gemini-history-signatures", run: every_case_lowers_as_nodes }];
 
+#[cfg(node_twin)]
 #[test]
 fn every_case_lowers_as_nodes() {
     let set = CaseSet::load("gemini-history-signatures");

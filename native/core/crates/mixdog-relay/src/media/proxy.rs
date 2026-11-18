@@ -213,6 +213,79 @@ pub struct MediaProxy {
     options: MediaOptions,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_target_is_an_asset_id_of_hex_digits_and_dashes_with_a_known_variant() {
+        let target = |path: &str, variant: &str| parse_target(path, variant);
+        assert_eq!(target("/media/0123456789abcdef", ""), Some(("0123456789abcdef".into(), "original".into())));
+        assert_eq!(target("/media/0123456789abcdef", "download"), Some(("0123456789abcdef".into(), "download".into())));
+        assert_eq!(target("/media/ABCDEF01-2345", "thumb"), Some(("ABCDEF01-2345".into(), "thumb".into())));
+        assert_eq!(target("/media/0123456789abcdef", "bogus"), None);
+        assert_eq!(target("/media/0123456789abcdef", "ORIGINAL"), None);
+        for path in ["/media/short", "/media/", "/media", "/media/0123456789abcdeg", "/media/0123456789abcdef/x", "/media/x/0123456789abcdef"] {
+            assert_eq!(target(path, ""), None, "{path}");
+        }
+        assert!(target(&format!("/media/{}", "a".repeat(64)), "").is_some());
+        assert!(target(&format!("/media/{}", "a".repeat(65)), "").is_none());
+    }
+
+    #[test]
+    fn the_session_label_and_the_scheme_marker_have_their_exact_alphabets() {
+        assert!(session_label_ok(&"A".repeat(43)));
+        assert!(session_label_ok(&format!("{}-_", "a".repeat(41))));
+        assert!(!session_label_ok("short"));
+        assert!(!session_label_ok(&"A".repeat(44)));
+        assert!(!session_label_ok(&format!("{}+", "A".repeat(42))));
+        assert!(scheme_marker_ok(""));
+        assert!(scheme_marker_ok("e2ee1"));
+        assert!(scheme_marker_ok(&"x".repeat(16)));
+        assert!(!scheme_marker_ok(&"x".repeat(17)));
+        assert!(!scheme_marker_ok("  "));
+        assert!(!scheme_marker_ok("a-b"));
+    }
+
+    #[test]
+    fn a_status_the_desktop_sends_is_an_integer_from_100_to_599_or_a_502() {
+        assert_eq!(upstream_status(Some(&json!(200))), 200);
+        assert_eq!(upstream_status(Some(&json!(206.0))), 206);
+        assert_eq!(upstream_status(Some(&json!(100))), 100);
+        assert_eq!(upstream_status(Some(&json!(599))), 599);
+        for bad in [json!(99), json!(600), json!(200.5), json!("200"), json!(null), json!(true), json!([200])] {
+            assert_eq!(upstream_status(Some(&bad)), 502, "{bad}");
+        }
+        assert_eq!(upstream_status(None), 502);
+    }
+
+    #[test]
+    fn a_frame_id_is_the_string_of_a_truthy_value_and_empty_otherwise() {
+        assert_eq!(frame_id(Some(&json!("abc"))), "abc");
+        assert_eq!(frame_id(Some(&json!(5))), "5");
+        for empty in [json!(null), json!(false), json!(0), json!("")] {
+            assert_eq!(frame_id(Some(&empty)), "", "{empty}");
+        }
+        assert_eq!(frame_id(None), "");
+    }
+
+    #[test]
+    fn chunks_decode_as_a_buffer_decodes_base64() {
+        assert_eq!(decode_base64("aGVsbG8="), b"hello");
+        assert_eq!(decode_base64("aGVsbG8"), b"hello");
+        assert_eq!(decode_base64(""), b"");
+        assert_eq!(decode_base64("YQ=="), b"a");
+        // Whitespace and foreign characters are skipped, the URL-safe alphabet is read, the first padding ends the data.
+        assert_eq!(decode_base64("aGVs\nbG8="), b"hello");
+        assert_eq!(decode_base64("-_-_"), [0xfb, 0xff, 0xbf]);
+        assert_eq!(decode_base64("YQ==YQ=="), b"a");
+        let bytes: Vec<u8> = (0..=255).collect();
+        let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+        assert_eq!(decode_base64(&encoded), bytes);
+    }
+}
+
+
 impl MediaProxy {
     /// Builds the lane and takes the `media-` frames of every desktop leg. `unauthorized` is the process's limiter for callers
     /// without a credential.
@@ -420,77 +493,5 @@ impl MediaProxy {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_target_is_an_asset_id_of_hex_digits_and_dashes_with_a_known_variant() {
-        let target = |path: &str, variant: &str| parse_target(path, variant);
-        assert_eq!(target("/media/0123456789abcdef", ""), Some(("0123456789abcdef".into(), "original".into())));
-        assert_eq!(target("/media/0123456789abcdef", "download"), Some(("0123456789abcdef".into(), "download".into())));
-        assert_eq!(target("/media/ABCDEF01-2345", "thumb"), Some(("ABCDEF01-2345".into(), "thumb".into())));
-        assert_eq!(target("/media/0123456789abcdef", "bogus"), None);
-        assert_eq!(target("/media/0123456789abcdef", "ORIGINAL"), None);
-        for path in ["/media/short", "/media/", "/media", "/media/0123456789abcdeg", "/media/0123456789abcdef/x", "/media/x/0123456789abcdef"] {
-            assert_eq!(target(path, ""), None, "{path}");
-        }
-        assert!(target(&format!("/media/{}", "a".repeat(64)), "").is_some());
-        assert!(target(&format!("/media/{}", "a".repeat(65)), "").is_none());
-    }
-
-    #[test]
-    fn the_session_label_and_the_scheme_marker_have_their_exact_alphabets() {
-        assert!(session_label_ok(&"A".repeat(43)));
-        assert!(session_label_ok(&format!("{}-_", "a".repeat(41))));
-        assert!(!session_label_ok("short"));
-        assert!(!session_label_ok(&"A".repeat(44)));
-        assert!(!session_label_ok(&format!("{}+", "A".repeat(42))));
-        assert!(scheme_marker_ok(""));
-        assert!(scheme_marker_ok("e2ee1"));
-        assert!(scheme_marker_ok(&"x".repeat(16)));
-        assert!(!scheme_marker_ok(&"x".repeat(17)));
-        assert!(!scheme_marker_ok("  "));
-        assert!(!scheme_marker_ok("a-b"));
-    }
-
-    #[test]
-    fn a_status_the_desktop_sends_is_an_integer_from_100_to_599_or_a_502() {
-        assert_eq!(upstream_status(Some(&json!(200))), 200);
-        assert_eq!(upstream_status(Some(&json!(206.0))), 206);
-        assert_eq!(upstream_status(Some(&json!(100))), 100);
-        assert_eq!(upstream_status(Some(&json!(599))), 599);
-        for bad in [json!(99), json!(600), json!(200.5), json!("200"), json!(null), json!(true), json!([200])] {
-            assert_eq!(upstream_status(Some(&bad)), 502, "{bad}");
-        }
-        assert_eq!(upstream_status(None), 502);
-    }
-
-    #[test]
-    fn a_frame_id_is_the_string_of_a_truthy_value_and_empty_otherwise() {
-        assert_eq!(frame_id(Some(&json!("abc"))), "abc");
-        assert_eq!(frame_id(Some(&json!(5))), "5");
-        for empty in [json!(null), json!(false), json!(0), json!("")] {
-            assert_eq!(frame_id(Some(&empty)), "", "{empty}");
-        }
-        assert_eq!(frame_id(None), "");
-    }
-
-    #[test]
-    fn chunks_decode_as_a_buffer_decodes_base64() {
-        assert_eq!(decode_base64("aGVsbG8="), b"hello");
-        assert_eq!(decode_base64("aGVsbG8"), b"hello");
-        assert_eq!(decode_base64(""), b"");
-        assert_eq!(decode_base64("YQ=="), b"a");
-        // Whitespace and foreign characters are skipped, the URL-safe alphabet is read, the first padding ends the data.
-        assert_eq!(decode_base64("aGVs\nbG8="), b"hello");
-        assert_eq!(decode_base64("-_-_"), [0xfb, 0xff, 0xbf]);
-        assert_eq!(decode_base64("YQ==YQ=="), b"a");
-        let bytes: Vec<u8> = (0..=255).collect();
-        let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-        assert_eq!(decode_base64(&encoded), bytes);
     }
 }

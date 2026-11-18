@@ -10,6 +10,7 @@ const { restore } = installTestDom(null, {
 test.after(restore);
 const { createRoot } = await import('react-dom/client');
 const { ModelManagementPanel } = await import('./model-management-panel.tsx');
+const { readModelManagementCatalog } = await import('../model-catalog-cache.ts');
 
 const option = (provider, model, extra = {}) => ({
   provider,
@@ -133,7 +134,7 @@ test('bulk select applies to the current filter only', async (t) => {
   assert.match(card().textContent, /1 changed/);
 });
 
-async function mountLive(t, initial) {
+async function mountLive(t, initial, api = {}) {
   const root = createRoot(document.querySelector('main'));
   t.after(async () => {
     await act(async () => root.unmount());
@@ -141,14 +142,16 @@ async function mountLive(t, initial) {
   const render = (next) =>
     act(async () =>
       root.render(
-        React.createElement(ModelManagementPanel, {
-          api: {},
-          data: next,
-          snapshot: { provider: 'openai-oauth', model: 'gpt-5.5' },
-          pending: '',
-          run: async () => undefined,
-          confirm: () => {},
-        })
+        next
+          ? React.createElement(ModelManagementPanel, {
+              api,
+              data: next,
+              snapshot: { provider: 'openai-oauth', model: 'gpt-5.5' },
+              pending: '',
+              run: async () => undefined,
+              confirm: () => {},
+            })
+          : null
       )
     );
   await render(initial);
@@ -157,7 +160,26 @@ async function mountLive(t, initial) {
 const providerIds = () =>
   [...document.querySelectorAll('[data-model-provider]')].map((row) => row.dataset.modelProvider);
 
-test('an open card keeps its edits through catalog updates, empty sweeps and a missing provider', async (t) => {
+test('opening a hidden custom model shows its saved favorite even outside the live catalog', async (t) => {
+  await mountLive(t, {
+    ...data,
+    providerSetup: {
+      api: [{
+        id: 'custom-team', name: 'Team', custom: true, authenticated: true,
+        modelOverrides: { 'family/model': { hidden: true } }, hiddenFavoriteModels: ['family/model'],
+      }],
+    },
+    models: [],
+  });
+  await click(document.querySelector('[data-model-provider="custom-team"]'));
+  const star = card().querySelector('[data-model-row="family/model"] .model-mgmt-star');
+  assert.equal(star.getAttribute('aria-pressed'), 'true');
+  assert.equal(button('Save', card()).disabled, true);
+  await click(star);
+  assert.equal(button('Save', card()).disabled, false);
+});
+
+test('an open card keeps its edits through catalog updates and a missing provider', async (t) => {
   const render = await mountLive(t, data);
   await click(document.querySelector('[data-model-provider="openai-oauth"]'));
   await click(checkbox('gpt-5.4'));
@@ -167,10 +189,6 @@ test('an open card keeps its edits through catalog updates, empty sweeps and a m
   assert.ok(card());
   assert.equal(checkbox('gpt-5.4').checked, true);
   assert.ok(card().querySelector('[data-model-row="gpt-5.6"]'));
-  // A sweep that returns nothing for the provider.
-  await render({ ...data, models: [] });
-  assert.ok(card());
-  assert.equal(checkbox('gpt-5.4').checked, true);
   // Data reloading (sections not loaded) and the provider missing from setup.
   await render({ __loadedSections: [] });
   assert.ok(card());
@@ -181,23 +199,46 @@ test('an open card keeps its edits through catalog updates, empty sweeps and a m
   assert.match(card().textContent, /1 changed/);
 });
 
-test('a transient empty catalog keeps the previous rows; a real failure shows its notice', async (t) => {
-  const render = await mountLive(t, data);
-  assert.match(document.querySelector('[data-model-provider="openai-oauth"]').textContent, /1 \/ 2 shown/);
-  await render({ ...data, models: [] });
-  assert.match(document.querySelector('[data-model-provider="openai-oauth"]').textContent, /1 \/ 2 shown/);
-  const failing = {
-    ...data,
-    providerSetup: {
-      ...data.providerSetup,
-      oauth: [{ ...data.providerSetup.oauth[0], catalogError: { message: 'models 403' } }],
-    },
-    models: [],
+test('an incomplete catalog keeps rows and drafts until that provider actually returns an empty list', async (t) => {
+  let reply;
+  const api = { invokeCapability: async () => ({ value: reply }) };
+  const read = (models, completeProviders) => {
+    reply = { models: models.map(({ model: id, ...row }) => ({ id, ...row })), completeProviders };
+    return act(async () => {
+      await readModelManagementCatalog(api, true);
+    });
   };
-  await render(failing);
-  const row = document.querySelector('[data-model-provider="openai-oauth"]');
-  assert.match(row.textContent, /0 \/ 0 shown/);
-  assert.match(row.textContent, /403/);
+  const setup = {
+    ...data.providerSetup,
+    oauth: data.providerSetup.oauth.map((provider) => ({ ...provider, authenticated: true })),
+  };
+  const settings = { providerSetup: setup };
+  const render = await mountLive(t, settings, api);
+  await read(data.models, ['openai-oauth', 'anthropic-oauth']);
+  const provider = () => document.querySelector('[data-model-provider="openai-oauth"]');
+  await click(provider());
+  await click(checkbox('gpt-5.4'));
+  await read([option('openai-oauth', 'gpt-5.6')], []);
+  assert.ok(checkbox('gpt-5.6'));
+  assert.equal(checkbox('gpt-5.4').checked, true);
+  assert.match(card().textContent, /1 changed/);
+  await read([], []);
+  await render({
+    providerSetup: { ...setup, oauth: [{ ...setup.oauth[0], catalogError: { message: 'models 403' } }, setup.oauth[1]] },
+  });
+  assert.match(provider().textContent, /2 \/ 3 shown/);
+  assert.match(provider().textContent, /403/);
+  await render(null);
+  await render(settings);
+  assert.match(provider().textContent, /2 \/ 3 shown/);
+  await render(null);
+  await read([], ['openai-oauth']);
+  await read([], []);
+  await render(settings);
+  await click(provider());
+  assert.match(card().textContent, /0 \/ 0 shown/);
+  assert.equal(button('Save', card()).disabled, true);
+  assert.match(document.querySelector('[data-model-provider="anthropic-oauth"]').textContent, /1 \/ 1 shown/);
 });
 
 test('providers are listed in the Providers page order', async (t) => {

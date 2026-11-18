@@ -75,6 +75,29 @@ pub fn parse_psscriptanalyzer_json(stdout: &str, cwd: &Path) -> (RunnerResult, O
     (RunnerResult { diagnostics, changed_files: unique_paths(changed), ..Default::default() }, module)
 }
 
+pub struct PsScriptAnalyzer;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_scripts_json_payload_maps_formatting_and_analyzer_rows() {
+        let payload = r#"{"diagnostics":[{"file":"/r/a.ps1","line":0,"col":0,"code":"PSFormatting","message":"m","severity":"Warning","format":true},{"file":"/r/a.ps1","line":3,"col":1,"code":"PSAvoidUsingWriteHost","message":"x","severity":"ParseError","format":false}],"modulePath":"/m/PSScriptAnalyzer.psd1"}"#;
+        let (out, module) = parse_psscriptanalyzer_json(payload, Path::new("/r"));
+        assert_eq!(out.changed_files, ["a.ps1"]);
+        assert_eq!((out.diagnostics[0].fixable, out.diagnostics[1].severity.as_str(), out.diagnostics[1].line), (true, "error", 3));
+        assert_eq!(module.as_deref(), Some("/m/PSScriptAnalyzer.psd1"));
+        assert!(parse_psscriptanalyzer_json("", Path::new("/r")).0.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn paths_never_enter_the_script_text() {
+        assert!(!SCRIPT.contains("{0}") && SCRIPT.contains("[Console]::In.ReadToEnd()"));
+    }
+}
+
+
 async fn invoke(req: &RunRequest, write: bool) -> RunnerResult {
     let (mut diagnostics, mut changed, mut stderr, mut loaded) = (Vec::new(), Vec::new(), String::new(), String::new());
     let mut env: HashMap<String, String> = std::env::vars().collect();
@@ -100,9 +123,6 @@ async fn invoke(req: &RunRequest, write: bool) -> RunnerResult {
     }
     RunnerResult { diagnostics, changed_files: unique_paths(changed), stderr_tail: tail600(&stderr), note: (!loaded.is_empty()).then(|| format!("PSScriptAnalyzer module: {loaded}")), ..Default::default() }
 }
-
-pub struct PsScriptAnalyzer;
-
 #[async_trait]
 impl Runner for PsScriptAnalyzer {
     fn id(&self) -> &'static str {
@@ -113,25 +133,5 @@ impl Runner for PsScriptAnalyzer {
     }
     async fn fix(&self, req: &RunRequest) -> RunnerResult {
         invoke(req, true).await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_scripts_json_payload_maps_formatting_and_analyzer_rows() {
-        let payload = r#"{"diagnostics":[{"file":"/r/a.ps1","line":0,"col":0,"code":"PSFormatting","message":"m","severity":"Warning","format":true},{"file":"/r/a.ps1","line":3,"col":1,"code":"PSAvoidUsingWriteHost","message":"x","severity":"ParseError","format":false}],"modulePath":"/m/PSScriptAnalyzer.psd1"}"#;
-        let (out, module) = parse_psscriptanalyzer_json(payload, Path::new("/r"));
-        assert_eq!(out.changed_files, ["a.ps1"]);
-        assert_eq!((out.diagnostics[0].fixable, out.diagnostics[1].severity.as_str(), out.diagnostics[1].line), (true, "error", 3));
-        assert_eq!(module.as_deref(), Some("/m/PSScriptAnalyzer.psd1"));
-        assert!(parse_psscriptanalyzer_json("", Path::new("/r")).0.diagnostics.is_empty());
-    }
-
-    #[test]
-    fn paths_never_enter_the_script_text() {
-        assert!(!SCRIPT.contains("{0}") && SCRIPT.contains("[Console]::In.ReadToEnd()"));
     }
 }

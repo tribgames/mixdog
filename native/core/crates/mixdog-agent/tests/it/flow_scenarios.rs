@@ -35,6 +35,7 @@ use mixdog_agent::agent_tool::host::*;
 use mixdog_agent::agent_tool::model_select::ListOptions as ModelListOptions;
 use mixdog_agent::agent_tool::model_select::ModelCatalog;
 use mixdog_agent::agent_tool::model_select::ModelRow;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::scope::Caller;
 use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::agent_tool::scope::SessionFacts;
@@ -48,6 +49,7 @@ use mixdog_protocol::ThreadId;
 use mixdog_tools::exec::TaskNotifier;
 use mixdog_tools::orch::agent::AgentReply;
 use mixdog_tools::orch::agent::TaskResult;
+#[cfg(node_twin)]
 use mixdog_tools::orch::agent::render;
 use serde_json::Map;
 use serde_json::Value;
@@ -55,29 +57,12 @@ use serde_json::json;
 
 use mixdog_ai::service::admin_route::Obj;
 
-const START: i64 = 1_772_359_200_000; // 2026-03-01T10:00:00.000Z
-
-fn fixture(name: &str) -> Vec<Value> {
-    let text = std::fs::read_to_string(format!("{}/../../fixtures/agent/flows/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap();
-    serde_json::from_str::<Value>(&text).unwrap().as_array().unwrap().clone()
-}
+const START: i64 = 1_772_359_200_000;
 
 struct FixedClock;
 impl Clock for FixedClock {
     fn now_ms(&self) -> i64 {
         START
-    }
-}
-
-/// Installs the test backend. Its ticker is per runtime (hang-lanes-138), so each test's deadlines
-/// run on its own runtime's clock, paused or not, and nothing outlives the test.
-pub(crate) fn backend() {
-    mixdog_rt::testing::tokens();
-}
-
-pub(crate) async fn settle() {
-    for _ in 0..8 {
-        mixdog_rt::time::sleep(std::time::Duration::from_millis(15)).await;
     }
 }
 
@@ -118,8 +103,10 @@ fn turn_result(v: &Value) -> TurnResult {
 // ---- the world's fakes --------------------------------------------------------------------
 
 pub(crate) struct Shared {
-    log: Log,
+    pub(crate) log: Log,
     pub(crate) notices: Log,
+    /// The sessions listed again (`revealSession`).
+    revealed: Log,
     steps: Vec<Value>,
     session: Mutex<Value>,
     config: Obj,
@@ -139,13 +126,13 @@ pub(crate) struct Shared {
     /// The shells Node's reap left for the handoff (host.stoppedShellJobs), read once.
     stopped: Mutex<Option<StoppedShellJobs>>,
     /// Per turn, the skill selection it was handed: `{ "skillSelection": text }`, or `{}` for none.
-    selections: Mutex<Vec<Value>>,
+    pub(crate) selections: Mutex<Vec<Value>>,
     /// The agents below the worker as `(session, parent)`, in the order Node linked them.
     children: Vec<(String, String)>,
     /// The sessions whose close does not land (`tree.failClose`).
     fail_close: Vec<String>,
     /// What the tree's cancel answered, or the text it failed with (`treeCancel`).
-    tree_cancel: Mutex<Value>,
+    pub(crate) tree_cancel: Mutex<Value>,
 }
 
 impl Shared {
@@ -310,26 +297,15 @@ impl Sessions for Closer {
         self.0.children.iter().filter(|(_, p)| p == parent).map(|(id, _)| id.clone()).collect()
     }
     fn clear_statusline_route(&self, _: &str) {}
+    async fn reveal_session(&self, id: &str) {
+        log(&self.0.revealed, json!(id));
+    }
 }
 
 struct Slot;
-#[async_trait]
-impl Lease for Slot {
-    async fn release(self: Box<Self>) {}
-    fn yielder(&self) -> std::sync::Arc<dyn mixdog_agent::env::Yielder> {
-        std::sync::Arc::new(Immediate)
-    }
-}
 
 /// A slot that hands nothing back: the task just runs.
 struct Immediate;
-#[async_trait]
-impl mixdog_agent::env::Yielder for Immediate {
-    async fn run_yielded(&self, task: futures::future::BoxFuture<'_, bool>, _: Option<&mixdog_agent::cancel::Cancel>) -> Result<(), String> {
-        task.await;
-        Ok(())
-    }
-}
 
 struct Open;
 #[async_trait]
@@ -342,9 +318,35 @@ impl Admission for Open {
     }
 }
 
+/// Every start a job starter recorded, as (tool call, task) pairs.
+static RECORDED_STARTS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
 struct NoStarts;
 impl TaskStarts for NoStarts {
-    fn record(&self, _: &str, _: &str) {}
+    fn record(&self, call: &str, task: &str) {
+        lock(&RECORDED_STARTS).push((call.to_owned(), task.to_owned()));
+    }
+}
+
+/// A world whose agent reports what its todo list leaves undone, named by the session it is asked about.
+struct Todo(Sess);
+#[async_trait]
+impl TurnSessions for Todo {
+    async fn message_count(&self, session_id: &str) -> usize {
+        self.0.message_count(session_id).await
+    }
+    async fn assistant_texts(&self, session_id: &str, start: usize) -> Vec<AssistantText> {
+        self.0.assistant_texts(session_id, start).await
+    }
+    fn not_done_report(&self, session_id: &str) -> String {
+        format!("Not done: {session_id}")
+    }
+    async fn run_turn(&self, request: TurnRequest) -> Result<TurnResult, TurnError> {
+        self.0.run_turn(request).await
+    }
+    fn unload_runtime(&self, session_id: &str, reason: &str) {
+        self.0.unload_runtime(session_id, reason)
+    }
 }
 
 /// The owner of the worker's turns as Node's fakes log it: a claim, its release, an observation.
@@ -618,7 +620,7 @@ impl SendWorld for SendHost {
 pub(crate) struct Rig {
     pub(crate) shared: Arc<Shared>,
     pub(crate) spawn: Arc<SpawnFlowImpl>,
-    send: Arc<SendFlowImpl>,
+    pub(crate) send: Arc<SendFlowImpl>,
     /// The assembled agent tool: its `handle` is the tool's own entry.
     pub(crate) runtime: Arc<AgentRuntime>,
 }
@@ -658,6 +660,7 @@ pub(crate) fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
     let mut shared = Shared {
         log: Arc::default(),
         notices: Arc::default(),
+        revealed: Arc::default(),
         steps: scenario["steps"].as_array().cloned().unwrap_or_default(),
         session: Mutex::new(session),
         config,
@@ -758,6 +761,7 @@ impl TaskNotifier for DeliveredTo {
 
 // ---- comparing ----------------------------------------------------------------------------
 
+#[cfg(node_twin)]
 /// Paths without a drive letter and with `/`, the form the golden is recorded in.
 fn norm(value: &mut Value) {
     match value {
@@ -774,6 +778,7 @@ fn norm(value: &mut Value) {
     }
 }
 
+#[cfg(node_twin)]
 /// Masks the job's id and puts paths in the golden's form.
 fn masked(value: Value, id: Option<&str>) -> Value {
     let text = value.to_string();
@@ -832,6 +837,7 @@ fn final_state(rig: &Rig, id: &str, with_label: bool) -> Value {
     out
 }
 
+#[cfg(node_twin)]
 /// Fails at the first place two values differ, naming it.
 fn same(name: &str, path: &str, got: &Value, want: &Value) {
     match (got, want) {
@@ -849,6 +855,7 @@ fn same(name: &str, path: &str, got: &Value, want: &Value) {
     }
 }
 
+#[cfg(node_twin)]
 fn drain(rig: &Rig, id: Option<&str>) -> (Value, Value) {
     let calls = masked(Value::Array(lock(&rig.shared.log).clone()), id);
     let mut notices = masked(Value::Array(lock(&rig.shared.notices).clone()), id);
@@ -860,6 +867,210 @@ fn drain(rig: &Rig, id: Option<&str>) -> (Value, Value) {
     (calls, notices)
 }
 
+/// The file and image parts the agent tool resolved from a call's `attachments`.
+pub(crate) fn resolved_parts() -> Vec<Value> {
+    vec![
+        json!({ "type": "file", "attachmentRef": "a".repeat(64), "sizeBytes": 12, "mimeType": "application/pdf", "filename": "spec.pdf" }),
+        json!({ "type": "image", "attachmentRef": "b".repeat(64), "sizeBytes": 34, "mimeType": "image/png", "filename": "shot.png" }),
+    ]
+}
+
+/// The worker's turn text and parts, from the recorded `ask`.
+pub(crate) fn asked(rig: &Rig) -> Value {
+    lock(&rig.shared.log).iter().find(|entry| entry[0] == "ask").map(|entry| entry[1].clone()).expect("the worker's turn ran")
+}
+
+#[test]
+fn a_contact_agent_may_not_hand_work_to_itself() {
+    use mixdog_agent::agent_tool::flow::spawn::assert_bot_chain_target;
+    // Node's text, from `assertBotChainTarget` (`runtime/shared/bot-hops.mjs`).
+    let message = assert_bot_chain_target("robot", &[], "robot", "agent spawn").unwrap_err();
+    assert_eq!(message, "agent spawn: the contact agent \"robot\" cannot hand work to itself; do it yourself or delegate to a sub-agent");
+    assert_eq!(assert_bot_chain_target("", &["x".into()], "x", "agent spawn"), Ok(()));
+}
+
+#[cfg(node_twin)]
+/// Spins (yielding) until `ready`, failing instead of hanging when it never is.
+async fn until(_what: &str, ready: impl Fn() -> bool) {
+    while !ready() {
+        tokio::task::yield_now().await;
+    }
+}
+/// Closes recorded with their options, and a signal when one arrives.
+#[derive(Default)]
+struct RecordedCloses {
+    calls: Mutex<Vec<(String, String, bool, bool)>>,
+    arrived: tokio::sync::Notify,
+}
+#[async_trait]
+impl Sessions for RecordedCloses {
+    async fn rehydrate_agent_sessions(&self) -> bool {
+        false
+    }
+    async fn read_session_handoff(&self, _: &str) -> Option<String> {
+        None
+    }
+    async fn close_session(&self, id: &str, reason: &str, options: CloseOptions) -> bool {
+        lock(&self.calls).push((id.to_owned(), reason.to_owned(), options.tombstone, options.owner_close));
+        self.arrived.notify_one();
+        true
+    }
+    fn descendant_session_ids(&self, _: &str) -> Vec<String> {
+        Vec::new()
+    }
+    fn child_session_ids(&self, _: &str) -> Vec<String> {
+        Vec::new()
+    }
+    fn clear_statusline_route(&self, _: &str) {}
+}
+
+/// What a board's notifier is told, with the hop each completion is delivered at.
+#[derive(Default)]
+struct HopsSeen(Mutex<Vec<(String, u32)>>);
+#[async_trait]
+impl TaskNotifier for HopsSeen {
+    async fn finished(&self, _: &ThreadId, _: &str, task_id: &str, _: &str, _: String) {
+        lock(&self.0).push((task_id.to_owned(), 0));
+    }
+    async fn finished_at_hop(&self, _: &ThreadId, _: &str, task_id: &str, _: &str, _: String, hop: u32) {
+        lock(&self.0).push((task_id.to_owned(), hop));
+    }
+}
+
+/// Installs the test backend. Its ticker is per runtime (hang-lanes-138), so each test's deadlines
+/// run on its own runtime's clock, paused or not, and nothing outlives the test.
+pub(crate) fn backend() {
+    mixdog_rt::testing::tokens();
+}
+pub(crate) async fn settle() {
+    for _ in 0..8 {
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(15)).await;
+    }
+}
+#[async_trait]
+impl Lease for Slot {
+    async fn release(self: Box<Self>) {}
+    fn yielder(&self) -> std::sync::Arc<dyn mixdog_agent::env::Yielder> {
+        std::sync::Arc::new(Immediate)
+    }
+}
+#[async_trait]
+impl mixdog_agent::env::Yielder for Immediate {
+    async fn run_yielded(&self, task: futures::future::BoxFuture<'_, bool>, _: Option<&mixdog_agent::cancel::Cancel>) -> Result<(), String> {
+        task.await;
+        Ok(())
+    }
+}
+/// The agent port's own entry with the resolved parts, as `AgentTool::call` hands them over.
+pub(crate) async fn execute_with_parts(rig: &Rig, args: Value) {
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_protocol::ToolCallId;
+    use mixdog_tools::orch::agent::{AgentPort, AgentRequest};
+    use tokio_util::sync::CancellationToken;
+    let (thread, call, cwd, cancel) = (ThreadId::from("lead"), ToolCallId::from("call"), AbsPath::new(std::env::temp_dir()).unwrap(), CancellationToken::new());
+    let request = AgentRequest { thread: &thread, call: &call, args, attachment_parts: resolved_parts(), cwd: &cwd, cancel: &cancel };
+    rig.runtime.execute(request).await.expect("the agent port answers");
+    settle().await;
+    settle().await;
+}
+/// `job-start.mjs`: cancelling an agent job closes its worker session with reason
+/// `agent-task-cancel`, neither tombstoning it nor as an owner close (the host builds the turn's
+/// `Session "<id>" closed: closeSession (reason=agent-task-cancel)` text from that reason).
+#[tokio::test]
+async fn cancelling_an_agent_job_closes_its_worker_session_with_the_cancel_reason() {
+    backend();
+    let rig = rig(&json!({}), None);
+    let closes = Arc::new(RecordedCloses::default());
+    let starter = JobStarter::new(rig.shared.board.clone(), closes.clone(), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
+    let meta = JobMeta { session_id: Some("sess_w1".into()), ..JobMeta::default() };
+    starter
+        .start_job("agent", meta, Default::default(), |_, _| async { std::future::pending::<Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>>().await })
+        .expect("started");
+    let id = rig.shared.board.list_jobs(&Scope::default()).first().map(|j| j.task_id.clone()).expect("job");
+    rig.shared.board.cancel(&id, "user cancelled", CancelNotice::Default);
+    closes.arrived.notified().await;
+    assert_eq!(*lock(&closes.calls), [("sess_w1".to_owned(), "agent-task-cancel".to_owned(), false, false)]);
+    assert_eq!(
+        mixdog_agent::cancel::close_session_reason("sess_w1", "agent-task-cancel"),
+        "Session \"sess_w1\" closed: closeSession (reason=agent-task-cancel)"
+    );
+}
+/// `agent close` of an agent that has agents below it (`closeSession` is `cancelAgentTree`): the agents below close first,
+/// after the jobs bound to them, and the owner's job is cancelled with the close's reason.
+#[tokio::test(start_paused = true)]
+async fn closing_an_agent_closes_the_agents_below_it_and_cancels_their_jobs() {
+    backend();
+    let rig = rig(&json!({ "tree": { "children": [{ "id": "sess_c1", "parent": "sess_w1" }] } }), None);
+    let starter = JobStarter::new(rig.shared.board.clone(), Arc::new(Closer(rig.shared.clone())), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
+    let meta = JobMeta { tag: Some("kid".into()), session_id: Some("sess_c1".into()), ..JobMeta::default() };
+    let start = StartContext { caller_session_id: Some("sess_w1".into()), ..StartContext::default() };
+    let handle = starter
+        .start_job("spawn", meta, start, |_, _| std::future::pending::<Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>>())
+        .expect("started");
+    settle().await;
+    let registry = Reg(rig.shared.clone());
+    let closer = Closer(rig.shared.clone());
+    let parts = CloseParts { registry: &registry, sessions: &closer, tasks: &rig.shared.board };
+    let view = close_resolved(parts, "sess_w1", "sess_w1", &Scope::default(), None, false).await.expect("closes");
+    assert!(view.closed);
+    let closes: Vec<Value> = lock(&rig.shared.log).iter().filter(|entry| entry.as_str().is_some_and(|e| e.starts_with("close:"))).cloned().collect();
+    assert_eq!(closes, [json!("close:sess_c1:agent-task-cancel"), json!("close:sess_c1:cli-agent-close"), json!("close:sess_w1:cli-agent-close")]);
+    let job = rig.shared.board.get(handle.task_id(), &Scope::default()).unwrap();
+    assert_eq!((job.status.as_str(), job.error.as_deref()), ("cancelled", Some("cli-agent-close")));
+}
+/// A spawn has no session when it starts and gets one while it runs: its report names what that agent's todo list leaves undone.
+#[tokio::test(start_paused = true)]
+async fn a_spawns_report_names_what_its_todo_list_leaves_undone() {
+    backend();
+    let rig = rig(&json!({}), None);
+    let starter = JobStarter::new(rig.shared.board.clone(), Arc::new(Closer(rig.shared.clone())), Arc::new(Todo(Sess(rig.shared.clone()))), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
+    let meta = JobMeta { tag: Some("scout".into()), ..JobMeta::default() };
+    let start = StartContext { caller_session_id: Some("lead".into()), ..StartContext::default() };
+    let board = rig.shared.board.clone();
+    starter
+        .start_job("spawn", meta, start, move |job, _| async move {
+            board.update_meta(job.task_id(), |meta| meta.session_id = Some("sess_late".into()));
+            Ok(Some(mixdog_agent::agent_tool::flow::result::WorkerResult { value: json!({ "content": "done" }), error: None }))
+        })
+        .expect("started");
+    settle().await;
+    settle().await;
+    let notices = lock(&rig.shared.notices).clone();
+    assert!(notices.iter().any(|n| n["text"].as_str().is_some_and(|t| t.contains("Not done: sess_late"))), "{notices:?}");
+}
+/// A job started by a turn at a bot-chain hop is delivered at it: the owner's completion returns at the hop of the turn that
+/// started the job (`toolCompletionMeta`, `ctx.hop`); a job started outside a chain is told at none.
+#[tokio::test(start_paused = true)]
+async fn a_job_started_at_a_hop_completes_at_that_hop() {
+    backend();
+    let rig = rig(&json!({}), None);
+    let seen = Arc::new(HopsSeen::default());
+    let board = JobBoard::new(Arc::new(FixedClock), Some(seen.clone()), None);
+    let starter = JobStarter::new(board, Arc::new(Closer(rig.shared.clone())), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
+    let done = |_: Arc<mixdog_agent::agent_tool::flow::reconcile::JobHandle>, _: mixdog_agent::agent_tool::flow::notify::NotifyContext| async {
+        Ok::<_, String>(Some(mixdog_agent::agent_tool::flow::result::WorkerResult { value: json!({ "content": "done" }), error: None }))
+    };
+    let hopped = starter.start_job("spawn", JobMeta::default(), StartContext { caller_session_id: Some("lead".into()), hop: Some(json!(3)), ..StartContext::default() }, done).expect("started");
+    let plain = starter.start_job("spawn", JobMeta::default(), StartContext { caller_session_id: Some("lead".into()), ..StartContext::default() }, done).expect("started");
+    settle().await;
+    settle().await;
+    let told = lock(&seen.0).clone();
+    assert!(told.contains(&(hopped.task_id().to_owned(), 3)), "{told:?}");
+    assert!(told.contains(&(plain.task_id().to_owned(), 0)), "{told:?}");
+}
+
+
+
+
+
+ // 2026-03-01T10:00:00.000Z
+
+#[cfg(node_twin)]
+fn fixture(name: &str) -> Vec<Value> {
+    let text = std::fs::read_to_string(format!("{}/../../fixtures/agent/flows/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    serde_json::from_str::<Value>(&text).unwrap().as_array().unwrap().clone()
+}
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn a_spawn_equals_nodes() {
     backend();
@@ -873,6 +1084,7 @@ async fn a_spawn_equals_nodes() {
             session_id: scenario["context"]["sessionId"].as_str().map(str::to_owned),
             owner_session_id: Some(s(scenario, "owner")),
             client_host_pid: Some(4242),
+            ..SpawnContext::default()
         };
         // The other jobs of a tree scenario, started by the sessions that own them before the worker's, and running (admitted, working) before its turn does.
         let status: Arc<dyn Fn() + Send + Sync> = {
@@ -926,6 +1138,25 @@ async fn a_spawn_equals_nodes() {
         let stale_notices = context.session_id.as_deref().map_or(0, |stale| notices.as_array().unwrap().iter().filter(|n| n["session"] == stale).count());
         let mut got = json!({ "startError": start_error, "pending": pending, "calls": calls, "notices": notices, "final": final_value });
         let mut want = case["result"].clone();
+        // A stall that left no output and stopped background shell jobs: the recording lost the note naming them when the error
+        // was presented (its stall sentence replaces the message). The core keeps it, so the owner reads the recorded error
+        // followed by the notes (`[Stopped its background shell jobs: …] [Still stopping its background shell jobs: …]`).
+        // This is the only departure from the recording; everything else is compared as recorded.
+        let ended = |key: &str| -> Vec<String> { case["host"]["stoppedShellJobs"][key].as_array().into_iter().flatten().filter_map(|j| j.as_str().map(str::to_owned)).collect() };
+        let notes = [("Stopped", ended("stopped")), ("Still stopping", ended("stopping"))]
+            .into_iter()
+            .filter(|(_, jobs)| !jobs.is_empty())
+            .map(|(lead, jobs)| format!("[{lead} its background shell jobs: {}.]", jobs.join(", ")))
+            .collect::<Vec<_>>()
+            .join(" ");
+        if want["final"]["terminalReason"] == "agent-stream-stalled" && !notes.is_empty() {
+            let error = want["final"]["error"].as_str().unwrap().to_owned();
+            want["final"]["error"] = json!(format!("{error} {notes}"));
+            for notice in want["notices"].as_array_mut().unwrap() {
+                let text = notice["text"].as_str().unwrap().replace(&format!("{error}</error>"), &format!("{error} {notes}</error>"));
+                notice["text"] = json!(text);
+            }
+        }
         if want.get("staleNotifyCalls").is_some() {
             got["staleNotifyCalls"] = json!(stale_notices);
         }
@@ -969,7 +1200,7 @@ async fn a_spawn_equals_nodes() {
         assert_eq!(shell_tasks.map_or(0, |tasks| tasks.as_object().unwrap().len()), jobs.len(), "{name}: shellTasks");
     }
 }
-
+#[cfg(node_twin)]
 /// A spawn that pins a model, through the agent tool's own entry (`AgentRuntime::handle`): the model is
 /// resolved against the recorded catalog, the real spawn flow resolves the route, and the session spec
 /// handed to session creation carries Node's agent, preset name and preset. Every case is compared whole:
@@ -992,7 +1223,7 @@ async fn a_pinned_model_spawn_equals_nodes() {
             "canonical": true,
         });
         let rig = rig(&scenario, Some(&case["host"]));
-        let caller = Caller { scope: Scope { caller_session_id: Some("lead".into()), host_pid: Some(4242) }, cwd: "/work".into() };
+        let caller = Caller { scope: Scope { caller_session_id: Some("lead".into()), host_pid: Some(4242) }, cwd: "/work".into(), ..Caller::default() };
         let reply = rig.runtime.handle(&recorded_scenario["args"], &caller).await;
         settle().await;
         let jobs = rig.shared.board.list_jobs(&Scope::default());
@@ -1045,7 +1276,7 @@ async fn a_pinned_model_spawn_equals_nodes() {
                 "enqueueReturns": { "queueDepth": 1 },
             });
             let later = self::rig(&moved, None);
-            let context = SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242) };
+            let context = SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242), ..SpawnContext::default() };
             let prepared = Prepared {
                 args: json!({ "tag": "scout", "prompt": "follow up" }),
                 session: SessionFacts { id: "sess_w1".into(), agent: s(&session, "agent"), cwd: s(&session, "cwd"), ..SessionFacts::default() },
@@ -1062,7 +1293,7 @@ async fn a_pinned_model_spawn_equals_nodes() {
         }
     }
 }
-
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn a_send_equals_nodes() {
     backend();
@@ -1072,7 +1303,7 @@ async fn a_send_equals_nodes() {
         let rig = rig(scenario, None);
         let args = &scenario["args"];
         let caller = Scope { caller_session_id: Some("lead".into()), host_pid: Some(4242) };
-        let context = SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242) };
+        let context = SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242), ..SpawnContext::default() };
         let session = rig.shared.session.lock().unwrap().clone();
         let result = match s(scenario, "op").as_str() {
             "prepare" => match rig.send.prepare_send(args, &caller).await {
@@ -1126,33 +1357,20 @@ async fn a_send_equals_nodes() {
         same(&name, "", &Value::Object(got), &want);
     }
 }
-
-/// The file and image parts the agent tool resolved from a call's `attachments`.
-fn resolved_parts() -> Vec<Value> {
-    vec![
-        json!({ "type": "file", "attachmentRef": "a".repeat(64), "sizeBytes": 12, "mimeType": "application/pdf", "filename": "spec.pdf" }),
-        json!({ "type": "image", "attachmentRef": "b".repeat(64), "sizeBytes": 34, "mimeType": "image/png", "filename": "shot.png" }),
-    ]
-}
-
-/// The agent port's own entry with the resolved parts, as `AgentTool::call` hands them over.
-async fn execute_with_parts(rig: &Rig, args: Value) {
-    use mixdog_core_api::domain::common::AbsPath;
-    use mixdog_protocol::ToolCallId;
-    use mixdog_tools::orch::agent::{AgentPort, AgentRequest};
-    use tokio_util::sync::CancellationToken;
-    let (thread, call, cwd, cancel) = (ThreadId::from("lead"), ToolCallId::from("call"), AbsPath::new(std::env::temp_dir()).unwrap(), CancellationToken::new());
-    let request = AgentRequest { thread: &thread, call: &call, args, attachment_parts: resolved_parts(), cwd: &cwd, cancel: &cancel };
-    rig.runtime.execute(request).await.expect("the agent port answers");
+#[cfg(node_twin)]
+/// `wake_idle_worker` reveals the session as Node's `dispatchToExistingSession` does (`send-flow.mjs:236`): the wake of an
+/// agent its owner closed (hidden from the lists) lists it again.
+#[tokio::test(start_paused = true)]
+async fn a_completion_wake_reveals_the_agents_session() {
+    backend();
+    let case = fixture("send.json").into_iter().find(|case| case["scenario"]["op"] == "wake" && case["result"]["woke"] == true).expect("a wake that runs");
+    let rig = rig(&case["scenario"], None);
+    assert!(rig.send.wake_idle_worker("sess_w1"));
     settle().await;
     settle().await;
+    assert_eq!(*lock(&rig.shared.revealed), [json!("sess_w1")]);
 }
-
-/// The worker's turn text and parts, from the recorded `ask`.
-fn asked(rig: &Rig) -> Value {
-    lock(&rig.shared.log).iter().find(|entry| entry[0] == "ask").map(|entry| entry[1].clone()).expect("the worker's turn ran")
-}
-
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn a_spawn_hands_its_file_and_image_parts_to_the_workers_first_turn() {
     backend();
@@ -1163,7 +1381,7 @@ async fn a_spawn_hands_its_file_and_image_parts_to_the_workers_first_turn() {
     assert_eq!(want.as_array().map(Vec::len), Some(3));
     assert_eq!(asked(&rig), want);
 }
-
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn a_send_hands_its_file_and_image_parts_to_the_workers_turn() {
     backend();
@@ -1174,23 +1392,7 @@ async fn a_send_hands_its_file_and_image_parts_to_the_workers_turn() {
     assert_eq!(want.as_array().map(Vec::len), Some(3));
     assert_eq!(asked(&rig), want);
 }
-
-#[test]
-fn a_contact_agent_may_not_hand_work_to_itself() {
-    use mixdog_agent::agent_tool::flow::spawn::assert_bot_chain_target;
-    // Node's text, from `assertBotChainTarget` (`runtime/shared/bot-hops.mjs`).
-    let message = assert_bot_chain_target("robot", &[], "robot", "agent spawn").unwrap_err();
-    assert_eq!(message, "agent spawn: the contact agent \"robot\" cannot hand work to itself; do it yourself or delegate to a sub-agent");
-    assert_eq!(assert_bot_chain_target("", &["x".into()], "x", "agent spawn"), Ok(()));
-}
-
-/// Spins (yielding) until `ready`, failing instead of hanging when it never is.
-async fn until(_what: &str, ready: impl Fn() -> bool) {
-    while !ready() {
-        tokio::task::yield_now().await;
-    }
-}
-
+#[cfg(node_twin)]
 /// Two requests meeting on one tag or worker, and a cancel meeting a settle, each as a script whose
 /// slow steps wait for the script to release them: the interleaving is forced, so the outcome Node's
 /// ordering gives is the one asserted (winner, losers, notifications, final job states).
@@ -1201,7 +1403,7 @@ async fn racing_requests_end_as_nodes_do() {
         let name = s(&case, "name");
         let scenario = &case["scenario"];
         let rig = rig(scenario, Some(&case["host"]));
-        let context = SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242) };
+        let context = SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242), ..SpawnContext::default() };
         let want = &case["result"];
         let want_len = want["calls"].as_array().unwrap().len();
         let mut jobs: Vec<(String, String)> = Vec::new();
@@ -1294,34 +1496,7 @@ async fn racing_requests_end_as_nodes_do() {
         same(&name, "", &got, &want);
     }
 }
-/// Closes recorded with their options, and a signal when one arrives.
-#[derive(Default)]
-struct RecordedCloses {
-    calls: Mutex<Vec<(String, String, bool, bool)>>,
-    arrived: tokio::sync::Notify,
-}
-#[async_trait]
-impl Sessions for RecordedCloses {
-    async fn rehydrate_agent_sessions(&self) -> bool {
-        false
-    }
-    async fn read_session_handoff(&self, _: &str) -> Option<String> {
-        None
-    }
-    async fn close_session(&self, id: &str, reason: &str, options: CloseOptions) -> bool {
-        lock(&self.calls).push((id.to_owned(), reason.to_owned(), options.tombstone, options.owner_close));
-        self.arrived.notify_one();
-        true
-    }
-    fn descendant_session_ids(&self, _: &str) -> Vec<String> {
-        Vec::new()
-    }
-    fn child_session_ids(&self, _: &str) -> Vec<String> {
-        Vec::new()
-    }
-    fn clear_statusline_route(&self, _: &str) {}
-}
-
+#[cfg(node_twin)]
 /// `runToCompletion`: a foreground run resolves with the agent's final content and closes the
 /// agent's session with the executor reason, neither tombstoning nor as an owner close.
 #[tokio::test(start_paused = true)]
@@ -1330,7 +1505,7 @@ async fn a_foreground_run_ends_with_its_content_and_closes_its_session() {
     let case = fixture("spawn.json").into_iter().next().unwrap();
     let scenario = &case["scenario"];
     let rig = rig(scenario, Some(&case["host"]));
-    let context = SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242) };
+    let context = SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242), ..SpawnContext::default() };
     let cancel = tokio_util::sync::CancellationToken::new();
     let (session, content) = rig.spawn.run_to_completion(&scenario["args"], scenario["callerCwd"].as_str().unwrap(), &context, &cancel).await.expect("the run completes");
     assert_eq!(content, "done");
@@ -1338,50 +1513,154 @@ async fn a_foreground_run_ends_with_its_content_and_closes_its_session() {
     let closed = rig.shared.log.lock().unwrap().iter().any(|entry| *entry == json!(format!("close:{session}:routine-executor-finished")));
     assert!(closed, "the agent's session is closed after the run");
 }
-
-/// `job-start.mjs`: cancelling an agent job closes its worker session with reason
-/// `agent-task-cancel`, neither tombstoning it nor as an owner close (the host builds the turn's
-/// `Session "<id>" closed: closeSession (reason=agent-task-cancel)` text from that reason).
-#[tokio::test]
-async fn cancelling_an_agent_job_closes_its_worker_session_with_the_cancel_reason() {
+#[cfg(node_twin)]
+/// A spawn names the tool call that made it: the job it starts is recorded under that call, so the call's result can list it.
+#[tokio::test(start_paused = true)]
+async fn a_spawn_is_recorded_under_the_tool_call_that_made_it() {
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_protocol::ToolCallId;
+    use mixdog_tools::orch::agent::{AgentPort, AgentRequest};
+    use tokio_util::sync::CancellationToken;
     backend();
-    let rig = rig(&json!({}), None);
-    let closes = Arc::new(RecordedCloses::default());
-    let starter = JobStarter::new(rig.shared.board.clone(), closes.clone(), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
-    let meta = JobMeta { session_id: Some("sess_w1".into()), ..JobMeta::default() };
-    starter
-        .start_job("agent", meta, Default::default(), |_, _| async { std::future::pending::<Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>>().await })
-        .expect("started");
-    let id = rig.shared.board.list_jobs(&Scope::default()).first().map(|j| j.task_id.clone()).expect("job");
-    rig.shared.board.cancel(&id, "user cancelled", CancelNotice::Default);
-    closes.arrived.notified().await;
-    assert_eq!(*lock(&closes.calls), [("sess_w1".to_owned(), "agent-task-cancel".to_owned(), false, false)]);
-    assert_eq!(
-        mixdog_agent::cancel::close_session_reason("sess_w1", "agent-task-cancel"),
-        "Session \"sess_w1\" closed: closeSession (reason=agent-task-cancel)"
-    );
+    let case = fixture("spawn.json").into_iter().find(|c| s(c, "name") == "a_spawn_runs_to_completion").expect("the case");
+    let rig = rig(&case["scenario"], Some(&case["host"]));
+    let (thread, call, cwd, cancel) = (ThreadId::from("lead"), ToolCallId::from("call_links_a_spawn"), AbsPath::new(std::env::temp_dir()).unwrap(), CancellationToken::new());
+    let args = json!({ "type": "spawn", "agent": "worker", "prompt": "do it", "tag": "scout" });
+    let request = AgentRequest { thread: &thread, call: &call, args, attachment_parts: Vec::new(), cwd: &cwd, cancel: &cancel };
+    rig.runtime.execute(request).await.expect("the agent port answers");
+    settle().await;
+    let task = rig.shared.board.list_jobs(&Scope::default()).first().map(|j| j.task_id.clone()).expect("the spawn's job");
+    assert!(lock(&RECORDED_STARTS).contains(&("call_links_a_spawn".to_owned(), task)));
 }
 
-/// `agent close` of an agent that has agents below it (`closeSession` is `cancelAgentTree`): the agents below close first,
-/// after the jobs bound to them, and the owner's job is cancelled with the close's reason.
+// ---- the flows with their world written out -----------------------------------------------------------------------------------
+
+fn world_config() -> Value {
+    json!({
+        "default": "main-preset",
+        "presets": [{ "id": "main-preset", "name": "MAIN", "provider": "anthropic", "model": "opus", "effort": "high" }],
+        "agents": { "worker": { "provider": "openai", "model": "gpt-5", "effort": "medium" } },
+    })
+}
+
+/// A worker agent `worker` on its own route; the worker's turn calls a tool, then answers `answer`.
+fn spawn_world(answer: &str) -> (Value, Value) {
+    let scenario = json!({
+        "args": { "agent": "worker", "prompt": "do it", "tag": "scout" }, "callerCwd": "/work",
+        "context": { "callerSessionId": "lead", "ownerSessionId": "lead", "clientHostPid": 4242, "cwd": "/work" },
+        "respawned": false, "config": world_config(), "tags": {}, "nextTag": "worker-1", "lock": null, "lockOwner": "lead", "owner": "lead",
+        "window": null, "ensureThrows": null, "effectiveCwd": null, "createThrows": null, "cancel": null,
+        "steps": [{ "tool": "diff-1" }, { "terminal": { "content": answer } }, { "return": { "content": answer } }], "canonical": true,
+    });
+    let host = json!({
+        "agent": { "name": "worker", "defined": true, "disabled": false, "kind": null, "contact": false, "permission": null,
+            "candidates": [{ "provider": "openai", "model": "gpt-5", "effort": "medium" }] },
+        "delegation": { "chain": ["lead"], "acting": "lead" },
+    });
+    (scenario, host)
+}
+
+/// A live worker `scout` on `sess_w1`, idle, that answers `answer` to a send.
+fn send_world(op: &str, answer: &str) -> Value {
+    json!({
+        "op": op, "args": { "tag": "scout", "prompt": "follow up" },
+        "session": { "id": "sess_w1", "agent": "worker", "provider": "openai", "model": "gpt-5", "cwd": "/work", "parentSessionId": "lead",
+            "ownerSessionId": "lead", "clientHostPid": 4242, "messages": [{ "role": "user", "content": "earlier" }] },
+        "surface": "process", "busy": false, "noPending": false, "pendingDepth": 1, "enqueueReturns": null, "afterSetRoute": null,
+        "config": world_config(), "tags": { "scout": "sess_w1" }, "noCaller": false, "extras": {}, "route": null,
+        "steps": [{ "tool": "diff-1" }, { "terminal": { "content": answer } }, { "return": { "content": answer } }],
+    })
+}
+
+fn caller_context() -> SpawnContext {
+    SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242), ..SpawnContext::default() }
+}
+
 #[tokio::test(start_paused = true)]
-async fn closing_an_agent_closes_the_agents_below_it_and_cancels_their_jobs() {
+async fn a_spawn_runs_the_worker_on_its_agents_route_and_tells_the_caller_when_it_is_done() {
     backend();
-    let rig = rig(&json!({ "tree": { "children": [{ "id": "sess_c1", "parent": "sess_w1" }] } }), None);
-    let starter = JobStarter::new(rig.shared.board.clone(), Arc::new(Closer(rig.shared.clone())), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
-    let meta = JobMeta { tag: Some("kid".into()), session_id: Some("sess_c1".into()), ..JobMeta::default() };
-    let start = StartContext { caller_session_id: Some("sess_w1".into()), ..StartContext::default() };
-    let handle = starter
-        .start_job("spawn", meta, start, |_, _| std::future::pending::<Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>>())
-        .expect("started");
+    let (scenario, host) = spawn_world("done");
+    let rig = rig(&scenario, Some(&host));
+    let context = caller_context();
+    let job = rig.spawn.start_deferred_spawn_job(&scenario["args"], "/work", &context, &context, SpawnOptions { respawned: false }).await.expect("started");
+    let task = rig.shared.board.get(job.task_id(), &Scope::default()).unwrap();
+    let meta = public_meta(&task.meta, None);
+    assert_eq!(meta, json!({ "tag": "scout", "agent": "worker", "preset": "agent-worker", "provider": "openai", "model": "gpt-5", "effort": "medium" }));
     settle().await;
-    let registry = Reg(rig.shared.clone());
-    let closer = Closer(rig.shared.clone());
-    let parts = CloseParts { registry: &registry, sessions: &closer, tasks: &rig.shared.board };
-    let view = close_resolved(parts, "sess_w1", "sess_w1", &Scope::default(), None, false).await.expect("closes");
-    assert!(view.closed);
-    let closes: Vec<Value> = lock(&rig.shared.log).iter().filter(|entry| entry.as_str().is_some_and(|e| e.starts_with("close:"))).cloned().collect();
-    assert_eq!(closes, [json!("close:sess_c1:agent-task-cancel"), json!("close:sess_c1:cli-agent-close"), json!("close:sess_w1:cli-agent-close")]);
-    let job = rig.shared.board.get(handle.task_id(), &Scope::default()).unwrap();
-    assert_eq!((job.status.as_str(), job.error.as_deref()), ("cancelled", Some("cli-agent-close")));
+    settle().await;
+    let state = final_state(&rig, job.task_id(), true);
+    assert_eq!((state["status"].as_str(), state["notified"].as_bool()), (Some("completed"), Some(true)));
+    assert_eq!(state["result"]["content"], "done");
+    let notices = lock(&rig.shared.notices).clone();
+    assert!(notices.iter().any(|n| n["session"] == "lead" && n["text"].as_str().is_some_and(|t| t.contains("<status>completed</status>") && t.contains("done"))), "{notices:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_send_to_an_idle_worker_runs_its_turn_as_a_job_and_tells_the_caller() {
+    backend();
+    let scenario = send_world("dispatch", "sent");
+    let rig = rig(&scenario, None);
+    let context = caller_context();
+    let session = lock(&rig.shared.session).clone();
+    let prepared = Prepared {
+        args: scenario["args"].clone(),
+        session: SessionFacts { id: "sess_w1".into(), agent: s(&session, "agent"), cwd: s(&session, "cwd"), ..SessionFacts::default() },
+        session_id: "sess_w1".into(),
+        prompt: Some("follow up".into()),
+        route: None,
+    };
+    let reply = rig.send.dispatch_to_existing_session(&prepared, &context, DispatchOptions::default()).await.expect("dispatched");
+    assert!(matches!(reply, AgentReply::Task { .. }), "an idle worker takes the turn at once");
+    settle().await;
+    settle().await;
+    let id = rig.shared.board.list_jobs(&Scope::default()).first().map(|t| t.task_id.clone()).expect("the send's job");
+    let state = final_state(&rig, &id, false);
+    assert_eq!((state["status"].as_str(), state["result"]["content"].as_str()), (Some("completed"), Some("sent")));
+    let asked = lock(&rig.shared.log).iter().find(|entry| entry[0] == "ask").map(|entry| entry[1].clone()).expect("the worker's turn ran");
+    assert_eq!(asked, "follow up");
+}
+
+#[tokio::test(start_paused = true)]
+async fn waking_an_idle_worker_reveals_its_session_and_runs_a_turn_with_an_empty_prompt() {
+    backend();
+    let mut scenario = send_world("wake", "woken");
+    scenario["steps"] = json!([{ "return": { "content": "woken" } }]);
+    let rig = rig(&scenario, None);
+    assert!(rig.send.wake_idle_worker("sess_w1"));
+    settle().await;
+    settle().await;
+    assert_eq!(*lock(&rig.shared.revealed), [json!("sess_w1")]);
+    let asked = lock(&rig.shared.log).iter().find(|entry| entry[0] == "ask").map(|entry| entry[1].clone()).expect("a turn ran");
+    assert_eq!(asked, "");
+    assert!(!rig.send.wake_idle_worker(""), "no session, no wake");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_files_and_images_of_a_call_reach_the_first_turn_of_a_spawn_and_the_turn_of_a_send() {
+    backend();
+    let (scenario, host) = spawn_world("done");
+    let spawned = rig(&scenario, Some(&host));
+    execute_with_parts(&spawned, json!({ "type": "spawn", "agent": "worker", "prompt": "do it", "tag": "scout" })).await;
+    let sent = rig(&send_world("dispatch", "sent"), None);
+    execute_with_parts(&sent, json!({ "type": "send", "tag": "scout", "prompt": "follow up" })).await;
+    for (rig, prompt) in [(&spawned, "do it"), (&sent, "follow up")] {
+        let content = asked(rig);
+        let items = content.as_array().unwrap_or_else(|| panic!("a turn with parts asks with a list: {content}"));
+        assert_eq!(items.len(), 3, "the prompt, the file and the image: {content}");
+        assert_eq!(items[0]["text"], prompt);
+        assert_eq!((items[1]["filename"].as_str(), items[2]["filename"].as_str()), (Some("spec.pdf"), Some("shot.png")));
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_foreground_run_ends_with_the_workers_answer_and_closes_its_session() {
+    backend();
+    let (scenario, host) = spawn_world("done");
+    let rig = rig(&scenario, Some(&host));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let (session, content) = rig.spawn.run_to_completion(&scenario["args"], "/work", &caller_context(), &cancel).await.expect("the run completes");
+    assert_eq!(content, "done");
+    let session = session.expect("the run's session");
+    let closed = lock(&rig.shared.log).iter().any(|entry| *entry == json!(format!("close:{session}:routine-executor-finished")));
+    assert!(closed, "the agent's session is closed once the run is over");
 }

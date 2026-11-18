@@ -62,43 +62,6 @@ pub struct ModeEnv {
     pub mouse: bool,
 }
 
-impl ModeEnv {
-    /// The decisions of the environment `var` reads (`None` when a variable is not set).
-    pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> ModeEnv {
-        let mouse_raw = var("MIXDOG_TUI_MOUSE").filter(|value| !value.is_empty()).unwrap_or_else(|| "1".to_string());
-        ModeEnv {
-            extended_keys: supports_extended_keys_with(&var),
-            windows_terminal: var("WT_SESSION").is_some_and(|value| !value.is_empty()),
-            mouse: !is_off_word(&mouse_raw),
-        }
-    }
-
-    /// [`ModeEnv::from_vars`] over the process environment.
-    pub fn from_process() -> ModeEnv {
-        ModeEnv::from_vars(|name| std::env::var(name).ok())
-    }
-
-    /// Mouse tracking, the alternate scroll off and, outside Windows Terminal, XTSHIFTESCAPE on; empty when
-    /// `MIXDOG_TUI_MOUSE` turned mouse capture off. Written once the session is ready.
-    pub fn mouse_on(&self) -> String {
-        if !self.mouse {
-            return String::new();
-        }
-        let shift = if self.windows_terminal { "" } else { XTSHIFTESCAPE_ON };
-        format!("{MOUSE_TRACKING_BASE_ON}{ALT_SCROLL_OFF}{shift}")
-    }
-
-    /// Kitty keyboard flags and modifyOtherKeys, written at the moment raw mode turns on, before the first read; empty
-    /// when the terminal is not on the allowlist.
-    pub fn extended_keys_on(&self) -> String {
-        if self.extended_keys {
-            format!("{ENABLE_KITTY_KEYBOARD}{ENABLE_MODIFY_OTHER_KEYS}")
-        } else {
-            String::new()
-        }
-    }
-}
-
 /// `0`, `false`, `no` or `off` in any case, with nothing around it.
 pub(crate) fn is_off_word(raw: &str) -> bool {
     ["0", "false", "no", "off"].iter().any(|word| raw.eq_ignore_ascii_case(word))
@@ -364,5 +327,43 @@ mod tests {
         assert!(restore.poll(t0 + Duration::from_secs(1)).is_none());
         assert!(restore.passthrough(t0 + Duration::from_secs(2)).is_none());
         assert!(restore.next_due().is_none());
+    }
+}
+
+
+impl ModeEnv {
+    /// The decisions of the environment `var` reads (`None` when a variable is not set).
+    pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> ModeEnv {
+        let mouse_raw = var("MIXDOG_TUI_MOUSE").filter(|value| !value.is_empty()).unwrap_or_else(|| "1".to_string());
+        ModeEnv {
+            extended_keys: supports_extended_keys_with(&var),
+            windows_terminal: var("WT_SESSION").is_some_and(|value| !value.is_empty()),
+            mouse: !is_off_word(&mouse_raw),
+        }
+    }
+
+    /// [`ModeEnv::from_vars`] over the process environment.
+    pub fn from_process() -> ModeEnv {
+        ModeEnv::from_vars(|name| std::env::var(name).ok())
+    }
+
+    /// Mouse tracking, the alternate scroll off and, outside Windows Terminal, XTSHIFTESCAPE on; empty when
+    /// `MIXDOG_TUI_MOUSE` turned mouse capture off. Written once the session is ready.
+    pub fn mouse_on(&self) -> String {
+        if !self.mouse {
+            return String::new();
+        }
+        let shift = if self.windows_terminal { "" } else { XTSHIFTESCAPE_ON };
+        format!("{MOUSE_TRACKING_BASE_ON}{ALT_SCROLL_OFF}{shift}")
+    }
+
+    /// Kitty keyboard flags and modifyOtherKeys, written at the moment raw mode turns on, before the first read; empty
+    /// when the terminal is not on the allowlist.
+    pub fn extended_keys_on(&self) -> String {
+        if self.extended_keys {
+            format!("{ENABLE_KITTY_KEYBOARD}{ENABLE_MODIFY_OTHER_KEYS}")
+        } else {
+            String::new()
+        }
     }
 }

@@ -273,6 +273,11 @@ impl ConfigSeams for ConfigRunSeams {
         super::compaction_follow::sync_change(header, &self.saved_compaction()).set.shift_remove("compaction")
     }
 
+    fn synced_cache_opts(&self, header: &Header) -> Option<Value> {
+        let auto_clear = self.config.agent().get("autoClear").cloned().unwrap_or(Value::Null);
+        super::session_cache_opts::refreshed_cache_opts(header, &auto_clear)
+    }
+
     fn settings_changes(&self, thread: &mixdog_core_api::ids::ThreadId) -> Option<mixdog_core_session::session::turn_ops::SettingsFeed> {
         self.settings.as_ref().map(|settings| settings.feed(thread))
     }
@@ -347,6 +352,10 @@ impl ConfigSeams for ConfigRunSeams {
             attachments: None,
             file_text: None,
             model_max_output_tokens: None,
+            auto_clear: Some({
+                let config = self.config.clone();
+                Arc::new(move || mixdog_agent::compact::settings::normalize_auto_clear(config.agent().get("autoClear")).get("enabled") != Some(&Value::Bool(false)))
+            }),
         }
     }
 

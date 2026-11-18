@@ -8,7 +8,8 @@ import test from 'node:test';
 import { beginDaemonSpawnCapture } from '../../../../../packages/protocol-client/src/launch/crash-capture/spawn-capture.mjs';
 import { launchCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
 import { ensureCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
-import { coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, requestCoreStop, DESKTOP_CORE_READY_TIMEOUT_MS, packagedMixdogRoot, resolveLocalCore } from './local-core.ts';
+import { coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, forceEndCore, requestCoreStop, DESKTOP_CORE_READY_TIMEOUT_MS, packagedMixdogRoot, readCoreState, resolveLocalCore } from './local-core.ts';
+import { BootReports } from '../core-port/boot-progress.ts';
 
 test('a packaged app tells the core where its unpacked resources and its profile are; a development run leaves the environment alone', () => {
   const base = { PATH: 'p' };
@@ -96,18 +97,22 @@ test('a quit asks only the core this app started to stop, and does not wait past
   const named = (pid) => async () => ({ pid });
   const ask = (overrides) =>
     requestCoreStop({ child: ours, bin: 'mixdogd', runtimeRoot: 'rt', env: { A: '1' }, timeoutMs: 50, spawnImpl: ctl(0), readDiscovery: named(7), ...overrides });
-  assert.equal(await ask(), true);
-  assert.deepEqual(runs.pop(), { bin: 'mixdogd', args: ['ctl', 'stop', '--when-idle', '--reason', 'userStop', '--json'], env: { A: '1' } });
+  const kind = async (overrides) => (await ask(overrides)).request;
+  // A quit's stop is forced: the app has detached, so nothing could confirm an abort, and a stop that waits for idle never ends a busy core.
+  assert.equal(await kind(), 'sent');
+  assert.deepEqual(runs.pop(), { bin: 'mixdogd', args: ['ctl', 'stop', '--force', '--reason', 'userStop', '--json'], env: { A: '1' } });
   // The discovery file names another core: it is not ours to stop.
-  assert.equal(await ask({ readDiscovery: named(8) }), false);
-  assert.equal(await ask({ readDiscovery: async () => { throw new Error('absent'); } }), false);
+  assert.equal(await kind({ readDiscovery: named(8) }), 'not-ours');
+  assert.equal((await ask({ readDiscovery: async () => { throw new Error('absent'); } })).request, 'refused');
   // No core started, or one that has ended.
-  assert.equal(await ask({ child: null }), false);
-  assert.equal(await ask({ child: { ...ours, exitCode: 0 } }), false);
+  assert.equal(await kind({ child: null }), 'none');
+  assert.equal(await kind({ child: { ...ours, exitCode: 0 } }), 'none');
   assert.equal(runs.length, 0);
-  // A refused request, and one that does not answer within the limit.
-  assert.equal(await ask({ spawnImpl: ctl(1) }), false);
-  assert.equal(await ask({ spawnImpl: ctl(undefined) }), true);
+  // A refused request says why, and one that does not answer within the limit is told apart.
+  const refused = await ask({ spawnImpl: ctl(1) });
+  assert.equal(refused.request, 'refused');
+  assert.match(refused.error, /exited 1/);
+  assert.equal(await kind({ spawnImpl: ctl(undefined) }), 'unanswered');
 });
 
 test('the app is told the core process it starts', async () => {
@@ -231,7 +236,6 @@ test('the desktop waits for a core that takes 20 s to serve, as a large profile 
 });
 
 test('a discovery file left by a process that no longer runs names no core: one is started, whatever the file says', async () => {
-  // What a killed 1.4.5 daemon leaves (no `core` section, so its state reads `unknown`), and what a killed core leaves.
   const leftBehind = [
     { state: 'unknown', rpcPort: null, blocked: null, pid: 4242 },
     { state: 'serving', rpcPort: 5151, blocked: null, pid: 4242 },
@@ -253,7 +257,7 @@ test('a discovery file left by a process that no longer runs names no core: one 
     assert.deepEqual(served, started, `left behind as ${stale.state}`);
     assert.equal(launches, 1, `left behind as ${stale.state}`);
   }
-  // The same file while its process runs is that core's: none is started beside it.
+  // An unrecognized live discovery is not enough evidence to start a contender.
   let clock = 0;
   let launches = 0;
   await assert.rejects(
@@ -268,6 +272,31 @@ test('a discovery file left by a process that no longer runs names no core: one 
     /core is not ready: the core is unknown/
   );
   assert.equal(launches, 0);
+});
+
+test('live legacy discovery starts one Rust contender and reports its prior-owner verdict', async (context) => {
+  const root = mkdtempSync(join(tmpdir(), 'local-core-'));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, 'daemon.json');
+  writeFileSync(file, JSON.stringify({ protocol: 1, revision: 6, pid: 41, endpoints: { session: { port: 4242 } } }));
+  const blocked = { kind: 'waitExit', pid: 41 };
+  let clock = 0;
+  let launches = 0;
+  await assert.rejects(ensureCore({
+    readDiscovery: () => readCoreState(root),
+    launch: async () => { launches++; },
+    sleep: async (ms) => {
+      clock += ms;
+      if (clock >= 100) writeFileSync(file, JSON.stringify({ pid: 42, core: { state: 'blocked', blocked } }));
+    },
+    now: () => clock,
+    runs: () => true,
+    readyTimeoutMs: 500,
+  }), (error) => {
+    assert.deepEqual(error.coreDiscovery?.blocked, blocked);
+    return true;
+  });
+  assert.equal(launches, 1);
 });
 
 test('a core that ends abnormally before serving fails the start at once with its exit, not after the whole wait', async () => {
@@ -303,7 +332,7 @@ test('a core that ends abnormally before serving fails the start at once with it
   // Nothing published: the failure comes when the exit is seen, with the exit and the core's own words.
   const crashed = await run({ exit: { exitCode: 101, exitSignal: null }, discovery: () => null });
   assert.equal(crashed.error?.message, 'core is not ready: the core ended before serving (exited with code 101): Error: the store is locked');
-  assert.deepEqual(crashed.error.coreExit, { code: 101, signal: null, stderrPath: 'capture.err.log' });
+  assert.deepEqual(crashed.error.coreExit, { code: 101, signal: null, reason: null, stderrPath: 'capture.err.log' });
   assert.equal(crashed.clock, 150);
   // The file it left behind still names it: the same.
   const stale = await run({ exit: { exitCode: null, exitSignal: 'SIGKILL' }, discovery: (at) => (at >= 50 ? booting(77) : null) });
@@ -314,4 +343,284 @@ test('a core that ends abnormally before serving fails the start at once with it
   assert.deepEqual(lostClaim.value, serving(88));
   const otherCore = await run({ exit: { exitCode: 1, exitSignal: null }, discovery: (at) => (at >= 20_000 ? serving(88) : at >= 50 ? booting(88) : null) });
   assert.deepEqual(otherCore.value, serving(88));
+});
+test('a core left running at quit is ended with its process tree on Windows, and a gone core is left alone', () => {
+  const calls = [];
+  const spawnImpl = (bin, args) => {
+    calls.push([bin, ...args]);
+    const child = new EventEmitter();
+    child.unref = () => {};
+    return child;
+  };
+  const running = { pid: 4321, exitCode: null, signalCode: null, once() {} };
+  assert.equal(forceEndCore(running, { platform: 'win32', spawnImpl }), true);
+  assert.deepEqual(calls, [['taskkill', '/PID', '4321', '/T', '/F']]);
+  assert.equal(forceEndCore({ ...running, exitCode: 0 }, { platform: 'win32', spawnImpl }), false);
+  assert.equal(forceEndCore(null, { platform: 'win32', spawnImpl }), false);
+  assert.equal(calls.length, 1);
+});
+
+const booting = (rebuild) => ({ state: 'booting', rpcPort: null, blocked: null, rebuild });
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test('the launcher reports the core\'s index rebuild while it waits, each change once, and nothing for a start without one', async () => {
+  const run = async (states) => {
+    let step = 0;
+    const told = [];
+    await ensureCore({
+      readDiscovery: async () => states[step++] ?? { state: 'serving', rpcPort: 4242, blocked: null, rebuild: null },
+      launch: async () => {},
+      sleep: async () => {},
+      now: () => 0,
+      readyTimeoutMs: DESKTOP_CORE_READY_TIMEOUT_MS,
+      onProgress: (progress) => told.push(progress),
+    });
+    await tick();
+    return told;
+  };
+  assert.deepEqual(
+    await run([booting(null), booting({ done: 0, total: 3 }), booting({ done: 0, total: 3 }), booting({ done: 2, total: 3 }), booting({ done: 3, total: 3 })]),
+    [{ done: 0, total: 3 }, { done: 2, total: 3 }, { done: 3, total: 3 }, null],
+    'counts as they advance, then withdrawn when the core serves',
+  );
+  assert.deepEqual(await run([booting(null), booting(null)]), [], 'a normal start reports nothing');
+  assert.deepEqual(await run([{ state: 'migrating', rpcPort: null, blocked: null, rebuild: null }]), [], 'a conversion of older data (no counts) reports nothing');
+});
+
+test('a report belongs to its call: it is withdrawn when the call throws on a read error or at its deadline', async () => {
+  const told = [];
+  const base = { launch: async () => {}, sleep: async () => {}, readyTimeoutMs: 1_000, ping: async () => ({ answered: false, stalledMs: 0 }), onProgress: (p) => told.push(p) };
+  let step = 0;
+  await assert.rejects(
+    ensureCore({ ...base, now: () => 0, readDiscovery: async () => { if (step++ === 0) return booting({ done: 1, total: 4 }); throw new Error('EACCES'); } }),
+    /EACCES/,
+  );
+  await tick();
+  assert.deepEqual(told, [{ done: 1, total: 4 }, null], 'a failed read withdraws the report');
+  told.length = 0;
+  let clock = 0;
+  await assert.rejects(
+    ensureCore({ ...base, now: () => clock, sleep: async (ms) => void (clock += ms), readDiscovery: async () => booting({ done: 1, total: 4 }) }),
+    /core is not ready/,
+  );
+  await tick();
+  assert.deepEqual(told, [{ done: 1, total: 4 }, null], 'the deadline withdraws it');
+});
+
+test('a launch attempt owns its reports: nothing it said outlives it, whichever way it ends, and one attempt\'s end leaves another\'s alone', () => {
+  const reports = new BootReports();
+  const a = reports.attempt();
+  const b = reports.attempt();
+  a.progress({ done: 1, total: 5 }, 7);
+  b.progress({ done: 2, total: 5 }, 7);
+  assert.deepEqual(reports.current().progress, { done: 2, total: 5, boot: 7 });
+  b.failed(new Error('timed out'));
+  assert.deepEqual(reports.current().progress, { done: 2, total: 5, boot: 7 }, 'the other attempt still stands, and what the boot reached is not taken back');
+  a.progress(null, null);
+  assert.equal(reports.current().progress, null);
+  const c = reports.attempt();
+  c.progress({ done: 3, total: 5 }, 7);
+  c.failed(new Error('read error'));
+  assert.equal(reports.current().progress, null, 'a failed attempt leaves no count behind');
+  c.progress({ done: 4, total: 5 }, 7);
+  assert.equal(reports.current().progress, null, 'a late report of an ended attempt is ignored');
+  const d = reports.attempt();
+  d.progress({ done: 5, total: 5 }, 7);
+  d.succeeded();
+  assert.equal(reports.current().progress, null);
+});
+
+test('one core boot\'s counts never decrease on screen, whichever attempt read them; a new boot starts again', () => {
+  const reports = new BootReports();
+  const seen = [];
+  reports.subscribe((report) => seen.push(report.progress && `${report.progress.boot}:${report.progress.done}`));
+  const older = reports.attempt();
+  const newer = reports.attempt();
+  newer.progress({ done: 6, total: 10 }, 11);
+  older.progress({ done: 4, total: 10 }, 11);
+  assert.equal(reports.current().progress.done, 6, 'an older reading of the same boot is not shown');
+  newer.failed(new Error('gone'));
+  assert.equal(reports.current().progress.done, 6, 'ending the newer attempt exposes no older cached value');
+  older.progress({ done: 7, total: 10 }, 11);
+  assert.equal(reports.current().progress.done, 7);
+  older.progress(null, null);
+  assert.equal(reports.current().progress, null, 'withdrawn');
+  const later = reports.attempt();
+  later.progress({ done: 5, total: 10 }, 11);
+  assert.equal(reports.current().progress.done, 7, 'a later reading of the same boot does not show less than was reached');
+  later.succeeded();
+  assert.equal(reports.current().progress, null);
+  const next = reports.attempt();
+  next.progress({ done: 0, total: 10 }, 12);
+  assert.deepEqual(reports.current().progress, { done: 0, total: 10, boot: 12 }, 'a new boot starts at zero');
+  assert.ok(seen.every((value, index) => index === 0 || value === null || seen[index - 1] === null || Number(value.split(':')[0]) !== Number(seen[index - 1].split(':')[0]) || Number(value.split(':')[1]) >= Number(seen[index - 1].split(':')[1])), `never decreasing within a boot: ${seen}`);
+});
+
+test('a core that exits at boot with the same recorded outcome again is a start that cannot succeed, whatever its stderr said; a different outcome or one exit read twice is not', () => {
+  const exited = (path, code = 2, said = 'no manifest', signal = null, reason = `exited with code ${code}`) =>
+    Object.assign(new Error(`core is not ready: the core ended before serving (${reason}): ${said}`), { coreExit: { code, signal, reason, stderrPath: path } });
+  const reports = new BootReports();
+  const outcome = (error) => reports.attempt().failed(error);
+  const permanent = (error) => Boolean(error.coreLaunchFailed);
+  const first = exited('a', 2, '[2026-11-19T01:00:00Z] pid 4001: C:\\tmp\\a1\\x not found');
+  assert.equal(permanent(outcome(first)), false, 'the first exit is an ordinary failure');
+  assert.equal(reports.current().failure, null);
+  assert.equal(permanent(outcome(exited('a', 2, 'other text'))), false, 'the same capture seen again (an overlapping attempt) is not a second exit');
+  assert.equal(permanent(outcome(exited('b', 3, 'x'))), false, 'a different code is a new first');
+  assert.equal(permanent(outcome(exited('c', 3, 'y', 'SIGSEGV'))), false, 'a different signal is a new first');
+  assert.equal(permanent(outcome(exited('c2', 3, 'y', 'SIGSEGV', 'unrecorded-termination: the daemon ended without running any exit hook'))), false, 'the same code and signal with another recorded reason is a new first');
+  const again = outcome(exited('d', 3, '[2026-11-19T01:00:05Z] pid 4002: C:\\tmp\\b2\\y', 'SIGSEGV', 'unrecorded-termination: the daemon ended without running any exit hook'));
+  assert.ok(permanent(again), 'the same code and signal, other timestamps, pids and paths in the stderr line');
+  assert.equal(reports.current().failure.exitCode, 3);
+  assert.equal(reports.current().failure.stderrPath, 'd');
+  assert.match(reports.current().failure.message, /pid 4002/, 'the launcher\'s sentence is the detail shown');
+  const timeout = new Error('core is not ready: booting');
+  assert.equal(outcome(timeout), timeout, 'a wait that ran out is not an exit');
+  reports.attempt().succeeded();
+  assert.equal(reports.current().failure, null, 'a core observed serving supersedes it');
+  reports.attempt().failed(exited('e0'));
+  reports.attempt().failed(exited('e1'));
+  assert.ok(reports.current().failure);
+  reports.retry();
+  assert.equal(reports.current().failure, null);
+  assert.equal(permanent(outcome(exited('e', 7))), false, 'a different outcome after Try again is a new first');
+});
+
+test('a confirmed failure stays until the user chooses Try again: other attempts do not clear it, and no launch is made meanwhile', async () => {
+  const reports = new BootReports();
+  const heard = [];
+  const exited = (path) => Object.assign(new Error('ended'), { coreExit: { code: 2, signal: null, reason: 'exited with code 2', stderrPath: path } });
+  reports.attempt().failed(exited('a'));
+  reports.attempt().failed(exited('b'));
+  const confirmed = reports.confirmed();
+  assert.ok(confirmed);
+  reports.subscribe((report) => heard.push(report));
+  let launched = 0;
+  let retried = false;
+  const resolve = resolveLocalCore({
+    runtimeRoot: 'unused', bin: 'mixdogd', environmentReady: async () => {}, reports,
+    ensure: async (options) => {
+      if (!retried) return options.launch(); // the latch refuses a launch
+      launched += 1;
+      throw exited('c');
+    },
+  });
+  for (let i = 0; i < 3; i += 1) {
+    const error = await resolve().catch((e) => e);
+    assert.equal(error.coreLaunchFailed, confirmed, 'background resolutions get the confirmed failure');
+  }
+  assert.equal(launched, 0, 'nothing launches the core');
+  assert.equal(reports.confirmed(), confirmed);
+  assert.deepEqual(heard, [], 'nothing was told: the card does not alternate with the mark');
+  reports.retry();
+  retried = true;
+  assert.equal(reports.confirmed(), null, 'the user\'s action clears it');
+  const after = await resolve().catch((e) => e);
+  assert.equal(launched, 1, 'and the next resolution launches');
+  assert.ok(after.coreLaunchFailed && reports.confirmed(), 'the same exit recorded again after Try again is confirmed at once');
+});
+test('the latch governs attempts already in flight: one that waited on the core does not launch it, and its end, whichever way, does not clear the failure', async () => {
+  const reports = new BootReports();
+  const exited = (path, code) => Object.assign(new Error(`ended ${code}`), { coreExit: { code, signal: null, reason: `exited with code ${code}`, stderrPath: path } });
+  let release;
+  const waiting = new Promise((resolve) => (release = resolve));
+  let launched = 0;
+  let paths = 0;
+  const inFlight = resolveLocalCore({
+    runtimeRoot: 'unused', bin: 'mixdogd', environmentReady: async () => {}, reports,
+    ensure: async (options) => {
+      await waiting;
+      await options.launch();
+      launched += 1;
+    },
+  })().catch((error) => error);
+  const other = resolveLocalCore({
+    runtimeRoot: 'unused', bin: 'mixdogd', environmentReady: async () => {}, reports,
+    ensure: async () => {
+      throw exited(`p${paths++}`, 2);
+    },
+  });
+  await other().catch(() => {});
+  await other().catch(() => {});
+  const confirmed = reports.confirmed();
+  assert.ok(confirmed, 'confirmed while the first attempt still waits');
+  release();
+  const result = await inFlight;
+  assert.equal(launched, 0, 'it did not launch');
+  assert.equal(result.coreLaunchFailed, confirmed);
+  // an in-flight attempt that ends for another reason leaves the latch alone
+  reports.attempt().failed(exited('z', 9));
+  assert.equal(reports.confirmed(), confirmed);
+  reports.retry();
+  assert.equal(reports.confirmed(), null);
+});
+
+test('a confirmed failure does not keep a working core behind the card: an attempt attaches to a serving core without launching and the failure is superseded', async () => {
+  const reports = new BootReports();
+  const exited = (path) => Object.assign(new Error('ended'), { coreExit: { code: 2, signal: null, reason: 'exited with code 2', stderrPath: path } });
+  reports.attempt().failed(exited('a'));
+  reports.attempt().failed(exited('b'));
+  assert.ok(reports.confirmed());
+  const heard = [];
+  reports.subscribe((report) => heard.push(report.failure));
+  let launches = 0;
+  const serving = { state: 'serving', rpcPort: 4242, blocked: null };
+  const resolve = resolveLocalCore({
+    runtimeRoot: 'unused', bin: 'mixdogd', environmentReady: async () => {}, reports,
+    ensure: async () => serving,
+  });
+  await resolve().catch((error) => assert.match(String(error), /daemon\.json|ENOENT/, 'only the discovery read after ensure may fail here'));
+  assert.equal(reports.confirmed(), null, 'observing a serving core supersedes the failure');
+  assert.deepEqual(heard, [null], 'the windows are told once');
+  assert.equal(launches, 0);
+});
+test('a superseded boot\'s late readings never become current again: A:9, B:1, then A:8 leaves B\'s bar', () => {
+  const reports = new BootReports();
+  const a = reports.attempt();
+  const b = reports.attempt();
+  a.progress({ done: 9, total: 10 }, 1);
+  b.progress({ done: 1, total: 10 }, 2);
+  assert.deepEqual(reports.current().progress, { done: 1, total: 10, boot: 2 });
+  a.progress({ done: 8, total: 10 }, 1);
+  assert.deepEqual(reports.current().progress, { done: 1, total: 10, boot: 2 }, 'A\'s late reading does not replace B\'s');
+  b.progress({ done: 4, total: 10 }, 2);
+  b.progress({ done: 3, total: 10 }, 2);
+  assert.equal(reports.current().progress.done, 4, 'each boot keeps its own highest');
+});
+test('resolveLocalCore reports each call as one attempt and rethrows what the launcher threw, marked once the same exit repeats', async () => {
+  const reports = new BootReports();
+  const ended = (path) => Object.assign(new Error('core is not ready: the core ended before serving (exited with code 2): no manifest'), { coreExit: { code: 2, signal: null, reason: 'exited with code 2', stderrPath: path } });
+  let step = 0;
+  const resolve = resolveLocalCore({
+    runtimeRoot: 'unused',
+    bin: 'mixdogd',
+    environmentReady: async () => {},
+    reports,
+    ensure: async (options) => {
+      options.onProgress({ done: 1, total: 2 }, 9);
+      throw ended(`p${step++}`);
+    },
+  });
+  const first = await resolve().catch((error) => error);
+  assert.match(first.message, /no manifest/);
+  assert.equal(first.coreLaunchFailed, undefined);
+  assert.equal(reports.current().progress, null, 'its progress ended with it');
+  const second = await resolve().catch((error) => error);
+  assert.match(second.message, /no manifest/);
+  assert.equal(second.coreLaunchFailed.exitCode, 2);
+});
+test('the discovery file\'s rebuild counts are read only when they count something', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-core-state-'));
+  try {
+    const read = async (core) => {
+      writeFileSync(join(root, 'daemon.json'), JSON.stringify({ pid: 1, endpoints: { session: { token: 't' } }, core }));
+      return (await readCoreState(root)).rebuild;
+    };
+    assert.deepEqual(await read({ state: 'booting', rebuild: { done: 5, total: 20 } }), { done: 5, total: 20 });
+    assert.equal(await read({ state: 'booting' }), null, 'absent without a rebuild');
+    assert.equal(await read({ state: 'migrating', rebuild: { done: 0, total: 0 } }), null, 'no counts, no bar');
+    assert.equal(await read({ state: 'serving', rpc: { port: 1 } }), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -31,6 +31,7 @@ export async function setAgentOn(deps: AgentActionDeps, agentId: string, on: boo
   const api = deps.api ?? window.mixdogDesktop;
   if (agentId === MIXY_AGENT_ID || !api?.invokeCapability) return false;
   try {
+    // A flag-only write must not re-save the route or check provider availability.
     await api.invokeCapability({ capability: 'setAgentRoute', args: [agentId, { disabled: !on }] });
     invalidateSidebarReferenceForMutation('setAgentRoute');
     return true;
@@ -105,6 +106,7 @@ export async function restoreAgent(deps: AgentActionDeps, agentId: string, name:
   const api = deps.api ?? window.mixdogDesktop;
   if (agentId === MIXY_AGENT_ID || !api?.invokeCapability) return false;
   try {
+    // The host publishes the restored home on the session feed before answering.
     await api.invokeCapability({ capability: 'restoreAgentDefinition', args: [agentId] });
     invalidateSidebarReferenceForMutation('restoreAgentDefinition');
     forgetArchivedBotIdentity(agentId);

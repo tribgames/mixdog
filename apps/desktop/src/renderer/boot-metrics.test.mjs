@@ -70,7 +70,7 @@ test('persisted startup routes still wait for the project catalog', () => {
     startupRestoreCatalogPending({
       projectCatalogReady: false,
       storedSessionId: '',
-      storedProjectPath: 'C:\\Project\\mixdog',
+      storedProjectPath: 'C:\\Project\\sample',
     }),
     true
   );

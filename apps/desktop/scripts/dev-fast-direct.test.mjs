@@ -20,6 +20,7 @@ import {
   hashBrowserImportNativeTools,
   koffiBindingPath,
   MissingProductionDependencyError,
+  packageExcludesOutputFile,
   packagingManifestForFingerprint,
   planForceFullForMissingProductionDependency,
   runtimePackageFileForFingerprint,
@@ -68,6 +69,28 @@ test('FastDirect notices changed dependency bytes even when both runtime manifes
   const before = await hashInstalledRuntime(resources);
   await writeFile(file, 'changed');
   assert.notEqual(await hashInstalledRuntime(resources), before);
+});
+
+test('FastDirect renderer and main inputs cover consumed changelogs and Vite plugins', () => {
+  const has = (group, path) => targetInputs[group].some((input) => resolve(input) === resolve(repoRoot, path));
+  assert.ok(has('renderer', 'CHANGELOG.md'));
+  assert.ok(has('renderer', 'changelog/ko.md'));
+  assert.ok(!has('renderer', 'changelog'));
+  assert.ok(!has('renderer', 'apps/desktop/scripts/dev-linked-assets.ts'));
+  assert.ok(has('main', 'apps/desktop/node_modules/echarts/dist/echarts.min.js'));
+  assert.ok(has('renderer', 'apps/desktop/node_modules/echarts/dist/echarts.min.js'));
+  assert.ok(has('main', 'apps/desktop/node_modules/mermaid/dist/mermaid.min.js'));
+  assert.ok(targetInputs.main.some((path) => path.endsWith('Pretendard-Medium.subset.woff2')));
+  assert.ok(has('renderer', 'apps/desktop/scripts/chunk-prefetch.ts'));
+  assert.ok(has('renderer', 'apps/desktop/scripts/remote-webrtc-sender-csp.mjs'));
+  assert.ok(has('main', 'apps/desktop/scripts/computer-source-assets.mjs'));
+});
+
+test('FastDirect shell applies the full package output exclusions', () => {
+  assert.equal(packageExcludesOutputFile('out/main/capture-window.js'), true);
+  assert.equal(packageExcludesOutputFile('out/main/chunks/jitter-probe-abc.js'), true);
+  assert.equal(packageExcludesOutputFile('out/renderer/assets/index-abc.js.map'), true);
+  assert.equal(packageExcludesOutputFile('out/main/index.js'), false);
 });
 
 test('FastDirect fingerprints browser importer source and installed native tools', async (context) => {

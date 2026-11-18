@@ -104,7 +104,8 @@ impl WarmSessions for SessionsWarm {
             effort_levels_empty: self.caps.effort_levels_empty(&model),
             session_id: session_id.to_owned(),
             provider_name: sent.provider_name,
-            request: sent.material.request,
+            // The kept request is the sent one without its tail reminder; the warm adds its own.
+            request: mixdog_agent::without_tail_reminder(&sent.material.request),
             sent_at: sent.sent_at as f64,
             owner_session_id: sent.owner_session_id,
             provider_generation: self.registry.generation_of(&sent.material.provider),
@@ -283,6 +284,10 @@ impl TurnWarmth for WarmedTurns {
             Some(turn) => Box::new(WarmedTurn { warmer: self.0.clone(), session: thread.as_str().to_owned(), turn }),
             None => Box::new(()),
         }
+    }
+
+    fn unloaded(&self, thread: &ThreadId) {
+        self.0.cancel(thread.as_str());
     }
 }
 #[cfg(test)]

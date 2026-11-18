@@ -62,51 +62,6 @@ fn failure_text(failure: SummaryFailure) -> String {
 /// `AbortSignal.timeout`'s error message.
 const TIMED_OUT: &str = "The operation was aborted due to timeout";
 
-impl RouteMaintainer {
-    pub fn new(routes: Arc<dyn RouteResolver>, log: RawLog) -> Self {
-        Self { routes, log, timeout: TIMEOUT }
-    }
-
-    /// One deadline over route resolution (which brings the provider up) and the send, as
-    /// Node's single `AbortSignal.timeout` covers `initProviders` and `provider.send`.
-    async fn step(&self, step: &SupervisorStep) -> Result<Option<Decision>, String> {
-        // Members without an id are no candidates, and a step with none has no usable decision: no
-        // route is resolved and nothing is asked or logged (`if (!members.length) return null`).
-        // The exchange reaches this with every member it had called gone from the room since.
-        let members: Vec<_> = step.members.iter().filter(|member| !member.id.is_empty()).cloned().collect();
-        if members.is_empty() {
-            return Ok(None);
-        }
-        // The Maintainer's own route only; without one the room is unmoderated.
-        let route = match self.routes.resolve(RouteStep::Maintainer).await {
-            Ok(Some(route)) => route,
-            Ok(None) => return Ok(Some(Decision { action: Action::Unmanaged, scene: None })),
-            Err(error) => return Err(failure_text(error)),
-        };
-        let prompt = supervisor_prompt(&SupervisorInput { room_name: &step.room_name, members: &members, rows: &step.rows, decide: &step.decide });
-        let call = SummaryCall {
-            model: route.model.clone(),
-            max_output_tokens: MAX_OUTPUT_TOKENS,
-            fast: route.fast,
-            shape: CallShape::room_supervisor(route.effort.as_deref()),
-        };
-        let started = tokio::time::Instant::now();
-        let reply = route.sender.send(&prompt.system, &prompt.user, &call).await.map_err(failure_text)?;
-        let decision = parse_room_decision(&reply.text, &members);
-        // One line per step: its latency and outcome, and for an unusable reply its bounded head.
-        let ms = started.elapsed().as_millis();
-        (self.log)(&format!("[room-supervisor] model={} ms={ms} decision={}\n", route.model, outcome(decision.as_ref(), &reply.text)));
-        Ok(decision)
-    }
-}
-
-#[async_trait]
-impl Maintainer for RouteMaintainer {
-    async fn decide(&self, step: &SupervisorStep) -> Result<Option<Decision>, String> {
-        mixdog_rt::time::timeout(self.timeout, self.step(step)).await.unwrap_or_else(|_| Err(TIMED_OUT.into()))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,11 +75,11 @@ mod tests {
     #[async_trait]
     impl SummarySender for Echo {
         async fn send(&self, _system: &str, _prompt: &str, call: &SummaryCall) -> Result<SummaryResponse, SummaryFailure> {
-            self.1.lock().unwrap().push(format!("{}|{}|{}|{}", call.model, call.max_output_tokens, call.fast, call.shape.effort));
+            self.1.lock().unwrap().push(format!("{}|{}|{}|{}", call.model, call.max_output_tokens.unwrap_or(0), call.fast, call.shape.effort));
             if self.0 == "boom" {
                 return Err(SummaryFailure::Failed("x".into()));
             }
-            Ok(SummaryResponse { text: self.0.to_owned(), tool_call: false, usage: None, input_excludes_cache: false })
+            Ok(SummaryResponse { text: self.0.to_owned(), tool_call: false, stop: None, usage: None, input_excludes_cache: false })
         }
     }
 
@@ -213,5 +168,49 @@ mod tests {
         assert_eq!(maintainer(Err(()), None, "").0.decide(&step()).await, Err("provider".into()));
         assert_eq!(maintainer(Ok(Some(())), None, "boom").0.decide(&step()).await, Err("x".into()));
         assert_eq!(maintainer(Ok(Some(())), None, "").0.decide(&step()).await, Ok(None));
+    }
+}
+
+impl RouteMaintainer {
+    pub fn new(routes: Arc<dyn RouteResolver>, log: RawLog) -> Self {
+        Self { routes, log, timeout: TIMEOUT }
+    }
+
+    /// One deadline over route resolution (which brings the provider up) and the send, as
+    /// Node's single `AbortSignal.timeout` covers `initProviders` and `provider.send`.
+    async fn step(&self, step: &SupervisorStep) -> Result<Option<Decision>, String> {
+        // Members without an id are no candidates, and a step with none has no usable decision: no
+        // route is resolved and nothing is asked or logged (`if (!members.length) return null`).
+        // The exchange reaches this with every member it had called gone from the room since.
+        let members: Vec<_> = step.members.iter().filter(|member| !member.id.is_empty()).cloned().collect();
+        if members.is_empty() {
+            return Ok(None);
+        }
+        // The Maintainer's own route only; without one the room is unmoderated.
+        let route = match self.routes.resolve(RouteStep::Maintainer).await {
+            Ok(Some(route)) => route,
+            Ok(None) => return Ok(Some(Decision { action: Action::Unmanaged, scene: None })),
+            Err(error) => return Err(failure_text(error)),
+        };
+        let prompt = supervisor_prompt(&SupervisorInput { room_name: &step.room_name, members: &members, rows: &step.rows, decide: &step.decide });
+        let call = SummaryCall {
+            model: route.model.clone(),
+            max_output_tokens: Some(MAX_OUTPUT_TOKENS),
+            fast: route.fast,
+            shape: CallShape::room_supervisor(route.effort.as_deref()),
+        };
+        let started = tokio::time::Instant::now();
+        let reply = route.sender.send(&prompt.system, &prompt.user, &call).await.map_err(failure_text)?;
+        let decision = parse_room_decision(&reply.text, &members);
+        // One line per step: its latency and outcome, and for an unusable reply its bounded head.
+        let ms = started.elapsed().as_millis();
+        (self.log)(&format!("[room-supervisor] model={} ms={ms} decision={}\n", route.model, outcome(decision.as_ref(), &reply.text)));
+        Ok(decision)
+    }
+}
+#[async_trait]
+impl Maintainer for RouteMaintainer {
+    async fn decide(&self, step: &SupervisorStep) -> Result<Option<Decision>, String> {
+        mixdog_rt::time::timeout(self.timeout, self.step(step)).await.unwrap_or_else(|_| Err(TIMED_OUT.into()))
     }
 }

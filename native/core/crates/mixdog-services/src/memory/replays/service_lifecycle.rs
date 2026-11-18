@@ -476,6 +476,33 @@ mod pg {
         compare(name, at, want.clone(), step(&want, vec![("state", h.state()), ("calls", h.calls())]));
     }
 
+    async fn failing_step(index: usize, name: &str, injected: &str, background: bool) {
+        let g = golden(SET);
+        let c = case(&g, index, name);
+        let _one = crate::memory::replays::service_lifecycle::pg::one_cluster().await;
+        let profile = Profile { dir: tempfile::tempdir().expect("dir") };
+        let mut h = Harness::over(&profile, vec![Plan::opens()]).await;
+        open(&h).await;
+        init_step(&mut h, name, 0, &steps(c)[0]);
+        if background {
+            h.stack.stop_seam().fail_background(injected);
+        } else {
+            h.stack.stop_seam().fail_storage(injected);
+        }
+        stop_step(&mut h, name, 1, &steps(c)[1], Some(injected)).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn shutdown_releases_independent_resources_after_stop_background_work_fails() {
+        failing_step(14, "shutdown releases independent resources after stopBackgroundWork fails (test line 250)", "stopBackgroundWork failed", true).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn shutdown_releases_independent_resources_after_shutdown_fails() {
+        failing_step(15, "shutdown releases independent resources after shutdown fails (a further shape: the test loop has three steps) (test line 250)", "shutdown failed", false).await;
+    }
+
+
     #[tokio::test(flavor = "current_thread")]
     async fn concurrent_initialization_opens_each_owner_and_publishes_readiness_once() {
         let name = "concurrent initialization opens each owner and publishes readiness once (test line 57)";
@@ -494,7 +521,6 @@ mod pg {
         compare(name, 0, want.clone(), step(&want, vec![("sameInitPromiseWhilePending", bool(shared)), ("state", h.state()), ("calls", h.calls())]));
         stop_step(&mut h, name, 1, &steps(c)[1], None).await;
     }
-
     #[tokio::test(flavor = "current_thread")]
     async fn the_bound_port_is_advertised_before_runtime_readiness_but_ready_waits_for_both() {
         let name = "the bound port is advertised before runtime readiness, but ready waits for both (test line 73)";
@@ -517,7 +543,6 @@ mod pg {
         init_step(&mut h, name, 1, &steps(c)[1]);
         stop_step(&mut h, name, 2, &steps(c)[2], None).await;
     }
-
     #[tokio::test(flavor = "current_thread")]
     async fn integrated_or_secondary_startup_reports_a_null_port_without_advertising() {
         let name = "integrated or secondary startup reports a null port without advertising (test line 178)";
@@ -530,7 +555,6 @@ mod pg {
         init_step(&mut h, name, 0, &steps(c)[0]);
         stop_step(&mut h, name, 1, &steps(c)[1], None).await;
     }
-
     #[tokio::test(flavor = "current_thread")]
     async fn initialization_can_restart_after_shutdown_and_after_a_failed_acquisition() {
         let name = "initialization can restart after shutdown and after a failed acquisition (test line 185)";
@@ -560,7 +584,6 @@ mod pg {
         let attempts = h.installs.load(Ordering::SeqCst) + next.installs.load(Ordering::SeqCst);
         assert_eq!(c.get("attempts"), &Exact::Number(attempts as f64), "{name}: attempts");
     }
-
     #[tokio::test(flavor = "current_thread")]
     async fn explicit_shutdown_reports_cleanup_failures_and_clears_readiness() {
         let name = "explicit shutdown reports cleanup failures and clears readiness (test line 203)";
@@ -574,7 +597,6 @@ mod pg {
         h.stack.stop_seam().fail_storage("database close failed");
         stop_step(&mut h, name, 1, &steps(c)[1], Some("database close failed")).await;
     }
-
     #[tokio::test(flavor = "current_thread")]
     async fn shutdown_stops_workers_before_waiting_for_requests_that_depend_on_those_workers() {
         let name = "shutdown stops workers before waiting for requests that depend on those workers (test line 234)";
@@ -602,33 +624,6 @@ mod pg {
         }
         compare(name, 1, want.clone(), step(&want, vec![("order", Exact::Array(order)), ("state", h.state()), ("calls", h.calls())]));
     }
-
-    async fn failing_step(index: usize, name: &str, injected: &str, background: bool) {
-        let g = golden(SET);
-        let c = case(&g, index, name);
-        let _one = crate::memory::replays::service_lifecycle::pg::one_cluster().await;
-        let profile = Profile { dir: tempfile::tempdir().expect("dir") };
-        let mut h = Harness::over(&profile, vec![Plan::opens()]).await;
-        open(&h).await;
-        init_step(&mut h, name, 0, &steps(c)[0]);
-        if background {
-            h.stack.stop_seam().fail_background(injected);
-        } else {
-            h.stack.stop_seam().fail_storage(injected);
-        }
-        stop_step(&mut h, name, 1, &steps(c)[1], Some(injected)).await;
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn shutdown_releases_independent_resources_after_stop_background_work_fails() {
-        failing_step(14, "shutdown releases independent resources after stopBackgroundWork fails (test line 250)", "stopBackgroundWork failed", true).await;
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn shutdown_releases_independent_resources_after_shutdown_fails() {
-        failing_step(15, "shutdown releases independent resources after shutdown fails (a further shape: the test loop has three steps) (test line 250)", "shutdown failed", false).await;
-    }
-
     /// Case 16: the worker stop fails; storage is still released and the stop reports the worker's failure. The middle step (the request drain still
     /// open) is the listener's (declared); the last is compared after the stop.
     #[tokio::test(flavor = "current_thread")]
@@ -660,7 +655,6 @@ mod pg {
             ("calls", Exact::Array(calls[split..].to_vec())),
         ]));
     }
-
     /// Case 18: at quit the memory stop fails; the lines the host's quit stop writes to the memory worker's stderr against what Node's memory
     /// process wrote. Only `[memory-service]` lines are compared (the core's own owners, scripted in Node, may write theirs); the "client grace
     /// elapsed" line, `exitCodes` and `calls` are declared in the manifest.

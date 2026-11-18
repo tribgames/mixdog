@@ -117,6 +117,273 @@ fn millis(d: Duration) -> i64 {
     i64::try_from(d.as_millis()).unwrap_or(i64::MAX)
 }
 
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use super::*;
+
+    fn counting(counter: &Arc<AtomicUsize>, fail: bool) -> TaskFn {
+        let counter = counter.clone();
+        Arc::new(move || {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                if fail { Err("boom".to_owned()) } else { Ok(()) }
+            }
+            .boxed()
+        })
+    }
+
+    fn options(interval_ms: u64, delay_ms: u64, on_error: Option<ErrorSink>) -> TaskOptions {
+        TaskOptions { interval: Duration::from_millis(interval_ms), initial_delay: Duration::from_millis(delay_ms), on_error }
+    }
+
+    fn probe(idle: &Arc<AtomicBool>) -> IdleProbe {
+        let idle = idle.clone();
+        Arc::new(move || {
+            let idle = idle.load(Ordering::SeqCst);
+            async move { idle }.boxed()
+        })
+    }
+
+    /// A task is due `initial_delay` after it registered, then `interval` after its previous
+    /// run started; a tick before that runs nothing.
+    #[tokio::test]
+    async fn a_task_runs_when_due_and_again_one_interval_after_its_run_started() {
+        let schedule = MaintenanceSchedule::new();
+        let runs = Arc::new(AtomicUsize::new(0));
+        schedule.register_task("a", counting(&runs, false), options(100, 30, None), 1000);
+        assert_eq!(schedule.run_tasks(false, 1029).await, TickReport { ran: vec![], busy: false });
+        assert_eq!(schedule.run_tasks(false, 1030).await.ran, ["a"]);
+        assert!(schedule.run_tasks(false, 1129).await.ran.is_empty());
+        assert_eq!(schedule.run_tasks(false, 1130).await.ran, ["a"]);
+        assert_eq!(runs.load(Ordering::SeqCst), 2);
+    }
+
+    /// Once a probe reports busy the tick stops; the due tasks are kept for a later idle tick,
+    /// and `force` runs every task whatever the probes say.
+    #[tokio::test]
+    async fn a_busy_probe_defers_the_due_tasks_and_force_overrides_it() {
+        let schedule = MaintenanceSchedule::new();
+        let (a, b) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        schedule.register_task("a", counting(&a, false), options(100, 0, None), 0);
+        schedule.register_task("b", counting(&b, false), options(100, 0, None), 0);
+        let idle = Arc::new(AtomicBool::new(false));
+        schedule.register_idle_probe(probe(&idle));
+        assert_eq!(schedule.run_tasks(false, 1).await, TickReport { ran: vec![], busy: true });
+        assert_eq!((a.load(Ordering::SeqCst), b.load(Ordering::SeqCst)), (0, 0));
+        idle.store(true, Ordering::SeqCst);
+        assert_eq!(schedule.run_tasks(false, 2).await, TickReport { ran: vec!["a".into(), "b".into()], busy: false });
+        idle.store(false, Ordering::SeqCst);
+        assert_eq!(schedule.run_tasks(true, 3).await.ran, ["a", "b"], "force runs while busy");
+    }
+
+    /// The probe is asked before every task: work that starts during the first defers the rest.
+    #[tokio::test]
+    async fn the_probe_is_asked_again_before_each_task() {
+        let schedule = MaintenanceSchedule::new();
+        let idle = Arc::new(AtomicBool::new(true));
+        let flip = idle.clone();
+        let first: TaskFn = Arc::new(move || {
+            let flip = flip.clone();
+            async move {
+                flip.store(false, Ordering::SeqCst);
+                Ok(())
+            }
+            .boxed()
+        });
+        let second = Arc::new(AtomicUsize::new(0));
+        schedule.register_task("first", first, options(100, 0, None), 0);
+        schedule.register_task("second", counting(&second, false), options(100, 0, None), 0);
+        schedule.register_idle_probe(probe(&idle));
+        assert_eq!(schedule.run_tasks(false, 1).await, TickReport { ran: vec!["first".into()], busy: true });
+        assert_eq!(second.load(Ordering::SeqCst), 0);
+    }
+
+    /// A failing task is reported to its `on_error` and rescheduled like a successful one.
+    #[tokio::test]
+    async fn a_failing_task_is_reported_and_rescheduled() {
+        let schedule = MaintenanceSchedule::new();
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = seen.clone();
+        let on_error: ErrorSink = Arc::new(move |e| sink.lock().unwrap().push(e.to_owned()));
+        let runs = Arc::new(AtomicUsize::new(0));
+        schedule.register_task("bad", counting(&runs, true), options(100, 0, Some(on_error)), 0);
+        assert_eq!(schedule.run_tasks(false, 0).await.ran, ["bad"]);
+        assert_eq!(*seen.lock().unwrap(), ["boom"]);
+        assert!(schedule.run_tasks(false, 99).await.ran.is_empty());
+        assert_eq!(schedule.run_tasks(false, 100).await.ran, ["bad"]);
+    }
+
+    /// Re-registering a name replaces the task in place; an unregister removes only the
+    /// registration it came from.
+    #[tokio::test]
+    async fn re_registering_replaces_in_place_and_unregister_is_per_registration() {
+        let schedule = MaintenanceSchedule::new();
+        let (old, new, other) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let stale = schedule.register_task("a", counting(&old, false), options(100, 0, None), 0);
+        schedule.register_task("b", counting(&other, false), options(100, 0, None), 0);
+        let current = schedule.register_task("a", counting(&new, false), options(100, 0, None), 0);
+        stale.unregister();
+        assert_eq!(schedule.run_tasks(false, 0).await.ran, ["a", "b"]);
+        assert_eq!((old.load(Ordering::SeqCst), new.load(Ordering::SeqCst)), (0, 1));
+        current.unregister();
+        assert_eq!(schedule.run_tasks(false, 100).await.ran, ["b"]);
+    }
+
+    /// Concurrent calls share the tick under way: the task runs once.
+    #[tokio::test]
+    async fn concurrent_ticks_share_one_run() {
+        let schedule = MaintenanceSchedule::new();
+        let runs = Arc::new(AtomicUsize::new(0));
+        schedule.register_task("a", counting(&runs, false), options(100, 0, None), 0);
+        let (one, two) = (schedule.run_tasks(false, 0), schedule.run_tasks(false, 0));
+        assert_eq!(one.await, two.await);
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+    }
+
+    fn hanging(entered: &Arc<tokio::sync::Notify>) -> TaskFn {
+        let entered = entered.clone();
+        Arc::new(move || {
+            let entered = entered.clone();
+            async move {
+                entered.notify_one();
+                std::future::pending::<()>().await;
+                Ok(())
+            }
+            .boxed()
+        })
+    }
+
+    /// An idle probe that never answers counts as busy instead of holding the tick.
+    #[tokio::test(start_paused = true)]
+    async fn a_probe_that_never_answers_counts_as_busy() {
+        let schedule = MaintenanceSchedule::new();
+        let runs = Arc::new(AtomicUsize::new(0));
+        schedule.register_task("a", counting(&runs, false), options(100, 0, None), 0);
+        schedule.register_idle_probe(Arc::new(|| std::future::pending::<bool>().boxed()));
+        assert_eq!(schedule.run_tasks(false, 1).await, TickReport { ran: vec![], busy: true });
+        assert_eq!(runs.load(Ordering::SeqCst), 0);
+    }
+
+
+    /// The started timer ticks the due tasks on its own and ends with the schedule.
+    #[tokio::test(start_paused = true)]
+    async fn the_started_timer_runs_due_tasks() {
+        mixdog_rt::testing::tokens();
+        let schedule = MaintenanceSchedule::new();
+        let runs = Arc::new(AtomicUsize::new(0));
+        let now = Arc::new(std::sync::atomic::AtomicI64::new(0));
+        let clock_now = now.clone();
+        schedule.register_task("a", counting(&runs, false), options(1000, 0, None), 0);
+        let down = CancellationToken::new();
+        let ended = schedule.start(Duration::from_millis(100), Arc::new(move || clock_now.load(Ordering::SeqCst)), down.clone());
+        assert!(schedule.start(Duration::from_millis(100), Arc::new(|| 0), down.clone()).is_none(), "already started");
+        now.store(100, Ordering::SeqCst);
+        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+        down.cancel();
+        ended.expect("first start").await.expect("ended");
+    }
+    /// Shutdown that arrives while an idle probe is being awaited admits no task: the probe
+    /// answers idle after the token fired, and the due task still does not start.
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_during_the_idle_probe_admits_no_task() {
+        mixdog_rt::testing::tokens();
+        let schedule = MaintenanceSchedule::new();
+        let down = CancellationToken::new();
+        let runs = Arc::new(AtomicUsize::new(0));
+        schedule.register_task("a", counting(&runs, false), options(1000, 0, None), 0);
+        let (asked, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+        let (probe_asked, probe_release) = (asked.clone(), release.clone());
+        schedule.register_idle_probe(Arc::new(move || {
+            let (asked, release) = (probe_asked.clone(), probe_release.clone());
+            async move {
+                asked.notify_one();
+                release.notified().await;
+                true
+            }
+            .boxed()
+        }));
+        let ended = schedule.start(Duration::from_millis(100), Arc::new(|| 1000), down.clone()).expect("started");
+        asked.notified().await;
+        down.cancel();
+        release.notify_one();
+        ended.await.expect("ended");
+        assert_eq!(runs.load(Ordering::SeqCst), 0, "the task did not start after shutdown");
+    }
+    /// A task that never finishes is dropped at its deadline and reported as a failure; the
+    /// tasks after it still run in the same tick, and the next tick is not blocked behind it.
+    #[tokio::test(start_paused = true)]
+    async fn a_hung_task_is_dropped_at_its_deadline_and_does_not_hold_the_tick() {
+        let schedule = MaintenanceSchedule::new();
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = seen.clone();
+        let on_error: ErrorSink = Arc::new(move |e| sink.lock().unwrap().push(e.to_owned()));
+        let after = Arc::new(AtomicUsize::new(0));
+        let entered = Arc::new(tokio::sync::Notify::new());
+        schedule.register_task("hung", hanging(&entered), options(1000, 0, Some(on_error)), 0);
+        schedule.register_task("after", counting(&after, false), options(1000, 0, None), 0);
+        let began = tokio::time::Instant::now();
+        assert_eq!(schedule.run_tasks(false, 0).await.ran, ["hung", "after"]);
+        assert_eq!(began.elapsed(), TASK_DEADLINE);
+        assert_eq!(*seen.lock().unwrap(), ["hung did not finish in time"]);
+        assert_eq!(after.load(Ordering::SeqCst), 1);
+        assert_eq!(schedule.run_tasks(true, 1).await.ran, ["hung", "after"], "the next tick is not stuck on the shared one");
+    }
+    /// A task that hangs when shutdown arrives is given the grace and then dropped: the
+    /// returned task ends well before the task deadline.
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_does_not_wait_for_a_hung_tick_past_the_grace() {
+        mixdog_rt::testing::tokens();
+        let schedule = MaintenanceSchedule::new();
+        let down = CancellationToken::new();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        schedule.register_task("hung", hanging(&entered), options(1000, 0, None), 0);
+        let ended = schedule.start(Duration::from_millis(100), Arc::new(|| 0), down.clone()).expect("started");
+        entered.notified().await;
+        let began = tokio::time::Instant::now();
+        down.cancel();
+        ended.await.expect("ended");
+        assert_eq!(began.elapsed(), SHUTDOWN_GRACE);
+        assert!(schedule.run_tasks(true, 0).await.ran.is_empty(), "every task is unregistered");
+    }
+    /// At shutdown the tick under way finishes its task, no further task is admitted, every
+    /// task is unregistered, and the returned task ends after all that.
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_admits_nothing_more_unregisters_the_tasks_and_ends_awaitably() {
+        mixdog_rt::testing::tokens();
+        let schedule = MaintenanceSchedule::new();
+        let down = CancellationToken::new();
+        let (first, second) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let (signal, counter) = (entered.clone(), first.clone());
+        let slow: TaskFn = Arc::new(move || {
+            let (signal, counter) = (signal.clone(), counter.clone());
+            async move {
+                signal.notify_one();
+                mixdog_rt::time::sleep(Duration::from_secs(5)).await;
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+            .boxed()
+        });
+        schedule.register_task("slow", slow, options(1000, 0, None), 0);
+        schedule.register_task("after", counting(&second, false), options(1000, 0, None), 0);
+        let ended = schedule.start(Duration::from_millis(100), Arc::new(|| 0), down.clone()).expect("started");
+        entered.notified().await;
+        down.cancel();
+        ended.await.expect("ended");
+        assert_eq!(first.load(Ordering::SeqCst), 1, "the admitted task finished");
+        assert_eq!(second.load(Ordering::SeqCst), 0, "no further task was admitted");
+        assert!(schedule.run_tasks(true, 0).await.ran.is_empty(), "every task is unregistered");
+    }
+}
+
+
 impl MaintenanceSchedule {
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
@@ -281,274 +548,5 @@ impl MaintenanceSchedule {
                 schedule.state.lock().unwrap_or_else(|e| e.into_inner()).tasks.clear();
             }
         }))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::atomic::AtomicBool;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::atomic::Ordering;
-
-    use super::*;
-
-    fn counting(counter: &Arc<AtomicUsize>, fail: bool) -> TaskFn {
-        let counter = counter.clone();
-        Arc::new(move || {
-            let counter = counter.clone();
-            async move {
-                counter.fetch_add(1, Ordering::SeqCst);
-                if fail { Err("boom".to_owned()) } else { Ok(()) }
-            }
-            .boxed()
-        })
-    }
-
-    fn options(interval_ms: u64, delay_ms: u64, on_error: Option<ErrorSink>) -> TaskOptions {
-        TaskOptions { interval: Duration::from_millis(interval_ms), initial_delay: Duration::from_millis(delay_ms), on_error }
-    }
-
-    fn probe(idle: &Arc<AtomicBool>) -> IdleProbe {
-        let idle = idle.clone();
-        Arc::new(move || {
-            let idle = idle.load(Ordering::SeqCst);
-            async move { idle }.boxed()
-        })
-    }
-
-    /// A task is due `initial_delay` after it registered, then `interval` after its previous
-    /// run started; a tick before that runs nothing.
-    #[tokio::test]
-    async fn a_task_runs_when_due_and_again_one_interval_after_its_run_started() {
-        let schedule = MaintenanceSchedule::new();
-        let runs = Arc::new(AtomicUsize::new(0));
-        schedule.register_task("a", counting(&runs, false), options(100, 30, None), 1000);
-        assert_eq!(schedule.run_tasks(false, 1029).await, TickReport { ran: vec![], busy: false });
-        assert_eq!(schedule.run_tasks(false, 1030).await.ran, ["a"]);
-        assert!(schedule.run_tasks(false, 1129).await.ran.is_empty());
-        assert_eq!(schedule.run_tasks(false, 1130).await.ran, ["a"]);
-        assert_eq!(runs.load(Ordering::SeqCst), 2);
-    }
-
-    /// Once a probe reports busy the tick stops; the due tasks are kept for a later idle tick,
-    /// and `force` runs every task whatever the probes say.
-    #[tokio::test]
-    async fn a_busy_probe_defers_the_due_tasks_and_force_overrides_it() {
-        let schedule = MaintenanceSchedule::new();
-        let (a, b) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
-        schedule.register_task("a", counting(&a, false), options(100, 0, None), 0);
-        schedule.register_task("b", counting(&b, false), options(100, 0, None), 0);
-        let idle = Arc::new(AtomicBool::new(false));
-        schedule.register_idle_probe(probe(&idle));
-        assert_eq!(schedule.run_tasks(false, 1).await, TickReport { ran: vec![], busy: true });
-        assert_eq!((a.load(Ordering::SeqCst), b.load(Ordering::SeqCst)), (0, 0));
-        idle.store(true, Ordering::SeqCst);
-        assert_eq!(schedule.run_tasks(false, 2).await, TickReport { ran: vec!["a".into(), "b".into()], busy: false });
-        idle.store(false, Ordering::SeqCst);
-        assert_eq!(schedule.run_tasks(true, 3).await.ran, ["a", "b"], "force runs while busy");
-    }
-
-    /// The probe is asked before every task: work that starts during the first defers the rest.
-    #[tokio::test]
-    async fn the_probe_is_asked_again_before_each_task() {
-        let schedule = MaintenanceSchedule::new();
-        let idle = Arc::new(AtomicBool::new(true));
-        let flip = idle.clone();
-        let first: TaskFn = Arc::new(move || {
-            let flip = flip.clone();
-            async move {
-                flip.store(false, Ordering::SeqCst);
-                Ok(())
-            }
-            .boxed()
-        });
-        let second = Arc::new(AtomicUsize::new(0));
-        schedule.register_task("first", first, options(100, 0, None), 0);
-        schedule.register_task("second", counting(&second, false), options(100, 0, None), 0);
-        schedule.register_idle_probe(probe(&idle));
-        assert_eq!(schedule.run_tasks(false, 1).await, TickReport { ran: vec!["first".into()], busy: true });
-        assert_eq!(second.load(Ordering::SeqCst), 0);
-    }
-
-    /// A failing task is reported to its `on_error` and rescheduled like a successful one.
-    #[tokio::test]
-    async fn a_failing_task_is_reported_and_rescheduled() {
-        let schedule = MaintenanceSchedule::new();
-        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
-        let sink = seen.clone();
-        let on_error: ErrorSink = Arc::new(move |e| sink.lock().unwrap().push(e.to_owned()));
-        let runs = Arc::new(AtomicUsize::new(0));
-        schedule.register_task("bad", counting(&runs, true), options(100, 0, Some(on_error)), 0);
-        assert_eq!(schedule.run_tasks(false, 0).await.ran, ["bad"]);
-        assert_eq!(*seen.lock().unwrap(), ["boom"]);
-        assert!(schedule.run_tasks(false, 99).await.ran.is_empty());
-        assert_eq!(schedule.run_tasks(false, 100).await.ran, ["bad"]);
-    }
-
-    /// Re-registering a name replaces the task in place; an unregister removes only the
-    /// registration it came from.
-    #[tokio::test]
-    async fn re_registering_replaces_in_place_and_unregister_is_per_registration() {
-        let schedule = MaintenanceSchedule::new();
-        let (old, new, other) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
-        let stale = schedule.register_task("a", counting(&old, false), options(100, 0, None), 0);
-        schedule.register_task("b", counting(&other, false), options(100, 0, None), 0);
-        let current = schedule.register_task("a", counting(&new, false), options(100, 0, None), 0);
-        stale.unregister();
-        assert_eq!(schedule.run_tasks(false, 0).await.ran, ["a", "b"]);
-        assert_eq!((old.load(Ordering::SeqCst), new.load(Ordering::SeqCst)), (0, 1));
-        current.unregister();
-        assert_eq!(schedule.run_tasks(false, 100).await.ran, ["b"]);
-    }
-
-    /// Concurrent calls share the tick under way: the task runs once.
-    #[tokio::test]
-    async fn concurrent_ticks_share_one_run() {
-        let schedule = MaintenanceSchedule::new();
-        let runs = Arc::new(AtomicUsize::new(0));
-        schedule.register_task("a", counting(&runs, false), options(100, 0, None), 0);
-        let (one, two) = (schedule.run_tasks(false, 0), schedule.run_tasks(false, 0));
-        assert_eq!(one.await, two.await);
-        assert_eq!(runs.load(Ordering::SeqCst), 1);
-    }
-
-    /// The started timer ticks the due tasks on its own and ends with the schedule.
-    #[tokio::test(start_paused = true)]
-    async fn the_started_timer_runs_due_tasks() {
-        mixdog_rt::testing::tokens();
-        let schedule = MaintenanceSchedule::new();
-        let runs = Arc::new(AtomicUsize::new(0));
-        let now = Arc::new(std::sync::atomic::AtomicI64::new(0));
-        let clock_now = now.clone();
-        schedule.register_task("a", counting(&runs, false), options(1000, 0, None), 0);
-        let down = CancellationToken::new();
-        let ended = schedule.start(Duration::from_millis(100), Arc::new(move || clock_now.load(Ordering::SeqCst)), down.clone());
-        assert!(schedule.start(Duration::from_millis(100), Arc::new(|| 0), down.clone()).is_none(), "already started");
-        now.store(100, Ordering::SeqCst);
-        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
-        assert_eq!(runs.load(Ordering::SeqCst), 1);
-        down.cancel();
-        ended.expect("first start").await.expect("ended");
-    }
-
-    /// Shutdown that arrives while an idle probe is being awaited admits no task: the probe
-    /// answers idle after the token fired, and the due task still does not start.
-    #[tokio::test(start_paused = true)]
-    async fn shutdown_during_the_idle_probe_admits_no_task() {
-        mixdog_rt::testing::tokens();
-        let schedule = MaintenanceSchedule::new();
-        let down = CancellationToken::new();
-        let runs = Arc::new(AtomicUsize::new(0));
-        schedule.register_task("a", counting(&runs, false), options(1000, 0, None), 0);
-        let (asked, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
-        let (probe_asked, probe_release) = (asked.clone(), release.clone());
-        schedule.register_idle_probe(Arc::new(move || {
-            let (asked, release) = (probe_asked.clone(), probe_release.clone());
-            async move {
-                asked.notify_one();
-                release.notified().await;
-                true
-            }
-            .boxed()
-        }));
-        let ended = schedule.start(Duration::from_millis(100), Arc::new(|| 1000), down.clone()).expect("started");
-        asked.notified().await;
-        down.cancel();
-        release.notify_one();
-        ended.await.expect("ended");
-        assert_eq!(runs.load(Ordering::SeqCst), 0, "the task did not start after shutdown");
-    }
-
-    fn hanging(entered: &Arc<tokio::sync::Notify>) -> TaskFn {
-        let entered = entered.clone();
-        Arc::new(move || {
-            let entered = entered.clone();
-            async move {
-                entered.notify_one();
-                std::future::pending::<()>().await;
-                Ok(())
-            }
-            .boxed()
-        })
-    }
-
-    /// A task that never finishes is dropped at its deadline and reported as a failure; the
-    /// tasks after it still run in the same tick, and the next tick is not blocked behind it.
-    #[tokio::test(start_paused = true)]
-    async fn a_hung_task_is_dropped_at_its_deadline_and_does_not_hold_the_tick() {
-        let schedule = MaintenanceSchedule::new();
-        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
-        let sink = seen.clone();
-        let on_error: ErrorSink = Arc::new(move |e| sink.lock().unwrap().push(e.to_owned()));
-        let after = Arc::new(AtomicUsize::new(0));
-        let entered = Arc::new(tokio::sync::Notify::new());
-        schedule.register_task("hung", hanging(&entered), options(1000, 0, Some(on_error)), 0);
-        schedule.register_task("after", counting(&after, false), options(1000, 0, None), 0);
-        let began = tokio::time::Instant::now();
-        assert_eq!(schedule.run_tasks(false, 0).await.ran, ["hung", "after"]);
-        assert_eq!(began.elapsed(), TASK_DEADLINE);
-        assert_eq!(*seen.lock().unwrap(), ["hung did not finish in time"]);
-        assert_eq!(after.load(Ordering::SeqCst), 1);
-        assert_eq!(schedule.run_tasks(true, 1).await.ran, ["hung", "after"], "the next tick is not stuck on the shared one");
-    }
-
-    /// A task that hangs when shutdown arrives is given the grace and then dropped: the
-    /// returned task ends well before the task deadline.
-    #[tokio::test(start_paused = true)]
-    async fn shutdown_does_not_wait_for_a_hung_tick_past_the_grace() {
-        mixdog_rt::testing::tokens();
-        let schedule = MaintenanceSchedule::new();
-        let down = CancellationToken::new();
-        let entered = Arc::new(tokio::sync::Notify::new());
-        schedule.register_task("hung", hanging(&entered), options(1000, 0, None), 0);
-        let ended = schedule.start(Duration::from_millis(100), Arc::new(|| 0), down.clone()).expect("started");
-        entered.notified().await;
-        let began = tokio::time::Instant::now();
-        down.cancel();
-        ended.await.expect("ended");
-        assert_eq!(began.elapsed(), SHUTDOWN_GRACE);
-        assert!(schedule.run_tasks(true, 0).await.ran.is_empty(), "every task is unregistered");
-    }
-
-    /// An idle probe that never answers counts as busy instead of holding the tick.
-    #[tokio::test(start_paused = true)]
-    async fn a_probe_that_never_answers_counts_as_busy() {
-        let schedule = MaintenanceSchedule::new();
-        let runs = Arc::new(AtomicUsize::new(0));
-        schedule.register_task("a", counting(&runs, false), options(100, 0, None), 0);
-        schedule.register_idle_probe(Arc::new(|| std::future::pending::<bool>().boxed()));
-        assert_eq!(schedule.run_tasks(false, 1).await, TickReport { ran: vec![], busy: true });
-        assert_eq!(runs.load(Ordering::SeqCst), 0);
-    }
-
-    /// At shutdown the tick under way finishes its task, no further task is admitted, every
-    /// task is unregistered, and the returned task ends after all that.
-    #[tokio::test(start_paused = true)]
-    async fn shutdown_admits_nothing_more_unregisters_the_tasks_and_ends_awaitably() {
-        mixdog_rt::testing::tokens();
-        let schedule = MaintenanceSchedule::new();
-        let down = CancellationToken::new();
-        let (first, second) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
-        let entered = Arc::new(tokio::sync::Notify::new());
-        let (signal, counter) = (entered.clone(), first.clone());
-        let slow: TaskFn = Arc::new(move || {
-            let (signal, counter) = (signal.clone(), counter.clone());
-            async move {
-                signal.notify_one();
-                mixdog_rt::time::sleep(Duration::from_secs(5)).await;
-                counter.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            }
-            .boxed()
-        });
-        schedule.register_task("slow", slow, options(1000, 0, None), 0);
-        schedule.register_task("after", counting(&second, false), options(1000, 0, None), 0);
-        let ended = schedule.start(Duration::from_millis(100), Arc::new(|| 0), down.clone()).expect("started");
-        entered.notified().await;
-        down.cancel();
-        ended.await.expect("ended");
-        assert_eq!(first.load(Ordering::SeqCst), 1, "the admitted task finished");
-        assert_eq!(second.load(Ordering::SeqCst), 0, "no further task was admitted");
-        assert!(schedule.run_tasks(true, 0).await.ran.is_empty(), "every task is unregistered");
     }
 }

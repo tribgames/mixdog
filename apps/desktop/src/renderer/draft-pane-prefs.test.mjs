@@ -19,7 +19,7 @@ const { submittedDraftRoute } = await import('./draft-pane-prefs-store.ts');
 const { announceSetupChange } = await import('./setup-change-refresh.ts');
 const { effortForModelChoice } = await import('./model-route-utils.ts');
 
-const PROJECT = 'C:/Project/mixdog';
+const PROJECT = 'C:/Project/sample';
 
 /** The catalog gate as the renderer applies it before validation: the
  *  requested path passes through untouched. */
@@ -309,6 +309,27 @@ test('an explicit pick in the draft is the one thing sent, and a host change doe
   await settle();
   assert.equal(resolved(drafts).modelSelection.effort, 'high');
   assert.deepEqual(submittedDraftRoute(resolved(drafts)), pick);
+});
+
+test('a startup backfill answered late never replaces the Lead published meanwhile', async (t) => {
+  const host = installHost('high');
+  let answer = null;
+  window.mixdogDesktop.setModelRoute = () =>
+    new Promise((resolve) => {
+      answer = resolve;
+    });
+  const drafts = await mountInheriting();
+  t.after(() => drafts.unmount());
+  assert.ok(answer, 'the cached model was offered to the empty Lead');
+  host.main = { provider: 'p', model: 'nova', effort: 'low' };
+  await act(async () => announceSetupChange('set_route'));
+  await settle();
+  assert.equal(resolved(drafts).modelSelection.model, 'nova');
+  // The backfill's answer is the route the host held when it ran: older than nova.
+  await act(async () => answer({ provider: 'p', model: 'astra', effort: 'high' }));
+  await settle();
+  assert.equal(resolved(drafts).modelSelection.model, 'nova', 'the inheriting draft keeps the published Lead');
+  assert.equal(submittedDraftRoute(resolved(drafts)), null);
 });
 
 test('re-picking a model keeps the effort on screen, then the host saved one, before the picker memory', () => {

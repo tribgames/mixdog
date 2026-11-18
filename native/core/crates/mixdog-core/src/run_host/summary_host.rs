@@ -212,18 +212,19 @@ impl SummaryHost for ProcessSummaryHost {
     }
 
     /// `loadAnthropicCatalogCache()` / `loadSavedCodexCatalog()`: the provider's saved catalog
-    /// file, no auth or network. Anthropic's within its 24 h age at the schema version that wrote
+    /// file of the signed-in identity, no auth or network. Anthropic's within its 24 h age at the schema version that wrote
     /// it, Codex's stale or not; any other provider has no lighter step.
     async fn saved_catalog(&self, provider: &str) -> Option<Vec<Value>> {
-        let (file, version, ttl_ms) = match provider {
-            "anthropic-oauth" => ("anthropic-oauth-models.json", 2, Some(DAY_MS)),
-            "openai-oauth" => ("openai-oauth-models.json", 7, None),
+        let (version, ttl_ms) = match provider {
+            "anthropic-oauth" => (2, Some(DAY_MS)),
+            "openai-oauth" => (7, None),
             _ => return None,
         };
-        let path = self.deps.data_dir.as_path().join(file);
+        // The signed-in identity's own roster file; with none known nothing is read.
+        let path = self.deps.data_dir.as_path().join(self.deps.catalog.roster_file(provider)?);
         let now = self.deps.clock.now_ms() as f64;
         let bytes = on_lane(self.deps.io.interactive, &CancellationToken::new(), move |lane| read_saved(lane, &path)).await.ok()??;
-        saved_models(&bytes, version, ttl_ms, now)
+        saved_models(&bytes, version, ttl_ms, now, &|record| self.deps.catalog.roster_serves(provider, record))
     }
 }
 
@@ -235,9 +236,9 @@ fn read_saved(_lane: &InLane<InteractiveIo>, path: &Path) -> Option<Vec<u8>> {
 
 /// `makeModelCache(...).loadSync({ allowStale })`: the saved record's `models`, when it is of
 /// the cache's `version`, has a `fetchedAt` and (unless stale is allowed) is within `ttl_ms`.
-fn saved_models(bytes: &[u8], version: u64, ttl_ms: Option<f64>, now_ms: f64) -> Option<Vec<Value>> {
+fn saved_models(bytes: &[u8], version: u64, ttl_ms: Option<f64>, now_ms: f64, serves: &dyn Fn(&Value) -> bool) -> Option<Vec<Value>> {
     let record: Value = serde_json::from_slice(bytes).ok()?;
-    if record.get("version").and_then(Value::as_u64) != Some(version) {
+    if record.get("version").and_then(Value::as_u64) != Some(version) || !serves(&record) {
         return None;
     }
     let fetched = record.get("fetchedAt").map(mixdog_js::to_number).filter(|at| *at != 0.0 && !at.is_nan())?;
@@ -310,7 +311,7 @@ mod tests {
         const H: f64 = 3_600_000.0;
         let now = 1_000_000_000_000.0;
         let models = vec![json!({ "id": "a" })];
-        let read = |record: Value, ttl: Option<f64>| saved_models(record.to_string().as_bytes(), 2, ttl, now);
+        let read = |record: Value, ttl: Option<f64>| saved_models(record.to_string().as_bytes(), 2, ttl, now, &|_| true);
         let fresh = json!({ "version": 2, "fetchedAt": now - H, "models": [{ "id": "a" }] });
         assert_eq!(read(fresh.clone(), Some(24.0 * H)), Some(models.clone()));
         let old = json!({ "version": 2, "fetchedAt": now - 25.0 * H, "models": [{ "id": "a" }] });
@@ -325,7 +326,7 @@ mod tests {
         ] {
             assert_eq!(read(broken.clone(), None), None, "{broken}");
         }
-        assert_eq!(saved_models(b"not json", 2, None, now), None);
+        assert_eq!(saved_models(b"not json", 2, None, now, &|_| true), None);
     }
 }
 

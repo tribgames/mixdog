@@ -161,6 +161,14 @@ pub fn merge_conflict_json(files: &[String]) -> Value {
 /// (`:149-150`, `default: return message`), which is the producer's text or the contract's
 /// default of the code.
 fn error_text(failure: &ScmFailure, code: &str, detail: Option<&DomainErrorDetail>) -> String {
+    // A failed `git merge` carries git's own diagnostic as its message (`runtimeText`: after the last `MERGE_FAILED: `).
+    if let (Some(DomainErrorDetail::MergeFailed { reason, .. }), Some(message)) = (detail, failure.message())
+        && reason == "merge-failed"
+    {
+        let marker = "MERGE_FAILED: ";
+        let reason = message.rfind(marker).map_or(message, |at| &message[at + marker.len()..]).trim();
+        return format!("The merge failed: {reason}");
+    }
     let desktop = failure_text(code, detail);
     let snapshot_held = matches!(detail, Some(DomainErrorDetail::WorktreeBusyJobs { reason, .. }) if reason == "snapshot-held");
     if desktop != code && code != "WORKTREE_LARGE_REPO_CONFIRM" && !snapshot_held {

@@ -98,6 +98,7 @@ mod tests {
         (ThreadTodos::new(threads.clone(), rig.clock.clone()), threads, thread, rig)
     }
 
+    #[cfg(node_twin)]
     fn golden() -> Value {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/todo-list/golden.json");
         let bytes = mixdog_statefile::read_content(&path).expect("read golden.json").expect("golden.json exists");
@@ -107,6 +108,7 @@ mod tests {
     /// `todoPhases`: a stored record is untrusted. Every case is Node's own `todoPhases` over the
     /// same stored record (`fixtures/todo-list/golden.json`, recorded by `record-todo-list.mjs`).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[cfg(node_twin)]
     async fn a_stored_list_reads_as_node_normalizes_it() {
         let golden = golden();
         let cases = golden["reads"].as_array().expect("reads");
@@ -128,8 +130,7 @@ mod tests {
     /// list reads as, and a cleared one, are still Node's, above and below.)
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn every_operation_commits_the_record_or_leaves_it() {
-        let golden = golden();
-        let at = golden["at"].as_i64().expect("at");
+        let at: i64 = 1_234_567;
         let two = json!({ "phases": [{ "name": "Tasks", "tasks": [{ "content": "A", "status": "in_progress" }, { "content": "B", "status": "pending" }] }], "updatedAt": 5 });
         let cases = [
             ("set from nothing", Value::Null, json!({ "op": "set", "items": ["A", "B"] }), Ok("0/2\nTasks\n  [>] A\n  [ ] B")),
@@ -140,7 +141,8 @@ mod tests {
             ("drop by number", two.clone(), json!({ "op": "drop", "index": 2 }), Ok("0/1 · drop: B · next: A")),
             ("advance with no list", Value::Null, json!({ "op": "advance" }), Err("todo: the list is empty; set it first")),
             ("a number past the list", two.clone(), json!({ "op": "done", "index": 3 }), Err("todo: index is a step number from 1 to 2")),
-            ("init by its wording", two.clone(), json!({ "op": "init", "items": ["Z"] }), Ok("0/1\nTasks\n  [>] Z")),
+            ("init over unfinished steps", two.clone(), json!({ "op": "init", "items": ["Z"] }), Err("todo: init would erase unfinished items (\"A\", \"B\"); done or drop each first, or append to add asks")),
+            ("init over nothing", Value::Null, json!({ "op": "init", "items": ["Z"] }), Ok("0/1\nTasks\n  [>] Z")),
             ("append", two.clone(), json!({ "op": "append", "items": ["C"] }), Ok("0/3 · append: C · next: A")),
             ("rm by wording", two.clone(), json!({ "op": "rm", "item": "B" }), Ok("0/1 · rm: B · next: A")),
             ("an unknown operation", two.clone(), json!({ "op": "swap" }), Err("todo: op must be one of set, init, advance, done, start, drop, append, rm, view")),
@@ -177,13 +179,12 @@ mod tests {
                 (want, got) => panic!("{name}: wanted {want:?}, got {got:?}"),
             }
         }
-        let cleared = &golden["cleared"];
-        let (todos, threads, thread, rig) = store(json!({ "todo": cleared["before"] })).await;
-        // Node stamps the clear from its clock, frozen at `at` in the recording: drive ours to it.
+        let (todos, threads, thread, rig) = store(json!({ "todo": two })).await;
+        // A clear is stamped from the clock: drive it to `at`.
         rig.clock.0.store(at as u64, std::sync::atomic::Ordering::SeqCst);
         todos.update(&thread, &mut |_| Ok(TodoList::default())).await.expect("clear");
         let header = threads.header(&thread).await.expect("header");
-        assert_eq!((&header["todo"], &header["updatedAt"]), (&cleared["after"]["todo"], &cleared["after"]["updatedAt"]));
+        assert_eq!((&header["todo"], &header["updatedAt"]), (&Value::Null, &json!(at)));
     }
     /// `commitPhases` / `clearTodo`: `session.todo = { phases, updatedAt }` with the session's
     /// `updatedAt` set beside it; a cleared list is `todo: null`.

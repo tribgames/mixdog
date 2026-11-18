@@ -153,3 +153,52 @@ for (const mobile of [false, true]) {
     );
   });
 }
+
+test(
+  'a reused pane lets the outgoing full snapshot go once its cold handoff ends',
+  { skip: typeof globalThis.gc !== 'function' && 'requires node --expose-gc (globalThis.gc is not exposed)' },
+  async (t) => {
+    const pane = await installPhonePaneDom(t, { mobile: false });
+    const store = pane.defaultSessionLaneStore;
+    const doc = pane.dom.window.document;
+    pane.dom.window.mixdogDesktop = { prefetchSession: () => new Promise(() => {}) };
+    t.after(() => {
+      delete pane.dom.window.mixdogDesktop;
+    });
+    const settle = async () => {
+      for (let round = 0; round < 10; round += 1) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          for (const [id, callback] of [...pane.frames]) {
+            pane.frames.delete(id);
+            callback(performance.now());
+          }
+        });
+      }
+    };
+    const transcript = () => doc.querySelector('.transcript')?.textContent ?? '';
+    store.apply(laneSnapshot('a'));
+    const outgoing = new WeakRef(store.get('a'));
+    await act(async () => pane.root.render(pane.element('a')));
+    await settle();
+    assert.ok(transcript().includes('answer a'), 'the outgoing session is painted');
+    // The incoming lane is cold: the pane keeps presenting the outgoing session.
+    await act(async () => pane.root.render(pane.element('b')));
+    await settle();
+    assert.ok(transcript().includes('answer a'), 'the outgoing view stays while the incoming lane is cold');
+    await act(async () => store.apply(laneSnapshot('b')));
+    await settle();
+    assert.ok(transcript().includes('answer b'), 'the handoff ended on the incoming session');
+    // The pane re-renders twice more so neither React tree still carries the
+    // outgoing props; the lane cache gives up the unsubscribed outgoing lane.
+    await act(async () => pane.root.render(pane.element('b')));
+    await act(async () => pane.root.render(pane.element('b')));
+    store.evictInactive();
+    assert.equal(store.get('a'), null, 'only the pane can still hold the outgoing snapshot');
+    for (let pass = 0; pass < 3; pass += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      globalThis.gc();
+    }
+    assert.equal(outgoing.deref(), undefined, 'the finished handoff no longer holds the outgoing snapshot');
+  }
+);

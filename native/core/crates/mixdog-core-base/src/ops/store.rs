@@ -26,6 +26,8 @@ pub enum OpRecord {
     Settled {
         method: Arc<str>,
         digest: PayloadDigest,
+        /// `None` is an older record with no provable replay audience; it still reserves its op id.
+        audience: Option<PayloadDigest>,
         state: OpState,
     },
 }

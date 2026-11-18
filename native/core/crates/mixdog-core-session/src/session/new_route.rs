@@ -48,52 +48,6 @@ pub fn draft_pick(route: &ModelSelection) -> Map<String, Value> {
     pick
 }
 
-/// The route keys `buildSessionRecord` / `createSession` write at creation and a route change does
-/// not (`session-record.mjs:121`, `session-lifecycle.mjs:227`), made from the route the session is
-/// created on (`rt.route`): `presetName` (the preset's name), `codexWireSessionId` (a UUIDv7 for
-/// `openai-oauth`, else null), `contextPercent` (the route's, else null), `contextTokens` (only
-/// when set), and, for a session with no owner agent, the preset's fallback chain
-/// (`routeFallbacks`: `executionFallbacks(normalizeWorkflowRoute({provider, model, fallbacks}))`,
-/// only when not empty) with its `routeFallbackSource`. The route's own fields (provider, model,
-/// effort, Fast, parameters, window) are the seat's.
-pub fn create_keys(route: &Map<String, Value>) -> Result<Map<String, Value>, String> {
-    let text = |key: &str| route.get(key).and_then(Value::as_str).unwrap_or_default();
-    let preset = route.get("preset").and_then(Value::as_object);
-    let mut keys = Map::new();
-    let name = preset.and_then(|preset| preset.get("name")).and_then(Value::as_str).filter(|name| !name.is_empty());
-    keys.insert("presetName".into(), name.map_or(Value::Null, |name| Value::String(name.to_owned())));
-    // `toolPreset` (`session-lifecycle.mjs`): `opts.tools || presetObj.tools || .. || 'full'`; a new thread has no `opts.tools`.
-    let tools = preset
-        .and_then(|preset| preset.get("tools"))
-        .filter(|tools| !matches!(tools, Value::Null | Value::Bool(false)) && tools.as_str() != Some(""));
-    keys.insert("preset".into(), tools.cloned().unwrap_or_else(|| Value::String("full".into())));
-    let wire = if text("provider") == "openai-oauth" { Value::String(uuid::Uuid::now_v7().to_string()) } else { Value::Null };
-    keys.insert("codexWireSessionId".into(), wire);
-    let percent = mixdog_ai::service::admin_route::clean_context_percent(route.get("contextPercent"));
-    keys.insert("contextPercent".into(), percent.map_or(Value::Null, mixdog_js::json_number));
-    if let Some(tokens) = mixdog_ai::service::admin_route::normalize_context_tokens(route.get("contextTokens")) {
-        keys.insert("contextTokens".into(), mixdog_js::json_number(tokens));
-    }
-    let mut head = Map::new();
-    head.insert("provider".into(), route.get("provider").cloned().unwrap_or(Value::Null));
-    head.insert("model".into(), route.get("model").cloned().unwrap_or(Value::Null));
-    if let Some(fallbacks) = preset.and_then(|preset| preset.get("fallbacks")) {
-        head.insert("fallbacks".into(), fallbacks.clone());
-    }
-    let head = Value::Object(head);
-    let chain = match mixdog_ai::service::admin_route::normalize_workflow_route(&head, &serde_json::json!({}), false)? {
-        Some(normalized) => mixdog_ai::service::routes::execution_fallbacks(&normalized)?,
-        None => Vec::new(),
-    };
-    if !chain.is_empty() {
-        keys.insert("routeFallbacks".into(), Value::Array(chain));
-    }
-    if let Some(source) = preset.and_then(|preset| preset.get("fallbackSource")).filter(|source| source.is_object()) {
-        keys.insert("routeFallbackSource".into(), source.clone());
-    }
-    Ok(keys)
-}
-
 /// The route a session's record holds, as a resume asks for it (`resumedRouteFor`, `resume.mjs`), which is also the route
 /// a session created on its creator's route holds: the provider and model, its own effort (else, at the boot, the held route's),
 /// Fast and Auto effort as it holds them, its model parameters. `None` when the record names no model: the thread has no
@@ -152,32 +106,6 @@ mod tests {
 
     use super::*;
 
-    /// The create-only route keys equal the ones the Node harness session carries
-    /// (`route_goldens/node_create_route.json`): a route with no preset and no window gives
-    /// `presetName`/`codexWireSessionId`/`contextPercent` null and nothing else; a preset gives its
-    /// name and the fallback chain Node's `createSession` seeds (evaluated from the Node sources).
-    #[test]
-    fn the_create_only_keys_equal_the_ones_node_recorded() {
-        let golden: Value = serde_json::from_str(include_str!("route_goldens/node_create_route.json")).expect("golden");
-        let object = |value: &Value| value.as_object().cloned().expect("object");
-        let keys = create_keys(&object(&golden["route"])).expect("keys");
-        for name in ["presetName", "codexWireSessionId", "contextPercent"] {
-            assert_eq!(keys.get(name), golden["header"].get(name), "{name}");
-        }
-        for name in golden["absent"].as_array().expect("absent").iter().filter_map(Value::as_str) {
-            if name != "autoEffort" {
-                assert!(!keys.contains_key(name), "{name}");
-            }
-        }
-        let case = &golden["preset_case"];
-        let keys = create_keys(&object(&case["route"])).expect("keys");
-        for (name, want) in case["header"].as_object().expect("header") {
-            assert_eq!(keys.get(name), Some(want), "{name}");
-        }
-        let oauth = create_keys(&object(&json!({ "provider": "openai-oauth", "model": "gpt-5" }))).expect("keys");
-        assert!(oauth["codexWireSessionId"].as_str().is_some_and(|id| id.len() == 36));
-    }
-
     /// `configureDraft`: the optional parts travel only when the draft sets them (an empty effort is
     /// none), the flags as booleans and the numbers as numbers.
     #[test]
@@ -215,4 +143,79 @@ mod tests {
         );
         assert_eq!(record_route(&header(json!({ "provider": "p", "model": "" }))), None);
     }
+
+
+    #[cfg(node_twin)]
+    /// The create-only route keys equal the ones the Node harness session carries
+    /// (`route_goldens/node_create_route.json`): a route with no preset and no window gives
+    /// `presetName`/`codexWireSessionId`/`contextPercent` null and nothing else; a preset gives its
+    /// name and the fallback chain Node's `createSession` seeds (evaluated from the Node sources).
+    #[test]
+    fn the_create_only_keys_equal_the_ones_node_recorded() {
+        let golden: Value = serde_json::from_str(include_str!("route_goldens/node_create_route.json")).expect("golden");
+        let object = |value: &Value| value.as_object().cloned().expect("object");
+        let keys = create_keys(&object(&golden["route"])).expect("keys");
+        for name in ["presetName", "codexWireSessionId", "contextPercent"] {
+            assert_eq!(keys.get(name), golden["header"].get(name), "{name}");
+        }
+        for name in golden["absent"].as_array().expect("absent").iter().filter_map(Value::as_str) {
+            if name != "autoEffort" {
+                assert!(!keys.contains_key(name), "{name}");
+            }
+        }
+        let case = &golden["preset_case"];
+        let keys = create_keys(&object(&case["route"])).expect("keys");
+        for (name, want) in case["header"].as_object().expect("header") {
+            assert_eq!(keys.get(name), Some(want), "{name}");
+        }
+        let oauth = create_keys(&object(&json!({ "provider": "openai-oauth", "model": "gpt-5" }))).expect("keys");
+        assert!(oauth["codexWireSessionId"].as_str().is_some_and(|id| id.len() == 36));
+    }
+}
+
+
+/// The route keys `buildSessionRecord` / `createSession` write at creation and a route change does
+/// not (`session-record.mjs:121`, `session-lifecycle.mjs:227`), made from the route the session is
+/// created on (`rt.route`): `presetName` (the preset's name), `codexWireSessionId` (a UUIDv7 for
+/// `openai-oauth`, else null), `contextPercent` (the route's, else null), `contextTokens` (only
+/// when set), and, for a session with no owner agent, the preset's fallback chain
+/// (`routeFallbacks`: `executionFallbacks(normalizeWorkflowRoute({provider, model, fallbacks}))`,
+/// only when not empty) with its `routeFallbackSource`. The route's own fields (provider, model,
+/// effort, Fast, parameters, window) are the seat's.
+pub fn create_keys(route: &Map<String, Value>) -> Result<Map<String, Value>, String> {
+    let text = |key: &str| route.get(key).and_then(Value::as_str).unwrap_or_default();
+    let preset = route.get("preset").and_then(Value::as_object);
+    let mut keys = Map::new();
+    let name = preset.and_then(|preset| preset.get("name")).and_then(Value::as_str).filter(|name| !name.is_empty());
+    keys.insert("presetName".into(), name.map_or(Value::Null, |name| Value::String(name.to_owned())));
+    // `toolPreset` (`session-lifecycle.mjs`): `opts.tools || presetObj.tools || .. || 'full'`; a new thread has no `opts.tools`.
+    let tools = preset
+        .and_then(|preset| preset.get("tools"))
+        .filter(|tools| !matches!(tools, Value::Null | Value::Bool(false)) && tools.as_str() != Some(""));
+    keys.insert("preset".into(), tools.cloned().unwrap_or_else(|| Value::String("full".into())));
+    let wire = if text("provider") == "openai-oauth" { Value::String(uuid::Uuid::now_v7().to_string()) } else { Value::Null };
+    keys.insert("codexWireSessionId".into(), wire);
+    let percent = mixdog_ai::service::admin_route::clean_context_percent(route.get("contextPercent"));
+    keys.insert("contextPercent".into(), percent.map_or(Value::Null, mixdog_js::json_number));
+    if let Some(tokens) = mixdog_ai::service::admin_route::normalize_context_tokens(route.get("contextTokens")) {
+        keys.insert("contextTokens".into(), mixdog_js::json_number(tokens));
+    }
+    let mut head = Map::new();
+    head.insert("provider".into(), route.get("provider").cloned().unwrap_or(Value::Null));
+    head.insert("model".into(), route.get("model").cloned().unwrap_or(Value::Null));
+    if let Some(fallbacks) = preset.and_then(|preset| preset.get("fallbacks")) {
+        head.insert("fallbacks".into(), fallbacks.clone());
+    }
+    let head = Value::Object(head);
+    let chain = match mixdog_ai::service::admin_route::normalize_workflow_route(&head, &serde_json::json!({}), false)? {
+        Some(normalized) => mixdog_ai::service::routes::execution_fallbacks(&normalized)?,
+        None => Vec::new(),
+    };
+    if !chain.is_empty() {
+        keys.insert("routeFallbacks".into(), Value::Array(chain));
+    }
+    if let Some(source) = preset.and_then(|preset| preset.get("fallbackSource")).filter(|source| source.is_object()) {
+        keys.insert("routeFallbackSource".into(), source.clone());
+    }
+    Ok(keys)
 }

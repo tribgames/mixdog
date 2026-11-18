@@ -21,6 +21,12 @@ pub trait ConnectionOwner: Send + Sync {
     fn connection_closed(&self, connection: ConnectionId);
 }
 
+impl ConnectionOwner for mixdog_core_domains::domains::host::HostService {
+    fn connection_closed(&self, connection: ConnectionId) {
+        mixdog_core_domains::domains::host::HostService::connection_closed(self, connection);
+    }
+}
+
 impl ConnectionOwner for TerminalService {
     /// Focus and size ownership on every tab.
     fn connection_closed(&self, connection: ConnectionId) {
@@ -63,43 +69,15 @@ impl ConnectionOwner for DeviceRegistry {
     }
 }
 
-pub struct ConnectionOwners {
-    owners: Vec<Arc<dyn ConnectionOwner>>,
+impl ConnectionOwner for mixdog_remote::access::runtime::RemoteRuntime {
+    /// The pairing views the connection held the pair code for.
+    fn connection_closed(&self, connection: ConnectionId) {
+        mixdog_remote::access::runtime::RemoteRuntime::connection_closed(self, connection.0);
+    }
 }
 
-impl ConnectionOwners {
-    #[allow(clippy::too_many_arguments, reason = "Keep the existing composed connection-owner boundary and explicit owner lifetimes unchanged.")]
-    pub fn new(
-        terminal: Arc<TerminalService>,
-        screen: Arc<ScreenSessions>,
-        workspace: Arc<WorkspaceService>,
-        system: Arc<SystemService>,
-        devices: Arc<DeviceRegistry>,
-        live_view: Arc<crate::live_view::LiveViewService>,
-        scm: Arc<ScmService>,
-        browser_engine: Arc<crate::browser_engine_service::BrowserEngineService>,
-    ) -> Self {
-        Self { owners: vec![terminal, screen, workspace, system, devices, live_view, scm, browser_engine] }
-    }
-
-    /// One more owner of per-connection state, released after the others (the connections service: a window's connect attempts and
-    /// its view of a server's ports).
-    pub fn with_owner(mut self, owner: Arc<dyn ConnectionOwner>) -> Self {
-        self.owners.push(owner);
-        self
-    }
-
-    /// Every owner releases what `connection` held, in a fixed order.
-    pub fn connection_closed(&self, connection: ConnectionId) {
-        for owner in &self.owners {
-            owner.connection_closed(connection);
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn of(owners: Vec<Arc<dyn ConnectionOwner>>) -> Self {
-        Self { owners }
-    }
+pub struct ConnectionOwners {
+    owners: Vec<Arc<dyn ConnectionOwner>>,
 }
 
 /// Bound once by the composition, after the five owners exist.
@@ -175,6 +153,17 @@ mod tests {
         }
     }
 
+    #[test]
+    fn an_unbound_cell_is_named_and_a_bound_one_passes() {
+        let cell = ConnectionOwnersCell::default();
+        assert_eq!(cell.cell(), "connection owners");
+        assert!(!cell.is_bound());
+        assert!(cell.bind(ConnectionOwners::of(Vec::new())).is_ok());
+        assert!(cell.is_bound());
+        assert!(cell.bind(ConnectionOwners::of(Vec::new())).is_err(), "a second bind is refused");
+    }
+
+
     #[tokio::test(flavor = "multi_thread")]
     async fn a_closed_connection_is_told_to_every_owner_and_releases_its_screen_sessions() {
         let tokens = mixdog_rt::testing::tokens();
@@ -211,14 +200,39 @@ mod tests {
         terminal.tabs().dispose_all();
         mixdog_rt::time::sleep(Duration::from_millis(10)).await;
     }
+}
 
-    #[test]
-    fn an_unbound_cell_is_named_and_a_bound_one_passes() {
-        let cell = ConnectionOwnersCell::default();
-        assert_eq!(cell.cell(), "connection owners");
-        assert!(!cell.is_bound());
-        assert!(cell.bind(ConnectionOwners::of(Vec::new())).is_ok());
-        assert!(cell.is_bound());
-        assert!(cell.bind(ConnectionOwners::of(Vec::new())).is_err(), "a second bind is refused");
+impl ConnectionOwners {
+    #[allow(clippy::too_many_arguments, reason = "Keep the existing composed connection-owner boundary and explicit owner lifetimes unchanged.")]
+    pub fn new(
+        terminal: Arc<TerminalService>,
+        screen: Arc<ScreenSessions>,
+        workspace: Arc<WorkspaceService>,
+        system: Arc<SystemService>,
+        devices: Arc<DeviceRegistry>,
+        live_view: Arc<crate::live_view::LiveViewService>,
+        scm: Arc<ScmService>,
+        browser_engine: Arc<crate::browser_engine_service::BrowserEngineService>,
+    ) -> Self {
+        Self { owners: vec![terminal, screen, workspace, system, devices, live_view, scm, browser_engine] }
+    }
+
+    /// One more owner of per-connection state, released after the others (the connections service: a window's connect attempts and
+    /// its view of a server's ports).
+    pub fn with_owner(mut self, owner: Arc<dyn ConnectionOwner>) -> Self {
+        self.owners.push(owner);
+        self
+    }
+
+    /// Every owner releases what `connection` held, in a fixed order.
+    pub fn connection_closed(&self, connection: ConnectionId) {
+        for owner in &self.owners {
+            owner.connection_closed(connection);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn of(owners: Vec<Arc<dyn ConnectionOwner>>) -> Self {
+        Self { owners }
     }
 }

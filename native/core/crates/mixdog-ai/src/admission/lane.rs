@@ -504,6 +504,20 @@ impl Permit {
         recorded
     }
 
+    /// Gives the slot back for a retry's wait, with no outcome counted: the send is not over. Returns whether this permit
+    /// already reported a 429, which the permit the send takes next carries on ([`Permit::carry_rate_limit`]), so the
+    /// send's end is counted once, as one send.
+    pub fn suspend(mut self) -> bool {
+        self.released = true;
+        self.lane.release(self.id);
+        self.rate_limit_reported
+    }
+
+    /// The send this permit continues already reported a 429 on an earlier permit.
+    pub fn carry_rate_limit(&mut self, reported: bool) {
+        self.rate_limit_reported |= reported;
+    }
+
     pub fn finish(mut self, outcome: Outcome) {
         match outcome {
             Outcome::Success if !self.rate_limit_reported => self.lane.record_success(),

@@ -23,6 +23,8 @@ import {
   desktopDockSnapshotsEqual,
   desktopHeaderSnapshotsEqual,
   desktopStreamingTailSnapshotsEqual,
+  paneConversationView,
+  paneHeaderView,
   type DesktopSnapshotStore,
 } from './desktop-snapshot-store';
 import { EMPTY_SNAPSHOT, type Snapshot, type TranscriptItem } from './desktop-types';
@@ -266,7 +268,7 @@ export const PaneConversation = memo(function PaneConversation({
     !hidden && presentedSessionId !== sessionId
   );
   const presentedLaneSnapshot = presentedSessionId === sessionId ? lane : presentedLane;
-  const routeSnapshot = presentedSessionId ? (presentedLaneSnapshot ?? EMPTY_SNAPSHOT) : EMPTY_SNAPSHOT;
+  const routeSnapshot = presentedSessionId && presentedLaneSnapshot ? paneConversationView(presentedLaneSnapshot) : EMPTY_SNAPSHOT;
   const paneSnapshot = hidden ? EMPTY_SNAPSHOT : routeSnapshot;
   const paintGate = conversationSwitchPaintGate(heldPaintId, incomingPaintId, {
     hidden,
@@ -454,7 +456,7 @@ function usePaneIslandSnapshot(sessionId: string, hidden: boolean): Snapshot {
     desktopHeaderSnapshotsEqual,
     !hidden && Boolean(sessionId)
   );
-  return hidden || !sessionId ? EMPTY_SNAPSHOT : (lane ?? EMPTY_SNAPSHOT);
+  return hidden || !sessionId || !lane ? EMPTY_SNAPSHOT : paneHeaderView(lane);
 }
 
 // Most sessions have no Goal, so the capsule module stays out of the first

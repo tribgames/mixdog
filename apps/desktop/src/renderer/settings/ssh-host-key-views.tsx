@@ -39,7 +39,13 @@ function HopList({ hops }: { hops: DesktopSshHopKey[] }) {
 }
 
 /** The input and button that replace the changed key, once the server name is typed in full. */
-function ReplaceKeyForm({ host, onReplace }: { host: string; onReplace(typedName: string): void }) {
+function ReplaceKeyForm({
+  host,
+  onReplace,
+}: {
+  host: string;
+  onReplace(typedName: string): void;
+}) {
   const [typed, setTyped] = useState('');
   const matches = typed.trim().toLowerCase() === host.toLowerCase();
   return (
@@ -47,6 +53,7 @@ function ReplaceKeyForm({ host, onReplace }: { host: string; onReplace(typedName
       <p className="conn-note">
         {t('Replace the key only if you know why it changed. To confirm, type the server name {{host}}.', { host })}
       </p>
+      <p className="conn-note">{t('Only the key saved for this address is replaced.')}</p>
       <input
         type="text"
         className="conn-input"

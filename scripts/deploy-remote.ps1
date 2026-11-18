@@ -22,7 +22,13 @@
 param(
     [string]$SshHost = 'root@192.255.139.161',
     [string]$Domain = '192-255-139-161.sslip.io',
-    [switch]$FastDirect
+    [switch]$FastDirect,
+    # Build the Linux relay from THIS working tree (committed or not) in the manylinux_2_28 container CI uses, instead of
+    # taking a CI artifact. For a box no CI run can serve (sources not pushed). Needs Docker. See Build-LocalRelay.
+    [switch]$LocalRelayBuild,
+    # Everything up to the first ssh/scp: plan, builds, staging, the upload archive. Prints what would be sent and run;
+    # touches no server and records no deploy state.
+    [switch]$PlanOnly
 )
 $ErrorActionPreference = 'Stop'
 trap {
@@ -52,11 +58,12 @@ $deployStatePath = Join-Path $relayDir '.cache\deploy-state.json'
 # the local tree. The artifact of a called workflow belongs to the caller's run,
 # so a Deploy run is searched as well as the hand-dispatched mixdogd-build runs.
 # Returns the folder holding it, or $null.
+$relaySources = @('native/core/crates/mixdog-relay', 'native/core/crates/mixdog-js',
+    'native/core/crates/mixdog-fsio', 'native/core/crates/mixdog-rt',
+    'native/core/crates/mixdog-workspace-hack', 'native/core/vendor/regress',
+    'native/core/vendor/icu_collator', 'native/core/Cargo.toml', 'native/core/Cargo.lock')
 function Get-RelayBinaryDir([string]$cacheDir) {
-    $sources = @('native/core/crates/mixdog-relay', 'native/core/crates/mixdog-js',
-        'native/core/crates/mixdog-fsio', 'native/core/crates/mixdog-rt',
-        'native/core/crates/mixdog-workspace-hack', 'native/core/vendor/regress',
-        'native/core/vendor/icu_collator', 'native/core/Cargo.toml', 'native/core/Cargo.lock')
+    $sources = $relaySources
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { return $null }
     Push-Location $repo
     try {
@@ -90,6 +97,55 @@ function Get-RelayBinaryDir([string]$cacheDir) {
     return $null
 }
 
+# The Linux relay of this working tree, built by the command CI runs (mixdogd-build.yml, the x86_64 leg): the pinned
+# manylinux_2_28 image and apps/desktop/scripts/linux-build-core-old-glibc.sh. Differences from CI, all outside the
+# build command: the repo is mounted read-only, the binary lands in $outDir (MIXDOG_OUT_DIR), only the relay is
+# compiled (MIXDOG_RELAY_ONLY), and the target directory, cargo registry/git and rustup live in named Docker volumes
+# (never C:\mixdog-build\pool\mixdog-target or native\core\target), so a second build is incremental.
+# relay-build.json beside the binary says build=local, dirty or not, and which relay-source fingerprint it was built
+# from: relay-artifact.mjs verify (the CI check) refuses it. Returns $outDir.
+function Build-LocalRelay([string]$outDir, [string]$fingerprint) {
+    $target = 'x86_64-unknown-linux-gnu'
+    $tool = Join-Path $PSScriptRoot 'relay-artifact.mjs'
+    if (Test-Path -LiteralPath (Join-Path $outDir 'relay-build.json')) {
+        $built = & node $tool verify-local $outDir $target 2>$null
+        if ($LASTEXITCODE -eq 0 -and $built -eq $fingerprint) {
+            Step 'reusing the local relay build of these sources'
+            return $outDir
+        }
+    }
+    $workflow = Get-Content (Join-Path $repo '.github\workflows\mixdogd-build.yml') -Raw
+    if ($workflow -notmatch 'target: x86_64-unknown-linux-gnu,[^}]*image: "([^"]+)"') {
+        throw 'the x86_64 Linux leg of mixdogd-build.yml names no container image'
+    }
+    $image = $Matches[1]
+    docker info *>$null
+    if ($LASTEXITCODE -ne 0) { throw 'Docker is not running: start Docker Desktop for -LocalRelayBuild' }
+    Step "building the Linux relay from the working tree in $image"
+    if (Test-Path -LiteralPath $outDir) { Remove-Item -LiteralPath $outDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+    & docker run --rm -e MIXDOG_BUILD_RELAY=1 -e MIXDOG_RELAY_ONLY=1 -e MIXDOG_OUT_DIR=/out `
+        -v "${repo}:/w:ro" -v "${outDir}:/out" `
+        -v mixdog-relay-build-target:/tmp/target `
+        -v mixdog-relay-build-cargo-registry:/root/.cargo/registry `
+        -v mixdog-relay-build-cargo-git:/root/.cargo/git `
+        -v mixdog-relay-build-rustup:/root/.rustup `
+        $image bash /w/apps/desktop/scripts/linux-build-core-old-glibc.sh | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "container relay build exited with $LASTEXITCODE" }
+    if (-not (Test-Path -LiteralPath (Join-Path $outDir 'mixdog-relay'))) { throw 'the container build left no mixdog-relay' }
+    Push-Location $repo
+    try {
+        $commit = (git rev-parse HEAD).Trim()
+        $dirty = if (git status --porcelain --untracked-files=all -- @relaySources) { 'dirty' } else { 'clean' }
+    }
+    finally { Pop-Location }
+    & node $tool record-local $outDir $target $commit $fingerprint $dirty
+    if ($LASTEXITCODE -ne 0) { throw "recording the local relay build exited with $LASTEXITCODE" }
+    Write-Host "local relay build: commit $commit, $dirty relay sources, fingerprint $fingerprint"
+    return $outDir
+}
+
+if ($PlanOnly -and $FastDirect) { throw '-PlanOnly stops before the installed-app swap that -FastDirect ends with' }
 $planOutput = & node $deployPlanner --action=plan "--state=$deployStatePath" "--plan=$deployPlanPath"
 if ($LASTEXITCODE -ne 0) { throw "live deploy planning exited with $LASTEXITCODE" }
 $deployPlan = $planOutput | Out-String | ConvertFrom-Json
@@ -98,7 +154,21 @@ $deployPlan = $planOutput | Out-String | ConvertFrom-Json
 # VPS) to deploy a renderer to a box whose installed tree is still Node.
 $relayBinaryDir = $null
 $relayDeployed = $true
-if ($deployPlan.relayChanged -or $deployPlan.rendererChanged) {
+# What the last -LocalRelayBuild deploy shipped. The deploy state itself never records a local build (its relay hash is
+# blanked after one), so a CI-built relay is never skipped as "unchanged" and a CI deploy always follows a local one.
+$localRelayStatePath = Join-Path $relayDir '.cache\relay-local-deploy.json'
+$localMarkerTool = Join-Path $relayDir 'scripts\local-relay-marker.mjs'
+$localRelayShipped = $false
+if ($LocalRelayBuild) {
+    $localCurrent = (& node $localMarkerTool --action=current "--marker=$localRelayStatePath" "--hash=$($deployPlan.relay.hash)") -eq 'true'
+    $deployPlan.relayChanged = -not $localCurrent
+    $deployPlan.deploy = [bool]($deployPlan.relayChanged -or $deployPlan.rendererChanged)
+    if ($deployPlan.relayChanged) {
+        $relayBinaryDir = Build-LocalRelay (Join-Path $relayDir '.cache\relay-local') $deployPlan.relay.hash
+        $localRelayShipped = $true
+    }
+}
+elseif ($deployPlan.relayChanged -or $deployPlan.rendererChanged) {
     $relayBinaryDir = Get-RelayBinaryDir (Join-Path $relayDir '.cache')
 }
 if ($deployPlan.relayChanged -and -not $relayBinaryDir) {
@@ -142,7 +212,7 @@ if ($deployPlan.stageRenderer) {
 }
 
 $vpsDeployScript = {
-    param($relayDir, $SshHost, $Domain, $version, $includeRenderer, $desktopVersion, $relayBinaryDir, $uploadRelay, $nativeDir)
+    param($relayDir, $SshHost, $Domain, $version, $includeRenderer, $desktopVersion, $relayBinaryDir, $uploadRelay, $nativeDir, $planOnly)
     $ErrorActionPreference = 'Stop'
     $tgz = Join-Path $env:TEMP 'mixdog-relay-upload.tgz'
     # The uploaded renderer is installed as an ADDITIONAL release named by the
@@ -163,7 +233,11 @@ $vpsDeployScript = {
             # uploaded one when this run has it (so a VPS whose installed tree is
             # still Node works), else the installed one.
             $remoteTool = $null
-            if ($relayBinaryDir) {
+            if ($planOnly) {
+                # The installed manifest comes from the box (and the delta from a cargo build): neither belongs to a plan.
+                Write-Host '[plan] renderer delta skipped (needs the box); the archive carries the whole renderer'
+            }
+            elseif ($relayBinaryDir) {
                 scp -o BatchMode=yes -q (Join-Path $relayBinaryDir 'mixdog-relay') "${SshHost}:/root/mixdog-relay-tool"
                 if ($LASTEXITCODE -ne 0) { throw "renderer manifest tool upload exited with $LASTEXITCODE" }
                 ssh -o BatchMode=yes $SshHost 'chmod 0755 /root/mixdog-relay-tool'
@@ -184,7 +258,7 @@ $vpsDeployScript = {
                     [Text.UTF8Encoding]::new($false)
                 )
                 $deltaResult = & cargo run --release --quiet --manifest-path (Join-Path $nativeDir 'Cargo.toml') `
-                    -p mixdog-relay -- renderer-delta --action=create `
+                    -p mixdog-relay --bin mixdog-relay -- renderer-delta --action=create `
                     "--root=$(Join-Path $relayDir 'renderer')" "--base=$baseManifest" `
                     "--delta=$deltaDir" "--manifest=$targetManifest"
                 if ($LASTEXITCODE -ne 0) { throw "renderer delta creation exited with $LASTEXITCODE" }
@@ -201,6 +275,15 @@ $vpsDeployScript = {
         if ($uploadRelay) { $tarArguments += @('-C', $relayBinaryDir, 'mixdog-relay') }
         & tar @tarArguments
         if ($LASTEXITCODE -ne 0) { throw "tar exited with $LASTEXITCODE" }
+        if ($planOnly) {
+            $listing = @(& tar -tzf $tgz)
+            $top = $listing | ForEach-Object { ($_ -split '/')[0] } | Group-Object | ForEach-Object { "$($_.Name) ($($_.Count) entries)" }
+            Write-Host "[plan] archive $([math]::Round((Get-Item $tgz).Length / 1MB, 2)) MB: $($top -join ', ')"
+            Write-Host "[plan] would scp it to ${SshHost}:/root/relay-upload.tgz and run:"
+            Write-Host "[plan]   bash /root/relay-upload/deploy/deploy-release.sh $Domain v$version $releaseDesktopVersion"
+            Write-Host "[plan] relay binary in the archive: $([bool]$uploadRelay)"
+            return
+        }
         scp -o BatchMode=yes -q $tgz "${SshHost}:/root/relay-upload.tgz"
         if ($LASTEXITCODE -ne 0) { throw "scp exited with $LASTEXITCODE" }
         ssh -o BatchMode=yes $SshHost ("rm -rf /root/relay-upload && mkdir -p /root/relay-upload" `
@@ -209,8 +292,10 @@ $vpsDeployScript = {
         if ($LASTEXITCODE -ne 0) { throw "VPS swap exited with $LASTEXITCODE" }
     }
     finally {
-        & ssh -o BatchMode=yes -o ConnectTimeout=10 $SshHost `
-            'rm -rf -- /root/relay-upload /root/relay-upload.tgz /root/mixdog-relay-tool' 2>$null
+        if (-not $planOnly) {
+            & ssh -o BatchMode=yes -o ConnectTimeout=10 $SshHost `
+                'rm -rf -- /root/relay-upload /root/relay-upload.tgz /root/mixdog-relay-tool' 2>$null
+        }
         Remove-Item -LiteralPath $tgz -Force -ErrorAction SilentlyContinue
     }
     $ErrorActionPreference = 'Continue'
@@ -231,7 +316,7 @@ if ($deployPlan.deploy) {
     $version = (Get-Content (Join-Path $relayDir 'package.json') -Raw | ConvertFrom-Json).version
     $vpsDeployArgs = @(
         $relayDir, $SshHost, $Domain, $version, ([bool]$deployPlan.rendererChanged), $desktopVersion,
-        $relayBinaryDir, ([bool]$deployPlan.relayChanged), (Join-Path $repo 'native\core')
+        $relayBinaryDir, ([bool]$deployPlan.relayChanged), (Join-Path $repo 'native\core'), [bool]$PlanOnly
     )
     if ($FastDirect) {
         Step 'pack + upload + atomic VPS swap (background job)'
@@ -247,6 +332,11 @@ if ($deployPlan.deploy) {
 }
 else {
     Step 'VPS inputs unchanged; skipping renderer build, stage, and upload'
+}
+
+if ($PlanOnly) {
+    Step 'plan only: nothing was sent, no server was contacted, no deploy state was recorded'
+    exit 0
 }
 
 $devUpdate = Join-Path $desktopDir 'scripts\dev-update-windows.ps1'
@@ -280,8 +370,26 @@ if ($vpsDeploySucceeded) {
         $plan.relay.hash = if ($previousState) { [string]$previousState.relayHash } else { '' }
         [IO.File]::WriteAllText($deployPlanPath, ($plan | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
     }
+    if ($LocalRelayBuild) {
+        # The box now runs a local build (this run's, or an earlier one this run found current): the state must not
+        # say a CI-equal relay is installed.
+        $plan = Get-Content $deployPlanPath -Raw | ConvertFrom-Json
+        $plan.relay.hash = ''
+        [IO.File]::WriteAllText($deployPlanPath, ($plan | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+    }
     & node $deployPlanner --action=commit "--state=$deployStatePath" "--plan=$deployPlanPath"
     if ($LASTEXITCODE -ne 0) { throw "live deploy state commit exited with $LASTEXITCODE" }
+    if ($localRelayShipped) {
+        $built = Get-Content (Join-Path $relayBinaryDir 'relay-build.json') -Raw | ConvertFrom-Json
+        & node $localMarkerTool --action=record "--marker=$localRelayStatePath" "--hash=$($built.sourceFingerprint)" `
+            "--binarySha256=$($built.binarySha256)" "--sourceCommit=$($built.sourceCommit)" "--dirty=$($built.dirty.ToString().ToLower())"
+        if ($LASTEXITCODE -ne 0) { throw "recording the local relay marker exited with $LASTEXITCODE" }
+    }
+    elseif (-not $LocalRelayBuild -and $deployPlan.relayChanged) {
+        # A CI relay replaced whatever was installed: the marker must not claim the local build still is.
+        & node $localMarkerTool --action=clear "--marker=$localRelayStatePath"
+        if ($LASTEXITCODE -ne 0) { throw "clearing the local relay marker exited with $LASTEXITCODE" }
+    }
 }
 Write-Host ''
 if ($fastBuildFailed) { exit 1 }

@@ -1,0 +1,17 @@
+[package]
+name = "mixdog-image-egress"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Leaf contract for every image that leaves the app: origins, destination policy, refusals, and the sealed prepared batch"
+
+[lints]
+workspace = true
+
+[features]
+# ImageFacts::for_test for other crates' tests.
+test-support = []
+
+[dependencies]
+sha2 = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }

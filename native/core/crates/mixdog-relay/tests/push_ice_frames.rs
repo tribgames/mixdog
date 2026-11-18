@@ -1,9 +1,4 @@
-//! The native push and ICE server frames of the desktop leg, through a live hub: the 8 cases of `lib/ice-legs.test.mjs` (the issuer
-//! unit cases and the real-leg cases) and the frame-level cases of `lib/native-push.test.mjs` (the capability, the bind and send
-//! frames, the revocation hooks, a relay without credentials). The service-level cases of native push are in `native_push.rs`.
-//!
-//! The sockets are in-process stand-ins that record what they were sent. The device store writes through a lane thread, so these tests
-//! run on the real clock; nothing here waits on a timer longer than a few milliseconds.
+//! The native push and ICE server frames of the desktop leg, through a live hub: the credential issuer, the capability, bind and send frames.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};

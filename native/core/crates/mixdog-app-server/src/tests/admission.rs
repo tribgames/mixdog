@@ -3,7 +3,6 @@
 
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
-use serde_json::Value;
 use serde_json::json;
 
 use super::Rig;
@@ -11,31 +10,6 @@ use super::settle;
 
 fn focus(client: &super::Client, id: i64) {
     client.request(id, "terminal/focus", json!({ "tabId": format!("tab{id}"), "focused": true }));
-}
-
-/// The refusal Node's recording has for the 1025th call of one owner in the normal lane.
-fn recorded_queue_full() -> String {
-    let recording: Value = serde_json::from_str(&mixdog_testkit::fixture!("../../fixtures/session-call-lanes/golden.json")).unwrap();
-    let case = recording["cases"].as_array().unwrap().iter().find(|case| case["case"] == "the normal lane refuses past its 1024 queue for one owner").unwrap();
-    case["observed"]["refused"][0]["message"].as_str().unwrap().to_owned()
-}
-
-// The recorded model-proxy burst and refusal are replayed from the wire through this admission to the real
-// `ModelProxyService` in model_proxy_wire.rs.
-
-/// `config/read` is a normal-lane call (Node's `session.list` class): 1024 wait for their turn and the next is refused as Node's
-/// lane refuses it; the answer is `{ error: message }` with no status.
-#[tokio::test(start_paused = true)]
-async fn a_backlog_past_the_lane_queue_is_refused_with_nodes_message() {
-    let rig = Rig::routed(super::domain_methods(), vec![("config", &["config/read"])]);
-    let client = rig.ready(1, json!({}));
-    for id in 1..=1025 {
-        client.request(id, "config/read", json!({}));
-    }
-    let refused = client.drain();
-    assert_eq!(refused.len(), 1, "only the one past the queue: {refused:?}");
-    assert_eq!(refused[0].body["id"], json!(1025));
-    assert_eq!(refused[0].body["error"]["data"]["message"], json!(recorded_queue_full()));
 }
 
 /// A stop sent while reads wait their turn is answered before any of them has started (Node's critical lane never queues).
@@ -86,4 +60,25 @@ async fn a_started_request_is_a_call_in_flight_until_its_slot_is_freed() {
     let answered = client.frames(8).await;
     assert!(answered.iter().all(|wire| wire.body.get("result").is_some()));
     assert_eq!(rig.core.mock.requests_in_flight(), 0, "the slots are free before the responses are written");
+}
+
+
+/// The refusal for the 1025th call of one owner in the normal lane.
+fn recorded_queue_full() -> String {
+    "session service call queue is full".to_owned()
+}
+
+/// `config/read` is a normal-lane call (Node's `session.list` class): 1024 wait for their turn and the next is refused as Node's
+/// lane refuses it; the answer is `{ error: message }` with no status.
+#[tokio::test(start_paused = true)]
+async fn a_backlog_past_the_lane_queue_is_refused_with_nodes_message() {
+    let rig = Rig::routed(super::domain_methods(), vec![("config", &["config/read"])]);
+    let client = rig.ready(1, json!({}));
+    for id in 1..=1025 {
+        client.request(id, "config/read", json!({}));
+    }
+    let refused = client.drain();
+    assert_eq!(refused.len(), 1, "only the one past the queue: {refused:?}");
+    assert_eq!(refused[0].body["id"], json!(1025));
+    assert_eq!(refused[0].body["error"]["data"]["message"], json!(recorded_queue_full()));
 }

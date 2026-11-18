@@ -430,6 +430,7 @@ impl MediaStore {
         Ok(assets)
     }
 
+    #[cfg(node_twin)]
     /// `mediaStoreCacheStats`.
     #[cfg(test)]
     pub(crate) fn cache_stats(&self) -> Value {
@@ -635,7 +636,13 @@ impl MediaStore {
     #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
     pub fn delete_assets(&self, p: &Value) -> Result<Value, MediaError> {
         let ids: Option<Vec<String>> = p.get("ids").and_then(Value::as_array).map(|a| a.iter().map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned)).collect());
-        let before = p.get("before").and_then(Value::as_f64).filter(|v| v.is_finite() && *v > 0.0);
+        // `Number(before)`: a numeric string is a cutoff too.
+        let before = match p.get("before") {
+            Some(Value::Number(n)) => n.as_f64(),
+            Some(Value::String(s)) => mixdog_js::js_trim(s).parse::<f64>().ok(),
+            _ => None,
+        }
+        .filter(|v| v.is_finite() && *v > 0.0);
         let flag = |k: &str| p.get(k).and_then(Value::as_bool).unwrap_or(false);
         let (missing, all, dry_run) = (flag("missing"), flag("all"), flag("dryRun"));
         if ids.is_none() && before.is_none() && !missing && !all {
@@ -876,33 +883,6 @@ mod tests {
         store.save_asset(kind, "gemini", "m/1", "p", json!({}), if kind == "video" { "video/mp4" } else { "image/png" }, b"bytes", Map::new()).unwrap()
     }
 
-    /// Node's catalog with a prompt cut at 4000 units and a board name cut at 120, each inside an emoji
-    /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): read whole, and the next writes keep
-    /// every entry and field Node's own next writes keep.
-    #[test]
-    fn a_catalog_node_cut_inside_an_emoji_is_read_whole_and_written_back_whole() {
-        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
-        let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
-        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "media-store").unwrap();
-        let (dir, s) = store();
-        let media = dir.path().join("media");
-        fs::create_dir_all(&media).unwrap();
-        for file in ["index.json", "boards.json"] {
-            fs::copy(set.join("media-store/before").join(file), media.join(file)).unwrap();
-        }
-        let asset_id = case["assetId"].as_str().unwrap();
-        assert_eq!(s.get_asset(asset_id).unwrap().unwrap(), case["before"]["index.json"]["assets"][0]);
-        assert_eq!(s.list_boards().unwrap(), case["nodeRead"]["boards"]);
-        let op = &case["op"];
-        s.set_asset_board(&op["setAssetBoard"][0], &op["setAssetBoard"][1]).unwrap();
-        s.rename_board(Some(&op["renameBoard"][0]), Some(&op["renameBoard"][1])).unwrap();
-        for file in ["index.json", "boards.json"] {
-            let written: Value = serde_json::from_slice(&fs::read(media.join(file)).unwrap()).unwrap();
-            // As text: entry and key order count too.
-            assert_eq!(written.to_string(), case["after"][file].to_string(), "{file}");
-        }
-    }
-
     #[test]
     fn assets_are_organized_listed_newest_first_and_deleted_with_their_file() {
         let (_d, s) = store();
@@ -962,6 +942,18 @@ mod tests {
         assert_eq!(s.list_assets(None, None, None, "").unwrap()["total"], 2);
         assert_eq!(s.delete_assets(&json!({"all": true, "kind": "image"})).unwrap()["ids"], json!([a["id"]]));
         assert_eq!(s.list_assets(None, None, None, "").unwrap()["total"], 1);
+    }
+
+    /// `Number(before)` (store.mjs): a numeric string is a cutoff like a number; one that is not a positive number is none.
+    #[test]
+    fn a_numeric_string_before_is_a_cutoff() {
+        let (_dir, s) = store();
+        let a = save(&s, "image");
+        let far = "99999999999999";
+        assert_eq!(s.delete_assets(&json!({"before": far, "dryRun": true})).unwrap()["ids"], json!([a["id"]]));
+        assert_eq!(s.delete_assets(&json!({"before": 99999999999999.0_f64, "dryRun": true})).unwrap()["ids"], json!([a["id"]]));
+        assert_eq!(s.delete_assets(&json!({"before": "1", "dryRun": true})).unwrap()["ids"], json!([]));
+        assert!(s.delete_assets(&json!({"before": "soon"})).is_err());
     }
 
     #[test]
@@ -1205,5 +1197,34 @@ mod tests {
         assert!(s.stored_asset_path("images/../../index.json").is_none());
         assert!(s.stored_asset_path("/a.png").is_none());
         assert_eq!(s.stored_asset_path(""), Some(s.assets_dir()), "an empty name is the root, as Node's `resolve(root, '')`");
+    }
+
+
+    /// Node's catalog with a prompt cut at 4000 units and a board name cut at 120, each inside an emoji
+    /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): read whole, and the next writes keep
+    /// every entry and field Node's own next writes keep.
+    #[cfg(node_twin)]
+    #[test]
+    fn a_catalog_node_cut_inside_an_emoji_is_read_whole_and_written_back_whole() {
+        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+        let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
+        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "media-store").unwrap();
+        let (dir, s) = store();
+        let media = dir.path().join("media");
+        fs::create_dir_all(&media).unwrap();
+        for file in ["index.json", "boards.json"] {
+            fs::copy(set.join("media-store/before").join(file), media.join(file)).unwrap();
+        }
+        let asset_id = case["assetId"].as_str().unwrap();
+        assert_eq!(s.get_asset(asset_id).unwrap().unwrap(), case["before"]["index.json"]["assets"][0]);
+        assert_eq!(s.list_boards().unwrap(), case["nodeRead"]["boards"]);
+        let op = &case["op"];
+        s.set_asset_board(&op["setAssetBoard"][0], &op["setAssetBoard"][1]).unwrap();
+        s.rename_board(Some(&op["renameBoard"][0]), Some(&op["renameBoard"][1])).unwrap();
+        for file in ["index.json", "boards.json"] {
+            let written: Value = serde_json::from_slice(&fs::read(media.join(file)).unwrap()).unwrap();
+            // As text: entry and key order count too.
+            assert_eq!(written.to_string(), case["after"][file].to_string(), "{file}");
+        }
     }
 }

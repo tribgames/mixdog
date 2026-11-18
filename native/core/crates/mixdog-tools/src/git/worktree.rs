@@ -73,22 +73,6 @@ pub struct WorktreeServices {
     pub sessions: Arc<dyn SessionWorktrees>,
 }
 
-impl WorktreeServices {
-    /// The workspace API's `listWorktrees({ includeSnapshots: true })` (`worktree-tool.mjs`):
-    /// every managed worktree, snapshots included, with who keeps it now.
-    async fn rows(&self, cancel: &CancellationToken) -> Result<Vec<JsonValue>, ScmFailure> {
-        // Without details the list weighs no cleanup limit, so `now` is never read.
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
-        self.worktrees.list_with_retention(&self.stored, &(self.live)(), false, now, cancel).await
-    }
-
-    /// Who keeps what now, for a prune.
-    async fn retention(&self, cancel: &CancellationToken) -> Result<SnapshotRetention, ScmFailure> {
-        let stored = self.stored.stored_session_ids().await?;
-        self.worktrees.retention((self.live)(), stored, cancel).await
-    }
-}
-
 /// A failed operation: a plain message from the tool or a failure from `mixdog-scm`.
 pub(super) enum Failure {
     Plain(String),
@@ -204,33 +188,6 @@ fn strip_verbatim(path: &Path) -> PathBuf {
     }
 }
 
-/// `canonicalPath`: the real path of the nearest existing ancestor plus the rest. Blocking:
-/// only [`canonical_paths`] calls it, inside a maintenance-lane job.
-#[allow(clippy::disallowed_methods, reason = "runs only as a maintenance-lane job body (Runner::blocking)")]
-fn canonical_path(value: &str) -> String {
-    let full = resolve(&std::env::current_dir().unwrap_or_default(), if value.is_empty() { "." } else { value });
-    let mut head = full.clone();
-    while !head.exists() {
-        match head.parent() {
-            Some(parent) if parent != head => head = parent.to_path_buf(),
-            _ => return full.to_string_lossy().into_owned(),
-        }
-    }
-    let Ok(real) = head.canonicalize() else { return full.to_string_lossy().into_owned() };
-    let real = strip_verbatim(&real);
-    let rest = full.strip_prefix(&head).unwrap_or(Path::new(""));
-    if rest.as_os_str().is_empty() { real } else { real.join(rest) }.to_string_lossy().into_owned()
-}
-
-/// The canonical form of each path, off the async workers.
-async fn canonical_paths(env: &Env<'_>, values: Vec<String>) -> Vec<String> {
-    let fallback = values.clone();
-    env.runner
-        .blocking(move || values.iter().map(|v| canonical_path(v)).collect())
-        .await
-        .unwrap_or(fallback)
-}
-
 /// Whether two canonical paths name one folder.
 fn same_path(left: &str, right: &str) -> bool {
     mixdog_scm::locks::path_key(Path::new(left)) == mixdog_scm::locks::path_key(Path::new(right))
@@ -244,86 +201,12 @@ fn basename(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-// ---- git probes --------------------------------------------------------------------------
-
-async fn git_probe(env: &Env<'_>, cwd: &Path, args: &[&str]) -> super::run::GitRun {
-    let argv: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
-    let scoped: Vec<String> = SCOPED_CONFIG.iter().map(|s| (*s).to_owned()).collect();
-    env.runner.run_in(cwd, &scoped, &argv, false).await
-}
-
-/// Repository facts in `cwd` from git itself (`None` outside a repository).
-async fn repository_at(env: &Env<'_>, cwd: &Path) -> Option<String> {
-    let probe = git_probe(env, cwd, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).await;
-    if !probe.succeeded() {
-        return None;
-    }
-    canonical_paths(env, vec![first_line(&probe.out())]).await.pop()
-}
-
-async fn local_branch_exists(env: &Env<'_>, cwd: &Path, branch: &str) -> bool {
-    let reference = format!("refs/heads/{branch}");
-    git_probe(env, cwd, &["rev-parse", "--verify", "--quiet", &reference]).await.succeeded()
-}
-
-/// Full commit id of commit-ish `value` resolved in `cwd`.
-async fn commit_in(env: &Env<'_>, cwd: &Path, value: &str) -> Option<String> {
-    if value.is_empty() || value.starts_with('-') {
-        return None;
-    }
-    let spec = format!("{value}^{{commit}}");
-    let run = git_probe(env, cwd, &["rev-parse", "--verify", "--quiet", &spec]).await;
-    run.succeeded().then(|| first_line(&run.out()))
-}
-
 struct GitWorktree {
     path: String,
     head: Option<String>,
     branch: Option<String>,
     detached: bool,
     prunable: Option<String>,
-}
-
-async fn list_git_worktrees(env: &Env<'_>, cwd: &Path) -> Result<Vec<GitWorktree>, Failure> {
-    let args = ["worktree", "list", "--porcelain", "-z"];
-    let run = git_probe(env, cwd, &args).await;
-    if !run.succeeded() {
-        let detail = {
-            let text = if run.err().is_empty() { run.out() } else { run.err() };
-            let text = text.trim().to_owned();
-            if text.is_empty() { "no diagnostic".to_owned() } else { text }
-        };
-        let code = run.code.map_or("null".to_owned(), |c| c.to_string());
-        return Err(plain(format!("git {} failed (exit {code}): {detail}", args.join(" "))));
-    }
-    let mut out: Vec<GitWorktree> = Vec::new();
-    let mut current: Option<GitWorktree> = None;
-    for field in run.out().split('\0') {
-        if field.is_empty() {
-            out.extend(current.take());
-            continue;
-        }
-        let (key, value) = field.split_once(' ').unwrap_or((field, ""));
-        if key == "worktree" {
-            out.extend(current.take());
-            current = Some(GitWorktree { path: value.to_owned(), head: None, branch: None, detached: false, prunable: None });
-            continue;
-        }
-        let Some(c) = current.as_mut() else { continue };
-        match key {
-            "HEAD" => c.head = Some(value.to_owned()),
-            "branch" => c.branch = Some(value.strip_prefix("refs/heads/").unwrap_or(value).to_owned()),
-            "detached" => c.detached = true,
-            "prunable" => c.prunable = Some(value.to_owned()),
-            _ => {}
-        }
-    }
-    out.extend(current);
-    let canonical = canonical_paths(env, out.iter().map(|w| w.path.clone()).collect()).await;
-    for (worktree, path) in out.iter_mut().zip(canonical) {
-        worktree.path = path;
-    }
-    Ok(out)
 }
 
 // ---- results -----------------------------------------------------------------------------
@@ -380,6 +263,304 @@ fn op_name(op: &SessionOp) -> &'static str {
     }
 }
 
+fn worktrees_object(rows: Vec<JsonValue>) -> Object {
+    request(vec![("worktrees", JsonValue::Array(rows))])
+}
+
+async fn raw_remove(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
+    let mut force = false;
+    let mut positional: Vec<&String> = Vec::new();
+    for value in &plan.args[1..] {
+        if value == "-f" || value == "--force" {
+            force = true;
+        } else if value.starts_with('-') {
+            return Err(plain(format!("git worktree remove: option {value} is not supported")));
+        } else {
+            positional.push(value);
+        }
+    }
+    if positional.len() != 1 {
+        return Err(plain("git worktree remove requires exactly one <path>"));
+    }
+    let lead = env.lead("git worktree remove").await?;
+    let path = resolve(&plan.cwd, positional[0]);
+    // A snapshot goes through its ledger, which refuses while a command still runs in it.
+    let wanted = mixdog_scm::locks::path_key(&path);
+    let rows = lead.rows(env.cancel()).await?;
+    let snapshot = rows.iter().find(|row| {
+        row["kind"] == "snapshot"
+            && row["path"].as_str().is_some_and(|p| mixdog_scm::locks::path_key(Path::new(p)) == wanted)
+    });
+    let removed = match snapshot.and_then(|row| row["id"].as_str()) {
+        Some(id) => lead.worktrees.remove_snapshot(id, force, env.cancel()).await,
+        None => lead.worktrees.remove_by_path(&path, force, Some(&env.session_id), env.cancel()).await,
+    };
+    let result = removed.map_err(|failure| match failure {
+        // Node's wording for a folder the registry does not manage.
+        ScmFailure::Coded { code: "WORKTREE_PATH_UNSAFE", .. } if snapshot.is_none() => plain(format!(
+            "git worktree remove: {} is not a Mixdog-managed worktree; unmanaged worktrees are not removed through the git tool",
+            path.display()
+        )),
+        other => Failure::Scm(other),
+    })?;
+    let shown = path.to_string_lossy().into_owned();
+    Ok(transition_result(request(vec![("mapped", json!(plan.command)), ("path", json!(shown))]), result))
+}
+
+/// `git worktree prune` arguments, all validated before anything runs.
+fn parse_prune_args(args: &[String]) -> Result<bool, Failure> {
+    let mut dry_run = false;
+    for value in args {
+        if value == "-n" || value == "--dry-run" {
+            dry_run = true;
+        } else if value == "-v" || value == "--verbose" {
+        } else if value.starts_with('-') {
+            return Err(plain(format!(
+                "git worktree prune: option {value} is not supported (managed prune takes -n/--dry-run and -v/--verbose)"
+            )));
+        } else {
+            return Err(plain(format!("git worktree prune: unexpected argument {value}")));
+        }
+    }
+    Ok(dry_run)
+}
+
+fn worktree_help(sub: &str) -> Option<&'static str> {
+    Some(match sub {
+        "add" => "git worktree add [-b <branch>] [--detach] <path> [<commit-ish>]: a managed worktree for the branch (the session stays put), or a read-only snapshot for a detached commit.",
+        "remove" => "git worktree remove [-f] <path>: the managed removal of that worktree.",
+        "list" => "git worktree list [-v]: managed worktrees plus the repository's other worktrees. --porcelain stays raw git.",
+        "prune" => "git worktree prune [-n|--dry-run] [-v]: the managed prune of this repository (clean, merged worktrees no session retains); -n only lists what it would remove.",
+        _ => return None,
+    })
+}
+
+/// `-h`/`--help` before any `--` answers instead of the operation running.
+fn wants_help(args: &[String]) -> bool {
+    let end = args.iter().position(|a| a == "--").unwrap_or(args.len());
+    args[..end].iter().any(|v| v == "-h" || v == "--help")
+}
+
+fn check_list_args(args: &[String]) -> Result<(), Failure> {
+    for value in args {
+        if value == "-v" || value == "--verbose" {
+            continue;
+        }
+        return Err(plain(format!(
+            "git worktree list: {}",
+            if value.starts_with('-') { format!("option {value} is not supported") } else { format!("unexpected argument {value}") }
+        )));
+    }
+    Ok(())
+}
+
+pub(super) struct Mapped {
+    pub text: String,
+    pub failed: bool,
+}
+
+// ---- action:"worktree" ---------------------------------------------------------------------
+
+/// Validation of `action:"worktree"` input; the problem text, or none.
+fn worktree_input_error(input: &Object) -> Option<String> {
+    let action = input.get("worktree_action").and_then(JsonValue::as_str);
+    let Some(action) = action.filter(|a| WORKTREE_TOOL_ACTIONS.contains(a)) else {
+        return Some(format!("git action:worktree requires worktree_action: {}", WORKTREE_TOOL_ACTIONS.join(", ")));
+    };
+    for field in ["command", "diff_id", "change_ids", "include_stage_ids", "output_limit"] {
+        if input.contains_key(field) {
+            return Some(format!("git action:worktree does not take {field}"));
+        }
+    }
+    let only = |field: &str, allowed: &[&str]| {
+        (input.contains_key(field) && !allowed.contains(&action))
+            .then(|| format!("{field} applies to worktree_action {}, not {action}", allowed.join(", ")))
+    };
+    let misplaced = only("session_id", &["enter", "return", "merge", "remove"])
+        .or_else(|| only("name", &["enter"]))
+        .or_else(|| only("branch", &["enter", "remove"]))
+        .or_else(|| only("create", &["enter"]))
+        .or_else(|| only("carry", &["enter"]))
+        .or_else(|| only("confirm_large", &["enter"]))
+        .or_else(|| only("force", &["remove"]));
+    if misplaced.is_some() {
+        return misplaced;
+    }
+    if let Some(id) = input.get("session_id")
+        && id.as_str().is_none_or(|s| s.trim().is_empty())
+    {
+        return Some("session_id must be a session id".to_owned());
+    }
+    if input.contains_key("create") && !truthy(input.get("branch")) {
+        return Some("create needs branch".to_owned());
+    }
+    if let Some(branch) = input.get("branch")
+        && branch.as_str().is_none_or(|s| s.trim().is_empty())
+    {
+        return Some("branch must be a branch name".to_owned());
+    }
+    if truthy(input.get("branch")) && (input.contains_key("name") || input.contains_key("carry")) {
+        return Some("branch excludes name and carry (the branch names the worktree; changes stay in the project folder)".to_owned());
+    }
+    if let Some(carry) = input.get("carry")
+        && !carry.as_str().is_some_and(|c| CARRY_CHOICES.contains(&c))
+    {
+        return Some("carry must be leave or carry".to_owned());
+    }
+    if action == "remove" && input.contains_key("branch") && input.contains_key("session_id") {
+        return Some("branch names one of this session's own worktrees; it excludes session_id".to_owned());
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn input(value: JsonValue) -> Object {
+        object(value)
+    }
+
+    #[test]
+    fn input_validation_texts() {
+        assert_eq!(
+            worktree_input_error(&input(json!({}))).unwrap(),
+            "git action:worktree requires worktree_action: enter, return, merge, remove, list, prune"
+        );
+        assert_eq!(
+            worktree_input_error(&input(json!({"worktree_action": "list", "command": "git x"}))).unwrap(),
+            "git action:worktree does not take command"
+        );
+        assert_eq!(
+            worktree_input_error(&input(json!({"worktree_action": "merge", "force": true}))).unwrap(),
+            "force applies to worktree_action remove, not merge"
+        );
+        assert_eq!(
+            worktree_input_error(&input(json!({"worktree_action": "enter", "create": true}))).unwrap(),
+            "create needs branch"
+        );
+        assert!(worktree_input_error(&input(json!({"worktree_action": "enter", "branch": "b", "create": true}))).is_none());
+    }
+
+    #[test]
+    fn plain_failures_read_as_errors_and_coded_ones_as_json() {
+        assert_eq!(failure_text(&plain("boom"), false), "error: boom");
+        let coded = Failure::Scm(mixdog_scm::worktree::errors::dirty(Some("w".into()), None, Some(2), None));
+        let text = failure_text(&coded, false);
+        assert!(text.starts_with(r#"{"ok":false,"code":"WORKTREE_DIRTY","error":"The worktree has uncommitted changes.""#));
+    }
+}
+
+
+impl WorktreeServices {
+    /// The workspace API's `listWorktrees({ includeSnapshots: true })` (`worktree-tool.mjs`):
+    /// every managed worktree, snapshots included, with who keeps it now.
+    async fn rows(&self, cancel: &CancellationToken) -> Result<Vec<JsonValue>, ScmFailure> {
+        // Without details the list weighs no cleanup limit, so `now` is never read.
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        self.worktrees.list_with_retention(&self.stored, &(self.live)(), false, now, cancel).await
+    }
+
+    /// Who keeps what now, for a prune.
+    async fn retention(&self, cancel: &CancellationToken) -> Result<SnapshotRetention, ScmFailure> {
+        let stored = self.stored.stored_session_ids().await?;
+        self.worktrees.retention((self.live)(), stored, cancel).await
+    }
+}
+/// `canonicalPath`: the real path of the nearest existing ancestor plus the rest. Blocking:
+/// only [`canonical_paths`] calls it, inside a maintenance-lane job.
+#[allow(clippy::disallowed_methods, reason = "runs only as a maintenance-lane job body (Runner::blocking)")]
+fn canonical_path(value: &str) -> String {
+    let full = resolve(&std::env::current_dir().unwrap_or_default(), if value.is_empty() { "." } else { value });
+    let mut head = full.clone();
+    while !head.exists() {
+        match head.parent() {
+            Some(parent) if parent != head => head = parent.to_path_buf(),
+            _ => return full.to_string_lossy().into_owned(),
+        }
+    }
+    let Ok(real) = head.canonicalize() else { return full.to_string_lossy().into_owned() };
+    let real = strip_verbatim(&real);
+    let rest = full.strip_prefix(&head).unwrap_or(Path::new(""));
+    if rest.as_os_str().is_empty() { real } else { real.join(rest) }.to_string_lossy().into_owned()
+}
+/// The canonical form of each path, off the async workers.
+async fn canonical_paths(env: &Env<'_>, values: Vec<String>) -> Vec<String> {
+    let fallback = values.clone();
+    env.runner
+        .blocking(move || values.iter().map(|v| canonical_path(v)).collect())
+        .await
+        .unwrap_or(fallback)
+}
+// ---- git probes --------------------------------------------------------------------------
+
+async fn git_probe(env: &Env<'_>, cwd: &Path, args: &[&str]) -> super::run::GitRun {
+    let argv: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
+    let scoped: Vec<String> = SCOPED_CONFIG.iter().map(|s| (*s).to_owned()).collect();
+    env.runner.run_in(cwd, &scoped, &argv, false).await
+}
+/// Repository facts in `cwd` from git itself (`None` outside a repository).
+async fn repository_at(env: &Env<'_>, cwd: &Path) -> Option<String> {
+    let probe = git_probe(env, cwd, &["rev-parse", "--path-format=absolute", "--git-common-dir"]).await;
+    if !probe.succeeded() {
+        return None;
+    }
+    canonical_paths(env, vec![first_line(&probe.out())]).await.pop()
+}
+async fn local_branch_exists(env: &Env<'_>, cwd: &Path, branch: &str) -> bool {
+    let reference = format!("refs/heads/{branch}");
+    git_probe(env, cwd, &["rev-parse", "--verify", "--quiet", &reference]).await.succeeded()
+}
+/// Full commit id of commit-ish `value` resolved in `cwd`.
+async fn commit_in(env: &Env<'_>, cwd: &Path, value: &str) -> Option<String> {
+    if value.is_empty() || value.starts_with('-') {
+        return None;
+    }
+    let spec = format!("{value}^{{commit}}");
+    let run = git_probe(env, cwd, &["rev-parse", "--verify", "--quiet", &spec]).await;
+    run.succeeded().then(|| first_line(&run.out()))
+}
+async fn list_git_worktrees(env: &Env<'_>, cwd: &Path) -> Result<Vec<GitWorktree>, Failure> {
+    let args = ["worktree", "list", "--porcelain", "-z"];
+    let run = git_probe(env, cwd, &args).await;
+    if !run.succeeded() {
+        let detail = {
+            let text = if run.err().is_empty() { run.out() } else { run.err() };
+            let text = text.trim().to_owned();
+            if text.is_empty() { "no diagnostic".to_owned() } else { text }
+        };
+        let code = run.code.map_or("null".to_owned(), |c| c.to_string());
+        return Err(plain(format!("git {} failed (exit {code}): {detail}", args.join(" "))));
+    }
+    let mut out: Vec<GitWorktree> = Vec::new();
+    let mut current: Option<GitWorktree> = None;
+    for field in run.out().split('\0') {
+        if field.is_empty() {
+            out.extend(current.take());
+            continue;
+        }
+        let (key, value) = field.split_once(' ').unwrap_or((field, ""));
+        if key == "worktree" {
+            out.extend(current.take());
+            current = Some(GitWorktree { path: value.to_owned(), head: None, branch: None, detached: false, prunable: None });
+            continue;
+        }
+        let Some(c) = current.as_mut() else { continue };
+        match key {
+            "HEAD" => c.head = Some(value.to_owned()),
+            "branch" => c.branch = Some(value.strip_prefix("refs/heads/").unwrap_or(value).to_owned()),
+            "detached" => c.detached = true,
+            "prunable" => c.prunable = Some(value.to_owned()),
+            _ => {}
+        }
+    }
+    out.extend(current);
+    let canonical = canonical_paths(env, out.iter().map(|w| w.path.clone()).collect()).await;
+    for (worktree, path) in out.iter_mut().zip(canonical) {
+        worktree.path = path;
+    }
+    Ok(out)
+}
 // ---- listing -----------------------------------------------------------------------------
 
 /// Managed rows of the repository at `cwd` (every repository outside one) plus the
@@ -461,11 +642,6 @@ async fn list_rows(env: &Env<'_>, cwd: &Path) -> Result<Vec<JsonValue>, Failure>
     }
     Ok(listed)
 }
-
-fn worktrees_object(rows: Vec<JsonValue>) -> Object {
-    request(vec![("worktrees", JsonValue::Array(rows))])
-}
-
 // ---- raw `git worktree …` ------------------------------------------------------------------
 
 async fn raw_add(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
@@ -618,65 +794,6 @@ async fn raw_add(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
     );
     Ok(ok_json(out))
 }
-
-async fn raw_remove(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
-    let mut force = false;
-    let mut positional: Vec<&String> = Vec::new();
-    for value in &plan.args[1..] {
-        if value == "-f" || value == "--force" {
-            force = true;
-        } else if value.starts_with('-') {
-            return Err(plain(format!("git worktree remove: option {value} is not supported")));
-        } else {
-            positional.push(value);
-        }
-    }
-    if positional.len() != 1 {
-        return Err(plain("git worktree remove requires exactly one <path>"));
-    }
-    let lead = env.lead("git worktree remove").await?;
-    let path = resolve(&plan.cwd, positional[0]);
-    // A snapshot goes through its ledger, which refuses while a command still runs in it.
-    let wanted = mixdog_scm::locks::path_key(&path);
-    let rows = lead.rows(env.cancel()).await?;
-    let snapshot = rows.iter().find(|row| {
-        row["kind"] == "snapshot"
-            && row["path"].as_str().is_some_and(|p| mixdog_scm::locks::path_key(Path::new(p)) == wanted)
-    });
-    let removed = match snapshot.and_then(|row| row["id"].as_str()) {
-        Some(id) => lead.worktrees.remove_snapshot(id, force, env.cancel()).await,
-        None => lead.worktrees.remove_by_path(&path, force, Some(&env.session_id), env.cancel()).await,
-    };
-    let result = removed.map_err(|failure| match failure {
-        // Node's wording for a folder the registry does not manage.
-        ScmFailure::Coded { code: "WORKTREE_PATH_UNSAFE", .. } if snapshot.is_none() => plain(format!(
-            "git worktree remove: {} is not a Mixdog-managed worktree; unmanaged worktrees are not removed through the git tool",
-            path.display()
-        )),
-        other => Failure::Scm(other),
-    })?;
-    let shown = path.to_string_lossy().into_owned();
-    Ok(transition_result(request(vec![("mapped", json!(plan.command)), ("path", json!(shown))]), result))
-}
-
-/// `git worktree prune` arguments, all validated before anything runs.
-fn parse_prune_args(args: &[String]) -> Result<bool, Failure> {
-    let mut dry_run = false;
-    for value in args {
-        if value == "-n" || value == "--dry-run" {
-            dry_run = true;
-        } else if value == "-v" || value == "--verbose" {
-        } else if value.starts_with('-') {
-            return Err(plain(format!(
-                "git worktree prune: option {value} is not supported (managed prune takes -n/--dry-run and -v/--verbose)"
-            )));
-        } else {
-            return Err(plain(format!("git worktree prune: unexpected argument {value}")));
-        }
-    }
-    Ok(dry_run)
-}
-
 async fn raw_prune(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
     let dry_run = parse_prune_args(&plan.args[1..])?;
     let lead = env.lead("git worktree prune").await?;
@@ -699,41 +816,6 @@ async fn raw_prune(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
     merge(&mut out, object(result));
     Ok(ok_json(out))
 }
-
-fn worktree_help(sub: &str) -> Option<&'static str> {
-    Some(match sub {
-        "add" => "git worktree add [-b <branch>] [--detach] <path> [<commit-ish>]: a managed worktree for the branch (the session stays put), or a read-only snapshot for a detached commit.",
-        "remove" => "git worktree remove [-f] <path>: the managed removal of that worktree.",
-        "list" => "git worktree list [-v]: managed worktrees plus the repository's other worktrees. --porcelain stays raw git.",
-        "prune" => "git worktree prune [-n|--dry-run] [-v]: the managed prune of this repository (clean, merged worktrees no session retains); -n only lists what it would remove.",
-        _ => return None,
-    })
-}
-
-/// `-h`/`--help` before any `--` answers instead of the operation running.
-fn wants_help(args: &[String]) -> bool {
-    let end = args.iter().position(|a| a == "--").unwrap_or(args.len());
-    args[..end].iter().any(|v| v == "-h" || v == "--help")
-}
-
-fn check_list_args(args: &[String]) -> Result<(), Failure> {
-    for value in args {
-        if value == "-v" || value == "--verbose" {
-            continue;
-        }
-        return Err(plain(format!(
-            "git worktree list: {}",
-            if value.starts_with('-') { format!("option {value} is not supported") } else { format!("unexpected argument {value}") }
-        )));
-    }
-    Ok(())
-}
-
-pub(super) struct Mapped {
-    pub text: String,
-    pub failed: bool,
-}
-
 /// A raw `git worktree …` command as its managed operation, or `None` for the one form that
 /// still runs as git (`list --porcelain`).
 pub(super) async fn execute_raw_worktree(plan: &Plan, env: &Env<'_>) -> Option<Mapped> {
@@ -779,61 +861,6 @@ pub(super) async fn execute_raw_worktree(plan: &Plan, env: &Env<'_>) -> Option<M
         Err(error) => Mapped { text: failure_text(&error, true), failed: true },
     })
 }
-
-// ---- action:"worktree" ---------------------------------------------------------------------
-
-/// Validation of `action:"worktree"` input; the problem text, or none.
-fn worktree_input_error(input: &Object) -> Option<String> {
-    let action = input.get("worktree_action").and_then(JsonValue::as_str);
-    let Some(action) = action.filter(|a| WORKTREE_TOOL_ACTIONS.contains(a)) else {
-        return Some(format!("git action:worktree requires worktree_action: {}", WORKTREE_TOOL_ACTIONS.join(", ")));
-    };
-    for field in ["command", "diff_id", "change_ids", "include_stage_ids", "output_limit"] {
-        if input.contains_key(field) {
-            return Some(format!("git action:worktree does not take {field}"));
-        }
-    }
-    let only = |field: &str, allowed: &[&str]| {
-        (input.contains_key(field) && !allowed.contains(&action))
-            .then(|| format!("{field} applies to worktree_action {}, not {action}", allowed.join(", ")))
-    };
-    let misplaced = only("session_id", &["enter", "return", "merge", "remove"])
-        .or_else(|| only("name", &["enter"]))
-        .or_else(|| only("branch", &["enter", "remove"]))
-        .or_else(|| only("create", &["enter"]))
-        .or_else(|| only("carry", &["enter"]))
-        .or_else(|| only("confirm_large", &["enter"]))
-        .or_else(|| only("force", &["remove"]));
-    if misplaced.is_some() {
-        return misplaced;
-    }
-    if let Some(id) = input.get("session_id")
-        && id.as_str().is_none_or(|s| s.trim().is_empty())
-    {
-        return Some("session_id must be a session id".to_owned());
-    }
-    if input.contains_key("create") && !truthy(input.get("branch")) {
-        return Some("create needs branch".to_owned());
-    }
-    if let Some(branch) = input.get("branch")
-        && branch.as_str().is_none_or(|s| s.trim().is_empty())
-    {
-        return Some("branch must be a branch name".to_owned());
-    }
-    if truthy(input.get("branch")) && (input.contains_key("name") || input.contains_key("carry")) {
-        return Some("branch excludes name and carry (the branch names the worktree; changes stay in the project folder)".to_owned());
-    }
-    if let Some(carry) = input.get("carry")
-        && !carry.as_str().is_some_and(|c| CARRY_CHOICES.contains(&c))
-    {
-        return Some("carry must be leave or carry".to_owned());
-    }
-    if action == "remove" && input.contains_key("branch") && input.contains_key("session_id") {
-        return Some("branch names one of this session's own worktrees; it excludes session_id".to_owned());
-    }
-    None
-}
-
 /// `action:"worktree"`: one managed-worktree operation of the caller's (or `session_id`'s)
 /// session.
 pub(super) async fn execute_worktree_action(input: &Object, work_dir: &Path, env: &Env<'_>) -> String {
@@ -888,42 +915,4 @@ pub(super) async fn execute_worktree_action(input: &Object, work_dir: &Path, env
     }
     .await;
     outcome.unwrap_or_else(|error| failure_text(&error, false))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn input(value: JsonValue) -> Object {
-        object(value)
-    }
-
-    #[test]
-    fn input_validation_texts() {
-        assert_eq!(
-            worktree_input_error(&input(json!({}))).unwrap(),
-            "git action:worktree requires worktree_action: enter, return, merge, remove, list, prune"
-        );
-        assert_eq!(
-            worktree_input_error(&input(json!({"worktree_action": "list", "command": "git x"}))).unwrap(),
-            "git action:worktree does not take command"
-        );
-        assert_eq!(
-            worktree_input_error(&input(json!({"worktree_action": "merge", "force": true}))).unwrap(),
-            "force applies to worktree_action remove, not merge"
-        );
-        assert_eq!(
-            worktree_input_error(&input(json!({"worktree_action": "enter", "create": true}))).unwrap(),
-            "create needs branch"
-        );
-        assert!(worktree_input_error(&input(json!({"worktree_action": "enter", "branch": "b", "create": true}))).is_none());
-    }
-
-    #[test]
-    fn plain_failures_read_as_errors_and_coded_ones_as_json() {
-        assert_eq!(failure_text(&plain("boom"), false), "error: boom");
-        let coded = Failure::Scm(mixdog_scm::worktree::errors::dirty(Some("w".into()), None, Some(2), None));
-        let text = failure_text(&coded, false);
-        assert!(text.starts_with(r#"{"ok":false,"code":"WORKTREE_DIRTY","error":"The worktree has uncommitted changes.""#));
-    }
 }

@@ -2,33 +2,44 @@
 //! Node's `GeminiProvider._ensureGeminiCache` (`record_goldens.mjs`).
 
 use std::sync::Arc;
+#[cfg(node_twin)]
 use std::sync::Mutex;
 
+#[cfg(node_twin)]
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use bytes::Bytes;
 use futures::future::BoxFuture;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ProviderError;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::TransportFault;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::WireRequest;
 use serde_json::Value;
 
 use super::layer::Ask;
 use super::layer::CacheRuntime;
 use super::layer::ExplicitCache;
+#[cfg(node_twin)]
 use super::policy;
 use super::policy::CacheRequest;
 use super::policy::Tuning;
 use super::registry::Registry;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::GeminiCacheState;
 use mixdog_core_api::domain::provider::ProviderState;
+#[cfg(node_twin)]
 use crate::transport::BodyStream;
+#[cfg(node_twin)]
 use crate::transport::HttpResponse;
+#[cfg(node_twin)]
 use crate::transport::HttpSend;
 
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/providers/gemini-explicit-cache/cases.json");
-
+#[cfg(node_twin)]
 struct Once(Option<Bytes>);
 
+#[cfg(node_twin)]
 #[async_trait]
 impl BodyStream for Once {
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
@@ -36,32 +47,20 @@ impl BodyStream for Once {
     }
 }
 
+#[cfg(node_twin)]
 /// Answers a cache create with `cachedContents/created-<n>`; `n` is the golden case.
 struct FakeHttp {
     case: u64,
     sent: Mutex<Vec<WireRequest>>,
 }
 
-#[async_trait]
-impl HttpSend for FakeHttp {
-    async fn send(
-        &self,
-        request: WireRequest,
-        _exchange: crate::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
-        self.sent.lock().unwrap().push(request);
-        // A create takes time on the wire; callers race while it is in flight.
-        mixdog_rt::time::sleep(std::time::Duration::from_millis(30)).await;
-        let body = serde_json::json!({"name": format!("cachedContents/created-{}", self.case), "usageMetadata": {"totalTokenCount": 5000 + self.case}});
-        Ok(HttpResponse { status: 200, headers: vec![], body: Box::new(Once(Some(Bytes::from(body.to_string())))) })
-    }
-}
-
+#[cfg(node_twin)]
 struct FakeRuntime {
     now: u64,
     delayed: Mutex<Vec<u64>>,
 }
 
+#[cfg(node_twin)]
 impl CacheRuntime for FakeRuntime {
     fn now_ms(&self) -> u64 {
         self.now
@@ -77,12 +76,14 @@ impl CacheRuntime for FakeRuntime {
     }
 }
 
+#[cfg(node_twin)]
 /// A manual clock: each `deadline` waits until the test fires it.
 struct ManualRuntime {
     now: u64,
     fired: Mutex<Vec<(u64, futures::channel::oneshot::Sender<()>)>>,
 }
 
+#[cfg(node_twin)]
 impl CacheRuntime for ManualRuntime {
     fn now_ms(&self) -> u64 {
         self.now
@@ -100,11 +101,13 @@ impl CacheRuntime for ManualRuntime {
     }
 }
 
+#[cfg(node_twin)]
 /// Never answers a create.
 struct StallHttp {
     sent: Mutex<usize>,
 }
 
+#[cfg(node_twin)]
 #[async_trait]
 impl HttpSend for StallHttp {
     async fn send(
@@ -115,10 +118,6 @@ impl HttpSend for StallHttp {
         *self.sent.lock().unwrap() += 1;
         futures::future::pending().await
     }
-}
-
-fn golden() -> Value {
-    serde_json::from_str(&GOLDEN).unwrap()
 }
 
 fn system(case: u64) -> String {
@@ -133,6 +132,111 @@ fn parts(g: &Value) -> (Vec<Value>, Option<Value>, Vec<Value>) {
     )
 }
 
+#[cfg(node_twin)]
+fn state_name(case: &Value) -> Option<&str> {
+    case["state"]["gemini"]["cacheName"].as_str()
+}
+
+#[cfg(node_twin)]
+/// Answers the first create never, the next ones with a cache.
+struct StallOnce {
+    sent: Mutex<usize>,
+}
+
+#[cfg(node_twin)]
+#[async_trait]
+impl HttpSend for StallOnce {
+    async fn send(
+        &self,
+        _request: WireRequest,
+        _exchange: crate::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
+        let n = {
+            let mut sent = self.sent.lock().unwrap();
+            *sent += 1;
+            *sent
+        };
+        if n == 1 {
+            futures::future::pending().await
+        }
+        let body = serde_json::json!({"name": "cachedContents/second", "usageMetadata": {"totalTokenCount": 4000}});
+        Ok(HttpResponse { status: 200, headers: vec![], body: Box::new(Once(Some(Bytes::from(body.to_string())))) })
+    }
+}
+
+/// Runs only the backoff waits: the attempt and total limits never fire, so each failure the transport reports is the
+/// attempt's own, and the retry ladder runs to its end.
+struct LadderRuntime;
+
+impl CacheRuntime for LadderRuntime {
+    fn now_ms(&self) -> u64 {
+        0
+    }
+    fn spawn(&self, task: BoxFuture<'static, ()>) {
+        tokio::spawn(task);
+    }
+    fn spawn_after(&self, _delay_ms: u64, _task: BoxFuture<'static, ()>) {}
+    fn deadline(&self, ms: u64) -> BoxFuture<'static, ()> {
+        if ms >= 120_000 { Box::pin(futures::future::pending()) } else { Box::pin(futures::future::ready(())) }
+    }
+}
+
+#[cfg(node_twin)]
+/// Answers every request with a 400 and the body the Node recording used.
+struct Rejects;
+
+#[cfg(node_twin)]
+#[async_trait]
+impl HttpSend for Rejects {
+    async fn send(&self, _request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        Ok(HttpResponse { status: 400, headers: vec![], body: Box::new(Once(Some(Bytes::from(r#"{"error":{"message":"bad things"}}"#)))) })
+    }
+}
+
+#[test]
+fn provider_state_round_trip_keeps_every_node_key() {
+    let node = serde_json::json!({
+        "gemini": {
+            "cacheName": "cachedContents/a", "cacheCreatedAt": 1, "cacheCreatedAtIter": 2,
+            "cacheExpiresAt": 3, "cacheModel": "gemini-2.5-pro", "cacheTokenSize": 4,
+            "cachePrefixContentCount": 5, "cachePrefixHash": "h", "cacheCredentialFingerprint": "f"
+        },
+        "openaiContinuation": {"previousResponseId": "resp_1", "baseLen": 7},
+        "xaiResponses": {"previousResponseId": "resp_x"},
+        "providerAccountId": "acct-1"
+    });
+    let state: ProviderState = serde_json::from_value(node.clone()).unwrap();
+    assert_eq!(state.rest.len(), 3);
+    assert_eq!(serde_json::to_value(&state).unwrap(), node);
+    let rest_only: ProviderState = serde_json::from_value(serde_json::json!({"providerAccountId": "a"})).unwrap();
+    assert!(rest_only.gemini.is_none());
+    assert_eq!(serde_json::to_value(&rest_only).unwrap(), serde_json::json!({"providerAccountId": "a"}));
+}
+
+#[cfg(node_twin)]
+#[async_trait]
+impl HttpSend for FakeHttp {
+    async fn send(
+        &self,
+        request: WireRequest,
+        _exchange: crate::transport::Exchange,
+    ) -> Result<HttpResponse, ProviderError> {
+        self.sent.lock().unwrap().push(request);
+        // A create takes time on the wire; callers race while it is in flight.
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(30)).await;
+        let body = serde_json::json!({"name": format!("cachedContents/created-{}", self.case), "usageMetadata": {"totalTokenCount": 5000 + self.case}});
+        Ok(HttpResponse { status: 200, headers: vec![], body: Box::new(Once(Some(Bytes::from(body.to_string())))) })
+    }
+}
+
+
+#[cfg(node_twin)]
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/providers/gemini-explicit-cache/cases.json");
+#[cfg(node_twin)]
+fn golden() -> Value {
+    serde_json::from_str(&GOLDEN).unwrap()
+}
+#[cfg(node_twin)]
 #[test]
 fn hashes_bodies_and_floors_equal_node() {
     let g = golden();
@@ -158,7 +262,7 @@ fn hashes_bodies_and_floors_equal_node() {
     let all_cached = GeminiCacheState { cache_prefix_content_count: 9, ..state };
     assert_eq!(policy::cached_body("cachedContents/session", &all_cached, &contents, None), h["cachedBodyAllCached"]);
 }
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_six_recorded_cases_equal_node() {
     let g = golden();
@@ -208,11 +312,7 @@ async fn the_six_recorded_cases_equal_node() {
         assert_eq!(*runtime.delayed.lock().unwrap(), if superseded { vec![120_000] } else { vec![] }, "{name}: delete");
     }
 }
-
-fn state_name(case: &Value) -> Option<&str> {
-    case["state"]["gemini"]["cacheName"].as_str()
-}
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn one_create_serves_concurrent_sessions_with_the_same_prefix() {
     let g = golden();
@@ -241,9 +341,9 @@ async fn one_create_serves_concurrent_sessions_with_the_same_prefix() {
     }
     assert_eq!(http.sent.lock().unwrap().len(), 1, "a single cachedContents.create");
 }
-
 /// A stalled create settles at Node's total deadline (180 s by default): the
 /// owner and a joiner both proceed uncached, and the key is free again.
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn a_stalled_create_settles_at_the_deadline_and_releases_the_key() {
     let g = golden();
@@ -312,49 +412,6 @@ async fn a_stalled_create_settles_at_the_deadline_and_releases_the_key() {
     let flight = policy::global_cache_key(&policy::credential_fingerprint(&key), &model, &hash, count);
     assert!(matches!(registry.claim(&flight, now), super::registry::Claim::Own { .. }), "the key is free");
 }
-
-/// Answers the first create never, the next ones with a cache.
-struct StallOnce {
-    sent: Mutex<usize>,
-}
-
-#[async_trait]
-impl HttpSend for StallOnce {
-    async fn send(
-        &self,
-        _request: WireRequest,
-        _exchange: crate::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
-        let n = {
-            let mut sent = self.sent.lock().unwrap();
-            *sent += 1;
-            *sent
-        };
-        if n == 1 {
-            futures::future::pending().await
-        }
-        let body = serde_json::json!({"name": "cachedContents/second", "usageMetadata": {"totalTokenCount": 4000}});
-        Ok(HttpResponse { status: 200, headers: vec![], body: Box::new(Once(Some(Bytes::from(body.to_string())))) })
-    }
-}
-
-/// Runs only the backoff waits: the attempt and total limits never fire, so each failure the transport reports is the
-/// attempt's own, and the retry ladder runs to its end.
-struct LadderRuntime;
-
-impl CacheRuntime for LadderRuntime {
-    fn now_ms(&self) -> u64 {
-        0
-    }
-    fn spawn(&self, task: BoxFuture<'static, ()>) {
-        tokio::spawn(task);
-    }
-    fn spawn_after(&self, _delay_ms: u64, _task: BoxFuture<'static, ()>) {}
-    fn deadline(&self, ms: u64) -> BoxFuture<'static, ()> {
-        if ms >= 120_000 { Box::pin(futures::future::pending()) } else { Box::pin(futures::future::ready(())) }
-    }
-}
-
 /// The create's request is bounded by Node's total timer (`sites.geminiCacheCreate`: `armed` 180 s, the fetch rejected
 /// with `Gemini cachedContents.create total timed out after 180000ms`); the timeouts are retried and, once the ladder is
 /// spent, the create resolves no cache and logs the line Node's catch writes to stderr.
@@ -363,10 +420,15 @@ async fn a_create_the_transport_times_out_is_retried_then_resolves_no_cache() {
     use crate::transport::site_probe::TimingOut;
     use crate::transport::site_probe::assert_transport;
     use crate::transport::site_probe::capture_logs;
-    use crate::transport::site_probe::recorded;
 
     let (logged, _guard) = capture_logs();
-    let g = golden();
+    let g = serde_json::json!({
+        "apiKey": "key",
+        "model": "gemini-2.5-pro",
+        "tools": [{ "functionDeclarations": [{ "name": "lookup", "description": "Looks a thing up.", "parameters": { "type": "object", "properties": {} } }] }],
+        "toolConfig": { "functionCallingConfig": { "mode": "AUTO" } },
+        "contents": [{ "role": "user", "parts": [{ "text": "Hello." }] }],
+    });
     let (tools, tool_config, contents) = parts(&g);
     let system = system(1);
     let transport = TimingOut::new();
@@ -389,22 +451,12 @@ async fn a_create_the_transport_times_out_is_retried_then_resolves_no_cache() {
     assert_eq!(answer.cache_name, None);
     assert!(transport.seen().len() > 1, "a timeout is retried");
     assert_transport("geminiCacheCreate", &transport);
-    let want: Vec<String> = recorded("geminiCacheCreate")["logged"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_owned()).collect();
+    let want: Vec<String> = crate::transport::site_probe::logged("geminiCacheCreate").iter().map(|l| (*l).to_owned()).collect();
     assert_eq!(logged(), want);
 }
-
-/// Answers every request with a 400 and the body the Node recording used.
-struct Rejects;
-
-#[async_trait]
-impl HttpSend for Rejects {
-    async fn send(&self, _request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
-        Ok(HttpResponse { status: 400, headers: vec![], body: Box::new(Once(Some(Bytes::from(r#"{"error":{"message":"bad things"}}"#)))) })
-    }
-}
-
 /// A rejected create writes the line `gemini.mjs` writes to stderr, byte for byte as a real Node run wrote it
 /// (`node-stderr/lines.json`, `geminiCreate400`).
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn a_rejected_create_writes_the_line_node_wrote() {
     use crate::transport::site_probe::capture_logs;
@@ -433,9 +485,9 @@ async fn a_rejected_create_writes_the_line_node_wrote() {
     let want: Vec<String> = recorded["sites"]["geminiCreate400"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().strip_suffix('\n').unwrap().to_owned()).collect();
     assert_eq!(logged(), want);
 }
-
 /// Node's `withRetry` around the create: an attempt stalled past the 120 s
 /// attempt limit is retried after the backoff, inside the 180 s total.
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn a_create_attempt_stalled_past_its_limit_is_retried_inside_the_total() {
     let g = golden();
@@ -487,29 +539,9 @@ async fn a_create_attempt_stalled_past_its_limit_is_retried_inside_the_total() {
     assert_eq!(answer.cache_name.as_deref(), Some("cachedContents/second"));
     assert_eq!(*http.sent.lock().unwrap(), 2, "one stalled attempt, one retry");
 }
-
-#[test]
-fn provider_state_round_trip_keeps_every_node_key() {
-    let node = serde_json::json!({
-        "gemini": {
-            "cacheName": "cachedContents/a", "cacheCreatedAt": 1, "cacheCreatedAtIter": 2,
-            "cacheExpiresAt": 3, "cacheModel": "gemini-2.5-pro", "cacheTokenSize": 4,
-            "cachePrefixContentCount": 5, "cachePrefixHash": "h", "cacheCredentialFingerprint": "f"
-        },
-        "openaiContinuation": {"previousResponseId": "resp_1", "baseLen": 7},
-        "xaiResponses": {"previousResponseId": "resp_x"},
-        "providerAccountId": "acct-1"
-    });
-    let state: ProviderState = serde_json::from_value(node.clone()).unwrap();
-    assert_eq!(state.rest.len(), 3);
-    assert_eq!(serde_json::to_value(&state).unwrap(), node);
-    let rest_only: ProviderState = serde_json::from_value(serde_json::json!({"providerAccountId": "a"})).unwrap();
-    assert!(rest_only.gemini.is_none());
-    assert_eq!(serde_json::to_value(&rest_only).unwrap(), serde_json::json!({"providerAccountId": "a"}));
-}
-
 /// Two adapter instances share the process registry: many parallel callers on
 /// worker threads, one prefix, exactly one `cachedContents.create`.
+#[cfg(node_twin)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn parallel_callers_over_two_instances_make_one_create() {
     let g = golden();

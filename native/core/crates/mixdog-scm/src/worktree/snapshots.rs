@@ -33,32 +33,6 @@ struct Retry {
     cap_steps: Option<u32>,
 }
 
-impl Retry {
-    /// A worker's turn (`worker-snapshots.mjs`): `RETRY_MS` 2_000 and `RETRY_LIMIT` 5 (lines 13-14),
-    /// `retryMs * 2 ** (attempt - 1)` with no cap (line 73): 2 + 4 + 8 + 16 = 30 s.
-    const WORKER: Retry = Retry { ms: 2_000, limit: 5, cap_steps: None };
-    /// The Lead's turn (`transitions.mjs` `snapshotRetryMs = 2_000`, `snapshotRetryLimit = 20`,
-    /// lines 164-165; `side-checkouts.mjs` `SNAPSHOT_BACKOFF_STEPS = 5` line 11 and
-    /// `snapshotRetryMs * 2 ** Math.min(attempt - 1, SNAPSHOT_BACKOFF_STEPS)` line 141):
-    /// 2, 4, 8, 16, 32, 64 s, then 64 s for the rest of the 19 waits: 958 s in all.
-    const TURN: Retry = Retry { ms: 2_000, limit: 20, cap_steps: Some(5) };
-
-    /// The delay before attempt `attempt` (1-based among the retries; the first attempt has none).
-    fn delay(self, attempt: u32) -> Duration {
-        let steps = attempt - 1;
-        let steps = self.cap_steps.map_or(steps, |cap| steps.min(cap));
-        Duration::from_millis(self.ms * 2u64.pow(steps))
-    }
-
-    /// Waits it out on the tokio clock; a cancel ends the cleanup.
-    async fn wait(self, attempt: u32, cancel: &CancellationToken) -> Result<(), ScmFailure> {
-        tokio::select! {
-            _ = mixdog_rt::time::sleep(self.delay(attempt)) => Ok(()),
-            _ = cancel.cancelled() => Err(ScmFailure::Cancelled),
-        }
-    }
-}
-
 #[derive(Default)]
 struct Held {
     path: PathBuf,
@@ -319,11 +293,23 @@ mod tests {
         assert!(ledger.admit(Path::new("/elsewhere")).is_ok());
     }
 
-    /// What Node's own cleanups waited with a snapshot that stayed busy, recorded under a fake
-    /// clock (`record-snapshot-cleanup-schedule.mjs`): the Lead's `removeTurnSnapshots` and the
-    /// worker's `releaseWorkerSnapshots`, each with the default first delay and with a short one.
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/snapshot-cleanup-schedule/golden.json")).unwrap()
+    /// The Lead's cleanup doubles a 2 s wait up to five times (2, 4, 8, 16, 32, 64 s) and then keeps waiting 64 s, for at most 20
+    /// attempts: 19 waits, 958 s in all; a shorter first delay scales the same schedule.
+    #[tokio::test(start_paused = true)]
+    async fn the_leads_snapshot_cleanup_backs_off_to_a_cap_over_twenty_attempts() {
+        let (attempts, waits) = replay(Retry::TURN).await;
+        assert_eq!(attempts, 20);
+        assert_eq!(&waits[..7], [2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 64_000]);
+        assert_eq!((waits.len(), waits.iter().sum::<u64>()), (19, 958_000));
+        let (_, short) = replay(Retry { ms: 10, ..Retry::TURN }).await;
+        assert_eq!(&short[..7], [10, 20, 40, 80, 160, 320, 320]);
+    }
+
+    /// A worker's cleanup doubles a 2 s wait without a cap and gives up after 5 attempts: 2 + 4 + 8 + 16 = 30 s.
+    #[tokio::test(start_paused = true)]
+    async fn a_workers_snapshot_cleanup_doubles_its_wait_over_five_attempts() {
+        assert_eq!(replay(Retry::WORKER).await, (5, vec![2_000, 4_000, 8_000, 16_000]));
+        assert_eq!(replay(Retry { ms: 1, ..Retry::WORKER }).await, (5, vec![1, 2, 4, 8]));
     }
 
     /// Runs the schedule's waits on the paused tokio clock: the attempt count it allows, and how
@@ -338,29 +324,6 @@ mod tests {
         }
         (retry.limit as usize, waits)
     }
-
-    fn recorded(row: &Value) -> (usize, Vec<u64>) {
-        (row["attempts"].as_u64().unwrap() as usize, row["waitsMs"].as_array().unwrap().iter().map(|w| w.as_u64().unwrap()).collect())
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn the_leads_cleanup_waits_as_nodes_remove_turn_snapshots_does() {
-        let golden = golden();
-        let node = &golden["turn"];
-        assert_eq!(replay(Retry::TURN).await, recorded(&node["default"]));
-        let short = node["firstDelay10"]["firstDelayMs"].as_u64().unwrap();
-        assert_eq!(replay(Retry { ms: short, ..Retry::TURN }).await, recorded(&node["firstDelay10"]));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn the_workers_cleanup_waits_as_nodes_release_worker_snapshots_does() {
-        let golden = golden();
-        let node = &golden["worker"];
-        assert_eq!(replay(Retry::WORKER).await, recorded(&node["default"]));
-        let short = node["firstDelay1"]["firstDelayMs"].as_u64().unwrap();
-        assert_eq!(replay(Retry { ms: short, ..Retry::WORKER }).await, recorded(&node["firstDelay1"]));
-    }
-
     #[tokio::test(start_paused = true)]
     async fn a_cancel_ends_the_wait_at_once() {
         let cancel = CancellationToken::new();
@@ -371,5 +334,36 @@ mod tests {
         mixdog_rt::time::sleep(Duration::from_secs(10)).await;
         cancel.cancel();
         assert!(matches!(waiting.await.unwrap(), Err(ScmFailure::Cancelled)));
+    }
+
+
+    #[cfg(node_twin)]
+    include!("node-twin/snapshots.rs");
+}
+
+
+impl Retry {
+    /// A worker's turn (`worker-snapshots.mjs`): `RETRY_MS` 2_000 and `RETRY_LIMIT` 5 (lines 13-14),
+    /// `retryMs * 2 ** (attempt - 1)` with no cap (line 73): 2 + 4 + 8 + 16 = 30 s.
+    const WORKER: Retry = Retry { ms: 2_000, limit: 5, cap_steps: None };
+    /// The Lead's turn (`transitions.mjs` `snapshotRetryMs = 2_000`, `snapshotRetryLimit = 20`,
+    /// lines 164-165; `side-checkouts.mjs` `SNAPSHOT_BACKOFF_STEPS = 5` line 11 and
+    /// `snapshotRetryMs * 2 ** Math.min(attempt - 1, SNAPSHOT_BACKOFF_STEPS)` line 141):
+    /// 2, 4, 8, 16, 32, 64 s, then 64 s for the rest of the 19 waits: 958 s in all.
+    const TURN: Retry = Retry { ms: 2_000, limit: 20, cap_steps: Some(5) };
+
+    /// The delay before attempt `attempt` (1-based among the retries; the first attempt has none).
+    fn delay(self, attempt: u32) -> Duration {
+        let steps = attempt - 1;
+        let steps = self.cap_steps.map_or(steps, |cap| steps.min(cap));
+        Duration::from_millis(self.ms * 2u64.pow(steps))
+    }
+
+    /// Waits it out on the tokio clock; a cancel ends the cleanup.
+    async fn wait(self, attempt: u32, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        tokio::select! {
+            _ = mixdog_rt::time::sleep(self.delay(attempt)) => Ok(()),
+            _ = cancel.cancelled() => Err(ScmFailure::Cancelled),
+        }
     }
 }

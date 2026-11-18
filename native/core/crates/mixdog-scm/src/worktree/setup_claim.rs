@@ -3,7 +3,6 @@
 //! at creation: a reset (`npm ci`) through such a link would empty the main checkout's
 //! `node_modules`.
 
-use std::path::Path;
 use std::path::PathBuf;
 
 use serde_json::Value;
@@ -71,7 +70,7 @@ impl Worktrees {
         if !setup_pending(&record) && !include::ledger_of(&record).iter().any(is_dependency_link) {
             return Ok(None);
         }
-        let repo = self.scm().open(Path::new(&record.project_path), cancel).await?;
+        let repo = self.scm().open(&crate::worktree::housekeeping::repo_cwd(&record), cancel).await?;
         let _lock = repo.lock_repository().await?;
         let Some(mut current) = self.record(cancel, entry_id).await? else { return Ok(None) };
         if current.state != "ready" {

@@ -88,12 +88,25 @@ pub enum LoginError {
 pub trait LoginSession: Send + Sync {
     /// Snapshot for reconnects (`*/login/status`).
     fn state(&self) -> LoginState;
+    /// The state the start produced (the page to open, the device code), kept whatever the flow has moved on to since:
+    /// a login spawned by `start` can already be waiting when its caller reads the session.
+    fn started(&self) -> LoginState {
+        self.state()
+    }
     /// Next state change; `None` after the terminal state was delivered.
     async fn next(&self) -> Option<LoginState>;
     async fn provide(&self, input: LoginInput) -> Result<(), LoginError>;
     /// Ends the flow (kills a `gh` child, closes the loopback listener); the
     /// next state is `Cancelled` unless the flow already ended.
     fn cancel(&self);
+    /// Whether the sign-in began as a device code (fixed when the flow was created, whatever state it is in now):
+    /// its deadline is the provider's device one, not the browser callback's.
+    fn device_code(&self) -> bool {
+        false
+    }
+    /// Resolves once the flow has ended and released what it held (its flow slot, its callback port), so a newer
+    /// login of the provider can start. Flows with nothing to release are released at once.
+    async fn released(&self) {}
 }
 
 #[async_trait]

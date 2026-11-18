@@ -138,6 +138,7 @@ impl ModelsDevSource {
         self.lock().cache_at
     }
 
+    #[cfg(node_twin)]
     /// Installs a layer as a fetch would have (tests).
     #[cfg(test)]
     pub(crate) fn set_layer(&self, layer: ModelsDev) {
@@ -375,25 +376,6 @@ mod tests {
         (dir, fake, source)
     }
 
-    /// The fetch that outlives its timer is logged as the real Node loader logged it (`sites.modelsDev`): the signal's own text.
-    #[tokio::test(start_paused = true)]
-    async fn a_fetch_that_outlives_its_timer_reads_as_nodes() {
-        use crate::transport::site_probe::{TimingOut, assert_transport, recorded};
-
-        let tokens = mixdog_rt::testing::tokens();
-        let dir = tempfile::tempdir().unwrap();
-        let transport = TimingOut::new();
-        let source = ModelsDevSource::new(
-            transport.clone(),
-            dir.path().to_owned(),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        );
-        let reason = source.fetch().await.map(|_| ()).expect_err("never answers");
-        assert_transport("modelsDev", &transport);
-        let logged = recorded("modelsDev")["logged"][0].as_str().unwrap().to_owned();
-        assert_eq!(logged, format!("[model-catalog] models.dev fetch failed: {reason}"));
-    }
-
     fn cache_text(dir: &tempfile::TempDir) -> String {
         std::fs::read_to_string(dir.path().join(MODELS_DEV_CACHE_FILE)).unwrap()
     }
@@ -490,5 +472,38 @@ mod tests {
         let (a, b) = tokio::join!(source.load(false), source.load(false));
         assert!(a.is_some() && b.is_some());
         assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// A first run with no disk cache: the listing awaits the load (`await loadModelsDevCatalog()`), then reads the
+    /// table through the one lookup the catalog publishes into.
+    #[tokio::test]
+    async fn the_listing_lookup_loads_the_table_a_cold_catalog_lacks() {
+        let (_dir, fake, source) = fixture(Some(API));
+        let catalog = super::super::CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), source).await;
+        let lookup = catalog.listing_lookup();
+        assert!(lookup.models_dev_models("anthropic").is_none(), "cold: nothing resident yet");
+        lookup.load_models_dev().await;
+        assert!(lookup.models_dev_models("anthropic").is_some_and(|models| models.contains_key("claude-x")));
+        assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+    }
+
+
+    /// The fetch that outlives its timer is logged as the real Node loader logged it (`sites.modelsDev`): the signal's own text.
+    #[tokio::test(start_paused = true)]
+    async fn a_fetch_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::{TimingOut, assert_transport, logged};
+
+        let tokens = mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let transport = TimingOut::new();
+        let source = ModelsDevSource::new(
+            transport.clone(),
+            dir.path().to_owned(),
+            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+        );
+        let reason = source.fetch().await.map(|_| ()).expect_err("never answers");
+        assert_transport("modelsDev", &transport);
+        let logged = logged("modelsDev")[0].to_owned();
+        assert_eq!(logged, format!("[model-catalog] models.dev fetch failed: {reason}"));
     }
 }

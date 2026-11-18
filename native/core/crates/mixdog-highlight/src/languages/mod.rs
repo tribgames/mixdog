@@ -1,5 +1,4 @@
-//! The language data: highlight.js 10.7.3 definitions dumped as uncompiled mode graphs
-//! (`tests/recorders/dump-hljs-languages.mjs`), and the hook table for the few functions a definition holds.
+//! The language data: highlight.js 10.7.3 definitions dumped as uncompiled mode graphs, and the hook table for the few functions a definition holds.
 //!
 //! A dumped graph keeps object identity (a mode or keyword table shared by several modes is one entry),
 //! because the compiler's result depends on it: `compileMode` mutates shared objects.

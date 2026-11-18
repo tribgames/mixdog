@@ -8,9 +8,13 @@
 //! `messages`) and the rewritten system messages.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::sync::LazyLock;
 
+use mixdog_tools::policy::Withdrawal;
+
 use mixdog_agent::env::Clock;
+use mixdog_core_api::domain::tool::StoredTool;
 use mixdog_js::{js_trim, locale_compare, JsRegex};
 use serde_json::{json, Map, Value};
 
@@ -74,6 +78,31 @@ pub trait SurfaceHost: Send + Sync {
     fn bridge_tools(&self) -> Vec<Value>;
     /// `getMcpServerInstructionsMap(scopeId)`: server name to its trimmed instructions.
     fn mcp_server_instructions(&self, scope: Option<&str>) -> Value;
+    /// Whether the build still defines `name`: its owner has not withdrawn it. A built-in is defined by membership in the
+    /// complete registered tool pool, whether it can run now or not; a connected server's or plugin's tool by the definition its
+    /// owner published, whatever the connection's state. Never answers from [`Self::runs`] or `Tool::runnable`, and a name's
+    /// prefix defines nothing: a session catalog is no authority that a built-in exists.
+    fn defined(&self, name: &str) -> bool;
+    /// Whether the server `owner`, recorded with the stored definition of the MCP tool `name` when its owner published it, has
+    /// withdrawn it (published a catalog without it). A server that is down, a scope that moved and a tool with no recorded owner
+    /// withdraw nothing.
+    ///
+    /// One reading of what the owners have published, as a judgement `(name, owner)`: every judgement made from it is made against
+    /// the same state.
+    fn withdrawal(&self) -> Withdrawal {
+        Arc::new(|_, _| false)
+    }
+    /// Whether the stored MCP entry `name` belongs to an account of a connector (one tool group holding several accounts)
+    /// instead of a server: nothing publishes it, whether its entry records a `publisher` (the account's name) or lacks one
+    /// (an entry stored by a build that listed every account as a server of its own).
+    fn account_tool(&self, _name: &str, _publisher: Option<&str>) -> bool {
+        false
+    }
+    /// Whether `name` can run at this moment (a host or backend is present, the connection is up): availability only, which
+    /// moves while the core runs and retires nothing. A host with no registry answers yes.
+    fn runs(&self, _name: &str) -> bool {
+        true
+    }
 }
 
 /// `options` of `applyDeferredToolSurface`.
@@ -281,7 +310,12 @@ pub(super) fn roster_permits(session: &Value, tool: &Value) -> bool {
 }
 
 pub(super) fn fixed_surface_session(session: &Value) -> bool {
-    matches!(session.get("deferredProviderMode").and_then(Value::as_str), Some("full" | "manifest" | "canonical")) && !is_tool_bridge_enabled(session)
+    fixed_surface_mode(session.get("deferredProviderMode"), session.get("toolExposureMode"))
+}
+
+pub(super) fn fixed_surface_mode(mode: Option<&Value>, exposure: Option<&Value>) -> bool {
+    matches!(mode.and_then(Value::as_str), Some("full" | "manifest" | "canonical"))
+        && exposure.and_then(Value::as_str) != Some(TOOL_EXPOSURE_BRIDGE)
 }
 
 // ---- model edit dialect --------------------------------------------------------------------------
@@ -338,6 +372,33 @@ pub fn filter_model_edit_tools(tools: &[Value], model: &str) -> Vec<Value> {
         .collect()
 }
 
+/// Whether the stored entry `tool` is withdrawn by the publisher it records itself, `withdrawn` being asked `(name, publisher)`.
+/// A withdrawal applies to the entry whose recorded publisher made it: a legacy-unknown entry has no publisher to ask and is
+/// never withdrawn, and one entry's publisher never withdraws another entry of the same name.
+pub(super) fn entry_withdrawn(tool: &Value, withdrawn: &dyn Fn(&str, &str) -> bool) -> bool {
+    StoredTool::decode(tool).publisher().is_some_and(|server| withdrawn(&tool_name(tool), server))
+}
+
+/// The stored entry lists (`tools` and both catalogs).
+const ENTRY_KEYS: [&str; 3] = ["tools", "deferredToolCatalog", "deferredLateToolCatalog"];
+
+/// The one function that yields a session's surviving entries: `session` with every entry `retired` judges gone removed from the
+/// entry lists, entry by entry and before anything is selected by name. Both repair and the retired-name list use its result.
+pub(super) fn surviving_entries(session: &Value, retired: &dyn Fn(&Value) -> bool) -> Value {
+    let mut kept = session.clone();
+    for key in ENTRY_KEYS {
+        if let Some(Value::Array(items)) = kept.get_mut(key) {
+            items.retain(|tool| !retired(tool));
+        }
+    }
+    kept
+}
+
+/// The names the entries of `session` carry.
+fn entry_names(session: &Value) -> HashSet<String> {
+    ENTRY_KEYS.iter().flat_map(|key| session.get(*key).and_then(Value::as_array).into_iter().flatten()).map(tool_name).collect()
+}
+
 // ---- the surface ---------------------------------------------------------------------------------
 
 pub struct ToolSurface<'a> {
@@ -382,6 +443,94 @@ impl ToolSurface<'_> {
             }
         }
         order.into_iter().filter_map(|n| by_name.remove(&n)).collect()
+    }
+
+    /// Whether the core can run `name` now (the host's current availability).
+    pub(super) fn runs(&self, name: &str) -> bool {
+        self.host.runs(name)
+    }
+
+    /// The one availability projection every publication reads: the tool runs now and, for a connected server's tool, the
+    /// session's scoped MCP snapshot lists it (`isDeferredToolAvailable`). Stored definitions and selections are never
+    /// changed by it; what is advertised or callable is computed from them through it at the moment of use.
+    pub(super) fn available(&self, session: &Value, name: &str) -> bool {
+        self.runs(name) && super::session_catalog::deferred_available(session, name)
+    }
+
+    /// Why a catalog tool that [`Self::runs`] refuses cannot be called: what `load_tool` answers for it and what a direct call to
+    /// it is answered with (one wording; both sides consult the same registered set).
+    pub(super) fn unavailable_reason(name: &str) -> String {
+        format!("the {name} tool is not available in this environment: no host or backend for it is registered on this core.")
+    }
+
+    /// Whether this stored entry leaves the session: its own publisher withdrew it, or it is a built-in this build no longer
+    /// defines. Retirement is judged by this alone, never by [`Self::runs`]: a tool that cannot run at this moment is only
+    /// unavailable, and keeps its definitions and selection. Judged by the entry alone: a publisher is never read off the name and
+    /// never withdraws another entry of the same name; an entry stored with no publisher is not withdrawn.
+    fn entry_retired(&self, tool: &Value, withdrawal: &Withdrawal) -> bool {
+        let name = tool_name(tool);
+        let stored = StoredTool::decode(tool);
+        if name.starts_with("mcp__") && self.host.account_tool(&name, stored.publisher()) {
+            return true;
+        }
+        if stored.publisher().is_some() {
+            entry_withdrawn(tool, &**withdrawal)
+        } else if name.starts_with("mcp__") {
+            false
+        } else {
+            !self.host.defined(&name)
+        }
+    }
+
+    /// The one place a stored session is made valid against the running build: every built-in it holds that the build no
+    /// longer defines (removed by an upgrade the session outlived) leaves the loaded tools, both catalogs and the stored
+    /// name lists, written back into the session itself. A tool the build defines but the core cannot run now stays: what is
+    /// advertised and callable is computed from the stored lists through [`Self::runs`] at the moment of use.
+    /// Every apply and every rebuild starts here. Whether anything was removed.
+    pub(super) fn repair(&self, session: &mut Value) -> bool {
+        let withdrawal = self.host.withdrawal();
+        let kept = surviving_entries(session, &|tool| self.entry_retired(tool, &withdrawal));
+        // A name leaves the stored lists only when entries carried it and none survives; a built-in with no entry left in this
+        // build leaves too.
+        let surviving = entry_names(&kept);
+        let lost: HashSet<String> = entry_names(session).into_iter().filter(|name| !surviving.contains(name)).collect();
+        let mut removed = false;
+        let Some(map) = session.as_object_mut() else { return false };
+        for key in ENTRY_KEYS {
+            if let Some(items) = kept.get(key) {
+                if map.get(key) != Some(items) {
+                    map.insert(key.to_owned(), items.clone());
+                    removed = true;
+                }
+            }
+        }
+        for key in ["deferredSelectedTools", "deferredDiscoveredTools", "deferredCallableTools", "deferredDefaultTools", "deferredAnnouncedTools", "nativeDeferredDiscovery"] {
+            if let Some(Value::Array(items)) = map.get_mut(key) {
+                let before = items.len();
+                items.retain(|name| name.as_str().is_none_or(|name| !lost.contains(name) && (name.starts_with("mcp__") || self.host.defined(name))));
+                removed |= items.len() != before;
+            }
+        }
+        removed
+    }
+
+    /// The built-ins a stored session still holds that the build no longer defines: what [`Self::repair`] will remove.
+    /// Empty for every session the running build made, so a route change that finds none leaves the prompt's prefix as
+    /// it was; a caller asks before the rebuild to mark the changed prefix.
+    pub fn retired_names(&self, session: &Value) -> Vec<String> {
+        let mut retired: Vec<String> = Vec::new();
+        let withdrawal = self.host.withdrawal();
+        let kept = surviving_entries(session, &|tool| self.entry_retired(tool, &withdrawal));
+        for key in ENTRY_KEYS {
+            let left = kept.get(key).and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+            for tool in session.get(key).and_then(Value::as_array).into_iter().flatten().filter(|tool| !left.contains(tool)) {
+                let name = tool_name(tool);
+                if !name.is_empty() && !retired.contains(&name) {
+                    retired.push(name);
+                }
+            }
+        }
+        retired
     }
 
     fn stored_names(session: &Value) -> Vec<String> {
@@ -497,7 +646,7 @@ impl ToolSurface<'_> {
     }
 
     /// `session.tools` becomes the selected definitions (plus the bridge's own); returns the active names.
-    fn install_tools(&self, session: &mut Value, catalog: &[Value], selected: &HashSet<String>, mode: &str, bridge: bool) -> Vec<String> {
+    fn install_tools(&self, session: &mut Value, catalog: &[Value], selected: &HashSet<String>, mode: &str, bridge: bool, as_stored: bool) -> Vec<String> {
         let mut tools = Vec::new();
         let mut active = Vec::new();
         for tool in catalog {
@@ -505,7 +654,12 @@ impl ToolSurface<'_> {
             if !selected.contains(&name) || (mode == "readonly" && !readonly_selectable(tool)) {
                 continue;
             }
-            tools.push(tool.clone());
+            // Install is a boundary where the definitions are built anew: a selected tool that cannot run now is not installed
+            // into the definitions the session sends, but stays in the selection (`active` feeds the stored lists) and is
+            // installed at a later boundary once it can. A resume installs the stored definitions as stored (`as_stored`).
+            if as_stored || self.available(session, &name) {
+                tools.push(tool.clone());
+            }
             active.push(name);
         }
         // Every other definition stays in the scoped catalog, reached through the bridge. A
@@ -524,7 +678,7 @@ impl ToolSurface<'_> {
     }
 
     /// Keeps the prompt's deferred-tool block and the announced set in step with the surface.
-    fn refresh_manifest(&self, session: &mut Value, exposure_changed: bool) {
+    pub(super) fn refresh_manifest(&self, session: &mut Value, exposure_changed: bool) {
         let has_system = |s: &Value| s.get("messages").and_then(Value::as_array).is_some_and(|m| m.iter().any(|m| m.get("role").and_then(Value::as_str) == Some("system")));
         let scope = session.get("mcpScopeId").and_then(Value::as_str).map(str::to_owned);
         if exposure_changed && has_system(session) {
@@ -559,6 +713,33 @@ impl ToolSurface<'_> {
         if !session.get("tools").is_some_and(Value::is_array) {
             return;
         }
+        let retired = self.repair(session);
+        self.apply_repaired(session, mode, extra, options, retired, false);
+    }
+
+    /// [`Self::apply`] for a session whose definitions are not being built anew: resume and the exposure migration of a stored
+    /// surface. The stored `tools` are installed as stored (availability decides nothing here, so a session resumed while
+    /// Computer Use is off or before the desktop attached keeps the definitions its warm cache holds), and a name its owner
+    /// withdrew is not retired here either ([`Self::repair`] is the cold fold's). Availability decides installation only where the
+    /// definitions are built anew by an explicit act: creation, a provider, route or model change, compaction or clear
+    /// ([`Self::apply`], [`Self::rebuild_for_provider`]).
+    pub fn restore(&self, session: &mut Value, mode: &str, extra: &[Value], options: &ApplyOptions) {
+        if !session.get("tools").is_some_and(Value::is_array) {
+            return;
+        }
+        // Retirement alone is not a migration. A real exposure migration is already rebuilding the cached surface.
+        let migrating = super::tool_exposure::tool_exposure_migration_needed(session, options.provider.as_deref(), &self.load_tool_def());
+        if !migrating && !self.retired_names(session).is_empty() {
+            return;
+        }
+        let retired = migrating && self.repair(session);
+        self.apply_repaired(session, mode, extra, options, retired, true);
+    }
+
+    /// [`Self::apply`] over a session [`Self::repair`] already made valid; `retired`: it removed something, so the prompt's
+    /// roster that listed it is rewritten once (as an exposure change rewrites it). A session with nothing removed keeps its
+    /// roster, so the cached prefix holds.
+    fn apply_repaired(&self, session: &mut Value, mode: &str, extra: &[Value], options: &ApplyOptions, retired: bool, as_stored: bool) {
         let provider = options.provider.clone().filter(|p| !p.is_empty()).unwrap_or_else(|| clean(session.get("provider")));
         let route = session.get("wireRoute").cloned();
         // The pinned wire route decides a gateway's mode (it names its own provider, so a surface
@@ -569,7 +750,7 @@ impl ToolSurface<'_> {
         // An existing surface built for another exposure is migrated, not merely re-selected; a
         // surface an earlier bridge revision built is rebuilt once, the same rewrite.
         let previous = session_tool_exposure(session);
-        let exposure_changed = previous.as_deref().is_some_and(|p| p != exposure || (bridge && bridge_surface_outdated(session, &self.load_tool_def())));
+        let exposure_changed = retired || previous.as_deref().is_some_and(|p| p != exposure || (bridge && bridge_surface_outdated(session, &self.load_tool_def())));
         // The one native <-> bridge transition, whoever triggers it: leaving native keeps its
         // discoveries aside, and the way back restores them below.
         if previous.as_deref() == Some(TOOL_EXPOSURE_NATIVE) && bridge {
@@ -588,7 +769,7 @@ impl ToolSurface<'_> {
             map.insert("deferredNativeTools".into(), json!(provider_mode == "native"));
             map.insert("deferredSurfaceMode".into(), json!(mode));
         }
-        let active = self.install_tools(session, &catalog, &selected, mode, bridge);
+        let active = self.install_tools(session, &catalog, &selected, mode, bridge, as_stored);
         map_mut(session).insert("deferredCallableTools".into(), names_value(&sorted_names_by_measured_usage(active.clone())));
         if provider_mode == "native" {
             let restored = if previous.as_deref() == Some(TOOL_EXPOSURE_BRIDGE) { clean_list(session, "nativeDeferredDiscovery") } else { Vec::new() };
@@ -610,6 +791,8 @@ impl ToolSurface<'_> {
         if !session.get("tools").is_some_and(Value::is_array) {
             return;
         }
+        // Before `union` is read: the catalog handed to `apply` must not carry a tool the core cannot run back in.
+        let retired = self.repair(session);
         let route = session.get("wireRoute").cloned();
         let previous_family = native_provider_family(&clean(session.get("provider")), route.as_ref());
         let next_family = native_provider_family(provider, route.as_ref());
@@ -623,7 +806,7 @@ impl ToolSurface<'_> {
             session["deferredDiscoveredTools"] = names_value(&discovered);
         }
         let mode = session.get("deferredSurfaceMode").and_then(Value::as_str).filter(|m| !m.is_empty()).unwrap_or("lead").to_owned();
-        self.apply(session, &mode, &union, &ApplyOptions { provider: Some(provider.to_owned()), ..ApplyOptions::default() });
+        self.apply_repaired(session, &mode, &union, &ApplyOptions { provider: Some(provider.to_owned()), ..ApplyOptions::default() }, retired, false);
         // Back from the bridge: the discoveries `apply` restored become callable again. Otherwise
         // exactly the native family's own.
         let eager: HashSet<String> = tools_of(session).iter().map(tool_name).collect();
@@ -659,6 +842,7 @@ pub(super) fn rendered_manifest(session: &Value) -> String {
 mod tests {
     use super::*;
 
+    #[cfg(node_twin)]
     #[path = "../../tool_surface_node_cases.rs"]
     mod node_cases;
 
@@ -671,45 +855,14 @@ mod tests {
 
     struct Host(Vec<Value>);
     impl SurfaceHost for Host {
+        fn defined(&self, _name: &str) -> bool {
+            true
+        }
         fn bridge_tools(&self) -> Vec<Value> {
             self.0.clone()
         }
         fn mcp_server_instructions(&self, _scope: Option<&str>) -> Value {
             json!({})
-        }
-    }
-
-    /// Node's `applyDeferredToolSurface` and `rebuildDeferredToolSurfaceForProvider` over 18
-    /// sessions: native, bridge and manifest providers, modes, policy rosters, switches between
-    /// families and back.
-    #[test]
-    fn the_surface_follows_node() {
-        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/tool_surface.json")).expect("fixture");
-        let host = Host(golden["bridgeTools"].as_array().unwrap().clone());
-        let surface = ToolSurface { host: &host, clock: &Fixed };
-        for (name, rows) in golden["cases"].as_object().unwrap() {
-            let mut session = rows[0]["before"].clone();
-            for (n, row) in rows.as_array().unwrap().iter().enumerate().skip(1) {
-                let step = &row["step"];
-                if let Some(mode) = step.get("apply").and_then(Value::as_str) {
-                    let extra: Vec<Value> = step.get("extra").and_then(Value::as_array).cloned().unwrap_or_default();
-                    let options = step.get("options");
-                    let options = ApplyOptions {
-                        provider: None,
-                        model: options.and_then(|o| o.get("model")).and_then(Value::as_str).map(str::to_owned),
-                        disallowed: options.and_then(|o| o.get("disallowed")).and_then(Value::as_array).map_or_else(Vec::new, |d| d.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()),
-                    };
-                    surface.apply(&mut session, mode, &extra, &options);
-                } else if let Some(provider) = step.get("rebuild").and_then(Value::as_str) {
-                    surface.rebuild_for_provider(&mut session, provider);
-                } else {
-                    session["deferredDiscoveredTools"] = step["discovered"].clone();
-                }
-                let want = &row["after"];
-                for key in want.as_object().unwrap().keys().chain(session.as_object().unwrap().keys()) {
-                    assert_eq!(session.get(key), want.get(key), "{name} step {n} key {key}");
-                }
-            }
         }
     }
 
@@ -741,6 +894,318 @@ mod tests {
         assert_eq!(fetch["description"], "Fetch the page or docs body of known URLs.", "the stored definition stays the session's");
         let recall = entry("recall");
         assert_eq!((&recall["trigger"], &recall["title"]), (&json!("Prior sessions."), &json!("Stored")));
+    }
+
+    /// A host whose registry lacks `machine`, the tool an upgrade removed.
+    struct WithoutMachine;
+    impl SurfaceHost for WithoutMachine {
+        fn bridge_tools(&self) -> Vec<Value> {
+            Vec::new()
+        }
+        fn mcp_server_instructions(&self, _scope: Option<&str>) -> Value {
+            json!({})
+        }
+        fn defined(&self, name: &str) -> bool {
+            name != "machine"
+        }
+        fn runs(&self, name: &str) -> bool {
+            self.defined(name)
+        }
+    }
+
+    /// A session that outlived the upgrade stored `machine` in its catalogs: nothing the surface reads lists, describes or
+    /// resolves it, the next apply drops it from both catalogs (an MCP tool of the late pool stays), and a session
+    /// with no removed tool reports none, so its roster and prefix stay as they were.
+    #[test]
+    fn a_tool_the_core_no_longer_runs_leaves_a_stored_catalog() {
+        let schema = json!({ "type": "object", "properties": {} });
+        let tool = |name: &str| json!({ "name": name, "description": format!("{name}."), "inputSchema": schema });
+        let surface = ToolSurface { host: &WithoutMachine, clock: &Fixed };
+        let mut session = json!({
+            "provider": "anthropic",
+            "model": "smoke",
+            "tools": [tool("read"), tool("machine")],
+            "deferredToolCatalog": [tool("read"), tool("machine"), tool("web_fetch")],
+            "deferredLateToolCatalog": [tool("machine"), tool("mcp__srv__echo")],
+            "deferredDiscoveredTools": ["machine", "web_fetch"],
+        });
+        assert_eq!(surface.retired_names(&session), ["machine"]);
+        // A rebuild that cannot prepare replacement tools (the stored ones stay) must not bring it back either.
+        let mut rebuilt = session.clone();
+        surface.rebuild_for_provider(&mut rebuilt, "anthropic");
+        surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
+        for session in [&session, &rebuilt] {
+            assert!(surface.retired_names(session).is_empty());
+            let listed = |key: &str| -> Vec<String> { session[key].as_array().expect("a list").iter().map(tool_name).collect() };
+            for key in ["tools", "deferredToolCatalog", "deferredLateToolCatalog"] {
+                assert!(!listed(key).contains(&"machine".to_owned()), "{key}");
+            }
+            assert!(!session["deferredDiscoveredTools"].to_string().contains("machine"));
+            assert!(!surface.pool_tool_names(session).contains(&"machine".to_owned()));
+            assert_eq!(surface.catalog_union(session).iter().map(tool_name).filter(|n| n == "machine").count(), 0);
+        }
+        assert_eq!(session["deferredLateToolCatalog"].as_array().unwrap().iter().map(tool_name).collect::<Vec<_>>(), ["mcp__srv__echo"]);
+        let current = json!({ "provider": "anthropic", "tools": [tool("read")], "deferredToolCatalog": [tool("read"), tool("web_fetch")] });
+        assert!(surface.retired_names(&current).is_empty());
+    }
+
+    /// A host whose hub holds one `gmail` connector with the accounts `gmail-2` and `gmail-3`.
+    struct Connector;
+    impl SurfaceHost for Connector {
+        fn bridge_tools(&self) -> Vec<Value> {
+            Vec::new()
+        }
+        fn mcp_server_instructions(&self, _scope: Option<&str>) -> Value {
+            json!({})
+        }
+        fn defined(&self, _name: &str) -> bool {
+            true
+        }
+        fn account_tool(&self, name: &str, publisher: Option<&str>) -> bool {
+            match publisher {
+                Some(owner) => owner == "gmail-2" || owner == "gmail-3",
+                None => name.starts_with("mcp__gmail-2__") || name.starts_with("mcp__gmail-3__"),
+            }
+        }
+    }
+
+    /// A session created while every account of a connector was a server of its own stored an entry (with no recorded publisher)
+    /// and a roster line per account. The cold repair drops them: the connector is one tool group.
+    #[test]
+    fn a_connectors_accounts_stored_as_servers_leave_the_catalog_and_the_roster() {
+        let schema = json!({ "type": "object", "properties": {} });
+        let tool = |name: &str| json!({ "name": name, "description": "Gmail email: sending, reading, searching or organizing mail.", "inputSchema": schema });
+        let stale = ["mcp__gmail__search", "mcp__gmail-2__search", "mcp__gmail-3__search"];
+        let surface = ToolSurface { host: &Connector, clock: &Fixed };
+        let mut session = json!({
+            "provider": "anthropic",
+            "model": "smoke",
+            "tools": [tool("read")],
+            "messages": [
+                { "role": "system", "content": "base" },
+                { "role": "system", "content": "<available-deferred-tools>\n- mcp__gmail: Gmail.\n- mcp__gmail-2: Gmail.\n- mcp__gmail-3: Gmail.\n</available-deferred-tools>" },
+            ],
+            // The last entry records its publisher, the account: no server publishes as it any more, so the withdrawal check alone
+            // would keep it.
+            "deferredToolCatalog": stale.iter().map(|name| tool(name)).chain([mixdog_core_api::domain::tool::StoredTool::mcp(tool("mcp__gmail-2__recorded"), "gmail-2", Some("n")).encode()]).collect::<Vec<_>>(),
+            "deferredAnnouncedTools": stale,
+        });
+        // A refresh while warm rewrites neither the catalog nor the roster: the stale accounts leave at the cold fold or an explicit
+        // rebuild, which repair first and then regenerate the manifest.
+        let warm = session.clone();
+        surface.reconcile_mcp_catalog(&mut session, &[tool("mcp__gmail__search")]);
+        assert_eq!(session["deferredToolCatalog"], warm["deferredToolCatalog"]);
+        assert_eq!(session["messages"], warm["messages"], "the prompt's roster is not regenerated by a refresh");
+        assert!(surface.repair(&mut session));
+        surface.refresh_manifest(&mut session, true);
+        let names: Vec<String> = session["deferredToolCatalog"].as_array().expect("catalog").iter().map(tool_name).collect();
+        assert!(names.contains(&"mcp__gmail__search".to_owned()), "{names:?}");
+        assert!(!names.iter().any(|name| name.starts_with("mcp__gmail-")), "{names:?}");
+        let roster = session.to_string();
+        assert!(!roster.contains("mcp__gmail-2") && !roster.contains("mcp__gmail-3"), "{roster}");
+    }
+
+    /// A host that defines every tool but `machine` (an upgrade removed it) and runs `computer` and `eagerone` only once the flag
+    /// is set (the desktop attaching).
+    struct Attaching(std::sync::Arc<std::sync::atomic::AtomicBool>);
+    impl SurfaceHost for Attaching {
+        fn bridge_tools(&self) -> Vec<Value> {
+            Vec::new()
+        }
+        fn mcp_server_instructions(&self, _scope: Option<&str>) -> Value {
+            json!({})
+        }
+        fn defined(&self, name: &str) -> bool {
+            name != "machine"
+        }
+        fn runs(&self, name: &str) -> bool {
+            match name {
+                "machine" => false,
+                "computer" | "eagerone" => self.0.load(std::sync::atomic::Ordering::SeqCst),
+                _ => true,
+            }
+        }
+    }
+
+    /// Definition ownership and selection are durable: a tool the build defines but the core cannot run now (`computer`, and an
+    /// eager-only `eagerone` that no gate list names) is unavailable, not retired. An apply, a same-provider rebuild and a route
+    /// change keep its definitions (and, on the same provider, its selection); nothing advertised names it while it cannot run;
+    /// it is listed again once it can, with no reload. A name the build no longer defines (`machine`) is removed everywhere.
+    #[test]
+    fn an_unavailable_tool_keeps_its_definitions_and_selection_and_a_retired_one_does_not() {
+        let attached = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let surface = ToolSurface { host: &Attaching(attached.clone()), clock: &Fixed };
+        let schema = json!({ "type": "object", "properties": {} });
+        let tool = |name: &str| json!({ "name": name, "description": format!("{name}."), "inputSchema": schema });
+        let mut session = json!({
+            "provider": "anthropic",
+            "model": "smoke",
+            "tools": [tool("read"), tool("eagerone"), tool("machine")],
+            "deferredToolCatalog": [tool("read"), tool("computer"), tool("machine")],
+            "deferredLateToolCatalog": [tool("computer")],
+            "deferredDiscoveredTools": ["computer", "machine"],
+            "deferredSelectedTools": ["read", "computer", "machine"],
+            "deferredCallableTools": ["read", "computer", "machine"],
+        });
+        assert_eq!(surface.retired_names(&session), ["machine"]);
+        let (mut rebuilt, mut routed) = (session.clone(), session.clone());
+        surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
+        surface.rebuild_for_provider(&mut rebuilt, "anthropic");
+        surface.rebuild_for_provider(&mut routed, "openai");
+        let held = |session: &Value, key: &str, name: &str| session[key].as_array().expect("a list").iter().any(|entry| entry == name || tool_name(entry) == name);
+        for (which, session) in [("apply", &session), ("rebuild", &rebuilt), ("route change", &routed)] {
+            assert!(surface.retired_names(session).is_empty(), "{which}");
+            assert!(held(session, "deferredToolCatalog", "computer") && held(session, "deferredToolCatalog", "eagerone"), "{which}: definitions stay");
+            assert!(!held(session, "deferredToolCatalog", "machine") && !held(session, "deferredDiscoveredTools", "machine"), "{which}: a retired name is removed");
+            assert!(!held(session, "tools", "machine") && !held(session, "deferredCallableTools", "machine") && !held(session, "deferredSelectedTools", "machine"), "{which}");
+        }
+        assert!(held(&session, "deferredDiscoveredTools", "computer") && held(&rebuilt, "deferredDiscoveredTools", "computer"), "the selection stays on the same provider");
+        assert!(held(&session, "deferredLateToolCatalog", "computer"), "and in the late catalog");
+        let listed = |session: &mut Value| -> Value {
+            serde_json::from_str(&super::super::deferred_select::render_tool_search(&surface, session, &json!({ "names": [] }), "lead", &[], &Value::Null)).expect("json")
+        };
+        let before = listed(&mut session);
+        assert!(!before.to_string().contains("computer") && !before["activeTools"].to_string().contains("eagerone"), "nothing advertised names it while it cannot run: {before}");
+        // It becomes runnable: listed again with no new load, and a load finds it already known.
+        attached.store(true, std::sync::atomic::Ordering::SeqCst);
+        let after = listed(&mut session);
+        assert!(after["discoveredTools"].to_string().contains("computer"), "{after}");
+        let selection = super::super::deferred_select::select(&surface, &mut session, &[], &["computer".to_owned()], false, false);
+        assert_eq!(selection.already, ["computer"], "{:?}", selection.to_value());
+        assert!(selection.added.is_empty() && selection.unavailable.is_empty());
+    }
+
+    /// A host that defines everything and runs `.1` only while the flag is set.
+    struct Gated(std::sync::Arc<std::sync::atomic::AtomicBool>, &'static str);
+    impl SurfaceHost for Gated {
+        fn bridge_tools(&self) -> Vec<Value> {
+            Vec::new()
+        }
+        fn mcp_server_instructions(&self, _scope: Option<&str>) -> Value {
+            json!({})
+        }
+        fn defined(&self, _name: &str) -> bool {
+            true
+        }
+        fn runs(&self, name: &str) -> bool {
+            name != self.1 || self.0.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    /// The tool definitions a session sends are fixed for its cache epoch: availability alone (a desktop attaching, a helper found
+    /// late) never edits `tools`. They are decided at a boundary (an apply: creation, route rebuild, resume), where a selected tool
+    /// that cannot run is left out of the install but kept in the selection; a model load changes them only as before (on a native
+    /// route a reference in `deferredDiscoveredTools`, not an edit of `tools`); and the one-time retirement of a withdrawn name
+    /// happens once.
+    #[test]
+    fn availability_never_edits_the_sent_definitions_between_boundaries() {
+        let on = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let surface = ToolSurface { host: &Gated(on.clone(), "web_search"), clock: &Fixed };
+        let schema = json!({ "type": "object", "properties": {} });
+        let tool = |name: &str| json!({ "name": name, "description": format!("{name}."), "inputSchema": schema });
+        let held: Vec<Value> = ["read", "web_search", "web_fetch", "grep"].iter().map(|name| tool(name)).collect();
+        let mut session = json!({ "provider": "anthropic", "model": "smoke", "toolSpec": "full", "tools": held });
+        let sent = |session: &Value| -> String { tools_of(session).iter().map(Value::to_string).collect::<Vec<_>>().join("\n") };
+        let names = |session: &Value| -> Vec<String> { tools_of(session).iter().map(tool_name).collect() };
+        // The boundary: web_search cannot run, so it is not installed, yet it stays selected.
+        surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
+        assert!(!names(&session).contains(&"web_search".to_owned()));
+        assert!(session["deferredCallableTools"].to_string().contains("web_search"), "the selection keeps it");
+        let epoch = sent(&session);
+        // Availability flips and a listing and a model load run: the sent definitions are byte-identical.
+        for flip in [true, false, true] {
+            on.store(flip, std::sync::atomic::Ordering::SeqCst);
+            // A load of `read`, already active, answers the whole active set (a load with no names lists the eager names alone).
+            let listing = super::super::deferred_select::render_tool_search(&surface, &mut session, &json!({ "names": ["read"] }), "lead", &[], &Value::Null);
+            let listing: Value = serde_json::from_str(&listing).expect("json");
+            let active = listing["activeTools"].as_array().expect("active").iter().any(|name| name == "web_search");
+            assert_eq!(active, flip, "the listing follows availability: {listing}");
+            assert_eq!(sent(&session), epoch, "flip {flip}");
+        }
+        // A model load on a native route is a reference, not an edit of the sent definitions.
+        super::super::deferred_select::select(&surface, &mut session, &[], &["web_fetch".to_owned()], false, false);
+        assert_eq!(sent(&session), epoch);
+        assert!(session["deferredDiscoveredTools"].to_string().contains("web_fetch"));
+        // The next boundary installs it now that it can run.
+        surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
+        assert!(names(&session).contains(&"web_search".to_owned()));
+        // A withdrawn name is retired once: the first repair removes it, the second finds nothing and the definitions hold.
+        let machine = |session: &mut Value| session["deferredToolCatalog"].as_array_mut().expect("catalog").push(tool("machine"));
+        let retiring = ToolSurface { host: &WithoutMachine, clock: &Fixed };
+        machine(&mut session);
+        assert!(retiring.repair(&mut session));
+        let after = sent(&session);
+        assert!(!retiring.repair(&mut session));
+        assert_eq!(sent(&session), after);
+    }
+
+    /// A host whose server `.0` has withdrawn every tool it published.
+    struct Withdraws(&'static str);
+    impl SurfaceHost for Withdraws {
+        fn bridge_tools(&self) -> Vec<Value> {
+            Vec::new()
+        }
+        fn mcp_server_instructions(&self, _scope: Option<&str>) -> Value {
+            json!({})
+        }
+        fn defined(&self, _name: &str) -> bool {
+            true
+        }
+        fn withdrawal(&self) -> Withdrawal {
+            let server = self.0;
+            Arc::new(move |_, owner| owner == server)
+        }
+    }
+
+    fn entry_of(publisher: Option<&str>, description: &str) -> Value {
+        let doc = json!({ "name": "mcp__x__n", "description": description, "inputSchema": { "type": "object", "properties": {} } });
+        match publisher {
+            Some(server) => StoredTool::mcp(doc, server, Some("n")).encode(),
+            None => doc,
+        }
+    }
+
+    /// Retirement judges each stored entry by its own recorded publisher; a withdrawal never transfers through a name. An old
+    /// session's boot catalog holds the ownerless entry, reconciliation keeps it frozen and installs the owner-bearing one in the
+    /// late catalog: that publisher withdrawing the name removes its own entry and leaves the legacy-unknown one, and the name
+    /// stays in the stored lists because an entry still holds it.
+    #[test]
+    fn a_withdrawal_removes_the_entry_of_its_publisher_and_never_another_of_the_same_name() {
+        let session = || {
+            json!({
+                "deferredToolCatalog": [entry_of(None, "boot")], "deferredLateToolCatalog": [entry_of(Some("fs"), "late")],
+                "deferredSelectedTools": ["mcp__x__n"],
+            })
+        };
+        let mut migrated = session();
+        assert!(ToolSurface { host: &Withdraws("fs"), clock: &Fixed }.repair(&mut migrated));
+        assert_eq!(migrated["deferredToolCatalog"], json!([entry_of(None, "boot")]), "the legacy-unknown entry stays");
+        assert_eq!(migrated["deferredLateToolCatalog"], json!([]), "the publisher's own entry goes");
+        assert_eq!(migrated["deferredSelectedTools"], json!(["mcp__x__n"]), "an entry still holds the name");
+        // Two publishers of one name: only the withdrawing one's entry goes, whichever it is.
+        for (gone, stays) in [("a", "b"), ("b", "a")] {
+            let mut both = json!({
+                "tools": [entry_of(Some("a"), "from a")], "deferredToolCatalog": [entry_of(Some("b"), "from b")], "deferredSelectedTools": ["mcp__x__n"],
+            });
+            assert!(ToolSurface { host: &Withdraws(gone), clock: &Fixed }.repair(&mut both));
+            let left = [both["tools"].clone(), both["deferredToolCatalog"].clone()].concat_entries();
+            assert_eq!(left, vec![entry_of(Some(stays), &format!("from {stays}"))], "{gone} withdrew: only its own entry goes");
+            assert_eq!(both["deferredSelectedTools"], json!(["mcp__x__n"]));
+        }
+        // When every entry of the name is withdrawn, the name leaves the stored lists too.
+        let mut all = json!({ "deferredToolCatalog": [entry_of(Some("fs"), "x")], "deferredSelectedTools": ["mcp__x__n"] });
+        assert!(ToolSurface { host: &Withdraws("fs"), clock: &Fixed }.repair(&mut all));
+        assert_eq!(all["deferredSelectedTools"], json!([]));
+    }
+
+    /// The entries of two stored arrays, in one list.
+    trait ConcatEntries {
+        fn concat_entries(self) -> Vec<Value>;
+    }
+    impl ConcatEntries for [Value; 2] {
+        fn concat_entries(self) -> Vec<Value> {
+            self.iter().flat_map(|list| list.as_array().expect("entries").clone()).collect()
+        }
     }
 
     /// What a new Lead session offers of the tools a desktop bridge or the memory switch gates (`browser`, `browser_devtools`,
@@ -786,6 +1251,113 @@ mod tests {
             let mut expected: Vec<&str> = vec!["find", "glob", "list", "grep", "code_graph", "read", "edit", "git", "shell", "task", "agent", "web_search"];
             expected.extend(["Skill", "ask_user", "load_tool", "todo"]);
             assert_eq!(sorted(&core), sorted(&expected), "{provider}: the tools a new Lead session's request defines");
+        }
+    }
+
+    /// A resume is not a boundary for availability: the stored `tools` are installed as stored, whether the tool can run at that
+    /// moment or not (the session's cache is still warm), and a call to a tool that cannot run answers unavailable. Only an
+    /// explicit act that builds the definitions anew (here an apply, as a route change does) leaves the unavailable one out.
+    #[test]
+    fn a_resume_installs_the_stored_definitions_whatever_the_availability() {
+        struct Nothing;
+        impl mixdog_tools::policy::ToolResolver for Nothing {
+            fn resolve(&self, _: Option<&str>, _: &str) -> Option<std::sync::Arc<dyn mixdog_core_api::domain::tool::Tool>> {
+                None
+            }
+        }
+        let on = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let surface = ToolSurface { host: &Gated(on.clone(), "web_search"), clock: &Fixed };
+        let schema = json!({ "type": "object", "properties": {} });
+        let tool = |name: &str| json!({ "name": name, "description": format!("{name}."), "inputSchema": schema });
+        let held: Vec<Value> = ["read", "grep", "web_search"].iter().map(|name| tool(name)).collect();
+        let mut session = json!({ "provider": "anthropic", "model": "smoke", "toolSpec": "full", "tools": held });
+        let sent = |session: &Value| tools_of(session).iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+        surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
+        let stored = sent(&session);
+        assert!(stored.contains("web_search"));
+        for open in [false, true, false] {
+            on.store(open, std::sync::atomic::Ordering::SeqCst);
+            let mut resumed = session.clone();
+            surface.restore(&mut resumed, "lead", &[], &ApplyOptions::default());
+            assert_eq!(sent(&resumed), stored, "resumed with the gate open: {open}");
+            if !open {
+                let surface_of = mixdog_tools::policy::SessionSurface::from_header(resumed.as_object().expect("object"), Vec::new());
+                let set = super::super::assemble::with_surface_registry(mixdog_agent::tools::ToolSet::new(Vec::new()), std::sync::Arc::new(Nothing), None, &surface_of);
+                assert!(set.unknown_message("web_search").contains("unavailable"), "{}", set.unknown_message("web_search"));
+            }
+        }
+        // A surface built anew (a route or model change, a clear) leaves it out while it cannot run.
+        let mut anew = session.clone();
+        surface.apply(&mut anew, "lead", &[], &ApplyOptions::default());
+        assert!(!sent(&anew).contains("web_search"));
+    }
+
+    /// A gate closing after creation stages a denial (`stage_tool_availability`) and leaves the stored `tools` as they are; the
+    /// tool leaves the definitions at the next boundary (an apply) and comes back at a later one once the gate opens, on a native
+    /// and on a bridge session.
+    #[test]
+    fn a_closed_gate_removes_a_definition_at_the_next_boundary_and_it_returns_at_a_later_one() {
+        use super::super::tool_availability::stage_tool_availability;
+        let schema = json!({ "type": "object", "properties": {} });
+        let tool = |name: &str| json!({ "name": name, "description": format!("{name}."), "inputSchema": schema });
+        let host = Host(vec![tool("load_tool"), tool("call_tool")]);
+        let surface = ToolSurface { host: &host, clock: &Fixed };
+        for provider in ["anthropic", "custom-11111111-1111-4111-8111-111111111111"] {
+            let held: Vec<Value> = ["read", "grep", "web_search", "load_tool"].iter().map(|name| tool(name)).collect();
+            let mut session = json!({ "provider": provider, "model": "smoke", "toolSpec": "full", "tools": held, "disallowedTools": [] });
+            let names = |session: &Value| -> Vec<String> { tools_of(session).iter().map(tool_name).collect() };
+            surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
+            assert!(names(&session).contains(&"web_search".to_owned()), "{provider}");
+            // The gate closes mid-session: denied at dispatch, the definitions untouched.
+            let sent = tools_of(&session).iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+            let moved = stage_tool_availability(session.as_object_mut().expect("object"), &["web_search".to_owned()], &[], 1).expect("the gate closed");
+            assert_eq!(moved.removed, ["web_search"], "{provider}");
+            assert!(session["disallowedTools"].to_string().contains("web_search"));
+            assert_eq!(tools_of(&session).iter().map(Value::to_string).collect::<Vec<_>>().join("\n"), sent, "{provider}: no edit of a live epoch");
+            // The next boundary rebuilds the definitions without it.
+            surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
+            assert!(!names(&session).contains(&"web_search".to_owned()), "{provider}: removed at the boundary");
+            // The gate opens: the definition joins the late catalog, and a later boundary installs it again.
+            let reopened = stage_tool_availability(session.as_object_mut().expect("object"), &[], &[tool("web_search")], 2).expect("the gate opened");
+            assert_eq!(reopened.added, ["web_search"], "{provider}");
+            surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
+            assert!(names(&session).contains(&"web_search".to_owned()), "{provider}: back at a later boundary");
+        }
+    }
+
+
+    /// Node's `applyDeferredToolSurface` and `rebuildDeferredToolSurfaceForProvider` over 18
+    /// sessions: native, bridge and manifest providers, modes, policy rosters, switches between
+    /// families and back.
+    #[test]
+    #[cfg(node_twin)]
+    fn the_surface_follows_node() {
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/tool_surface.json")).expect("fixture");
+        let host = Host(golden["bridgeTools"].as_array().unwrap().clone());
+        let surface = ToolSurface { host: &host, clock: &Fixed };
+        for (name, rows) in golden["cases"].as_object().unwrap() {
+            let mut session = rows[0]["before"].clone();
+            for (n, row) in rows.as_array().unwrap().iter().enumerate().skip(1) {
+                let step = &row["step"];
+                if let Some(mode) = step.get("apply").and_then(Value::as_str) {
+                    let extra: Vec<Value> = step.get("extra").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let options = step.get("options");
+                    let options = ApplyOptions {
+                        provider: None,
+                        model: options.and_then(|o| o.get("model")).and_then(Value::as_str).map(str::to_owned),
+                        disallowed: options.and_then(|o| o.get("disallowed")).and_then(Value::as_array).map_or_else(Vec::new, |d| d.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()),
+                    };
+                    surface.apply(&mut session, mode, &extra, &options);
+                } else if let Some(provider) = step.get("rebuild").and_then(Value::as_str) {
+                    surface.rebuild_for_provider(&mut session, provider);
+                } else {
+                    session["deferredDiscoveredTools"] = step["discovered"].clone();
+                }
+                let want = &row["after"];
+                for key in want.as_object().unwrap().keys().chain(session.as_object().unwrap().keys()) {
+                    assert_eq!(session.get(key), want.get(key), "{name} step {n} key {key}");
+                }
+            }
         }
     }
 }

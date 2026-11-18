@@ -73,8 +73,6 @@ impl fmt::Display for ApprovalError {
     }
 }
 
-impl std::error::Error for ApprovalError {}
-
 /// The operator's policy (`MIXDOG_BROWSER_CONFIRM_ACTIONS`, `MIXDOG_BROWSER_DENY_ACTIONS`, `MIXDOG_BROWSER_CONFIRM_SUBMIT`).
 /// The two action lists are checked when a step is planned, not when the policy is made: a bad name refuses dispatch then.
 #[derive(Debug, Clone)]
@@ -460,7 +458,8 @@ mod tests {
         assert_eq!(unconfirmed.prompt.receiver_origin, "");
     }
 
-    /// The step of a corpus command as the policy reads it.
+    /// The step of a recorded command as the policy reads it.
+    #[cfg(node_twin)]
     fn corpus_step(command: &serde_json::Value) -> StepFacts {
         let text = |key: &str| command.get(key).and_then(serde_json::Value::as_str).unwrap_or_default().to_owned();
         StepFacts {
@@ -472,8 +471,19 @@ mod tests {
         }
     }
 
-    /// The shared classification corpus (`approval-classification.json`, recorded from `action-approval.ts` and replayed by its
-    /// test): the same commands ask as the same kinds, nothing that is not asked there starts asking, and every refusal stays.
+    #[test]
+    fn an_origin_is_the_tuple_origin_or_empty() {
+        assert_eq!(origin_of_url("https://a.test/x?y"), "https://a.test");
+        assert_eq!(origin_of_url("http://a.test:81/"), "http://a.test:81");
+        for opaque in ["file:///C:/x", "about:blank", "data:text/html,hi", "not a url", ""] {
+            assert_eq!(origin_of_url(opaque), "", "{opaque}");
+        }
+    }
+
+
+    /// The recorded classification corpus (`approval-classification.json`): the same commands ask as the same kinds, nothing that
+    /// is not asked there starts asking, and every refusal stays.
+    #[cfg(node_twin)]
     #[test]
     fn the_shared_corpus_classifies_every_command_as_the_typescript_approval_does() {
         let corpus: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/browser-parity/approval-classification.json")).expect("corpus");
@@ -522,13 +532,7 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn an_origin_is_the_tuple_origin_or_empty() {
-        assert_eq!(origin_of_url("https://a.test/x?y"), "https://a.test");
-        assert_eq!(origin_of_url("http://a.test:81/"), "http://a.test:81");
-        for opaque in ["file:///C:/x", "about:blank", "data:text/html,hi", "not a url", ""] {
-            assert_eq!(origin_of_url(opaque), "", "{opaque}");
-        }
-    }
 }
+
+
+impl std::error::Error for ApprovalError {}

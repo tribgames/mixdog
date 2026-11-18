@@ -2,7 +2,7 @@ import { trackReplay } from './terminal-replay-state.ts';
 
 export interface TerminalOutputOwner {
   id: string | null;
-  writer: { push(id: string, data: string): void; writeReplay?(data: string): Promise<void> };
+  writer: { push(id: string, data: string): void; writeReplay?(data: string, before?: () => void): Promise<void> };
   localEcho: { onIncoming(data: string): string; reset?(): void } | null;
   /** The xterm a reset event clears; absent in views that only receive output. */
   term?: { reset(): void };
@@ -12,8 +12,7 @@ export interface TerminalOutputOwner {
   unsubscribeOutput?: (() => void) | null;
 }
 
-/** `reset` marks a replay of the whole screen after a server reattach (widened
- *  here until shared/contract.ts carries it). */
+/** `reset` marks a replay of the whole screen after a server reattach. */
 type SubscribeTermData = (listener: (event: { id: string; data: string; reset?: true }) => void) => () => void;
 
 /** Attach the view's PTY output feed once. It outlives pane mounts: a hidden
@@ -34,15 +33,19 @@ export function attachTerminalOutput(
       // replay in flight (TerminalDataBufferer.reset), so it is acknowledged
       // once written; unacknowledged it would hold main's window shut.
       view.localEcho?.reset?.();
-      try {
-        view.term?.reset();
-      } catch {
-        /* disposed mid-reset */
-      }
-      if (event.data && view.writer.writeReplay) {
+      const reset = () => {
+        try {
+          view.term?.reset();
+        } catch {
+          /* disposed mid-reset */
+        }
+      };
+      if (view.writer.writeReplay) {
         const { id, data } = event;
-        void trackReplay(view as Parameters<typeof trackReplay>[0], data).then(() => acknowledge?.(id, data.length));
-      }
+        void trackReplay(view as Parameters<typeof trackReplay>[0], data, reset).then(() => {
+          if (data) acknowledge?.(id, data.length);
+        });
+      } else reset();
       return;
     }
     const data = view.localEcho ? view.localEcho.onIncoming(event.data) : event.data;

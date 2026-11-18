@@ -98,6 +98,7 @@ use crate::error::internal;
 use crate::frame::error_frame;
 use crate::frame::error_notification_frame;
 use crate::frame::response_frame;
+use crate::arrival_order::Ticket;
 use crate::lanes::CallLanes;
 use crate::lanes::Lane;
 use crate::lanes::Placed;
@@ -113,6 +114,8 @@ struct Job {
     request: JsonRpcRequest,
     spec: &'static MethodSpec,
     origin: Origin,
+    /// The place of a visualize publication in its connection's arrival order, taken before the lanes saw it.
+    ticket: Option<Ticket>,
 }
 
 /// `callLane` (`call-lanes.mjs:35`) for the method a Node call became: an abort, an approval answer and an unsubscribe never
@@ -143,6 +146,13 @@ fn owner_of(conn: &Connection, request: &JsonRpcRequest) -> String {
 }
 
 const INITIALIZE: &str = "initialize";
+/// The host state keys whose updates must apply in connection arrival order. They never wait on each other.
+fn host_publication_key(request: &JsonRpcRequest) -> Option<&str> {
+    if request.method != "host/state/set" {
+        return None;
+    }
+    request.params.as_ref()?.get("key")?.as_str()
+}
 
 /// The namespaces served by the thread directory and loaded threads; every other namespace
 /// of the method table is a domain service.
@@ -219,8 +229,16 @@ impl AppServer {
                 queues: KeyedQueues::new(),
                 lanes: Mutex::new(CallLanes::new()),
                 checking: AtomicBool::new(false),
+                #[cfg(test)]
+                refs: OnceLock::new(),
             }),
         })
+    }
+
+    /// A test's own blob expander, in place of the process-wide one (which a test binary can install only once).
+    #[cfg(test)]
+    pub(crate) fn inject_param_refs(&self, refs: Arc<dyn crate::param_refs::ParamRefs>) {
+        assert!(self.shared.refs.set(refs).is_ok(), "one expander per server");
     }
 
     /// Tells the server which connections are desktop windows' sockets; set once, before the first connection is accepted.
@@ -247,7 +265,17 @@ impl AppServer {
         id: ConnectionId,
         sink: Arc<dyn mixdog_core_api::ConnectionSink>,
     ) -> ConnectionHandle {
-        let conn = Arc::new(Connection::new(id, sink));
+        self.open_with_replay_principal(id, sink, None)
+    }
+
+    /// Registers an authenticated connection and its stable transport replay principal, when supplied.
+    pub fn open_with_replay_principal(
+        &self,
+        id: ConnectionId,
+        sink: Arc<dyn mixdog_core_api::ConnectionSink>,
+        replay_principal: Option<Arc<str>>,
+    ) -> ConnectionHandle {
+        let conn = Arc::new(Connection::new(id, sink, replay_principal));
         self.shared.outgoing.register(Arc::clone(&conn));
         ConnectionHandle {
             shared: Arc::clone(&self.shared),
@@ -352,6 +380,19 @@ pub(crate) struct Shared {
     lanes: Mutex<CallLanes<Job>>,
     /// A task is running the lanes' check phases; set and cleared under the `lanes` lock.
     checking: AtomicBool,
+    #[cfg(test)]
+    refs: OnceLock<Arc<dyn crate::param_refs::ParamRefs>>,
+}
+
+impl Shared {
+    /// The blob expansion of one request's params: the process-wide expander, or the one a test injected.
+    async fn expand(&self, method: &str, params: &mut Value, cancel: &mixdog_rt::CancellationToken) -> Result<(), CoreError> {
+        #[cfg(test)]
+        if let Some(refs) = self.refs.get() {
+            return refs.expand(method, params, cancel).await;
+        }
+        crate::param_refs::expand(method, params, cancel).await
+    }
 }
 
 type ReplyFuture = Pin<Box<dyn Future<Output = Result<Reply, CoreError>> + Send>>;
@@ -449,10 +490,18 @@ impl Shared {
         // The handshake is a control-plane call (Node's `/client/register`): it never enters a lane.
         if request.method == INITIALIZE {
             let guard = self.request_guard(&request);
-            return self.admitted(conn, request, spec, origin, Slot::new(guard, || {}));
+            return self.admitted(conn, request, spec, origin, Slot::new(guard, || {}), None);
         }
         let (lane, owner) = (lane_of(spec), owner_of(conn, &request));
-        let dispatched = lock(&self.lanes).dispatch(&owner, lane, Job { conn: Arc::clone(conn), request, spec, origin });
+        // The place is taken here, on the reader's turn and before the lanes (they are fair across owners, and the owner is a raw
+        // top-level `threadId` of the params, whatever the method): from here every exit of the job gives the place up, by `release`
+        // or by dropping the ticket.
+        let ticket = match host_publication_key(&request) {
+            Some("visualize") => Some(conn.state_order.reserve()),
+            Some("browserDialogApprovalSessions") => Some(conn.browser_dialog_order.reserve()),
+            _ => None,
+        };
+        let dispatched = lock(&self.lanes).dispatch(&owner, lane, Job { conn: Arc::clone(conn), request, spec, origin, ticket });
         if let Some((evicted, refusal)) = dispatched.displaced {
             self.refuse(&evicted.conn, &evicted.request.id, &refusal);
         }
@@ -479,7 +528,7 @@ impl Shared {
     fn start(self: &Arc<Self>, lane: Lane, owner: String, job: Job) -> Inbound {
         let shared = Arc::clone(self);
         let slot = Slot::new(self.request_guard(&job.request), move || shared.ended(&owner, lane));
-        self.admitted(&job.conn, job.request, job.spec, job.origin, slot)
+        self.admitted(&job.conn, job.request, job.spec, job.origin, slot, job.ticket)
     }
 
     fn ended(self: &Arc<Self>, owner: &str, lane: Lane) {
@@ -534,11 +583,17 @@ impl Shared {
     fn context(&self, conn: &Connection, origin: Origin) -> CallContext {
         let mut ctx = CallContext::connection(conn.id, origin, conn.cancel.clone()).with_window(self.window(conn.id));
         ctx.host_claimant = self.outgoing.is_host_claimant(conn.id);
+        ctx.replay_principal = conn.replay_principal.clone();
+        ctx.replay_socket = Some(conn.replay_socket);
+        // Read when the request is applied, not now: the claim may change hands while a blob it names is expanding.
+        let (outgoing, id) = (Arc::clone(&self.outgoing), conn.id);
+        ctx.visualize_claim = mixdog_core_api::call::ClaimProbe::new(move || outgoing.is_visualize_claimant(id));
         ctx
     }
 
     /// A request that holds its in-flight slot: its blob references are expanded (off the reader's turn, as a blob is read from
-    /// disk), then it is checked, decoded and dispatched.
+    /// disk), then it is checked, decoded and dispatched. A host publication with a `ticket` is handed on only
+    /// when every earlier ticket of its connection has been given up, so a later one is never applied before an earlier one.
     fn admitted(
         self: &Arc<Self>,
         conn: &Arc<Connection>,
@@ -546,24 +601,43 @@ impl Shared {
         spec: &'static MethodSpec,
         origin: Origin,
         slot: crate::connection::Slot,
+        ticket: Option<Ticket>,
     ) -> Inbound {
         if spec.method == INITIALIZE || !request.params.as_ref().is_some_and(has_blob_ref) {
-            return self.checked(conn, request, spec, origin, slot);
+            let Some(ticket) = ticket else {
+                return self.checked(conn, request, spec, origin, slot);
+            };
+            let (shared, conn) = (Arc::clone(self), Arc::clone(conn));
+            ticket.release(Box::new(move || {
+                let _ = shared.checked(&conn, request, spec, origin, slot);
+            }));
+            return Inbound::Continue;
         }
         let shared = Arc::clone(self);
         let conn = Arc::clone(conn);
         mixdog_rt::spawn("param-refs", TaskClass::Work, async move {
-            if let Some(params) = request.params.as_mut()
-                && let Err(error) = crate::param_refs::expand(spec.method, params, &conn.cancel).await {
-                drop(slot);
-                shared.reject_core(&conn, &request.id, &error);
-                return;
+            // The expansion ends when the blobs are read, are missing (refused at once) or the connection's cancellation ends
+            // the read; a ticket is given up then, and with it the requests behind it go on.
+            let expanded = match request.params.as_mut() {
+                Some(params) => shared.expand(spec.method, params, &conn.cancel).await,
+                None => Ok(()),
+            };
+            let run: crate::arrival_order::Release = match expanded {
+                Ok(()) => Box::new(move || {
+                    let _ = shared.checked(&conn, request, spec, origin, slot);
+                }),
+                Err(error) => Box::new(move || {
+                    drop(slot);
+                    shared.reject_core(&conn, &request.id, &error);
+                }),
+            };
+            match ticket {
+                Some(ticket) => ticket.release(run),
+                None => run(),
             }
-            let _ = shared.checked(&conn, request, spec, origin, slot);
         });
         Inbound::Continue
     }
-
     /// A request whose params are final: checked, decoded and dispatched.
     fn checked(
         self: &Arc<Self>,
@@ -888,6 +962,21 @@ impl Shared {
             ClientRequest::FeedUnsubscribe { params, .. } => {
                 Dispatch::Ready(self.unsubscribe(conn, &params.feed_id))
             }
+            ClientRequest::FeedHeads { params, .. } => {
+                use mixdog_app_protocol::v2::feed;
+                let head = |source: Arc<dyn mixdog_core_api::FeedSource>| {
+                    let position = source.position();
+                    feed::FeedPosition { epoch: position.epoch, seq: position.seq }
+                };
+                let (feed_ids, positions) = match params.feed_ids {
+                    Some(ids) => (None, ids.iter().map(|id| conn.live_feed(id).map(head)).collect()),
+                    None => {
+                        let (ids, positions) = conn.live_feeds().into_iter().map(|(id, source)| (id, Some(head(source)))).unzip();
+                        (Some(ids), positions)
+                    }
+                };
+                Dispatch::Ready(reply_value(&feed::FeedHeadsResponse { feed_ids, positions }))
+            }
             ClientRequest::ThreadUnsubscribe { params, .. } => {
                 let feed = FeedId::from(params.thread_id.as_str());
                 Dispatch::Ready(self.unsubscribe(conn, &feed))
@@ -903,6 +992,7 @@ impl Shared {
                 let ctx = self.context(conn, origin);
                 // A rejection read back carries the text of a call whose secrets are no longer at hand: a relay is not told it.
                 let relay = crate::relay_answer::RelayAnswer::stored(Some(origin));
+                let remote_access_for_relay = origin == Origin::Relay && params.scope.0 == "remoteAccess";
                 Dispatch::Later(
                     TaskClass::Work,
                     Box::pin(async move {
@@ -914,7 +1004,7 @@ impl Shared {
                             .ops()
                             .status(&scope, &params.op_ids, params.fence, &ctx)
                             .await?;
-                        op_status_reply(params.op_ids, statuses, relay.as_ref())
+                        op_status_reply(params.op_ids, statuses, relay.as_ref(), remote_access_for_relay)
                     }),
                 )
             }
@@ -963,6 +1053,12 @@ impl Shared {
         after: &AfterAnswer,
     ) -> Dispatch {
         let mut ctx = self.context(conn, origin);
+        // Raw params may contain blob refs. Check the final target before it can reach an op gate.
+        if let Some(window) = &ctx.window
+            && let Err(denied) = window_gate(window, spec.method, Some(&params))
+        {
+            return Dispatch::Ready(Err(CoreError::PermissionDenied { method: denied.method.into(), origin }));
+        }
         ctx.after_answer = after.clone();
         ctx.lone_surrogates = lone_surrogates;
         let namespace = namespace(spec.method);
@@ -1029,6 +1125,17 @@ impl Shared {
     /// thread with none (or not loaded) is idle: its answer is Node's `aborted: false` (SPEC R12, amended).
     fn interrupt(&self, ctx: CallContext, params: TurnInterruptParams) -> Dispatch {
         let TurnInterruptParams { thread_id, turn_id, restore_prompt, submission_id } = params;
+        // A room log's Stop is the room's, loaded log or not (`agentRooms.stop`): it acts on the room's scheduler state.
+        // It latches at once; its success waits for every member stop it owes to be durable, else answers that failure.
+        if let Some(stopped) = self.core.threads().stop_room(&thread_id) {
+            return Dispatch::Later(
+                TaskClass::Work,
+                Box::pin(async move {
+                    stopped.saved.await?;
+                    Ok(Reply::Value(stop_reply(None, stopped.stopped)))
+                }),
+            );
+        }
         let thread = match &turn_id {
             Some(turn) => match self.loaded_thread(&thread_id, turn) {
                 Ok(thread) => Some(thread),
@@ -1346,7 +1453,12 @@ fn reply_value(value: &impl serde::Serialize) -> Result<Reply, CoreError> {
 }
 
 /// `relay`: the cleaner of a relay connection's read, which tells a stored rejection without what a phone must not see.
-fn op_status_reply(op_ids: Vec<OpId>, statuses: Vec<OpStatus>, relay: Option<&crate::relay_answer::RelayAnswer>) -> Result<Reply, CoreError> {
+fn op_status_reply(
+    op_ids: Vec<OpId>,
+    statuses: Vec<OpStatus>,
+    relay: Option<&crate::relay_answer::RelayAnswer>,
+    remote_access_for_relay: bool,
+) -> Result<Reply, CoreError> {
     if statuses.len() != op_ids.len() {
         return Err(internal("op index answered another number of ids"));
     }
@@ -1356,7 +1468,11 @@ fn op_status_reply(op_ids: Vec<OpId>, statuses: Vec<OpStatus>, relay: Option<&cr
         .map(|(op_id, status)| OpStatusEntry {
             op_id,
             state: match status {
-                OpStatus::Applied { seq, result } => OpState::Applied { seq, result },
+                OpStatus::Applied { seq, result } => OpState::Applied {
+                    seq,
+                    // This scope also records host-only provisioning replies. The relay's mutations only return booleans.
+                    result: if remote_access_for_relay { result.filter(Value::is_boolean) } else { result },
+                },
                 OpStatus::Rejected { error } => OpState::Rejected {
                     error: error_body(&match relay {
                         Some(relay) => relay.error(error),

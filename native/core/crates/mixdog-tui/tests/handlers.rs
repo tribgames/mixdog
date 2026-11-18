@@ -24,17 +24,21 @@ use mixdog_tui::handlers::draft_flow::{
     complete_slash_palette,
 };
 use mixdog_tui::handlers::escape::handle_prompt_escape;
-use mixdog_tui::handlers::global_keys::{
-    ApprovalDecision, GlobalKeyOutcome, SelectionMove, ToolApproval, approval_shortcut_decision, decode_selection_move_chord,
-    handle_global_key,
-};
-use mixdog_tui::handlers::history_nav::{HistoryNav, handle_prompt_history_navigate, navigate_prompt_history};
+use mixdog_tui::handlers::global_keys::{ApprovalDecision, GlobalKeyOutcome, SelectionMove, ToolApproval, handle_global_key};
+#[cfg(node_twin)]
+use mixdog_tui::handlers::global_keys::{approval_shortcut_decision, decode_selection_move_chord};
+use mixdog_tui::handlers::history_nav::{HistoryNav, handle_prompt_history_navigate};
+#[cfg(node_twin)]
+use mixdog_tui::handlers::history_nav::navigate_prompt_history;
 use mixdog_tui::handlers::interrupt::{InterruptOutcome, finish_interrupt, handle_prompt_interrupt, on_busy_changed};
-use mixdog_tui::handlers::paste::{PasteIo, PasteResult, handle_prompt_paste, paste_from_clipboard, process_pasted_text};
-use mixdog_tui::handlers::queue_restore::{
-    RestoreOptions, RestoredQueue, finish_queued_restore, restore_queued_to_prompt,
-};
+use mixdog_tui::handlers::paste::{PasteIo, PasteResult, handle_prompt_paste};
+#[cfg(node_twin)]
+use mixdog_tui::handlers::paste::{paste_from_clipboard, process_pasted_text};
+use mixdog_tui::handlers::queue_restore::RestoredQueue;
+#[cfg(node_twin)]
+use mixdog_tui::handlers::queue_restore::{RestoreOptions, finish_queued_restore, restore_queued_to_prompt};
 use mixdog_tui::handlers::{GlobalKeyHost, PromptHost, PromptState, Reply};
+#[cfg(node_twin)]
 use mixdog_tui::history::{PROMPT_HISTORY_LIMIT, append_persisted, prompt_history_key, scan_prompt_history, write_retry_delay};
 use mixdog_tui::pickers::PickerKind;
 use mixdog_tui::slash::commands::{OverlayOwner, SLASH_COMMANDS};
@@ -46,16 +50,12 @@ use mixdog_tui::transcript::window::selection_shift::SelectionRect;
 use serde_json::{Value, json};
 use slash_support::Fake;
 
-const GOLDEN: &str = include_str!("goldens/handlers.json");
-
-fn golden() -> Value {
-    serde_json::from_str(GOLDEN).expect("handlers.json is valid JSON")
-}
-
 /// Collects the first mismatches of a group of cases.
+#[cfg(node_twin)]
 #[derive(Default)]
 struct Mismatches(Vec<String>);
 
+#[cfg(node_twin)]
 impl Mismatches {
     fn expect<T: PartialEq + std::fmt::Debug>(&mut self, what: impl FnOnce() -> String, got: T, want: T) {
         if got != want && self.0.len() < 12 {
@@ -593,85 +593,16 @@ impl GlobalKeyHost for H {
     }
 }
 
-// ---- the twin --------------------------------------------------------------------------------------------------------
-
-#[test]
-fn approval_keys_match_node() {
-    let golden = golden();
-    let mut miss = Mismatches::default();
-    for case in golden["approval"].as_array().unwrap() {
-        let approval = (!case["approval"].is_null()).then(|| ToolApproval {
-            id: str_of(&case["approval"]["id"]).to_owned(),
-            kind: str_of(&case["approval"]["kind"]).to_owned(),
-        });
-        let key = KeyFlags { escape: case["escape"].as_bool().unwrap(), ..KeyFlags::default() };
-        let got = approval_shortcut_decision(approval.as_ref(), str_of(&case["input"]), &key)
-            .map_or(Value::Null, |decision| json!({"approved": decision.approved, "reason": decision.reason}));
-        miss.expect(|| format!("{case}"), got, case["decision"].clone());
-    }
-    miss.finish("approval");
-}
-
-#[test]
-fn selection_move_chords_match_node() {
-    let golden = golden();
-    let mut miss = Mismatches::default();
-    for case in golden["chord"].as_array().unwrap() {
-        let mut key = KeyFlags::default();
-        for flag in case["flags"].as_array().unwrap() {
-            match str_of(flag) {
-                "leftArrow" => key.left_arrow = true,
-                "rightArrow" => key.right_arrow = true,
-                "upArrow" => key.up_arrow = true,
-                "downArrow" => key.down_arrow = true,
-                "home" => key.home = true,
-                "end" => key.end = true,
-                "shift" => key.shift = true,
-                other => panic!("unknown flag {other}"),
-            }
-        }
-        let (is_chord, direction) = decode_selection_move_chord(str_of(&case["input"]), &key);
-        let got = json!({"isChord": is_chord, "move": direction.map(SelectionMove::as_str)});
-        miss.expect(|| format!("{case}"), got, case["out"].clone());
-    }
-    miss.finish("chord");
-}
-
+#[cfg(node_twin)]
 fn nav_json(nav: &HistoryNav) -> Value {
     json!({"active": nav.active, "index": nav.index, "seed": nav.seed, "lastValue": nav.last_value})
-}
-
-#[test]
-fn history_navigation_walks_match_node() {
-    let golden = golden();
-    let mut miss = Mismatches::default();
-    for walk in golden["nav"].as_array().unwrap() {
-        let history: Vec<String> = walk["history"].as_array().unwrap().iter().map(|text| str_of(text).to_owned()).collect();
-        let mut nav = HistoryNav::idle();
-        for (n, step) in walk["steps"].as_array().unwrap().iter().enumerate() {
-            let direction = if step["direction"] == "up" { HistoryDirection::Up } else { HistoryDirection::Down };
-            let outcome =
-                navigate_prompt_history(direction, str_of(&step["text"]), step["emptyDraft"].as_bool().unwrap(), &nav, &history);
-            if outcome.reset {
-                nav = HistoryNav::idle();
-            }
-            if let Some(next) = &outcome.nav {
-                nav = next.clone();
-            }
-            let at = || format!("{history:?} step {n}");
-            miss.expect(|| format!("{} value", at()), outcome.value.map_or(Value::Null, Value::String), step["value"].clone());
-            miss.expect(|| format!("{} reset", at()), outcome.reset, step["reset"].as_bool().unwrap());
-            miss.expect(|| format!("{} draftChanged", at()), outcome.draft_changed, step["draftChanged"].as_bool().unwrap());
-            miss.expect(|| format!("{} nav", at()), nav_json(&nav), step["nav"].clone());
-        }
-    }
-    miss.finish("nav");
 }
 
 fn paste_host() -> H {
     H::new()
 }
 
+#[cfg(node_twin)]
 fn paste_shape(result: &PasteResult) -> Value {
     match result {
         PasteResult::Raw => json!({"kind": "raw"}),
@@ -680,49 +611,12 @@ fn paste_shape(result: &PasteResult) -> Value {
     }
 }
 
+#[cfg(node_twin)]
 fn hint_pairs(host: &H) -> Value {
     Value::Array(host.hints().into_iter().map(|(text, tone)| json!([text, tone])).collect())
 }
 
-#[test]
-fn pastes_match_node() {
-    let golden = golden();
-    let mut miss = Mismatches::default();
-    for case in golden["paste"].as_array().unwrap() {
-        let mut host = paste_host();
-        let result = process_pasted_text(&mut host, str_of(&case["text"]), case["returnRaw"].as_bool().unwrap());
-        let at = || format!("{}", case["text"].to_string().chars().take(60).collect::<String>());
-        miss.expect(|| format!("{} result", at()), paste_shape(&result), case["result"].clone());
-        miss.expect(|| format!("{} hints", at()), hint_pairs(&host), case["hints"].clone());
-        miss.expect(|| format!("{} texts", at()), host.p.buffers.texts.next_id() - 1, case["texts"].as_u64().unwrap());
-        miss.expect(|| format!("{} images", at()), host.p.buffers.images.next_id() - 1, case["images"].as_u64().unwrap());
-    }
-    miss.finish("paste");
-    let mut miss = Mismatches::default();
-    for case in golden["clipboard"].as_array().unwrap() {
-        let scenario = &case["scenario"];
-        let mut host = paste_host();
-        host.clip_text = match scenario.get("textError") {
-            Some(error) => Err(str_of(error).to_owned()),
-            None => Ok(str_of(&scenario["text"]).to_owned()),
-        };
-        host.clip_image = match (scenario.get("imageError"), scenario.get("image")) {
-            (Some(error), _) => Err(str_of(error).to_owned()),
-            (None, Some(image)) if !image.is_null() => {
-                Ok(Some(attachment(image.get("filename").and_then(Value::as_str).unwrap_or(""))))
-            }
-            _ => Ok(None),
-        };
-        let result = paste_from_clipboard(&mut host);
-        let at = || str_of(&scenario["name"]).to_owned();
-        miss.expect(|| format!("{} result", at()), paste_shape(&result), case["result"].clone());
-        miss.expect(|| format!("{} hints", at()), hint_pairs(&host), case["hints"].clone());
-        miss.expect(|| format!("{} texts", at()), host.p.buffers.texts.next_id() - 1, case["texts"].as_u64().unwrap());
-        miss.expect(|| format!("{} images", at()), host.p.buffers.images.next_id() - 1, case["images"].as_u64().unwrap());
-    }
-    miss.finish("clipboard");
-}
-
+#[cfg(node_twin)]
 fn nav_from(value: &Value) -> HistoryNav {
     HistoryNav {
         active: value["active"].as_bool().unwrap(),
@@ -734,40 +628,12 @@ fn nav_from(value: &Value) -> HistoryNav {
 
 /// The events of the recorder that have a counterpart in the Rust host (the navigation reset is the state's, the override
 /// publications are compared by the final override).
+#[cfg(node_twin)]
 fn comparable_events(events: &Value) -> Vec<Value> {
     events.as_array().unwrap().iter().filter(|event| event[0] != "navReset" && event[0] != "override").cloned().collect()
 }
 
-#[test]
-fn keystroke_draft_changes_match_node() {
-    let golden = golden();
-    let mut miss = Mismatches::default();
-    for case in golden["draft"].as_array().unwrap() {
-        let mut host = H::new();
-        host.p.draft = str_of(&case["previous"]).to_owned();
-        host.p.draft_override = Some(mixdog_tui::handlers::state::PublishedOverride {
-            id: 0,
-            draft: DraftOverride { value: "x".to_owned(), cursor: None, selection_anchor: None },
-        });
-        host.p.slash_dismissed_for = str_of(&case["dismissedFor"]).to_owned();
-        host.p.history_draft_change = case["historyFlag"].as_bool().unwrap();
-        host.p.history_nav = nav_from(&case["nav"]);
-        if case["hintLive"].as_bool().unwrap() {
-            host.p.hint.show("live", HintTone::Info, None, 0);
-        }
-        apply_prompt_draft_change(&mut host, str_of(&case["value"]));
-        let at = || format!("{} -> {} flag {} live {} nav {} dismissed {}", case["previous"], case["value"], case["historyFlag"], case["hintLive"], case["nav"], case["dismissedFor"]);
-        miss.expect(|| format!("{} events", at()), host.events.clone(), comparable_events(&case["events"]));
-        miss.expect(|| format!("{} draft", at()), host.p.draft.clone(), str_of(&case["draft"]).to_owned());
-        let override_now = host.p.draft_override.as_ref().map(|_| "x");
-        miss.expect(|| format!("{} override", at()), override_now, case["override"].as_str());
-        miss.expect(|| format!("{} dismissed", at()), host.p.slash_dismissed_for.clone(), str_of(&case["dismissed"]).to_owned());
-        miss.expect(|| format!("{} flag", at()), host.p.history_draft_change, case["flag"].as_bool().unwrap());
-        miss.expect(|| format!("{} navAfter", at()), nav_json(&host.p.history_nav), case["navAfter"].clone());
-    }
-    miss.finish("draft");
-}
-
+#[cfg(node_twin)]
 fn restored_from(answer: &Value) -> Option<RestoredQueue> {
     let value = answer.get("value").filter(|value| !value.is_null())?;
     Some(RestoredQueue {
@@ -791,6 +657,7 @@ fn restored_from(answer: &Value) -> Option<RestoredQueue> {
     })
 }
 
+#[cfg(node_twin)]
 fn override_json(host: &H) -> Value {
     host.p.draft_override.as_ref().map_or(Value::Null, |published| {
         json!({
@@ -799,106 +666,6 @@ fn override_json(host: &H) -> Value {
             "selectionAnchor": published.draft.selection_anchor,
         })
     })
-}
-
-#[test]
-fn queued_restores_match_node() {
-    let golden = golden();
-    let mut miss = Mismatches::default();
-    for case in golden["restore"].as_array().unwrap() {
-        let options = &case["options"];
-        let mut host = H::new();
-        host.p.value = str_of(&options["currentText"]).to_owned();
-        host.queued = case["queued"].as_array().unwrap().clone();
-        let live = options.get("live").map(|live| Draft {
-            value: str_of(&live["value"]).to_owned(),
-            cursor: live["cursor"].as_u64().unwrap() as usize,
-            selection_anchor: live["selectionAnchor"].as_u64().map(|anchor| anchor as usize),
-        });
-        *host.live.borrow_mut() = live.clone();
-        let answer = &case["answer"];
-        let kind = str_of(&answer["kind"]);
-        let reply = || match kind {
-            "sync" => Reply::Ready(Ok(restored_from(answer))),
-            "throw" => Reply::Ready(Err("boom".to_owned())),
-            _ => Reply::Pending,
-        };
-        host.restore = Some(reply());
-        let restore_options = RestoreOptions {
-            restore_draft: options["restoreDraft"].as_bool().unwrap(),
-            show_hint: options["showHint"].as_bool().unwrap(),
-            current_text: Some(str_of(&options["currentText"]).to_owned()),
-            live_draft: live.is_some(),
-        };
-        let returned = restore_queued_to_prompt(&mut host, &restore_options);
-        let second = case["second"].as_bool().unwrap().then(|| restore_queued_to_prompt(&mut host, &restore_options));
-        if let Some(typed) = case["typeMeanwhile"].as_str() {
-            host.p.value.push_str(typed);
-            if live.is_some() {
-                let value = host.p.value.clone();
-                *host.live.borrow_mut() = Some(Draft::at_end(value));
-                host.live_follows_override = false;
-            }
-        }
-        if kind == "async" {
-            finish_queued_restore(&mut host, Ok(restored_from(answer)));
-        } else if kind == "reject" {
-            finish_queued_restore(&mut host, Err("late".to_owned()));
-        }
-        let at = || format!("{} {}", case["scenario"], options);
-        miss.expect(|| format!("{} returned", at()), returned, case["returned"].as_bool().unwrap());
-        miss.expect(|| format!("{} second", at()), second, case["secondReturned"].as_bool());
-        let node_events = comparable_events(&case["events"]);
-        miss.expect(|| format!("{} events", at()), host.events.clone(), node_events);
-        miss.expect(|| format!("{} value", at()), host.p.value.clone(), str_of(&case["value"]).to_owned());
-        miss.expect(|| format!("{} override", at()), override_json(&host), case["override"].clone());
-        let ids = |keys: Vec<u64>| -> Vec<String> { keys.into_iter().map(|id| id.to_string()).collect() };
-        let images = ids(host.p.buffers.images.entries().keys().copied().collect());
-        let texts = ids(host.p.buffers.texts.entries().keys().copied().collect());
-        let strings = |key: &str| -> Vec<String> { case[key].as_array().unwrap().iter().map(|id| str_of(id).to_owned()).collect() };
-        miss.expect(|| format!("{} images", at()), images, strings("images"));
-        miss.expect(|| format!("{} texts", at()), texts, strings("texts"));
-        miss.expect(|| format!("{} inFlight", at()), host.p.restore_flow.is_some(), case["inFlight"].as_bool().unwrap());
-    }
-    miss.finish("restore");
-}
-
-#[test]
-fn history_scan_retry_delays_and_file_layout_match_node() {
-    let golden = golden();
-    for case in golden["scan"].as_array().unwrap() {
-        let got = scan_prompt_history(case["items"].as_array().unwrap());
-        let want: Vec<String> = case["history"].as_array().unwrap().iter().map(|text| str_of(text).to_owned()).collect();
-        assert_eq!(got, want);
-    }
-    let delays: Vec<u64> = (1..=10u32).chain([20]).map(|failures| write_retry_delay(failures).as_millis() as u64).collect();
-    let want: Vec<u64> = golden["retryDelays"].as_array().unwrap().iter().map(|delay| delay.as_u64().unwrap()).collect();
-    assert_eq!(delays, want);
-
-    // The list the store answers for each append, and the file it settles on.
-    let store = &golden["store"];
-    let mut list: Vec<String> = Vec::new();
-    for (append, returned) in store["appends"].as_array().unwrap().iter().zip(store["returned"].as_array().unwrap()) {
-        let text = str_of(append);
-        if prompt_history_key(text).is_empty() {
-            assert!(returned.is_null(), "{text:?} has no key and is not stored");
-            continue;
-        }
-        list = append_persisted(&list, text);
-        assert_eq!(json!(list), *returned, "after {text:?}");
-    }
-    let file = format!("{}\n", serde_json::to_string_pretty(&json!({"version": 1, "entries": list})).unwrap());
-    assert_eq!(file, str_of(&store["fileText"]).replace("\r\n", "\n"));
-
-    let mut burst: Vec<String> = Vec::new();
-    for text in store["burst"].as_array().unwrap() {
-        burst = append_persisted(&burst, str_of(text));
-    }
-    assert_eq!(burst.len(), PROMPT_HISTORY_LIMIT);
-    // Node's answer to the last append of a same-tick burst is the last ten entries only: it flushes at every fifth append and
-    // seeds its list again from a file that is still empty. The store keeps the whole cap; its newest entries are those ten.
-    let last = store["burstLast"].as_array().unwrap();
-    assert_eq!(json!(burst[burst.len() - last.len()..]), store["burstLast"]);
 }
 
 // ---- ports of use-prompt-handlers.test.mjs ---------------------------------------------------------------------------------
@@ -1318,3 +1085,82 @@ fn paging_scrolls_by_sixty_percent_of_the_rows_unless_an_overlay_owns_the_keys()
     assert_eq!(host.named("toggleExpand").len(), 1);
     assert_eq!(host.named("settleDrag").len(), 3, "every keystroke settles a stuck drag first");
 }
+
+fn typing_host(previous_draft: &str) -> H {
+    let mut host = H::new();
+    host.p.draft = previous_draft.to_owned();
+    host.p.draft_override = Some(mixdog_tui::handlers::state::PublishedOverride {
+        id: 0,
+        draft: DraftOverride { value: "x".to_owned(), cursor: None, selection_anchor: None },
+    });
+    host
+}
+
+#[test]
+fn a_keystroke_lifts_the_draft_into_the_app_state_only_for_a_slash_command() {
+    let mut host = typing_host("");
+    apply_prompt_draft_change(&mut host, "/mo");
+    assert_eq!(host.p.draft, "/mo", "a slash token can open the palette, so the app state holds it");
+    assert!(host.p.draft_override.is_none(), "a typed key supersedes the published override");
+
+    let mut prose = typing_host("");
+    apply_prompt_draft_change(&mut prose, "hello there");
+    assert_eq!(prose.p.draft, "", "prose renders inside the prompt input and is not lifted");
+
+    let mut leaving = typing_host("/model");
+    apply_prompt_draft_change(&mut leaving, "/model gpt");
+    assert_eq!(leaving.p.draft, "/model gpt", "a draft that began as a slash flow stays in sync");
+
+    let mut cleared = typing_host("/model");
+    apply_prompt_draft_change(&mut cleared, "");
+    assert_eq!(cleared.p.draft, "", "clearing the prompt clears the stale slash value");
+}
+
+#[test]
+fn an_edit_that_does_not_come_from_history_ends_the_history_walk() {
+    let walking = |last: &str| {
+        let mut host = typing_host("");
+        host.p.history_nav = HistoryNav { active: true, index: 0, seed: "seed".into(), last_value: last.into() };
+        host
+    };
+    let mut same = walking("third");
+    apply_prompt_draft_change(&mut same, "third");
+    assert!(same.p.history_nav.active, "the value the walk itself put in the prompt keeps the walk");
+    let mut seed = walking("third");
+    apply_prompt_draft_change(&mut seed, "seed");
+    assert!(seed.p.history_nav.active, "stepping back to the seed keeps the walk");
+    let mut typed = walking("third");
+    apply_prompt_draft_change(&mut typed, "third!");
+    assert!(!typed.p.history_nav.active, "typing over a history entry ends the walk");
+    let mut emptied = walking("third");
+    apply_prompt_draft_change(&mut emptied, "");
+    assert!(!emptied.p.history_nav.active, "an empty prompt ends the walk");
+}
+
+#[test]
+fn the_change_a_history_step_makes_does_not_show_a_hint_and_clears_a_live_one() {
+    let mut host = typing_host("");
+    host.p.history_draft_change = true;
+    host.p.hint.show("live", HintTone::Info, None, 0);
+    apply_prompt_draft_change(&mut host, "an older prompt");
+    assert!(!host.p.history_draft_change, "the flag covers one change only");
+    assert!(!host.p.hint.is_live(), "the hint of the step is cleared");
+
+    let mut quiet = typing_host("");
+    apply_prompt_draft_change(&mut quiet, "x");
+    assert!(!quiet.p.hint.is_live(), "a keystroke with nothing to hint leaves no hint");
+}
+
+#[test]
+fn a_dismissed_palette_stays_dismissed_until_the_text_changes() {
+    let mut host = typing_host("/mo");
+    host.p.slash_dismissed_for = "/mo".to_owned();
+    apply_prompt_draft_change(&mut host, "/mo");
+    assert_eq!(host.p.slash_dismissed_for, "/mo", "the same text keeps the palette closed");
+    apply_prompt_draft_change(&mut host, "/mod");
+    assert_eq!(host.p.slash_dismissed_for, "", "the next edit lets it open again");
+}
+
+#[cfg(node_twin)]
+#[path = "node-twin/handlers.rs"]
+mod node_twin;

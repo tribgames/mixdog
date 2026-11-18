@@ -14,6 +14,7 @@ use super::native::hwnd;
 use crate::a11y::{Accessibility, Element, MenuOutcome, Node, PredicateObservation};
 use crate::observer::Shared;
 use crate::platform::{Wid, WindowInfo};
+use crate::port::windows::WinPort;
 use crate::session::RefRecord;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -121,20 +122,23 @@ pub(super) fn masked(
 pub struct Uia {
     automation: IUIAutomation,
     background: WinBackground,
+    /// The executor's port, which every action on an element and every menu level goes through.
+    port: Arc<WinPort>,
     /// When the snapshot being read started and the milliseconds it may take
     /// (`Accessibility::set_deadline`).
     deadline: Cell<Option<Deadline>>,
 }
 
 impl Uia {
-    pub fn new(shared: Arc<Shared>) -> Result<Uia, String> {
+    pub fn new(shared: Arc<Shared>, port: Arc<WinPort>) -> Result<Uia, String> {
         // SAFETY: COM is initialised on this thread by the desktop.
         let automation: IUIAutomation =
             unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }
                 .map_err(|error| format!("accessibility_unavailable: UI Automation did not start ({})", error.message()))?;
         Ok(Uia {
             automation,
-            background: WinBackground::new(shared),
+            background: WinBackground::new(shared, port.clone()),
+            port,
             deadline: Cell::new(None),
         })
     }
@@ -185,7 +189,7 @@ impl Accessibility for Uia {
         &self,
         window: &WindowInfo,
         path: &[String],
-        authorize: &dyn Fn() -> Result<(), String>,
+        authorize: crate::platform::Authorize<'_>,
     ) -> Result<MenuOutcome, String> {
         self.menu(window, path, authorize)
     }

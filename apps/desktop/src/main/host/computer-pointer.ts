@@ -7,6 +7,7 @@
 import type { HostComputerPointerFeedbackParams } from '../../../../../packages/protocol/src/index.ts';
 import { publishPointerProgress } from '../computer/host/pointer-cursor';
 import { recordCursorDiagnostic } from '../computer/overlay/cursor-diagnostics';
+import type { ComputerScopes } from './computer-scope';
 import { HOST_INVALID_PARAMS, HostRpcError, type HostConnection, objectParams } from './connection';
 
 export const HOST_COMPUTER_POINTER_FEEDBACK = 'host/computer/pointerFeedback';
@@ -15,6 +16,7 @@ type PointerProgressListener = typeof publishPointerProgress;
 
 export function registerComputerPointer(
   connection: HostConnection,
+  scopes: ComputerScopes,
   publish: PointerProgressListener = publishPointerProgress
 ): void {
   connection.handleRequest(HOST_COMPUTER_POINTER_FEEDBACK, async (params): Promise<null> => {
@@ -22,7 +24,10 @@ export function registerComputerPointer(
     if (typeof sessionId !== 'string' || !Array.isArray(events)) {
       throw new HostRpcError(HOST_INVALID_PARAMS, `${HOST_COMPUTER_POINTER_FEEDBACK} needs sessionId and events.`);
     }
+    // The agent's arrow is drawn only under a scope that holds, each event committed as it is drawn.
+    const scope = scopes.admit(params);
     for (const event of events) {
+      scope.commit();
       recordCursorDiagnostic('received');
       const { x, y, held, phase, mode, windowId } = (event ?? {}) as Record<string, unknown>;
       if (

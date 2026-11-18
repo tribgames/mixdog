@@ -1,6 +1,6 @@
 import type { TranscriptItem } from './desktop-types';
 import { turnReviewScope } from './renderer-logic.mjs';
-import { adoptLastTurnReview } from './session-changes-store';
+import { adoptLastTurnReview, nextLastTurnRequest } from './session-changes-store';
 import { leadReviewSnapshotKindCache, rememberAgentReviews, reviewTagCache } from './turn-review-cache';
 import {
   decodeTurnReviewCapabilityValue,
@@ -13,7 +13,7 @@ export type TurnReviewReadResult = { value?: unknown } | null;
 
 /** The entry read of each scope being prefetched. The island's own entry read
  *  takes its answer instead of asking again. */
-const prefetchesInFlight = new Map<string, Promise<TurnReviewReadResult>>();
+const prefetchesInFlight = new Map<string, { read: Promise<TurnReviewReadResult>; ticket: number }>();
 
 /** The newest read issued per scope, prefetch and mounted reader alike. An
  *  older answer of a scope is dropped, so a delayed read never overwrites the
@@ -38,7 +38,7 @@ export function endTurnReviewRequest(scopeKey: string, generation: number): bool
   return latest;
 }
 
-export function turnReviewPrefetch(scopeKey: string): Promise<TurnReviewReadResult> | undefined {
+export function turnReviewPrefetch(scopeKey: string) {
   return prefetchesInFlight.get(scopeKey);
 }
 
@@ -49,7 +49,8 @@ export function recordTurnReviewAnswer(
   sessionId: string,
   scopeKey: string,
   requestedCheckpoint: string,
-  value: TurnReviewCapabilityValue
+  value: TurnReviewCapabilityValue,
+  ticket: number
 ) {
   const decoded = decodeTurnReviewCapabilityValue(value);
   if (!decoded) return null;
@@ -59,7 +60,7 @@ export function recordTurnReviewAnswer(
   // new prompt, that brought the old diff back above the composer.
   if (checkpointId && requestedCheckpoint !== 'none' && checkpointId !== requestedCheckpoint) return null;
   // The "Last turn changes" source follows this same read.
-  adoptLastTurnReview(sessionId, decoded);
+  void adoptLastTurnReview(sessionId, decoded, ticket);
   // A `none` scope names no turn, so nothing read under it is kept for
   // a later mount to show as its own review.
   if (requestedCheckpoint !== 'none') {
@@ -98,6 +99,7 @@ export function prefetchTurnReview(sessionId: string, items: readonly Transcript
   if (leadReviewSnapshotKindCache.has(scopeKey) || prefetchesInFlight.has(scopeKey)) return;
   const known = reviewTagCache.get(scopeKey) ?? '';
   const generation = beginTurnReviewRequest(scopeKey);
+  const ticket = nextLastTurnRequest();
   const read = api
     .invokeCapability({
       capability: TURN_REVIEW_CAPABILITY,
@@ -108,7 +110,7 @@ export function prefetchTurnReview(sessionId: string, items: readonly Transcript
       (result) => {
         const value = (result?.value ?? null) as TurnReviewCapabilityValue;
         if (value?.unchanged !== true && isLatestTurnReviewRequest(scopeKey, generation)) {
-          recordTurnReviewAnswer(sessionId, scopeKey, scope.key, value);
+          recordTurnReviewAnswer(sessionId, scopeKey, scope.key, value, ticket);
         }
         return result ?? null;
       },
@@ -118,5 +120,5 @@ export function prefetchTurnReview(sessionId: string, items: readonly Transcript
       endTurnReviewRequest(scopeKey, generation);
       prefetchesInFlight.delete(scopeKey);
     });
-  prefetchesInFlight.set(scopeKey, read);
+  prefetchesInFlight.set(scopeKey, { read, ticket });
 }

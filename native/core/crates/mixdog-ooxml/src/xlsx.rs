@@ -21,8 +21,8 @@ use crate::xlsx_range_layout::{autofit_worksheet_range, sort_worksheet_range};
 use crate::xlsx_sheet_edits::{
     add_worksheet_note, add_worksheet_table, append_worksheet_row, clear_worksheet_cell, copy_worksheet, define_workbook_name,
     delete_worksheet_note, freeze_worksheet_panes, merge_worksheet_cells, protect_worksheet, replace_workbook_text,
-    set_row_height_or_column_width, set_row_or_column_visibility, set_worksheet_autofilter, set_worksheet_cell, set_worksheet_hyperlink,
-    set_worksheet_range, set_worksheet_style, set_worksheet_view, set_worksheet_visibility, shift_worksheet_rows_or_columns,
+    set_row_height_or_column_width, set_row_or_column_visibility, set_worksheet_autofilter, set_worksheet_cell, set_worksheet_formulas,
+    set_worksheet_hyperlink, set_worksheet_range, set_worksheet_style, set_worksheet_view, set_worksheet_visibility, shift_worksheet_rows_or_columns,
 };
 use crate::zipio::Package;
 
@@ -79,7 +79,10 @@ pub fn apply_xlsx<P: ReadProof>(proof: &P, measurer: &TextMeasurer<'_, P>, zip: 
     let mut sheets = workbook_sheets(zip);
     let mut results = Vec::with_capacity(operations.len());
     let mut recalculation_required = false;
-    for operation in operations {
+    let mut next = 0;
+    while next < operations.len() {
+        let operation = &operations[next];
+        next += 1;
         let empty = Map::new();
         let op = operation.as_object().unwrap_or(&empty);
         let name = op.get("op").and_then(Value::as_str).unwrap_or("");
@@ -104,6 +107,22 @@ pub fn apply_xlsx<P: ReadProof>(proof: &P, measurer: &TextMeasurer<'_, P>, zip: 
             continue;
         }
         let xml = zip.text(&sheet.path);
+        if name == "set_formula" {
+            // The formulas that follow on the same sheet go in with this one, in one pass over the sheet.
+            let same_sheet = |other: &Map<String, Value>| {
+                other.get("op").and_then(Value::as_str) == Some("set_formula")
+                    && select_worksheet(&sheets, other).is_ok_and(|selected| selected.path == sheet.path)
+            };
+            let run: Vec<&Map<String, Value>> = std::iter::once(op)
+                .chain(operations[next..].iter().map_while(|following| following.as_object().filter(|fields| same_sheet(fields))))
+                .collect();
+            if let Some(written) = set_worksheet_formulas(zip, &sheet, &xml, &run, &sheets)? {
+                next += run.len() - 1;
+                recalculation_required = true;
+                results.extend(written);
+                continue;
+            }
+        }
         if name == "set_cell" || name == "set_formula" {
             let (result, recalculate) = set_worksheet_cell(zip, &sheet, &xml, op, &sheets)?;
             if recalculate {

@@ -941,6 +941,16 @@ impl DomainService for LiveViewService {
     }
 }
 
+/// The live view's answer to "does the data channel own this phone's input": bound into the browser service, which refuses a phone's
+/// page input while it does (`relayInputAllowed`).
+pub struct LiveInputGate(pub std::sync::Weak<LiveViewService>);
+
+impl mixdog_exthost::RelayInputGate for LiveInputGate {
+    fn allowed(&self, connection: ConnectionId, session: &str) -> bool {
+        self.0.upgrade().is_none_or(|live| live.inner.relay().relay_input_allowed(&connection.0.to_string(), session))
+    }
+}
+
 impl LiveViewService {
     /// The device behind `connection` was unpaired: the connection's browser streams end now, their frames in flight and resends
     /// with them, and so its WebRTC views (`on_drop`). Node's unpair asks this of its streams (`remote-relay.ts:619`, `dropClient`).
@@ -1005,13 +1015,20 @@ mod tests {
     //! Node recorded. The peers are scripted; the ICE servers come from the relay in the core and
     //! from the test in Node's recording, so they are not compared.
 
+    #[cfg(node_twin)]
     use std::time::Duration;
 
+    #[cfg(node_twin)]
     use mixdog_app_protocol::media::MediaFormat;
+    #[cfg(node_twin)]
     use mixdog_app_protocol::media::MediaPurpose;
+    #[cfg(node_twin)]
     use mixdog_core_api::HostMediaSink;
+    #[cfg(node_twin)]
     use mixdog_core_api::call::CallContext;
+    #[cfg(node_twin)]
     use mixdog_core_api::ConnectionNotifier;
+    #[cfg(node_twin)]
     use mixdog_protocol::Origin;
     use mixdog_remote::access::runtime::LegLink;
     use mixdog_remote::access::runtime::RemoteEvents;
@@ -1026,20 +1043,26 @@ mod tests {
     use mixdog_remote::section::RemoteSection;
     use mixdog_remote::section::RemoteSectionValue;
     use mixdog_remote::webrtc::signal::candidate_json;
+    #[cfg(node_twin)]
     use mixdog_remote::webrtc::signal::parse_candidate;
+    #[cfg(node_twin)]
     use tokio::sync::mpsc;
 
     use super::*;
 
+    #[cfg(node_twin)]
     const HOST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/live-view-host/host.json");
 
+    #[cfg(node_twin)]
     /// A phone's stream options in the host scenarios (Node's host recording starts from a streamed page, whatever its size).
     fn stream_options() -> Value {
         json!({ "maxWidth": 1170, "maxHeight": 2532 })
     }
 
+    #[cfg(node_twin)]
     struct Desktop(Mutex<Vec<(String, Value)>>);
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl HostChannel for Desktop {
         async fn request(&self, _capability: HostCapability, method: Method, params: Value) -> Result<Value, HostError> {
@@ -1053,8 +1076,10 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Phones(mpsc::UnboundedSender<(u64, Value)>);
 
+    #[cfg(node_twin)]
     impl ConnectionNotifier for Phones {
         fn notify(&self, to: ConnectionId, method: Method, params: Value) -> Result<(), CoreError> {
             assert_eq!(method.as_str(), "browser/webrtcSignal");
@@ -1081,6 +1106,7 @@ mod tests {
 
         /// A step's effects run on the host's own tasks; the next step starts once the recorded commands
         /// of this one have all reached the peers, as Node's microtasks had settled them.
+        #[cfg(node_twin)]
         async fn until_logged(&self, count: usize) {
             loop {
                 let arrived = self.logged.notified();
@@ -1165,6 +1191,7 @@ mod tests {
         ))
     }
 
+    #[cfg(node_twin)]
     fn connection_of(client: &str) -> u64 {
         match client {
             "client_A" => 1,
@@ -1173,10 +1200,12 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn request(connection: u64, method: &'static str, params: Value) -> CoreRequest {
         CoreRequest { method: Method(method), params, op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, tokio_util::sync::CancellationToken::new()) }
     }
 
+    #[cfg(node_twin)]
     /// Without what differs by design: the ICE servers (the relay's in the core, the test's in Node's recording).
     fn without_ice(mut value: Value) -> Value {
         if let Some(object) = value.as_object_mut() {
@@ -1187,6 +1216,7 @@ mod tests {
         value
     }
 
+    #[cfg(node_twin)]
     fn sender_event(event: &Value) -> Option<SenderEvent> {
         let id = || event["connectionId"].as_str().unwrap().to_owned();
         Some(match event["type"].as_str().unwrap() {
@@ -1198,6 +1228,7 @@ mod tests {
         })
     }
 
+    #[cfg(node_twin)]
     /// The scenarios whose steps map one to one onto the service: no settlement of a pending host call, no timer, and the page is there before a viewer.
     const REPLAYED: [&str; 6] = [
         "negotiation: offer, answer, candidates both ways, DTLS",
@@ -1208,6 +1239,7 @@ mod tests {
         "a static page: a second viewer connecting gets the newest picture too",
     ];
 
+    #[cfg(node_twin)]
     async fn replay(scenario: &Value, dir: &std::path::Path) {
         let name = scenario["name"].as_str().unwrap();
         let desktop = Arc::new(Desktop(Mutex::default()));
@@ -1307,6 +1339,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     #[tokio::test(flavor = "multi_thread")]
     async fn the_service_serves_nodes_recorded_host_scenarios_end_to_end() {
         mixdog_rt::testing::tokens();
@@ -1320,6 +1353,12 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+
+
+#[cfg(all(test, node_twin))]
 #[path = "live_view_streams_replay.rs"]
 mod streams_replay;
+
+#[cfg(test)]
+#[path = "live_view_flow_tests.rs"]
+mod flow_tests;

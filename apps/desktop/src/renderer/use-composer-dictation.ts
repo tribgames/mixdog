@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { isRemoteHostRenderer } from './remote-ui-projection';
+import { subscribeSetupChanges } from './setup-change-refresh';
 import { useSurfaceActive } from './surface-activity';
 
 // `preparing` runs from the tap until audio is actually captured: a phone
@@ -26,7 +27,7 @@ type DictationMeter = {
   analyser: AnalyserNode;
   frame: number;
 };
-type VoiceStatus = { installed?: boolean };
+type VoiceStatus = { installed?: boolean; enabled?: boolean };
 
 // The recording overlay paints its bars from a ref, never from React state: a
 // per-frame level in state would re-render the whole composer (model pickers
@@ -171,40 +172,10 @@ export function useComposerDictation({
   // The take whose microphone is still being opened; cancelling it releases
   // the stream the moment getUserMedia hands it over.
   const dictationAttempt = useRef<{ cancelled: boolean } | null>(null);
-  // Mic visibility: the composer shows the mic only once the managed voice
-  // runtime is installed (Extensions → Voice transcription). Installs and
-  // removals made while the composer is mounted arrive over the
-  // voice-runtime-changed event the Extensions panel dispatches.
-  const [dictationInstalled, setDictationInstalled] = useState(false);
-  useEffect(() => {
-    let live = true;
-    const refresh = () => {
-      void Promise.resolve()
-        .then(() =>
-          window.mixdogDesktop.invokeCapability<VoiceStatus>({
-            capability: 'getVoiceStatus',
-            args: [],
-          })
-        )
-        .then((status) => {
-          if (live) setDictationInstalled(status?.value?.installed === true);
-        })
-        .catch(() => {
-          // A failed probe leaves the mic hidden; the next event retries.
-        });
-    };
-    refresh();
-    window.addEventListener('mixdog:voice-runtime-changed', refresh);
-    // Remote clients: a probe made while the connection was down (or still
-    // syncing) fails and would hide the mic until a reload. Re-probe every
-    // time the connection becomes ready.
-    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
-    return () => {
-      live = false;
-      window.removeEventListener('mixdog:voice-runtime-changed', refresh);
-      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
-    };
-  }, []);
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>();
+  const dictationAvailable = voiceStatus?.installed === true && voiceStatus.enabled === true;
+  const voiceAvailableRef = useRef(false);
+  const voiceGeneration = useRef(0);
   const dictationSession = useRef<{
     recorder: MediaRecorder;
     stream: MediaStream;
@@ -216,6 +187,61 @@ export function useComposerDictation({
     /** Audio is actually being captured (state `recording`). */
     live: boolean;
   } | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    let latest = 0;
+    const adopt = (status?: VoiceStatus) => {
+      const available = status?.installed === true && status.enabled === true;
+      if (!available && voiceAvailableRef.current) {
+        voiceGeneration.current += 1;
+        const pending = dictationAttempt.current;
+        if (pending) {
+          pending.cancelled = true;
+          dictationAttempt.current = null;
+          setDictationState('idle');
+        }
+        const active = dictationSession.current;
+        if (active) {
+          active.cancelled = true;
+          stopRecorder(active.recorder);
+          for (const track of active.stream.getTracks()) track.stop();
+        }
+      }
+      voiceAvailableRef.current = available;
+      setVoiceStatus(status);
+    };
+    const refresh = () => {
+      const seq = ++latest;
+      void Promise.resolve().then(() =>
+        window.mixdogDesktop.invokeCapability<VoiceStatus>({ capability: 'getVoiceStatus', args: [] })
+      ).then(
+        (answer) => {
+          if (live && seq === latest) adopt(answer?.value);
+        },
+        () => {
+          if (live && seq === latest) adopt();
+        }
+      );
+    };
+    const onRuntimeChanged = (event: Event) => {
+      const status = (event as CustomEvent<VoiceStatus>).detail;
+      if (typeof status?.installed === 'boolean' && typeof status.enabled === 'boolean') {
+        latest += 1;
+        adopt(status);
+      } else refresh();
+    };
+    refresh();
+    const stopSetup = subscribeSetupChanges(refresh);
+    window.addEventListener('mixdog:voice-runtime-changed', onRuntimeChanged);
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
+    return () => {
+      live = false;
+      stopSetup();
+      window.removeEventListener('mixdog:voice-runtime-changed', onRuntimeChanged);
+      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, refresh);
+    };
+  }, []);
 
   const toggleDictation = useCallback(async () => {
     if (dictationState === 'transcribing' || transitioningRef.current) return;
@@ -233,11 +259,16 @@ export function useComposerDictation({
       // Installation status is already refreshed on mount and runtime changes.
       // Never put a server round trip ahead of microphone capture: on remote
       // connections that wait silently discarded the start of the utterance.
-      if (!dictationInstalled) {
-        requestVoiceInstall();
-        showNotice('Install voice transcription from Extensions first.');
+      if (!voiceAvailableRef.current) {
+        if (voiceStatus?.installed === false) {
+          requestVoiceInstall();
+          showNotice('Install voice transcription from Extensions first.');
+        } else if (voiceStatus?.enabled === false) {
+          showNotice('Turn on voice transcription in Extensions to dictate.');
+        } else showNotice('Voice transcription is unavailable on this host.');
         return;
       }
+      const generation = voiceGeneration.current;
       setDictationState('preparing');
       // Transcription needs intelligibility, not fidelity: engines resample to
       // 16 kHz mono anyway, and 24 kbps Opus is transparent for speech. The
@@ -252,7 +283,7 @@ export function useComposerDictation({
           noiseSuppression: true,
         },
       });
-      if (attempt.cancelled) {
+      if (attempt.cancelled || generation !== voiceGeneration.current) {
         for (const track of stream.getTracks()) track.stop();
         return;
       }
@@ -305,6 +336,7 @@ export function useComposerDictation({
               reader.onload = () => resolve(String(reader.result || ''));
               reader.readAsDataURL(blob);
             });
+            if (generation !== voiceGeneration.current) return;
             const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
             const result = await invokeResult(() =>
               window.mixdogDesktop.invokeCapability<string>({
@@ -312,6 +344,7 @@ export function useComposerDictation({
                 args: [{ data: base64, mimeType: blob.type }],
               })
             );
+            if (generation !== voiceGeneration.current) return;
             const text = String(result?.value ?? '').trim();
             if (text) {
               setDraft((current) => {
@@ -348,7 +381,7 @@ export function useComposerDictation({
       if (dictationAttempt.current === attempt) dictationAttempt.current = null;
     }
   }, [
-    dictationInstalled,
+    voiceStatus,
     dictationState,
     invokeResult,
     onTranscriptSubmit,
@@ -456,7 +489,7 @@ export function useComposerDictation({
 
   return {
     dictationState,
-    dictationInstalled,
+    dictationAvailable,
     toggleDictation,
     stopDictationAndSend,
     cancelDictation,

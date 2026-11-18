@@ -160,6 +160,7 @@ async fn terminal_reveal_counts_renderer_windows_not_the_main_desktop_host() {
     assert!(rig.outgoing.app_feed_audience().iter().all(|entry| !entry.2), "host and phone cannot show a pane");
 }
 
+
 #[tokio::test(start_paused = true)]
 async fn a_phone_cannot_claim_a_terminal_reveal_but_a_local_window_can() {
     struct Claims(std::sync::Mutex<Vec<ConnectionId>>);

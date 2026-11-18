@@ -42,10 +42,6 @@ pub fn platform_key(os: &str, arch: &str) -> &'static str {
     }
 }
 
-pub fn host_platform_key() -> &'static str {
-    platform_key(std::env::consts::OS, std::env::consts::ARCH)
-}
-
 /// Metal wires the `iogpu.wired_limit_mb` override when set, else two thirds of RAM, and
 /// reports that whole working set as free.
 pub fn apple_silicon_gpu(name: &str, total_bytes: i64, wired_limit_mb: i64) -> Gpu {
@@ -139,6 +135,108 @@ pub struct HardwareProbe {
     processes: Processes,
 }
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum GpuSelectError {
+    #[error("[local-provider] GPU detection failed: {0}")]
+    Detection(String),
+    #[error("[local-provider] model is missing a GPU memory estimate")]
+    NoEstimate,
+    #[error("[local-provider] insufficient available GPU memory: estimated requirement {required} bytes; best compatible GPU has {best_free} bytes free. Free GPU memory or choose a smaller compatible model.")]
+    Insufficient { required: i64, best_free: i64 },
+}
+
+pub fn select_gpu(hardware: &Hardware, estimated_vram: i64, minimum_vram: i64) -> Result<Gpu, GpuSelectError> {
+    if !hardware.supported {
+        return Err(GpuSelectError::Detection(hardware.error.clone().unwrap_or_else(|| "unsupported hardware".into())));
+    }
+    if estimated_vram <= 0 {
+        return Err(GpuSelectError::NoEstimate);
+    }
+    let mut candidates: Vec<&Gpu> = hardware.gpus.iter().filter(|g| g.memory_bytes >= minimum_vram).collect();
+    candidates.sort_by(|a, b| b.free_memory_bytes.cmp(&a.free_memory_bytes).then(a.index.cmp(&b.index)));
+    candidates
+        .iter()
+        .find(|g| g.free_memory_bytes >= estimated_vram)
+        .map(|g| (*g).clone())
+        .ok_or(GpuSelectError::Insufficient { required: estimated_vram, best_free: candidates.first().map_or(0, |g| g.free_memory_bytes) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SMI: &str = "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\nbroken line\n2, not-a-uuid, X, 100, 50\n";
+
+    #[test]
+    fn nvidia_output_is_parsed_strictly() {
+        let gpus = parse_nvidia_gpus(SMI);
+        assert_eq!(gpus.len(), 2);
+        assert_eq!((gpus[0].name.as_str(), gpus[0].memory_bytes, gpus[0].free_memory_bytes), ("NVIDIA RTX 4090", 24564 * MIB, 20000 * MIB));
+        assert!(parse_nvidia_gpus("0, GPU-aa, n, 100, 200").is_empty(), "free above total is rejected");
+    }
+
+    #[test]
+    fn platform_keys_and_apple_memory() {
+        assert_eq!(platform_key("windows", "x86_64"), "win32-x64-nvidia");
+        assert_eq!(platform_key("linux", "x86_64"), "");
+        assert_eq!(apple_silicon_gpu("M4", 16 * 1024 * MIB, 0).memory_bytes, 16 * 1024 * MIB * 2 / 3);
+        assert_eq!(apple_silicon_gpu("M4", 16 * 1024 * MIB, 8192).memory_bytes, 8192 * MIB);
+    }
+
+    #[tokio::test]
+    async fn probe_sorts_gpus_caches_and_reports_failures() {
+        let probe = HardwareProbe::new("windows", "x86_64", Some(60_000), Processes::for_tests());
+        assert!(probe.status().checking);
+        let hw = probe.refresh(false, || async { Ok(Query::Nvidia(SMI.into())) }).await;
+        assert!(hw.supported);
+        assert_eq!(hw.gpus[0].index, 0);
+        assert_eq!(hw.to_json()["gpu"]["uuid"], "GPU-aaaa-1111");
+        // Cached: the failing query is not consulted.
+        assert!(probe.refresh(false, || async { Err("boom".into()) }).await.supported);
+        let failed = probe.refresh(true, || async { Err("boom".into()) }).await;
+        assert_eq!((failed.supported, failed.error.as_deref()), (false, Some("boom")));
+        let empty = probe.refresh(true, || async { Ok(Query::Nvidia(String::new())) }).await;
+        assert_eq!(empty.error.as_deref(), Some("No compatible NVIDIA GPU detected."));
+        let unsupported = HardwareProbe::new("linux", "x86_64", None, Processes::for_tests()).refresh(false, || async { Err("never".into()) }).await;
+        assert!(!unsupported.supported && !unsupported.checking);
+    }
+
+    #[tokio::test]
+    async fn the_read_that_starts_a_probe_reports_it_running() {
+        let probe = HardwareProbe::new("windows", "x86_64", Some(0), Processes::for_tests());
+        probe.refresh(false, || async { Ok(Query::Nvidia(SMI.into())) }).await;
+        assert!(!probe.status().checking);
+        // The cache is stale: the read starts the next probe, and Node answers `checking: true` at once.
+        probe.start_refresh();
+        assert!(probe.status().checking);
+    }
+
+    #[test]
+    fn gpu_selection_prefers_the_most_free_memory_that_fits() {
+        let hw = Hardware { platform: "windows".into(), arch: "x86_64".into(), gpus: parse_nvidia_gpus(SMI), supported: true, checking: false, checked_at: None, error: None };
+        assert_eq!(select_gpu(&hw, 10_000 * MIB, 10_000 * MIB).unwrap().index, 0);
+        assert_eq!(select_gpu(&hw, 30_000 * MIB, 1), Err(GpuSelectError::Insufficient { required: 30_000 * MIB, best_free: 20_000 * MIB }));
+        assert_eq!(select_gpu(&hw, 0, 0), Err(GpuSelectError::NoEstimate));
+        let mut none = hw.clone();
+        none.supported = false;
+        assert!(matches!(select_gpu(&none, 1, 1), Err(GpuSelectError::Detection(_))));
+    }
+
+
+    #[tokio::test]
+    async fn a_probe_command_reports_output_failure_and_a_missing_program() {
+        let processes = Processes::for_tests();
+        let (shell, flag) = if cfg!(windows) { ("cmd.exe", "/C") } else { ("sh", "-c") };
+        assert_eq!(probe_command(&processes, shell, &[flag, "echo 42"]).await.unwrap().trim(), "42");
+        assert_eq!(probe_command(&processes, shell, &[flag, "exit 3"]).await.unwrap_err().rsplit(' ').next(), Some("3"));
+        assert!(probe_command(&processes, "definitely-not-a-binary-xyz", &[]).await.unwrap_err().contains("not found"));
+    }
+}
+
+
+pub fn host_platform_key() -> &'static str {
+    platform_key(std::env::consts::OS, std::env::consts::ARCH)
+}
 impl HardwareProbe {
     pub fn new(os: &str, arch: &str, cache_ms: Option<i64>, processes: Processes) -> Arc<Self> {
         Self::with_signal(os, arch, cache_ms, ChangeSignal::default(), processes)
@@ -242,7 +340,6 @@ impl HardwareProbe {
         self.refresh(force, || async move { if apple { query_apple(&processes).await } else { query_nvidia(&processes).await } }).await
     }
 }
-
 /// One probe command with its 5 s limit; `Err` when it could not run or did not finish.
 async fn probe_command(processes: &Processes, program: &str, args: &[&str]) -> Result<String, String> {
     let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
@@ -262,112 +359,13 @@ async fn probe_command(processes: &Processes, program: &str, args: &[&str]) -> R
     }
     Ok(result.stdout)
 }
-
 async fn query_nvidia(processes: &Processes) -> Result<Query, String> {
     probe_command(processes, "nvidia-smi", &[&format!("--query-gpu={GPU_FIELDS}"), "--format=csv,noheader,nounits"]).await.map(Query::Nvidia)
 }
-
 async fn query_apple(processes: &Processes) -> Result<Query, String> {
     // macOS before 14 has no such key.
     let limit = probe_command(processes, "/usr/sbin/sysctl", &["-n", "iogpu.wired_limit_mb"]).await.ok().map(|text| mixdog_js::string_to_number(&text)).filter(|n| n.is_finite()).map_or(0, |n| n as i64);
     let total = probe_command(processes, "/usr/sbin/sysctl", &["-n", "hw.memsize"]).await.ok().and_then(|text| mixdog_js::js_trim(&text).parse::<i64>().ok()).unwrap_or(0);
     let name = probe_command(processes, "/usr/sbin/sysctl", &["-n", "machdep.cpu.brand_string"]).await.ok().map(|text| mixdog_js::js_trim(&text).to_owned()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Apple Silicon".into());
     Ok(Query::Apple { name, total_bytes: total, wired_limit_mb: limit })
-}
-
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum GpuSelectError {
-    #[error("[local-provider] GPU detection failed: {0}")]
-    Detection(String),
-    #[error("[local-provider] model is missing a GPU memory estimate")]
-    NoEstimate,
-    #[error("[local-provider] insufficient available GPU memory: estimated requirement {required} bytes; best compatible GPU has {best_free} bytes free. Free GPU memory or choose a smaller compatible model.")]
-    Insufficient { required: i64, best_free: i64 },
-}
-
-pub fn select_gpu(hardware: &Hardware, estimated_vram: i64, minimum_vram: i64) -> Result<Gpu, GpuSelectError> {
-    if !hardware.supported {
-        return Err(GpuSelectError::Detection(hardware.error.clone().unwrap_or_else(|| "unsupported hardware".into())));
-    }
-    if estimated_vram <= 0 {
-        return Err(GpuSelectError::NoEstimate);
-    }
-    let mut candidates: Vec<&Gpu> = hardware.gpus.iter().filter(|g| g.memory_bytes >= minimum_vram).collect();
-    candidates.sort_by(|a, b| b.free_memory_bytes.cmp(&a.free_memory_bytes).then(a.index.cmp(&b.index)));
-    candidates
-        .iter()
-        .find(|g| g.free_memory_bytes >= estimated_vram)
-        .map(|g| (*g).clone())
-        .ok_or(GpuSelectError::Insufficient { required: estimated_vram, best_free: candidates.first().map_or(0, |g| g.free_memory_bytes) })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const SMI: &str = "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\nbroken line\n2, not-a-uuid, X, 100, 50\n";
-
-    #[test]
-    fn nvidia_output_is_parsed_strictly() {
-        let gpus = parse_nvidia_gpus(SMI);
-        assert_eq!(gpus.len(), 2);
-        assert_eq!((gpus[0].name.as_str(), gpus[0].memory_bytes, gpus[0].free_memory_bytes), ("NVIDIA RTX 4090", 24564 * MIB, 20000 * MIB));
-        assert!(parse_nvidia_gpus("0, GPU-aa, n, 100, 200").is_empty(), "free above total is rejected");
-    }
-
-    #[test]
-    fn platform_keys_and_apple_memory() {
-        assert_eq!(platform_key("windows", "x86_64"), "win32-x64-nvidia");
-        assert_eq!(platform_key("linux", "x86_64"), "");
-        assert_eq!(apple_silicon_gpu("M4", 16 * 1024 * MIB, 0).memory_bytes, 16 * 1024 * MIB * 2 / 3);
-        assert_eq!(apple_silicon_gpu("M4", 16 * 1024 * MIB, 8192).memory_bytes, 8192 * MIB);
-    }
-
-    #[tokio::test]
-    async fn probe_sorts_gpus_caches_and_reports_failures() {
-        let probe = HardwareProbe::new("windows", "x86_64", Some(60_000), Processes::for_tests());
-        assert!(probe.status().checking);
-        let hw = probe.refresh(false, || async { Ok(Query::Nvidia(SMI.into())) }).await;
-        assert!(hw.supported);
-        assert_eq!(hw.gpus[0].index, 0);
-        assert_eq!(hw.to_json()["gpu"]["uuid"], "GPU-aaaa-1111");
-        // Cached: the failing query is not consulted.
-        assert!(probe.refresh(false, || async { Err("boom".into()) }).await.supported);
-        let failed = probe.refresh(true, || async { Err("boom".into()) }).await;
-        assert_eq!((failed.supported, failed.error.as_deref()), (false, Some("boom")));
-        let empty = probe.refresh(true, || async { Ok(Query::Nvidia(String::new())) }).await;
-        assert_eq!(empty.error.as_deref(), Some("No compatible NVIDIA GPU detected."));
-        let unsupported = HardwareProbe::new("linux", "x86_64", None, Processes::for_tests()).refresh(false, || async { Err("never".into()) }).await;
-        assert!(!unsupported.supported && !unsupported.checking);
-    }
-
-    #[tokio::test]
-    async fn the_read_that_starts_a_probe_reports_it_running() {
-        let probe = HardwareProbe::new("windows", "x86_64", Some(0), Processes::for_tests());
-        probe.refresh(false, || async { Ok(Query::Nvidia(SMI.into())) }).await;
-        assert!(!probe.status().checking);
-        // The cache is stale: the read starts the next probe, and Node answers `checking: true` at once.
-        probe.start_refresh();
-        assert!(probe.status().checking);
-    }
-
-    #[tokio::test]
-    async fn a_probe_command_reports_output_failure_and_a_missing_program() {
-        let processes = Processes::for_tests();
-        let (shell, flag) = if cfg!(windows) { ("cmd.exe", "/C") } else { ("sh", "-c") };
-        assert_eq!(probe_command(&processes, shell, &[flag, "echo 42"]).await.unwrap().trim(), "42");
-        assert_eq!(probe_command(&processes, shell, &[flag, "exit 3"]).await.unwrap_err().rsplit(' ').next(), Some("3"));
-        assert!(probe_command(&processes, "definitely-not-a-binary-xyz", &[]).await.unwrap_err().contains("not found"));
-    }
-
-    #[test]
-    fn gpu_selection_prefers_the_most_free_memory_that_fits() {
-        let hw = Hardware { platform: "windows".into(), arch: "x86_64".into(), gpus: parse_nvidia_gpus(SMI), supported: true, checking: false, checked_at: None, error: None };
-        assert_eq!(select_gpu(&hw, 10_000 * MIB, 10_000 * MIB).unwrap().index, 0);
-        assert_eq!(select_gpu(&hw, 30_000 * MIB, 1), Err(GpuSelectError::Insufficient { required: 30_000 * MIB, best_free: 20_000 * MIB }));
-        assert_eq!(select_gpu(&hw, 0, 0), Err(GpuSelectError::NoEstimate));
-        let mut none = hw.clone();
-        none.supported = false;
-        assert!(matches!(select_gpu(&none, 1, 1), Err(GpuSelectError::Detection(_))));
-    }
 }

@@ -99,8 +99,8 @@ impl ToolModulesHost for NoHost {
         self.0.subscribe()
     }
 
-    async fn prepare_builtin_feature(&self, _name: &str, _engines: Option<&[String]>) -> Result<(), String> {
-        Ok(())
+    async fn prepare_builtin_feature(&self, _name: &str, _engines: Option<&[String]>) -> Result<Option<Value>, String> {
+        Ok(None)
     }
 
     async fn stop_local_provider_server(&self) {}
@@ -248,6 +248,7 @@ impl Harness {
             code_graph: None,
             turn_review: None,
             releases: mixdog_workspace::release::FolderReleases::new(),
+            upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
         })
         .unwrap();
 

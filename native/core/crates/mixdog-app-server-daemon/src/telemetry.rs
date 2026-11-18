@@ -363,6 +363,203 @@ pub struct Telemetry {
     watch: Mutex<Option<notify::RecommendedWatcher>>,
 }
 
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::sync::atomic::AtomicUsize;
+
+    use super::*;
+
+    /// An in-memory profile directory.
+    #[derive(Default)]
+    struct MemStore {
+        flag: AtomicBool,
+        files: Mutex<BTreeSet<String>>,
+        fail_save: AtomicBool,
+        saves: AtomicUsize,
+    }
+
+    impl ProfileStore for MemStore {
+        fn flag_present(&self, _: &InLane<MaintenanceIo>) -> bool {
+            self.flag.load(Ordering::SeqCst)
+        }
+
+        fn save(&self, _: &InLane<MaintenanceIo>, name: &str, bytes: &[u8]) -> io::Result<()> {
+            self.saves.fetch_add(1, Ordering::SeqCst);
+            if self.fail_save.load(Ordering::SeqCst) {
+                return Err(io::Error::other("disk full"));
+            }
+            assert!(serde_json::from_slice::<Value>(bytes).is_ok());
+            self.files.lock().unwrap().insert(name.to_owned());
+            Ok(())
+        }
+
+        fn list(&self, _: &InLane<MaintenanceIo>) -> io::Result<Vec<String>> {
+            let mut names: Vec<String> = self.files.lock().unwrap().iter().cloned().collect();
+            names.push("notes.txt".to_owned());
+            Ok(names)
+        }
+
+        fn remove(&self, _: &InLane<MaintenanceIo>, name: &str) -> io::Result<()> {
+            self.files.lock().unwrap().remove(name);
+            Ok(())
+        }
+    }
+
+    struct Fixture {
+        telemetry: Arc<Telemetry>,
+        store: Arc<MemStore>,
+        lines: Arc<Mutex<Vec<String>>>,
+    }
+
+    fn lines(f: &Fixture) -> Vec<String> {
+        f.lines.lock().unwrap().clone()
+    }
+
+    #[test]
+    fn percentiles_are_nearest_rank_and_empty_is_zero() {
+        assert_eq!(LagWindow::from_samples(&[]), LagWindow::default());
+        let samples: Vec<u64> = (1..=100).collect();
+        assert_eq!(LagWindow::from_samples(&samples), LagWindow { p95_ms: 95, p99_ms: 99, max_ms: 100 });
+        assert!(LagWindow { p95_ms: 0, p99_ms: 0, max_ms: 1000 }.is_bad());
+        assert!(!LagWindow { p95_ms: 999, p99_ms: 999, max_ms: 999 }.is_bad());
+    }
+
+    #[test]
+    fn profile_names_sort_by_time_and_hold_no_colon() {
+        let name = profile_file_name(1_793_925_139_716);
+        assert_eq!(name, "daemon-lag-2026-11-06T00-32-19.716Z.json");
+        assert!(is_profile_name(&name) && !is_profile_name("notes.txt"));
+    }
+
+    const BAD: LagWindow = LagWindow { p95_ms: 900, p99_ms: 1200, max_ms: 3000 };
+
+    #[test]
+    fn the_real_memory_read_answers() {
+        let memory = process_memory();
+        assert!(memory.rss_bytes.is_some_and(|n| n > 0));
+    }
+
+
+    fn tokens() -> mixdog_rt::LaneTokens {
+        mixdog_rt::testing::tokens()
+    }
+    fn fixture() -> Fixture {
+        let store = Arc::new(MemStore::default());
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&lines);
+        let seams = Seams {
+            work: Arc::new(|| WorkCounts { active_calls: 2, queued_calls: 1, busy_sessions: 3, busy_memory_agents: 4 }),
+            memory: Arc::new(|| MemoryUsage { rss_bytes: Some(1000), heap_bytes: None }),
+            log: Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())),
+            now_ms: Arc::new(|| 1_793_925_139_716),
+            pid: 77,
+        };
+        let telemetry = Telemetry::new(seams, store.clone(), PathBuf::from("data/profiles"), tokens().maintenance_io, CancellationToken::new(), Arc::new(|| json!({ "lanes": "ok" })));
+        Fixture { telemetry, store, lines }
+    }
+    #[tokio::test]
+    async fn the_line_carries_time_pid_memory_and_counts_only() {
+        let f = fixture();
+        f.telemetry.note_activity();
+        f.telemetry.tick(LagWindow::default());
+        assert_eq!(
+            lines(&f),
+            ["daemon-telemetry reason=periodic ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4"]
+        );
+    }
+    #[tokio::test]
+    async fn the_boot_line_is_written_without_activity_and_leaves_the_window_silent() {
+        let f = fixture();
+        f.telemetry.boot();
+        assert_eq!(
+            lines(&f),
+            ["daemon-telemetry reason=boot ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4"]
+        );
+        f.telemetry.tick(LagWindow::default());
+        assert_eq!(lines(&f).len(), 1, "the boot line is not activity");
+    }
+    #[tokio::test]
+    async fn a_daemon_at_rest_writes_nothing_and_activity_writes_one_line_per_window() {
+        let f = fixture();
+        f.telemetry.tick(LagWindow::default());
+        f.telemetry.tick(LagWindow::default());
+        assert!(lines(&f).is_empty());
+        f.telemetry.note_activity();
+        f.telemetry.note_activity();
+        f.telemetry.tick(LagWindow::default());
+        assert_eq!(lines(&f).len(), 1);
+        f.telemetry.tick(LagWindow::default());
+        assert_eq!(lines(&f).len(), 1, "the activity of one window is spent by its line");
+    }
+    #[tokio::test]
+    async fn a_late_window_logs_its_lag_with_or_without_activity() {
+        let f = fixture();
+        f.telemetry.tick(LagWindow { p95_ms: 100, p99_ms: 249, max_ms: 300 });
+        assert!(lines(&f).is_empty());
+        f.telemetry.tick(LagWindow { p95_ms: 100, p99_ms: 250, max_ms: 300 });
+        assert_eq!(lines(&f), ["event-loop lag p95=100ms p99=250ms max=300ms"]);
+    }
+    #[tokio::test]
+    async fn the_sampler_is_off_without_the_flag_and_says_nothing() {
+        let f = fixture();
+        let out = f.telemetry.sample(1_793_925_139_716, BAD, WorkCounts::default()).await;
+        assert_eq!(out, SamplerOutcome::Off);
+        assert!(lines(&f).is_empty() && f.store.saves.load(Ordering::SeqCst) == 0);
+    }
+    #[tokio::test]
+    async fn the_flag_starts_and_stops_the_sampler_without_a_restart() {
+        let f = fixture();
+        let at = 1_793_925_139_716;
+        f.store.flag.store(true, Ordering::SeqCst);
+        f.telemetry.flag_changed();
+        assert_eq!(f.telemetry.sample(at, LagWindow::default(), WorkCounts::default()).await, SamplerOutcome::Discarded);
+        assert_eq!(lines(&f), ["lag-profile enabled dir=data/profiles"]);
+        assert_eq!(f.telemetry.sample(at, LagWindow::default(), WorkCounts::default()).await, SamplerOutcome::Discarded);
+        assert_eq!(lines(&f).len(), 1, "enabled is said once");
+        f.store.flag.store(false, Ordering::SeqCst);
+        assert_eq!(f.telemetry.sample(at, LagWindow::default(), WorkCounts::default()).await, SamplerOutcome::Discarded, "nothing reported the change: the file is not read again");
+        f.telemetry.flag_changed();
+        assert_eq!(f.telemetry.sample(at, BAD, WorkCounts::default()).await, SamplerOutcome::Off);
+        assert_eq!(lines(&f).last().unwrap(), "lag-profile disabled");
+        assert_eq!(f.telemetry.sample(at, BAD, WorkCounts::default()).await, SamplerOutcome::Off);
+        assert_eq!(lines(&f).len(), 2, "disabled is said once");
+    }
+    #[tokio::test]
+    async fn only_a_late_window_is_kept_and_the_newest_ten_stay() {
+        let f = fixture();
+        f.store.flag.store(true, Ordering::SeqCst);
+        let work = WorkCounts { busy_sessions: 5, ..WorkCounts::default() };
+        assert_eq!(f.telemetry.sample(0, LagWindow { p95_ms: 10, p99_ms: 999, max_ms: 999 }, work).await, SamplerOutcome::Discarded);
+        assert!(f.store.files.lock().unwrap().is_empty());
+        for n in 0..12 {
+            let out = f.telemetry.sample(1_793_925_139_716 + n * 30_000, BAD, work).await;
+            assert!(matches!(out, SamplerOutcome::Saved(_)));
+        }
+        let kept: Vec<String> = f.store.files.lock().unwrap().iter().cloned().collect();
+        assert_eq!(kept.len(), 10);
+        assert_eq!(kept[0], profile_file_name(1_793_925_139_716 + 2 * 30_000));
+        assert!(lines(&f).last().unwrap().starts_with("lag-profile saved file=daemon-lag-2026-11-06T00-37-49.716Z.json p99=1200ms max=3000ms busySessions=5"));
+    }
+    #[tokio::test]
+    async fn a_failed_save_is_reported_once_per_cause() {
+        let f = fixture();
+        f.store.flag.store(true, Ordering::SeqCst);
+        f.store.fail_save.store(true, Ordering::SeqCst);
+        assert_eq!(f.telemetry.sample(0, BAD, WorkCounts::default()).await, SamplerOutcome::Failed);
+        assert_eq!(f.telemetry.sample(1, BAD, WorkCounts::default()).await, SamplerOutcome::Failed);
+        let failures: Vec<String> = lines(&f).into_iter().filter(|l| l.starts_with("lag-profile failed")).collect();
+        assert_eq!(failures, ["lag-profile failed save: disk full"]);
+    }
+    #[tokio::test]
+    async fn a_sampler_pass_that_is_still_running_is_busy() {
+        let f = fixture();
+        f.telemetry.sampler.pending.store(true, Ordering::SeqCst);
+        assert_eq!(f.telemetry.sample(0, BAD, WorkCounts::default()).await, SamplerOutcome::Busy);
+    }
+}
+
+
 impl Telemetry {
     /// `store`, `lane` and `cancel` are the sampler's (the data directory, the maintenance lane, the daemon's run token);
     /// `context` is what a kept window adds (`|| Value::Null` for nothing).
@@ -459,210 +656,5 @@ impl Telemetry {
             }
         }
         drop(self.watch.lock().unwrap_or_else(PoisonError::into_inner).take());
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeSet;
-    use std::sync::atomic::AtomicUsize;
-
-    use super::*;
-
-    fn tokens() -> mixdog_rt::LaneTokens {
-        mixdog_rt::testing::tokens()
-    }
-
-    /// An in-memory profile directory.
-    #[derive(Default)]
-    struct MemStore {
-        flag: AtomicBool,
-        files: Mutex<BTreeSet<String>>,
-        fail_save: AtomicBool,
-        saves: AtomicUsize,
-    }
-
-    impl ProfileStore for MemStore {
-        fn flag_present(&self, _: &InLane<MaintenanceIo>) -> bool {
-            self.flag.load(Ordering::SeqCst)
-        }
-
-        fn save(&self, _: &InLane<MaintenanceIo>, name: &str, bytes: &[u8]) -> io::Result<()> {
-            self.saves.fetch_add(1, Ordering::SeqCst);
-            if self.fail_save.load(Ordering::SeqCst) {
-                return Err(io::Error::other("disk full"));
-            }
-            assert!(serde_json::from_slice::<Value>(bytes).is_ok());
-            self.files.lock().unwrap().insert(name.to_owned());
-            Ok(())
-        }
-
-        fn list(&self, _: &InLane<MaintenanceIo>) -> io::Result<Vec<String>> {
-            let mut names: Vec<String> = self.files.lock().unwrap().iter().cloned().collect();
-            names.push("notes.txt".to_owned());
-            Ok(names)
-        }
-
-        fn remove(&self, _: &InLane<MaintenanceIo>, name: &str) -> io::Result<()> {
-            self.files.lock().unwrap().remove(name);
-            Ok(())
-        }
-    }
-
-    struct Fixture {
-        telemetry: Arc<Telemetry>,
-        store: Arc<MemStore>,
-        lines: Arc<Mutex<Vec<String>>>,
-    }
-
-    fn fixture() -> Fixture {
-        let store = Arc::new(MemStore::default());
-        let lines = Arc::new(Mutex::new(Vec::new()));
-        let sink = Arc::clone(&lines);
-        let seams = Seams {
-            work: Arc::new(|| WorkCounts { active_calls: 2, queued_calls: 1, busy_sessions: 3, busy_memory_agents: 4 }),
-            memory: Arc::new(|| MemoryUsage { rss_bytes: Some(1000), heap_bytes: None }),
-            log: Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())),
-            now_ms: Arc::new(|| 1_793_925_139_716),
-            pid: 77,
-        };
-        let telemetry = Telemetry::new(seams, store.clone(), PathBuf::from("data/profiles"), tokens().maintenance_io, CancellationToken::new(), Arc::new(|| json!({ "lanes": "ok" })));
-        Fixture { telemetry, store, lines }
-    }
-
-    fn lines(f: &Fixture) -> Vec<String> {
-        f.lines.lock().unwrap().clone()
-    }
-
-    #[tokio::test]
-    async fn the_line_carries_time_pid_memory_and_counts_only() {
-        let f = fixture();
-        f.telemetry.note_activity();
-        f.telemetry.tick(LagWindow::default());
-        assert_eq!(
-            lines(&f),
-            ["daemon-telemetry reason=periodic ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4"]
-        );
-    }
-
-    #[tokio::test]
-    async fn the_boot_line_is_written_without_activity_and_leaves_the_window_silent() {
-        let f = fixture();
-        f.telemetry.boot();
-        assert_eq!(
-            lines(&f),
-            ["daemon-telemetry reason=boot ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4"]
-        );
-        f.telemetry.tick(LagWindow::default());
-        assert_eq!(lines(&f).len(), 1, "the boot line is not activity");
-    }
-
-    #[tokio::test]
-    async fn a_daemon_at_rest_writes_nothing_and_activity_writes_one_line_per_window() {
-        let f = fixture();
-        f.telemetry.tick(LagWindow::default());
-        f.telemetry.tick(LagWindow::default());
-        assert!(lines(&f).is_empty());
-        f.telemetry.note_activity();
-        f.telemetry.note_activity();
-        f.telemetry.tick(LagWindow::default());
-        assert_eq!(lines(&f).len(), 1);
-        f.telemetry.tick(LagWindow::default());
-        assert_eq!(lines(&f).len(), 1, "the activity of one window is spent by its line");
-    }
-
-    #[tokio::test]
-    async fn a_late_window_logs_its_lag_with_or_without_activity() {
-        let f = fixture();
-        f.telemetry.tick(LagWindow { p95_ms: 100, p99_ms: 249, max_ms: 300 });
-        assert!(lines(&f).is_empty());
-        f.telemetry.tick(LagWindow { p95_ms: 100, p99_ms: 250, max_ms: 300 });
-        assert_eq!(lines(&f), ["event-loop lag p95=100ms p99=250ms max=300ms"]);
-    }
-
-    #[test]
-    fn percentiles_are_nearest_rank_and_empty_is_zero() {
-        assert_eq!(LagWindow::from_samples(&[]), LagWindow::default());
-        let samples: Vec<u64> = (1..=100).collect();
-        assert_eq!(LagWindow::from_samples(&samples), LagWindow { p95_ms: 95, p99_ms: 99, max_ms: 100 });
-        assert!(LagWindow { p95_ms: 0, p99_ms: 0, max_ms: 1000 }.is_bad());
-        assert!(!LagWindow { p95_ms: 999, p99_ms: 999, max_ms: 999 }.is_bad());
-    }
-
-    #[test]
-    fn profile_names_sort_by_time_and_hold_no_colon() {
-        let name = profile_file_name(1_793_925_139_716);
-        assert_eq!(name, "daemon-lag-2026-11-06T00-32-19.716Z.json");
-        assert!(is_profile_name(&name) && !is_profile_name("notes.txt"));
-    }
-
-    const BAD: LagWindow = LagWindow { p95_ms: 900, p99_ms: 1200, max_ms: 3000 };
-
-    #[tokio::test]
-    async fn the_sampler_is_off_without_the_flag_and_says_nothing() {
-        let f = fixture();
-        let out = f.telemetry.sample(1_793_925_139_716, BAD, WorkCounts::default()).await;
-        assert_eq!(out, SamplerOutcome::Off);
-        assert!(lines(&f).is_empty() && f.store.saves.load(Ordering::SeqCst) == 0);
-    }
-
-    #[tokio::test]
-    async fn the_flag_starts_and_stops_the_sampler_without_a_restart() {
-        let f = fixture();
-        let at = 1_793_925_139_716;
-        f.store.flag.store(true, Ordering::SeqCst);
-        f.telemetry.flag_changed();
-        assert_eq!(f.telemetry.sample(at, LagWindow::default(), WorkCounts::default()).await, SamplerOutcome::Discarded);
-        assert_eq!(lines(&f), ["lag-profile enabled dir=data/profiles"]);
-        assert_eq!(f.telemetry.sample(at, LagWindow::default(), WorkCounts::default()).await, SamplerOutcome::Discarded);
-        assert_eq!(lines(&f).len(), 1, "enabled is said once");
-        f.store.flag.store(false, Ordering::SeqCst);
-        assert_eq!(f.telemetry.sample(at, LagWindow::default(), WorkCounts::default()).await, SamplerOutcome::Discarded, "nothing reported the change: the file is not read again");
-        f.telemetry.flag_changed();
-        assert_eq!(f.telemetry.sample(at, BAD, WorkCounts::default()).await, SamplerOutcome::Off);
-        assert_eq!(lines(&f).last().unwrap(), "lag-profile disabled");
-        assert_eq!(f.telemetry.sample(at, BAD, WorkCounts::default()).await, SamplerOutcome::Off);
-        assert_eq!(lines(&f).len(), 2, "disabled is said once");
-    }
-
-    #[tokio::test]
-    async fn only_a_late_window_is_kept_and_the_newest_ten_stay() {
-        let f = fixture();
-        f.store.flag.store(true, Ordering::SeqCst);
-        let work = WorkCounts { busy_sessions: 5, ..WorkCounts::default() };
-        assert_eq!(f.telemetry.sample(0, LagWindow { p95_ms: 10, p99_ms: 999, max_ms: 999 }, work).await, SamplerOutcome::Discarded);
-        assert!(f.store.files.lock().unwrap().is_empty());
-        for n in 0..12 {
-            let out = f.telemetry.sample(1_793_925_139_716 + n * 30_000, BAD, work).await;
-            assert!(matches!(out, SamplerOutcome::Saved(_)));
-        }
-        let kept: Vec<String> = f.store.files.lock().unwrap().iter().cloned().collect();
-        assert_eq!(kept.len(), 10);
-        assert_eq!(kept[0], profile_file_name(1_793_925_139_716 + 2 * 30_000));
-        assert!(lines(&f).last().unwrap().starts_with("lag-profile saved file=daemon-lag-2026-11-06T00-37-49.716Z.json p99=1200ms max=3000ms busySessions=5"));
-    }
-
-    #[tokio::test]
-    async fn a_failed_save_is_reported_once_per_cause() {
-        let f = fixture();
-        f.store.flag.store(true, Ordering::SeqCst);
-        f.store.fail_save.store(true, Ordering::SeqCst);
-        assert_eq!(f.telemetry.sample(0, BAD, WorkCounts::default()).await, SamplerOutcome::Failed);
-        assert_eq!(f.telemetry.sample(1, BAD, WorkCounts::default()).await, SamplerOutcome::Failed);
-        let failures: Vec<String> = lines(&f).into_iter().filter(|l| l.starts_with("lag-profile failed")).collect();
-        assert_eq!(failures, ["lag-profile failed save: disk full"]);
-    }
-
-    #[tokio::test]
-    async fn a_sampler_pass_that_is_still_running_is_busy() {
-        let f = fixture();
-        f.telemetry.sampler.pending.store(true, Ordering::SeqCst);
-        assert_eq!(f.telemetry.sample(0, BAD, WorkCounts::default()).await, SamplerOutcome::Busy);
-    }
-
-    #[test]
-    fn the_real_memory_read_answers() {
-        let memory = process_memory();
-        assert!(memory.rss_bytes.is_some_and(|n| n > 0));
     }
 }

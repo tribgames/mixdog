@@ -70,6 +70,182 @@ struct Inner {
 #[derive(Clone)]
 pub struct RequestQueue(Arc<Inner>);
 
+struct RequestGuard<'a> {
+    queue: &'a RequestQueue,
+    id: u64,
+}
+
+impl Drop for RequestGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self.queue.0.state.lock().unwrap();
+        if let Some(index) = state.requests.iter().position(|r| r.id == self.id) {
+            let request = state.requests.remove(index);
+            state.active -= if request.started { 1 } else { 0 };
+        }
+        self.queue.schedule_idle(&mut state);
+        self.queue.0.signal.notify();
+    }
+}
+
+struct StopGuard(RequestQueue);
+
+impl Drop for StopGuard {
+    fn drop(&mut self) {
+        let mut state = self.0.0.state.lock().unwrap();
+        state.stopping = false;
+        self.0.0.signal.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    #[derive(Default)]
+    struct Counter(AtomicUsize);
+
+    #[async_trait]
+    impl Unload for Counter {
+        async fn unload(&self) -> Result<(), String> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    fn queue(ttl: u64, max: Option<usize>) -> (RequestQueue, Arc<Counter>) {
+        let counter = Arc::new(Counter::default());
+        (RequestQueue::new(counter.clone(), ttl, max), counter)
+    }
+
+    #[tokio::test]
+    async fn dropping_run_and_stop_callers_leaves_no_request_and_finishes_unloading() {
+        #[derive(Default)]
+        struct GatedUnload {
+            entered: tokio::sync::Notify,
+            release: tokio::sync::Notify,
+        }
+        #[async_trait]
+        impl Unload for GatedUnload {
+            async fn unload(&self) -> Result<(), String> {
+                self.entered.notify_one();
+                self.release.notified().await;
+                Ok(())
+            }
+        }
+        let unload = Arc::new(GatedUnload::default());
+        let q = RequestQueue::new(unload.clone(), 0, None);
+        let mut active = Box::pin(q.run(None, |_| std::future::pending::<()>()));
+        let mut waiting = Box::pin(q.run(None, |_| async {}));
+        tokio::select! { biased; _ = &mut active => panic!("active request returned"), _ = std::future::ready(()) => {} }
+        tokio::select! { biased; _ = &mut waiting => panic!("waiting request returned"), _ = std::future::ready(()) => {} }
+        assert_eq!(q.status()["activeRequests"], 1);
+        assert_eq!(q.status()["queuedRequests"], 1);
+        drop(waiting);
+        drop(active);
+        assert_eq!(q.status()["activeRequests"], 0);
+        assert_eq!(q.status()["queuedRequests"], 0);
+
+        let mut stop = Box::pin(q.stop());
+        tokio::select! { biased; _ = &mut stop => panic!("unload returned"), _ = unload.entered.notified() => {} }
+        drop(stop);
+        assert_eq!(q.run(None, |_| async {}).await, Err(QueueError::Stopping));
+        let mut changed = q.0.signal.subscribe();
+        unload.release.notify_one();
+        changed.changed().await.unwrap();
+        assert_eq!(q.run(None, |_| async { 1 }).await, Ok(1));
+    }
+
+    #[test]
+    fn ttl_is_an_integer_from_zero_to_a_day() {
+        assert_eq!(local_idle_ttl_seconds(0), Ok(0));
+        assert_eq!(local_idle_ttl_seconds(86_400), Ok(86_400));
+        assert_eq!(local_idle_ttl_seconds(86_401), Err(QueueError::InvalidTtl));
+        assert_eq!(local_idle_ttl_seconds(-1), Err(QueueError::InvalidTtl));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_waiting_request_aborts_early_and_the_queue_has_a_ceiling() {
+        let (q, _) = queue(0, Some(1));
+        let release = CancellationToken::new();
+        let running = {
+            let (q, release) = (q.clone(), release.clone());
+            tokio::spawn(async move { q.run(None, |_| async move { release.cancelled().await }).await })
+        };
+        tokio::task::yield_now().await;
+        let cancel = CancellationToken::new();
+        let waiting = {
+            let (q, cancel) = (q.clone(), cancel.clone());
+            tokio::spawn(async move { q.run(Some(cancel), |_| async {}).await })
+        };
+        tokio::task::yield_now().await;
+        assert_eq!(q.status()["queuedRequests"], 1);
+        assert_eq!(q.run(None, |_| async {}).await, Err(QueueError::Full));
+        cancel.cancel();
+        assert_eq!(waiting.await.unwrap(), Err(QueueError::Aborted));
+        release.cancel();
+        running.await.unwrap().unwrap();
+        assert_eq!(q.status()["queuedRequests"], 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stop_interrupts_running_work_unloads_and_reopens_the_queue() {
+        let (q, counter) = queue(0, None);
+        let running = {
+            let q = q.clone();
+            tokio::spawn(async move { q.run(None, |token| async move { token.cancelled().await; "interrupted" }).await })
+        };
+        tokio::task::yield_now().await;
+        q.stop().await;
+        assert_eq!(running.await.unwrap(), Ok("interrupted"));
+        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+        assert_eq!(q.run(None, |_| async { 1 }).await, Ok(1));
+    }
+
+
+    #[tokio::test(start_paused = true)]
+    async fn requests_run_one_at_a_time_in_arrival_order() {
+        let (q, _) = queue(0, None);
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for n in 0..3 {
+            let (q, order) = (q.clone(), order.clone());
+            handles.push(tokio::spawn(async move {
+                q.run(None, |_| async move {
+                    order.lock().unwrap().push(format!("start{n}"));
+                    mixdog_rt::time::sleep(Duration::from_millis(10)).await;
+                    order.lock().unwrap().push(format!("end{n}"));
+                })
+                .await
+            }));
+            tokio::task::yield_now().await;
+        }
+        for h in handles {
+            h.await.unwrap().unwrap();
+        }
+        assert_eq!(*order.lock().unwrap(), ["start0", "end0", "start1", "end1", "start2", "end2"]);
+    }
+    #[tokio::test(start_paused = true)]
+    async fn the_idle_ttl_unloads_once_after_the_last_request() {
+        let (q, counter) = queue(60, None);
+        q.run(None, |_| async {}).await.unwrap();
+        assert!(q.status()["idleDeadline"].is_i64());
+        mixdog_rt::time::sleep(Duration::from_secs(59)).await;
+        assert_eq!(counter.0.load(Ordering::SeqCst), 0);
+        mixdog_rt::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+        assert!(q.status()["idleDeadline"].is_null());
+        // A new request cancels a pending unload.
+        q.run(None, |_| async {}).await.unwrap();
+        mixdog_rt::time::sleep(Duration::from_secs(30)).await;
+        q.run(None, |_| async {}).await.unwrap();
+        mixdog_rt::time::sleep(Duration::from_secs(40)).await;
+        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+    }
+}
+
+
 impl RequestQueue {
     pub fn new(unloader: Arc<dyn Unload>, idle_ttl_seconds: u64, max_queue: Option<usize>) -> Self {
         Self::with_signal(unloader, idle_ttl_seconds, max_queue, ChangeSignal::default())
@@ -144,23 +320,15 @@ impl RequestQueue {
             state.requests.push(Request { id, cancel: token.clone(), started: false });
             id
         };
+        let request = RequestGuard { queue: self, id };
+        let leaving = token.clone().drop_guard();
         self.0.signal.notify();
-        let finish = |this: &Self| {
-            let mut state = this.0.state.lock().unwrap();
-            state.requests.retain(|r| r.id != id);
-            this.schedule_idle(&mut state);
-            this.0.signal.notify();
-        };
         let lane = tokio::select! {
+            biased;
+            _ = token.cancelled() => return Err(QueueError::Aborted),
             lane = self.0.serial.acquire() => lane,
-            _ = token.cancelled() => {
-                finish(self);
-                return Err(QueueError::Aborted);
-            }
         };
         if token.is_cancelled() {
-            drop(lane);
-            finish(self);
             return Err(QueueError::Aborted);
         }
         {
@@ -172,9 +340,9 @@ impl RequestQueue {
         }
         self.0.signal.notify();
         let out = operation(token).await;
-        self.0.state.lock().unwrap().active -= 1;
+        leaving.disarm();
+        drop(request);
         drop(lane);
-        finish(self);
         Ok(out)
     }
 
@@ -190,15 +358,21 @@ impl RequestQueue {
             state.requests.iter().for_each(|r| r.cancel.cancel());
         }
         self.0.signal.notify();
-        let outcome = self.0.unloader.unload().await;
-        let _ = self.0.serial.acquire().await;
-        let mut state = self.0.state.lock().unwrap();
-        Self::clear_idle(&mut state);
-        state.stopping = false;
-        if let Err(message) = outcome {
-            state.last_unload_error = Some(message);
+        let this = self.clone();
+        let stopping = StopGuard(this.clone());
+        // A caller can drop its wait, but admitting new requests before unload finishes races the old child.
+        let done = tokio::spawn(async move {
+            let outcome = this.0.unloader.unload().await;
+            let _lane = this.0.serial.acquire().await;
+            if let Err(message) = outcome {
+                this.0.state.lock().unwrap().last_unload_error = Some(message);
+            }
+            drop(stopping);
+        }).await;
+        if let Err(error) = done {
+            self.0.state.lock().unwrap().last_unload_error = Some(error.to_string());
+            self.0.signal.notify();
         }
-        self.0.signal.notify();
     }
 
     pub fn configure(&self, seconds: u64) {
@@ -222,115 +396,5 @@ impl RequestQueue {
             "idleDeadline": state.idle_deadline,
             "lastUnloadError": state.last_unload_error,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    use super::*;
-
-    #[derive(Default)]
-    struct Counter(AtomicUsize);
-
-    #[async_trait]
-    impl Unload for Counter {
-        async fn unload(&self) -> Result<(), String> {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        }
-    }
-
-    fn queue(ttl: u64, max: Option<usize>) -> (RequestQueue, Arc<Counter>) {
-        let counter = Arc::new(Counter::default());
-        (RequestQueue::new(counter.clone(), ttl, max), counter)
-    }
-
-    #[test]
-    fn ttl_is_an_integer_from_zero_to_a_day() {
-        assert_eq!(local_idle_ttl_seconds(0), Ok(0));
-        assert_eq!(local_idle_ttl_seconds(86_400), Ok(86_400));
-        assert_eq!(local_idle_ttl_seconds(86_401), Err(QueueError::InvalidTtl));
-        assert_eq!(local_idle_ttl_seconds(-1), Err(QueueError::InvalidTtl));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn requests_run_one_at_a_time_in_arrival_order() {
-        let (q, _) = queue(0, None);
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let mut handles = Vec::new();
-        for n in 0..3 {
-            let (q, order) = (q.clone(), order.clone());
-            handles.push(tokio::spawn(async move {
-                q.run(None, |_| async move {
-                    order.lock().unwrap().push(format!("start{n}"));
-                    mixdog_rt::time::sleep(Duration::from_millis(10)).await;
-                    order.lock().unwrap().push(format!("end{n}"));
-                })
-                .await
-            }));
-            tokio::task::yield_now().await;
-        }
-        for h in handles {
-            h.await.unwrap().unwrap();
-        }
-        assert_eq!(*order.lock().unwrap(), ["start0", "end0", "start1", "end1", "start2", "end2"]);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn the_idle_ttl_unloads_once_after_the_last_request() {
-        let (q, counter) = queue(60, None);
-        q.run(None, |_| async {}).await.unwrap();
-        assert!(q.status()["idleDeadline"].is_i64());
-        mixdog_rt::time::sleep(Duration::from_secs(59)).await;
-        assert_eq!(counter.0.load(Ordering::SeqCst), 0);
-        mixdog_rt::time::sleep(Duration::from_secs(2)).await;
-        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
-        assert!(q.status()["idleDeadline"].is_null());
-        // A new request cancels a pending unload.
-        q.run(None, |_| async {}).await.unwrap();
-        mixdog_rt::time::sleep(Duration::from_secs(30)).await;
-        q.run(None, |_| async {}).await.unwrap();
-        mixdog_rt::time::sleep(Duration::from_secs(40)).await;
-        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_waiting_request_aborts_early_and_the_queue_has_a_ceiling() {
-        let (q, _) = queue(0, Some(1));
-        let release = CancellationToken::new();
-        let running = {
-            let (q, release) = (q.clone(), release.clone());
-            tokio::spawn(async move { q.run(None, |_| async move { release.cancelled().await }).await })
-        };
-        tokio::task::yield_now().await;
-        let cancel = CancellationToken::new();
-        let waiting = {
-            let (q, cancel) = (q.clone(), cancel.clone());
-            tokio::spawn(async move { q.run(Some(cancel), |_| async {}).await })
-        };
-        tokio::task::yield_now().await;
-        assert_eq!(q.status()["queuedRequests"], 1);
-        assert_eq!(q.run(None, |_| async {}).await, Err(QueueError::Full));
-        cancel.cancel();
-        assert_eq!(waiting.await.unwrap(), Err(QueueError::Aborted));
-        release.cancel();
-        running.await.unwrap().unwrap();
-        assert_eq!(q.status()["queuedRequests"], 0);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn stop_interrupts_running_work_unloads_and_reopens_the_queue() {
-        let (q, counter) = queue(0, None);
-        let running = {
-            let q = q.clone();
-            tokio::spawn(async move { q.run(None, |token| async move { token.cancelled().await; "interrupted" }).await })
-        };
-        tokio::task::yield_now().await;
-        q.stop().await;
-        assert_eq!(running.await.unwrap(), Ok("interrupted"));
-        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
-        assert_eq!(q.run(None, |_| async { 1 }).await, Ok(1));
     }
 }

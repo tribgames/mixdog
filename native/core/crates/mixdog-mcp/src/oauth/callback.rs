@@ -104,108 +104,6 @@ pub enum PageOutcome {
     Stale,
 }
 
-/// The flush of a held page: done once the page was written, or its connection went away. Waiting for it is bounded,
-/// as Node bounds the flush it awaits at a second (`oauth-callback.mjs` `settle`): one promise, so one deadline,
-/// fixed when the page is answered and shared by every waiter (the login's `settle` and the listener's shutdown).
-#[derive(Clone)]
-pub struct Flush {
-    done: CancellationToken,
-    bound: Arc<std::sync::OnceLock<Bound>>,
-}
-
-/// The deadline of a flush's bound: a second after it was fixed. Once a test took the seams ([`seam::take_control`])
-/// it counts on the test's controlled clock ([`seam::CLOCK`]) instead; this crate's own unit tests never take them and
-/// run the production mechanism on tokio's (pausable) time.
-enum Bound {
-    At(tokio::time::Instant),
-    #[cfg(feature = "test-support")]
-    Seam(u64),
-}
-
-impl Bound {
-    const MS: u64 = 1000;
-
-    fn from_now() -> Self {
-        #[cfg(feature = "test-support")]
-        if seam::controlled() {
-            return Self::Seam(seam::CLOCK.now() + Self::MS);
-        }
-        Self::At(tokio::time::Instant::now() + Duration::from_millis(Self::MS))
-    }
-
-    async fn passed(&self) {
-        match self {
-            Self::At(at) => mixdog_rt::time::sleep_until(*at).await,
-            #[cfg(feature = "test-support")]
-            Self::Seam(at) => seam::CLOCK.reached(*at).await,
-        }
-    }
-}
-
-impl Flush {
-    fn pending() -> Self {
-        Self { done: CancellationToken::default(), bound: Arc::default() }
-    }
-
-    /// Fixes the deadline of the bound now: the page is being answered (Node starts the timer in `respond`).
-    pub fn start(&self) {
-        self.bound.get_or_init(Bound::from_now);
-    }
-
-    /// A flush that is over already (no page is held).
-    pub fn finished() -> Self {
-        let flush = Self::pending();
-        flush.done.cancel();
-        flush
-    }
-
-    pub fn is_done(&self) -> bool {
-        self.done.is_cancelled()
-    }
-
-    /// Returns when the page is flushed, or when the bound passed.
-    pub async fn wait(&self) {
-        let bound = self.bound.get_or_init(Bound::from_now);
-        tokio::select! {
-            () = self.done.cancelled() => {}
-            () = bound.passed() => {}
-        }
-    }
-}
-
-/// Marks a flush done when its page task ends, whichever way it ends (written, or the connection destroyed).
-struct FlushGuard(Flush, CancellationToken);
-
-impl Drop for FlushGuard {
-    fn drop(&mut self) {
-        (self.0).done.cancel();
-        self.1.cancel();
-    }
-}
-
-/// A valid callback: `code` is `None` when the authorization server answered with an error.
-pub struct Callback {
-    pub code: Option<String>,
-    /// Answers the held browser page once the code exchange and scope check ended.
-    pub respond: oneshot::Sender<PageOutcome>,
-    /// Cancelled once the held page task took the outcome and began writing the page, so the caller's next step
-    /// (closing the listener) comes after it, as Node's `answer(failure)` writes the page synchronously.
-    pub begun: CancellationToken,
-    /// Resolves once the held page was written (or at once when no page is held), as Node's `settle()`
-    /// awaits the page's flush before the listener closes.
-    pub flushed: Flush,
-}
-
-impl Callback {
-    /// A callback with no held page: a pasted URL, or a denial (already answered).
-    pub fn unheld(code: Option<String>) -> Self {
-        let (respond, _) = oneshot::channel();
-        let begun = CancellationToken::new();
-        begun.cancel();
-        Self { code, respond, begun, flushed: Flush::finished() }
-    }
-}
-
 /// Test seams (feature `test-support`): once a test calls [`seam::take_control`], every wait that Node bounds by a
 /// timer is driven by the test instead, and the listener's lifecycle is recorded as the events Node's recorder
 /// observed. Until then (always, in a daemon built with the feature) the timers are the production ones.
@@ -368,6 +266,307 @@ pub struct Stopper {
     shut: Arc<AtomicBool>,
 }
 
+pub struct Listener {
+    pub port: u16,
+    stopper: Stopper,
+}
+
+impl Listener {
+    pub fn stopper(&self) -> Stopper {
+        self.stopper.clone()
+    }
+}
+
+impl Drop for Listener {
+    fn drop(&mut self) {
+        self.stopper.stop.cancel();
+    }
+}
+
+struct Request {
+    method: String,
+    target: String,
+    host: Option<String>,
+}
+
+async fn write_page(stream: &mut TcpStream, status: &str, html: &str, head_only: bool) {
+    let body = if head_only { "" } else { html };
+    let response = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        page::CONTENT_TYPE,
+        html.len()
+    );
+    let _ = stream.write_all(response.as_bytes()).await;
+    let _ = stream.shutdown().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const REDIRECT: &str = "http://127.0.0.1:5555/oauth/callback";
+
+    #[test]
+    fn a_paste_must_be_exactly_the_pending_logins_callback() {
+        let ok = |url: &str| parse_pasted(url, REDIRECT, "st4te");
+        assert_eq!(ok(&format!("{REDIRECT}?code=abc&state=st4te&scope=x")), Ok(Pasted::Code("abc".into())));
+        assert_eq!(ok(&format!("{REDIRECT}?error=access_denied&state=st4te")), Ok(Pasted::Denied));
+        for bad in [
+            format!("{REDIRECT}?code=abc&state=other"),
+            format!("{REDIRECT}?code=abc&code=def&state=st4te"),
+            format!("{REDIRECT}?code=abc&error=x&state=st4te"),
+            format!("{REDIRECT}?code=abc&state=st4te#frag"),
+            "http://127.0.0.1:5555/elsewhere?code=abc&state=st4te".to_owned(),
+            "http://127.0.0.1:6666/oauth/callback?code=abc&state=st4te".to_owned(),
+            "not a url".to_owned(),
+        ] {
+            assert_eq!(ok(&bad), Err(INVALID_CALLBACK_PASTE), "{bad}");
+        }
+    }
+
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_loopback_holds_the_page_until_the_outcome_and_refuses_other_requests() {
+        let _runtime = mixdog_rt::testing::tokens();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let listener = listen(0, "st4te".into(), "Acme".into(), tx).await.unwrap();
+        let port = listener.port;
+        let get = move |path: String| async move {
+            let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            stream.write_all(format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").as_bytes()).await.unwrap();
+            let mut out = String::new();
+            stream.read_to_string(&mut out).await.unwrap();
+            out
+        };
+        assert!(get("/oauth/callback?code=c&state=wrong".into()).await.starts_with("HTTP/1.1 400"));
+        let page = tokio::spawn(get("/oauth/callback?code=c0de&state=st4te".into()));
+        let callback = rx.recv().await.unwrap();
+        assert_eq!(callback.code.as_deref(), Some("c0de"));
+        callback.respond.send(PageOutcome::Done).unwrap();
+        callback.flushed.wait().await;
+        let body = page.await.unwrap();
+        assert!(body.starts_with("HTTP/1.1 200") && body.contains("Acme"));
+    }
+    async fn raw(port: u16, request: String) -> String {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut out = String::new();
+        stream.read_to_string(&mut out).await.unwrap();
+        out
+    }
+
+    fn get_with_host(path: &str, host: &str) -> String {
+        format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n")
+    }
+
+    // The callback is answered only when it is the one this login waits for: its method, host, path, state and single code.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn only_the_exact_callback_of_this_login_reaches_it_and_every_other_request_is_a_400_without_a_code() {
+        let _runtime = mixdog_rt::testing::tokens();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let listener = listen(0, "st4te".into(), "Acme".into(), tx).await.unwrap();
+        let port = listener.port;
+        let host = format!("127.0.0.1:{port}");
+        let refused = [
+            get_with_host("/oauth/callback?code=c&state=wrong", &host),
+            get_with_host("/oauth/callback?code=c", &host),
+            get_with_host("/oauth/callback?state=st4te", &host),
+            get_with_host("/oauth/callback?code=a&code=b&state=st4te", &host),
+            get_with_host("/oauth/callback?code=c&state=st4te&state=st4te", &host),
+            get_with_host("/elsewhere?code=c&state=st4te", &host),
+            get_with_host("/oauth/callback?code=c&state=st4te", "evil.example"),
+            format!("POST /oauth/callback?code=c&state=st4te HTTP/1.1\r\nHost: {host}\r\n\r\n"),
+        ];
+        for request in refused {
+            let answer = raw(port, request.clone()).await;
+            assert!(answer.starts_with("HTTP/1.1 400 Bad Request"), "{request:?} -> {answer:?}");
+            assert!(answer.contains("This sign-in link is invalid or has expired."), "{request:?}");
+        }
+        assert!(rx.try_recv().is_err(), "no refused request reached the login");
+        listener.stopper.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_denied_sign_in_is_a_400_page_that_never_repeats_the_servers_error_text() {
+        let _runtime = mixdog_rt::testing::tokens();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let listener = listen(0, "st4te".into(), "Acme".into(), tx).await.unwrap();
+        let port = listener.port;
+        let host = format!("127.0.0.1:{port}");
+        let answer = raw(port, get_with_host("/oauth/callback?error=%3Cb%3Esecret-detail&state=st4te", &host)).await;
+        assert!(answer.starts_with("HTTP/1.1 400 Bad Request"), "{answer:?}");
+        assert!(answer.contains("Sign-in to Acme was not completed."), "{answer:?}");
+        assert!(!answer.contains("secret-detail"), "the error text is not reflected: {answer:?}");
+        assert_eq!(rx.recv().await.unwrap().code, None, "the login is told there is no code");
+        // The login's one callback is taken: a second valid-looking one is refused.
+        let again = raw(port, get_with_host("/oauth/callback?code=c&state=st4te", &host)).await;
+        assert!(again.starts_with("HTTP/1.1 400 Bad Request"), "{again:?}");
+        listener.stopper.stop().await;
+    }
+
+    // The page waits for the login's outcome and says what it was; an empty code is no code.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_page_tells_the_outcome_the_login_reports_and_its_headers_forbid_caching_and_referrers() {
+        let _runtime = mixdog_rt::testing::tokens();
+        let outcomes = [
+            (PageOutcome::Done, "200 OK", "Acme"),
+            (PageOutcome::Stale, "400 Bad Request", "This sign-in link is invalid or has expired."),
+            (PageOutcome::Failed { scope_not_granted: false }, "400 Bad Request", "Sign-in to Acme could not be completed."),
+            (PageOutcome::Failed { scope_not_granted: true }, "400 Bad Request", "Access to Acme was not granted."),
+        ];
+        for (outcome, status, mention) in outcomes {
+            let (tx, mut rx) = mpsc::unbounded_channel();
+            let listener = listen(0, "st4te".into(), "Acme".into(), tx).await.unwrap();
+            let port = listener.port;
+            let host = format!("127.0.0.1:{port}");
+            let page = tokio::spawn(raw(port, get_with_host("/oauth/callback?code=c0de&state=st4te", &host)));
+            let callback = rx.recv().await.unwrap();
+            callback.respond.send(outcome).unwrap();
+            callback.flushed.wait().await;
+            let answer = page.await.unwrap();
+            assert!(answer.starts_with(&format!("HTTP/1.1 {status}")), "{answer:?}");
+            assert!(answer.contains(mention), "{mention}: {answer:?}");
+            assert!(answer.contains("Cache-Control: no-store") && answer.contains("Referrer-Policy: no-referrer"), "{answer:?}");
+            listener.stopper.stop().await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_head_request_gets_the_headers_of_the_page_and_no_body() {
+        let _runtime = mixdog_rt::testing::tokens();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let listener = listen(0, "st4te".into(), "Acme".into(), tx).await.unwrap();
+        let port = listener.port;
+        let answer = raw(port, format!("HEAD /elsewhere HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n")).await;
+        let (head, body) = answer.split_once("\r\n\r\n").expect("a head and a body");
+        assert!(head.starts_with("HTTP/1.1 400 Bad Request"), "{head:?}");
+        assert!(body.is_empty(), "{body:?}");
+        let length: usize = head.lines().find_map(|line| line.strip_prefix("Content-Length: ")).unwrap().parse().unwrap();
+        assert!(length > 0, "the length is the page's, as for a GET");
+        listener.stopper.stop().await;
+    }
+    /// Node waits for a page's flush on one promise bounded at a second: the login's `settle` and the listener's
+    /// `stopListening` share it. With a flush that never completes, the connections are destroyed a second after the
+    /// flush was registered, not two. This runs the production deadline (tokio time, paused), not the test clock.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn the_login_and_the_shutdown_share_one_flush_bound() {
+        let _runtime = mixdog_rt::testing::tokens();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let listener = listen(0, "st4te".into(), "Acme".into(), tx).await.unwrap();
+        let accepted = seam::CONNECTIONS.count();
+        let mut idle = TcpStream::connect(("127.0.0.1", listener.port)).await.unwrap();
+        seam::CONNECTIONS.after(accepted).await;
+
+        let registered = tokio::time::Instant::now();
+        let flush = Flush::pending();
+        flush.start();
+        // The login waits out the bound.
+        flush.wait().await;
+        assert_eq!(registered.elapsed(), Duration::from_secs(1), "the login's wait ends at the bound");
+
+        listener.stopper().shutdown(Some(flush)).await;
+        let mut byte = [0u8; 1];
+        let read = idle.read(&mut byte).await;
+        assert!(matches!(read, Ok(0)), "the connection was destroyed: {read:?}");
+        assert_eq!(registered.elapsed(), Duration::from_secs(1), "shutdown destroyed the connections at 1 s, not 2 s");
+    }
+}
+
+
+/// The flush of a held page: done once the page was written, or its connection went away. Waiting for it is bounded,
+/// as Node bounds the flush it awaits at a second (`oauth-callback.mjs` `settle`): one promise, so one deadline,
+/// fixed when the page is answered and shared by every waiter (the login's `settle` and the listener's shutdown).
+#[derive(Clone)]
+pub struct Flush {
+    done: CancellationToken,
+    bound: Arc<std::sync::OnceLock<Bound>>,
+}
+/// The deadline of a flush's bound: a second after it was fixed. Once a test took the seams ([`seam::take_control`])
+/// it counts on the test's controlled clock ([`seam::CLOCK`]) instead; this crate's own unit tests never take them and
+/// run the production mechanism on tokio's (pausable) time.
+enum Bound {
+    At(tokio::time::Instant),
+    #[cfg(feature = "test-support")]
+    Seam(u64),
+}
+impl Bound {
+    const MS: u64 = 1000;
+
+    fn from_now() -> Self {
+        #[cfg(feature = "test-support")]
+        if seam::controlled() {
+            return Self::Seam(seam::CLOCK.now() + Self::MS);
+        }
+        Self::At(tokio::time::Instant::now() + Duration::from_millis(Self::MS))
+    }
+
+    async fn passed(&self) {
+        match self {
+            Self::At(at) => mixdog_rt::time::sleep_until(*at).await,
+            #[cfg(feature = "test-support")]
+            Self::Seam(at) => seam::CLOCK.reached(*at).await,
+        }
+    }
+}
+impl Flush {
+    fn pending() -> Self {
+        Self { done: CancellationToken::default(), bound: Arc::default() }
+    }
+
+    /// Fixes the deadline of the bound now: the page is being answered (Node starts the timer in `respond`).
+    pub fn start(&self) {
+        self.bound.get_or_init(Bound::from_now);
+    }
+
+    /// A flush that is over already (no page is held).
+    pub fn finished() -> Self {
+        let flush = Self::pending();
+        flush.done.cancel();
+        flush
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.done.is_cancelled()
+    }
+
+    /// Returns when the page is flushed, or when the bound passed.
+    pub async fn wait(&self) {
+        let bound = self.bound.get_or_init(Bound::from_now);
+        tokio::select! {
+            () = self.done.cancelled() => {}
+            () = bound.passed() => {}
+        }
+    }
+}
+/// Marks a flush done when its page task ends, whichever way it ends (written, or the connection destroyed).
+struct FlushGuard(Flush, CancellationToken);
+impl Drop for FlushGuard {
+    fn drop(&mut self) {
+        (self.0).done.cancel();
+        self.1.cancel();
+    }
+}
+/// A valid callback: `code` is `None` when the authorization server answered with an error.
+pub struct Callback {
+    pub code: Option<String>,
+    /// Answers the held browser page once the code exchange and scope check ended.
+    pub respond: oneshot::Sender<PageOutcome>,
+    /// Cancelled once the held page task took the outcome and began writing the page, so the caller's next step
+    /// (closing the listener) comes after it, as Node's `answer(failure)` writes the page synchronously.
+    pub begun: CancellationToken,
+    /// Resolves once the held page was written (or at once when no page is held), as Node's `settle()`
+    /// awaits the page's flush before the listener closes.
+    pub flushed: Flush,
+}
+impl Callback {
+    /// A callback with no held page: a pasted URL, or a denial (already answered).
+    pub fn unheld(code: Option<String>) -> Self {
+        let (respond, _) = oneshot::channel();
+        let begun = CancellationToken::new();
+        begun.cancel();
+        Self { code, respond, begun, flushed: Flush::finished() }
+    }
+}
 impl Stopper {
     /// Stops accepting and waits until the port is released.
     pub async fn stop(&self) {
@@ -410,30 +609,6 @@ impl Stopper {
         }
     }
 }
-
-pub struct Listener {
-    pub port: u16,
-    stopper: Stopper,
-}
-
-impl Listener {
-    pub fn stopper(&self) -> Stopper {
-        self.stopper.clone()
-    }
-}
-
-impl Drop for Listener {
-    fn drop(&mut self) {
-        self.stopper.stop.cancel();
-    }
-}
-
-struct Request {
-    method: String,
-    target: String,
-    host: Option<String>,
-}
-
 async fn read_request(stream: &mut TcpStream) -> Option<Request> {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 2048];
@@ -465,18 +640,6 @@ async fn read_request(stream: &mut TcpStream) -> Option<Request> {
         .map(|(_, v)| v.trim().to_owned());
     Some(Request { method, target, host })
 }
-
-async fn write_page(stream: &mut TcpStream, status: &str, html: &str, head_only: bool) {
-    let body = if head_only { "" } else { html };
-    let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        page::CONTENT_TYPE,
-        html.len()
-    );
-    let _ = stream.write_all(response.as_bytes()).await;
-    let _ = stream.shutdown().await;
-}
-
 async fn answer(mut stream: TcpStream, port: u16, state: String, server: String, tx: mpsc::UnboundedSender<Callback>, answered: Arc<AtomicBool>) {
     let invalid = page::error_html("This sign-in link is invalid or has expired.");
     let Some(request) = read_request(&mut stream).await else { return };
@@ -553,7 +716,6 @@ async fn answer(mut stream: TcpStream, port: u16, state: String, server: String,
         event("page-finished");
     }
 }
-
 /// Listens on the loopback `port` (0: any free one) for the callback of the login whose state is
 /// `state`; valid callbacks arrive on `tx`. The listener owns the connections it accepted: it stops accepting and
 /// destroys them through its [`Stopper`].
@@ -609,78 +771,4 @@ pub async fn listen(
         }
     });
     Ok(Listener { port, stopper })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const REDIRECT: &str = "http://127.0.0.1:5555/oauth/callback";
-
-    #[test]
-    fn a_paste_must_be_exactly_the_pending_logins_callback() {
-        let ok = |url: &str| parse_pasted(url, REDIRECT, "st4te");
-        assert_eq!(ok(&format!("{REDIRECT}?code=abc&state=st4te&scope=x")), Ok(Pasted::Code("abc".into())));
-        assert_eq!(ok(&format!("{REDIRECT}?error=access_denied&state=st4te")), Ok(Pasted::Denied));
-        for bad in [
-            format!("{REDIRECT}?code=abc&state=other"),
-            format!("{REDIRECT}?code=abc&code=def&state=st4te"),
-            format!("{REDIRECT}?code=abc&error=x&state=st4te"),
-            format!("{REDIRECT}?code=abc&state=st4te#frag"),
-            "http://127.0.0.1:5555/elsewhere?code=abc&state=st4te".to_owned(),
-            "http://127.0.0.1:6666/oauth/callback?code=abc&state=st4te".to_owned(),
-            "not a url".to_owned(),
-        ] {
-            assert_eq!(ok(&bad), Err(INVALID_CALLBACK_PASTE), "{bad}");
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_loopback_holds_the_page_until_the_outcome_and_refuses_other_requests() {
-        let _runtime = mixdog_rt::testing::tokens();
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let listener = listen(0, "st4te".into(), "Acme".into(), tx).await.unwrap();
-        let port = listener.port;
-        let get = move |path: String| async move {
-            let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-            stream.write_all(format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").as_bytes()).await.unwrap();
-            let mut out = String::new();
-            stream.read_to_string(&mut out).await.unwrap();
-            out
-        };
-        assert!(get("/oauth/callback?code=c&state=wrong".into()).await.starts_with("HTTP/1.1 400"));
-        let page = tokio::spawn(get("/oauth/callback?code=c0de&state=st4te".into()));
-        let callback = rx.recv().await.unwrap();
-        assert_eq!(callback.code.as_deref(), Some("c0de"));
-        callback.respond.send(PageOutcome::Done).unwrap();
-        callback.flushed.wait().await;
-        let body = page.await.unwrap();
-        assert!(body.starts_with("HTTP/1.1 200") && body.contains("Acme"));
-    }
-
-    /// Node waits for a page's flush on one promise bounded at a second: the login's `settle` and the listener's
-    /// `stopListening` share it. With a flush that never completes, the connections are destroyed a second after the
-    /// flush was registered, not two. This runs the production deadline (tokio time, paused), not the test clock.
-    #[tokio::test(flavor = "current_thread", start_paused = true)]
-    async fn the_login_and_the_shutdown_share_one_flush_bound() {
-        let _runtime = mixdog_rt::testing::tokens();
-        let (tx, _rx) = mpsc::unbounded_channel();
-        let listener = listen(0, "st4te".into(), "Acme".into(), tx).await.unwrap();
-        let accepted = seam::CONNECTIONS.count();
-        let mut idle = TcpStream::connect(("127.0.0.1", listener.port)).await.unwrap();
-        seam::CONNECTIONS.after(accepted).await;
-
-        let registered = tokio::time::Instant::now();
-        let flush = Flush::pending();
-        flush.start();
-        // The login waits out the bound.
-        flush.wait().await;
-        assert_eq!(registered.elapsed(), Duration::from_secs(1), "the login's wait ends at the bound");
-
-        listener.stopper().shutdown(Some(flush)).await;
-        let mut byte = [0u8; 1];
-        let read = idle.read(&mut byte).await;
-        assert!(matches!(read, Ok(0)), "the connection was destroyed: {read:?}");
-        assert_eq!(registered.elapsed(), Duration::from_secs(1), "shutdown destroyed the connections at 1 s, not 2 s");
-    }
 }

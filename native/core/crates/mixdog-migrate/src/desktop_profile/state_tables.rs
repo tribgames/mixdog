@@ -105,8 +105,8 @@ pub fn project_rows(value: &Value) -> Result<Vec<ProjectRow>, ApplyError> {
     Ok(rows.into_values().collect())
 }
 
-/// `roomDocOf`: the room records, a round that was in flight marked interrupted (never
-/// resumed): its `running` marker is cleared.
+/// A round that was in flight is no longer running. Leave its timestamp for
+/// startup to post the interruption without ever resuming the exchange.
 pub fn room_rows(value: &Value) -> Result<Vec<RoomRow>, ApplyError> {
     let root = jsvalue::object(value).ok_or_else(|| schema_violation("room records are not an object"))?;
     let Some(rooms) = root.get("rooms").and_then(jsvalue::object) else {
@@ -118,8 +118,10 @@ pub fn room_rows(value: &Value) -> Result<Vec<RoomRow>, ApplyError> {
             .as_object()
             .cloned()
             .ok_or_else(|| schema_violation("a room record is not an object"))?;
-        if doc.get("running").is_some_and(|running| !running.is_null()) {
+        if let Some(running) = doc.get("running").filter(|running| !running.is_null()) {
+            let interrupted = running.get("startedAt").and_then(Value::as_i64).unwrap_or(0);
             doc.insert("running".into(), Value::Null);
+            doc.insert("interruptedAt".into(), Value::from(interrupted));
         }
         rows.push(RoomRow {
             room_id: room_id.clone(),
@@ -377,6 +379,30 @@ pub(super) fn verify(cx: &ItemContext<'_>, item: &ManifestItem, table: StateTabl
     if published != manifest_sha256 {
         return Err(mismatch("the meta row names another manifest"));
     }
+    if let (Rows::Rooms(expected), Rows::Rooms(observed)) = (&expected, &observed)
+        && expected != observed
+    {
+        // A prior build could commit the cleared rows without the recovery
+        // field. Upgrade only that exact projection, never unrelated edits.
+        let mut cleared = expected.clone();
+        for row in &mut cleared {
+            row.doc.as_object_mut().expect("room object").shift_remove("interruptedAt");
+        }
+        if cleared == *observed {
+            let path = state_path(data);
+            let blocked = |error: rusqlite::Error| ApplyError::blocked("sqlite", &path, error);
+            let mut connection = open_state(data)?;
+            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(blocked)?;
+            for (before, after) in cleared.iter().zip(expected) {
+                if before != after {
+                    transaction.execute("UPDATE rooms SET doc = ?1 WHERE room_id = ?2",
+                        params![source::canonical_text(&after.doc), after.room_id]).map_err(blocked)?;
+                }
+            }
+            transaction.commit().map_err(blocked)?;
+            return Ok(source::digest_value(&serde_json::to_value(Rows::Rooms(expected.clone())).expect("rows serialize")));
+        }
+    }
     let expected = serde_json::to_value(&expected).expect("rows serialize");
     let observed = serde_json::to_value(&observed).expect("rows serialize");
     if source::canonical_text(&expected) != source::canonical_text(&observed) {
@@ -422,6 +448,8 @@ mod tests {
         .unwrap();
         assert_eq!(rows[0].room_id, "r1");
         assert_eq!(rows[1].doc["running"], Value::Null);
+        assert_eq!(rows[1].doc["interruptedAt"], 5);
+        assert!(rows[0].doc.get("interruptedAt").is_none());
         assert_eq!(rows[1].doc["lastPreview"], "hi");
     }
 

@@ -68,26 +68,6 @@ pub struct ExitSettings {
     pub hard_exit_enabled: bool,
 }
 
-impl ExitSettings {
-    pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> ExitSettings {
-        let hard_raw = var("MIXDOG_TUI_HARD_EXIT").filter(|value| !value.is_empty()).unwrap_or_else(|| "1".to_string());
-        ExitSettings {
-            wait_timeout: Duration::from_millis(positive_int(var("MIXDOG_TUI_EXIT_WAIT_MS"), EXIT_WAIT_TIMEOUT_MS)),
-            hard_exit_delay: Duration::from_millis(positive_int(var("MIXDOG_TUI_HARD_EXIT_DELAY_MS"), HARD_EXIT_DELAY_MS)),
-            hard_exit_enabled: !is_off_word(&hard_raw),
-        }
-    }
-
-    pub fn from_process() -> ExitSettings {
-        ExitSettings::from_vars(|name| std::env::var(name).ok())
-    }
-
-    /// The deadline of the whole cleanup: the wait for the session plus one second.
-    pub fn cleanup_timeout(&self) -> Duration {
-        self.wait_timeout + Duration::from_secs(1)
-    }
-}
-
 /// Runs `work` on a thread of its own and waits at most `limit` for it; true when it finished in time.
 fn run_bounded(name: &str, limit: Duration, work: impl FnOnce() + Send + 'static) -> bool {
     let (done_tx, done_rx) = mpsc::channel();
@@ -346,50 +326,6 @@ struct ActiveRedirect {
 pub struct StderrGuard {
     active: Option<ActiveRedirect>,
     log_path: Option<PathBuf>,
-}
-
-impl StderrGuard {
-    /// [`StderrGuard::install_with`] over the process environment and the temporary directory.
-    pub fn install() -> StderrGuard {
-        StderrGuard::install_with(|name| std::env::var(name).ok(), &std::env::temp_dir())
-    }
-
-    pub fn install_with(var: impl Fn(&str) -> Option<String>, temp_dir: &Path) -> StderrGuard {
-        let inactive = StderrGuard { active: None, log_path: None };
-        if var("MIXDOG_TUI_ALLOW_STDERR").as_deref() == Some("1") {
-            return inactive;
-        }
-        let path = stderr_log_path(&var, temp_dir);
-        if let Some(parent) = path.parent() {
-            // The log may still open when the directory exists already.
-            let _ = mixdog_fsio::create_dir_all(&Unlaned, parent);
-        }
-        // This process never passes through a log rotation of its own: the log is bounded here, once, before it opens.
-        rotate_bounded_log(&path, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES);
-        let (log, log_path) = match OpenOptions::new().append(true).create(true).open(&Unlaned, &path) {
-            Ok(log) => (log, Some(path)),
-            Err(_) => match OpenOptions::new().write(true).open(&Unlaned, NULL_DEVICE) {
-                Ok(null) => (null, None),
-                Err(_) => return inactive,
-            },
-        };
-        match redirect::redirect_stderr(&log) {
-            Some(saved) => StderrGuard { active: Some(ActiveRedirect { saved, _log: log }), log_path },
-            None => inactive,
-        }
-    }
-
-    /// The file stderr goes to, when it is redirected to a log.
-    pub fn log_path(&self) -> Option<&Path> {
-        self.active.as_ref().and(self.log_path.as_deref())
-    }
-
-    /// Puts stderr back; a second call does nothing.
-    pub fn restore(&mut self) {
-        if let Some(active) = self.active.take() {
-            redirect::restore(active.saved);
-        }
-    }
 }
 
 impl Drop for StderrGuard {
@@ -1040,5 +976,69 @@ mod tests {
         restorer.restore();
         assert_eq!(*written.lock().unwrap(), restore_sequence().into_bytes());
         assert!(restorer.modes().is_restored());
+    }
+}
+
+
+impl ExitSettings {
+    pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> ExitSettings {
+        let hard_raw = var("MIXDOG_TUI_HARD_EXIT").filter(|value| !value.is_empty()).unwrap_or_else(|| "1".to_string());
+        ExitSettings {
+            wait_timeout: Duration::from_millis(positive_int(var("MIXDOG_TUI_EXIT_WAIT_MS"), EXIT_WAIT_TIMEOUT_MS)),
+            hard_exit_delay: Duration::from_millis(positive_int(var("MIXDOG_TUI_HARD_EXIT_DELAY_MS"), HARD_EXIT_DELAY_MS)),
+            hard_exit_enabled: !is_off_word(&hard_raw),
+        }
+    }
+
+    pub fn from_process() -> ExitSettings {
+        ExitSettings::from_vars(|name| std::env::var(name).ok())
+    }
+
+    /// The deadline of the whole cleanup: the wait for the session plus one second.
+    pub fn cleanup_timeout(&self) -> Duration {
+        self.wait_timeout + Duration::from_secs(1)
+    }
+}
+impl StderrGuard {
+    /// [`StderrGuard::install_with`] over the process environment and the temporary directory.
+    pub fn install() -> StderrGuard {
+        StderrGuard::install_with(|name| std::env::var(name).ok(), &std::env::temp_dir())
+    }
+
+    pub fn install_with(var: impl Fn(&str) -> Option<String>, temp_dir: &Path) -> StderrGuard {
+        let inactive = StderrGuard { active: None, log_path: None };
+        if var("MIXDOG_TUI_ALLOW_STDERR").as_deref() == Some("1") {
+            return inactive;
+        }
+        let path = stderr_log_path(&var, temp_dir);
+        if let Some(parent) = path.parent() {
+            // The log may still open when the directory exists already.
+            let _ = mixdog_fsio::create_dir_all(&Unlaned, parent);
+        }
+        // This process never passes through a log rotation of its own: the log is bounded here, once, before it opens.
+        rotate_bounded_log(&path, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES);
+        let (log, log_path) = match OpenOptions::new().append(true).create(true).open(&Unlaned, &path) {
+            Ok(log) => (log, Some(path)),
+            Err(_) => match OpenOptions::new().write(true).open(&Unlaned, NULL_DEVICE) {
+                Ok(null) => (null, None),
+                Err(_) => return inactive,
+            },
+        };
+        match redirect::redirect_stderr(&log) {
+            Some(saved) => StderrGuard { active: Some(ActiveRedirect { saved, _log: log }), log_path },
+            None => inactive,
+        }
+    }
+
+    /// The file stderr goes to, when it is redirected to a log.
+    pub fn log_path(&self) -> Option<&Path> {
+        self.active.as_ref().and(self.log_path.as_deref())
+    }
+
+    /// Puts stderr back; a second call does nothing.
+    pub fn restore(&mut self) {
+        if let Some(active) = self.active.take() {
+            redirect::restore(active.saved);
+        }
     }
 }

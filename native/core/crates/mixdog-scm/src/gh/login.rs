@@ -3,8 +3,8 @@
 //! credential helper set up when it exits 0. Progress is the flow's state; the scoped feed
 //! `login:<flowId>` and the snapshot read are the core's, built on [`LoginSession`].
 //!
-//! No timer decides the outcome: a device code the user never enters ends when gh exits (its
-//! own expiry), and the user cancels when they give up.
+//! Two timers bound it as in Node's `githubCliLoginStart`: no device code within 45 s is a
+//! stall, and the whole flow ends after 10 minutes. Neither bounds the renderer's polling.
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -184,6 +184,48 @@ impl LoginSession for Session {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_code_and_url_are_read_from_gh_output() {
+        let text = strip_control("\u{1b}[1mFirst copy your one-time code: ABCD-1234\u{1b}[0m\r\nOpen https://github.com/login/device now\n");
+        assert_eq!(find_device_code(&text).as_deref(), Some("ABCD-1234"));
+        assert_eq!(find_device_url(&text).as_deref(), Some("https://github.com/login/device"));
+        assert_eq!(
+            find_device_code("! One-time code (WXYZ-9876) copied to clipboard").as_deref(),
+            Some("WXYZ-9876")
+        );
+        assert_eq!(find_device_code("one-time code: abc"), None);
+    }
+}
+
+
+/// gh prints the one-time code within seconds; silence past this is a stall.
+const CODE_STALL: std::time::Duration = std::time::Duration::from_secs(45);
+const LOGIN_LIMIT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+/// Fails the flow and kills gh when the code never shows up in time, or the flow outlives its limit.
+async fn guard(shared: Arc<Shared>, stall: std::time::Duration, limit: std::time::Duration) {
+    let deadline = tokio::time::Instant::now() + limit;
+    let mut state = shared.state.subscribe();
+    // The watch's read guard must not outlive the wait: `advance` writes to the same channel.
+    let started = tokio::time::timeout(stall, state.wait_for(|s| !matches!(s, LoginState::Starting)))
+        .await
+        .map(|waited| waited.is_ok());
+    let message = match started {
+        Err(_) => "GitHub sign-in did not start. Run `gh auth login` in a terminal instead.",
+        Ok(false) => return,
+        Ok(true) => {
+            if tokio::time::timeout_at(deadline, state.wait_for(LoginState::is_terminal)).await.is_ok() {
+                return;
+            }
+            "Login timed out after 10 minutes."
+        }
+    };
+    shared.advance(LoginState::Failed(LoginFailure::Failed { code: "timeout".into(), message: message.into() }));
+    let _ = shared.processes.kill(&shared.handle);
+}
 pub struct GithubLogin {
     processes: Arc<dyn ProcessManager>,
     client: Arc<GhClient>,
@@ -191,9 +233,18 @@ pub struct GithubLogin {
     current: Mutex<Option<Arc<Shared>>>,
     sequence: AtomicU64,
     target: LoginTarget,
+    stall: std::time::Duration,
+    limit: std::time::Duration,
 }
-
 impl GithubLogin {
+    /// Shorter timers, for tests.
+    #[cfg(test)]
+    pub(crate) fn with_limits(mut self, stall: std::time::Duration, limit: std::time::Duration) -> Self {
+        self.stall = stall;
+        self.limit = limit;
+        self
+    }
+
     pub fn new(
         processes: Arc<dyn ProcessManager>,
         client: Arc<GhClient>,
@@ -206,10 +257,11 @@ impl GithubLogin {
             current: Mutex::new(None),
             sequence: AtomicU64::new(0),
             target: LoginTarget::Github,
+            stall: CODE_STALL,
+            limit: LOGIN_LIMIT,
         }
     }
 }
-
 #[async_trait]
 impl LoginFlow for GithubLogin {
     fn target(&self) -> &LoginTarget {
@@ -290,6 +342,8 @@ impl LoginFlow for GithubLogin {
             processes: self.processes.clone(),
         });
         *self.current.lock().expect("login flow") = Some(shared.clone());
+        let (stall, limit) = (self.stall, self.limit);
+        mixdog_rt::spawn("scm-login-timers", TaskClass::Work, guard(shared.clone(), stall, limit));
         let driven = shared.clone();
         let client = self.client.clone();
         mixdog_rt::spawn("scm-login", TaskClass::Work, async move {
@@ -298,7 +352,6 @@ impl LoginFlow for GithubLogin {
         Ok(Box::new(Session(shared)))
     }
 }
-
 async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent>>, client: Arc<GhClient>, attempt: crate::seam::Attempt) {
     let mut output = String::new();
     let mut url: Option<String> = None;
@@ -365,9 +418,7 @@ async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent
     let home = crate::desktop::process_dir();
     let cancel = CancellationToken::new();
     let verdict = async {
-        let status = client
-            .output(&home, &cancel, &["auth", "status", "--hostname", HOSTNAME, "--active"])
-            .await?;
+        let status = crate::gh::account::auth_status(&client, &home, &cancel).await?;
         if !status.success() {
             return Ok(Err(LoginFailure::Failed {
                 code: "not-signed-in".into(),
@@ -404,21 +455,4 @@ async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent
             message: other.to_string(),
         }),
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn device_code_and_url_are_read_from_gh_output() {
-        let text = strip_control("\u{1b}[1mFirst copy your one-time code: ABCD-1234\u{1b}[0m\r\nOpen https://github.com/login/device now\n");
-        assert_eq!(find_device_code(&text).as_deref(), Some("ABCD-1234"));
-        assert_eq!(find_device_url(&text).as_deref(), Some("https://github.com/login/device"));
-        assert_eq!(
-            find_device_code("! One-time code (WXYZ-9876) copied to clipboard").as_deref(),
-            Some("WXYZ-9876")
-        );
-        assert_eq!(find_device_code("one-time code: abc"), None);
-    }
 }

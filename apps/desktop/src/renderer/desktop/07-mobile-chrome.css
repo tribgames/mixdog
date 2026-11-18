@@ -111,13 +111,15 @@ html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new {
   flex-basis: var(--mx-touch-main);
   align-self: center;
 }
-html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new svg {
-  width: var(--mx-touch-glyph-main);
-  height: var(--mx-touch-glyph-main);
-  padding: 5px;
+html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new > .workspace-tab-new-mark {
+  width: calc(var(--mx-touch-glyph-main) + 10px);
+  height: calc(var(--mx-touch-glyph-main) + 10px);
+  flex-basis: calc(var(--mx-touch-glyph-main) + 10px);
   border-radius: var(--mx-radius-pill);
 }
-html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new svg.lucide {
+html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new > .workspace-tab-new-mark svg.lucide {
+  width: var(--mx-touch-glyph-main);
+  height: var(--mx-touch-glyph-main);
   stroke-width: 1.75px;
 }
 /* Dock toggles at the strip's right end, exactly the desktop cluster (shape
@@ -324,7 +326,7 @@ html[data-mixdog-mobile-tabs]
 html[data-mixdog-mobile-tabs] .workspace-tab-compact-current:hover:not(:active) {
   background: var(--mx-hover);
 }
-html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new:hover:not(:active) svg {
+html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new:hover:not(:active) > .workspace-tab-new-mark {
   background: transparent;
 }
 html[data-mixdog-mobile-tabs] .pane-dock-toggle[aria-pressed="true"]:hover:not(:active) {

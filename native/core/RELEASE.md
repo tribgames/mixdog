@@ -7,15 +7,25 @@ Owner: WP-INTEGRATE. Release version: the root `package.json` `version` (checked
 
 - `stage-core.mjs` stages prebuilt binaries and never builds them. Each target (including Linux
   for the bootstrap and the docker e2e) is built per target in CI; no cross-compiling from Windows.
-- **libvpx.** `shiguredo_libvpx = "=2026.1.0"` (`mixdog-remote`, via WP-WEBRTC) downloads a
-  checksum-verified prebuilt libvpx archive from GitHub at build time. Release builds must not
-  depend on GitHub at build time:
+- **libvpx.** `shiguredo_libvpx = "=2026.2.0-canary.3"` (`native/core/Cargo.toml`, used by
+  `mixdog-remote`, via WP-WEBRTC) has a build script that downloads a prebuilt static libvpx
+  (v1.17.0) with `curl` from
+  `https://github.com/shiguredo/libvpx-rs/releases/download/<crate version>/libvpx-<target>.tar.gz`
+  at build time; no `--features source-build` is set. The `.sha256` file it checks the archive
+  against is downloaded from the same release, so it detects a corrupt download, not a
+  substituted release. **Today the release builds fetch from GitHub at build time:**
+  `.github/workflows/mixdogd-build.yml` and `release-gate.yml` neither cache nor vendor the
+  archive (only the cargo registry and sccache are cached). To make release builds independent
+  of GitHub, the plan is:
   1. Workflow plan: the core release job restores a CI cache (`actions/cache`) of the archive
-     directory keyed on the pinned crate version and target triple (`libvpx-2026.1.0-<target>`),
-     and primes it in a separate step on cache miss. Build with `--locked`.
+     directory keyed on the pinned crate version and target triple
+     (`libvpx-2026.2.0-canary.3-<target>`), and primes it in a separate step on cache miss.
+     Build with `--locked`.
   2. Fallback / hermetic builds: vendor the archive (with its checksum) in the release-assets
      store and point the crate's build at that copy; do not fetch in the build step.
   3. A version bump of the pin invalidates the cache key and must re-prime it.
+  The archive holds only the library and its bindings; libvpx's licence and patent grant are in
+  `LICENSES/libvpx-BSD-3-Clause.txt` (see `NOTICE.md`).
 - **JS runtime (desktop and remote alike).** The core finds its interpreter and package through
   `js-runtime.json` next to `mixdogd` (`js_runtime::resolve_current`); only the manifest differs.
   - Desktop: `resources/core/js-runtime.json` points at the app executable in node mode

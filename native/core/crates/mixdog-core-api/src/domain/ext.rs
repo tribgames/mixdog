@@ -107,6 +107,27 @@ pub trait DocumentText: Send + Sync {
     /// caller's to apply to `page_count`. An environment failure or the 60 s intake timeout is an
     /// error.
     async fn pdf_counts(&self, thread: &ThreadId, data_base64: &str) -> Result<PdfIntake, ExtError>;
+
+    /// `convertLegacyOfficeBuffer` (`attachments/legacy-office.mjs`): a legacy Office attachment (`.doc`, `.xls`, `.ppt`) saved
+    /// by LibreOffice as the OOXML package `kind` (`docx`, `xlsx`, `pptx`). A conversion that cannot run (LibreOffice missing, a
+    /// damaged or protected file, bytes that are not a legacy file) is `ExtError::Failed` carrying the converter's message, which
+    /// the caller shows the model as text. A host with no document engine answers the same way.
+    async fn legacy_office(&self, thread: &ThreadId, filename: &str, kind: &str, data_base64: &str) -> Result<LegacyPackage, ExtError> {
+        let _ = (thread, filename, data_base64);
+        Err(ExtError::Failed {
+            code: "unavailable".to_owned(),
+            message: format!("converting a legacy Office file to .{kind} needs the document engine, which is not available here. Open it in Microsoft Office and save it as .{kind}, then attach that copy."),
+        })
+    }
+}
+
+/// A legacy Office attachment saved as an OOXML package.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct LegacyPackage {
+    /// The package, base64.
+    pub data_base64: String,
+    /// `<stem>.<kind>`.
+    pub filename: String,
 }
 
 /// `resizeImageBuffer`'s answer for the read tool: the (possibly re-encoded) image and its sizes.

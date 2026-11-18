@@ -77,6 +77,7 @@ impl TestPg {
         Self { cluster, dir, runtime, home: Home::Own, fallback_guard: None }
     }
 
+    #[cfg(node_twin)]
     /// This test's database, for a child process that opens the same one.
     pub fn database(&self) -> &str {
         match &self.home {
@@ -87,7 +88,7 @@ impl TestPg {
 
     pub async fn db(&self, schema: Schema) -> Db {
         match &self.home {
-            Home::Own => Db::open(&self.cluster, schema).await.expect("db opens"),
+            Home::Own => Db::open(&self.cluster, schema, crate::memory::lifecycle::Scope::new()).await.expect("db opens"),
             Home::Shared { port, database } => Db::open_in(*port, database, schema).expect("db opens"),
         }
     }

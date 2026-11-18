@@ -49,7 +49,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // when its feed pushes the completed status. `holdSetup` parks the provider-setup read the
 // completed flow refreshes, so the completed step stays on screen.
 function daemon({ accounts }) {
-  const state = { accounts, complete: false, holdSetup: false, held: [], cancels: 0, setupReads: 0 };
+  const state = { accounts, complete: false, expired: false, holdSetup: false, held: [], cancels: 0, setupReads: 0 };
   const answer = async (capability) => {
     switch (capability) {
       case 'getProviderSetup':
@@ -60,6 +60,9 @@ function daemon({ accounts }) {
         return { selectedId: state.accounts[0]?.id ?? null, auto: true, accounts: structuredClone(state.accounts) };
       case 'beginOAuthProviderLogin':
         return { flowId: 'flow-1', state: 'pending', url: 'https://auth.test/authorize' };
+      case 'getOAuthProviderLoginStatus':
+        if (state.expired) return { flowId: 'flow-1', state: 'expired', error: 'OAuth login expired.' };
+        return state.complete ? { flowId: 'flow-1', state: 'complete' } : null;
       case 'cancelOAuthProviderLogin':
         state.cancels += 1;
         return {};
@@ -98,7 +101,7 @@ const dialog = () => document.querySelector('[role="dialog"].settings-oauth-dial
 const footerClose = () => dialog()?.querySelector('footer button');
 const settle = (ms = 30) => act(async () => sleep(ms));
 
-async function openCompletedSignIn(t, { accounts }) {
+async function openCompletedSignIn(t, { accounts, loseFeed = false }) {
   const host = daemon({ accounts });
   const root = createRoot(document.querySelector('main'));
   t.after(async () => {
@@ -117,7 +120,10 @@ async function openCompletedSignIn(t, { accounts }) {
   // The core pushes the browser sign-in done on the flow's feed; the refresh of the
   // provider setup that follows is still running (held), so the dialog stays.
   host.state.complete = true;
-  await act(async () => feed.push('flow-1', { flowId: 'flow-1', state: 'complete' }));
+  await act(async () => {
+    if (loseFeed) feed.lose('flow-1');
+    else feed.push('flow-1', { flowId: 'flow-1', state: 'complete' });
+  });
   await settle(30);
   assert.ok(host.state.complete, 'the sign-in completed');
   assert.ok(dialog(), 'the completed step is on screen while the provider data refreshes');
@@ -133,6 +139,12 @@ test('Close on the completed GPT sign-in step closes it', async (t) => {
   host.release();
   await settle(100);
   assert.equal(dialog(), null, 'the late refresh does not bring the dialog back');
+});
+
+test('a lost feed follows the host status to completion', async (t) => {
+  await openCompletedSignIn(t, { accounts: [], loseFeed: true });
+  assert.doesNotMatch(dialog().textContent, /OAuth status could not be checked\./);
+  assert.equal(footerClose().textContent, 'Close');
 });
 
 test('Close still works while another settings mutation keeps the page busy', async (t) => {
@@ -182,7 +194,7 @@ for (const [name, dismiss] of Object.entries(dismissals)) {
   });
 }
 
-test('a lost feed ends the wait with the status-failure notice and the sign-in can still be cancelled', async (t) => {
+async function openPendingSignIn(t) {
   const host = daemon({ accounts: [] });
   const root = createRoot(document.querySelector('main'));
   t.after(async () => {
@@ -195,6 +207,25 @@ test('a lost feed ends the wait with the status-failure notice and the sign-in c
   await settle(50);
   await click(document.querySelector('button[aria-label="Add account"]'));
   assert.ok(dialog(), 'the sign-in dialog opened');
+  return host;
+}
+
+test('a lost feed can report terminal expiry without marking the provider connected', async (t) => {
+  const host = await openPendingSignIn(t);
+  const setupReads = host.state.setupReads;
+  host.state.expired = true;
+  await act(async () => feed.lose('flow-1'));
+  assert.match(dialog().querySelector('.settings-oauth-wait').textContent, /Expired/);
+  assert.match(dialog().textContent, /OAuth login expired\./);
+  assert.equal(host.state.setupReads, setupReads, 'expiry does not trigger a completion refresh');
+  assert.equal(footerClose().textContent, 'Close');
+  await click(footerClose());
+  assert.equal(dialog(), null);
+  assert.equal(host.state.cancels, 0, 'the flow is already terminal');
+});
+
+test('a lost feed with unreadable status still lets the user cancel the sign-in', async (t) => {
+  const host = await openPendingSignIn(t);
   assert.doesNotMatch(dialog().textContent, /OAuth status could not be checked\./);
   await act(async () => feed.lose('flow-1'));
   assert.match(dialog().textContent, /OAuth status could not be checked\./);

@@ -32,8 +32,8 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::SessionDirectory;
+use super::archive_trees::ArchiveTrees;
 use super::sub_agent_retention::AgentOnlyIndex;
-use super::thread_settings::ArchiveRetention;
 use super::thread_settings::ArchiveStamps;
 use super::thread_settings::ArchivedWorktrees;
 use super::thread_settings::EffortTuning;
@@ -84,20 +84,6 @@ impl ProjectFolders for Projects {
 }
 
 #[derive(Default)]
-pub struct Notes(pub Mutex<Vec<(String, bool)>>);
-
-#[async_trait]
-impl ArchiveRetention for Notes {
-    async fn note_archived(&self, session_id: &str, archived: bool) -> Result<(), String> {
-        lock(&self.0).push((session_id.to_owned(), archived));
-        Ok(())
-    }
-    async fn forget(&self, _session_id: &str) -> Result<(), String> {
-        unreachable!("the thread settings never forget a record: a delete does")
-    }
-}
-
-#[derive(Default)]
 pub struct Effort(pub Mutex<Vec<(String, String, bool)>>);
 
 #[async_trait]
@@ -114,14 +100,23 @@ impl EffortTuning for Effort {
     }
 }
 
-/// The stored agent-only sessions, set by the test.
-#[derive(Default)]
-pub struct AgentOnly(pub Mutex<Vec<String>>);
+/// The stored agent-only sessions, set by the test; their rows are their stored headers.
+pub struct AgentOnly(pub Mutex<Vec<String>>, pub Arc<SessionDirectory>);
 
 #[async_trait]
 impl AgentOnlyIndex for AgentOnly {
     async fn agent_only_ids(&self) -> Result<Vec<String>, CoreError> {
         Ok(lock(&self.0).clone())
+    }
+
+    async fn agent_only_rows(&self) -> Result<Vec<(String, mixdog_store::schema::record::Header)>, CoreError> {
+        let mut rows = Vec::new();
+        for id in self.agent_only_ids().await? {
+            if let Some(header) = self.1.try_stored_header(&ThreadId::from(id.as_str())).await? {
+                rows.push((id, header));
+            }
+        }
+        Ok(rows)
     }
 }
 
@@ -150,7 +145,8 @@ impl SessionSource for NoSessions {
 pub struct Built {
     pub settings: ThreadSettings,
     pub projects: Arc<Projects>,
-    pub notes: Arc<Notes>,
+    /// The archive and restore of trees the service runs (the session auto-retention's too).
+    pub trees: Arc<ArchiveTrees>,
     pub effort: Arc<Effort>,
     pub agent_only: Arc<AgentOnly>,
     pub app: MockConnection,
@@ -185,7 +181,7 @@ pub async fn build_with(
     task: String,
 ) -> Built {
     let projects = Arc::new(Projects { registered, task, touched: Mutex::default() });
-    let (notes, effort, agent_only) = (Arc::new(Notes::default()), Arc::new(Effort::default()), Arc::new(AgentOnly::default()));
+    let (effort, agent_only) = (Arc::new(Effort::default()), Arc::new(AgentOnly(Mutex::default(), directory.clone())));
     let live: super::worktree::LiveSessions = Arc::new(HashSet::new);
     let worktrees = WorktreeMaintenance::new(worktrees, Arc::new(NoSessions), live, Arc::new(|_: Option<&str>| {}));
     let limits = MockLimits::default();
@@ -197,21 +193,24 @@ pub async fn build_with(
     let ops = tempfile::tempdir().unwrap();
     let surface = mixdog_core_base::surface::SurfaceGeneration::default();
     let stamps: Arc<ArchiveStamps> = Arc::default();
+    let trees = Arc::new(ArchiveTrees::new(
+        directory.clone(),
+        agent_only.clone(),
+        Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)),
+        hand_off.unwrap_or_else(|| Arc::new(worktrees)),
+        stamps.clone(),
+    ));
     let settings = ThreadSettings::new(ThreadSettingsParts {
         directory,
         workspaces,
         effort: effort.clone(),
         projects: projects.clone(),
-        agent_only: agent_only.clone(),
-        worktrees: hand_off.unwrap_or_else(|| Arc::new(worktrees)),
-        retention: notes.clone(),
-        app: Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)),
+        trees: trees.clone(),
         ops: scopes(ops.path(), "thread").await,
         surface: surface.clone(),
-        archive_stamps: stamps.clone(),
         rows,
     });
-    Built { settings, projects, notes, effort, agent_only, app, surface, stamps, ops }
+    Built { settings, projects, trees, effort, agent_only, app, surface, stamps, ops }
 }
 
 /// The live runtime around the sessions, as far as a Project switch reads it: whether a turn runs is the directory's, the

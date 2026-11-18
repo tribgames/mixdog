@@ -232,13 +232,12 @@ impl World {
                 form: crate::schema::record::Form::Message,
                 model: true,
                 visible: true,
-                refs: Vec::new(),
                 prompt: None,
                 msg: Some(row.clone()),
                 facets: None,
                 aliases: Vec::new(),
             },
-            F::Amend(iid, row) => FrameKind::Amend { iid: iid.clone(), refs: Vec::new(), msg: Some(row.clone()), aliases: Vec::new() },
+            F::Amend(iid, row) => FrameKind::Amend { iid: iid.clone(), msg: Some(row.clone()), aliases: Vec::new() },
             F::Rewind(to) => FrameKind::Rewind { to_ordinal: *to as u64 },
             F::Compact(cid, rows) => FrameKind::Compacted {
                 cid: cid.clone(),
@@ -255,6 +254,7 @@ impl World {
             frame_len: 10,
             kind,
             op: None,
+            receipt: None,
             history_rev: k as u64,
             rows: k as u64,
             visible_rows: k as u64,
@@ -268,7 +268,7 @@ impl World {
         let frames: Vec<ProjectedFrame> = (self.model[i].submitted..upto).map(|k| self.frame(i, k)).collect();
         let head = self.head(i, upto);
         let session = self.model[i].id.clone();
-        self.w.take(Command::Project { projection: Projection { session, frames, head, pins: Vec::new() }, ack: None });
+        self.w.take(Command::Project { projection: Projection { session, frames, head }, ack: None });
         self.model[i].submitted = upto;
     }
 

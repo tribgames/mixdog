@@ -1,6 +1,4 @@
-//! The envelope and the pure forwarding policy of the legs. Expectations are literals recorded from Node
-//! (`lib/relay-binary-frame.mjs`, `lib/relay-transport.mjs`) and the cases of `apps/relay/security.test.mjs` that call
-//! `admitFrame`, `uplinkCeilings`, `uplinkCapacityFor`, `routedClientId`, `sendToPhone` or the frame codec.
+//! The relay envelope and the pure forwarding policy of the legs: binary envelopes, admission, congestion, capacity, oversize notices and refusal attribution.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -127,8 +125,8 @@ fn binary_relay_envelopes_preserve_routing_metadata_without_base64() {
 }
 
 #[test]
-fn envelope_byte_vectors_recorded_from_node() {
-    // Node: encodeRelayBinaryFrame({ clientId, data, droppable, text }).toString('hex').
+fn envelope_byte_vectors() {
+    // The envelope bytes for each flag combination.
     let droppable = envelope::encode_frame(ID, &[0, 1, 2, 255], true, false).unwrap();
     assert_eq!(hex(&droppable), "4d585201012431323334353637382d616263642d343332312d616263642d313233343536373839306162000102ff");
     let text = envelope::encode_frame("abcdefgh", b"hi", false, true).unwrap();
@@ -153,7 +151,7 @@ fn text_flagged_frames_decode_as_text_and_old_frames_stay_bytes() {
 }
 
 #[test]
-fn the_encoder_and_decoder_refuse_what_node_refuses() {
+fn the_encoder_and_decoder_refuse_malformed_envelopes() {
     assert_eq!(envelope::encode_frame("", b"x", false, false), Err(InvalidClientId));
     assert_eq!(envelope::encode_frame(&"a".repeat(65), b"x", false, false), Err(InvalidClientId));
     assert!(envelope::encode_frame(&"a".repeat(64), b"x", false, false).is_ok());
@@ -203,7 +201,7 @@ fn the_json_wrapper_is_what_json_stringify_writes() {
         envelope::json_frame(id, data),
         "{\"type\":\"frame\",\"clientId\":\"a\\u0001\\\"\\\\\\n\",\"data\":\"q\\u0000\\u001f\u{7f}/\\t\u{2028}\u{e9}\u{1f600}\"}"
     );
-    // Node: Buffer.byteLength(JSON.stringify({ type: 'frame', clientId: uuid, data: '' })).
+    // The JSON envelope of an empty frame for a UUID client.
     assert_eq!(envelope::json_frame_overhead(CANONICAL), 76);
     assert_eq!(envelope::binary_overhead(CANONICAL), 42);
 }
@@ -318,7 +316,7 @@ fn a_failed_send_releases_its_charge_and_a_gone_leg_takes_its_charge_with_it() {
     let meter = InflightMeter::new();
     let mut phone = FakePhone::new(&meter, 0);
     phone.refuse = true;
-    // Node hands the frame over and releases when the socket throws; the answer is still true.
+    // The frame is handed over and released when the socket throws; the answer is still true.
     assert!(policy::send_to_phone(&mut phone, Outbound::Text("abcd"), false, Pressure::Cut));
     assert_eq!(meter.bytes(), 0);
     phone.refuse = false;
@@ -418,13 +416,13 @@ fn a_declared_text_frame_leg_carries_text_in_the_envelope_that_cannot_inflate() 
     let json_path = policy::uplink_ceilings(path(false));
     assert_eq!(json_path.binary, MAX_FRAME_BYTES);
     assert!(json_path.text < MAX_FRAME_BYTES);
-    // Node: { binary: 67108864, text: 11883848 }.
+    // The ceilings: 64 MiB binary and 11883848 bytes as text.
     assert_eq!(json_path.text, 11_883_848);
     assert_eq!(policy::uplink_ceilings(path(true)).text, MAX_FRAME_BYTES);
 }
 
 #[test]
-fn uplink_ceilings_match_what_node_computes() {
+fn uplink_ceilings_follow_the_capacity_rules() {
     let at = |capacity, policy_bytes, text_frames| {
         let c = policy::uplink_ceilings(UplinkPath { capacity, client_id: CANONICAL, text_frames, policy: policy_bytes });
         (c.binary, c.text)
@@ -452,7 +450,7 @@ fn published_equals_enforced_and_a_nonsense_configuration_is_normalised_once() {
     let published = |leg: &UplinkLeg, max: usize, platforms: &[String], web: bool, ice: bool| {
         mixdog_relay::js::wire(&policy::relay_capabilities(leg, max, platforms, web, ice))
     };
-    // Node: JSON.stringify(relayCapabilities(newUplinkLeg(128 * 1024), 1048576, ['apns', 'fcm'], true, true)).
+    // The published capabilities of a 128 KiB leg with both push platforms.
     assert_eq!(
         published(&leg, 1_048_576, &["apns".to_owned(), "fcm".to_owned()], true, true),
         r#"{"type":"relay-capabilities","binaryFrames":1,"maxFrameBytes":1048576,"uplinkCapacityBytes":65536,"uplinkBinaryCeilingBytes":65494,"uplinkTextCeilingBytes":10910,"nativePush":1,"nativePushPlatforms":["apns","fcm"],"webPush":1,"ice":1}"#
@@ -484,7 +482,7 @@ fn notice_of(raw: &[u8], binary: bool) -> serde_json::Value {
 }
 
 #[test]
-fn oversize_notices_are_the_bytes_node_writes() {
+fn oversize_notices_have_their_published_bytes() {
     assert_eq!(policy::phone_oversize_notice(8192, 1024), r#"{"resync":1,"error":"frame-too-large","bytes":8192,"limit":1024}"#);
     let text = format!(r#"{{"type":"frame","clientId":"{ID}","data":"x"}}"#);
     assert_eq!(
@@ -612,7 +610,7 @@ fn only_a_whole_json_object_with_a_routing_id_string_is_attributed() {
 #[test]
 fn attribution_costs_one_pass_over_the_frame_whatever_shape_it_is() {
     // What attribution must never do is let the SHAPE of a frame buy more work than its bytes did: a search per string is
-    // quadratic on millions of short keys (8 MiB of them stalled the Node relay for over a minute). The bound is loose for an
+    // quadratic on millions of short keys (8 MiB of them stalled a relay for over a minute). The bound is loose for an
     // unoptimised build and still far below a quadratic walk; the cost must also track size, not shape.
     let size = 8 * MEGABYTE;
     let decoy = uuid(0xdec0);

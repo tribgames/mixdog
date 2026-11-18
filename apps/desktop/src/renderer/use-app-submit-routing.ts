@@ -39,7 +39,7 @@ export function useAppSubmitRouting({
   activateSelection,
   promoteSelectionInLeaf,
   registerWorkspaceSelection,
-  applySessionLaneResult,
+  seedCreatedSessionLane,
 }: {
   selectionRef: MutableRefObject<NavigationSelection>;
   focusedLeafIdRef: MutableRefObject<string>;
@@ -53,7 +53,7 @@ export function useAppSubmitRouting({
   activateSelection(selection: NavigationSelection, title: string, replaceKey?: string): void;
   promoteSelectionInLeaf(leafId: string, selection: NavigationSelection, replaceKey?: string): void;
   registerWorkspaceSelection(selection: NavigationSelection, title: string, replaceKey?: string): void;
-  applySessionLaneResult(sessionId: string, snapshot: SessionSnapshot | null): void;
+  seedCreatedSessionLane(sessionId: string, snapshot: SessionSnapshot | null): void;
 }) {
   type SubmitRoute = {
     selection: NavigationSelection;
@@ -147,7 +147,7 @@ export function useAppSubmitRouting({
             if (resultSessionId !== startedSessionId) {
               throw new Error('New task session returned a mismatched session snapshot.');
             }
-            applySessionLaneResult(startedSessionId, result.snapshot);
+            seedCreatedSessionLane(startedSessionId, result.snapshot);
             // The composer of this draft hands its late chips to exactly this session.
             noteDraftPromotion(draftPrefsKey, startedSessionId);
           }

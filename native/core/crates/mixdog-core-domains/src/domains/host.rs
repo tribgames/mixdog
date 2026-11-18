@@ -2,7 +2,7 @@
 //! taken by the server, which owns the connection registry; the rest lands here.
 //!
 //! * `host/state/set{key, value}` — desktop-owned state published into section `hostState`
-//!   (key `browserTabs`, `browserImport`, `visualize`, `displayPreferences` or `windowFocus`), replacing the
+//!   (key `browserTabs`, `browserImport`, `browserDialogApprovalSessions`, `visualize`, `displayPreferences` or `windowFocus`), replacing the
 //!   desktop's `browserRemoteTabs`, `browserRemoteImportProgress`, `visualizeRemote*` and
 //!   display-preference publications.
 //! * `host/remoteTarget/set{endpoint?, token?}` — the tunnel to an SSH server core that phone
@@ -10,7 +10,8 @@
 //! * `host/power{event}`, `host/update/report{state}` and `host/notification/clicked{threadId}`
 //!   notifications.
 
-use std::sync::Arc;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::host::HostBrowserSurfaceParams;
@@ -25,13 +26,14 @@ use mixdog_app_protocol::v2::screen_indicator::ScreenIndicatorStopParams;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
+use mixdog_core_api::call::Caller;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
 use mixdog_core_api::state::StatePublisher;
-use mixdog_protocol::SectionName;
+use mixdog_protocol::{Origin, SectionName};
 use mixdog_remote::registry::DeviceRegistry;
 use serde_json::Value;
 use serde_json::json;
@@ -131,6 +133,7 @@ pub trait ScreenEvents: Send + Sync {
 
 pub struct HostService {
     publisher: Arc<dyn StatePublisher>,
+    browser_dialog_marks: Mutex<HashMap<ConnectionId, Vec<String>>>,
     bridge: Arc<dyn RemoteBridge>,
     power: Arc<dyn PowerSink>,
     clicks: Arc<dyn NotificationClicks>,
@@ -153,6 +156,7 @@ impl HostService {
     ) -> Arc<Self> {
         Arc::new(Self {
             publisher,
+            browser_dialog_marks: Mutex::default(),
             bridge,
             power,
             clicks,
@@ -162,16 +166,85 @@ impl HostService {
         })
     }
 
+    pub fn connection_closed(&self, connection: ConnectionId) {
+        let mut marks = self.browser_dialog_marks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if marks.remove(&connection).is_some() {
+            self.publish_browser_dialog_marks(&marks);
+        }
+    }
+
+    fn publish_browser_dialog_marks(&self, marks: &HashMap<ConnectionId, Vec<String>>) {
+        let ids: BTreeSet<_> = marks.values().flatten().collect();
+        self.publisher.publish(SectionName::HostState, Some("browserDialogApprovalSessions".to_owned()), change_of(&json!(ids)));
+    }
+
+    fn set_browser_dialog_marks(&self, req: &CoreRequest, ids: Vec<String>) -> Result<Value, CoreError> {
+        let Caller::Connection(owner) = req.ctx.caller else {
+            return Err(invalid("caller", "a desktop host connection"));
+        };
+        if !req.ctx.host_claimant || req.ctx.origin == Origin::Relay {
+            return Err(invalid("caller", "a desktop host connection"));
+        }
+        let mut marks = self.browser_dialog_marks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Closing cancels first and then clears under this lock, so queued writes cannot revive a disconnected owner.
+        if req.ctx.cancel.is_cancelled() {
+            return Err(CoreError::ConnectionClosed);
+        }
+        if ids.is_empty() {
+            marks.remove(&owner);
+        } else {
+            marks.insert(owner, ids);
+        }
+        self.publish_browser_dialog_marks(&marks);
+        Ok(json!({}))
+    }
+
     fn state_set(&self, req: &CoreRequest) -> Result<Value, CoreError> {
-        let (key, value) = decode::<HostStateSetParams>(req)?.into_parts();
+        let (key, mut value) = match decode::<HostStateSetParams>(req)? {
+            HostStateSetParams::BrowserDialogApprovalSessions(ids) => return self.set_browser_dialog_marks(req, ids),
+            state => state.into_parts(),
+        };
         if key == "visualize" {
+            // A value that travelled as a blob is JSON text of a snapshot or an event: typed as either, then folded as the
+            // value it was, so the mirror and the section never see the string.
+            if let Value::String(text) = &value {
+                // The frame check saw one blob reference, not this text: a lone surrogate escape in it is judged here by the
+                // classes of the inline value (a label reads as U+FFFD, an id or path refuses), then read as U+FFFD.
+                if let Some(at) = mixdog_app_protocol::free_text::refused_in_text(mixdog_app_protocol::free_text::Kind::Request, "host/state/set", "/value", text) {
+                    return Err(invalid("value", &format!("text without unpaired surrogates (a lone \\ud800-\\udfff escape) in {at}")));
+                }
+                let parsed = serde_json::from_str::<mixdog_app_protocol::v2::host::VisualizeHostValue>(&mixdog_js::json_well_formed_str(text))
+                    .ok()
+                    .filter(|parsed| !matches!(parsed, mixdog_app_protocol::v2::host::VisualizeHostValue::Text(_)))
+                    .ok_or_else(|| invalid("value", "a visualize snapshot or event"))?;
+                value = serde_json::to_value(parsed).map_err(|_| invalid("value", "a visualize snapshot or event"))?;
+            }
+            // Only the current claimant of the visualize role publishes it, and that is asked now, as the publication is
+            // applied (a blob it names may have been expanding while the claim changed hands). Any other caller (a displaced
+            // claimant, a connection that has not claimed yet, an internal producer) is dropped without an error: its state
+            // is covered by the snapshot the claimant sends when it claims. One connection's publications reach here in the
+            // order they arrived (the server keeps that order while blobs are expanded), so none is late.
+            if !req.ctx.visualize_claim.is_current() {
+                return Ok(json!({}));
+            }
             self.visualize.fold(&value);
         }
-        self.publisher.publish(
-            SectionName::HostState,
-            Some(key.to_owned()),
-            change_of(&value),
-        );
+        // The section is readable by a paired phone: the visualize value reaches it path-free, whatever route it came by.
+        if key == "visualize" {
+            // The section always holds the current state, path-free, and every publication updates it: a latest-value store is exactly
+            // right for state, and it is what a phone that missed events (a dropped sequence, a wake, a reconnect) and a page that
+            // predates the event notifications read. (Over `INLINE_MAX` it is a stub, which such a reader answers by reading again.)
+            let current = Value::Array(self.visualize.remote_states());
+            self.publisher.publish(SectionName::HostState, Some(key.to_owned()), change_of(&current));
+            // An event also goes, with its own effects, to the phones that registered the visualize lane, as ordered notifications: a
+            // section key keeps the latest value and a slow subscriber's lane lags and recovers with merged state, so successive events
+            // cannot travel on it.
+            if !matches!(value, Value::Array(_)) {
+                self.visualize.push_event(&value);
+            }
+            return Ok(json!({}));
+        }
+        self.publisher.publish(SectionName::HostState, Some(key.to_owned()), change_of(&value));
         Ok(json!({}))
     }
 

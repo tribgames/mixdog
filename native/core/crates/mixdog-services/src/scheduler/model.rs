@@ -12,6 +12,14 @@ pub const BACKOFF_BASE_MS: i64 = 60_000;
 pub const PAUSE_AFTER_FAILURES: u32 = 5;
 pub const HOME_QUEUE_LIMIT: usize = 200;
 
+/// Node reads a row's owner as `row.owner_agent_id || 'lead'` (`schedules-db.mjs` and `webhooks-db.mjs` `rowToDef`): an empty
+/// owner is Mixy's. It is applied where a row is read, so a row stored with an empty owner (an import that kept it as it was)
+/// reads as `lead` too.
+pub(crate) fn lead_if_empty<'de, D: serde::Deserializer<'de>>(de: D) -> Result<String, D::Error> {
+    let owner = String::deserialize(de)?;
+    Ok(if owner.is_empty() { "lead".to_owned() } else { owner })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ScheduleStatus {
@@ -40,6 +48,7 @@ pub struct Schedule {
     pub last_success_at: Option<DateTime<Utc>>,
     pub last_failed_at: Option<DateTime<Utc>>,
     pub last_skipped_at: Option<DateTime<Utc>>,
+    #[serde(deserialize_with = "lead_if_empty")]
     pub owner_agent_id: String,
     pub executor_agent_id: Option<String>,
     pub consecutive_failures: u32,
@@ -104,7 +113,7 @@ impl Schedule {
             _ => {}
         }
         if let Some(tz) = self.timezone.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
-            tz.parse::<chrono_tz::Tz>().map_err(|_| format!("invalid schedule timezone \"{tz}\""))?;
+            super::zone::resolve(tz).ok_or_else(|| format!("invalid schedule timezone \"{tz}\""))?;
         }
         Ok(())
     }
@@ -173,7 +182,6 @@ impl std::fmt::Display for ScheduleError {
         }
     }
 }
-impl std::error::Error for ScheduleError {}
 
 #[cfg(test)]
 mod tests {
@@ -214,3 +222,6 @@ mod tests {
         assert_eq!(ScheduleError::RenameUncertain { cause: "c".into() }.code_fields(), Some((SCHEDULE_RENAME_UNCERTAIN, None)));
     }
 }
+
+
+impl std::error::Error for ScheduleError {}

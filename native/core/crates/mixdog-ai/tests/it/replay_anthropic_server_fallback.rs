@@ -15,9 +15,11 @@ use crate::provider_case::Endpoint;
 use crate::provider_case::Replay;
 use crate::provider_case::within;
 use crate::replay_anthropic;
+#[cfg(node_twin)]
 use crate::replay_world;
 
 /// One `AnthropicProvider#send` (the n-th of the case) against `endpoint`, as Node's `{ result, ... }`.
+#[cfg(node_twin)]
 async fn send(endpoint: &Endpoint, case: &Case, n: usize) -> replay_anthropic::Send {
     let home = tempfile::tempdir().expect("a home");
     let builder = replay_world::builder(endpoint, home.path(), Vec::new()).await;
@@ -44,8 +46,10 @@ fn result_of(sent: &replay_anthropic::Send) -> Exact {
     sent.result.clone()
 }
 
+#[cfg(node_twin)]
 pub const REPLAYS: &[Replay] = &[Replay { set: "anthropic-server-fallback", run: every_api_key_case_replays_as_nodes }];
 
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn every_api_key_case_replays_as_nodes() {
     let set = CaseSet::load("anthropic-server-fallback");

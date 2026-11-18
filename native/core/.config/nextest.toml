@@ -5,14 +5,18 @@
 #                  macOS arm64 and Windows x64: the whole workspace on a push to main, a manual run and the release gate, the changed
 #                  crates and their reverse dependencies on a pull request (scripts/ci/core-select.mjs). The merge check runs `default`.
 #   agent          Local only: `default` without the heavy matrices (a branch that does not touch them). CI does not use it.
-#   pg             #[ignore]d tests that compose the real core over a Postgres runtime. CI: rust-core-unix.yml (Linux, macOS).
-#   tag-tree       #[ignore]d tests against the real 1.4.5 tag tree (`verdict::tag_gates::`, `legacy_clients::`). CI: rust-core-unix.yml
-#                  (Linux, macOS; gate 3 at 200 repetitions off pull requests).
-#   services-pg    #[ignore]d memory tests that need only a Postgres runtime. Not in CI yet (merge check, locally).
+#   pg             #[ignore]d tests that compose the real core over a Postgres runtime (the daemon's compose, session_project, ssh_origin,
+#                  server and lead_request modules). CI: release-gate.yml job `core-pg` from the `core-build` archive (Linux always, macOS
+#                  on a push to main and a manual run), when the archive holds mixdog-app-server-daemon; rust-core-unix.yml (manual) too.
+#   services-pg    #[ignore]d memory tests that need only a Postgres runtime. CI: `core-pg`, when the archive holds mixdog-services.
 #   services-models, migration-corpus, office-throughput, pwsh-50-mib
 #                  #[ignore]d tests that need what a hosted runner does not have: real ONNX models and the network, the migration
 #                  corpus (a user's data), a real LibreOffice and Chromium, a 414 MiB PowerShell command. Run by hand with their
 #                  profile and `--run-ignored only`; never in CI.
+#                  The environment variables they read have no default: an unset one fails the test.
+#   node_twin      Local only: the comparison tests and their recorded data (docs/testing.md, "The Rust core's committed suite and the
+#                  local-only comparison material"). They are compiled in by `--cfg node_twin` (the untracked .cargo/local.toml), so
+#                  on the owner's machine `default` and `agent` include them and a clean checkout does not have them. Not in `ci`.
 #   (no profile)   The other #[ignore]d tests, each needing a machine with that thing: a real Microsoft Office or a screen on Windows
 #                  (mixdog-office tests/live_com, mixdog-office-com *_live), a real LibreOffice (mixdog-ooxml soffice_lifecycle and
 #                  twin_xlsx_charts_soffice), a quiet machine to time on (mixdog-relay twin_perf, mixdog-tui perf_pty).
@@ -24,10 +28,33 @@
 slow-timeout = { period = "30s", terminate-after = 4 }
 fail-fast = false
 
+# Every profile reports its terminal testcases as JUnit (target/nextest/<profile>/junit.xml): the release proof reads execution from it
+# (scripts/ci/run-nextest.mjs, scripts/ci/coverage/adapters.mjs). Profiles schedule work; they never define which tests exist
+# (docs/testing.md, "Release coverage").
+[profile.default.junit]
+path = "junit.xml"
+
 # `--profile ci`: what a hosted runner runs from the archive. `default` and its overrides (every [[profile.default.overrides]] and the
 # test groups apply here), no retries: a test that fails once is red, never green on a second try (a retry hides the flaky test that
 # a real defect is). Slow and failing tests are named in the log, a failure's output printed where it fails and again at the end.
 [profile.ci]
+retries = 0
+fail-fast = false
+status-level = "slow"
+final-status-level = "slow"
+failure-output = "immediate-final"
+success-output = "never"
+
+# The report of a `ci` run also names every selected test its #[ignore] kept from running, as a <testcase> with a <skipped> child (nextest
+# 0.9.143+; the gate pins 0.9.151): the ignore disposition the release proof needs is nextest's own record of the invocation, never a
+# listing. The profiles that run `--run-ignored only` keep the default ("none"), where a skipped element would be a deselected test.
+[profile.ci.junit]
+path = "junit.xml"
+report-skipped = "ignored"
+
+# `--profile ci-ignored --run-ignored only`: `ci` for a run of ignored tests on a hosted runner (core-tests' interactive entry scenarios),
+# whose report keeps the default and names no deselected test.
+[profile.ci-ignored]
 retries = 0
 fail-fast = false
 status-level = "slow"
@@ -41,23 +68,25 @@ success-output = "never"
 # default profile still runs them all; the merge check uses it.
 [profile.agent]
 default-filter = '''not (
-    (package(mixdog-core-session-replays) & binary(stores) & (test(=project::every_recorded_step_equals_nodes_over_real_state) | test(/^worktree_service::/)))
+    (package(mixdog-core-session-replays) & (test(=project::every_recorded_step_equals_nodes_over_real_state) | test(/^worktree_service::/)))
   | (package(mixdog-migrate) & (test(/^desktop_profile::tests::/) | test(/every_crash_point/)))
   | (package(mixdog-app-server-daemon) & test(/^verdict::tag_gates::/))
 )'''
 
-# `--profile pg --run-ignored only -p mixdog-app-server-daemon`, the one command of the merge check and of CI: the #[ignore]d tests that compose
+# `--profile pg --run-ignored only -p mixdog-app-server-daemon`, the one command of the merge check and of CI (`core-pg` runs it from the archive): the #[ignore]d tests that compose
 # the real core (the review restart replay of a Node recording among them) and the runner's own cluster proof (`compose_test_support`). They need
 # a Postgres runtime (`MIXDOG_PG_RUNTIME` names an unpacked runtime directory; with it unset or broken the test fails, it does not skip). They are
 # in the `pg-cluster` group below, so they run one at a time, with the time the composed tests get (below).
 [profile.pg]
 default-filter = '''package(mixdog-app-server-daemon) & (
-    test(/^compose::(tests|review_restart_tests|session_project_tests)::/)
+    test(/^compose::(tests|review_restart_tests|session_project_tests|session_project_flow_tests)::/)
   | test(/^server::tests::/)
   | test(/^lead_request_tests::/)
+  | test(/^ssh_origin_tests::/)
   | test(/^serving::tests::start_serves_both/)
   | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service)
   | test(/^compose_test_support::runner_tests::/)
+  | test(=model_proxy_client_tests::a_client_mode_server_runs_its_turns_on_the_pc_and_fails_them_without_one)
 )'''
 
 # The other #[ignore]d tests, one profile per need. Each is run as `nextest run --profile <name> --run-ignored only` (the filter also matches
@@ -102,18 +131,12 @@ slow-timeout = { period = "120s", terminate-after = 5 }
 default-filter = '''
     package(mixdog-migrate)
   | (package(mixdog-agent) & test(/^message_row::tests::/))
-  | (package(mixdog-core-session-replays) & test(/^transcript_golden::/))'''
+  | (package(mixdog-core-session-replays) & test(/^transcript_golden::/))
+  | (package(mixdog-store) & test(/^store_tests::catalog_rows_equal_nodes_session_summary_on_the_corpus_/))
+  | (package(mixdog-ledger) & test(/corpus_ledger_/))'''
 slow-timeout = { period = "60s", terminate-after = 5 }
 
-# tag-tree: the daemon's gates against the real 1.4.5 tag (LR §11). MIXDOG_TAG_TREE and MIXDOG_V145_TREE name the same directory: a
-# `git archive 69fe41b05` extraction with its `node_modules`; `node` must be on PATH. `core_child` is the child process of the gates.
-# They run one at a time (`tag-gates` group below); gate 3 repeats `MIXDOG_TAG_GATE_REPS` times (default 200, as LR asks).
-[profile.tag-tree]
-default-filter = '''package(mixdog-app-server-daemon) & (
-    (test(/^verdict::tag_gates::/) & not test(=verdict::tag_gates::core_child))
-  | test(/^legacy_clients::/)
-)'''
-slow-timeout = { period = "300s", terminate-after = 12 }
+
 
 # office-throughput: RL G8 through the real pool, the Node worker and the shared render browser. It needs LibreOffice, Chromium and `node`
 # on this machine, and is run as `nextest run --profile office-throughput --features test-support --run-ignored only -p mixdog-exthost`
@@ -140,14 +163,13 @@ migration-crash-matrix = { max-threads = 1 }
 # 120 s. Four at a time, whatever the run's thread count; the other threads run the rest of the suite.
 migration-recorded = { max-threads = 4 }
 pg-cluster = { max-threads = 1 }
-tag-gates = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = 'package(mixdog-migrate) & (test(=desktop_profile::tests::the_crash_matrix_ends_in_the_state_of_an_uninterrupted_run) | test(=run::tests::every_crash_point_resumes_to_the_same_tree))'
 test-group = 'migration-crash-matrix'
 
 [[profile.default.overrides]]
-filter = 'package(mixdog-migrate) & binary(it) & test(/^recorded_145::every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_/)'
+filter = 'package(mixdog-migrate) & test(/^recorded_145::every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_/)'
 test-group = 'migration-recorded'
 
 # The four migration crash matrices are fsync-bound: each passed in 84-95 s with its temp dirs on an idle drive and
@@ -166,7 +188,7 @@ slow-timeout = { period = "60s", terminate-after = 6 }
 # disk). A test added to those modules shares the cluster unless it names `TestPg::start_own` or a stack; add it here then.
 # The daemon's real-core tests (#[ignore], MIXDOG_PG_RUNTIME) each start a cluster the same way.
 [[profile.default.overrides]]
-filter = 'package(mixdog-services) & (test(/^memory::tests::boot::/) | test(=memory::tests::service::the_first_recall_on_a_fresh_profile_answers_as_node) | test(=memory::tests::session_search::a_replaced_sensitive_row_leaves_no_file_of_the_cluster_whatever_step_a_kill_stops) | test(/^memory::replays::core_index::pg::/) | test(/^memory::replays::service_lifecycle::pg::/)) | (package(mixdog-app-server-daemon) & (test(/^compose::(tests|review_restart_tests|session_project_tests)::/) | test(/^lead_request_tests::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/) | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service) | test(=compose_test_support::runner_tests::a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_removed)))'
+filter = 'package(mixdog-services) & (test(/^memory::tests::boot::/) | test(=memory::tests::service::the_first_recall_on_a_fresh_profile_answers_as_node) | test(=memory::tests::session_search::a_replaced_sensitive_row_leaves_no_file_of_the_cluster_whatever_step_a_kill_stops) | test(/^memory::replays::core_index::pg::/) | test(/^memory::replays::service_lifecycle::pg::/)) | (package(mixdog-app-server-daemon) & (test(/^compose::(tests|review_restart_tests|session_project_tests|session_project_flow_tests)::/) | test(/^lead_request_tests::/) | test(/^ssh_origin_tests::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/) | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service) | test(=compose_test_support::runner_tests::a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_removed) | test(=model_proxy_client_tests::a_client_mode_server_runs_its_turns_on_the_pc_and_fails_them_without_one)))'
 test-group = 'pg-cluster'
 
 # The daemon's real-core tests run their core in a child process under the runner's one budget (`compose_test_support::BUDGET`, 690 s, checked
@@ -177,6 +199,7 @@ test-group = 'pg-cluster'
 filter = '''package(mixdog-app-server-daemon) & (
     test(=compose::review_restart_tests::a_core_composed_again_tells_and_answers_as_node_does)
   | test(=compose::session_project_tests::the_session_tool_switches_its_callers_project_and_flags_it_through_the_product_route)
+  | test(=compose::session_project_flow_tests::the_session_tool_switches_its_callers_project_and_flags_it_through_the_product_route)
   | test(=compose::tests::release_runs_the_barriers_then_the_stop_steps_once)
   | test(=compose::tests::overlapping_stops_wait_for_the_same_cleanup_as_node_recorded)
   | test(=compose::tests::the_release_has_requested_closing_before_its_first_budgeted_step)
@@ -187,10 +210,12 @@ filter = '''package(mixdog-app-server-daemon) & (
   | test(=server::tests::a_client_initializes_and_starts_a_thread_over_the_pair)
   | test(=server::tests::every_thread_and_turn_method_of_the_table_reaches_a_handler)
   | test(/^lead_request_tests::/)
+  | test(/^ssh_origin_tests::/)
   | test(=server::tests::a_wedged_stop_step_does_not_hold_the_headless_shutdown)
   | test(=server::tests::shutdown_stops_the_core_in_registration_order_and_refuses_new_clients)
   | test(=serving::tests::start_serves_both_listeners_and_a_stop_releases_once)
   | test(=compose_test_support::runner_tests::a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_removed)
+  | test(=model_proxy_client_tests::a_client_mode_server_runs_its_turns_on_the_pc_and_fails_them_without_one)
 )'''
 slow-timeout = { period = "120s", terminate-after = 6 }
 
@@ -199,7 +224,7 @@ slow-timeout = { period = "120s", terminate-after = 6 }
 # the suite slows down: the project replay needs 87 s alone but had used 109 s in the workspace run when
 # it failed, and the safety scenarios passed 120 s. Each takes every test thread, so it runs alone.
 [[profile.default.overrides]]
-filter = 'package(mixdog-core-session-replays) & binary(stores) & (test(=project::every_recorded_step_equals_nodes_over_real_state) | test(=worktree_service::the_safety_scenarios_leave_the_git_and_disk_state_nodes_left))'
+filter = 'package(mixdog-core-session-replays) & (test(=project::every_recorded_step_equals_nodes_over_real_state) | test(=worktree_service::the_safety_scenarios_leave_the_git_and_disk_state_nodes_left))'
 threads-required = 'num-test-threads'
 # With twelve checkouts building beside it the project replay takes 120-142 s (it passed in 141.87 s alone
 # on 2026-11-10): at the default 120 s it was killed in nine of nine runs of an hour, each a lost two
@@ -219,21 +244,16 @@ threads-required = 'num-test-threads'
 [[profile.default.overrides]]
 filter = 'package(mixdog-core-review) & test(=turn_review::git_bound_tests::a_real_hung_git_is_killed_at_its_limit_with_its_tree)'
 threads-required = 'num-test-threads'
-# The tag gates run real 1.4.5 daemons and cores against the daemon's lease and fence timings (daemon-owner.mjs): a daemon's event loop stalled 1-5 s while 17 of them ran together,
-# and the simultaneous-start gates start twenty processes per rep. One at a time, they do not load each other.
-[[profile.default.overrides]]
-filter = 'package(mixdog-app-server-daemon) & test(/^verdict::tag_gates::/)'
-test-group = 'tag-gates'
 # The exec binary replay runs seven cases one after the other, each a process of the binary beside a TLS stand-in (one beside a running core, two
 # interrupted). In whole-workspace runs it passed in 12-14 s (g7, g97) and reached 120 s in g95 and t2: an intermittent wait, not yet found and not
 # load alone. This limit is not a fix: it lets the test's own bounds (180 s a run, a held request or a child's end) fire first and name what waits.
 [[profile.default.overrides]]
-filter = 'package(mixdog-cli) & binary(exec_cli_replay) & test(=the_exec_binary_does_what_nodes_cli_process_recorded_for_every_case)'
+filter = 'package(mixdog-cli) & test(=the_exec_binary_does_what_nodes_cli_process_recorded_for_every_case)'
 slow-timeout = { period = "60s", terminate-after = 6 }
 
 # The relay twin binary runs every scenario of its suites (identity, legs, data, web, services) against Node and against Rust, each scenario
 # twice on Node first; the legs suite alone has a 65 s scenario (a 45 s offline window no option shortens) and three services scenarios wait
 # out a 30 s relay timeout. The three tests take 5 to 15 minutes of wall time by design.
 [[profile.default.overrides]]
-filter = 'package(mixdog-relay) & binary(twin)'
+filter = 'package(mixdog-relay) & test(/^twin_(harness_self_check|scenarios|crossover)$/)'
 slow-timeout = { period = "120s", terminate-after = 10 }

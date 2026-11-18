@@ -16,7 +16,19 @@ use super::read_paths;
 const FIND_NUDGE: &str = "Locate with find on the basename before retrying.";
 const ABSENT: &str =
     " Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires).";
-const MULTI_PATH: &str = " To pass several paths, send an array (path[]), not a comma- or space-joined string.";
+/// `read`'s own multi-path wording (Node's, kept as recorded); the tools below word the repair for themselves
+/// ([`repair`]), since each takes a path list differently.
+pub(super) const MULTI_PATH: &str = " To pass several paths, send an array (path[]), not a comma- or space-joined string.";
+
+/// The tool a missing-path answer is for: how it takes several paths decides what a joined list should be told.
+#[derive(Clone, Copy)]
+pub(crate) enum PathTool {
+    /// `path` is a string or an array of up to 10.
+    Grep,
+    /// `path` is one string.
+    List,
+    Glob,
+}
 /// `BASENAME_SCAN_DEADLINE_MS`: a scan that runs out of time is inconclusive, not an absence.
 const SCAN_DEADLINE: Duration = Duration::from_millis(750);
 const SCAN_MAX_DIRS: usize = 6000;
@@ -38,22 +50,37 @@ pub(crate) fn missing_code(kind: &FsErrorKind) -> Option<&'static str> {
 pub(crate) async fn list_absent(ctx: &ToolContext, missing: &AbsPath, input: &str, code: &str) -> String {
     let what = if code == "ENOTDIR" { "not a directory" } else { "no such file or directory" };
     let message = format!("{code}: {what}, stat '{}'", missing.as_path().to_string_lossy());
-    let hint = with_cwd_note(ctx, hint_body(ctx, missing, "List").await);
-    format!("[path absent] {}{}", read_paths::normalize_error_message(&message, None), finalize_tail(hint, input))
+    let joined = joined_evidence(ctx, input).await;
+    let hint = with_cwd_note(ctx, if joined.is_some() { String::new() } else { hint_body(ctx, missing, "List").await });
+    format!("[path absent] {}{}", read_paths::normalize_error_message(&message, None), finalize_tail(hint, joined, PathTool::List))
 }
 
 /// `grepMissingPathResult`: `Error: path does not exist: <path> (<code>)<hints>`.
 pub(crate) async fn grep_missing(ctx: &ToolContext, missing: &AbsPath, input: &str, code: &str) -> String {
-    let mut hint = hint_body(ctx, missing, "Search").await;
-    if hint.is_empty() {
+    missing_with_tool(ctx, missing, input, code, PathTool::Grep).await
+}
+
+/// The same answer for a tool that is not grep: only a joined list of paths that exist is worded for it.
+pub(crate) async fn missing_with_tool(ctx: &ToolContext, missing: &AbsPath, input: &str, code: &str, tool: PathTool) -> String {
+    let joined = joined_evidence(ctx, input).await;
+    // A joined list names no one directory: a same-named suggestion for its last segment would send the model to it.
+    let mut hint = if joined.is_some() { String::new() } else { hint_body(ctx, missing, "Search").await };
+    if hint.is_empty() && joined.is_none() {
         hint = suggest_indexed(ctx, missing).await;
     }
     let hint = with_cwd_note(ctx, hint);
     format!(
         "Error: path does not exist: {} ({code}){}",
         normalize_output_path(&missing.as_path().to_string_lossy()),
-        finalize_tail(hint, input)
+        finalize_tail(hint, joined, tool)
     )
+}
+
+/// The answer for a tool that takes one path, given several joined in one string, when the evidence is there: `Some`
+/// only when [`joined_evidence`] holds, and then the repair is the tool's own.
+pub(crate) async fn joined_path_answer(ctx: &ToolContext, missing: &AbsPath, input: &str, code: &str, tool: PathTool) -> Option<String> {
+    joined_evidence(ctx, input).await?;
+    Some(missing_with_tool(ctx, missing, input, code, tool).await)
 }
 
 /// `_suggestIndexedPaths`: when the scans concluded nothing, the first five rows of a `**/<basename>` glob (six
@@ -93,13 +120,44 @@ fn with_cwd_note(ctx: &ToolContext, hint: String) -> String {
     format!("{hint} (relative paths resolve from {})", normalize_output_path(&ctx.cwd.as_path().to_string_lossy()))
 }
 
-/// `finalizeReadFamilyEnoentTail`: the array hint for a joined-looking path, else the find nudge
-/// unless the hint already concludes.
-fn finalize_tail(hint: String, requested: &str) -> String {
+/// A path that reads as several joined by a space or a comma (`finalizeReadFamilyEnoentTail`'s test, which `read` shares).
+pub(super) fn joined_list(requested: &str) -> bool {
     let trimmed = mixdog_js::js_trim(requested);
     let separator = |c: char| c == ',' || mixdog_js::is_js_space(c);
-    if trimmed.contains(separator) && trimmed.split(separator).filter(|s| !s.is_empty()).count() >= 2 {
-        return hint + MULTI_PATH;
+    trimmed.contains(separator) && trimmed.split(separator).filter(|s| !s.is_empty()).count() >= 2
+}
+
+/// The parts of a path that reads as a joined list, when at least one of them names something that exists: a name that
+/// merely contains a space or a comma is not evidence of a list, a part that is there is.
+async fn joined_evidence(ctx: &ToolContext, requested: &str) -> Option<Vec<String>> {
+    if !joined_list(requested) {
+        return None;
+    }
+    let parts: Vec<String> = mixdog_js::js_trim(requested).split(|c: char| c == ',' || c == ';' || mixdog_js::is_js_space(c)).filter(|s| !s.is_empty()).map(str::to_owned).collect();
+    for part in &parts {
+        let Ok(abs) = super::common::resolve_path(&ctx.cwd, part) else { continue };
+        if ctx.files.stat(ctx.io.interactive, abs).await.is_ok() {
+            return Some(parts);
+        }
+    }
+    None
+}
+
+/// What to do instead of a joined list, worded for the tool that printed it, and executable as written.
+fn repair(tool: PathTool, parts: &[String]) -> String {
+    let quoted = |items: &[String]| items.iter().map(|p| format!("\"{p}\"")).collect::<Vec<_>>().join(", ");
+    match tool {
+        PathTool::Grep => format!(" These look like several paths in one string; grep takes an array for that: path: {}.", serde_json::to_string(&parts[..parts.len().min(10)]).unwrap_or_default()),
+        PathTool::List => format!(" These look like several paths in one string; list takes one path per call: list {}, each in its own call.", quoted(parts)),
+        PathTool::Glob => format!(" These look like several paths in one string; glob takes one base path per call: use {}, each in its own call.", quoted(parts)),
+    }
+}
+
+/// `finalizeReadFamilyEnoentTail`: the tool's repair for a joined list that exists, else the find nudge unless the hint
+/// already concludes.
+fn finalize_tail(hint: String, joined: Option<Vec<String>>, tool: PathTool) -> String {
+    if let Some(parts) = joined {
+        return hint + &repair(tool, &parts);
     }
     if hint.contains(FIND_NUDGE) || hint.contains(ABSENT) {
         return hint;

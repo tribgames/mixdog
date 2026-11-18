@@ -20,6 +20,7 @@ use super::variants;
 const TERMINAL_TTL_MS: i64 = 10 * 60_000;
 const MAX_PROMPT_CHARS: usize = 8_000;
 const DEFAULT_MAX_ACTIVE_JOBS: usize = 4;
+pub(super) const MAX_REFERENCE_BYTES: usize = 12 * 1024 * 1024;
 pub use super::upstream::MAX_GENERATED_MEDIA_BYTES;
 
 #[derive(Debug, Clone)]
@@ -28,12 +29,116 @@ pub struct MediaFailure {
     pub code: Option<String>,
     /// What the provider reported before the request failed: still billed.
     pub usage: Option<Value>,
+    /// Nothing was sent because of the reference images: every blocker, which the job's snapshot names one by one.
+    pub refusal: Option<Box<mixdog_image_egress::NotSent>>,
 }
 
 impl MediaFailure {
     pub fn new(message: impl Into<String>, code: &str) -> Self {
-        Self { message: message.into(), code: Some(code.to_owned()), usage: None }
+        Self { message: message.into(), code: Some(code.to_owned()), usage: None, refusal: None }
     }
+}
+
+/// The job's reference list: absent (or null) is none; anything else must be a list of `{ base64 | ref, name? }` the model can take.
+/// Every malformed entry and every entry past `max` is a blocker, all named at once, and the job does not start.
+fn references_of(value: Option<&Value>, max: usize) -> Result<Vec<Reference>, MediaFailure> {
+    use mixdog_image_egress::{NotSent, Reason, Refusal};
+    let entries = match value {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Array(entries)) => entries,
+        Some(_) => {
+            return Err(MediaFailure::new("Nothing was sent. The reference images must be given as a list. Fix it and try again.", "MEDIA_REFERENCE_INVALID"));
+        }
+    };
+    let mut references = Vec::new();
+    let mut blockers = Vec::new();
+    for (index, entry) in entries.iter().enumerate() {
+        match Reference::from_json(entry) {
+            Some(reference) => {
+                if index >= max {
+                    blockers.push(Refusal::new(super::references::reference_origin(index, &reference), Reason::OverCount { limit: max as u32 }));
+                }
+                references.push(reference);
+            }
+            None => {
+                let name = entry.get("name").and_then(Value::as_str).unwrap_or_default();
+                blockers.push(Refusal::new(super::references::reference_origin(index, &Reference { name: name.to_owned(), ..Reference::base64("") }), Reason::MalformedDataUrl));
+            }
+        }
+    }
+    if blockers.is_empty() {
+        return Ok(references);
+    }
+    let not_sent = NotSent::new(blockers);
+    let code = if not_sent.blockers.iter().all(|b| matches!(b.reason, Reason::OverCount { .. })) { "MEDIA_TOO_MANY_REFERENCES" } else { "MEDIA_REFERENCE_INVALID" };
+    let mut failure = MediaFailure::new(not_sent.message(), code);
+    failure.refusal = Some(Box::new(not_sent));
+    Err(failure)
+}
+
+/// The blockers of a refused job as its snapshot carries them (`imageRefusal`): each reference by its place in the job's list and
+/// its name, with the sentence that says what is wrong and what to do.
+fn refusal_json(not_sent: &mixdog_image_egress::NotSent) -> Value {
+    let blockers: Vec<Value> = not_sent
+        .blockers
+        .iter()
+        .map(|blocker| json!({ "reference": blocker.origin.part_path[0], "name": blocker.origin.display_name, "message": blocker.message() }))
+        .collect();
+    json!({ "blockers": blockers, "message": not_sent.message() })
+}
+
+async fn validate_references(references: &mut [Reference]) -> Result<(), MediaFailure> {
+    use mixdog_core_api::domain::image_supply::{SupplyError, data_url_payload, installed};
+    use mixdog_image_egress::{NotSent, Outcome, Reason, Refusal};
+    use super::references::{ReferenceSource, reference_origin};
+
+    let unavailable = |why: &str| MediaFailure::new(format!("Nothing was sent. The reference images could not be checked ({why})."), "MEDIA_REFERENCE_UNAVAILABLE");
+    let mut blockers = Vec::new();
+    for (index, reference) in references.iter_mut().enumerate() {
+        let source = match &reference.source {
+            ReferenceSource::Base64(data) => {
+                let payload = if data.starts_with("data:") { data_url_payload(data) } else { Some(data.as_str()) };
+                match payload {
+                    None | Some("") => Err(Reason::MalformedDataUrl),
+                    Some(payload) if payload.len() > MAX_REFERENCE_BYTES.div_ceil(3) * 4 => Err(Reason::TooLarge),
+                    Some(payload) => Ok((payload, false)),
+                }
+            }
+            ReferenceSource::Stored(digest) => Ok((digest.as_str(), true)),
+        };
+        let (data, stored) = match source {
+            Ok(source) => source,
+            Err(reason) => {
+                blockers.push(Refusal::new(reference_origin(index, reference), reason));
+                continue;
+            }
+        };
+        let supply = installed().ok_or_else(|| unavailable("image storage is not available"))?;
+        let manifest = if stored { supply.stored(data).await } else { supply.inline(data).await };
+        let reason = match manifest {
+            Ok(manifest) if manifest.encoded_len > MAX_REFERENCE_BYTES as u64 => Reason::TooLarge,
+            Ok(manifest) => match manifest.outcome {
+                Outcome::Accepted { .. } => {
+                    // Keep the validated vault identity so egress does not re-import the inline payload.
+                    reference.source = ReferenceSource::Stored(manifest.original);
+                    continue;
+                }
+                Outcome::Refused { text } => Reason::ImportRefused(text),
+            },
+            Err(SupplyError::Missing) => Reason::Missing,
+            Err(SupplyError::Corrupt) => Reason::Corrupt,
+            Err(SupplyError::NotAnImage(_)) => Reason::MalformedDataUrl,
+            Err(SupplyError::Unavailable(why)) => return Err(unavailable(&why)),
+        };
+        blockers.push(Refusal::new(reference_origin(index, reference), reason));
+    }
+    if blockers.is_empty() {
+        return Ok(());
+    }
+    let refusal = NotSent::new(blockers);
+    let mut failure = MediaFailure::new(refusal.message(), "MEDIA_REFERENCE_INVALID");
+    failure.refusal = Some(Box::new(refusal));
+    Err(failure)
 }
 
 /// A validated request: the lane and model a generation will really use.
@@ -48,10 +153,7 @@ pub struct ResolvedMedia {
     pub request_model: Option<String>,
 }
 
-pub struct Reference {
-    pub base64: String,
-    pub mime: String,
-}
+pub use super::references::Reference;
 
 pub struct GenerationRequest {
     pub resolved: ResolvedMedia,
@@ -191,17 +293,8 @@ impl MediaJobs {
         let account = mixdog_js::js_trim(text("account")).to_owned();
         let (session_id, source_type) = (text("sessionId").to_owned(), text("sourceType").to_owned());
         let resolved = self.generator.resolve_for(text("lane"), text("kind"), text("model"), &account).await?;
-        let references: Vec<Reference> = input
-            .get("references")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|r| {
-                let base64 = r.get("base64").and_then(Value::as_str).filter(|b| !b.is_empty())?;
-                Some(Reference { base64: base64.to_owned(), mime: r.get("mime").and_then(Value::as_str).unwrap_or("image/png").to_owned() })
-            })
-            .take(resolved.max_references)
-            .collect();
+        let mut references = references_of(input.get("references"), resolved.max_references)?;
+        validate_references(&mut references).await?;
         let options = input.get("options").filter(|o| o.is_object()).cloned().unwrap_or_else(|| json!({}));
         let board_id = mixdog_js::slice_utf16(text("boardId"), 64);
         let id = (self.store.marks().id)();
@@ -224,13 +317,15 @@ impl MediaJobs {
             }
             jobs.insert(id.clone(), Job { snapshot: snapshot.clone(), cancel: cancel.clone() });
         }
-        // Remembering the selection is a convenience: a full disk never blocks the generation.
-        let selection = json!({"kind": resolved.kind, "lane": resolved.lane, "model": resolved.model});
-        let _ = self.store.run(move |store| store.set_default(&selection)).await;
         let _ = self.updates.send(JobEvent::Changed(snapshot.clone()));
         let this = self.clone();
         let who = Who { account, session_id, source_type };
-        tokio::spawn(async move { this.run(id, resolved, prompt, options, references, board_id, who, cancel).await });
+        // Hand the registered job to its worker before any further await; dropping the start cannot strand it.
+        tokio::spawn(async move {
+            let selection = json!({"kind": resolved.kind, "lane": resolved.lane, "model": resolved.model});
+            let _ = this.store.run(move |store| store.set_default(&selection)).await;
+            this.run(id, resolved, prompt, options, references, board_id, who, cancel).await;
+        });
         Ok(snapshot)
     }
 
@@ -251,10 +346,13 @@ impl MediaJobs {
                 });
             })
         };
-        let result = self
-            .generator
-            .generate(GenerationRequest { resolved: resolved.clone(), prompt: prompt.clone(), options: options.clone(), references, cancel: cancel.clone(), account: who.account.clone(), session_id: who.session_id.clone(), source_type: who.source_type.clone(), progress })
-            .await;
+        let result = if cancel.is_cancelled() {
+            Err(MediaFailure::new("canceled", "MEDIA_CANCELED"))
+        } else {
+            self.generator
+                .generate(GenerationRequest { resolved: resolved.clone(), prompt: prompt.clone(), options: options.clone(), references, cancel: cancel.clone(), account: who.account.clone(), session_id: who.session_id.clone(), source_type: who.source_type.clone(), progress })
+                .await
+        };
         // Billed once the provider returned a result, whatever happens to the bytes next; a failure is
         // recorded only when the provider reported usage for it.
         match &result {
@@ -306,6 +404,9 @@ impl MediaJobs {
                     let message = if canceled { "canceled".to_owned() } else { mixdog_js::slice_utf16(&failure.message, 500) };
                     s.insert("error".into(), json!(message));
                     s.insert("errorCode".into(), json!(failure.code));
+                    if let Some(refusal) = &failure.refusal {
+                        s.insert("imageRefusal".into(), refusal_json(refusal));
+                    }
                     if !canceled {
                         // The snapshot is the only record of a failure and it is swept: keep the reason.
                         mixdog_rt::node_console_error!("[media] job failed lane={} model={} kind={} code={}: {}", described.0, described.1, described.2, failure.code.as_deref().unwrap_or("none"), mixdog_js::slice_utf16(&failure.message, 500));
@@ -355,6 +456,22 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use mixdog_image_egress::Reason;
+
+    #[test]
+    fn every_malformed_or_excess_reference_is_named_and_a_non_list_is_refused() {
+        let good = json!({"base64": "AAAA", "name": "a.png"});
+        let list = json!([good, {"name": "b.png"}, good, {"url": "https://x"}]);
+        let failure = references_of(Some(&list), 1).unwrap_err();
+        let named: Vec<(u32, Reason)> = failure.refusal.as_ref().unwrap().blockers.iter().map(|b| (b.origin.part_path[0], b.reason.clone())).collect();
+        assert_eq!(named, [(1, Reason::MalformedDataUrl), (2, Reason::OverCount { limit: 1 }), (3, Reason::MalformedDataUrl)]);
+        assert!(failure.message.contains("`b.png`") && failure.message.contains("image 4"), "{}", failure.message);
+        assert_eq!(failure.code.as_deref(), Some("MEDIA_REFERENCE_INVALID"));
+        assert_eq!(references_of(Some(&json!([good, good])), 1).unwrap_err().code.as_deref(), Some("MEDIA_TOO_MANY_REFERENCES"));
+        assert_eq!(references_of(Some(&json!({"base64": "AAAA"})), 4).unwrap_err().code.as_deref(), Some("MEDIA_REFERENCE_INVALID"), "one object, not a list");
+        assert!(references_of(None, 4).unwrap().is_empty());
+        assert_eq!(references_of(Some(&json!([good])), 1).unwrap().len(), 1);
+    }
 
     struct Fake {
         gate: tokio::sync::Semaphore,
@@ -403,6 +520,38 @@ mod tests {
 
     fn request() -> Value {
         json!({"lane": "gemini", "kind": "image", "model": "m", "prompt": " draw ", "boardId": ""})
+    }
+
+    #[tokio::test]
+    async fn malformed_and_oversized_images_are_refused_before_registering_a_job() {
+        let (_d, _s, jobs, _fake) = jobs(false, 4);
+        for (data, reason) in [
+            ("data:image/png,".to_owned(), Reason::MalformedDataUrl),
+            ("A".repeat(MAX_REFERENCE_BYTES.div_ceil(3) * 4 + 4), Reason::TooLarge),
+        ] {
+            let mut input = request();
+            input["references"] = json!([{"base64": data, "name": "source.png"}]);
+            let mut updates = jobs.subscribe();
+            let error = jobs.start(&input).await.unwrap_err();
+            assert_eq!(error.refusal.unwrap().blockers[0].reason, reason);
+            assert!(jobs.list().is_empty());
+            assert!(matches!(updates.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_registered_job_is_returned_without_waiting_for_storage() {
+        let (_d, _s, jobs, _fake) = jobs(false, 4);
+        let input = request();
+        let mut updates = jobs.subscribe();
+        let started = tokio::select! {
+            biased;
+            result = jobs.start(&input) => result.unwrap(),
+            () = std::future::ready(()) => panic!("start yielded after registering the job"),
+        };
+        let id = started["id"].as_str().unwrap();
+        assert_eq!(updates.try_recv().unwrap(), JobEvent::Changed(started.clone()));
+        assert_eq!(jobs.cancel(id)["canceled"], true);
     }
 
     #[tokio::test]

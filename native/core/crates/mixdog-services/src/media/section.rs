@@ -130,7 +130,7 @@ pub fn spawn_media_section(jobs: &Arc<MediaJobs>, publisher: Arc<dyn StatePublis
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, node_twin))]
 mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex;
@@ -138,25 +138,37 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use async_trait::async_trait;
+    #[cfg(node_twin)]
     use bytes::Bytes;
+    #[cfg(node_twin)]
     use mixdog_core_api::feed::Feed;
     use mixdog_core_api::feed::FeedSource;
     use mixdog_core_api::feed::ScopedFeed;
     use mixdog_core_api::feed::ScopedFeeds;
     use mixdog_core_api::feed::FeedView;
+    #[cfg(node_twin)]
     use mixdog_core_api::feed::Window;
+    #[cfg(node_twin)]
     use mixdog_core_api::feed::subscribe;
+    #[cfg(node_twin)]
     use mixdog_core_api::ids::ConnectionId;
+    #[cfg(node_twin)]
     use mixdog_core_api::ids::SubscriptionId;
+    #[cfg(node_twin)]
     use mixdog_core_api::mock::EchoView;
     use mixdog_core_api::mock::MockConnection;
+    #[cfg(node_twin)]
     use mixdog_core_api::mock::MockFeed;
     use mixdog_core_api::mock::MockLimits;
     use mixdog_core_api::mock::MockScopedFeeds;
+    #[cfg(node_twin)]
     use mixdog_core_api::mock::MockStatePublisher;
+    #[cfg(node_twin)]
     use mixdog_core_api::mock::epoch;
+    #[cfg(node_twin)]
     use mixdog_core_api::sink::ConnectionSink;
     use mixdog_core_base::state::ScopedRouteTable;
+    #[cfg(node_twin)]
     use mixdog_core_base::state::StateRuntime;
     use serde_json::json;
 
@@ -173,10 +185,12 @@ mod tests {
     /// answers through each scenario (every field: the job id, the clock stamps and the asset id are the ones
     /// the recording pinned, `ids` and `clock`), what its adapter did to cause them, and `getMediaJob` after
     /// the TTL passed and a list swept.
+    #[cfg(node_twin)]
     fn twin() -> Value {
         serde_json::from_str(include_str!("../../../../fixtures/section-producers/media-jobs.json")).unwrap()
     }
 
+    #[cfg(node_twin)]
     fn value(change: &SectionChange) -> Value {
         match change {
             SectionChange::Set(bytes) => serde_json::from_slice(bytes).unwrap(),
@@ -184,14 +198,17 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn id_of(scenario: &Value) -> String {
         scenario["reads"][0]["id"].as_str().unwrap().to_owned()
     }
 
+    #[cfg(node_twin)]
     fn scoped_sections() -> ScopedSections {
         ScopedSections::new(Arc::new(MockScopedFeeds::new(MockLimits::default())), Arc::new(ScopedRouteTable::default()))
     }
 
+    #[cfg(node_twin)]
     /// Takes what is queued on `events` through one wake and pushes it.
     async fn deliver(events: &mut broadcast::Receiver<JobEvent>, held: &mut Held, open: &mut Open, scoped: &ScopedSections, publisher: &dyn StatePublisher) {
         let first = events.recv().await;
@@ -202,6 +219,7 @@ mod tests {
     /// Each answer Node gave is the value its job's key holds, in order; an answer equal to the one before
     /// pushes nothing; the sweep's removal is pushed once and ends the job's route.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_job_is_pushed_as_node_answered_and_removed_when_it_leaves_the_table() {
         for scenario in twin()["scenarios"].as_array().unwrap() {
             let (tx, mut rx) = broadcast::channel(64);
@@ -236,6 +254,7 @@ mod tests {
 
     /// A burst that queued up while the task ran is one push per job: the latest.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_burst_of_progress_is_one_push_of_the_latest() {
         let twin = twin();
         let scenario = &twin["scenarios"][0];
@@ -250,9 +269,11 @@ mod tests {
         assert_eq!(value(&published[0].2), *scenario["reads"].as_array().unwrap().last().unwrap());
     }
 
+    #[cfg(node_twin)]
     /// Replays what Node's adapter did in a scenario.
     struct Replay(Value);
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl MediaGenerator for Replay {
         async fn resolve(&self, lane: &str, kind: &str, model: &str) -> Result<ResolvedMedia, MediaFailure> {
@@ -268,15 +289,16 @@ mod tests {
             let ends = &self.0["ends"];
             if ends["waitsForCancel"] == true {
                 request.cancel.cancelled().await;
-                return Err(MediaFailure { message: "aborted".into(), code: None, usage: None });
+                return Err(MediaFailure { message: "aborted".into(), code: None, usage: None, refusal: None });
             }
             if let Some(thrown) = ends.get("throws") {
-                return Err(MediaFailure { message: thrown["message"].as_str().unwrap().into(), code: thrown["code"].as_str().map(str::to_owned), usage: None });
+                return Err(MediaFailure { message: thrown["message"].as_str().unwrap().into(), code: thrown["code"].as_str().map(str::to_owned), usage: None, refusal: None });
             }
             Ok(GeneratedMedia { bytes: b"bytes".to_vec(), mime: ends["result"]["mime"].as_str().unwrap().into(), revised_prompt: None, duration_seconds: ends["result"]["durationSeconds"].as_f64(), usage: None })
         }
     }
 
+    #[cfg(node_twin)]
     /// A job table over a store whose clock and ids are the ones the recording pinned.
     struct Table {
         _dir: tempfile::TempDir,
@@ -285,6 +307,7 @@ mod tests {
         scenario: Value,
     }
 
+    #[cfg(node_twin)]
     impl Table {
         fn new(scenario: &Value) -> Self {
             let clock = Arc::new(AtomicI64::new(scenario["clock"]["startAt"].as_i64().unwrap()));
@@ -320,6 +343,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     async fn yield_until(mut done: impl FnMut() -> bool) {
         for _ in 0..100_000 {
             if done() {
@@ -335,6 +359,7 @@ mod tests {
     /// progress report, the terminal answer. Node keeps the job past its TTL until a list sweeps it, and so
     /// does the table: only the sweep ends the job, and it announces that.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn every_answer_of_the_table_is_node_s_answer_and_only_a_sweep_ends_the_job() {
         for scenario in twin()["scenarios"].as_array().unwrap() {
             let name = &scenario["name"];
@@ -359,12 +384,14 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     /// Feeds that remember what was created, so a test can subscribe to a job's feed as a client would.
     struct Feeds {
         inner: MockScopedFeeds,
         made: Mutex<Vec<(String, Arc<dyn ScopedFeed>)>>,
     }
 
+    #[cfg(node_twin)]
     impl ScopedFeeds for Feeds {
         fn create(&self, id: mixdog_core_api::ids::FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed> {
             let feed = self.inner.create(id.clone(), view);
@@ -373,6 +400,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     impl Feeds {
         fn source(&self, id: &str) -> Option<Arc<dyn FeedSource>> {
             let made = self.made.lock().unwrap();
@@ -382,6 +410,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn frames(conn: &MockConnection) -> Vec<Value> {
         conn.drain_text().iter().filter_map(|text| serde_json::from_str::<Value>(text.split_once(':')?.1).ok()).filter(|frame| frame["method"].is_string()).collect()
     }
@@ -390,6 +419,7 @@ mod tests {
     /// with the values Node answered, the app feed never holds the section, and the sweep's removal reaches the
     /// subscriber before the route is dropped.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn the_job_s_feed_carries_node_s_values_and_the_sweep_removes_the_key() {
         let limits = MockLimits::default();
         let twin = twin();
@@ -438,3 +468,4 @@ mod tests {
         }
     }
 }
+

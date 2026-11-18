@@ -17,9 +17,9 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
-#[cfg(all(test, windows))]
+#[cfg(all(node_twin, test, windows))]
 mod tests;
-#[cfg(all(test, windows))]
+#[cfg(all(node_twin, test, windows))]
 mod k1_replay;
 
 /// The wrapper's compile-time MSYSTEM, lower-cased, names its binary directory.
@@ -309,4 +309,144 @@ pub fn forget_missing(program: &str) -> bool {
     }
     resolved().lock().unwrap_or_else(|e| e.into_inner()).retain(|_, layout| layout.as_ref().is_none_or(|l| l.command != program));
     true
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+
+    fn env(pairs: &[(&str, &str)]) -> Env {
+        pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+    }
+
+    fn layout(msys_config: &[&str]) -> Layout {
+        Layout { command: "C:\\Git\\mingw64\\bin\\git.exe".into(), root: "C:\\Git".into(), msystem: "MINGW64".into(), msys_config: msys_config.iter().map(|s| (*s).to_owned()).collect() }
+    }
+
+    /// Only Windows has a launcher to bypass: elsewhere, whatever PATH holds, plain `git` is started.
+    #[test]
+    fn no_layout_is_resolved_off_windows() {
+        for platform in ["linux", "darwin"] {
+            assert_eq!(resolve_layout(platform, "C:\\Git\\cmd"), None);
+        }
+    }
+
+    /// The launcher's environment: the MSYSTEM of the install, ssh as the PLINK protocol unless set, HOME from the user profile when
+    /// the home variables name nothing usable, the install's directories ahead of PATH, and each `MSYS=` line of the install's
+    /// config prepended in file order.
+    #[test]
+    fn the_launch_environment_is_what_the_launcher_would_build() {
+        let base = env(&[("Path", "C:\\Windows"), ("USERPROFILE", "C:\\Users\\me")]);
+        let built = launch_environment_in(&layout(&[]), &base, "C:\\Windows");
+        let get = |name: &str| built.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+        assert_eq!(get("MSYSTEM"), Some("MINGW64"));
+        assert_eq!(get("PLINK_PROTOCOL"), Some("ssh"));
+        assert_eq!(get("HOME"), Some("C:\\Users\\me"));
+        assert_eq!(get("Path"), Some("C:\\Git\\mingw64\\bin;C:\\Git\\usr\\bin;C:\\Users\\me\\bin;C:\\Windows"), "the variable keeps the spelling it had");
+        assert_eq!(get("PATH"), None);
+
+        let kept = env(&[("PATH", "p"), ("HOME", "C:\\h"), ("PLINK_PROTOCOL", "telnet"), ("MSYS", "old")]);
+        let built = launch_environment_in(&layout(&["a", "b"]), &kept, "C:\\Windows");
+        let get = |name: &str| built.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+        assert_eq!((get("HOME"), get("PLINK_PROTOCOL")), (Some("C:\\h"), Some("telnet")));
+        assert_eq!(get("MSYS"), Some("b a old"));
+        assert_eq!(get("PATH"), Some("C:\\Git\\mingw64\\bin;C:\\Git\\usr\\bin;C:\\h\\bin;p"));
+    }
+
+    /// A home drive and path that name a folder that does not exist are not used: HOME falls back to the user profile.
+    #[test]
+    fn a_home_that_does_not_exist_is_replaced_by_the_user_profile() {
+        let base = env(&[("PATH", "p"), ("HOMEDRIVE", "Z:"), ("HOMEPATH", "\\no\\such\\home"), ("USERPROFILE", "C:\\Users\\me")]);
+        let built = launch_environment_in(&layout(&[]), &base, "C:\\Windows");
+        assert_eq!(built.iter().find(|(k, _)| k == "HOME").map(|(_, v)| v.as_str()), Some("C:\\Users\\me"));
+    }
+
+    /// An install laid out `<root>\<cmd|bin>\git.exe` with `git-bash.exe`, `usr\bin` and exactly one `<msystem>\bin\git.exe`.
+    #[cfg(windows)]
+    fn install(root: &Path, launcher_dir: &str, msystems: &[&str]) {
+        std::fs::create_dir_all(root.join(launcher_dir)).unwrap();
+        std::fs::write(root.join(launcher_dir).join("git.exe"), b"").unwrap();
+        std::fs::write(root.join("git-bash.exe"), b"").unwrap();
+        std::fs::create_dir_all(root.join("usr").join("bin")).unwrap();
+        for msystem in msystems {
+            std::fs::create_dir_all(root.join(msystem).join("bin")).unwrap();
+            std::fs::write(root.join(msystem).join("bin").join("git.exe"), b"").unwrap();
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn git_for_windows_launcher_resolves_to_the_real_git_of_its_install() {
+        for launcher_dir in ["cmd", "bin"] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path().join("Git");
+            install(&root, launcher_dir, &["mingw64"]);
+            std::fs::create_dir_all(root.join("etc")).unwrap();
+            std::fs::write(root.join("etc").join("git-bash.config"), "x=1\r\nMSYS=winsymlinks:nativestrict\r\nMSYS=noglob\n").unwrap();
+            let real_root = native_realpath(&root).unwrap();
+            let found = resolve_layout("win32", &format!("{};C:\\Elsewhere", root.join(launcher_dir).display())).expect(launcher_dir);
+            assert_eq!(found.root, real_root);
+            assert_eq!(found.command, format!("{real_root}\\mingw64\\bin\\git.exe"));
+            assert_eq!(found.msystem, "MINGW64");
+            assert_eq!(found.msys_config, ["winsymlinks:nativestrict", "noglob"]);
+        }
+    }
+
+    /// Anything but the plain Git for Windows layout keeps plain `git`: MinGit (no `git-bash.exe`), a launcher in a folder not named
+    /// `cmd` or `bin`, two or no `<msystem>\bin\git.exe`, a relative PATH entry before it, or a `git.com` ahead of the `git.exe`.
+    #[cfg(windows)]
+    #[test]
+    fn other_layouts_keep_plain_git() {
+        let dir = tempfile::tempdir().unwrap();
+        let path_of = |root: &Path, launcher_dir: &str| format!("{}", root.join(launcher_dir).display());
+        let mingit = dir.path().join("mingit");
+        install(&mingit, "cmd", &["mingw64"]);
+        std::fs::remove_file(mingit.join("git-bash.exe")).unwrap();
+        assert_eq!(resolve_layout("win32", &path_of(&mingit, "cmd")), None);
+
+        let shim = dir.path().join("scoop");
+        install(&shim, "shims", &["mingw64"]);
+        assert_eq!(resolve_layout("win32", &path_of(&shim, "shims")), None);
+
+        let two = dir.path().join("two");
+        install(&two, "cmd", &["mingw64", "mingw32"]);
+        assert_eq!(resolve_layout("win32", &path_of(&two, "cmd")), None);
+
+        let none = dir.path().join("none");
+        install(&none, "cmd", &[]);
+        assert_eq!(resolve_layout("win32", &path_of(&none, "cmd")), None);
+
+        let good = dir.path().join("good");
+        install(&good, "cmd", &["mingw64"]);
+        assert!(resolve_layout("win32", &path_of(&good, "cmd")).is_some());
+        assert_eq!(resolve_layout("win32", &format!("relative;{}", path_of(&good, "cmd"))), None, "a relative entry cannot be decided once");
+        std::fs::write(good.join("cmd").join("git.com"), b"").unwrap();
+        assert_eq!(resolve_layout("win32", &path_of(&good, "cmd")), None, "git.com is found before git.exe");
+        assert_eq!(resolve_layout("win32", ""), None);
+    }
+
+    /// The first PATH entry that holds a `git.exe` decides, a quoted entry is read unquoted, and an empty one is skipped.
+    #[cfg(windows)]
+    #[test]
+    fn the_first_git_on_path_decides() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("first");
+        let second = dir.path().join("second");
+        install(&first, "cmd", &["mingw64"]);
+        install(&second, "cmd", &["mingw64"]);
+        let path = format!(";\"{}\";{}", first.join("cmd").display(), second.join("cmd").display());
+        let found = resolve_layout("win32", &path).unwrap();
+        assert_eq!(found.root, native_realpath(&first).unwrap());
+    }
+
+    /// A resolved binary that is gone (an uninstalled Git) is forgotten; plain `git` and a binary still there are not.
+    #[test]
+    fn a_missing_resolved_binary_is_forgotten_and_others_are_not() {
+        assert!(!forget_missing("git"));
+        let dir = tempfile::tempdir().unwrap();
+        let present = dir.path().join("git.exe");
+        std::fs::write(&present, b"").unwrap();
+        assert!(!forget_missing(&present.to_string_lossy()));
+        assert!(forget_missing(&dir.path().join("gone.exe").to_string_lossy()));
+    }
 }

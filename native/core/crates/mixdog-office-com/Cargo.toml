@@ -40,15 +40,18 @@ windows = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-testkit = { workspace = true }
 # The recorded corpus nests deeper than the parser's default limit of 128 (Node's JSON.parse has none).
 serde_json = { workspace = true, features = ["unbounded_depth"] }
 serde = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time", "process", "io-util", "sync"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-office-com = { path = ".", features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 
 [features]
 # The stand-in host the transport tests start in place of the host program (tests/fake_host.rs) and the config that selects it.
@@ -67,10 +70,6 @@ required-features = ["test-support"]
 [[test]]
 name = "transport"
 path = "tests/transport.rs"
-
-[[test]]
-name = "twin_detect"
-path = "tests/twin_detect.rs"
 
 [[test]]
 name = "dispatch"
@@ -178,6 +177,18 @@ path = "tests/word_edit_live.rs"
 [[test]]
 name = "switch_word_live"
 path = "tests/switch_word_live.rs"
+
+[[test]]
+name = "switch_excel_live"
+path = "tests/switch_excel_live.rs"
+
+[[test]]
+name = "switch_powerpoint_live"
+path = "tests/switch_powerpoint_live.rs"
+
+[[test]]
+name = "word_save_copy"
+path = "tests/word_save_copy.rs"
 
 [[test]]
 name = "no_powershell"

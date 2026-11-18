@@ -201,11 +201,11 @@ impl SshTunnel {
             Ok(Ok(now)) => match &*now {
                 TunnelState::Up => Ok(self.local_port()),
                 TunnelState::Stopped { failure: Some(failure) } => Err(failure.clone()),
-                _ => Err(SshError::new("The ssh tunnel is closed.", FailureClass::Terminal)),
+                _ => Err(SshError::said(crate::said::CONNECTION_CLOSED.said([("name", self.display.as_str())]), FailureClass::Terminal)),
             },
-            Ok(Err(_)) => Err(SshError::new("The ssh tunnel is closed.", FailureClass::Terminal)),
-            Err(_) => Err(SshError::new(
-                format!("The ssh tunnel to {} is not ready after {} ms.", self.display, wait.as_millis()),
+            Ok(Err(_)) => Err(SshError::said(crate::said::CONNECTION_CLOSED.said([("name", self.display.as_str())]), FailureClass::Terminal)),
+            Err(_) => Err(SshError::said(
+                crate::said::CONNECTION_NOT_READY.said([("name", self.display.clone()), ("ms", wait.as_millis().to_string())]),
                 FailureClass::Transient,
             )),
         }

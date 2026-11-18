@@ -40,6 +40,10 @@ impl ConnectorPermissions for ConnectorPolicy {
         ConnectorPolicy::project_disabled(self, &self.paths_of(thread), tool)
     }
 
+    fn tool_identity(&self, tool: &str) -> String {
+        self.identity(tool)
+    }
+
     async fn allow_always(&self, bot_id: &str, tool: &str) -> bool {
         self.write_permission(bot_id, tool, Permission::Auto).await
     }

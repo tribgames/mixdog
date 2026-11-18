@@ -4,6 +4,7 @@ import type { DesktopRemoteHost } from '../../shared/contract';
 import { t } from '../i18n';
 import type { CapabilityApi } from './capability-data';
 import { ConnDialog } from './connection-dialogs';
+import { followSettingsReadConnection, startSettingsReadRecovery } from './read-recovery';
 
 /** Accepts `482917`, `482 917`, `482·917`. */
 function normalizeCodeInput(text: string): string {
@@ -18,17 +19,28 @@ export function savedHostOnline(host: DesktopRemoteHost): boolean | undefined {
 /** The computers saved here ("PCs I opened"), re-read when main says they changed. */
 export function useRemoteHosts(api: CapabilityApi): { hosts: DesktopRemoteHost[]; refresh(): void } {
   const [hosts, setHosts] = useState<DesktopRemoteHost[]>([]);
-  const refresh = useCallback(() => {
-    void api
-      .listRemoteHosts?.()
-      .then((next) => setHosts(next ?? []))
-      .catch(() => undefined);
-  }, [api]);
+  const recoveryRef = useRef<(() => void) | null>(null);
+  const refresh = useCallback(() => recoveryRef.current?.(), []);
   useEffect(() => {
-    if (!api.listRemoteHosts) return undefined;
-    refresh();
-    // Main says when a PC was saved, renamed, forgotten, opened or closed, and the core when its presence changed.
-    return api.subscribeHostListsChanged?.(refresh);
+    const list = api.listRemoteHosts;
+    if (!list) return undefined;
+    let live = true;
+    const recovery = startSettingsReadRecovery(async (signal) => {
+      const next = await list();
+      if (live && !signal.aborted && next) setHosts(next);
+    }, 10_000, true, true);
+    recoveryRef.current = recovery.replace;
+    const stopLink = followSettingsReadConnection(window.mixdogDesktop, recovery);
+    const unsubscribe = api.subscribeHostListsChanged?.(refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      live = false;
+      recoveryRef.current = null;
+      recovery.stop();
+      stopLink?.();
+      unsubscribe?.();
+      window.removeEventListener('focus', refresh);
+    };
   }, [api, refresh]);
   return { hosts, refresh };
 }

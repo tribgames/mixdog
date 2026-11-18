@@ -469,4 +469,24 @@ mod tests {
         let actions = session_actions();
         assert!(OVERRIDES.iter().all(|o| actions.contains(o)));
     }
+
+    #[test]
+    fn every_session_action_becomes_a_declared_protocol_request_or_a_named_refusal() {
+        let actions = session_actions();
+        let mut unique = actions.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), actions.len(), "an action is listed twice");
+        for action in actions {
+            match resolve_action(action, &[], &BOUND) {
+                Ok(resolved) => assert!(
+                    mixdog_app_protocol::client_method_spec(&resolved.method).is_some(),
+                    "{action} routes to {}, which the protocol does not declare",
+                    resolved.method
+                ),
+                Err(RouteError::TooManyArguments { .. }) => panic!("{action} refuses a call with no arguments"),
+                Err(RouteError::Unavailable { .. } | RouteError::UnknownMethod { .. }) => {}
+            }
+        }
+    }
 }

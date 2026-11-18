@@ -8,7 +8,7 @@
 //! the one user decision, `release{pid}`, journaled before it takes effect.
 
 mod process;
-#[cfg(test)]
+#[cfg(all(test, node_twin))]
 mod tag_gates;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -48,6 +48,11 @@ use crate::ownership::CoreOwnership;
 /// The `undecidable` decision journal, `<data>/migration/ownership-decisions.jsonl`.
 pub const JOURNAL_DIR: &str = "migration";
 pub const JOURNAL_FILE: &str = "ownership-decisions.jsonl";
+
+// The Rust discovery replaces daemon.json before the legacy owner has cleared.
+// Keep just its ownership evidence, not its session token, across that cut.
+const PRIOR_DISCOVERY: &str = "daemon-owner.json.v2-prior-discovery";
+const PRIOR_DISCOVERY_STAGE: &str = "daemon-owner.json.v2-prior-discovery-staging";
 
 /// Blocks until the process `identity` names has exited, confirmed by the OS (a Windows process
 /// handle, a Linux pidfd, a macOS `NOTE_EXIT`). Returns at once when it already has, or when
@@ -132,6 +137,12 @@ fn record_owner(bytes: &[u8]) -> Option<(u64, Option<u16>)> {
     Some((pid, value.get("livenessPort").and_then(port)))
 }
 
+fn is_barrier_record(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(bytes).is_ok_and(|value| {
+        value["kind"] == "mixdog-daemon" && value["protocol"] == 2 && value["pid"].is_string()
+    })
+}
+
 fn port(value: &serde_json::Value) -> Option<u16> {
     value
         .as_u64()
@@ -204,7 +215,7 @@ pub(crate) fn judge_claim(
 /// `None` is `clear`. `released` are identities the user released.
 pub(crate) fn judge_owner(
     record: Option<&[u8]>,
-    discovery: Option<&[u8]>,
+    discovery: Option<(u64, Option<u16>)>,
     procs: &dyn ProcessTable,
     released: &[ProcessIdentity],
 ) -> io::Result<Option<Verdict>> {
@@ -224,7 +235,7 @@ pub(crate) fn judge_owner(
         });
     }
 
-    if let Some((pid, session_port)) = discovery.and_then(legacy_discovery)
+    if let Some((pid, session_port)) = discovery
         && let Some(info) = running(procs, released, pid)?
     {
         let proven = match session_port {
@@ -336,8 +347,6 @@ impl fmt::Display for GateError {
     }
 }
 
-impl std::error::Error for GateError {}
-
 #[derive(Debug)]
 pub enum ReleaseError {
     /// The gate is not blocked on that pid.
@@ -358,8 +367,6 @@ impl fmt::Display for ReleaseError {
         }
     }
 }
-
-impl std::error::Error for ReleaseError {}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -382,7 +389,7 @@ pub struct Gate {
     ownership: Arc<CoreOwnership>,
     record: BarrierRecord,
     discovery_path: PathBuf,
-    discovery: Option<Vec<u8>>,
+    discovery: Option<(u64, Option<u16>)>,
     procs: Box<dyn ProcessTable>,
     released: Vec<ProcessIdentity>,
     blocked: Option<(ProcessInfo, bool)>,
@@ -423,23 +430,31 @@ impl Gate {
     )]
     fn refresh_discovery(&mut self) -> io::Result<()> {
         match std::fs::read(&self.discovery_path) {
-            Ok(bytes) if legacy_discovery(&bytes).is_some() => self.discovery = Some(bytes),
-            Ok(_) => {}
+            Ok(bytes) => self.discovery = legacy_discovery(&bytes).or(self.discovery),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
         }
         Ok(())
     }
 
-    /// The owner rows for `record`, judged without `B`.
-    fn judge_owner(&mut self, record: Option<&[u8]>) -> io::Result<Option<Verdict>> {
+    /// Runs before boot can replace daemon.json, and again if a legacy owner
+    /// publishes while the gate waits.
+    pub(crate) fn preserve_discovery<L: WriteLane>(&mut self, lane: &InLane<L>) -> io::Result<()> {
+        if ClaimLock::read(self.ownership.data_dir())? == ClaimLock::Barrier {
+            return Ok(());
+        }
         self.refresh_discovery()?;
-        judge_owner(
-            record,
-            self.discovery.as_deref(),
-            &*self.procs,
-            &self.released,
-        )
+        let dir = self.ownership.data_dir();
+        let saved = dir.read(PRIOR_DISCOVERY)?;
+        if let Some(discovery) = self.discovery {
+            let bytes = serde_json::to_vec(&discovery).map_err(io::Error::other)?;
+            if saved.as_deref() != Some(bytes.as_slice()) {
+                barrier::publish_durable(lane, dir, PRIOR_DISCOVERY_STAGE, PRIOR_DISCOVERY, &bytes)?;
+            }
+        } else if let Some(bytes) = saved {
+            self.discovery = Some(serde_json::from_slice(&bytes).map_err(io::Error::other)?);
+        }
+        Ok(())
     }
 
     /// One pass of LR §3 steps 3–4. Runs as a write-lane job: a `clear` verdict
@@ -460,7 +475,14 @@ impl Gate {
                 // touched only after a `clear` verdict judged without it.
                 ClaimJudgement::Free(take) => {
                     let record = self.ownership.data_dir().read(RECORD_FILE)?;
-                    if let Some(verdict) = self.judge_owner(record.as_deref())? {
+                    self.preserve_discovery(lane)?;
+                    let displaced = if record.as_deref().is_some_and(is_barrier_record) {
+                        self.ownership.data_dir().read(barrier::PRIOR_RECORD_FILE)?
+                    } else {
+                        None
+                    };
+                    let evidence = displaced.as_deref().or(record.as_deref());
+                    if let Some(verdict) = judge_owner(evidence, self.discovery, &*self.procs, &self.released)? {
                         verdict
                     } else {
                         barrier::hook(Step::Judged);
@@ -477,7 +499,8 @@ impl Gate {
                             &*self.procs,
                         )? {
                             Taken::Held(held) => {
-                                held.install(lane, &self.record)?;
+                                let save = record.as_deref().filter(|bytes| record_owner(bytes).is_some());
+                                held.install(lane, &self.record, save)?;
                                 return Ok(GateStep::Clear);
                             }
                             Taken::Raced | Taken::RecordChanged => continue,
@@ -565,3 +588,7 @@ impl Gate {
         Ok(process)
     }
 }
+
+
+impl std::error::Error for GateError {}
+impl std::error::Error for ReleaseError {}

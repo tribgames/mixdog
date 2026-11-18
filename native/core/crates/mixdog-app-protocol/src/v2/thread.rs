@@ -770,6 +770,9 @@ pub struct TurnInterruptResponse {
     /// An attachment that could not be read back (`N attachment(s) no longer available and dropped.`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<String>,
+    /// `could-not-stop`: something was under way that the core could not stop. Absent otherwise, including Node's idle reply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -903,6 +906,18 @@ pub struct ItemNotificationParams {
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
     pub item: ThreadItem,
+    /// A group room log's view as it stands once this row has landed: the row and the room's activity are one revision, so a
+    /// client folds both before it tells anyone (the view is never sent separately from the row it landed with).
+    ///
+    /// Absent: the view is unchanged. `null`: the room shows no activity now (the clear travels with its row).
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present_or_null")]
+    #[cfg_attr(feature = "codegen", ts(optional, type = "ThreadRoomView | null"))]
+    pub room_view: Option<Option<ThreadRoomView>>,
+}
+
+/// A field that is present, `null` included, reads as `Some(..)`: with `default`, only an absent one reads `None`.
+fn present_or_null<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Result<Option<T>, D::Error> {
+    T::deserialize(deserializer).map(Some)
 }
 
 /// Deltas are hints; `item/completed` is authoritative.
@@ -1191,6 +1206,10 @@ pub struct ThreadRoomView {
     /// 'typing', speaker, name } }`), shown after the transcript.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typing: Option<JsonValue>,
+    /// The supervisor is choosing the next speaker (between two members' turns, or before the first): `typing` is then the
+    /// hand-off row, which names nobody, so the band keeps its place until the next speaker replaces it or the room finishes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deciding: Option<bool>,
     /// The questions of sessions the members handed work to, while they wait.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handoff_questions: Option<Vec<JsonValue>>,

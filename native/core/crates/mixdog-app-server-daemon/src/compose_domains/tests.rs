@@ -450,7 +450,7 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
         .unwrap();
         let core = compose(
             &tokens,
-            ComposeConfig {
+            ComposeConfig { rebuild: Default::default(),
                 data_dir: crate::compose_test_support::data_in(&dir),
                 user_data_dir: dir.join("userdata"),
                 runtime_root: dir.join("runtime"),
@@ -511,6 +511,7 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
                 data_dir: dir.clone(),
                 user_data_dir: dir.join("userdata"),
                 package_root: js.package_root.clone(),
+                packaged_desktop: false,
             },
             env: Arc::new(|_| None),
             app_feed,
@@ -556,6 +557,7 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
                 browser_surfaces: quiet.clone(),
                 screen_events: quiet.clone(),
                 visualize_panes: Arc::default(),
+                browser_input: Arc::default(),
                 instructions_changed: quiet.clone(),
                 system_proxy: Arc::new(mixdog_ai::netproxy::system::SystemProxy::default()),
                 plugins: PluginSeams { host: quiet.clone(), git: quiet.clone(), announce: Arc::new(|| {}) },

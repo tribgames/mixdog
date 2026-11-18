@@ -103,3 +103,75 @@ async fn a_hook_runs_in_its_runtimes_scope_and_a_gone_runtime_has_none() {
     assert_eq!((runs(&hub, &runtime).await, runs(&hub, "s1").await), (1, 1));
     hub.close_all().await;
 }
+
+async fn compact_bus(dir: &Path, matcher: Option<&str>, event: &str) -> (Arc<McpHub>, Arc<HookBus>) {
+    let tokens = mixdog_rt::testing::tokens();
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
+    let rule = match matcher {
+        Some(matcher) => json!({"matcher": matcher, "hooks": [{"type": "mcp_tool", "server": "mock", "tool": "fixture_0"}]}),
+        None => json!({"hooks": [{"type": "mcp_tool", "server": "mock", "tool": "fixture_0"}]}),
+    };
+    std::fs::write(dir.join("hooks.json"), json!({"hooks": {event: [rule]}}).to_string()).unwrap();
+    let hub = McpHub::new(io, dir.join("artifacts"), OutputPolicy::default());
+    let entry = json!({"command": MOCK, "env": {"MOCK_FIXTURES": json!([""]).to_string()}});
+    // A hook that names no session runs in the daemon's runtime scope, and a session's in the scope it holds: the server
+    // lives in the runtime scope and every session here holds it.
+    let runtime = hub.runtime_scope().to_owned();
+    hub.apply_in(&runtime, vec![McpServerConfig::from_entry("mock", &entry, &std::env::vars().collect()).unwrap()]);
+    hub.server_in(&runtime, "mock").unwrap().connect().await.unwrap();
+    let bus = HookBus::new(dir.to_path_buf(), tokens.maintenance_io, Arc::new(NoProcesses), Some(Arc::clone(&hub)), None, None);
+    assert!(bus.bind_scopes(Arc::new(move |_: &str| Some(runtime.clone()))).is_ok());
+    (hub, bus)
+}
+
+async fn received(hub: &McpHub) -> serde_json::Value {
+    let out = hub
+        .server_in(hub.runtime_scope(), "mock")
+        .unwrap()
+        .call_tool_unlisted("t", "fixture_args", json!({}), &tokio_util::sync::CancellationToken::new(), None)
+        .await
+        .unwrap();
+    match &out.parts[0] {
+        mixdog_core_api::domain::tool::ToolPart::Text(t) => serde_json::from_str(t).unwrap(),
+        other => panic!("{other:?}"),
+    }
+}
+
+// The payload a compaction hook handler receives (`hook_bus/mod.rs` `compact`, `base_payload`): the session, the folder, the event's
+// name, the optional common fields when the session has them, and the trigger, which is `auto` when none is given.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_compaction_hook_receives_the_session_the_folder_the_event_and_the_trigger() {
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().join("work");
+    let cwd_text = cwd.to_string_lossy().into_owned();
+    for (post, event) in [(false, "PreCompact"), (true, "PostCompact")] {
+        let (hub, bus) = compact_bus(dir.path(), None, event).await;
+        let common = HookCommon { transcript_path: Some("/t/log.jsonl".into()), permission_mode: Some("plan".into()), effort: Some(json!("high")) };
+        bus.compact(post, "s-1", "manual", &cwd, &common).await;
+        bus.compact(post, "", "", &cwd, &HookCommon::default()).await;
+        assert_eq!(
+            received(&hub).await,
+            json!([
+                {"session_id": "s-1", "cwd": cwd_text, "hook_event_name": event, "transcript_path": "/t/log.jsonl", "permission_mode": "plan", "effort": "high", "trigger": "manual"},
+                {"session_id": null, "cwd": cwd_text, "hook_event_name": event, "trigger": "auto"}
+            ]),
+            "{event}"
+        );
+        hub.close_all().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_matcher_on_a_compaction_hook_selects_it_by_the_trigger() {
+    let dir = tempfile::tempdir().unwrap();
+    let (hub, bus) = compact_bus(dir.path(), Some("manual"), "PreCompact").await;
+    let common = HookCommon::default();
+    bus.compact(false, "s", "auto", dir.path(), &common).await;
+    assert_eq!(received(&hub).await, json!([]), "an automatic compaction is not selected");
+    bus.compact(false, "s", "manual", dir.path(), &common).await;
+    assert_eq!(received(&hub).await.as_array().map(Vec::len), Some(1));
+    // A hook of the other event is not run by this one.
+    bus.compact(true, "s", "manual", dir.path(), &common).await;
+    assert_eq!(received(&hub).await.as_array().map(Vec::len), Some(1));
+    hub.close_all().await;
+}

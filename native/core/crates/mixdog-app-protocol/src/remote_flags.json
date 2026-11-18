@@ -7,8 +7,9 @@
         "checkForDesktopUpdate": { "method": "update/desktop/command" },
         "showDesktopUpdate": { "method": "update/desktop/command" },
         "trashProjectEntry": { "method": "projectFs/trash" },
-        "browserReleasePage": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4)" },
+        "browserReleasePage": { "method": "browser/command" },
         "submitToSession": { "method": "turn/start" },
+        "captureFileSnapshot": { "method": "projectFs/captureSnapshot" },
         "localPageUrl": { "method": "projectFs/localPageUrl" },
         "previewProjectFile": { "method": "projectFs/previewFile" },
         "previewProjectFileRange": { "method": "projectFs/previewRange" },
@@ -28,11 +29,11 @@
         "removeNativePush": { "method": "remoteAccess/removeNativePush" }
       }
     },
-    "browserDrive": { "calls": { "browserRemoteControl": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4; RS-2)" } } },
+    "browserDrive": { "calls": { "browserRemoteControl": { "method": "browser/command" } } },
     "browserSessionTabs": {
       "calls": {
-        "browserRemoteTabOpen": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4; RS-2)" },
-        "browserRemoteTabClose": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4; RS-2)" }
+        "browserRemoteTabOpen": { "method": "browser/command" },
+        "browserRemoteTabClose": { "method": "browser/command" }
       }
     },
     "termSizeOwner": { "calls": { "termResize": { "method": "terminal/resize" } } },
@@ -48,11 +49,13 @@
     },
     "visualize": {
       "calls": {
-        "visualizeState": { "owner": "PH-2 Visualize group: no branch yet" },
-        "visualizeCommand": { "owner": "PH-2 Visualize group: no branch yet" },
-        "visualizePaneInline": { "owner": "PH-2 Visualize group: no branch yet" },
-        "visualizePanePages": { "owner": "PH-2 Visualize group: no branch yet" },
-        "visualizePaneRange": { "owner": "PH-2 Visualize group: no branch yet" }
+        "visualizeState": { "method": "visualize/command" },
+        "visualizeCommand": { "method": "visualize/command" },
+        "visualizePaneInline": { "method": "visualize/command" },
+        "visualizePaneFile": { "method": "visualize/command" },
+        "visualizePaneRange": { "method": "visualize/command" },
+        "visualizePanePages": { "method": "visualize/command" },
+        "visualizeExport": { "method": "transfer/authorizeRead" }
       }
     },
     "fileDownloads": {
@@ -64,12 +67,18 @@
         "fileDownloadAbort": { "method": "transfer/endRead" }
       }
     },
-    "secretInput": { "calls": { "provideSecretInput": { "method": "approval/provideSecret" } } },
+    "secretInput": { "calls": {}, "unserved": "Handoff secrets must be entered on the PC." },
     "browserWebrtc": {
       "version": 1,
-      "calls": { "browserRemoteControl": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4; RS-2 WebRTC live view)" } }
+      "calls": {
+        "browserRemoteControl": { "method": "browser/command" },
+        "browserRemoteStream": { "method": "browser/stream" },
+        "browserRemoteStreamAck": { "method": "browser/streamAck" },
+        "browserRemoteWebrtcSignal": { "method": "browser/webrtcSignal" },
+        "browserRemoteScreenDisplays": { "method": "browser/screenDisplays" }
+      }
     },
-    "browserFit": { "calls": { "browserRemoteControl": { "owner": "PH-2 Browser group (browser/frame: missing-services, w4; RS-2)" } } },
+    "browserFit": { "calls": { "browserRemoteControl": { "method": "browser/command" } } },
     "mediaE2ee": { "calls": {}, "unserved": "RS-1: the encrypted HTTP media lane" }
   }
 }

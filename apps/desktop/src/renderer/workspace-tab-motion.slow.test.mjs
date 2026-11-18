@@ -148,6 +148,7 @@ test('tab creation keeps fitting runs anchored and still reveals genuine overflo
       }
     }
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    // Electron's helper processes keep the profile open for a moment after the main process closed (EBUSY on Windows).
+    await rm(scratch, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
   }
 });

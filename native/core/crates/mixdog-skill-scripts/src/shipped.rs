@@ -86,11 +86,6 @@ pub fn script_digest(bytes: &[u8]) -> String {
     hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// A path made comparable: canonical when it exists, otherwise resolved against the working directory.
-fn canonical<P: ReadProof>(proof: &P, path: &Path) -> PathBuf {
-    mixdog_fsio::canonicalize(proof, path).unwrap_or_else(|_| PathBuf::from(nodepath::resolve_host(&[&path.to_string_lossy()])))
-}
-
 /// The part of `path` below `root`, with `/` separators, when it lies below it. Windows folds case.
 fn below(path: &Path, root: &Path) -> Option<String> {
     let (path, root) = (path.to_string_lossy().replace('\\', "/"), root.to_string_lossy().replace('\\', "/"));
@@ -100,48 +95,12 @@ fn below(path: &Path, root: &Path) -> Option<String> {
     path[root.len()..].strip_prefix('/').filter(|_| same).map(str::to_owned)
 }
 
-/// The shipped script `path` is: the one at its location under `skills_root`, otherwise the one its content is.
-pub fn shipped_script<P: ReadProof>(proof: &P, path: &Path, skills_root: &Path) -> Option<Shipped> {
-    let location = canonical(proof, path);
-    if let Some(rel) = below(&location, &canonical(proof, skills_root)) {
-        let found = SHIPPED.iter().find(|shipped| {
-            if cfg!(windows) { shipped.path.eq_ignore_ascii_case(&rel) } else { shipped.path == rel }
-        });
-        if let Some(shipped) = found {
-            return Some(*shipped);
-        }
-    }
-    mixdog_fsio::metadata(proof, &location).ok().filter(|meta| meta.is_file() && meta.len() <= CONTENT_LIMIT)?;
-    let digest = script_digest(&mixdog_fsio::read(proof, &location).ok()?);
-    SHIPPED.iter().find(|shipped| shipped.sha256 == digest).copied()
-}
-
 impl Native {
     /// Recognized built-ins always use their native implementation. Engine availability is
     /// checked only when an operation actually needs Office: plain-text source extraction
     /// needs none. Falling back here would run deleted product code on the user interpreter.
     pub fn runs_here(self) -> bool {
         true
-    }
-}
-
-/// Runs a native shipped script with its command-line arguments. `today` is the date `inventory` reports. The office
-/// scripts run against this process's office engine ([`crate::source_extract::install_office_engine`]), its working
-/// folder and the `mixdogd` that `MIXDOGD_BIN` names (or the one on the search path).
-pub fn run_native<P: WriteProof>(proof: &P, native: Native, args: &[String], today: &str) -> Outcome {
-    match native {
-        Native::ValidateSkill => crate::validate_skill::run_validate_skill(proof, args),
-        Native::Inventory => crate::inventory::run_inventory(proof, args, today),
-        Native::SourceExtract | Native::QcPages | Native::ReviewDeck => {
-            let exec = Mixdogd::from_env();
-            let cwd = std::env::current_dir().unwrap_or_default();
-            let host = OfficeHost { engine: installed_office_engine(), exec: &exec, cwd: &cwd };
-            match native {
-                Native::SourceExtract => crate::source_extract::run_source_extract(proof, args, &host),
-                Native::QcPages => crate::qc_pages::run_qc_pages(proof, args, &host),
-                _ => crate::review_deck::run_review_deck(proof, args, &host),
-            }
-        }
     }
 }
 
@@ -186,6 +145,19 @@ mod tests {
     }
 
     #[test]
+    fn every_shipped_script_has_a_native_version() {
+        assert!(SHIPPED.iter().all(|shipped| shipped.native.is_some()));
+    }
+
+    #[test]
+    fn the_digest_reads_a_crlf_pair_as_a_line_feed() {
+        assert_eq!(script_digest(b"a\r\nb\r\n"), script_digest(b"a\nb\n"));
+        assert_ne!(script_digest(b"a\rb"), script_digest(b"a\nb"));
+        assert_eq!(script_digest(b""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    }
+
+
+    #[test]
     fn a_script_is_known_by_its_location_under_the_skills_root() {
         let root = skills_root();
         let shipped = shipped_script(&Unlaned, &root.join("skill-creator/scripts/validate-skill.mjs"), &root).expect("shipped");
@@ -195,7 +167,6 @@ mod tests {
         assert_eq!(shipped_script(&Unlaned, &root.join("skill-creator/SKILL.md"), &root), None);
         assert_eq!(shipped_script(&Unlaned, &root.join("skill-creator/scripts/missing.mjs"), &root), None);
     }
-
     #[test]
     fn a_byte_identical_copy_elsewhere_is_known_by_its_content() {
         let copy = tempfile::tempdir().expect("temp dir");
@@ -212,16 +183,44 @@ mod tests {
         mixdog_testkit::write(&target, "console.log('not shipped');");
         assert_eq!(shipped_script(&Unlaned, &target, &other_root), None);
     }
+}
 
-    #[test]
-    fn every_shipped_script_has_a_native_version() {
-        assert!(SHIPPED.iter().all(|shipped| shipped.native.is_some()));
+
+/// A path made comparable: canonical when it exists, otherwise resolved against the working directory.
+fn canonical<P: ReadProof>(proof: &P, path: &Path) -> PathBuf {
+    mixdog_fsio::canonicalize(proof, path).unwrap_or_else(|_| PathBuf::from(nodepath::resolve_host(&[&path.to_string_lossy()])))
+}
+/// The shipped script `path` is: the one at its location under `skills_root`, otherwise the one its content is.
+pub fn shipped_script<P: ReadProof>(proof: &P, path: &Path, skills_root: &Path) -> Option<Shipped> {
+    let location = canonical(proof, path);
+    if let Some(rel) = below(&location, &canonical(proof, skills_root)) {
+        let found = SHIPPED.iter().find(|shipped| {
+            if cfg!(windows) { shipped.path.eq_ignore_ascii_case(&rel) } else { shipped.path == rel }
+        });
+        if let Some(shipped) = found {
+            return Some(*shipped);
+        }
     }
-
-    #[test]
-    fn the_digest_reads_a_crlf_pair_as_a_line_feed() {
-        assert_eq!(script_digest(b"a\r\nb\r\n"), script_digest(b"a\nb\n"));
-        assert_ne!(script_digest(b"a\rb"), script_digest(b"a\nb"));
-        assert_eq!(script_digest(b""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    mixdog_fsio::metadata(proof, &location).ok().filter(|meta| meta.is_file() && meta.len() <= CONTENT_LIMIT)?;
+    let digest = script_digest(&mixdog_fsio::read(proof, &location).ok()?);
+    SHIPPED.iter().find(|shipped| shipped.sha256 == digest).copied()
+}
+/// Runs a native shipped script with its command-line arguments. `today` is the date `inventory` reports. The office
+/// scripts run against this process's office engine ([`crate::source_extract::install_office_engine`]), its working
+/// folder and the `mixdogd` that `MIXDOGD_BIN` names (or the one on the search path).
+pub fn run_native<P: WriteProof>(proof: &P, native: Native, args: &[String], today: &str) -> Outcome {
+    match native {
+        Native::ValidateSkill => crate::validate_skill::run_validate_skill(proof, args),
+        Native::Inventory => crate::inventory::run_inventory(proof, args, today),
+        Native::SourceExtract | Native::QcPages | Native::ReviewDeck => {
+            let exec = Mixdogd::from_env();
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let host = OfficeHost { engine: installed_office_engine(), exec: &exec, cwd: &cwd };
+            match native {
+                Native::SourceExtract => crate::source_extract::run_source_extract(proof, args, &host),
+                Native::QcPages => crate::qc_pages::run_qc_pages(proof, args, &host),
+                _ => crate::review_deck::run_review_deck(proof, args, &host),
+            }
+        }
     }
 }

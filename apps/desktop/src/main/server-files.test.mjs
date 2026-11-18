@@ -209,6 +209,189 @@ test('described server entries take their name from the path and validated metad
   }
 });
 
+test('a converted server preview whose file the cache evicted is converted again once, under the same URL', async () => {
+  const handlers = new Map();
+  const session = {
+    protocol: {
+      handle: (scheme, handler) => handlers.set(scheme, handler),
+      unhandle: (scheme) => handlers.delete(scheme),
+      isProtocolHandled: (scheme) => handlers.has(scheme),
+    },
+  };
+  const present = new Set(['/cache/a.pdf']);
+  const invoke = async (name, [root, rel]) => {
+    assert.equal(name, 'statProjectFileIn');
+    if (!present.has(`${root}/${rel}`)) throw new Error('ENOENT');
+    return { size: 5, mtimeMs: 1 };
+  };
+  let conversions = 0;
+  const regenerate = async () => {
+    conversions += 1;
+    await new Promise((done) => setTimeout(done, 20));
+    present.add('/cache/b.pdf');
+    return { path: '/cache/b.pdf', mtimeMs: 1, size: 5 };
+  };
+  const previews = createServerFilePreviews({ session, invoke });
+  const { url } = previews.register('/cache', 'a.pdf', '1:5', { regenerate });
+  const head = (headers) => handlers.get('mixdog-media')(new Request(url, { method: 'HEAD', headers }));
+  const before = await head();
+  assert.equal(before.status, 200);
+  present.delete('/cache/a.pdf');
+  const replies = await Promise.all([head(), head(), head()]);
+  assert.deepEqual(replies.map((reply) => reply.status), [200, 200, 200]);
+  assert.equal(conversions, 1);
+  // The regenerated file is another representation: its validator differs, so the old one is neither continued nor revalidated.
+  const etag = replies[0].headers.get('etag');
+  assert.notEqual(etag, before.headers.get('etag'));
+  assert.equal(replies[0].headers.get('cache-control'), 'private, no-cache');
+  assert.equal((await head({ range: 'bytes=1-2', 'if-range': before.headers.get('etag') })).status, 200);
+  assert.equal((await head({ range: 'bytes=1-2', 'if-range': etag })).status, 206);
+  assert.equal((await head({ 'if-none-match': before.headers.get('etag') })).status, 200);
+  assert.equal((await head({ 'if-none-match': etag })).status, 304);
+  const plain = previews.register('/cache', 'gone.pdf', 'v1');
+  assert.equal((await handlers.get('mixdog-media')(new Request(plain.url, { method: 'HEAD' }))).status, 404);
+  previews.dispose();
+});
+
+test('reads whose misses arrive one after another convert once, and a source saved since is not served under the old URL', async () => {
+  const handlers = new Map();
+  const session = {
+    protocol: {
+      handle: (scheme, handler) => handlers.set(scheme, handler),
+      unhandle: (scheme) => handlers.delete(scheme),
+      isProtocolHandled: (scheme) => handlers.has(scheme),
+    },
+  };
+  const present = new Set();
+  const staleStats = [];
+  const invoke = async (_name, [root, rel]) => {
+    if (present.has(`${root}/${rel}`)) return { size: 5, mtimeMs: 1 };
+    // Each miss of the old file fails when the test lets it, so one can land after the conversion finished.
+    await new Promise((done) => staleStats.push(done));
+    throw new Error('ENOENT');
+  };
+  let conversions = 0;
+  const converted = { mtimeMs: 1, size: 5 };
+  const previews = createServerFilePreviews({ session, invoke });
+  const { url } = previews.register('/cache', 'a.pdf', '1:5', {
+    regenerate: async () => {
+      conversions += 1;
+      present.add('/cache/a.pdf');
+      return { path: '/cache/a.pdf', ...converted };
+    },
+  });
+  const head = () => handlers.get('mixdog-media')(new Request(url, { method: 'HEAD' }));
+  const first = head();
+  const second = head();
+  await new Promise((done) => setTimeout(done, 5));
+  assert.equal(staleStats.length, 2);
+  staleStats[0]();
+  assert.equal((await first).status, 200);
+  staleStats[1]();
+  assert.equal((await second).status, 200);
+  assert.equal(conversions, 1);
+
+  // A source saved since the token was made: the cache holds another revision, which is another document.
+  present.clear();
+  converted.mtimeMs = 2;
+  const third = head();
+  await new Promise((done) => setTimeout(done, 5));
+  staleStats[2]();
+  assert.equal((await third).status, 404);
+  assert.equal(conversions, 2);
+  previews.dispose();
+});
+
+test('a delayed successful stat of the replaced file is not served as the size of the regenerated one', async () => {
+  const handlers = new Map();
+  const session = {
+    protocol: {
+      handle: (scheme, handler) => handlers.set(scheme, handler),
+      unhandle: (scheme) => handlers.delete(scheme),
+      isProtocolHandled: (scheme) => handlers.has(scheme),
+    },
+  };
+  let releaseOld;
+  let calls = 0;
+  const invoke = async (_name, [root, rel]) => {
+    calls += 1;
+    if (calls === 1) {
+      // Reader A: the old file answers, but late.
+      await new Promise((done) => (releaseOld = done));
+      return { size: 5, mtimeMs: 1 };
+    }
+    if (`${root}/${rel}` === '/cache/a.pdf') throw new Error('ENOENT');
+    return { size: 22, mtimeMs: 1 };
+  };
+  const previews = createServerFilePreviews({ session, invoke });
+  const { url } = previews.register('/cache', 'a.pdf', '1:5', {
+    regenerate: async () => ({ path: '/cache/b.pdf', mtimeMs: 1, size: 5 }),
+  });
+  const head = () => handlers.get('mixdog-media')(new Request(url, { method: 'HEAD' }));
+  const delayed = head();
+  await new Promise((done) => setTimeout(done, 5));
+  const regenerated = await head();
+  assert.equal(regenerated.headers.get('content-length'), '22');
+  releaseOld();
+  const late = await delayed;
+  assert.equal(late.headers.get('content-length'), '22');
+  assert.equal(late.headers.get('etag'), regenerated.headers.get('etag'));
+  previews.dispose();
+});
+
+test('a slow reader follows any number of regenerations by others and is never answered 404 for them', async () => {
+  const handlers = new Map();
+  const session = {
+    protocol: {
+      handle: (scheme, handler) => handlers.set(scheme, handler),
+      unhandle: (scheme) => handlers.delete(scheme),
+      isProtocolHandled: (scheme) => handlers.has(scheme),
+    },
+  };
+  const present = new Set(['/cache/a.pdf']);
+  let holdNext = false;
+  let release = () => {};
+  const invoke = async (_name, [root, rel]) => {
+    if (holdNext) {
+      holdNext = false;
+      await new Promise((done) => (release = done));
+      return { size: 7, mtimeMs: 1 };
+    }
+    if (!present.has(`${root}/${rel}`)) throw new Error('ENOENT');
+    return { size: 5, mtimeMs: 1 };
+  };
+  let conversions = 0;
+  const previews = createServerFilePreviews({ session, invoke });
+  const { url } = previews.register('/cache', 'a.pdf', '1:5', {
+    regenerate: async () => {
+      conversions += 1;
+      present.add(`/cache/g${conversions}.pdf`);
+      return { path: `/cache/g${conversions}.pdf`, mtimeMs: 1, size: 5 };
+    },
+  });
+  const head = () => handlers.get('mixdog-media')(new Request(url, { method: 'HEAD' }));
+  holdNext = true;
+  const slow = head();
+  await new Promise((done) => setTimeout(done, 5));
+  for (let advance = 1; advance <= 4; advance += 1) {
+    // Another reader finds the file evicted and regenerates; then the slow reader's pending stat, now outdated, is let go
+    // and its next stat is held again.
+    present.clear();
+    assert.equal((await head()).status, 200);
+    holdNext = true;
+    release();
+    await new Promise((done) => setTimeout(done, 5));
+  }
+  assert.equal(conversions, 4);
+  holdNext = false;
+  release();
+  const answer = await slow;
+  assert.equal(answer.status, 200);
+  assert.match(answer.headers.get('etag'), /\.4-server-7"$/);
+  assert.equal(conversions, 4, 'following others\' regenerations converts nothing itself');
+  previews.dispose();
+});
+
 test('a server window keeps refusing only what hands a file to this PC', () => {
   for (const channel of [
     DESKTOP_IPC.resolveLocalPaths,

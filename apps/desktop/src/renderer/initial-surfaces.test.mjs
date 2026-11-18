@@ -225,9 +225,12 @@ for (const navigation of ['close', 'tab', 'project', 'remount']) {
     assert.match(view.host.textContent, /current\.ts/);
     assert.doesNotMatch(view.host.textContent, /cached-old\.ts/);
 
-    // Live refresh keeps the established list rather than replaying entry loading.
+    // Live refresh keeps the established list rather than replaying entry loading. Git evidence drives it (window
+    // focus is none).
     await view.advance(3_000);
     await view.settle(() => window.dispatchEvent(new window.Event('focus')));
+    assert.equal(requests.length, 2, 'focus is no Git evidence');
+    await view.settle(() => window.dispatchEvent(new window.Event('mixdog:git-changed')));
     assert.equal(requests.length, 3);
     assert.match(view.host.textContent, /current\.ts/);
     assert.equal(view.host.querySelector('[aria-busy="true"]'), null);
@@ -259,7 +262,12 @@ for (const navigation of ['close', 'tab', 'project', 'remount']) {
       assert.match(view.host.textContent, /Source Control is temporarily unavailable/);
       assert.doesNotMatch(view.host.textContent, /latest\.ts|Host unavailable/);
       await view.advance(3_000);
+      const failed = requests.length;
       await view.settle(() => window.dispatchEvent(new window.Event('focus')));
+      assert.equal(requests.length, failed, 'focus is no Git evidence');
+      // The next Git evidence retries the failed read.
+      await view.settle(() => window.dispatchEvent(new window.Event('mixdog:git-changed')));
+      assert.equal(requests.length, failed + 1);
       await view.settle(() => requests.at(-1).resolve(status('recovered.ts')));
       assert.match(view.host.textContent, /recovered\.ts/);
     }

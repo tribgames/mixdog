@@ -5,8 +5,9 @@ import { t } from './i18n';
 import { enqueueRemoteClientClaim, normalizeRemoteClientClaim, pruneRemoteClientClaims } from './remote-claim-queue';
 import { OPEN_CONNECTION_SETTINGS_EVENT } from './remote-claim-events';
 import { isRemoteClaimPromptActive, subscribeRemoteClaimPromptActive } from './remote-claim-prompt-state';
-import { claimDisplay, updateClaimQueue, useClaimQueue } from './remote-claim-store';
+import { claimDisplay, claimQueueSnapshot, updateClaimQueue, useClaimQueue } from './remote-claim-store';
 import { requestConnectionDialog } from './settings/connection-intent';
+import { startSettingsReadRecovery } from './settings/read-recovery';
 
 // An installed web app runs in its own storage container: it reaches this
 // desktop with no credential and asks for one, and the answer here IS the
@@ -33,24 +34,23 @@ export function RemoteClaimPrompt() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: api is window.mixdogDesktop; keeping it as a dependency reloads the claims if the bridge object is replaced.
   useEffect(() => {
-    if (typeof api?.listRemoteClientClaims !== 'function') return undefined;
+    if (!api?.listRemoteClientClaims) return undefined;
     let live = true;
-    void api
-      .listRemoteClientClaims()
-      .then((claims) => {
-        if (!live) return;
-        updateClaimQueue((current) =>
-          claims.reduce((next, value) => {
-            const normalized = normalizeRemoteClientClaim(value);
-            return normalized ? enqueueRemoteClientClaim(next, normalized) : next;
-          }, current)
-        );
-      })
-      .catch(() => {
-        /* the live event path remains available */
-      });
+    const recovery = startSettingsReadRecovery(async () => {
+      const before = claimQueueSnapshot();
+      const state = await api.getRemoteConnectionState?.();
+      const claims = state?.claims ?? await api.listRemoteClientClaims?.();
+      if (!live || !claims || before !== claimQueueSnapshot()) return;
+      updateClaimQueue((current) =>
+        claims.reduce((next, value) => {
+          const normalized = normalizeRemoteClientClaim(value);
+          return normalized ? enqueueRemoteClientClaim(next, normalized) : next;
+        }, state?.claims ? [] : current)
+      );
+    }, 10_000);
     return () => {
       live = false;
+      recovery.stop();
       updateClaimQueue(() => []);
     };
   }, [api]);

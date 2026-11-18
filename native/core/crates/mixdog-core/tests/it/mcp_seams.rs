@@ -148,38 +148,6 @@ fn tool_env() -> ToolEnv {
     }
 }
 
-fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../mixdog-mcp/tests/golden/skillprep.json")).unwrap()
-}
-
-fn selector(golden: &Value, deny: Option<&str>, fail: bool) -> (ExplicitSkillSelector, Arc<SkillTool>) {
-    let available = golden["available"].as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_owned()).collect();
-    let tool = Arc::new(SkillTool {
-        spec: ToolSpec {
-            name: "Skill".to_owned(),
-            title: None,
-            trigger: None,
-            public: true,
-            aliases: Vec::new(),
-            description: String::new(),
-            input_schema: json!({"type": "object"}),
-            annotations: ToolAnnotations::default(),
-            parallel_safe: true,
-            exclusive_with: Vec::new(),
-        },
-        answers: golden["answers"].clone(),
-        calls: Mutex::new(Vec::new()),
-    });
-    let selector = ExplicitSkillSelector::new(
-        Arc::new(Names { available, fail }),
-        tool.clone(),
-        Arc::new(Gate { deny: deny.map(str::to_owned) }),
-        tool_env(),
-        CancellationToken::new(),
-    );
-    (selector, tool)
-}
-
 fn content_of(prompt: &Value) -> Content {
     match prompt {
         Value::String(text) => Content::Text(text.clone()),
@@ -197,91 +165,6 @@ fn shown(message: &AgentMessage) -> (String, Value) {
         other => panic!("source {other:?}"),
     };
     (text.clone(), meta)
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn explicit_selection_adds_what_node_adds_to_the_transcript() {
-    let golden = golden();
-    for case in golden["cases"].as_array().unwrap() {
-        let label = format!("{}", case["prompt"]);
-        let (selector, tool) = selector(&golden, None, false);
-        let mut transcript = Vec::new();
-        let applied = selector.select(&content_of(&case["prompt"]), true, &mut transcript).await;
-        let calls: Vec<&str> = case["calls"].as_array().unwrap().iter().map(|c| c["args"]["name"].as_str().unwrap()).collect();
-        assert_eq!(*tool.calls.lock().unwrap(), calls, "{label}: skills loaded");
-        assert_eq!(json!(applied), case["applied"], "{label}: skills applied");
-        let got: Vec<(String, Value)> = transcript.iter().map(shown).collect();
-        let expected: Vec<(String, Value)> =
-            case["messages"].as_array().unwrap().iter().map(|m| (m["content"].as_str().unwrap().to_owned(), m["meta"].clone())).collect();
-        assert_eq!(got, expected, "{label}: transcript");
-    }
-}
-
-/// A native tool-search provider's Skill result (`{"nativeToolSearch": ..}`) is a paired call and result carrying the
-/// deferred tools, never the raw payload as text, and its summary says the skill loaded (`prepareExplicitSkills`).
-#[tokio::test(flavor = "multi_thread")]
-async fn a_native_tool_search_skill_result_loads_the_deferred_tools() {
-    let mut golden = golden();
-    let payload = json!({"nativeToolSearch": {"provider": "openai", "toolReferences": ["mcp__x__y"], "summary": "Loaded skill: alpha"}}).to_string();
-    golden["answers"] = json!({ "alpha": payload });
-    let (selector, _) = selector(&golden, None, false);
-    let mut transcript = Vec::new();
-    let applied = selector.select(&Content::Text("$alpha".to_owned()), true, &mut transcript).await;
-    assert_eq!(applied, ["alpha"]);
-    assert_eq!(transcript.len(), 2);
-    assert_eq!(transcript[0].message.tool_calls[0].name, "Skill");
-    let result = &transcript[1];
-    assert_eq!(result.message.content, Content::Text("Loaded skill: alpha".to_owned()));
-    let native = result.message.native_tool_search.as_ref().expect("the payload rides the result");
-    assert_eq!(native["toolReferences"], json!(["mcp__x__y"]));
-    assert_ne!(transcript[0].message.tool_calls[0].id, "skill-selection-0");
-
-    // Once the history defines those tools, a later selection is the summary as a reminder (`nativeDefinitionsPresent`).
-    let applied = selector.select(&Content::Text("$alpha".to_owned()), true, &mut transcript).await;
-    assert_eq!(applied, ["alpha"]);
-    assert_eq!(transcript.len(), 3);
-    assert_eq!(
-        transcript[2].message.content,
-        Content::Text("<system-reminder>
-Explicit skill selection result:
-Loaded skill: alpha
-</system-reminder>".to_owned())
-    );
-}
-
-/// `selection`, when given (even empty), is read instead of the prompt (`prepareExplicitSkills`).
-#[tokio::test(flavor = "multi_thread")]
-async fn a_trusted_selection_replaces_the_prompt_even_when_empty() {
-    let golden = golden();
-    let (selector, tool) = selector(&golden, None, false);
-    let selector = selector.with_selection(Some("$alpha".to_owned()));
-    let mut transcript = Vec::new();
-    selector.select(&Content::Text("no mention here".to_owned()), true, &mut transcript).await;
-    assert_eq!(*tool.calls.lock().unwrap(), ["alpha"]);
-
-    let (selector, tool) = self::selector(&golden, None, false);
-    let selector = selector.with_selection(Some(String::new()));
-    let mut transcript = Vec::new();
-    selector.select(&Content::Text("$alpha".to_owned()), true, &mut transcript).await;
-    assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_session_that_cannot_call_skill_selects_nothing() {
-    let golden = golden();
-    let (selector, tool) = selector(&golden, Some("Skill is not available here"), false);
-    let mut transcript = Vec::new();
-    selector.select(&Content::Text("$alpha".to_owned()), false, &mut transcript).await;
-    assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn an_unreadable_catalog_selects_nothing() {
-    let golden = golden();
-    let (selector, tool) = selector(&golden, None, true);
-    let mut transcript = Vec::new();
-    selector.select(&Content::Text("$alpha".to_owned()), false, &mut transcript).await;
-    assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
 }
 
 fn named_tool(name: &str, aliases: &[&str]) -> Arc<dyn Tool> {
@@ -456,6 +339,279 @@ async fn allow_all_actions_is_on_only_for_a_stored_true() {
     }
 }
 
+/// `developerOptionEnabledStrict`: the answer is the file's, not the document the core loaded. A file deleted or damaged after
+/// the open, and an edit not reloaded yet, are off; the loaded document still says on.
+#[tokio::test(flavor = "multi_thread")]
+#[allow(clippy::disallowed_methods, reason = "test setup: removes the file the gate reads")]
+async fn allow_all_actions_fails_closed_on_what_the_file_holds_now() {
+    use mixdog_core_config::config::Config;
+    use mixdog_core_config::config::ConfigLanes;
+    use mixdog_core_api::mock::MockStatePublisher;
+
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mixdog-config.json");
+    let on = serde_json::to_vec(&json!({"agent": {"developer": {"allowAllActions": true}}})).unwrap();
+    write_file(&path, &on).await;
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(path.clone(), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let gate = ConfigAllowAll(config.clone());
+    assert!(gate.allow_all_actions());
+    assert!(config.agent()["developer"]["allowAllActions"] == json!(true));
+    for (what, bytes) in [
+        ("an edit that turned it off", Some(serde_json::to_vec(&json!({"agent": {"developer": {"allowAllActions": false}}})).unwrap())),
+        ("a damaged file", Some(b"{\"agent\": {\"developer\": {\"allowAllActions\": tr".to_vec())),
+        ("a file that is not an object", Some(b"[]".to_vec())),
+        ("a missing file", None),
+    ] {
+        write_file(&path, &on).await;
+        assert!(gate.allow_all_actions(), "{what}: on again");
+        match bytes {
+            Some(bytes) => write_file(&path, &bytes).await,
+            None => std::fs::remove_file(&path).unwrap(),
+        }
+        assert!(!gate.allow_all_actions(), "{what}");
+        assert!(config.agent()["developer"]["allowAllActions"] == json!(true), "{what}: the loaded document is not what the gate reads");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_skill_listing_answers_from_the_catalog() {
+    use mixdog_mcp::skill_catalog::SkillSettings;
+    use mixdog_mcp::skill_catalog::SkillSettingsSource;
+    use mixdog_mcp::skills::SkillRoot;
+    use mixdog_mcp::skills::SkillSource;
+    use mixdog_mcp::skills_watch::SkillsWatch;
+
+    struct NoSettings;
+    impl SkillSettingsSource for NoSettings {
+        fn current(&self) -> SkillSettings {
+            SkillSettings::default()
+        }
+    }
+
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("skills");
+    write_file(&root.join("alpha").join("SKILL.md"), b"---\nname: alpha\ndescription: Use when alpha.\n---\n\nbody\n").await;
+    let skill_root = SkillRoot { dir: root, source: SkillSource::Global, plugin: None };
+    let catalog = SkillCatalog::new(
+        dir.path().to_path_buf(),
+        tokens.maintenance_io,
+        Arc::new(move |_lane| vec![skill_root.clone()]),
+        Arc::new(NoSettings),
+        &SkillsWatch::new(),
+    );
+    let listed = CatalogSkillsListed(Arc::clone(&catalog));
+    // A cold start collects before it answers.
+    assert_eq!(listed.any_for(dir.path()).await, Ok(true));
+    // A skill added since, after invalidation, is listed on the very next read.
+    remove_dir_all(&dir.path().join("skills").join("alpha")).await;
+    catalog.invalidate();
+    assert_eq!(listed.any_for(dir.path()).await, Ok(false));
+    write_file(&dir.path().join("skills").join("beta").join("SKILL.md"), b"---\nname: beta\ndescription: Use when beta.\n---\n\nbody\n").await;
+    catalog.invalidate();
+    assert_eq!(listed.any_for(dir.path()).await, Ok(true));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_post_tool_dispatch_asks_the_bus_with_the_sessions_common_fields() {
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let bus = HookBus::new(dir.path().to_path_buf(), tokens.maintenance_io, Arc::new(MockProcessManager::default()), None, None, None);
+    let asked = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&asked);
+    let dispatch = BusPostToolDispatch::new(
+        bus,
+        Arc::new(move |session: &str| {
+            assert_eq!(session, "s1");
+            counter.fetch_add(1, Ordering::SeqCst);
+            HookCommon::default()
+        }),
+    );
+    let event = PostToolEvent { call_id: "c1".to_owned(), name: "edit".to_owned(), args: json!({"file_path": "a"}), cwd: dir.path().to_string_lossy().into_owned(), session_id: "s1".to_owned(), result: "ok".to_owned() };
+    // No hooks are configured: nothing replaces the result and nothing blocks.
+    assert_eq!(dispatch.post_tool(&event).await, PostToolAnswer::default());
+    dispatch.post_failure(&event).await;
+    let decision = dispatch.post_batch("s1", &event.cwd, 2).await.expect("a batch with calls is dispatched");
+    assert!(!decision.blocked);
+    assert!(dispatch.post_batch("s1", &event.cwd, 0).await.is_none());
+    // Every dispatch reads the session's common fields first (an empty batch included).
+    assert_eq!(asked.load(Ordering::SeqCst), 4);
+}
+
+/// The live settings gates bound to the env are read at every call: a switch flipped between two reads shows in the second,
+/// and an env nothing is bound to switches nothing off.
+#[test]
+fn the_env_reads_the_live_settings_gates_at_each_use() {
+    struct Moving(std::sync::Mutex<Vec<String>>);
+    impl mixdog_core::run_host::mcp_seams::SettingGates for Moving {
+        fn setting_denied(&self) -> Vec<String> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+    let env = HostGateEnv::new(Arc::new(Runs(None)), Arc::new(Contacts), Arc::new(AllowAll(false)), empty_hub());
+    assert!(env.live_setting_denied().is_empty(), "nothing bound");
+    let gates = Arc::new(Moving(std::sync::Mutex::new(Vec::new())));
+    assert!(env.bind_feature_gates(gates.clone()));
+    assert!(env.live_setting_denied().is_empty());
+    gates.0.lock().unwrap().push("git".to_owned());
+    assert_eq!(env.live_setting_denied(), ["git"]);
+}
+
+
+/// The skills installed and what the `Skill` tool answers for the ones a test loads.
+fn golden() -> Value {
+    json!({
+        "available": ["a", "alpha", "beta-two", "path", "pptx", "skill-1", "skill-2", "skill-3", "skill-4", "skill-5", "skill-6", "x1", "image", "setup"],
+        "answers": {
+            "alpha": { "result": "Loaded skill: alpha", "bodies": ["<skill>\n<name>alpha</name>\nBody of alpha\n</skill>"] },
+            "pptx": "Loaded built-in skill: pptx",
+            "beta-two": "Error: skill \"beta-two\" not found",
+            "path": "Error: skill \"path\" is turned off",
+            "a": { "result": "Loaded skill: a (already active; instructions unchanged \u{2014} follow them without calling Skill again)", "bodies": [] },
+            "x1": { "result": "Loaded skill: x1", "bodies": ["<skill>\n<name>x1</name>\nBody of x1\n</skill>", "second"] },
+        },
+    })
+}
+fn selector(golden: &Value, deny: Option<&str>, fail: bool) -> (ExplicitSkillSelector, Arc<SkillTool>) {
+    let available = golden["available"].as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_owned()).collect();
+    let tool = Arc::new(SkillTool {
+        spec: ToolSpec {
+            name: "Skill".to_owned(),
+            title: None,
+            trigger: None,
+            public: true,
+            aliases: Vec::new(),
+            description: String::new(),
+            input_schema: json!({"type": "object"}),
+            annotations: ToolAnnotations::default(),
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        },
+        answers: golden["answers"].clone(),
+        calls: Mutex::new(Vec::new()),
+    });
+    let selector = ExplicitSkillSelector::new(
+        Arc::new(Names { available, fail }),
+        tool.clone(),
+        Arc::new(Gate { deny: deny.map(str::to_owned) }),
+        tool_env(),
+        CancellationToken::new(),
+    );
+    (selector, tool)
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn explicit_selection_loads_each_mentioned_skill_and_adds_its_result_and_body_to_the_transcript() {
+    let golden = golden();
+    let skill_context = |result: &str| (format!("<system-reminder>\nExplicit skill selection result:\n{result}\n</system-reminder>"), json!({ "source": "skill-context" }));
+    let body = |name: &str| (format!("<skill>\n<name>{name}</name>\nBody of {name}\n</skill>"), json!("skill"));
+    let second = || ("second".to_owned(), json!("skill"));
+    let cases: Vec<(Value, Vec<&str>, Vec<&str>, Vec<(String, Value)>)> = vec![
+        (json!("$alpha"), vec!["alpha"], vec!["alpha"], vec![skill_context("Loaded skill: alpha"), body("alpha")]),
+        (json!("$pptx"), vec!["pptx"], vec!["pptx"], vec![skill_context("Loaded built-in skill: pptx")]),
+        (json!("$beta-two"), vec!["beta-two"], vec![], vec![skill_context("Error: skill \"beta-two\" not found")]),
+        (json!("$path"), vec![], vec![], vec![]),
+        (json!("nothing selected here"), vec![], vec![], vec![]),
+        (json!("$x1"), vec!["x1"], vec!["x1"], vec![skill_context("Loaded skill: x1"), body("x1"), second()]),
+        (
+            json!("Skill: \"pptx\"\n\nuse $alpha then $pptx"),
+            vec!["pptx", "alpha"],
+            vec!["pptx", "alpha"],
+            vec![skill_context("Loaded built-in skill: pptx"), skill_context("Loaded skill: alpha"), body("alpha")],
+        ),
+        (
+            json!([{ "type": "text", "text": "Skill: \"alpha\"\n\nrun" }, { "type": "text", "text": "$x1" }]),
+            vec!["alpha", "x1"],
+            vec!["alpha", "x1"],
+            vec![skill_context("Loaded skill: alpha"), body("alpha"), skill_context("Loaded skill: x1"), body("x1"), second()],
+        ),
+    ];
+    for (prompt, calls, applied, messages) in cases {
+        let label = format!("{prompt}");
+        let (selector, tool) = selector(&golden, None, false);
+        let mut transcript = Vec::new();
+        let got_applied = selector.select(&content_of(&prompt), true, &mut transcript).await;
+        assert_eq!(*tool.calls.lock().unwrap(), calls, "{label}: skills loaded");
+        assert_eq!(got_applied, applied, "{label}: skills applied");
+        let got: Vec<(String, Value)> = transcript.iter().map(shown).collect();
+        assert_eq!(got, messages, "{label}: transcript");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn no_more_than_five_skills_are_loaded_for_one_prompt() {
+    let golden = golden();
+    let (selector, tool) = selector(&golden, None, false);
+    let mut transcript = Vec::new();
+    let applied = selector.select(&Content::Text("$skill-1 $skill-2 $skill-3 $skill-4 $skill-5 $skill-6".to_owned()), true, &mut transcript).await;
+    assert_eq!(applied, ["skill-1", "skill-2", "skill-3", "skill-4", "skill-5"]);
+    assert_eq!(tool.calls.lock().unwrap().len(), 5);
+}
+
+/// A native tool-search provider's Skill result (`{"nativeToolSearch": ..}`) is a paired call and result carrying the
+/// deferred tools, never the raw payload as text, and its summary says the skill loaded (`prepareExplicitSkills`).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_native_tool_search_skill_result_loads_the_deferred_tools() {
+    let mut golden = golden();
+    let payload = json!({"nativeToolSearch": {"provider": "openai", "toolReferences": ["mcp__x__y"], "summary": "Loaded skill: alpha"}}).to_string();
+    golden["answers"] = json!({ "alpha": payload });
+    let (selector, _) = selector(&golden, None, false);
+    let mut transcript = Vec::new();
+    let applied = selector.select(&Content::Text("$alpha".to_owned()), true, &mut transcript).await;
+    assert_eq!(applied, ["alpha"]);
+    assert_eq!(transcript.len(), 2);
+    assert_eq!(transcript[0].message.tool_calls[0].name, "Skill");
+    let result = &transcript[1];
+    assert_eq!(result.message.content, Content::Text("Loaded skill: alpha".to_owned()));
+    let native = result.message.native_tool_search.as_ref().expect("the payload rides the result");
+    assert_eq!(native["toolReferences"], json!(["mcp__x__y"]));
+    assert_ne!(transcript[0].message.tool_calls[0].id, "skill-selection-0");
+
+    // Once the history defines those tools, a later selection is the summary as a reminder (`nativeDefinitionsPresent`).
+    let applied = selector.select(&Content::Text("$alpha".to_owned()), true, &mut transcript).await;
+    assert_eq!(applied, ["alpha"]);
+    assert_eq!(transcript.len(), 3);
+    assert_eq!(
+        transcript[2].message.content,
+        Content::Text("<system-reminder>
+Explicit skill selection result:
+Loaded skill: alpha
+</system-reminder>".to_owned())
+    );
+}
+/// `selection`, when given (even empty), is read instead of the prompt (`prepareExplicitSkills`).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trusted_selection_replaces_the_prompt_even_when_empty() {
+    let golden = golden();
+    let (selector, tool) = selector(&golden, None, false);
+    let selector = selector.with_selection(Some("$alpha".to_owned()));
+    let mut transcript = Vec::new();
+    selector.select(&Content::Text("no mention here".to_owned()), true, &mut transcript).await;
+    assert_eq!(*tool.calls.lock().unwrap(), ["alpha"]);
+
+    let (selector, tool) = self::selector(&golden, None, false);
+    let selector = selector.with_selection(Some(String::new()));
+    let mut transcript = Vec::new();
+    selector.select(&Content::Text("$alpha".to_owned()), true, &mut transcript).await;
+    assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_that_cannot_call_skill_selects_nothing() {
+    let golden = golden();
+    let (selector, tool) = selector(&golden, Some("Skill is not available here"), false);
+    let mut transcript = Vec::new();
+    selector.select(&Content::Text("$alpha".to_owned()), false, &mut transcript).await;
+    assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreadable_catalog_selects_nothing() {
+    let golden = golden();
+    let (selector, tool) = selector(&golden, None, true);
+    let mut transcript = Vec::new();
+    selector.select(&Content::Text("$alpha".to_owned()), false, &mut transcript).await;
+    assert!(transcript.is_empty() && tool.calls.lock().unwrap().is_empty());
+}
 /// `appendSkillUpdateNotices` (`skill-update-notice.mjs`) over the real skill catalog: a turn's selector compares the body
 /// the transcript holds with what the Skill tool would deliver at the folder now, and tells each change of state once: the
 /// file edited, the skill removed, the skill back unchanged.
@@ -535,69 +691,4 @@ async fn a_loaded_skills_changes_are_announced_from_the_catalog() {
         })]
     );
     assert!(told_in(&selector, &mut transcript).await.is_empty());
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn the_skill_listing_answers_from_the_catalog() {
-    use mixdog_mcp::skill_catalog::SkillSettings;
-    use mixdog_mcp::skill_catalog::SkillSettingsSource;
-    use mixdog_mcp::skills::SkillRoot;
-    use mixdog_mcp::skills::SkillSource;
-    use mixdog_mcp::skills_watch::SkillsWatch;
-
-    struct NoSettings;
-    impl SkillSettingsSource for NoSettings {
-        fn current(&self) -> SkillSettings {
-            SkillSettings::default()
-        }
-    }
-
-    let tokens = mixdog_rt::testing::tokens();
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("skills");
-    write_file(&root.join("alpha").join("SKILL.md"), b"---\nname: alpha\ndescription: Use when alpha.\n---\n\nbody\n").await;
-    let skill_root = SkillRoot { dir: root, source: SkillSource::Global, plugin: None };
-    let catalog = SkillCatalog::new(
-        dir.path().to_path_buf(),
-        tokens.maintenance_io,
-        Arc::new(move |_lane| vec![skill_root.clone()]),
-        Arc::new(NoSettings),
-        &SkillsWatch::new(),
-    );
-    let listed = CatalogSkillsListed(Arc::clone(&catalog));
-    // A cold start collects before it answers.
-    assert_eq!(listed.any_for(dir.path()).await, Ok(true));
-    // A skill added since, after invalidation, is listed on the very next read.
-    remove_dir_all(&dir.path().join("skills").join("alpha")).await;
-    catalog.invalidate();
-    assert_eq!(listed.any_for(dir.path()).await, Ok(false));
-    write_file(&dir.path().join("skills").join("beta").join("SKILL.md"), b"---\nname: beta\ndescription: Use when beta.\n---\n\nbody\n").await;
-    catalog.invalidate();
-    assert_eq!(listed.any_for(dir.path()).await, Ok(true));
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn the_post_tool_dispatch_asks_the_bus_with_the_sessions_common_fields() {
-    let tokens = mixdog_rt::testing::tokens();
-    let dir = tempfile::tempdir().unwrap();
-    let bus = HookBus::new(dir.path().to_path_buf(), tokens.maintenance_io, Arc::new(MockProcessManager::default()), None, None, None);
-    let asked = Arc::new(AtomicUsize::new(0));
-    let counter = Arc::clone(&asked);
-    let dispatch = BusPostToolDispatch::new(
-        bus,
-        Arc::new(move |session: &str| {
-            assert_eq!(session, "s1");
-            counter.fetch_add(1, Ordering::SeqCst);
-            HookCommon::default()
-        }),
-    );
-    let event = PostToolEvent { call_id: "c1".to_owned(), name: "edit".to_owned(), args: json!({"file_path": "a"}), cwd: dir.path().to_string_lossy().into_owned(), session_id: "s1".to_owned(), result: "ok".to_owned() };
-    // No hooks are configured: nothing replaces the result and nothing blocks.
-    assert_eq!(dispatch.post_tool(&event).await, PostToolAnswer::default());
-    dispatch.post_failure(&event).await;
-    let decision = dispatch.post_batch("s1", &event.cwd, 2).await.expect("a batch with calls is dispatched");
-    assert!(!decision.blocked);
-    assert!(dispatch.post_batch("s1", &event.cwd, 0).await.is_none());
-    // Every dispatch reads the session's common fields first (an empty batch included).
-    assert_eq!(asked.load(Ordering::SeqCst), 4);
 }

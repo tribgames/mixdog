@@ -35,7 +35,6 @@ use mixdog_core_agents::agents::AgentDefinitions;
 use mixdog_core_agents::agents::ContactIds;
 use mixdog_mcp::McpHub;
 use mixdog_core_run::run_host::guards::RunningWork;
-use mixdog_core_run::run_host::guards::UserCycles;
 use super::host_seams::{ConfigSeams, DirectoryParts, SeamParts};
 use mixdog_core_run::run_host::hop_host::HopFactory;
 use super::mcp_seams::BusPostToolDispatch;
@@ -61,8 +60,6 @@ pub struct TurnPathParts {
     /// The process's one provider registry, built before the turn path (`compose_parts::provider_registry`):
     /// `ProviderReadiness` and the settings and feature effects hold the same `Arc`.
     pub registry: Arc<ProviderRegistry>,
-    /// The live baselines owned by the applied route-change boundary.
-    pub prefix_guards: Arc<super::assemble::PrefixGuards>,
     /// The shared effort-judge model (needs the ONNX Runtime library, WP-INTEGRATE).
     pub effort_judge: Arc<EffortJudgeModel>,
     /// The one side-question store: compaction.requests is built over the same instance.
@@ -104,7 +101,6 @@ pub struct TurnPathParts {
     pub goals: Arc<GoalRuntime>,
     pub todos: Arc<dyn TodoStore>,
     pub work: Arc<dyn RunningWork>,
-    pub cycles: Arc<UserCycles>,
     pub config: Arc<dyn ConfigSeams>,
     /// The settings the config does not hold: the route wiring (`RouteWirer`), attachments, heartbeat marks, output
     /// ceilings and auto-effort settings.
@@ -158,23 +154,31 @@ pub struct TurnPath {
     pub turn_settings: Arc<super::turn_settings::LateTurnSettings>,
     /// The runtime liveness map the runs write: the pool's `running`, the thread list's `working` and the report host read it.
     pub liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
+    /// The env every tool gate of the runtime reads (the turn's own, a sub-agent's, the `call_tool` bridge's): bind the live
+    /// settings gates here once the workflow surface exists (`bind_feature_gates`), or no setting refuses a call mid-turn.
+    pub gate_env: Arc<HostGateEnv>,
 }
 
 impl TurnPath {
     pub fn new(parts: TurnPathParts) -> Result<Self, TurnPathError> {
         let TurnPathParts {
-            tokens, clock, paths, registry, prefix_guards, effort_judge, side, next, files, processes, policy, connectors, resolver, unattended, approvals, exclusions, agents, allow_all, hub, blobs, tool_pool, mcp,
-            skills_listed, skill_names, skill_deliveries, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compactors, hops, shells, liveness, search_usage, reuses,
+            tokens, clock, paths, registry, effort_judge, side, next, files, processes, policy, connectors, resolver, unattended, approvals, exclusions, agents, allow_all, hub, blobs, tool_pool, mcp,
+            skills_listed, skill_names, skill_deliveries, ext_pool, hook_bus, hook_common, goals, todos, work, config, settings, ladder, deps, compactors, hops, shells, liveness, search_usage, reuses,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+        // A tool result's images enter the attachment store through the one importer, as every other ingress does.
+        let data_dir = paths.data_dir.clone();
+        let intake = Arc::new(super::attachment_store::StoreFiles::new(mixdog_store::blobs::BlobStore::new(&data_dir), &data_dir, &tokens));
+        // And every provider send reads its images' verdicts and bytes back from the same store.
+        mixdog_core_api::domain::image_supply::install(Arc::new(super::image_supply::VaultSupply::new(mixdog_store::blobs::BlobStore::new(&data_dir), &data_dir, &tokens)));
         let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned().ok_or(TurnPathError::NoSkillTool)?;
         let reaction_targets: Arc<ReactionTargets> = Arc::default();
         let turn_settings: Arc<super::turn_settings::LateTurnSettings> = Arc::default();
         let contacts = Arc::new(ContactIds::new(agents));
         let gate_env = Arc::new(HostGateEnv::new(unattended.clone(), contacts.clone(), allow_all, hub));
+        let live_gate_env = gate_env.clone();
         let host = HostParts {
             registry: registry.clone(),
-            prefix_guards,
             clock: clock.clone(),
             files,
             processes: processes.clone(),
@@ -193,12 +197,12 @@ impl TurnPath {
             settings,
             seams: SeamParts {
                 tools: SessionToolBuilder::new(tool_pool, mcp, skills_listed)?,
-                todos: TodoViews::new(todos, goals, work, cycles),
+                todos: TodoViews::new(todos, goals, work),
                 post_tool: Arc::new(BusPostToolDispatch::new(hook_bus, hook_common)),
                 skills: Some(SkillParts { names: skill_names, tool: skill_tool, deliveries: skill_deliveries }),
                 config,
                 ladder,
-                images: Some(Arc::new(ToolImageCompactor::new(Arc::new(ExtImageCodec::new(ext_pool))))),
+                images: Some(Arc::new(ToolImageCompactor::new(Arc::new(ExtImageCodec::new(ext_pool))).with_intake(intake))),
                 paths,
             },
             probes: Arc::new(StartupProbes::new(io, processes)),
@@ -210,6 +214,6 @@ impl TurnPath {
             search_usage,
         };
         let directory = build_directory(host, deps, move |directory, registry| DirectoryParts { hops: Arc::new(hops(directory, registry)), compactors });
-        Ok(Self { directory, reaction_targets, reuses, registry, unattended, contacts, exclusions, turn_settings, liveness })
+        Ok(Self { directory, reaction_targets, reuses, registry, unattended, contacts, exclusions, turn_settings, liveness, gate_env: live_gate_env })
     }
 }

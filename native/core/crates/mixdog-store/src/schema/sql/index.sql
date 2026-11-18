@@ -1,13 +1,16 @@
--- index/store.sqlite, user_version 16: catalog + history projection + blob refs.
--- Bump user_version with every change to this file: an index of another version is
--- rebuilt from the logs, never opened or altered in place.
+-- index/store.sqlite, user_version 18: catalog + history projection + submission receipts.
+-- Bump user_version with every change to this file. An index of another version is rebuilt from the logs today.
+-- 18 is the first released version, so the change that makes 19 must ship with a delta that brings a version 18
+-- index to it in place (as state_v2_delta.sql does for the core state): a rebuild reads every log and holds the
+-- start for as long. A rebuild then stays for an index no delta reaches (a dev build's, a damaged one, a change
+-- whose rows must be derived again).
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
 -- Connection settings (not stored here): journal_mode=WAL, synchronous=FULL,
 -- wal_autocheckpoint=0, busy_timeout=0, foreign_keys=OFF.
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 16;
+PRAGMA user_version = 18;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -79,6 +82,9 @@ CREATE TABLE sessions (
     -- The name the user gave the session: the header's `title` when its `titleSource` is `user`
     -- (`updateSessionManualTitle`); NULL otherwise. Node kept it as `names[id]` of the desktop's session metadata.
     user_name TEXT,
+    -- The header members a listing of sessions reads (worker.rs `LISTED_FIELDS`) as a JSON object, so a listing reads
+    -- this row and opens no log. NULL for a session kept only to host a worker row.
+    listed TEXT,
     -- The worker index revision (`worker_revision`) of this row's last change the agent registry loads; 0: none.
     worker_rev INTEGER NOT NULL DEFAULT 0
 );
@@ -390,16 +396,6 @@ CREATE TABLE approvals (
     PRIMARY KEY (session, aid)
 ) WITHOUT ROWID;
 
--- Every `refs` digest of every frame (FORMAT.md §4.3), written in the same transaction
--- as the history rows of those frames.
-CREATE TABLE blob_refs (
-    digest TEXT NOT NULL,
-    session TEXT NOT NULL,
-    ordinal INTEGER NOT NULL,
-    PRIMARY KEY (digest, session, ordinal)
-) WITHOUT ROWID;
-CREATE INDEX blob_refs_session ON blob_refs(session, ordinal);
-
 -- The reaped agent children whose archived result a session's header carries
 -- (`archivedAgentResults`, archived_agent.rs): one row per (parent `session`, `child`), so a
 -- child's parents are one index range and its read never scans other sessions.
@@ -482,4 +478,14 @@ CREATE TABLE thread_ops (
     frame_offset INTEGER NOT NULL,
     frame_len INTEGER NOT NULL,
     PRIMARY KEY (session, op_id)
+) WITHOUT ROWID;
+
+-- The first acceptance of each client submission of a session (`projection::receipt`): the answer its send got, which a
+-- retry of the same `clientSubmissionId` is given for the thread's life. First write wins; a rewind or clear leaves it.
+CREATE TABLE submissions (
+    session TEXT NOT NULL,
+    submission_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    answer TEXT NOT NULL,
+    PRIMARY KEY (session, submission_id)
 ) WITHOUT ROWID;

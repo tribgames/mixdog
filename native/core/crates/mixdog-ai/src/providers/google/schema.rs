@@ -516,6 +516,13 @@ fn project_unions(result: &mut Map<String, Value>) {
     }
 }
 
+fn size_bound(value: &Value) -> Option<u64> {
+    value.as_u64().or_else(|| {
+        let n = value.as_f64()?;
+        (n >= 0.0 && n < u64::MAX as f64 && n.fract() == 0.0).then(|| n as u64)
+    })
+}
+
 /// Drops keywords foreign to the resolved type, then checks min/max pairs.
 fn prune(result: &mut Map<String, Value>, raw_type: Option<&str>) -> Option<Value> {
     let allowed: &[&str] = TYPE_KEYWORDS
@@ -537,8 +544,12 @@ fn prune(result: &mut Map<String, Value>, raw_type: Option<&str>) -> Option<Valu
         ("minProperties", "maxProperties"),
     ] {
         for key in [min_key, max_key] {
-            if result.get(key).is_some_and(|v| v.as_u64().is_none()) {
-                result.shift_remove(key);
+            if let Some(value) = result.get_mut(key) {
+                if let Some(n) = size_bound(value) {
+                    *value = json!(n);
+                } else {
+                    result.shift_remove(key);
+                }
             }
         }
         if let (Some(min), Some(max)) = (
@@ -611,6 +622,11 @@ fn legacy_representable(input: &Value, root: bool) -> bool {
     if map.get("const").is_some_and(|c| !c.is_string()) {
         return false;
     }
+    // The legacy projection encodes a const as a replacement enum, not as a
+    // second constraint. Keep both keywords when the original has both.
+    if map.contains_key("const") && map.contains_key("enum") {
+        return false;
+    }
     if matches!(ty, Some("integer" | "number" | "boolean"))
         && (map.contains_key("enum") || map.contains_key("const"))
     {
@@ -633,10 +649,12 @@ fn legacy_representable(input: &Value, root: bool) -> bool {
         ("minItems", "maxItems"),
         ("minProperties", "maxProperties"),
     ] {
-        if let (Some(min), Some(max)) = (
-            map.get(min_key).and_then(Value::as_f64),
-            map.get(max_key).and_then(Value::as_f64),
-        ) && min > max
+        let min = map.get(min_key);
+        let max = map.get(max_key);
+        let bounds = (min.and_then(size_bound), max.and_then(size_bound));
+        if (min.is_some() && bounds.0.is_none())
+            || (max.is_some() && bounds.1.is_none())
+            || matches!(bounds, (Some(min), Some(max)) if min > max)
         {
             return false;
         }
@@ -796,6 +814,50 @@ mod tests {
     fn unmergeable_conjunction_is_an_explicit_conflict() {
         let out = convert(&json!({"allOf": [{"type": "string"}, {"type": "boolean"}]}));
         assert_eq!(out["enum"], json!([CONFLICT_ENUM]));
+    }
+
+    #[test]
+    fn a_const_does_not_replace_a_concurrent_enum_constraint() {
+        use crate::providers::google::tool_accept::{Declarations, function_declarations};
+        use mixdog_core_api::domain::provider::ToolDefinition;
+
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "const": "fast", "enum": ["slow"]},
+                "note": {"type": ["string", "null"]}
+            },
+            "required": ["mode"]
+        });
+        let tool = ToolDefinition {
+            name: "lookup".into(),
+            description: "Read a record".into(),
+            input_schema: schema.clone(),
+            defer_loading: false,
+            freeform: None,
+        };
+        let declarations = function_declarations(&[tool], Declarations::Validated, &mut |_| panic!("accepted"));
+        assert_eq!(declarations, [json!({"name": "lookup", "description": "Read a record", "parametersJsonSchema": schema})]);
+    }
+
+    #[test]
+    fn legacy_parameters_keep_integral_decimal_size_bounds() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "label": {"type": "string", "minLength": 2.0, "maxLength": 4.0},
+                "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1.0},
+                "details": {"type": "object", "properties": {"id": {"type": "string"}}, "maxProperties": 1.0}
+            }
+        });
+        assert_eq!(declaration_schema(&schema), ("parameters", json!({
+            "type": "object",
+            "properties": {
+                "label": {"type": "string", "minLength": 2, "maxLength": 4},
+                "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                "details": {"type": "object", "properties": {"id": {"type": "string"}}, "maxProperties": 1}
+            }
+        })));
     }
 
     #[test]

@@ -656,14 +656,17 @@ impl TitleHooks {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     /// One scripted answer of the title model per call: the recorder's `model` list.
     struct Script {
         steps: Mutex<VecDeque<Value>>,
         calls: Mutex<Vec<Value>>,
     }
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl TitleModel for Script {
         async fn generate(&self, source: &str, session_id: &str, locale: &str, cancel: &CancellationToken) -> Result<String, TitleError> {
@@ -683,11 +686,13 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Promotions {
         taken: bool,
         rows: Mutex<Vec<Value>>,
     }
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl TitlePromote for Promotions {
         async fn promote(&self, session_id: &str, title: &str, stage: &str) -> Result<bool, String> {
@@ -696,14 +701,17 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Lines(Mutex<Vec<String>>);
 
+    #[cfg(node_twin)]
     impl TitleLog for Lines {
         fn line(&self, line: &str) {
             self.0.lock().unwrap().push(line.lines().next().unwrap_or_default().trim_end().to_owned());
         }
     }
 
+    #[cfg(node_twin)]
     fn session_of(value: &Value) -> TitleSession {
         TitleSession {
             id: value["id"].as_str().unwrap_or_default().to_owned(),
@@ -713,6 +721,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     /// Every scenario of the recorder (`session-title.mjs` driven in Node with a scripted model
     /// and promotion): what each step returned, what the model was asked, what was promoted and
     /// what was logged.
@@ -762,6 +771,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     /// The model behaviours the recorder scripted for a scenario (its `model` list is not part of
     /// the golden; they are restated here, name by name).
     fn scenario_model(name: &str) -> Vec<Value> {
@@ -783,6 +793,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     /// Node's `backfillFallbackSessionTitle` (`session-fallback-title.mjs`) over each recorded header and transcript
     /// (`fixtures/fallback-title/golden.json`, recorded by `record-fallback-title.mjs`): the title it set, or that it set none,
     /// including the stored values JavaScript reads as falsy or truthy.
@@ -805,3 +816,5 @@ mod tests {
         }
     }
 }
+
+

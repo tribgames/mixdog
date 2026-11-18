@@ -35,10 +35,6 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-fn lanes() -> LaneTokens {
-    mixdog_rt::testing::tokens()
-}
-
 // ---- stand-in engines ------------------------------------------------------------------------------------------------
 
 /// An engine that never answers a page, and notes that it was ended.
@@ -86,67 +82,8 @@ impl StubStarter {
     }
 }
 
-impl EngineStarter for StubStarter {
-    fn start(&self, _config: EngineConfig) -> BoxFuture<'static, Result<Arc<dyn EngineProcess>, String>> {
-        self.starts.fetch_add(1, Ordering::SeqCst);
-        let (ready_after, terminated, guard) = (self.ready_after, Arc::clone(&self.terminated), Dropped(Arc::clone(&self.dropped)));
-        Box::pin(async move {
-            let _guard = guard;
-            match ready_after {
-                Some(delay) => {
-                    time::sleep(delay).await;
-                    let process: Arc<dyn EngineProcess> = Arc::new(Stub { terminated, ended: CancellationToken::new() });
-                    Ok(process)
-                }
-                None => std::future::pending().await,
-            }
-        })
-    }
-}
-
 fn options(name: &str) -> AcquireOptions {
     AcquireOptions::new("eng", scratch(name))
-}
-
-// ---- the lifecycle ---------------------------------------------------------------------------------------------------
-
-#[test]
-fn a_start_that_never_finishes_times_out_and_is_ended_leaving_nothing_running() {
-    run(async {
-        let starter = StubStarter::new(None);
-        let engines = Arc::new(OcrEngines::new(Arc::clone(&starter) as Arc<dyn EngineStarter>));
-        let mut asked = options("timeout");
-        asked.timeout = Duration::from_millis(200);
-        let error = engines.acquire(asked).await.err().expect("the start must time out");
-        assert_eq!(error.code, Some(UNAVAILABLE));
-        assert!(error.message.contains("did not load in time"), "{}", error.message);
-        assert_eq!(starter.starts.load(Ordering::SeqCst), 1);
-        time::sleep(Duration::from_millis(20)).await;
-        assert_eq!(starter.dropped.load(Ordering::SeqCst), 1, "the start was dropped with what it held");
-        assert_eq!(engines.live(), 0);
-    });
-}
-
-#[test]
-fn cancelling_while_the_engine_starts_ends_the_start_at_once() {
-    run(async {
-        let starter = StubStarter::new(None);
-        let engines = Arc::new(OcrEngines::new(Arc::clone(&starter) as Arc<dyn EngineStarter>));
-        let cancel = CancellationToken::new();
-        let mut asked = options("cancel-start");
-        asked.cancel = Some(cancel.clone());
-        let stop = cancel.clone();
-        let later = tokio::spawn(async move {
-            time::sleep(Duration::from_millis(50)).await;
-            stop.cancel();
-        });
-        let error = engines.acquire(asked).await.err().expect("cancelled");
-        later.await.expect("timer");
-        assert_eq!(error.message, "PDF OCR was cancelled");
-        time::sleep(Duration::from_millis(20)).await;
-        assert_eq!(starter.dropped.load(Ordering::SeqCst), 1);
-        assert_eq!(engines.live(), 0);
-    });
 }
 
 #[test]
@@ -160,27 +97,6 @@ fn an_already_cancelled_call_does_not_start_an_engine() {
         asked.cancel = Some(cancel);
         assert_eq!(engines.acquire(asked).await.err().expect("cancelled").message, "PDF OCR was cancelled");
         assert_eq!(starter.starts.load(Ordering::SeqCst), 0);
-    });
-}
-
-#[test]
-fn cancelling_a_page_in_recognition_ends_the_engine() {
-    run(async {
-        let starter = StubStarter::new(Some(Duration::from_millis(10)));
-        let engines = Arc::new(OcrEngines::new(Arc::clone(&starter) as Arc<dyn EngineStarter>));
-        let engine = engines.acquire(options("cancel-page")).await.expect("ready");
-        let cancel = CancellationToken::new();
-        let stop = cancel.clone();
-        let later = tokio::spawn(async move {
-            time::sleep(Duration::from_millis(50)).await;
-            stop.cancel();
-        });
-        let error = engine.recognize(Image::Bytes(b"png".to_vec()), false, Some(&cancel)).await.err().expect("cancelled");
-        later.await.expect("timer");
-        assert_eq!(error.message, "PDF OCR was cancelled");
-        assert!(starter.terminated.load(Ordering::SeqCst), "the engine was ended");
-        assert_eq!(engines.live(), 0);
-        engine.release();
     });
 }
 
@@ -285,12 +201,100 @@ fn sha256(data: &[u8]) -> String {
     Sha256::digest(data).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// Leaks a boxed text as the `'static` the asset table wants.
+fn leak(text: String) -> &'static str {
+    Box::leak(text.into_boxed_str())
+}
+
+fn engine_asset(url: String, sha256: String, format: ArchiveFormat, executable: &'static str) -> &'static [EngineAsset] {
+    Box::leak(Box::new([EngineAsset { platform: "test-x64", url: leak(url), sha256: leak(sha256), format, executable }]))
+}
+
+
+fn lanes() -> LaneTokens {
+    mixdog_rt::testing::tokens()
+}
+impl EngineStarter for StubStarter {
+    fn start(&self, _config: EngineConfig) -> BoxFuture<'static, Result<Arc<dyn EngineProcess>, String>> {
+        self.starts.fetch_add(1, Ordering::SeqCst);
+        let (ready_after, terminated, guard) = (self.ready_after, Arc::clone(&self.terminated), Dropped(Arc::clone(&self.dropped)));
+        Box::pin(async move {
+            let _guard = guard;
+            match ready_after {
+                Some(delay) => {
+                    time::sleep(delay).await;
+                    let process: Arc<dyn EngineProcess> = Arc::new(Stub { terminated, ended: CancellationToken::new() });
+                    Ok(process)
+                }
+                None => std::future::pending().await,
+            }
+        })
+    }
+}
+// ---- the lifecycle ---------------------------------------------------------------------------------------------------
+
+#[test]
+fn a_start_that_never_finishes_times_out_and_is_ended_leaving_nothing_running() {
+    run(async {
+        let starter = StubStarter::new(None);
+        let engines = Arc::new(OcrEngines::new(Arc::clone(&starter) as Arc<dyn EngineStarter>));
+        let mut asked = options("timeout");
+        asked.timeout = Duration::from_millis(200);
+        let error = engines.acquire(asked).await.err().expect("the start must time out");
+        assert_eq!(error.code, Some(UNAVAILABLE));
+        assert!(error.message.contains("did not load in time"), "{}", error.message);
+        assert_eq!(starter.starts.load(Ordering::SeqCst), 1);
+        time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(starter.dropped.load(Ordering::SeqCst), 1, "the start was dropped with what it held");
+        assert_eq!(engines.live(), 0);
+    });
+}
+#[test]
+fn cancelling_while_the_engine_starts_ends_the_start_at_once() {
+    run(async {
+        let starter = StubStarter::new(None);
+        let engines = Arc::new(OcrEngines::new(Arc::clone(&starter) as Arc<dyn EngineStarter>));
+        let cancel = CancellationToken::new();
+        let mut asked = options("cancel-start");
+        asked.cancel = Some(cancel.clone());
+        let stop = cancel.clone();
+        let later = tokio::spawn(async move {
+            time::sleep(Duration::from_millis(50)).await;
+            stop.cancel();
+        });
+        let error = engines.acquire(asked).await.err().expect("cancelled");
+        later.await.expect("timer");
+        assert_eq!(error.message, "PDF OCR was cancelled");
+        time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(starter.dropped.load(Ordering::SeqCst), 1);
+        assert_eq!(engines.live(), 0);
+    });
+}
+#[test]
+fn cancelling_a_page_in_recognition_ends_the_engine() {
+    run(async {
+        let starter = StubStarter::new(Some(Duration::from_millis(10)));
+        let engines = Arc::new(OcrEngines::new(Arc::clone(&starter) as Arc<dyn EngineStarter>));
+        let engine = engines.acquire(options("cancel-page")).await.expect("ready");
+        let cancel = CancellationToken::new();
+        let stop = cancel.clone();
+        let later = tokio::spawn(async move {
+            time::sleep(Duration::from_millis(50)).await;
+            stop.cancel();
+        });
+        let error = engine.recognize(Image::Bytes(b"png".to_vec()), false, Some(&cancel)).await.err().expect("cancelled");
+        later.await.expect("timer");
+        assert_eq!(error.message, "PDF OCR was cancelled");
+        assert!(starter.terminated.load(Ordering::SeqCst), "the engine was ended");
+        assert_eq!(engines.live(), 0);
+        engine.release();
+    });
+}
 /// A starter that only fetches the language data, as the real one does after the program.
 struct LanguagesOnly {
     lanes: LaneTokens,
     lang_path: String,
 }
-
 impl EngineStarter for LanguagesOnly {
     fn start(&self, config: EngineConfig) -> BoxFuture<'static, Result<Arc<dyn EngineProcess>, String>> {
         let (lanes, lang_path) = (self.lanes, self.lang_path.clone());
@@ -301,7 +305,6 @@ impl EngineStarter for LanguagesOnly {
         })
     }
 }
-
 #[test]
 fn cancelling_a_stalled_first_use_download_closes_the_download() {
     run(async {
@@ -336,7 +339,6 @@ fn cancelling_a_stalled_first_use_download_closes_the_download() {
         assert_eq!(engines.live(), 0);
     });
 }
-
 #[test]
 fn a_language_is_downloaded_decompressed_into_the_cache_and_not_fetched_twice() {
     run(async {
@@ -353,7 +355,6 @@ fn a_language_is_downloaded_decompressed_into_the_cache_and_not_fetched_twice() 
         assert_eq!(mixdog_testkit::entry_names(&cache).len(), 1, "no partial file is left");
     });
 }
-
 #[test]
 fn a_language_the_server_does_not_have_fails_with_the_response_code() {
     run(async {
@@ -365,7 +366,6 @@ fn a_language_the_server_does_not_have_fails_with_the_response_code() {
         assert!(!mixdog_testkit::exists(&cache.join("xyz.traineddata")));
     });
 }
-
 #[test]
 fn a_language_name_that_is_a_path_is_refused_before_anything_is_fetched() {
     run(async {
@@ -374,7 +374,6 @@ fn a_language_name_that_is_a_path_is_refused_before_anything_is_fetched() {
         assert_eq!(error, "Invalid OCR language: ../evil");
     });
 }
-
 #[test]
 fn a_local_language_folder_is_read_without_a_download() {
     run(async {
@@ -385,7 +384,6 @@ fn a_local_language_folder_is_read_without_a_download() {
         assert_eq!(mixdog_testkit::read(&cache.join("kor.traineddata")), b"korean");
     });
 }
-
 #[test]
 fn the_readiness_lists_the_cached_languages_by_name_in_code_unit_order() {
     let data = scratch("readiness");
@@ -404,16 +402,6 @@ fn the_readiness_lists_the_cached_languages_by_name_in_code_unit_order() {
     let empty = run(async { mixdog_office_pdf::ocr::pdf_ocr_readiness(&lanes(), &scratch("readiness-empty")).await.expect("readiness") });
     assert_eq!(empty["cachedLanguages"], serde_json::json!([]));
 }
-
-/// Leaks a boxed text as the `'static` the asset table wants.
-fn leak(text: String) -> &'static str {
-    Box::leak(text.into_boxed_str())
-}
-
-fn engine_asset(url: String, sha256: String, format: ArchiveFormat, executable: &'static str) -> &'static [EngineAsset] {
-    Box::leak(Box::new([EngineAsset { platform: "test-x64", url: leak(url), sha256: leak(sha256), format, executable }]))
-}
-
 #[test]
 fn the_engine_is_downloaded_verified_unpacked_and_published_once() {
     run(async {
@@ -433,7 +421,6 @@ fn the_engine_is_downloaded_verified_unpacked_and_published_once() {
         assert_eq!(mixdog_testkit::entry_names(&root).len(), 1);
     });
 }
-
 #[test]
 fn a_zip_engine_unpacks_its_libraries_beside_the_program_and_leaves_names_that_escape() {
     run(async {
@@ -459,7 +446,6 @@ fn a_zip_engine_unpacks_its_libraries_beside_the_program_and_leaves_names_that_e
         assert!(!mixdog_testkit::exists(&root.join(install::ENGINE_VERSION).join("escaped.txt")));
     });
 }
-
 #[test]
 fn a_download_that_does_not_match_its_pin_installs_nothing() {
     run(async {
@@ -472,7 +458,6 @@ fn a_download_that_does_not_match_its_pin_installs_nothing() {
         assert!(!mixdog_testkit::exists(&root.join(install::ENGINE_VERSION)));
     });
 }
-
 #[test]
 fn a_platform_without_a_pinned_asset_reports_that_ocr_is_unavailable_there() {
     run(async {

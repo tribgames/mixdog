@@ -150,6 +150,7 @@ async function main() {
   const traceFile = join(coreRoot, 'agent-trace.jsonl');
   let core = null;
   let progress = '';
+  let traceText = '';
   try {
     core = await startCore({
       bin,
@@ -178,6 +179,8 @@ async function main() {
         MIXDOG_BROWSER_INTEGRATION_LOG: progressPath,
         MIXDOG_CORE_HARNESS_RUNTIME_ROOT: core.paths.runtimeRoot,
         MIXDOG_CORE_HARNESS_ENGINE: 'core',
+        // Inside the staging folder, which is removed whatever becomes of the child (killed, timed out, crashed).
+        MIXDOG_CORE_HARNESS_PROFILE_DIR: join(staging, 'profile'),
         MIXDOG_LATENCY_GATE_REPS: flag('reps') ?? '',
         MIXDOG_LATENCY_GATE_WARMUP: flag('warmup') ?? '',
       });
@@ -196,14 +199,15 @@ async function main() {
         console.error(progress.split('\n').slice(-20).join('\n'));
         throw new Error(`the latency gate run failed before its success marker (exit ${exitCode})`);
       }
-    });
+    }, { maxRetries: 20, retryDelay: 100 });
   } finally {
     // The core writes its buffered trace rows as it exits.
     if (core) await core.stop().catch((error) => console.error(error.message));
+    traceText = existsSync(traceFile) ? readFileSync(traceFile, 'utf8') : '';
+    // On a failed run too: the core root must not outlive the script.
+    await rm(coreRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch(() => {});
   }
   const cpuAfter = cpuLoad();
-  const traceText = existsSync(traceFile) ? readFileSync(traceFile, 'utf8') : '';
-  await rm(coreRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch(() => {});
 
   const rows = progress
     .split(/\r?\n/)

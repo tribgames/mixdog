@@ -11,33 +11,6 @@ use crate::memory::runtime::RuntimeFlags;
 use crate::memory::sensitive::SensitiveStore;
 use crate::memory::session_search::ingest::IngestSession;
 
-/// `_initStore`'s dimensions: the saved measurement of this identity wins (a model the profiles do
-/// not list opens without being loaded), then the profile; an unlisted model with no saved
-/// measurement has no source without the model.
-#[tokio::test(flavor = "multi_thread")]
-async fn dimensions_come_from_the_saved_measurement_then_the_profile() {
-    use crate::memory::boot::resolve_dims;
-    let lane = mixdog_rt::testing::tokens().durability_io;
-    let dir = tempfile::tempdir().expect("dir");
-    let unlisted = config::identity(None, "acme/unlisted", None);
-
-    let err = resolve_dims(dir.path(), lane, &unlisted, "acme/unlisted", None).await.expect_err("no source");
-    assert!(err.message().contains("embedding dims unavailable without an embedding model"), "{}", err.message());
-
-    let mut saved = unlisted.clone();
-    saved["dims"] = json!(777);
-    std::fs::write(dir.path().join("embedding-meta.json"), saved.to_string()).expect("write");
-    assert_eq!(resolve_dims(dir.path(), lane, &unlisted, "acme/unlisted", None).await.expect("saved"), 777);
-
-    // The saved value belongs to its identity: another dtype is another measurement.
-    let other = config::identity(None, "acme/unlisted", Some("q8"));
-    assert!(resolve_dims(dir.path(), lane, &other, "acme/unlisted", None).await.is_err());
-
-    // A listed model needs no measurement.
-    let listed = config::identity(None, DEFAULT_MODEL_ID, None);
-    assert_eq!(resolve_dims(dir.path(), lane, &listed, DEFAULT_MODEL_ID, None).await.expect("profile"), 384);
-}
-
 /// A start that fails after the postmaster is up stops it before the error leaves (`pg_ctl stop`), and one that succeeds does not.
 #[tokio::test(start_paused = true)]
 async fn a_failed_open_over_a_running_cluster_stops_the_cluster() {
@@ -78,11 +51,90 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// Node's text for a use after the stop began (`supervisor.mjs:648`).
 const SHUTTING_DOWN: &str = "[supervisor-pg] process is shutting down; PG start refused";
 
+fn message<T>(used: Result<T, MemoryError>) -> String {
+    match used {
+        Ok(_) => panic!("the use succeeded"),
+        Err(error) => error.message(),
+    }
+}
+
+/// An install held at a gate that it does not leave for the stop's cancel (it announces the cancel and goes on waiting), announced when it runs past the gate, and
+/// ending with `outcome`.
+struct Held {
+    install: PgInstall,
+    installs: Arc<AtomicUsize>,
+    entered: tokio::sync::mpsc::UnboundedReceiver<()>,
+    gate: tokio::sync::oneshot::Sender<()>,
+    cancelled: tokio::sync::mpsc::UnboundedReceiver<()>,
+    finished: tokio::sync::mpsc::UnboundedReceiver<()>,
+}
+
+struct Lead;
+
+#[async_trait::async_trait]
+impl crate::memory::tool::MemoryCallers for Lead {
+    async fn memory_caller(&self, _: &mixdog_protocol::ThreadId) -> serde_json::Value {
+        json!({ "kind": "human", "agentId": "lead" })
+    }
+    async fn runtime_owner(&self, thread: &mixdog_protocol::ThreadId) -> String {
+        thread.as_str().to_owned()
+    }
+}
+
+/// Drops note themselves in the stop's step log, so their order against the revocation and the PostgreSQL stop is observed.
+struct Noted(Arc<MemoryStack>, &'static str);
+
+impl Drop for Noted {
+    fn drop(&mut self) {
+        self.0.stop_seam().note(self.1);
+    }
+}
+
+/// The postmaster's pid in the profile's cluster (line one of `postmaster.pid`), when there is one.
+fn postmaster_pid(profile: &std::path::Path) -> Option<u32> {
+    std::fs::read_to_string(profile.join("pgdata").join("postmaster.pid")).ok()?.lines().next()?.trim().parse().ok()
+}
+
+/// Where [`a_killed_core`] opens its stack.
+const KILLED_CORE_PROFILE: &str = "MIXDOG_TEST_KILLED_CORE_PROFILE";
+/// The line [`a_killed_core`] prints once its database is open.
+const OPENED: &str = "the killed core's database is open";
+
+#[cfg(node_twin)]
+mod shared_open;
+mod stop_target;
+
+
+/// `_initStore`'s dimensions: the saved measurement of this identity wins (a model the profiles do
+/// not list opens without being loaded), then the profile; an unlisted model with no saved
+/// measurement has no source without the model.
+#[tokio::test(flavor = "multi_thread")]
+async fn dimensions_come_from_the_saved_measurement_then_the_profile() {
+    use crate::memory::boot::resolve_dims;
+    let lane = mixdog_rt::testing::tokens().durability_io;
+    let dir = tempfile::tempdir().expect("dir");
+    let unlisted = config::identity(None, "acme/unlisted", None);
+
+    let err = resolve_dims(dir.path(), lane, &unlisted, "acme/unlisted", None).await.expect_err("no source");
+    assert!(err.message().contains("embedding dims unavailable without an embedding model"), "{}", err.message());
+
+    let mut saved = unlisted.clone();
+    saved["dims"] = json!(777);
+    std::fs::write(dir.path().join("embedding-meta.json"), saved.to_string()).expect("write");
+    assert_eq!(resolve_dims(dir.path(), lane, &unlisted, "acme/unlisted", None).await.expect("saved"), 777);
+
+    // The saved value belongs to its identity: another dtype is another measurement.
+    let other = config::identity(None, "acme/unlisted", Some("q8"));
+    assert!(resolve_dims(dir.path(), lane, &other, "acme/unlisted", None).await.is_err());
+
+    // A listed model needs no measurement.
+    let listed = config::identity(None, DEFAULT_MODEL_ID, None);
+    assert_eq!(resolve_dims(dir.path(), lane, &listed, DEFAULT_MODEL_ID, None).await.expect("profile"), 384);
+}
 /// A stack over `dir` whose runtime comes from `source`.
 async fn stack_over(dir: &std::path::Path, source: PgRuntimeSource) -> Arc<MemoryStack> {
     MemoryStack::start(boot_over(dir, source)).await.expect("the stack is built without a database")
 }
-
 /// What a stack over `dir` whose runtime comes from `source` is built from.
 fn boot_over(dir: &std::path::Path, source: PgRuntimeSource) -> MemoryBoot {
     MemoryBoot {
@@ -102,7 +154,6 @@ fn boot_over(dir: &std::path::Path, source: PgRuntimeSource) -> MemoryBoot {
         cancel: tokio_util::sync::CancellationToken::new(),
     }
 }
-
 /// An install that counts its entries, announces each on the returned channel and then runs `run` with the stack's cancel.
 fn install_of<F>(run: F) -> (PgInstall, Arc<AtomicUsize>, tokio::sync::mpsc::UnboundedReceiver<()>)
 where
@@ -118,14 +169,6 @@ where
     });
     (install, entries, announced)
 }
-
-fn message<T>(used: Result<T, MemoryError>) -> String {
-    match used {
-        Ok(_) => panic!("the use succeeded"),
-        Err(error) => error.message(),
-    }
-}
-
 /// Node starts the memory runtime at the first memory call, never at daemon boot (`registerMemoryRuntimeLazy`, `daemon.mjs:202`), and its ready signal does not wait
 /// for PostgreSQL: a fresh profile must not download or initialise anything while the stack is built, and a data directory that holds a cluster opens it only
 /// when the host asks for the background start. Neither the install nor the start needs a network or a postmaster here: the install is a counter that fails.
@@ -154,7 +197,6 @@ async fn a_stack_installs_and_starts_nothing_until_the_database_is_used() {
 
     stack.stop().await.expect("a stack that never opened has nothing to stop");
 }
-
 /// A failed download is not remembered (`supervisor.mjs:659`): the next use runs the install again, and when that succeeds the opening goes on to the cluster step
 /// (here `initdb` of an empty runtime, which is where it fails) instead of repeating the install's error.
 #[tokio::test(flavor = "multi_thread")]
@@ -172,18 +214,6 @@ async fn a_failed_install_is_retried_by_the_next_use_and_a_good_one_goes_on_to_t
     assert_eq!(installs.load(Ordering::SeqCst), 2);
     stack.stop().await.expect("stop");
 }
-
-/// An install held at a gate that it does not leave for the stop's cancel (it announces the cancel and goes on waiting), announced when it runs past the gate, and
-/// ending with `outcome`.
-struct Held {
-    install: PgInstall,
-    installs: Arc<AtomicUsize>,
-    entered: tokio::sync::mpsc::UnboundedReceiver<()>,
-    gate: tokio::sync::oneshot::Sender<()>,
-    cancelled: tokio::sync::mpsc::UnboundedReceiver<()>,
-    finished: tokio::sync::mpsc::UnboundedReceiver<()>,
-}
-
 fn held_install(outcome: impl Fn() -> crate::memory::error::Result<std::path::PathBuf> + Send + Sync + 'static) -> Held {
     let (gate, opened) = tokio::sync::oneshot::channel::<()>();
     let opened = Arc::new(tokio::sync::Mutex::new(Some(opened)));
@@ -207,11 +237,9 @@ fn held_install(outcome: impl Fn() -> crate::memory::error::Result<std::path::Pa
     });
     Held { install, installs, entered, gate, cancelled, finished }
 }
-
 fn failing(text: &'static str) -> impl Fn() -> crate::memory::error::Result<std::path::PathBuf> + Send + Sync + 'static {
     move || Err(MemoryError::Runtime(text.to_owned()))
 }
-
 /// Stops `stack` while its opening is held, and moves the held clock to the stop's 6 s give-up once the opening has seen the cancel (the stop's bounded wait
 /// for it has begun by then); returns the stop's result.
 async fn stop_past_the_give_up(stack: &Arc<MemoryStack>, cancelled: &mut tokio::sync::mpsc::UnboundedReceiver<()>) -> crate::memory::error::Result<()> {
@@ -223,7 +251,6 @@ async fn stop_past_the_give_up(stack: &Arc<MemoryStack>, cancelled: &mut tokio::
     tokio::time::advance(std::time::Duration::from_secs(6)).await;
     awaiting("the stop to give up at 6 s", stopping).await.unwrap()
 }
-
 /// Two first uses while the runtime is still downloading share the one install (Node's callers all await the one shared ensure, `supervisor.mjs:659-665`),
 /// wait for it rather than fail, and both see its outcome. One use goes through the `memory` schema's handle and the other through the session search's: the
 /// two handles reach the database through the stack's one opening.
@@ -247,7 +274,6 @@ async fn two_first_uses_share_one_install_and_see_its_outcome() {
     assert_eq!((message(one), message(two)), ("postgres runtime: the download failed".to_owned(), "postgres runtime: the download failed".to_owned()));
     assert_eq!(installs.load(Ordering::SeqCst), 1);
 }
-
 /// The opening is the stack's own task: when every use that waited for it is gone, it still runs to its end (Node's shared promise keeps running whatever its
 /// callers do), and the next use starts after it rather than finding it stalled.
 #[tokio::test]
@@ -265,7 +291,6 @@ async fn an_opening_runs_to_its_end_when_every_use_is_dropped() {
     assert_eq!(installs.load(Ordering::SeqCst), 1);
     stack.stop().await.expect("stop");
 }
-
 /// Every use is dropped, then the stack stops: the opening, still the stack's, sees the cancel and the stop joins it at once, with no time passing on the held
 /// clock (it does not sit out the 6 s give-up).
 #[tokio::test(start_paused = true)]
@@ -292,7 +317,6 @@ async fn a_stop_cancels_and_joins_an_opening_nobody_waits_for() {
     awaiting_for(std::time::Duration::from_secs(5), "the install to see the cancel", cancelled.recv()).await.expect("cancelled");
     assert!(!dir.path().join("pgdata").exists(), "the cancelled opening started nothing");
 }
-
 /// A use after the stop began is refused with Node's text before it can join an opening still in flight (`ensurePgInstance` checks shutdown first,
 /// `supervisor.mjs:647-665`): here the opening ignores the cancel and the stop has given up on it.
 #[tokio::test(start_paused = true)]
@@ -312,7 +336,6 @@ async fn a_use_after_stop_is_refused_while_an_opening_is_in_flight() {
     assert!(first.is_err());
     assert_eq!(installs.load(Ordering::SeqCst), 1, "the refused use started no opening");
 }
-
 /// An opening that ignores the stop's cancel and ends after the stop gave up on it starts nothing: the cluster step is never begun once the stack is stopping, so
 /// no postmaster is left without an owner (Node's exit hook stops one an abandoned opening published, `supervisor.mjs:793-835`; here there is none to stop).
 #[tokio::test(start_paused = true)]
@@ -325,13 +348,13 @@ async fn an_opening_that_ends_after_the_stop_gave_up_starts_nothing() {
     let using = tokio::spawn(async move { db.client().await.map(drop) });
     awaiting_for(std::time::Duration::from_secs(5), "the install to be entered", entered.recv()).await.expect("entered");
     let stopped = stop_past_the_give_up(&stack, &mut cancelled).await;
-    gate.send(()).expect("the install waits at the gate");
+    // The cutoff revoked the opening with its install: the gate's other end is gone.
+    assert!(gate.send(()).is_err(), "the revoked opening's install was destroyed");
     let ended = awaiting("the abandoned opening to end", using).await.unwrap();
     stopped.expect("stop goes on without the opening");
-    assert_eq!(message(ended), SHUTTING_DOWN);
+    assert_eq!(message(ended), "memory service stopping");
     assert!(!dir.path().join("pgdata").exists(), "the abandoned opening began no cluster step");
 }
-
 /// An opening whose task panics is forgotten like one that failed (Node forgets its shared ensure whenever it settles, `supervisor.mjs:659-665`): the next
 /// use starts a new opening instead of getting the same failure for good.
 #[tokio::test]
@@ -351,13 +374,11 @@ async fn an_opening_that_panics_is_forgotten_and_the_next_use_opens_again() {
     assert_eq!(second, "postgres runtime: the download failed");
     assert_eq!(installs.load(Ordering::SeqCst), 2, "the next use ran a new opening");
 }
-
-/// A postmaster start admitted before the stop began (its last check passed, `pg_ctl start` not yet spawned) is waited for only within the stop's 6 s, as
-/// Node's stop gives up on its opening (`supervisor.mjs:790-800`): held between its admission and the spawn, the stop is pending before 6 s and has
-/// returned at 6 s; the abandoned start then goes on to `pg_ctl` on its own. What such a start leaves (a postmaster outside the core's job) is attached to
-/// and stopped by the next core: `a_core_after_a_killed_one_attaches_to_its_postmaster_and_stops_it`.
+/// Opening hand-off, fenced before the launch: a postmaster start held right before its last check (`pg_ctl start` not spawned) is waited for only within the
+/// stop's graceful phase, which ends at the cutoff (4.2 s from the stop's start here): the stop is pending before 4.2 s and has returned at 4.2 s, and the
+/// opening, the owner's work, was revoked there, so the start never spawns after the cut.
 #[tokio::test(start_paused = true)]
-async fn a_stop_gives_up_on_a_postmaster_start_admitted_before_it_at_six_seconds() {
+async fn a_stop_gives_up_on_a_postmaster_start_admitted_before_it_at_the_forced_point() {
     struct Silent;
     impl crate::memory::pg::cluster::Health for Silent {
         fn healthy(&self, _port: u16) -> futures::future::BoxFuture<'static, bool> {
@@ -382,28 +403,21 @@ async fn a_stop_gives_up_on_a_postmaster_start_admitted_before_it_at_six_seconds
     let db = stack.db();
     let using = tokio::spawn(async move { db.client().await.map(drop) });
     awaiting_for(std::time::Duration::from_secs(10), "the start to be admitted", admissions.recv()).await.expect("admitted");
+    let begun = tokio::time::Instant::now();
     let mut stopping = Box::pin(stack.stop());
     let waiting = futures::poll!(&mut stopping).is_pending();
-    tokio::time::advance(std::time::Duration::from_millis(5_999)).await;
+    tokio::time::advance(std::time::Duration::from_millis(4_199)).await;
     let pending_before = futures::poll!(&mut stopping).is_pending();
     tokio::time::advance(std::time::Duration::from_millis(1)).await;
-    let at_six = match futures::poll!(&mut stopping) {
-        std::task::Poll::Pending => None,
-        std::task::Poll::Ready(stopped) => Some(stopped),
-    };
-    let returned_at_six = at_six.is_some();
-    release.send(()).expect("the start waits at the gate");
-    let stopped = match at_six {
-        Some(stopped) => stopped,
-        None => awaiting("the stop once the start ended", stopping).await,
-    };
+    let stopped = awaiting("the stop at the cutoff", stopping).await;
+    assert_eq!(tokio::time::Instant::now() - begun, std::time::Duration::from_millis(4_200), "the stop returns at the cutoff");
+    assert!(release.send(()).is_err(), "the revoked opening's start was destroyed at its fence");
     let used = awaiting("the use of the abandoned opening", using).await.unwrap();
-    assert!(waiting && pending_before, "the stop waits for the admitted start within its 6 s");
-    assert!(returned_at_six, "the stop returns at 6 s, as Node's gives up on its opening");
+    assert!(waiting && pending_before, "the stop waits for the admitted start until the forced point");
     stopped.expect("stop");
-    assert!(message(used).contains("pg_ctl"), "the abandoned start went on to pg_ctl on its own");
+    assert_eq!(message(used), "memory service stopping", "the revoked opening never reached pg_ctl");
+    assert_eq!(stack.stop_report().await.dispatch, crate::memory::boot::StopDispatch::NothingOpened, "no start was handed to the OS");
 }
-
 /// The spawn lock is Node's file, `<profile>/pg-spawn.lock` beside the cluster (`supervisor.mjs:618`), so the two exclude each other: while a holder (as a Node
 /// process would) has it, a use whose start does not wait is refused before the cluster is touched; once it is released, the next use goes on to `initdb`.
 #[tokio::test]
@@ -430,7 +444,6 @@ async fn the_spawn_lock_is_nodes_file_beside_the_cluster() {
     assert!(refused.contains("atomic lock contended (try-once)") && refused.contains(&lock_file.display().to_string()), "{refused}");
     assert!(next.contains("initdb"), "{next}");
 }
-
 /// A stop while the install is held ends it and starts nothing; both waiting uses end with the install's cancellation, and a use after the stop gets Node's text.
 /// Node's proxy answers a call whose memory child is still starting at 90 s after the child's spawn (60 s ready timeout, `daemon-spawn.mjs:62`, then
 /// 30 s for a live port, `:141`), and every call arriving meanwhile shares that spawn (`start.mjs:40-44`): a call waits for a held install until 90 s
@@ -465,7 +478,48 @@ async fn a_memory_call_waits_for_a_held_install_until_ninety_seconds_after_its_l
     assert!(answered, "both calls are answered at 90 s after the launch");
     assert!(still_installing, "the opening itself goes on past the calls' limit");
 }
-
+/// The model's `memory` and `recall` tools wait for a first-use install no longer than Node's proxy does (90 s after the opening's launch) and are then refused
+/// with the proxy's text; the opening goes on.
+#[tokio::test(start_paused = true)]
+async fn the_memory_and_recall_tools_are_refused_ninety_seconds_into_a_held_install() {
+    use crate::memory::service::RUNTIME_READY_WAIT;
+    use mixdog_tools::orch::service::ServiceCall;
+    use mixdog_tools::orch::util::PortError;
+    let dir = tempfile::tempdir().expect("dir");
+    let (install, installs, mut entered) = install_of(|_, cancel| {
+        Box::pin(async move {
+            cancel.cancelled().await;
+            Err(MemoryError::Runtime("cancelled".to_owned()))
+        })
+    });
+    let stack = stack_over(dir.path(), PgRuntimeSource::Install(install)).await;
+    let [memory, recall] = crate::memory::tool::services(stack.local_memory(), Arc::new(Lead));
+    let thread = mixdog_protocol::ThreadId::from("s");
+    let cwd = mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).expect("cwd");
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let args = json!({ "op": "list" });
+    let call = || ServiceCall { thread: &thread, surface: mixdog_core_api::domain::tool::SurfaceKind::Lead, cwd: &cwd, args: &args, cancel: &cancel };
+    let mut asked = [Box::pin(memory.call(call())), Box::pin(recall.call(call()))];
+    for pending in &mut asked {
+        assert!(futures::poll!(pending.as_mut()).is_pending());
+    }
+    awaiting_for(std::time::Duration::from_secs(5), "the install to be entered", entered.recv()).await.expect("entered");
+    tokio::time::advance(RUNTIME_READY_WAIT - std::time::Duration::from_millis(1)).await;
+    for pending in &mut asked {
+        assert!(futures::poll!(pending.as_mut()).is_pending(), "a call waits until 90 s after the launch");
+    }
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    for (pending, capability) in asked.iter_mut().zip(["memory", "recall"]) {
+        match futures::poll!(pending.as_mut()) {
+            std::task::Poll::Ready(Err(PortError::Failed { capability: got, message })) => {
+                assert_eq!((got.as_str(), message.as_str()), (capability, "memory runtime did not become ready"));
+            }
+            other => panic!("{capability}: expected the proxy's refusal, got {other:?}"),
+        }
+    }
+    assert_eq!(installs.load(Ordering::SeqCst), 1);
+    stack.stop().await.expect("stop");
+}
 #[tokio::test]
 async fn a_stop_ends_the_install_the_uses_wait_for() {
     let dir = tempfile::tempdir().expect("dir");
@@ -487,11 +541,11 @@ async fn a_stop_ends_the_install_the_uses_wait_for() {
     assert!(!dir.path().join("pgdata").join("PG_VERSION").exists(), "a cancelled install initialises nothing");
     assert_eq!(message(stack.db().client().await), SHUTTING_DOWN);
 }
-
-/// Node bounds its wait for an opening in flight at stop by 6 s and then goes on (`stopOwnedPgForShutdown`, `supervisor.mjs:790-800`). An opening that ignores the
-/// cancel (an install that never ends) holds the stop for exactly that, on a clock the test moves.
+/// The wait for an opening in flight is part of the stop's graceful phase, bounded by the forced point (4.2 s from the stop's start when no shutdown
+/// armed it), never a grace period after it: an opening that ignores the cancel (an install that never ends) holds the stop for exactly that, on a clock
+/// the test moves.
 #[tokio::test(start_paused = true)]
-async fn a_stop_gives_up_on_an_opening_that_ignores_the_cancel_after_six_seconds() {
+async fn a_stop_gives_up_on_an_opening_that_ignores_the_cancel_at_the_forced_point() {
     let dir = tempfile::tempdir().expect("dir");
     let (seen, mut cancelled) = tokio::sync::mpsc::unbounded_channel::<()>();
     let (install, _installs, mut entered) = install_of(move |_, cancel| {
@@ -512,17 +566,58 @@ async fn a_stop_gives_up_on_an_opening_that_ignores_the_cancel_after_six_seconds
     });
     // The install saw the cancel, so the stop is in its bounded wait for the opening.
     awaiting_for(std::time::Duration::from_secs(5), "the stop to cancel the opening", cancelled.recv()).await.expect("cancelled");
-    tokio::time::advance(std::time::Duration::from_millis(5_999)).await;
+    tokio::time::advance(std::time::Duration::from_millis(4_199)).await;
     let pending_before = !stopping.is_finished();
     tokio::time::advance(std::time::Duration::from_millis(1)).await;
-    let stopped = awaiting("the stop to give up at 6 s", stopping).await.unwrap();
+    let stopped = awaiting("the stop to give up at the forced point", stopping).await.unwrap();
     // The use waits on an opening that never ends: it is ended here, before any assertion.
     using.abort();
     let _ = using.await;
-    assert!(pending_before, "still waiting for the opening at 5.999 s");
+    assert!(pending_before, "still waiting for the opening at 4.199 s");
     stopped.expect("stop goes on without the opening");
 }
-
+/// The stop dispatched to the fake postmaster (a live pid that is not a postgres, in a runtime without `pg_ctl`): on Windows the delivery through
+/// `pg_ctl stop -W` ran and failed; on Unix the pid is not signalled, as it is no postgres.
+fn dispatched(stopped: crate::memory::error::Result<()>) {
+    #[cfg(windows)]
+    assert!(message(stopped).contains("pg_ctl failed"), "the dispatch ran `pg_ctl stop -W`");
+    #[cfg(unix)]
+    stopped.expect("a pid that is no postgres is left alone");
+}
+/// With a controlled clock: an embedding transaction (stack scope work), an analytics insert (trace sub-scope work) and the graceful stop's wait (a cycle
+/// run) are held; the shutdown began 3 s before the stack's stop. At shutdown start + 4 200 ms, with the clock not moved again, every held piece is dropped
+/// by the revocation before `pg_ctl stop` is initiated, and nothing waits in between.
+#[tokio::test(start_paused = true)]
+async fn at_the_forced_point_held_work_is_revoked_before_postgres_is_signalled_without_a_further_wait() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (stack, _release) = opened_stack_with_a_held_cycle(dir.path()).await;
+    let began = tokio::time::Instant::now();
+    stack.arm_forced_stop(&tokio::runtime::Handle::current());
+    let scope = stack.db().scope().clone();
+    let transaction = Noted(stack.clone(), "embedding-transaction-dropped");
+    let _transaction = scope.spawn("test-embedding-transaction", async move { let _held = transaction; std::future::pending::<()>().await }).expect("admitted");
+    let trace = scope.sub_scope();
+    let insert = Noted(stack.clone(), "analytics-insert-dropped");
+    let _insert = trace.spawn("test-analytics-insert", async move { let _held = insert; std::future::pending::<()>().await }).expect("admitted");
+    tokio::time::advance(std::time::Duration::from_secs(3)).await;
+    let mut stopping = Box::pin(stack.stop());
+    assert!(futures::poll!(&mut stopping).is_pending(), "the stop waits for the held work");
+    tokio::time::advance(std::time::Duration::from_millis(1_199)).await;
+    assert!(futures::poll!(&mut stopping).is_pending(), "still waiting 1 ms before the forced point");
+    let steps = stack.stop_seam().trail();
+    assert!(!steps.contains(&"revoked") && !steps.contains(&"release-begun"), "{steps:?}");
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    let stopped = awaiting("the stop past the forced point", stopping).await;
+    assert_eq!(tokio::time::Instant::now() - began, std::time::Duration::from_millis(4_200), "no wait after the forced point");
+    dispatched(stopped);
+    let steps = stack.stop_seam().trail();
+    let at =|step: &str| steps.iter().position(|seen| *seen == step).unwrap_or_else(|| panic!("{step} missing from {steps:?}"));
+    // Revocation requested, then the dispatch at once (never after the acknowledgement); the stop reported only after both held pieces were destroyed.
+    assert!(at("revoked") < at("release-begun"), "the revocation request precedes the PostgreSQL dispatch: {steps:?}");
+    assert!(steps.contains(&"embedding-transaction-dropped") && steps.contains(&"analytics-insert-dropped"), "{steps:?}");
+    assert_eq!(scope.running() + trace.running(), 0);
+    assert!(stack.stop_report().await.forced);
+}
 /// The cycles' host seams, none of which a held run calls.
 pub(super) fn idle_cycles() -> crate::memory::boot::CycleBoot {
     struct Off;
@@ -550,7 +645,6 @@ pub(super) fn idle_cycles() -> crate::memory::boot::CycleBoot {
     }
     crate::memory::boot::CycleBoot { config: Arc::new(Off), llm: Arc::new(NoAgent), timer: Arc::new(NeverFires) }
 }
-
 /// A stack over `dir` whose opening published a cluster (its `postmaster.pid` names a port, its runtime has no `pg_ctl`: the release's `pg_ctl stop` runs and
 /// fails, so the stop's error says it ran) and whose cycle run is held until the returned sender sends.
 async fn opened_stack_with_a_held_cycle(dir: &std::path::Path) -> (Arc<MemoryStack>, tokio::sync::oneshot::Sender<()>) {
@@ -566,7 +660,6 @@ async fn opened_stack_with_a_held_cycle(dir: &std::path::Path) -> (Arc<MemorySta
     let release = stack.cycles().expect("cycles").hold_run();
     (stack, release)
 }
-
 /// Node asks PostgreSQL to stop at `PG_FORCED_STOP_AT_MS` (4.2 s, `daemon-stop-budget.mjs:18`) into the shutdown whatever teardown still runs
 /// (`daemon-pg-stop.mjs:36-41`): with a cycle run that never ends, the stop is pending at 4.199 s, and at 4.2 s, with the clock not moved again, the cycle is
 /// abandoned (its run aborted) and `pg_ctl stop` has run.
@@ -586,9 +679,43 @@ async fn a_cycle_that_never_ends_holds_the_postgres_stop_only_until_nodes_forced
     let at = tokio::time::Instant::now() - begun;
     assert!(waiting && pending_before, "the stop waits for the cycle until the forced point");
     assert_eq!(at, std::time::Duration::from_millis(4_200), "the PostgreSQL stop ran at the forced point");
-    assert!(message(stopped).contains("pg_ctl failed"), "the release ran `pg_ctl stop`");
+    dispatched(stopped);
 }
-
+/// The forced point is counted from the core's shutdown, not from this stack's stop: the steps before it (sessions, extension host) used 3 s, so a cycle run that
+/// never ends is abandoned and `pg_ctl stop` runs 1.2 s into the stack's own stop, 4.2 s into the shutdown. Counted from its own start it ran at 7.2 s, past the
+/// launcher's 5 s wait.
+#[tokio::test(start_paused = true)]
+async fn the_forced_stop_point_counts_from_the_shutdown_not_from_the_memory_step() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (stack, mut release) = opened_stack_with_a_held_cycle(dir.path()).await;
+    stack.arm_forced_stop(&tokio::runtime::Handle::current());
+    tokio::time::advance(std::time::Duration::from_secs(3)).await;
+    let begun = tokio::time::Instant::now();
+    let mut stopping = Box::pin(stack.stop());
+    let waiting = futures::poll!(&mut stopping).is_pending();
+    tokio::time::advance(std::time::Duration::from_millis(1_199)).await;
+    let pending_before = futures::poll!(&mut stopping).is_pending();
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    let stopped = awaiting("the stop past the forced point", stopping).await;
+    awaiting("the abandoned cycle run to be aborted", release.closed()).await;
+    let at = tokio::time::Instant::now() - begun;
+    assert!(waiting && pending_before, "the stop waits for the cycle until the shutdown's forced point");
+    assert_eq!(at, std::time::Duration::from_millis(1_200), "the PostgreSQL stop ran at the shutdown's forced point");
+    dispatched(stopped);
+}
+/// Node's fallback timer (`daemon-pg-stop.mjs:37-41`) does not depend on the stop steps before the memory one: armed at the shutdown's start, it stops the stack at the
+/// forced point (4.2 s) though no stop step has reached it.
+#[tokio::test(start_paused = true)]
+async fn the_fallback_stops_postgres_at_the_forced_point_though_no_stop_step_reached_it() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (stack, _release) = opened_stack_with_a_held_cycle(dir.path()).await;
+    stack.arm_forced_stop(&tokio::runtime::Handle::current());
+    tokio::time::advance(std::time::Duration::from_millis(4_199)).await;
+    tokio::task::yield_now().await;
+    assert!(stack.is_open(), "nothing stops it before the forced point");
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    awaiting("the fallback stop", async { while stack.is_open() { tokio::task::yield_now().await } }).await;
+}
 /// A teardown that ends before the forced point changes nothing: the cycle run ends at 1 s and the stop goes straight on to `pg_ctl stop`, at 1 s.
 #[tokio::test(start_paused = true)]
 async fn a_teardown_that_ends_early_stops_postgres_without_waiting_for_the_forced_point() {
@@ -603,9 +730,8 @@ async fn a_teardown_that_ends_early_stops_postgres_without_waiting_for_the_force
     let at = tokio::time::Instant::now() - begun;
     assert!(waiting, "the stop waits for the cycle run");
     assert_eq!(at, std::time::Duration::from_secs(1), "the stop did not wait for the forced point");
-    assert!(message(stopped).contains("pg_ctl failed"), "the release ran `pg_ctl stop`");
+    dispatched(stopped);
 }
-
 /// A stop while the opening waits for an alive postmaster that does not answer (the cluster step of a restart after the core was killed): the wait observes the
 /// cancel, so the stop returns at once instead of after the wait's 30 s, and the postmaster that is not ours is left alone. The "postmaster" is a listener that
 /// takes the probe's connections and drops them; its third connection is the recovery wait's first question (the two reuse checks come before it).
@@ -639,7 +765,6 @@ async fn a_stop_ends_the_opening_that_waits_for_an_alive_postmaster() {
     assert_eq!(message(ended), "postgres runtime: the start was cancelled before postgres was ready");
     assert!(pgdata.join("postmaster.pid").exists(), "a postmaster that is not ours is left alone");
 }
-
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn a_started_stack_serves_the_close_ingest_and_the_turn_search_copy() {
@@ -677,12 +802,6 @@ async fn a_started_stack_serves_the_close_ingest_and_the_turn_search_copy() {
     assert!(stack.search().db().session_ids().await.expect("ids").contains("boot-1"));
     stack.stop().await.expect("stops");
 }
-
-/// The postmaster's pid in the profile's cluster (line one of `postmaster.pid`), when there is one.
-fn postmaster_pid(profile: &std::path::Path) -> Option<u32> {
-    std::fs::read_to_string(profile.join("pgdata").join("postmaster.pid")).ok()?.lines().next()?.trim().parse().ok()
-}
-
 /// A core killed while its PostgreSQL runs (it never stops the stack), then a second core on the same profile: as Node's (`tryReusePgInstance`'s
 /// `postmaster.pid` attach, `supervisor.mjs:437-452`, then `stopPgForShutdown` of the attached `_live`, `:715-729`), the second attaches to the surviving
 /// postmaster instead of starting another, and its stop ends that postmaster. The server log is Node's `<profile>/pg.log`, outside the cluster.
@@ -725,12 +844,6 @@ async fn a_core_after_a_killed_one_attaches_to_its_postmaster_and_stops_it() {
     assert!(!alive, "the attached postmaster is stopped by the second core's stop");
     assert!(dir.path().join("pg.log").exists() && !dir.path().join("pgdata").join("pg.log").exists(), "the server log is Node's <profile>/pg.log");
 }
-
-/// Where [`a_killed_core`] opens its stack.
-const KILLED_CORE_PROFILE: &str = "MIXDOG_TEST_KILLED_CORE_PROFILE";
-/// The line [`a_killed_core`] prints once its database is open.
-const OPENED: &str = "the killed core's database is open";
-
 /// The first core of [`a_core_after_a_killed_one_attaches_to_its_postmaster_and_stops_it`], run by it as a child process: it opens a stack over the
 /// profile it is given, says so, and waits to be killed. Run without that profile (as a test of its own) it has nothing to do.
 #[tokio::test(flavor = "multi_thread")]
@@ -745,7 +858,6 @@ async fn a_killed_core() {
     // The parent kills this process; its stdin ends only then.
     let _ = tokio::task::spawn_blocking(|| std::io::stdin().read_line(&mut String::new())).await;
 }
-
 /// A use after the stop of a stack that is open is refused with Node's text (`ensurePgInstance` refuses before its fast path, `supervisor.mjs:647-650`).
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
@@ -757,8 +869,6 @@ async fn a_use_after_the_stop_of_an_open_stack_is_refused() {
     awaiting("the stop", stack.stop()).await.expect("stops");
     assert_eq!(message(stack.db().client().await), SHUTTING_DOWN);
 }
-
-mod shared_open;
 /// A port that was free when the start looked for one and is taken before the postmaster binds it (another cluster starting on the
 /// machine: `at_quit_the_last_client_leaves…` failed on it) moves the start to the next port instead of failing it. The port is taken in
 /// the gap the start leaves between its choice and the spawn.
@@ -786,7 +896,6 @@ async fn a_port_taken_between_the_choice_and_the_bind_moves_the_start_to_the_nex
     assert!(cluster.port() > first, "the start used the port that was taken ({first}): {}", cluster.port());
     cluster.stop(std::time::Duration::from_secs(15)).await.expect("stops");
 }
-
 /// A start ended while its `initdb` runs (a quit during the first memory start; a killed core's job ends `initdb` the same way) leaves no `pgdata`, so
 /// the next start makes the cluster instead of starting a half-made one, which has no `postgres` database and never answers. In Node the `initdb`
 /// outlived its daemon and finished the cluster.
@@ -819,7 +928,6 @@ async fn a_start_ended_during_initdb_leaves_no_cluster_and_the_next_start_makes_
     assert!(!dir.path().join("pgdata.init").exists(), "the cluster was renamed into place");
     cluster.stop(std::time::Duration::from_secs(15)).await.expect("stops");
 }
-
 /// The first-start notice of the database covers the whole opening: whoever is bound to its end is told when the opening ends, even when the runtime install
 /// failed (the notice would otherwise stay up for an opening that is over).
 #[tokio::test(flavor = "multi_thread")]

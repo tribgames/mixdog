@@ -1171,18 +1171,6 @@ mod tests {
     use mixdog_fsio::Unlaned;
     use std::path::PathBuf;
 
-    fn faces() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/office-measure/faces")
-    }
-
-    fn registry(entries: &[(&str, &str)]) -> Registry {
-        let mut registry = Registry::new();
-        for (file, family) in entries {
-            registry.register_file(&Unlaned, &faces().join(file), Some(family)).expect("a fixture face registers");
-        }
-        registry
-    }
-
     fn frame(slide: f64, shape: f64, left: f64, top: f64, width: f64, height: f64) -> RelationBox {
         RelationBox { slide, shape, left, top, width, height, relation: None, relation_error: None }
     }
@@ -1318,6 +1306,36 @@ mod tests {
     }
 
     #[test]
+    fn soft_breaks_carry_the_spacing_to_the_first_and_last_line() {
+        let paragraph = Paragraph {
+            text: "big\nsmall".to_owned(),
+            font_size: Some(14.0),
+            space_before: 4.0,
+            space_after: 6.0,
+            runs: Some(vec![Run { text: "big\n".into(), font_size: Some(14.0) }, Run { text: "small".into(), font_size: Some(10.0) }]),
+            ..Paragraph::default()
+        };
+        let lines = soft_break_lines(&paragraph);
+        assert_eq!(lines.len(), 2);
+        assert_eq!((lines[0].text.as_str(), lines[0].font_size, lines[0].space_before, lines[0].space_after), ("big", Some(14.0), 4.0, 0.0));
+        assert_eq!((lines[1].text.as_str(), lines[1].font_size, lines[1].space_before, lines[1].space_after), ("small", Some(10.0), 0.0, 6.0));
+        assert!(lines.iter().all(|line| line.runs.is_none()));
+    }
+
+
+    fn faces() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../mixdog-pdf/assets/standard_fonts")
+    }
+    // Every entry is a family name registered over the one face the repository carries; the file named only tells the
+    // entries apart.
+    fn registry(entries: &[(&str, &str)]) -> Registry {
+        let mut registry = Registry::new();
+        for (_, family) in entries {
+            registry.register_file(&Unlaned, &faces().join("LiberationSans-Regular.ttf"), Some(family)).expect("the repository face registers");
+        }
+        registry
+    }
+    #[test]
     fn an_installed_family_keeps_its_weight_suffix_and_a_missing_one_takes_its_metric_twin() {
         let registered = registry(&[("NotoSansLisu-Regular.ttf", "Twin Lisu"), ("MiriamLibre-Regular.otf", "Carlito"), ("NotoSansHebrew-Regular.ttf", "Twin Lisu Light")]);
         let measurer = TextMeasurer::new(&Unlaned, &registered);
@@ -1329,7 +1347,6 @@ mod tests {
         assert!(!measurer.font_available("Zzz Missing"));
         assert!(measurer.font_available(""));
     }
-
     #[test]
     fn a_calibrated_face_is_widened_per_script_class() {
         let registered = registry(&[("MiriamLibre-Regular.otf", "Malgun Gothic"), ("MiriamLibre-Regular.otf", "Twin Miriam")]);
@@ -1341,7 +1358,6 @@ mod tests {
         assert_eq!(measurer.measure_text_width("", &font("Twin Miriam", 18.0)), Ok(0.0));
         assert!(measurer.measure_text_width("a\0b", &font("Twin Miriam", 18.0)).is_err());
     }
-
     #[test]
     fn hangul_in_a_latin_face_is_measured_in_the_east_asian_fallback() {
         assert_eq!(TextMeasurer::new(&Unlaned, &Registry::new()).cjk_fallback, "Malgun Gothic");
@@ -1354,7 +1370,6 @@ mod tests {
         let tail = measurer.measure_text_width("안녕", &font("Noto Sans KR", 18.0)).expect("measures");
         assert_eq!(mixed, head + tail);
     }
-
     #[test]
     fn a_paragraph_wraps_at_spaces_and_a_long_word_between_characters() {
         let registered = registry(&[("NotoSansLisu-Regular.ttf", "Twin Lisu")]);
@@ -1369,7 +1384,6 @@ mod tests {
         assert_eq!(broken.concat(), "alphaalphaalpha");
         assert!(broken.iter().all(|line| !line.is_empty()));
     }
-
     #[test]
     fn a_block_is_as_tall_as_its_lines_at_one_point_two_em() {
         let registered = registry(&[("NotoSansLisu-Regular.ttf", "Twin Lisu")]);
@@ -1390,24 +1404,6 @@ mod tests {
             .expect("measures");
         assert!((spaced.height - (2.0 * 20.0 * 1.2 * 1.5 + 3.0 + 5.0)).abs() < 1e-9);
     }
-
-    #[test]
-    fn soft_breaks_carry_the_spacing_to_the_first_and_last_line() {
-        let paragraph = Paragraph {
-            text: "big\nsmall".to_owned(),
-            font_size: Some(14.0),
-            space_before: 4.0,
-            space_after: 6.0,
-            runs: Some(vec![Run { text: "big\n".into(), font_size: Some(14.0) }, Run { text: "small".into(), font_size: Some(10.0) }]),
-            ..Paragraph::default()
-        };
-        let lines = soft_break_lines(&paragraph);
-        assert_eq!(lines.len(), 2);
-        assert_eq!((lines[0].text.as_str(), lines[0].font_size, lines[0].space_before, lines[0].space_after), ("big", Some(14.0), 4.0, 0.0));
-        assert_eq!((lines[1].text.as_str(), lines[1].font_size, lines[1].space_before, lines[1].space_after), ("small", Some(10.0), 0.0, 6.0));
-        assert!(lines.iter().all(|line| line.runs.is_none()));
-    }
-
     #[test]
     fn a_box_too_short_overflows_and_an_unknown_font_makes_it_approximate() {
         let registered = registry(&[("NotoSansLisu-Regular.ttf", "Twin Lisu")]);
@@ -1425,7 +1421,6 @@ mod tests {
         text_box.autofit = true;
         assert!(measurer.review_text_box_fit(&[text_box], &FitOptions::default()).expect("reviews").is_empty());
     }
-
     #[test]
     fn a_shape_past_the_slide_edge_is_reported() {
         let registered = registry(&[("NotoSansLisu-Regular.ttf", "Twin Lisu")]);
@@ -1436,7 +1431,6 @@ mod tests {
         let found = measurer.review_text_box_fit(&[text_box], &options).expect("reviews");
         assert_eq!(found.last().map(|issue| issue["code"].clone()), Some(json!("shape_out_of_bounds")));
     }
-
     #[test]
     fn shrinking_lands_on_the_type_ladder_and_gives_up_with_zero() {
         let registered = registry(&[("NotoSansLisu-Regular.ttf", "Twin Lisu")]);

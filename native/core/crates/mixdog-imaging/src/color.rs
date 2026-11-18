@@ -16,14 +16,7 @@ const CHUNK_PIXELS: usize = 1 << 16;
 /// Converts 8-bit RGB (3 bytes a pixel) or RGBA (4 bytes, alpha kept) pixels from the colour space of `icc` to sRGB,
 /// in place. Anything but an RGB-space profile is left alone.
 pub fn rgb_to_srgb(data: &mut [u8], has_alpha: bool, icc: &[u8]) {
-    let Ok(profile) = ColorProfile::new_from_slice(icc) else { return };
-    if profile.color_space != DataColorSpace::Rgb {
-        return;
-    }
-    let layout = if has_alpha { Layout::Rgba } else { Layout::Rgb };
-    let Ok(transform) = profile.create_transform_8bit(layout, &ColorProfile::new_srgb(), layout, TransformOptions::default()) else {
-        return;
-    };
+    let Some(transform) = to_srgb(has_alpha, icc) else { return };
     let stride = if has_alpha { 4 } else { 3 };
     for chunk in data.chunks_mut(CHUNK_PIXELS * stride) {
         let source = chunk.to_vec();
@@ -34,6 +27,32 @@ pub fn rgb_to_srgb(data: &mut [u8], has_alpha: bool, icc: &[u8]) {
         }
     }
 }
+
+/// The transform from an RGB-space `icc` to sRGB; `None` when the profile cannot be read, is not RGB, or yields no transform.
+fn to_srgb(has_alpha: bool, icc: &[u8]) -> Option<Box<Transform8BitExecutor>> {
+    let profile = ColorProfile::new_from_slice(icc).ok()?;
+    if profile.color_space != DataColorSpace::Rgb {
+        return None;
+    }
+    let layout = if has_alpha { Layout::Rgba } else { Layout::Rgb };
+    profile.create_transform_8bit(layout, &ColorProfile::new_srgb(), layout, TransformOptions::default()).ok()
+}
+
+/// [`rgb_to_srgb`] for a decoder that has no libvips behaviour to match (the OS HEIC codec): a profile that cannot be read, that
+/// is not RGB, or whose transform fails on any pixel is an error, and the pixels are then not to be used.
+pub fn rgb_to_srgb_exactly(data: &mut [u8], has_alpha: bool, icc: &[u8]) -> Result<(), ProfileUnusable> {
+    let transform = to_srgb(has_alpha, icc).ok_or(ProfileUnusable)?;
+    let stride = if has_alpha { 4 } else { 3 };
+    for chunk in data.chunks_mut(CHUNK_PIXELS * stride) {
+        let source = chunk.to_vec();
+        moxcms::TransformExecutor::transform(transform.as_ref(), &source, chunk).map_err(|_| ProfileUnusable)?;
+    }
+    Ok(())
+}
+
+/// An embedded colour profile that cannot take the pixels to sRGB.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ProfileUnusable;
 
 /// The CMYK-to-sRGB transform of a CMYK profile.
 pub(crate) struct CmykConverter {
@@ -127,6 +146,18 @@ mod tests {
         let mut pixels = vec![200, 100, 50, 77, 10, 20, 30, 255];
         rgb_to_srgb(&mut pixels, true, &srgb);
         assert_eq!([pixels[3], pixels[7]], [77, 255]);
+    }
+
+    #[test]
+    fn an_exact_conversion_refuses_a_profile_it_cannot_apply_and_applies_one_it_can() {
+        let mut pixels = vec![10, 20, 30, 255];
+        assert_eq!(rgb_to_srgb_exactly(&mut pixels, true, b"not an icc profile"), Err(ProfileUnusable));
+        let gray = ColorProfile::new_gray_with_gamma(2.2).encode().expect("gray encodes");
+        assert_eq!(rgb_to_srgb_exactly(&mut pixels, true, &gray), Err(ProfileUnusable), "a gray profile does not describe RGB pixels");
+        let srgb = ColorProfile::new_srgb().encode().expect("sRGB encodes");
+        let mut pixels = vec![200, 100, 50, 77];
+        assert_eq!(rgb_to_srgb_exactly(&mut pixels, true, &srgb), Ok(()));
+        assert!(pixels[0].abs_diff(200) <= 2 && pixels[3] == 77, "{pixels:?}");
     }
 
     #[test]

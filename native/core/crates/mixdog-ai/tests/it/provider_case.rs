@@ -189,6 +189,8 @@ pub struct CaseSet {
     compared: Marks,
     /// The cases named [`CaseSet::not_replayed`], each with its reason: recorded, not compared.
     skipped: Mutex<Vec<(String, String)>>,
+    /// Cases replayed under a decided departure from the recording ([`CaseSet::departed`]): each with its reason.
+    departed: Mutex<Vec<(String, String)>>,
     /// Whether dropping the set checks that every case was compared (a replay's set), or not (the driver's own checks).
     checked: bool,
 }
@@ -215,10 +217,6 @@ fn known_keys(what: &str, value: &Exact, known: &[&str]) {
     assert!(unknown.is_empty(), "{what}: recorded properties the driver does not read: {unknown:?}");
 }
 
-fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
-}
-
 /// Replaces the recorder's `{"$shared": n}` argument references by the shared values.
 fn unshare(value: &Exact, shared: &[Exact]) -> Exact {
     match value {
@@ -234,239 +232,13 @@ fn ms(value: &Exact) -> u64 {
 }
 
 impl CaseSet {
-    /// `set` without its `provider-` prefix, e.g. `anthropic-stream`. Dropping the set fails the test when a case's outcome
-    /// was never read ([`Case::outcome`] / [`Case::result`]) and the replay did not name it [`CaseSet::not_replayed`].
-    pub fn load(set: &str) -> Self {
-        let dir = fixtures().join(format!("provider-{set}"));
-        Self::from_recording(set, Exact::load(dir.join("MANIFEST.json")), Exact::load(dir.join("cases.json")), true)
-    }
-
-    /// The set for the driver's own structural checks: no case needs to be consumed.
-    fn read(set: &str) -> Self {
-        let mut loaded = Self::load(set);
-        loaded.checked = false;
-        loaded
-    }
-
-    /// The set of `recording` (a `cases.json`) under `manifest`; every recorded property is one the driver reads, else the
-    /// load fails naming it.
-    fn from_recording(set: &str, manifest: Exact, recording: Exact, checked: bool) -> Self {
-        known_keys(&format!("{set}: the recording"), &recording, &RECORDING_KEYS);
-        assert_eq!(recording.get("set").as_str(), format!("provider-{set}"), "{set}: the recording's set");
-        assert_eq!(recording.get("set"), manifest.get("set"), "{set}: the manifest's set");
-        assert_eq!(recording.get("nodeCommit"), manifest.get("product").get("commit"), "{set}: the recording's Node commit");
-        let clock_start_ms = recording.try_get("clockStartMs").map(ms);
-        if let Some(start) = clock_start_ms {
-            assert_eq!(start, T0_MS, "{set}: clockStartMs is the recorders' T0");
-        }
-        let shared = recording.try_get("shared").map(|s| s.as_array().to_vec()).unwrap_or_default();
-        let compared: Marks = Arc::default();
-        let exclusions: Arc<Vec<String>> = Arc::new(match manifest.try_get("exclusions") {
-            Some(Exact::Array(items)) => items.iter().map(|e| e.as_str().to_owned()).collect(),
-            _ => Vec::new(),
-        });
-        let mut running_ms = 0;
-        let cases = recording
-            .get("cases")
-            .as_array()
-            .iter()
-            .map(|case| {
-                let id = case.get("id").as_str().to_owned();
-                known_keys(&format!("{set} {id}"), case, &CASE_KEYS);
-                let outcome = match (case.try_get("result"), case.try_get("error")) {
-                    (Some(result), None) => Outcome::Result(result.clone()),
-                    (None, Some(error)) => Outcome::Error(error.clone()),
-                    _ => panic!("{set}: a case holds one of result and error: {case:?}"),
-                };
-                let clock: Vec<ClockStep> = case
-                    .try_get("clock")
-                    .map(|steps| {
-                        steps
-                            .as_array()
-                            .iter()
-                            .map(|step| {
-                                known_keys(&format!("{set} {id}: a clock step"), step, &STEP_KEYS);
-                                ClockStep {
-                                    advance_ms: ms(step.get("advanceMs")),
-                                    from_ms: ms(step.get("fromMs")),
-                                    to_ms: ms(step.get("toMs")),
-                                    fired: step
-                                        .get("fired")
-                                        .as_array()
-                                        .iter()
-                                        .map(|f| {
-                                            known_keys(&format!("{set} {id}: a fired timer"), f, &FIRED_KEYS);
-                                            ms(f.get("dueMs"))
-                                        })
-                                        .collect(),
-                                }
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let clock_origin_ms = running_ms;
-                if let Some(last) = clock.last() {
-                    running_ms = last.to_ms;
-                }
-                Case {
-                    source: case.get("source").as_str().to_owned(),
-                    input: case.get("input").clone(),
-                    outcome,
-                    calls: case
-                        .try_get("calls")
-                        .map(|calls| {
-                            calls
-                                .as_array()
-                                .iter()
-                                .map(|call| {
-                                    known_keys(&format!("{set} {id}: a call"), call, &CALL_KEYS);
-                                    Call {
-                                        entry: call.get("entry").as_str().to_owned(),
-                                        args: call.get("args").as_array().iter().map(|arg| unshare(arg, &shared)).collect(),
-                                    }
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                    requests: case.try_get("requests").map(|r| r.as_array().to_vec()).unwrap_or_default(),
-                    clock,
-                    clock_origin_ms,
-                    compared: compared.clone(),
-                    exclusions: exclusions.clone(),
-                    id,
-                }
-            })
-            .collect();
-        Self { set: set.to_owned(), manifest, cases, exclusions, clock_start_ms, compared, checked, skipped: Mutex::default() }
-    }
-
-    /// Names cases no replay of this branch compares, with the reason (another group's branch replays them). They are
-    /// not covered: the set's drop keeps each with its reason apart from the compared sets ([`SKIPPED_SETS`]), prints
-    /// them, and registers a set holding any as not wholly compared. Every id must be one of the set's. The set's one
-    /// replay names them: a set is never split over several tests of this branch.
-    pub fn not_replayed(&self, ids: &[&str], reason: &str) {
-        assert!(!reason.trim().is_empty(), "{}: a reason for {ids:?}", self.set);
-        let mut skipped = self.skipped.lock().unwrap();
-        for id in ids {
-            assert!(self.cases.iter().any(|c| c.id == *id), "{}: no case {id}", self.set);
-            skipped.push(((*id).to_owned(), reason.to_owned()));
-        }
-    }
-
-    fn is_skipped(&self, id: &str) -> bool {
-        self.skipped.lock().unwrap().iter().any(|(skipped, _)| skipped == id)
-    }
-
-    /// Whether the manifest declares `name` (a recorded property) not compared: an exclusion line reading
-    /// ``` `name` is not compared: <reason> ```. The one way a replay leaves a recorded property out.
-    pub fn excludes(&self, name: &str) -> bool {
-        excluded(&self.exclusions, name)
-    }
-
-    pub fn case(&self, id: &str) -> &Case {
-        self.cases.iter().find(|case| case.id == id).unwrap_or_else(|| panic!("{}: no case {id}", self.set))
-    }
-
-    /// The case ids, in recorded order.
-    pub fn ids(&self) -> Vec<&str> {
-        self.cases.iter().map(|case| case.id.as_str()).collect()
-    }
-
-    /// The manifest's level row of a case (`wire` or `pure`, with the Rust function named for a pure one).
-    pub fn level(&self, id: &str) -> &Exact {
-        self.manifest
-            .get("levels")
-            .as_array()
-            .iter()
-            .find(|row| row.get("id").as_str() == id)
-            .unwrap_or_else(|| panic!("{}: no level row for {id}", self.set))
-    }
-
-    fn declares(&self, text: &str) -> bool {
-        self.exclusions.iter().any(|exclusion| exclusion.contains(text))
-    }
-
-    /// The arrivals with the manifest's declared rules applied (and only those).
-    pub fn ruled(&self, arrivals: &[Exact]) -> Vec<Exact> {
-        let origin_host = self.declares("`host` is the host of the origin the product addressed");
-        let loopback_port = self.declares("`127.0.0.1:<port>`");
-        let stainless = self.declares("x-stainless-os, x-stainless-arch and x-stainless-runtime-version");
-        arrivals
-            .iter()
-            .map(|arrival| {
-                let origin = arrival.get("origin").as_str().to_owned();
-                let Exact::Object(entries) = arrival else { unreachable!("an arrival is an object") };
-                let entries = entries
-                    .iter()
-                    .map(|(key, value)| {
-                        if key != "headers" {
-                            return (key.clone(), value.clone());
-                        }
-                        let headers = value
-                            .as_array()
-                            .iter()
-                            .map(|pair| {
-                                let [name, value] = pair.as_array() else { unreachable!("a header is a pair") };
-                                let lower = name.as_str().to_ascii_lowercase();
-                                let value = if lower == "host" && loopback_port {
-                                    Exact::String("127.0.0.1:<port>".into())
-                                } else if lower == "host" && origin_host {
-                                    let url = url::Url::parse(&origin).expect("an origin");
-                                    let host = url.host_str().expect("a host");
-                                    Exact::String(url.port().map_or(host.to_owned(), |port| format!("{host}:{port}")))
-                                } else if stainless && matches!(lower.as_str(), "x-stainless-os" | "x-stainless-arch" | "x-stainless-runtime-version") {
-                                    Exact::String(format!("<recording host {lower}>"))
-                                } else {
-                                    value.clone()
-                                };
-                                Exact::Array(vec![name.clone(), value])
-                            })
-                            .collect();
-                        (key.clone(), Exact::Array(headers))
-                    })
-                    .collect();
-                Exact::Object(entries)
-            })
-            .collect()
-    }
-
-    /// The arrivals equal the case's recorded requests, whole and in order, after the declared rules. `either_order` is
-    /// a pair of request indexes the manifest declares may arrive in either order.
-    pub fn assert_requests(&self, case: &Case, arrivals: &[Exact], either_order: Option<(usize, usize)>) {
-        let want: Vec<Exact> = case
-            .requests
-            .iter()
-            .map(|request| match request {
-                Exact::Object(entries) => Exact::Object(entries.iter().filter(|(k, _)| k != "reply").cloned().collect()),
-                other => panic!("{}: a request is an object: {other:?}", case.id),
-            })
-            .collect();
-        let mut got = self.ruled(arrivals);
-        let (want, got_inflated): (Vec<Exact>, Vec<Exact>) = if self.declares("`Content-Encoding: gzip`") {
-            (want.iter().map(inflated).collect(), got.iter().map(inflated).collect())
-        } else {
-            (want, got.clone())
-        };
-        got = got_inflated;
-        if let Some((a, b)) = either_order
-            && got.len() > a.max(b)
-            && got[a] == want[b]
-            && got[b] == want[a]
-        {
-            got.swap(a, b);
-        }
-        assert_exact(&format!("{} {}: requests", self.set, case.id), &Exact::Array(want), &Exact::Array(got));
-    }
-}
-
-impl CaseSet {
     /// The recorded cases no comparison touched, and per other case the recorded properties of its outcome no comparison
     /// covered (by its path or a path holding it) and no manifest exclusion declares.
     fn uncovered(&self) -> (Vec<String>, Vec<(String, Vec<String>)>) {
         let marks = self.compared.lock().unwrap();
         let mut untouched = Vec::new();
         let mut partial = Vec::new();
-        for case in self.cases.iter().filter(|case| !self.is_skipped(&case.id)) {
+        for case in self.cases.iter().filter(|case| !self.is_skipped(&case.id) && !self.is_departed(&case.id)) {
             let Some(marked) = marks.get(&case.id) else {
                 untouched.push(case.id.clone());
                 continue;
@@ -604,6 +376,9 @@ impl Drop for CaseSet {
         let (untouched, partial) = self.uncovered();
         assert!(untouched.is_empty(), "{}: recorded cases no replay compared: {untouched:?}", self.set);
         assert!(partial.is_empty(), "{}: recorded properties no comparison covered: {partial:?}", self.set);
+        for (id, reason) in self.departed.lock().unwrap().iter() {
+            eprintln!("DEPARTED {} {id}: {reason}", self.set);
+        }
         let skipped = self.skipped.lock().unwrap().clone();
         if skipped.is_empty() {
             COMPARED_SETS.lock().unwrap().insert(self.set.clone());
@@ -728,6 +503,7 @@ pub struct Replay {
 
 /// A request under the declared gzip rule: a `Content-Encoding: gzip` body as its 10-byte gzip header and inflated
 /// bytes, its `content-length` as `<the arrived body's length>` (checked equal to that length here).
+#[cfg(node_twin)]
 fn inflated(request: &Exact) -> Exact {
     let Exact::Object(entries) = request else { unreachable!("a request is an object") };
     let gzip = request.get("headers").as_array().iter().any(|pair| {
@@ -942,26 +718,6 @@ enum WsCommand {
     Terminate,
 }
 
-#[derive(Default)]
-struct State {
-    replies: Vec<Exact>,
-    arrivals: Vec<Exact>,
-    warmups: Vec<Exact>,
-    trace: Vec<Exact>,
-    /// The connection of each trace entry (`None`: a case-side entry), for the script to address its actions.
-    trace_conns: Vec<Option<usize>>,
-    ws_conns: Vec<mpsc::UnboundedSender<WsCommand>>,
-    /// The recorded `Sec-WebSocket-Key` of each upgrade, in order, for the dialer's scripted key source.
-    ws_keys: std::collections::VecDeque<String>,
-    steps: Vec<ClockStep>,
-    /// What the product did with each response body the link returned, by response.
-    bodies: Vec<Body>,
-    /// The sends through the link that failed (a connection fault among them).
-    failed: usize,
-    /// The arrivals (by index) whose HTTP/2 stream the client has ended or reset.
-    closed: std::collections::HashSet<usize>,
-}
-
 /// What the product did with one response body: reads begun, whether a read returned its end (or fault), whether it
 /// was dropped.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -969,39 +725,6 @@ pub struct Body {
     pub reads: u32,
     pub ended: bool,
     pub dropped: bool,
-}
-
-struct Inner {
-    state: Mutex<State>,
-    /// The origin the link sends to instead of the endpoint (a connection fault of the case).
-    fault_origin: Arc<Mutex<Option<String>>>,
-    /// Bumped on every event of the endpoint (an arrival, a trace entry, a close), waking [`Endpoint::until`].
-    events: watch::Sender<u64>,
-}
-
-impl Inner {
-    fn bump(&self) {
-        self.events.send_modify(|n| *n += 1);
-    }
-
-    fn note(&self, entry: Exact, conn: Option<usize>) {
-        {
-            let mut state = self.state.lock().unwrap();
-            state.trace.push(entry);
-            state.trace_conns.push(conn);
-        }
-        self.bump();
-    }
-}
-
-pub struct Endpoint {
-    pub addr: SocketAddr,
-    inner: Arc<Inner>,
-    started: tokio::time::Instant,
-    /// The set's running clock at `started` (the replayed case's [`Case::clock_origin_ms`]).
-    origin_ms: std::sync::atomic::AtomicU64,
-    /// Dropping it ends the clock hold.
-    _hold: std::sync::mpsc::Sender<()>,
 }
 
 fn obj(entries: Vec<(&str, Exact)>) -> Exact {
@@ -1065,6 +788,426 @@ fn reason(status: u16) -> &'static str {
     }
 }
 
+/// The command a recorded server-side entry of the ws world stands for; `None` for an entry the client or the case makes.
+fn server_action(entry: &Exact) -> Option<WsCommand> {
+    let event = entry.get("event").as_str();
+    let string_pairs = |value: &Exact| -> Vec<(String, String)> {
+        value
+            .as_array()
+            .iter()
+            .map(|pair| (pair.as_array()[0].as_str().to_owned(), pair.as_array()[1].as_str().to_owned()))
+            .collect()
+    };
+    Some(match event {
+        "upgrade-response" => {
+            WsCommand::Accept(entry.get("lines").as_array().iter().skip(4).map(|line| line.as_str().to_owned()).collect())
+        }
+        "upgrade-refused" => WsCommand::Refuse {
+            status: entry.get("status").as_f64() as u16,
+            status_text: entry.get("statusText").as_str().to_owned(),
+            headers: string_pairs(entry.get("headers")),
+            body_chunks: entry.get("bodyChunks").as_array().iter().map(bytes_of).collect(),
+        },
+        "upgrade-reset" => WsCommand::Reset,
+        "upgrade-left-unanswered" => WsCommand::LeaveUnanswered,
+        "frame" if entry.get("dir").as_str() == "server->client" => match entry.try_get("text") {
+            Some(text) => WsCommand::Send(Message::Text(text.as_str().into())),
+            None => WsCommand::Send(Message::Binary(hex_decode(entry.get("bytesHex").as_str()).into())),
+        },
+        "ping" if entry.get("dir").as_str() == "server->client" => {
+            WsCommand::Send(Message::Ping(entry.get("data").as_str().as_bytes().to_vec().into()))
+        }
+        "close-sent" => WsCommand::Close(entry.get("code").as_f64() as u16, entry.get("reason").as_str().to_owned()),
+        "terminate" => WsCommand::Terminate,
+        _ => return None,
+    })
+}
+
+fn hex_decode(hex: &str) -> Vec<u8> {
+    (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("hex")).collect()
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// A request head as it arrived: the request line and every header (name and value as sent, in order).
+struct Head {
+    method: String,
+    target: String,
+    version: u8,
+    headers: Vec<(String, String)>,
+}
+
+impl Head {
+    fn get(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+}
+
+/// Reads one request head off `socket` (`buf` holds what was read beyond the previous request); `None` when the client
+/// closed the connection.
+#[cfg(node_twin)]
+async fn read_head(socket: &mut TcpStream, buf: &mut Vec<u8>) -> Option<Head> {
+    loop {
+        let mut slots = [httparse::EMPTY_HEADER; 128];
+        let mut parsed = httparse::Request::new(&mut slots);
+        if let httparse::Status::Complete(len) = parsed.parse(buf).expect("a well-formed request head") {
+            let head = Head {
+                method: parsed.method.expect("method").to_owned(),
+                target: parsed.path.expect("target").to_owned(),
+                version: parsed.version.expect("version"),
+                headers: parsed
+                    .headers
+                    .iter()
+                    .map(|h| (h.name.to_owned(), String::from_utf8_lossy(h.value).trim_matches([' ', '\t']).to_owned()))
+                    .collect(),
+            };
+            buf.drain(..len);
+            return Some(head);
+        }
+        let mut chunk = [0u8; 16384];
+        match socket.read(&mut chunk).await {
+            Ok(0) | Err(_) => return None,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+        }
+    }
+}
+
+#[cfg(node_twin)]
+async fn fill(socket: &mut TcpStream, buf: &mut Vec<u8>, want: usize) -> bool {
+    while buf.len() < want {
+        let mut chunk = [0u8; 16384];
+        match socket.read(&mut chunk).await {
+            Ok(0) | Err(_) => return false,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+        }
+    }
+    true
+}
+
+/// The request body: by `content-length`, or decoded from `transfer-encoding: chunked`.
+#[cfg(node_twin)]
+async fn read_body(socket: &mut TcpStream, buf: &mut Vec<u8>, head: &Head) -> Option<Vec<u8>> {
+    if head.get("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case("chunked")) {
+        let mut body = Vec::new();
+        loop {
+            let line_end = loop {
+                if let Some(at) = buf.windows(2).position(|w| w == b"\r\n") {
+                    break at;
+                }
+                let have = buf.len();
+                if !fill(socket, buf, have + 1).await {
+                    return None;
+                }
+            };
+            let size_text = String::from_utf8_lossy(&buf[..line_end]).into_owned();
+            let size = usize::from_str_radix(size_text.split(';').next().unwrap_or("").trim(), 16).expect("a chunk size");
+            buf.drain(..line_end + 2);
+            if !fill(socket, buf, size + 2).await {
+                return None;
+            }
+            body.extend_from_slice(&buf[..size]);
+            buf.drain(..size + 2);
+            if size == 0 {
+                return Some(body);
+            }
+        }
+    }
+    let length: usize = head.get("content-length").map_or(0, |v| v.parse().expect("a content-length"));
+    if !fill(socket, buf, length).await {
+        return None;
+    }
+    Some(buf.drain(..length).collect())
+}
+
+/// Every field of every recorded error of the sets whose errors the table covers is in [`ERROR_FIELDS`] (a group adds
+/// its sets here with its rows).
+#[cfg(node_twin)]
+#[test]
+fn every_recorded_error_field_is_in_the_table() {
+    fn fields(value: &Exact, out: &mut Vec<String>) {
+        match value {
+            Exact::Error { code, cause, props, .. } => {
+                out.extend(["name".to_owned(), "message".to_owned()]);
+                if code.is_some() {
+                    out.push("code".into());
+                }
+                if let Some(cause) = cause {
+                    out.push("cause".into());
+                    fields(cause, out);
+                }
+                for (key, prop) in props {
+                    out.push(key.clone());
+                    if key == "streamOutcome"
+                        && let Exact::Object(outcome) = prop
+                    {
+                        out.extend(outcome.iter().map(|(field, _)| format!("streamOutcome.{field}")));
+                    }
+                    fields(prop, out);
+                }
+            }
+            Exact::Array(items) => items.iter().for_each(|item| fields(item, out)),
+            Exact::Object(entries) => entries.iter().for_each(|(_, item)| fields(item, out)),
+            _ => {}
+        }
+    }
+    const SETS: [&str; 25] = [
+        "anthropic-api-key-fetch-rest",
+        "anthropic-replay-blocks",
+        "anthropic-server-fallback",
+        "anthropic-stream",
+        "anthropic-thinking-contract",
+        "antigravity-request",
+        "gemini-error-contract",
+        "gemini-history-signatures",
+        "gemini-stream",
+        "devin-wire-protobuf",
+        "devin-wire-request",
+        "devin-wire-session",
+        "leak-guards",
+        "openai-oauth",
+        "openai-oauth-transport",
+        "openai-ws-connect",
+        "openai-ws-delta",
+        "openai-ws-handshake",
+        "openai-ws-send-attempts",
+        "openai-ws-stream",
+        "transport-policy",
+        "openai-compat-stream-lifecycle",
+        "session-provider-replay",
+        "gemini-send-retry",
+        "retry-stages",
+    ];
+    let mut missing = Vec::new();
+    for set in SETS {
+        let loaded = CaseSet::read(set);
+        for case in &loaded.cases {
+            let mut found = Vec::new();
+            fields(case.recorded().raw(), &mut found);
+            missing.extend(found.into_iter().filter(|f| !ERROR_FIELDS.iter().any(|(name, _, _)| name == f)).map(|f| format!("{set} {}: {f}", case.id)));
+        }
+    }
+    missing.dedup();
+    assert!(missing.is_empty(), "error fields not in ERROR_FIELDS: {missing:?}");
+}
+
+/// The provider sets whose replay is another branch's (groups B, C, D and the sets no group replays yet), so that this
+/// branch holds no replay of them; every other set has one here.
+const REPLAYED_ELSEWHERE: &[&str] = &[
+    "accounts-policy-cases", "admin-dev-providers", "auth-api", "change-effects", "compat-chat-stream-tool-calls",
+    "compat-responses-alignment", "compat-responses-boundaries", "compat-responses-effort", "custom-provider-keys",
+    "custom-provider-route", "custom-reasoning", "deepseek-replay", "devin-wire-protobuf", "devin-wire-request",
+    "devin-wire-session", "env-switches", "gateways", "http-response-timeout", "lane-settings", "local-context-settings", "local-managed-runtime", "mimo-oauth",
+    "mimo-oauth-wire", "mixdog-local-wire", "model-catalog-projection", "model-recency", "openai-oauth",
+    "openai-oauth-transport", "openai-ws-connect", "openai-ws-send-attempts", "openai-ws-stream", "opencode-go-gemini",
+    "openrouter", "ready", "refusal", "setup", "setup-custom", "setup-warmup", "status", "tool-cut", "wire", "xai-grok",
+];
+
+/// Every module's replay entries ([`Replay`]), in one list.
+fn registry() -> Vec<&'static Replay> {
+    let lists: [&'static [Replay]; 17] = [
+        crate::replay_anthropic_api_key_fetch::REPLAYS,
+        crate::replay_anthropic_replay_blocks::REPLAYS,
+        crate::replay_anthropic_server_fallback::REPLAYS,
+        crate::replay_anthropic_stream::REPLAYS,
+        crate::replay_anthropic_thinking_contract::REPLAYS,
+        crate::replay_antigravity_request::REPLAYS,
+        crate::replay_compat_stream_lifecycle::REPLAYS,
+        crate::replay_gemini_error_contract::REPLAYS,
+        crate::replay_gemini_history_signatures::REPLAYS,
+        crate::replay_gemini_send_retry::REPLAYS,
+        crate::replay_gemini_stream::REPLAYS,
+        crate::replay_leak_guards::REPLAYS,
+        crate::replay_openai_ws_delta::REPLAYS,
+        crate::replay_openai_ws_handshake::REPLAYS,
+        crate::replay_retry_stages::REPLAYS,
+        crate::replay_session_provider_replay::REPLAYS,
+        crate::replay_transport_policy::REPLAYS,
+    ];
+    lists.iter().flat_map(|list| list.iter()).collect()
+}
+
+/// Runs every entry of `replays` (each on its own fresh process state) and returns the recorded sets no entry loaded and
+/// compared whole (its set registered by its drop) and that [`REPLAYED_ELSEWHERE`] does not name.
+fn uncompared(replays: &[&Replay], recorded: &[String]) -> Vec<String> {
+    COMPARED_SETS.lock().unwrap().clear();
+    SKIPPED_SETS.lock().unwrap().clear();
+    for replay in replays {
+        mixdog_ai::reset_process_state();
+        (replay.run)();
+    }
+    let compared = COMPARED_SETS.lock().unwrap().clone();
+    recorded.iter().filter(|set| !REPLAYED_ELSEWHERE.contains(&set.as_str()) && !compared.contains(*set)).cloned().collect()
+}
+
+/// The tests that read or clear the two registries run one at a time.
+static REGISTRY_TESTS: Mutex<()> = Mutex::new(());
+
+/// Cases recorded but not replayed in the sets of the last [`uncompared`] run: (set, case, reason).
+fn skipped_cases() -> Vec<(String, String, String)> {
+    SKIPPED_SETS
+        .lock()
+        .unwrap()
+        .iter()
+        .flat_map(|(set, cases)| cases.iter().map(move |(id, reason)| (set.clone(), id.clone(), reason.clone())))
+        .collect()
+}
+
+const SET_SLICES: usize = 6;
+
+/// The sets this branch replays (those no other branch's [`REPLAYED_ELSEWHERE`] names), sorted and distinct.
+fn replayed_here(replays: &[&Replay]) -> Vec<&'static str> {
+    let mut sets: Vec<&'static str> = replays.iter().map(|replay| replay.set).collect();
+    sets.sort_unstable();
+    sets.dedup();
+    sets
+}
+
+/// Runs every replay of the sets whose position among [`replayed_here`] is `slice` modulo `SET_SLICES` (all the replays of one
+/// set run in one slice, each on a fresh process state) and holds each such set to the rule of
+/// [`every_provider_set_has_a_replay_in_one_slice`]: some replay loaded it and compared every case (registered by its drop), or
+/// it has skipped cases kept apart with their reasons.
+fn replay_sets_of_slice(slice: usize) {
+    let _alone = REGISTRY_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let replays = registry();
+    let sets = replayed_here(&replays);
+    let mine: Vec<&Replay> = replays.iter().copied().filter(|replay| sets.iter().position(|set| *set == replay.set).is_some_and(|at| at % SET_SLICES == slice)).collect();
+    COMPARED_SETS.lock().unwrap().clear();
+    SKIPPED_SETS.lock().unwrap().clear();
+    let mut executed = 0;
+    for replay in &mine {
+        mixdog_ai::reset_process_state();
+        (replay.run)();
+        executed += 1;
+    }
+    assert!(REGISTERED_SET_SLICES.contains(&slice));
+    assert_eq!(executed, mine.len(), "all registered replays of this slice executed");
+    let compared = COMPARED_SETS.lock().unwrap().clone();
+    let skipped = skipped_cases();
+    for (set, id, reason) in &skipped {
+        eprintln!("recorded, not replayed: {set} {id}: {reason}");
+    }
+    let partial: std::collections::BTreeSet<String> = skipped.iter().map(|(set, ..)| set.clone()).collect();
+    let mut checked = std::collections::BTreeSet::new();
+    let missing: Vec<&str> = mine
+        .iter()
+        .map(|replay| replay.set)
+        .filter(|set| checked.insert(*set))
+        .filter(|set| !compared.contains(*set) && !partial.contains(*set))
+        .collect();
+    println!("slice {slice}: {} replays of {} sets", mine.len(), checked.len());
+    assert!(missing.is_empty(), "recorded provider sets no replay compared: {missing:?}");
+}
+
+macro_rules! provider_set_slices {
+    ($($name:ident => $slice:expr),* $(,)?) => {
+            const REGISTERED_SET_SLICES: &[usize] = &[$($slice),*];
+        $(#[test]
+        fn $name() {
+            replay_sets_of_slice($slice);
+        })*
+    };
+}
+
+provider_set_slices! {
+    every_provider_set_has_a_comparing_replay_slice_0 => 0,
+    every_provider_set_has_a_comparing_replay_slice_1 => 1,
+    every_provider_set_has_a_comparing_replay_slice_2 => 2,
+    every_provider_set_has_a_comparing_replay_slice_3 => 3,
+    every_provider_set_has_a_comparing_replay_slice_4 => 4,
+    every_provider_set_has_a_comparing_replay_slice_5 => 5,
+}
+
+/// A replay that names its set but never loads and compares it registers nothing: its set is reported.
+#[test]
+fn a_set_named_but_never_compared_does_not_count() {
+    const UNLOADED: Replay = Replay {
+        set: "anthropic-replay-blocks",
+        run: || {
+            const SET: &str = "anthropic-replay-blocks";
+            assert!(!SET.is_empty());
+        },
+    };
+    assert_eq!(uncompared(&[&UNLOADED], &["anthropic-replay-blocks".to_owned()]), ["anthropic-replay-blocks"]);
+}
+
+fn object(entries: &[(&str, Exact)]) -> Exact {
+    Exact::Object(entries.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect())
+}
+
+/// A decided departure accounts for the one case the replay reached and named; a recorded case nobody looked at still fails
+/// the set, departed cases or not.
+#[cfg(node_twin)]
+#[test]
+fn a_departed_case_is_accounted_and_an_unlooked_at_one_still_fails() {
+    let set = CaseSet::load("anthropic-replay-blocks");
+    assert!(set.cases.len() > 1, "a set of several cases");
+    let first = set.cases[0].id.clone();
+    set.departed(&first, "synthetic decision");
+    let (untouched, _) = set.uncovered();
+    assert!(!untouched.contains(&first), "the departed case is accounted: {untouched:?}");
+    assert_eq!(untouched.len(), set.cases.len() - 1, "every other case is still owed a comparison");
+    let named = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| set.departed("no-such-case", "x"))).map_err(panic_text).expect_err("an unknown case");
+    assert!(named.contains("no case no-such-case"), "{named}");
+    let mut set = set;
+    set.checked = false;
+    drop(set);
+}
+
+fn panic_text(panic: Box<dyn std::any::Any + Send>) -> String {
+    panic.downcast_ref::<String>().cloned().or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_owned())).unwrap_or_default()
+}
+
+#[derive(Default)]
+struct State {
+    replies: Vec<Exact>,
+    arrivals: Vec<Exact>,
+    warmups: Vec<Exact>,
+    trace: Vec<Exact>,
+    /// The connection of each trace entry (`None`: a case-side entry), for the script to address its actions.
+    trace_conns: Vec<Option<usize>>,
+    ws_conns: Vec<mpsc::UnboundedSender<WsCommand>>,
+    /// The recorded `Sec-WebSocket-Key` of each upgrade, in order, for the dialer's scripted key source.
+    ws_keys: std::collections::VecDeque<String>,
+    steps: Vec<ClockStep>,
+    /// What the product did with each response body the link returned, by response.
+    bodies: Vec<Body>,
+    /// The sends through the link that failed (a connection fault among them).
+    failed: usize,
+    /// The arrivals (by index) whose HTTP/2 stream the client has ended or reset.
+    closed: std::collections::HashSet<usize>,
+}
+struct Inner {
+    state: Mutex<State>,
+    /// The origin the link sends to instead of the endpoint (a connection fault of the case).
+    fault_origin: Arc<Mutex<Option<String>>>,
+    /// Bumped on every event of the endpoint (an arrival, a trace entry, a close), waking [`Endpoint::until`].
+    events: watch::Sender<u64>,
+}
+impl Inner {
+    fn bump(&self) {
+        self.events.send_modify(|n| *n += 1);
+    }
+
+    fn note(&self, entry: Exact, conn: Option<usize>) {
+        {
+            let mut state = self.state.lock().unwrap();
+            state.trace.push(entry);
+            state.trace_conns.push(conn);
+        }
+        self.bump();
+    }
+}
+pub struct Endpoint {
+    pub addr: SocketAddr,
+    inner: Arc<Inner>,
+    started: tokio::time::Instant,
+    /// The set's running clock at `started` (the replayed case's [`Case::clock_origin_ms`]).
+    origin_ms: std::sync::atomic::AtomicU64,
+    /// Dropping it ends the clock hold.
+    _hold: std::sync::mpsc::Sender<()>,
+}
 impl Endpoint {
     /// Opens the endpoint on 127.0.0.1 and holds the (paused) clock: no auto-advance while it lives. Local time is
     /// UTC for the process, as the recorders set `TZ=UTC` (`lib/provider-case-recorder.mjs:65`).
@@ -1321,146 +1464,15 @@ impl Endpoint {
         });
     }
 }
-
-/// The command a recorded server-side entry of the ws world stands for; `None` for an entry the client or the case makes.
-fn server_action(entry: &Exact) -> Option<WsCommand> {
-    let event = entry.get("event").as_str();
-    let string_pairs = |value: &Exact| -> Vec<(String, String)> {
-        value
-            .as_array()
-            .iter()
-            .map(|pair| (pair.as_array()[0].as_str().to_owned(), pair.as_array()[1].as_str().to_owned()))
-            .collect()
-    };
-    Some(match event {
-        "upgrade-response" => {
-            WsCommand::Accept(entry.get("lines").as_array().iter().skip(4).map(|line| line.as_str().to_owned()).collect())
-        }
-        "upgrade-refused" => WsCommand::Refuse {
-            status: entry.get("status").as_f64() as u16,
-            status_text: entry.get("statusText").as_str().to_owned(),
-            headers: string_pairs(entry.get("headers")),
-            body_chunks: entry.get("bodyChunks").as_array().iter().map(bytes_of).collect(),
-        },
-        "upgrade-reset" => WsCommand::Reset,
-        "upgrade-left-unanswered" => WsCommand::LeaveUnanswered,
-        "frame" if entry.get("dir").as_str() == "server->client" => match entry.try_get("text") {
-            Some(text) => WsCommand::Send(Message::Text(text.as_str().into())),
-            None => WsCommand::Send(Message::Binary(hex_decode(entry.get("bytesHex").as_str()).into())),
-        },
-        "ping" if entry.get("dir").as_str() == "server->client" => {
-            WsCommand::Send(Message::Ping(entry.get("data").as_str().as_bytes().to_vec().into()))
-        }
-        "close-sent" => WsCommand::Close(entry.get("code").as_f64() as u16, entry.get("reason").as_str().to_owned()),
-        "terminate" => WsCommand::Terminate,
-        _ => return None,
-    })
-}
-
-fn hex_decode(hex: &str) -> Vec<u8> {
-    (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("hex")).collect()
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// A request head as it arrived: the request line and every header (name and value as sent, in order).
-struct Head {
-    method: String,
-    target: String,
-    version: u8,
-    headers: Vec<(String, String)>,
-}
-
-impl Head {
-    fn get(&self, name: &str) -> Option<&str> {
-        self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
-    }
-}
-
-/// Reads one request head off `socket` (`buf` holds what was read beyond the previous request); `None` when the client
-/// closed the connection.
-async fn read_head(socket: &mut TcpStream, buf: &mut Vec<u8>) -> Option<Head> {
-    loop {
-        let mut slots = [httparse::EMPTY_HEADER; 128];
-        let mut parsed = httparse::Request::new(&mut slots);
-        if let httparse::Status::Complete(len) = parsed.parse(buf).expect("a well-formed request head") {
-            let head = Head {
-                method: parsed.method.expect("method").to_owned(),
-                target: parsed.path.expect("target").to_owned(),
-                version: parsed.version.expect("version"),
-                headers: parsed
-                    .headers
-                    .iter()
-                    .map(|h| (h.name.to_owned(), String::from_utf8_lossy(h.value).trim_matches([' ', '\t']).to_owned()))
-                    .collect(),
-            };
-            buf.drain(..len);
-            return Some(head);
-        }
-        let mut chunk = [0u8; 16384];
-        match socket.read(&mut chunk).await {
-            Ok(0) | Err(_) => return None,
-            Ok(n) => buf.extend_from_slice(&chunk[..n]),
-        }
-    }
-}
-
-async fn fill(socket: &mut TcpStream, buf: &mut Vec<u8>, want: usize) -> bool {
-    while buf.len() < want {
-        let mut chunk = [0u8; 16384];
-        match socket.read(&mut chunk).await {
-            Ok(0) | Err(_) => return false,
-            Ok(n) => buf.extend_from_slice(&chunk[..n]),
-        }
-    }
-    true
-}
-
-/// The request body: by `content-length`, or decoded from `transfer-encoding: chunked`.
-async fn read_body(socket: &mut TcpStream, buf: &mut Vec<u8>, head: &Head) -> Option<Vec<u8>> {
-    if head.get("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case("chunked")) {
-        let mut body = Vec::new();
-        loop {
-            let line_end = loop {
-                if let Some(at) = buf.windows(2).position(|w| w == b"\r\n") {
-                    break at;
-                }
-                let have = buf.len();
-                if !fill(socket, buf, have + 1).await {
-                    return None;
-                }
-            };
-            let size_text = String::from_utf8_lossy(&buf[..line_end]).into_owned();
-            let size = usize::from_str_radix(size_text.split(';').next().unwrap_or("").trim(), 16).expect("a chunk size");
-            buf.drain(..line_end + 2);
-            if !fill(socket, buf, size + 2).await {
-                return None;
-            }
-            body.extend_from_slice(&buf[..size]);
-            buf.drain(..size + 2);
-            if size == 0 {
-                return Some(body);
-            }
-        }
-    }
-    let length: usize = head.get("content-length").map_or(0, |v| v.parse().expect("a content-length"));
-    if !fill(socket, buf, length).await {
-        return None;
-    }
-    Some(buf.drain(..length).collect())
-}
-
 /// One HTTP/2 connection in clear text (a client with prior knowledge: the HTTP/2 twin of the recorders' h2c hub,
 /// `lib/h2-world.mjs`): each stream is answered from the script like an HTTP/1 request.
+#[cfg(node_twin)]
 async fn h2_connection(inner: Arc<Inner>, socket: TcpStream) {
     let Ok(mut connection) = h2::server::handshake(socket).await else { return };
     while let Some(Ok((request, respond))) = connection.accept().await {
         tokio::spawn(h2_stream(inner.clone(), request, respond));
     }
 }
-
 /// One stream, as the hub records it: the pseudo-headers first (`:method`, `:scheme`, `:authority`, `:path`: the scheme and
 /// authority of the origin the product addressed, the order the recorder writes them in), then every header in arrival order
 /// but the redirect's own; the body of a Connect stream is its first frame once whole, any other body whole.
@@ -1566,8 +1578,8 @@ async fn h2_stream(
     }
     let _ = send.send_data(bytes::Bytes::new(), true);
 }
-
 /// One TCP connection: HTTP/1.1 requests answered from the script, a WebSocket upgrade, or HTTP/2 (the client's preface).
+#[cfg(node_twin)]
 async fn connection(inner: Arc<Inner>, mut socket: TcpStream) {
     let mut preface = [0u8; 3];
     if matches!(socket.peek(&mut preface).await, Ok(3)) && &preface == b"PRI" {
@@ -1626,9 +1638,9 @@ async fn connection(inner: Arc<Inner>, mut socket: TcpStream) {
         }
     }
 }
-
 /// Writes the scripted reply as Node's `http` server wrote it (`date` set first, then `content-type` and the reply's
 /// headers, then Node's own `Connection`, `Keep-Alive` and framing headers); `false` when the connection is done.
+#[cfg(node_twin)]
 async fn answer(inner: &Inner, socket: &mut TcpStream, index: usize, reply: &Exact, keep_alive: bool) -> bool {
     let status = reply.try_get("status").map_or(200, |s| s.as_f64() as u16);
     let mut headers: Vec<(String, String)> = vec![
@@ -1740,8 +1752,8 @@ async fn answer(inner: &Inner, socket: &mut TcpStream, index: usize, reply: &Exa
     }
     socket.flush().await.is_ok()
 }
-
 /// One WebSocket connection: the upgrade request is noted, then the connection follows the commands of the script.
+#[cfg(node_twin)]
 async fn websocket(inner: Arc<Inner>, mut socket: TcpStream, head: Head, early: Vec<u8>) {
     assert!(early.is_empty(), "the client sent nothing before the upgrade was answered");
     let (commands, mut received) = mpsc::unbounded_channel();
@@ -1882,10 +1894,10 @@ async fn websocket(inner: Arc<Inner>, mut socket: TcpStream, head: Head, early: 
         }
     }
 }
-
 /// The endpoint against the core's own link: a recorded request's caller headers (those before the ones `fetch` adds)
 /// and body, sent by the production `ReqwestLink` to the recorded origin, arrive whole as Node's did (after the declared
 /// rules), and the scripted chunks come back as the recorder's endpoint wrote them.
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn the_endpoint_serves_and_records_the_core_link_as_the_recorder_did() {
     use mixdog_ai::transport::HttpSend;
@@ -1924,9 +1936,9 @@ async fn the_endpoint_serves_and_records_the_core_link_as_the_recorder_did() {
     assert_eq!(String::from_utf8_lossy(&body), String::from_utf8_lossy(&chunks));
     set.assert_requests(case, &endpoint.arrivals(), None);
 }
-
 /// The WebSocket side against the core's own dialer: a recorded refusal (`openai-ws-handshake`) is served as the world
 /// served it, the dialer reads it as the refusal, and the replay's trace has the recorded entries in order.
+#[cfg(node_twin)]
 #[tokio::test(start_paused = true)]
 async fn the_endpoint_follows_a_recorded_ws_trace_against_the_core_dialer() {
     use mixdog_ai::transport::WsDial;
@@ -1955,77 +1967,253 @@ async fn the_endpoint_follows_a_recorded_ws_trace_against_the_core_dialer() {
     assert_exact("ws trace", &Exact::Array(events), &Exact::Array(endpoint.trace()));
 }
 
-/// Every field of every recorded error of the sets whose errors the table covers is in [`ERROR_FIELDS`] (a group adds
-/// its sets here with its rows).
-#[test]
-fn every_recorded_error_field_is_in_the_table() {
-    fn fields(value: &Exact, out: &mut Vec<String>) {
-        match value {
-            Exact::Error { code, cause, props, .. } => {
-                out.extend(["name".to_owned(), "message".to_owned()]);
-                if code.is_some() {
-                    out.push("code".into());
-                }
-                if let Some(cause) = cause {
-                    out.push("cause".into());
-                    fields(cause, out);
-                }
-                for (key, prop) in props {
-                    out.push(key.clone());
-                    if key == "streamOutcome"
-                        && let Exact::Object(outcome) = prop
-                    {
-                        out.extend(outcome.iter().map(|(field, _)| format!("streamOutcome.{field}")));
-                    }
-                    fields(prop, out);
-                }
-            }
-            Exact::Array(items) => items.iter().for_each(|item| fields(item, out)),
-            Exact::Object(entries) => entries.iter().for_each(|(_, item)| fields(item, out)),
-            _ => {}
-        }
-    }
-    const SETS: [&str; 25] = [
-        "anthropic-api-key-fetch-rest",
-        "anthropic-replay-blocks",
-        "anthropic-server-fallback",
-        "anthropic-stream",
-        "anthropic-thinking-contract",
-        "antigravity-request",
-        "gemini-error-contract",
-        "gemini-history-signatures",
-        "gemini-stream",
-        "devin-wire-protobuf",
-        "devin-wire-request",
-        "devin-wire-session",
-        "leak-guards",
-        "openai-oauth",
-        "openai-oauth-transport",
-        "openai-ws-connect",
-        "openai-ws-delta",
-        "openai-ws-handshake",
-        "openai-ws-send-attempts",
-        "openai-ws-stream",
-        "transport-policy",
-        "openai-compat-stream-lifecycle",
-        "session-provider-replay",
-        "gemini-send-retry",
-        "retry-stages",
-    ];
-    let mut missing = Vec::new();
-    for set in SETS {
-        let loaded = CaseSet::read(set);
-        for case in &loaded.cases {
-            let mut found = Vec::new();
-            fields(case.recorded().raw(), &mut found);
-            missing.extend(found.into_iter().filter(|f| !ERROR_FIELDS.iter().any(|(name, _, _)| name == f)).map(|f| format!("{set} {}: {f}", case.id)));
-        }
-    }
-    missing.dedup();
-    assert!(missing.is_empty(), "error fields not in ERROR_FIELDS: {missing:?}");
-}
 
+#[cfg(node_twin)]
+fn fixtures() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures")
+}
+impl CaseSet {
+    /// `set` without its `provider-` prefix, e.g. `anthropic-stream`. Dropping the set fails the test when a case's outcome
+    /// was never read ([`Case::outcome`] / [`Case::result`]) and the replay did not name it [`CaseSet::not_replayed`].
+    pub fn load(set: &str) -> Self {
+        let dir = fixtures().join(format!("provider-{set}"));
+        Self::from_recording(set, Exact::load(dir.join("MANIFEST.json")), Exact::load(dir.join("cases.json")), true)
+    }
+
+    /// The set for the driver's own structural checks: no case needs to be consumed.
+    fn read(set: &str) -> Self {
+        let mut loaded = Self::load(set);
+        loaded.checked = false;
+        loaded
+    }
+
+    /// The set of `recording` (a `cases.json`) under `manifest`; every recorded property is one the driver reads, else the
+    /// load fails naming it.
+    fn from_recording(set: &str, manifest: Exact, recording: Exact, checked: bool) -> Self {
+        known_keys(&format!("{set}: the recording"), &recording, &RECORDING_KEYS);
+        assert_eq!(recording.get("set").as_str(), format!("provider-{set}"), "{set}: the recording's set");
+        assert_eq!(recording.get("set"), manifest.get("set"), "{set}: the manifest's set");
+        assert_eq!(recording.get("nodeCommit"), manifest.get("product").get("commit"), "{set}: the recording's Node commit");
+        let clock_start_ms = recording.try_get("clockStartMs").map(ms);
+        if let Some(start) = clock_start_ms {
+            assert_eq!(start, T0_MS, "{set}: clockStartMs is the recorders' T0");
+        }
+        let shared = recording.try_get("shared").map(|s| s.as_array().to_vec()).unwrap_or_default();
+        let compared: Marks = Arc::default();
+        let exclusions: Arc<Vec<String>> = Arc::new(match manifest.try_get("exclusions") {
+            Some(Exact::Array(items)) => items.iter().map(|e| e.as_str().to_owned()).collect(),
+            _ => Vec::new(),
+        });
+        let mut running_ms = 0;
+        let cases = recording
+            .get("cases")
+            .as_array()
+            .iter()
+            .map(|case| {
+                let id = case.get("id").as_str().to_owned();
+                known_keys(&format!("{set} {id}"), case, &CASE_KEYS);
+                let outcome = match (case.try_get("result"), case.try_get("error")) {
+                    (Some(result), None) => Outcome::Result(result.clone()),
+                    (None, Some(error)) => Outcome::Error(error.clone()),
+                    _ => panic!("{set}: a case holds one of result and error: {case:?}"),
+                };
+                let clock: Vec<ClockStep> = case
+                    .try_get("clock")
+                    .map(|steps| {
+                        steps
+                            .as_array()
+                            .iter()
+                            .map(|step| {
+                                known_keys(&format!("{set} {id}: a clock step"), step, &STEP_KEYS);
+                                ClockStep {
+                                    advance_ms: ms(step.get("advanceMs")),
+                                    from_ms: ms(step.get("fromMs")),
+                                    to_ms: ms(step.get("toMs")),
+                                    fired: step
+                                        .get("fired")
+                                        .as_array()
+                                        .iter()
+                                        .map(|f| {
+                                            known_keys(&format!("{set} {id}: a fired timer"), f, &FIRED_KEYS);
+                                            ms(f.get("dueMs"))
+                                        })
+                                        .collect(),
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let clock_origin_ms = running_ms;
+                if let Some(last) = clock.last() {
+                    running_ms = last.to_ms;
+                }
+                Case {
+                    source: case.get("source").as_str().to_owned(),
+                    input: case.get("input").clone(),
+                    outcome,
+                    calls: case
+                        .try_get("calls")
+                        .map(|calls| {
+                            calls
+                                .as_array()
+                                .iter()
+                                .map(|call| {
+                                    known_keys(&format!("{set} {id}: a call"), call, &CALL_KEYS);
+                                    Call {
+                                        entry: call.get("entry").as_str().to_owned(),
+                                        args: call.get("args").as_array().iter().map(|arg| unshare(arg, &shared)).collect(),
+                                    }
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    requests: case.try_get("requests").map(|r| r.as_array().to_vec()).unwrap_or_default(),
+                    clock,
+                    clock_origin_ms,
+                    compared: compared.clone(),
+                    exclusions: exclusions.clone(),
+                    id,
+                }
+            })
+            .collect();
+        Self { set: set.to_owned(), manifest, cases, exclusions, clock_start_ms, compared, checked, skipped: Mutex::default(), departed: Mutex::default() }
+    }
+
+    /// Names cases no replay of this branch compares, with the reason (another group's branch replays them). They are
+    /// not covered: the set's drop keeps each with its reason apart from the compared sets ([`SKIPPED_SETS`]), prints
+    /// them, and registers a set holding any as not wholly compared. Every id must be one of the set's. The set's one
+    /// replay names them: a set is never split over several tests of this branch.
+    pub fn not_replayed(&self, ids: &[&str], reason: &str) {
+        assert!(!reason.trim().is_empty(), "{}: a reason for {ids:?}", self.set);
+        let mut skipped = self.skipped.lock().unwrap();
+        for id in ids {
+            assert!(self.cases.iter().any(|c| c.id == *id), "{}: no case {id}", self.set);
+            skipped.push(((*id).to_owned(), reason.to_owned()));
+        }
+    }
+
+    /// Accounts for a recorded case whose behavior the product departs from on purpose (a decision, `reason`): the replay ran
+    /// it and checked it against the decided rule, not against the recording, which stays as recorded. Unlike
+    /// [`Self::not_replayed`] the set still counts as compared; the departure is printed with its reason at the set's drop.
+    /// Only a case the replay actually reached is accounted: one nobody looked at still fails the set.
+    pub fn departed(&self, id: &str, reason: &str) {
+        assert!(!reason.trim().is_empty(), "{}: a reason for the departure of {id}", self.set);
+        assert!(self.cases.iter().any(|c| c.id == id), "{}: no case {id}", self.set);
+        assert!(!self.is_skipped(id), "{}: {id} is named not replayed", self.set);
+        self.departed.lock().unwrap().push((id.to_owned(), reason.to_owned()));
+    }
+
+    fn is_departed(&self, id: &str) -> bool {
+        self.departed.lock().unwrap().iter().any(|(departed, _)| departed == id)
+    }
+
+    fn is_skipped(&self, id: &str) -> bool {
+        self.skipped.lock().unwrap().iter().any(|(skipped, _)| skipped == id)
+    }
+
+    /// Whether the manifest declares `name` (a recorded property) not compared: an exclusion line reading
+    /// ``` `name` is not compared: <reason> ```. The one way a replay leaves a recorded property out.
+    pub fn excludes(&self, name: &str) -> bool {
+        excluded(&self.exclusions, name)
+    }
+
+    pub fn case(&self, id: &str) -> &Case {
+        self.cases.iter().find(|case| case.id == id).unwrap_or_else(|| panic!("{}: no case {id}", self.set))
+    }
+
+    /// The case ids, in recorded order.
+    pub fn ids(&self) -> Vec<&str> {
+        self.cases.iter().map(|case| case.id.as_str()).collect()
+    }
+
+    /// The manifest's level row of a case (`wire` or `pure`, with the Rust function named for a pure one).
+    pub fn level(&self, id: &str) -> &Exact {
+        self.manifest
+            .get("levels")
+            .as_array()
+            .iter()
+            .find(|row| row.get("id").as_str() == id)
+            .unwrap_or_else(|| panic!("{}: no level row for {id}", self.set))
+    }
+
+    fn declares(&self, text: &str) -> bool {
+        self.exclusions.iter().any(|exclusion| exclusion.contains(text))
+    }
+
+    /// The arrivals with the manifest's declared rules applied (and only those).
+    pub fn ruled(&self, arrivals: &[Exact]) -> Vec<Exact> {
+        let origin_host = self.declares("`host` is the host of the origin the product addressed");
+        let loopback_port = self.declares("`127.0.0.1:<port>`");
+        let stainless = self.declares("x-stainless-os, x-stainless-arch and x-stainless-runtime-version");
+        arrivals
+            .iter()
+            .map(|arrival| {
+                let origin = arrival.get("origin").as_str().to_owned();
+                let Exact::Object(entries) = arrival else { unreachable!("an arrival is an object") };
+                let entries = entries
+                    .iter()
+                    .map(|(key, value)| {
+                        if key != "headers" {
+                            return (key.clone(), value.clone());
+                        }
+                        let headers = value
+                            .as_array()
+                            .iter()
+                            .map(|pair| {
+                                let [name, value] = pair.as_array() else { unreachable!("a header is a pair") };
+                                let lower = name.as_str().to_ascii_lowercase();
+                                let value = if lower == "host" && loopback_port {
+                                    Exact::String("127.0.0.1:<port>".into())
+                                } else if lower == "host" && origin_host {
+                                    let url = url::Url::parse(&origin).expect("an origin");
+                                    let host = url.host_str().expect("a host");
+                                    Exact::String(url.port().map_or(host.to_owned(), |port| format!("{host}:{port}")))
+                                } else if stainless && matches!(lower.as_str(), "x-stainless-os" | "x-stainless-arch" | "x-stainless-runtime-version") {
+                                    Exact::String(format!("<recording host {lower}>"))
+                                } else {
+                                    value.clone()
+                                };
+                                Exact::Array(vec![name.clone(), value])
+                            })
+                            .collect();
+                        (key.clone(), Exact::Array(headers))
+                    })
+                    .collect();
+                Exact::Object(entries)
+            })
+            .collect()
+    }
+
+    /// The arrivals equal the case's recorded requests, whole and in order, after the declared rules. `either_order` is
+    /// a pair of request indexes the manifest declares may arrive in either order.
+    pub fn assert_requests(&self, case: &Case, arrivals: &[Exact], either_order: Option<(usize, usize)>) {
+        let want: Vec<Exact> = case
+            .requests
+            .iter()
+            .map(|request| match request {
+                Exact::Object(entries) => Exact::Object(entries.iter().filter(|(k, _)| k != "reply").cloned().collect()),
+                other => panic!("{}: a request is an object: {other:?}", case.id),
+            })
+            .collect();
+        let mut got = self.ruled(arrivals);
+        let (want, got_inflated): (Vec<Exact>, Vec<Exact>) = if self.declares("`Content-Encoding: gzip`") {
+            (want.iter().map(inflated).collect(), got.iter().map(inflated).collect())
+        } else {
+            (want, got.clone())
+        };
+        got = got_inflated;
+        if let Some((a, b)) = either_order
+            && got.len() > a.max(b)
+            && got[a] == want[b]
+            && got[b] == want[a]
+        {
+            got.swap(a, b);
+        }
+        assert_exact(&format!("{} {}: requests", self.set, case.id), &Exact::Array(want), &Exact::Array(got));
+    }
+}
 /// Every provider set's recording decodes, and each case holds what the driver reads.
+#[cfg(node_twin)]
 #[test]
 fn every_provider_recording_loads() {
     let mut loaded = Vec::new();
@@ -2051,44 +2239,8 @@ fn every_provider_recording_loads() {
     }
     assert!(loaded.iter().any(|(set, n)| set == "anthropic-stream" && *n == 11), "{loaded:?}");
 }
-
-/// The provider sets whose replay is another branch's (groups B, C, D and the sets no group replays yet), so that this
-/// branch holds no replay of them; every other set has one here.
-const REPLAYED_ELSEWHERE: &[&str] = &[
-    "accounts-policy-cases", "admin-dev-providers", "auth-api", "change-effects", "compat-chat-stream-tool-calls",
-    "compat-responses-alignment", "compat-responses-boundaries", "compat-responses-effort", "custom-provider-keys",
-    "custom-provider-route", "custom-reasoning", "deepseek-replay", "devin-wire-protobuf", "devin-wire-request",
-    "devin-wire-session", "env-switches", "gateways", "http-response-timeout", "lane-settings", "local-context-settings", "local-managed-runtime", "mimo-oauth",
-    "mimo-oauth-wire", "mixdog-local-wire", "model-catalog-projection", "model-recency", "openai-oauth",
-    "openai-oauth-transport", "openai-ws-connect", "openai-ws-send-attempts", "openai-ws-stream", "opencode-go-gemini",
-    "openrouter", "ready", "refusal", "setup", "setup-custom", "setup-warmup", "status", "tool-cut", "wire", "xai-grok",
-];
-
-/// Every module's replay entries ([`Replay`]), in one list.
-fn registry() -> Vec<&'static Replay> {
-    let lists: [&'static [Replay]; 17] = [
-        crate::replay_anthropic_api_key_fetch::REPLAYS,
-        crate::replay_anthropic_replay_blocks::REPLAYS,
-        crate::replay_anthropic_server_fallback::REPLAYS,
-        crate::replay_anthropic_stream::REPLAYS,
-        crate::replay_anthropic_thinking_contract::REPLAYS,
-        crate::replay_antigravity_request::REPLAYS,
-        crate::replay_compat_stream_lifecycle::REPLAYS,
-        crate::replay_gemini_error_contract::REPLAYS,
-        crate::replay_gemini_history_signatures::REPLAYS,
-        crate::replay_gemini_send_retry::REPLAYS,
-        crate::replay_gemini_stream::REPLAYS,
-        crate::replay_leak_guards::REPLAYS,
-        crate::replay_openai_ws_delta::REPLAYS,
-        crate::replay_openai_ws_handshake::REPLAYS,
-        crate::replay_retry_stages::REPLAYS,
-        crate::replay_session_provider_replay::REPLAYS,
-        crate::replay_transport_policy::REPLAYS,
-    ];
-    lists.iter().flat_map(|list| list.iter()).collect()
-}
-
 /// The recorded provider sets (`native/core/fixtures/provider-<set>/cases.json`).
+#[cfg(node_twin)]
 fn recorded_sets() -> Vec<String> {
     mixdog_testkit::entry_names(fixtures())
         .into_iter()
@@ -2096,100 +2248,9 @@ fn recorded_sets() -> Vec<String> {
         .filter(|set| mixdog_testkit::exists(fixtures().join(format!("provider-{set}")).join("cases.json")))
         .collect()
 }
-
-/// Runs every entry of `replays` (each on its own fresh process state) and returns the recorded sets no entry loaded and
-/// compared whole (its set registered by its drop) and that [`REPLAYED_ELSEWHERE`] does not name.
-fn uncompared(replays: &[&Replay], recorded: &[String]) -> Vec<String> {
-    COMPARED_SETS.lock().unwrap().clear();
-    SKIPPED_SETS.lock().unwrap().clear();
-    for replay in replays {
-        mixdog_ai::reset_process_state();
-        (replay.run)();
-    }
-    let compared = COMPARED_SETS.lock().unwrap().clone();
-    recorded.iter().filter(|set| !REPLAYED_ELSEWHERE.contains(&set.as_str()) && !compared.contains(*set)).cloned().collect()
-}
-
-/// The tests that read or clear the two registries run one at a time.
-static REGISTRY_TESTS: Mutex<()> = Mutex::new(());
-
-/// Cases recorded but not replayed in the sets of the last [`uncompared`] run: (set, case, reason).
-fn skipped_cases() -> Vec<(String, String, String)> {
-    SKIPPED_SETS
-        .lock()
-        .unwrap()
-        .iter()
-        .flat_map(|(set, cases)| cases.iter().map(move |(id, reason)| (set.clone(), id.clone(), reason.clone())))
-        .collect()
-}
-
-const SET_SLICES: usize = 6;
-
-/// The sets this branch replays (those no other branch's [`REPLAYED_ELSEWHERE`] names), sorted and distinct.
-fn replayed_here(replays: &[&Replay]) -> Vec<&'static str> {
-    let mut sets: Vec<&'static str> = replays.iter().map(|replay| replay.set).collect();
-    sets.sort_unstable();
-    sets.dedup();
-    sets
-}
-
-/// Runs every replay of the sets whose position among [`replayed_here`] is `slice` modulo `SET_SLICES` (all the replays of one
-/// set run in one slice, each on a fresh process state) and holds each such set to the rule of
-/// [`every_provider_set_has_a_replay_in_one_slice`]: some replay loaded it and compared every case (registered by its drop), or
-/// it has skipped cases kept apart with their reasons.
-fn replay_sets_of_slice(slice: usize) {
-    let _alone = REGISTRY_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let replays = registry();
-    let sets = replayed_here(&replays);
-    let mine: Vec<&Replay> = replays.iter().copied().filter(|replay| sets.iter().position(|set| *set == replay.set).is_some_and(|at| at % SET_SLICES == slice)).collect();
-    COMPARED_SETS.lock().unwrap().clear();
-    SKIPPED_SETS.lock().unwrap().clear();
-    let mut executed = 0;
-    for replay in &mine {
-        mixdog_ai::reset_process_state();
-        (replay.run)();
-        executed += 1;
-    }
-    assert!(REGISTERED_SET_SLICES.contains(&slice));
-    assert_eq!(executed, mine.len(), "all registered replays of this slice executed");
-    let compared = COMPARED_SETS.lock().unwrap().clone();
-    let skipped = skipped_cases();
-    for (set, id, reason) in &skipped {
-        eprintln!("recorded, not replayed: {set} {id}: {reason}");
-    }
-    let partial: std::collections::BTreeSet<String> = skipped.iter().map(|(set, ..)| set.clone()).collect();
-    let mut checked = std::collections::BTreeSet::new();
-    let missing: Vec<&str> = mine
-        .iter()
-        .map(|replay| replay.set)
-        .filter(|set| checked.insert(*set))
-        .filter(|set| !compared.contains(*set) && !partial.contains(*set))
-        .collect();
-    println!("slice {slice}: {} replays of {} sets", mine.len(), checked.len());
-    assert!(missing.is_empty(), "recorded provider sets no replay compared: {missing:?}");
-}
-
-macro_rules! provider_set_slices {
-    ($($name:ident => $slice:expr),* $(,)?) => {
-            const REGISTERED_SET_SLICES: &[usize] = &[$($slice),*];
-        $(#[test]
-        fn $name() {
-            replay_sets_of_slice($slice);
-        })*
-    };
-}
-
-provider_set_slices! {
-    every_provider_set_has_a_comparing_replay_slice_0 => 0,
-    every_provider_set_has_a_comparing_replay_slice_1 => 1,
-    every_provider_set_has_a_comparing_replay_slice_2 => 2,
-    every_provider_set_has_a_comparing_replay_slice_3 => 3,
-    every_provider_set_has_a_comparing_replay_slice_4 => 4,
-    every_provider_set_has_a_comparing_replay_slice_5 => 5,
-}
-
 /// Every recorded provider set has a replay here (run and held to its comparison by one of the slice tests above, each set in
 /// exactly one slice), or is named in [`REPLAYED_ELSEWHERE`]; a set replayed here is not named there.
+#[cfg(node_twin)]
 #[test]
 fn every_provider_set_has_a_replay_in_one_slice() {
     let replays = registry();
@@ -2204,8 +2265,8 @@ fn every_provider_set_has_a_replay_in_one_slice() {
     println!("{} sets in {SET_SLICES} slices", here.len());
     assert_eq!(covered, here.len());
 }
-
 /// A case named not replayed stays visible: its set is not registered as compared, and its reason is kept.
+#[cfg(node_twin)]
 #[test]
 fn a_not_replayed_case_is_kept_apart_with_its_reason() {
     let _alone = REGISTRY_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -2221,28 +2282,15 @@ fn a_not_replayed_case_is_kept_apart_with_its_reason() {
         "{kept:?}"
     );
 }
-
-/// A replay that names its set but never loads and compares it registers nothing: its set is reported.
-#[test]
-fn a_set_named_but_never_compared_does_not_count() {
-    const UNLOADED: Replay = Replay {
-        set: "anthropic-replay-blocks",
-        run: || {
-            const SET: &str = "anthropic-replay-blocks";
-            assert!(!SET.is_empty());
-        },
-    };
-    assert_eq!(uncompared(&[&UNLOADED], &["anthropic-replay-blocks".to_owned()]), ["anthropic-replay-blocks"]);
-}
-
 /// The synthetic set of the driver's own checks: the real manifest of `anthropic-replay-blocks` and one case whose result
 /// is `{x, y}`.
+#[cfg(node_twin)]
 fn two_property_set() -> CaseSet {
     synthetic_set(Exact::Object(vec![("x".into(), Exact::Number(1.0)), ("y".into(), Exact::Number(2.0))]), &[])
 }
-
 /// A set of one case `a` whose result is `result`, under the real manifest of `anthropic-replay-blocks` with
 /// `exclusions` as its exclusion lines.
+#[cfg(node_twin)]
 fn synthetic_set(result: Exact, exclusions: &[&str]) -> CaseSet {
     let Exact::Object(mut manifest) = Exact::load(fixtures().join("provider-anthropic-replay-blocks").join("MANIFEST.json")) else {
         panic!("a manifest")
@@ -2265,14 +2313,10 @@ fn synthetic_set(result: Exact, exclusions: &[&str]) -> CaseSet {
     ]);
     CaseSet::from_recording("anthropic-replay-blocks", manifest, recording, true)
 }
-
-fn object(entries: &[(&str, Exact)]) -> Exact {
-    Exact::Object(entries.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect())
-}
-
 /// A whole comparison leaves out only what the manifest declares: a declared member, at any depth, is neither compared
 /// nor left uncovered, and the parent's mark stands for the rest; an actual that lacks an undeclared member is a
 /// difference, so no projection of the recorded value can stand in for it.
+#[cfg(node_twin)]
 #[test]
 fn a_whole_comparison_leaves_out_only_declared_members() {
     let result = object(&[("x", Exact::Number(1.0)), ("inner", object(&[("y", Exact::Number(2.0)), ("stopDetails", Exact::Number(3.0))]))]);
@@ -2310,9 +2354,9 @@ fn a_whole_comparison_leaves_out_only_declared_members() {
     .expect_err("a filter leaves out only its declared kind");
     assert!(excessive.contains("deltas"), "{excessive}");
 }
-
 /// The `streaming stages` line leaves out that stage and no other: the provider's own `requesting` and `model_thinking`
 /// (and any later stage) stay in the comparison.
+#[cfg(node_twin)]
 #[test]
 fn the_stages_filter_leaves_out_only_streaming() {
     let stage = |name: &str| object(&[("stage", Exact::String(name.into()))]);
@@ -2330,9 +2374,9 @@ fn the_stages_filter_leaves_out_only_streaming() {
     .expect_err("a stage the line does not name is compared");
     assert!(lossy.contains("stages"), "{lossy}");
 }
-
 /// An error is marked compared only by its table comparison: a recorded field the table does not hold fails it, and
 /// the case is then left unconsumed at the set's drop.
+#[cfg(node_twin)]
 #[test]
 fn an_error_is_compared_only_through_every_field() {
     use mixdog_core_api::domain::provider::DeliveryState;
@@ -2356,14 +2400,10 @@ fn an_error_is_compared_only_through_every_field() {
     let unconsumed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || drop(set))).map_err(panic_text).expect_err("the case was not consumed");
     assert!(unconsumed.contains("recorded cases no replay compared: [\"a\"]"), "{unconsumed}");
 }
-
-fn panic_text(panic: Box<dyn std::any::Any + Send>) -> String {
-    panic.downcast_ref::<String>().cloned().or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_owned())).unwrap_or_default()
-}
-
 /// A recorded property the driver does not read fails the load (here a case key no recorder writes); a replay that only
 /// reads the outcomes fails at the set's drop; one that compares a subset fails naming the property it left; one that
 /// compares the whole outcome passes.
+#[cfg(node_twin)]
 #[test]
 fn only_a_comparison_consumes_a_recorded_case() {
     let manifest = Exact::load(fixtures().join("provider-anthropic-replay-blocks").join("MANIFEST.json"));

@@ -192,11 +192,12 @@ pub fn result_text(questions: &[Question], resolution: &ApprovalResolution) -> S
         .filter(|r| utf16_len(r) <= ASK_USER_MAX_TEXT)
         .map(str::trim)
         .unwrap_or_default();
+    let has_answers = answers.iter().any(Option::is_some);
     if reply.is_empty() {
-        return format_answers(questions, &answers);
+        return if has_answers { format_answers(questions, &answers) } else { ASK_USER_DISMISSED.to_owned() };
     }
     let lead = format!("User replied in chat: {}. ", quote(reply));
-    if answers.iter().any(Option::is_some) {
+    if has_answers {
         format!("{lead}{}", format_answers(questions, &answers))
     } else {
         format!("{lead}{CONTINUE}")
@@ -241,7 +242,7 @@ impl Tool for AskUserTool {
             expires_after: None,
         };
         let resolution = ctx.approvals.request(ask).await;
-        if matches!(resolution, ApprovalResolution::Cancelled { .. }) {
+        if matches!(resolution, ApprovalResolution::Cancelled { .. } | ApprovalResolution::Interrupted { .. }) {
             return Err(cancelled());
         }
         // No approval surface: Node's `ask_user` without a hook (`ask-user-tool.mjs:243`).
@@ -249,11 +250,11 @@ impl Tool for AskUserTool {
             return text(NO_USER);
         }
         // A question left unanswered: the turn may end waiting on the user.
-        let answered = matches!(&resolution, ApprovalResolution::Decided { decision, .. } if decision.approved);
-        if !answered {
+        let result = result_text(&questions, &resolution);
+        if result == ASK_USER_DISMISSED {
             self.todos.note_user_wait(&ctx.thread_id);
         }
-        text(result_text(&questions, &resolution))
+        text(result)
     }
 }
 
@@ -313,6 +314,7 @@ mod tests {
     fn invalid_entries_and_dismissals_read_as_no_answer() {
         let mut d = decision(true);
         d.answers = Some(vec![Some(QuestionAnswer { selected: vec!["nope".into()], text: None }), None]);
+        assert_eq!(result_text(&questions(), &decided(d.clone())), ASK_USER_DISMISSED);
         d.reply = Some("  go on ".into());
         assert_eq!(
             result_text(&questions(), &decided(d)),

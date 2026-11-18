@@ -18,9 +18,16 @@ pub type Table = &'static [(&'static str, Function)];
 /// Excel kept every pre-2010 name beside the family it grew into and documents the pair as the same calculation:
 /// `STDEV` is `STDEV.S`, `PERCENTILE` is `PERCENTILE.INC`. The library ships only the family member, so the older
 /// name, which is what a workbook of that age still holds, resolves through here.
-const LEGACY_FUNCTION_NAMES: [(&str, &str); 6] = [
+const LEGACY_FUNCTION_NAMES: [(&str, &str); 13] = [
     ("STDEV", "STDEV.S"),
+    ("STDEVP", "STDEV.P"),
     ("VAR", "VAR.S"),
+    ("VARP", "VAR.P"),
+    ("COVAR", "COVARIANCE.P"),
+    ("CONFIDENCE", "CONFIDENCE.NORM"),
+    ("PERCENTRANK", "PERCENTRANK.INC"),
+    ("POISSON", "POISSON.DIST"),
+    ("WEIBULL", "WEIBULL.DIST"),
     ("PERCENTILE", "PERCENTILE.INC"),
     ("QUARTILE", "QUARTILE.INC"),
     ("MODE", "MODE.SNGL"),

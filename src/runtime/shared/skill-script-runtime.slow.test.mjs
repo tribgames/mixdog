@@ -85,12 +85,12 @@ test('a built-in script under the sidecar maps back into the archive (POSIX)', (
 test('source trees and npm installs keep the real script path', () => {
   assert.equal(
     canonicalSkillScriptPath(SCRIPT, {
-      packageRoot: 'C:\\Project\\mixdog',
+      packageRoot: 'C:\\Project\\sample',
       platform: 'win32',
-      cwd: 'C:\\Project\\mixdog',
+      cwd: 'C:\\Project\\sample',
       realpath: identity,
     }),
-    `C:\\Project\\mixdog\\${SCRIPT.replaceAll('/', '\\')}`
+    `C:\\Project\\sample\\${SCRIPT.replaceAll('/', '\\')}`
   );
   const npmRoot = '/usr/lib/node_modules/mixdog';
   // Even a path that looks like some other app's sidecar is left alone.

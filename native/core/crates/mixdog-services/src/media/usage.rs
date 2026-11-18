@@ -1,7 +1,7 @@
 //! What an upstream answer reports as usage (`media-usage.mjs`): a normalized object
 //! `{ inputTokens, outputTokens, cachedTokens, outputImageTokens, outputVideoTokens, costUsd,
 //! images, seconds, resolution }` holding only what the provider reported. Nothing here estimates:
-//! a field the provider did not report stays absent, and `None` is "nothing billable reported".
+//! a field the provider did not report stays absent. An explicit output zero is evidence, not a charge.
 
 use mixdog_js::{json_number, to_number_of, value_to_string};
 use serde_json::{Map, Value};
@@ -29,9 +29,23 @@ fn pick<'a>(source: &'a Value, keys: &[&str]) -> Option<&'a Value> {
     keys.iter().find_map(|key| source.get(*key).filter(|v| !v.is_null()))
 }
 
-/// `tokenUsage(fields)`: the fields above zero, in the order given; none at all is `None`.
-fn token_usage(fields: &[(&str, f64)]) -> Option<Map<String, Value>> {
-    let usage: Map<String, Value> = fields.iter().filter(|(_, value)| *value > 0.0).map(|(key, value)| ((*key).to_owned(), json_number(*value))).collect();
+fn output_count(output: Option<&Value>, thoughts: Option<&Value>) -> Option<f64> {
+    let total = count(output) + count(thoughts);
+    if total > 0.0 {
+        return Some(total);
+    }
+    // Keep legacy positive counts, but never turn a coerced zero or a thoughts-only zero
+    // into evidence of zero output. Malformed thought counts don't establish a zero sum.
+    let explicit_zero = output.and_then(Value::as_f64) == Some(0.0)
+        && thoughts.is_none_or(|value| value.is_null() || value.as_f64() == Some(0.0));
+    explicit_zero.then_some(0.0)
+}
+
+fn token_usage(fields: &[(&str, f64)], output: Option<f64>) -> Option<Map<String, Value>> {
+    let mut usage: Map<String, Value> = fields.iter().filter(|(_, value)| *value > 0.0).map(|(key, value)| ((*key).to_owned(), json_number(*value))).collect();
+    if let Some(output) = output {
+        usage.insert("outputTokens".to_owned(), json_number(output));
+    }
     (!usage.is_empty()).then_some(usage)
 }
 
@@ -56,12 +70,14 @@ pub fn gemini_usage(meta: &Value) -> Option<Value> {
     }
     let details = pick(meta, &["candidatesTokensDetails", "candidates_tokens_details"]);
     let image_tokens: f64 = entries(details).iter().filter(|entry| modality(entry).to_uppercase() == "IMAGE").map(|entry| count(pick(entry, &["tokenCount", "token_count"]))).sum();
-    token_usage(&[
-        ("inputTokens", count(pick(meta, &["promptTokenCount", "prompt_token_count"]))),
-        ("cachedTokens", count(pick(meta, &["cachedContentTokenCount", "cached_content_token_count"]))),
-        ("outputTokens", count(pick(meta, &["candidatesTokenCount", "candidates_token_count"])) + count(pick(meta, &["thoughtsTokenCount", "thoughts_token_count"]))),
-        ("outputImageTokens", image_tokens),
-    ])
+    token_usage(
+        &[
+            ("inputTokens", count(pick(meta, &["promptTokenCount", "prompt_token_count"]))),
+            ("cachedTokens", count(pick(meta, &["cachedContentTokenCount", "cached_content_token_count"]))),
+            ("outputImageTokens", image_tokens),
+        ],
+        output_count(pick(meta, &["candidatesTokenCount", "candidates_token_count"]), pick(meta, &["thoughtsTokenCount", "thoughts_token_count"])),
+    )
     .map(Value::Object)
 }
 
@@ -71,12 +87,14 @@ pub fn interactions_usage(usage: &Value) -> Option<Value> {
         return None;
     }
     let video_tokens: f64 = entries(usage.get("output_tokens_by_modality")).iter().filter(|entry| modality(entry).to_lowercase() == "video").map(|entry| count(entry.get("tokens"))).sum();
-    token_usage(&[
-        ("inputTokens", count(usage.get("total_input_tokens"))),
-        ("cachedTokens", count(usage.get("total_cached_tokens"))),
-        ("outputTokens", count(usage.get("total_output_tokens")) + count(usage.get("total_thought_tokens"))),
-        ("outputVideoTokens", video_tokens),
-    ])
+    token_usage(
+        &[
+            ("inputTokens", count(usage.get("total_input_tokens"))),
+            ("cachedTokens", count(usage.get("total_cached_tokens"))),
+            ("outputVideoTokens", video_tokens),
+        ],
+        output_count(usage.get("total_output_tokens"), usage.get("total_thought_tokens")),
+    )
     .map(Value::Object)
 }
 
@@ -85,11 +103,13 @@ pub fn responses_usage(usage: &Value) -> Option<Value> {
     if !truthy(Some(usage)) || !is_object(usage) {
         return None;
     }
-    token_usage(&[
-        ("inputTokens", count(usage.get("input_tokens"))),
-        ("cachedTokens", count(usage.get("input_tokens_details").and_then(|d| d.get("cached_tokens")))),
-        ("outputTokens", count(usage.get("output_tokens"))),
-    ])
+    token_usage(
+        &[
+            ("inputTokens", count(usage.get("input_tokens"))),
+            ("cachedTokens", count(usage.get("input_tokens_details").and_then(|d| d.get("cached_tokens")))),
+        ],
+        output_count(usage.get("output_tokens"), None),
+    )
     .map(Value::Object)
 }
 
@@ -110,11 +130,13 @@ fn reported_cost(value: Option<&Value>) -> Option<&Value> {
 pub fn image_api_usage(body: &Value) -> Option<Value> {
     let none = Value::Null;
     let usage = body.get("usage").filter(|u| truthy(Some(u)) && is_object(u)).unwrap_or(&none);
-    let tokens = token_usage(&[
-        ("inputTokens", count(usage.get("prompt_tokens"))),
-        ("outputTokens", count(usage.get("completion_tokens"))),
-        ("outputImageTokens", count(usage.get("completion_tokens_details").and_then(|d| d.get("image_tokens")))),
-    ]);
+    let tokens = token_usage(
+        &[
+            ("inputTokens", count(usage.get("prompt_tokens"))),
+            ("outputImageTokens", count(usage.get("completion_tokens_details").and_then(|d| d.get("image_tokens")))),
+        ],
+        output_count(usage.get("completion_tokens"), None),
+    );
     let source = body.get("paymentSource");
     let paid_in_usd = if truthy(source) { source.map(value_to_string).unwrap_or_default().to_uppercase() == "USD" } else { false };
     let usd = if paid_in_usd { body.get("cost") } else { None };

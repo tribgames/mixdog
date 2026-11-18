@@ -99,10 +99,6 @@ fn read_aged(path: &Path) -> Option<(Value, f64)> {
     Some((value, modified.as_millis() as f64))
 }
 
-fn now_ms() -> f64 {
-    std::time::SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64)
-}
-
 /// The catalog, the environment and Claude Code's files, as the status and the Claude route resolution read them.
 struct World<'a> {
     catalog: &'a CatalogService,
@@ -110,20 +106,6 @@ struct World<'a> {
     own: Option<AgedFile<'a>>,
     last: Option<AgedFile<'a>>,
     now: f64,
-}
-
-impl ClaudeWorld for World<'_> {
-    fn context_window(&self, model: &str) -> Option<f64> {
-        self.catalog.sync_meta(model, "anthropic-oauth")?.get("contextWindow").and_then(Value::as_f64)
-    }
-
-    fn roster(&self) -> Vec<Value> {
-        self.catalog.cached_models("anthropic-oauth")
-    }
-
-    fn env(&self, name: &str) -> Option<String> {
-        std::env::var(name).ok()
-    }
 }
 
 impl StatusWorld for World<'_> {
@@ -142,6 +124,59 @@ impl StatusWorld for World<'_> {
     }
 }
 
+#[async_trait]
+impl DomainService for StatuslineService {
+    fn methods(&self) -> &'static [&'static str] {
+        &[STATUSLINE_READ]
+    }
+
+    async fn call(&self, request: CoreRequest) -> Result<Reply, CoreError> {
+        if request.method.as_str() != STATUSLINE_READ {
+            return Err(wrong_method("statusline", request.method.as_str()));
+        }
+        let params: StatuslineReadParams = decode(&request)?;
+        let inner = self.inner.clone();
+        // A submitted read finishes as the old spawn_blocking read did; request cancellation does not abandon its cache update.
+        let answer = on_lane_wait(self.io, &CancellationToken::new(), move |_| inner.read(&params))
+            .await.map_err(|error| failed("statusline", format!("statusline/read failed: {error}")))?;
+        Ok(Reply::Value(json!(answer)))
+    }
+
+    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
+        Admit::Accepted
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_files_dir_is_the_mixdog_variable_else_the_dot_mixdog_of_the_home() {
+        let var = |value: Option<&'static str>| move |name: &str| if name == "MIXDOG_CONFIG_DIR" { value.map(std::ffi::OsString::from) } else { None };
+        assert_eq!(StatuslineService::claude_config_dir(&var(Some("D:/cc")), Some("C:/home".into())), PathBuf::from("D:/cc"));
+        assert_eq!(StatuslineService::claude_config_dir(&var(Some("")), Some("C:/home".into())), PathBuf::from("C:/home").join(".mixdog"));
+        assert_eq!(StatuslineService::claude_config_dir(&var(None), Some("C:/home".into())), PathBuf::from("C:/home").join(".mixdog"));
+    }
+}
+
+
+fn now_ms() -> f64 {
+    std::time::SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64)
+}
+impl ClaudeWorld for World<'_> {
+    fn context_window(&self, model: &str) -> Option<f64> {
+        self.catalog.sync_meta(model, "anthropic-oauth")?.get("contextWindow").and_then(Value::as_f64)
+    }
+
+    fn roster(&self) -> Vec<Value> {
+        self.catalog.cached_models("anthropic-oauth")
+    }
+
+    fn env(&self, name: &str) -> Option<String> {
+        std::env::var(name).ok()
+    }
+}
 impl Inner {
     /// The usage log's events: the file's identity is its path and creation time, so a replaced log is read from its start.
     #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "The incremental usage-file read and its short data lock execute inside StatuslineService's awaited InteractiveIo job.")]
@@ -197,41 +232,5 @@ impl Inner {
         let limits_input = LimitsInput { gateway: raw.get("gateway").unwrap_or(&empty), agent: agent_config_section(raw), events: &events, now };
         let limits = self.usage.with_route_section(|section| build_gateway_limits(&limits_input, section, &status, params.provider_out.as_ref(), params.usage_snapshot.as_ref()));
         StatuslineReadResult { status: Some(status), limits: Some(limits) }
-    }
-}
-
-#[async_trait]
-impl DomainService for StatuslineService {
-    fn methods(&self) -> &'static [&'static str] {
-        &[STATUSLINE_READ]
-    }
-
-    async fn call(&self, request: CoreRequest) -> Result<Reply, CoreError> {
-        if request.method.as_str() != STATUSLINE_READ {
-            return Err(wrong_method("statusline", request.method.as_str()));
-        }
-        let params: StatuslineReadParams = decode(&request)?;
-        let inner = self.inner.clone();
-        // A submitted read finishes as the old spawn_blocking read did; request cancellation does not abandon its cache update.
-        let answer = on_lane_wait(self.io, &CancellationToken::new(), move |_| inner.read(&params))
-            .await.map_err(|error| failed("statusline", format!("statusline/read failed: {error}")))?;
-        Ok(Reply::Value(json!(answer)))
-    }
-
-    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
-        Admit::Accepted
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn status_files_dir_is_the_mixdog_variable_else_the_dot_mixdog_of_the_home() {
-        let var = |value: Option<&'static str>| move |name: &str| if name == "MIXDOG_CONFIG_DIR" { value.map(std::ffi::OsString::from) } else { None };
-        assert_eq!(StatuslineService::claude_config_dir(&var(Some("D:/cc")), Some("C:/home".into())), PathBuf::from("D:/cc"));
-        assert_eq!(StatuslineService::claude_config_dir(&var(Some("")), Some("C:/home".into())), PathBuf::from("C:/home").join(".mixdog"));
-        assert_eq!(StatuslineService::claude_config_dir(&var(None), Some("C:/home".into())), PathBuf::from("C:/home").join(".mixdog"));
     }
 }

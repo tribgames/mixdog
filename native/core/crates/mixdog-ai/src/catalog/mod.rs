@@ -13,6 +13,7 @@ mod lookup;
 mod modelsdev;
 mod modelsdev_source;
 mod oauth_cache;
+mod overlay;
 pub mod pricing;
 mod readiness;
 mod record;
@@ -44,7 +45,19 @@ pub use pricing::Media;
 pub use pricing::PricedUsage;
 pub use pricing::PricingCatalog;
 pub use pricing::UsageArgs;
+pub use oauth_cache::Cached;
+pub use oauth_cache::Published;
+pub use oauth_cache::Refreshed;
+pub use oauth_cache::RosterAccounts;
+pub use oauth_cache::record_is_fetched_for;
+pub use oauth_cache::roster_key;
+#[cfg(any(test, feature = "test-support"))]
+pub use oauth_cache::keyed_from_shared;
+pub use oauth_cache::saved_rows;
+pub use oauth_cache::account_fingerprint;
 pub use oauth_cache::OauthModelCache;
+pub use oauth_cache::Roster;
+pub use overlay::Overlay;
 pub use readiness::CacheDrop;
 pub use readiness::ProviderReadiness;
 pub use readiness::CATALOG_REFRESH_INTERVAL;
@@ -75,6 +88,7 @@ pub use sources::FullProviderConfig;
 pub use sources::ModelSource;
 pub use sources::ProviderEntry;
 pub use sources::SourceFactory;
+pub use sources::SourceListing;
 pub use sources::build_sources;
 pub use sources::listed_row_of;
 pub use sources::stored_row;
@@ -94,5 +108,6 @@ pub use store::RefreshOutcome;#[cfg(test)]
 mod composed_tests;
 #[cfg(test)]
 mod failures_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod relay_node_cases;

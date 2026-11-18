@@ -25,24 +25,13 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::*;
+#[cfg(node_twin)]
 use super::redact::redact_secrets;
 
 const ID: &str = "secret_0123456789ab";
 const VALUE: &str = "Tr0ub4dor&3";
 
-fn golden(name: &str) -> Value {
-    let text = match name {
-        "slots.json" => include_str!("../../../../../fixtures/secret-input/slots.json"),
-        "computer.json" => include_str!("../../../../../fixtures/secret-input/computer.json"),
-        "browser.json" => include_str!("../../../../../fixtures/secret-input/browser.json"),
-        "redaction.json" => include_str!("../../../../../fixtures/secret-input/redaction.json"),
-        "remote.json" => include_str!("../../../../../fixtures/secret-input/remote.json"),
-        "host-replies.json" => include_str!("../../../../../fixtures/secret-host/host-replies.json"),
-        other => panic!("{other}"),
-    };
-    serde_json::from_str(text).unwrap()
-}
-
+#[cfg(node_twin)]
 fn text<'a>(value: &'a Value, key: &str) -> &'a str {
     value[key].as_str().unwrap()
 }
@@ -51,6 +40,7 @@ fn lasting() -> SecretSlots {
     SecretSlots::new(SECRET_INPUT_TIMEOUT)
 }
 
+#[cfg(node_twin)]
 /// The slots of `id` and its binding as the recorder reads them.
 fn state(slots: &SecretSlots, id: &str) -> Value {
     json!({
@@ -102,6 +92,7 @@ fn idle_computer() -> Arc<Computer> {
     Arc::new(Computer { script: Vec::new(), sent: Mutex::new(Vec::new()) })
 }
 
+#[cfg(node_twin)]
 fn fill_with(slots: &Arc<SecretSlots>, gates: Gates, computer: Arc<Computer>) -> SecretFill {
     SecretFill::new(slots.clone(), Arc::new(gates), computer, Desk::new())
 }
@@ -138,162 +129,10 @@ impl HostCommands for Page {
     }
 }
 
-#[tokio::test]
-async fn provided_values_follow_the_recorded_slots() {
-    for case in golden("slots.json")["provide"].as_array().unwrap() {
-        let name = text(case, "name");
-        let id = text(case, "requestId");
-        let slots = lasting();
-        assert_eq!(json!(slots.provide(id, text(case, "value"))), case["accepted"], "{name}");
-        assert_eq!(json!(slots.has(id)), case["held"], "{name}");
-        assert_eq!(json!(slots.take(id)), case["taken"], "{name}");
-        assert_eq!(json!(slots.take(id)), case["takenAgain"], "{name}");
-    }
-}
-
-#[tokio::test]
-async fn slots_and_bindings_follow_the_recorded_sequences() {
-    let doc = golden("slots.json");
-    let cases = doc["sequences"].as_array().unwrap();
-    let case = |name: &str| cases.iter().find(|c| text(c, "name") == name).unwrap();
-
-    let recorded = case("discard drops the value, username and save slots and the binding");
-    let slots = lasting();
-    assert!(slots.provide(ID, "a"));
-    assert!(slots.provide(&format!("{ID}{SECRET_USERNAME_SUFFIX}"), "user"));
-    assert!(slots.provide(&format!("{ID}{SECRET_SAVE_SUFFIX}"), "1"));
-    assert!(slots.bind(ID, "S1", claim()));
-    assert_eq!(state(&slots, ID), recorded["before"]);
-    slots.discard(ID);
-    assert_eq!(state(&slots, ID), recorded["after"]);
-
-    let slots = lasting();
-    assert!(slots.provide(ID, "first") && slots.provide(ID, "second"));
-    assert_eq!(json!(slots.take(ID)), case("a second value replaces the first")["taken"]);
-
-    let recorded = case("a request has one binding, of the kind bound last");
-    let slots = lasting();
-    let steps = recorded["states"].as_array().unwrap();
-    let seen = vec![(slots.bind(ID, "S1", claim()), state(&slots, ID)), (slots.bind_computer(ID, "S1", "w1", "e1"), state(&slots, ID)), (slots.bind(ID, "S2", claim()), state(&slots, ID))];
-    for ((ok, got), step) in seen.into_iter().zip(steps) {
-        assert_eq!(json!(ok), step["ok"], "{step}");
-        for key in ["held", "username", "save", "browser", "computer"] {
-            assert_eq!(got[key], step[key], "{step} {key}");
-        }
-    }
-
-    let recorded = case("a bind needs a runtime-minted id");
-    let slots = lasting();
-    assert_eq!(json!(slots.bind("not-a-request", "S1", claim())), recorded["bad"]);
-    assert_eq!(json!(slots.bind_computer("not-a-request", "S1", "w1", "e1")), recorded["badComputer"]);
-    assert_eq!(state(&slots, "not-a-request")["browser"], recorded["browser"]);
-}
-
-#[tokio::test]
-async fn a_computer_request_is_bound_as_the_bridge_binds_it() {
-    for case in golden("slots.json")["bindComputer"].as_array().unwrap() {
-        let name = text(case, "name");
-        let slots = Arc::new(lasting());
-        let fill = fill_with(&slots, open(), idle_computer());
-        let thread = ThreadId::from(text(case, "sessionId"));
-        let bound = fill.computer_bind(&thread, text(case, "requestId"), text(case, "windowId"), text(case, "ref"));
-        assert_eq!(json!(bound), case["text"], "{name}");
-        let got = slots.computer_binding(text(case, "requestId")).map(|b| json!({ "sessionId": b.session, "windowId": b.window_id, "ref": b.reference }));
-        assert_eq!(got.unwrap_or(Value::Null), case["binding"], "{name}");
-    }
-}
-
-/// Every deadline passes with nothing asking for the entry, and an older timer never deletes a
-/// replacement: the schedule of the recorded timelines on a clock that only moves when told.
-#[tokio::test(start_paused = true)]
-async fn entries_expire_at_their_deadline_and_a_replacement_outlives_the_older_timer() {
-    for line in golden("slots.json")["timelines"].as_array().unwrap() {
-        let name = text(line, "name");
-        let ms = |key: &str| Duration::from_millis(line["options"][key].as_u64().unwrap());
-        let slots = SecretSlots::with_binding_timeout(ms("timeoutMs"), ms("bindingTimeoutMs"));
-        let mut now = 0;
-        let mut observed = Vec::new();
-        for step in line["steps"].as_array().unwrap() {
-            let at = step["at"].as_u64().unwrap();
-            mixdog_rt::time::sleep(Duration::from_millis(at - now)).await;
-            now = at;
-            match text(step, "do") {
-                "provide" => assert!(slots.provide(ID, text(step, "value")), "{name}"),
-                "bind" => assert!(slots.bind(ID, text(step, "session"), claim()), "{name}"),
-                _ => {
-                    let mut row = json!({ "at": at, "held": slots.has(ID) });
-                    if step["take"] == json!(true) {
-                        row["take"] = json!(slots.take(ID));
-                    }
-                    row["browser"] = json!(slots.browser_binding(ID).map(|b| b.session));
-                    observed.push(row);
-                }
-            }
-        }
-        assert_eq!(json!(observed), line["observed"], "{name}");
-    }
-}
-
-#[tokio::test(start_paused = true)]
-async fn an_expired_value_leaves_memory_without_any_later_operation() {
-    let slots = SecretSlots::with_binding_timeout(Duration::from_millis(100), Duration::from_millis(200));
-    assert!(slots.provide(ID, "plaintext") && slots.bind(ID, "S1", claim()));
-    mixdog_rt::time::sleep(Duration::from_millis(150)).await;
-    // Inspected beneath the operations, which would otherwise sweep it themselves.
-    assert!(slots.inner.state().slots.is_empty(), "the value outlived its deadline");
-    assert_eq!(slots.inner.state().bindings.len(), 1);
-    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
-    assert!(slots.inner.state().bindings.is_empty());
-    drop(slots);
-}
-
+#[cfg(node_twin)]
 fn thread_of(case: &Value) -> Option<ThreadId> {
     let session = case["command"]["session_id"].as_str().unwrap_or_default();
     (!session.is_empty()).then(|| ThreadId::from(session))
-}
-
-#[tokio::test]
-async fn a_computer_secret_is_typed_as_the_bridge_types_it() {
-    for case in golden("computer.json")["type"].as_array().unwrap() {
-        let name = text(case, "name");
-        // A request with no session cannot be made of a thread, which always has an id.
-        let Some(thread) = thread_of(case) else { continue };
-        let slots = Arc::new(lasting());
-        let computer = Arc::new(Computer { script: case["script"].as_array().unwrap().clone(), sent: Mutex::new(Vec::new()) });
-        let gates = Gates { browser: true, computer: case["gateHeld"] != json!(true) };
-        let fill = fill_with(&slots, gates, computer.clone());
-        if let Some(provided) = case["provide"].as_str() {
-            assert!(slots.provide(ID, provided), "{name}");
-        }
-        if let Some(bind) = case["bind"].as_object() {
-            let got = |key: &str| bind[key].as_str().unwrap().to_owned();
-            assert!(slots.bind_computer(ID, &got("session"), &got("windowId"), &got("ref")), "{name}");
-        }
-        let command = &case["command"];
-        let named = |key: &str| command.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
-        let outcome = fill.computer_input(&thread, text(command, "request_id"), &named("window_id"), &named("ref")).await;
-        assert_eq!(json!(outcome), case["outcome"], "{name}");
-        assert_eq!(json!(computer.sent.lock().unwrap().clone()), case["commands"], "{name}");
-        let after = &case["after"];
-        assert_eq!(json!(slots.has(ID)), after["held"], "{name}");
-        assert_eq!(state(&slots, ID)["computer"], after["computer"], "{name}");
-        assert_eq!(json!(fill.focus_armed(&thread)), after["focusArmed"], "{name}");
-        let sample = format!("pw={} and {VALUE}!", case["provide"].as_str().unwrap_or_default());
-        assert_eq!(json!(fill.redact(&thread, &sample)), after["redacted"], "{name}");
-    }
-}
-
-#[tokio::test]
-async fn a_computer_secret_needs_a_computer_binding() {
-    let recorded = &golden("computer.json")["bindThenType"];
-    let slots = Arc::new(lasting());
-    let fill = fill_with(&slots, open(), idle_computer());
-    let thread = ThreadId::from("S1");
-    assert!(slots.provide(ID, VALUE));
-    assert_eq!(json!(fill.bind_browser(&thread, ID, claim())), recorded[0]["browser"]);
-    let outcome = fill.computer_input(&thread, ID, "", "").await;
-    assert_eq!(json!(outcome), recorded[1]["outcome"]);
-    assert_eq!(json!(slots.has(ID)), recorded[1]["held"]);
 }
 
 
@@ -377,83 +216,6 @@ fn has_value(sent: &[(String, JsonValue)]) -> bool {
 }
 
 #[tokio::test]
-async fn the_core_checks_of_a_browser_fill_refuse_before_the_desktop_is_asked() {
-    for case in golden("browser.json").as_array().unwrap().iter().filter(|c| text(c, "checkedBy") == "core") {
-        let name = text(case, "name");
-        let thread = ThreadId::from(text(case, "session"));
-        let desk = Desk::new();
-        let gates = Gates { browser: case["gateHeld"] != json!(true), computer: true };
-        let (slots, fill) = browser_fill(&desk, gates);
-        if case["provide"].is_object() {
-            assert!(slots.provide(ID, VALUE), "{name}");
-        }
-        if let Some(bind) = case["bind"].as_object() {
-            assert!(slots.bind(ID, bind["session"].as_str().unwrap(), claim()), "{name}");
-        }
-        if case["computerBind"] == json!(true) {
-            assert!(slots.bind_computer(ID, text(case, "session"), "w1", "e1"), "{name}");
-        }
-        let outcome = fill.fill_browser(&thread, ID).await;
-        assert_eq!(json!(outcome.text()), case["outcome"], "{name}");
-        assert!(desk.sent().is_empty(), "{name}: the desktop is not asked, and no value reaches it");
-        let after = state(&slots, ID);
-        for key in ["held", "username", "save", "browser", "computer"] {
-            assert_eq!(after[key], case["after"][key], "{name} {key}");
-        }
-        assert_eq!(fill.redact(&thread, &format!("pw={VALUE}!")), format!("pw={VALUE}!"), "{name}: a refused value is not remembered");
-    }
-}
-
-/// What the real desktop code answers (`fixtures/secret-host`): the core sends the commands the
-/// desktop was recorded with and ends as the desktop's answers say.
-#[tokio::test]
-async fn the_core_fills_through_the_desktop_as_recorded() {
-    let doc = golden("host-replies.json");
-    assert_eq!(doc["hostId"], "host-A");
-    for case in doc["cases"].as_array().unwrap() {
-        let name = text(case, "name");
-        // The core never sends an empty value: its own slot would have expired.
-        if name == "a fill with no value is blocked" {
-            continue;
-        }
-        let thread = ThreadId::from(text(case, "thread"));
-        let desk = Desk::new();
-        let (slots, fill) = browser_fill(&desk, open());
-        desk.reply("secret_precheck", Ok(case["precheck"]["reply"].clone()));
-        if let Some(sent) = case.get("fill") {
-            desk.reply("secret_fill", Ok(sent["reply"].clone()));
-        }
-        let input = case["fill"]["params"]["input"].clone();
-        assert!(slots.provide(ID, VALUE));
-        if let Some(username) = input["username"].as_str().filter(|u| !u.is_empty()) {
-            assert!(slots.provide(&format!("{ID}{SECRET_USERNAME_SUFFIX}"), username));
-        }
-        if input["save"] == json!(true) {
-            assert!(slots.provide(&format!("{ID}{SECRET_SAVE_SUFFIX}"), "1"));
-        }
-        assert!(slots.bind(ID, thread.as_str(), claim()));
-        let outcome = fill.fill_browser(&thread, ID).await;
-        let sent = desk.sent();
-        assert_eq!(sent[0], ("secret_precheck".to_owned(), case["precheck"]["params"].clone()), "{name}");
-        let filled = case.get("fill").is_some();
-        let want = if filled { case["fill"]["reply"]["text"].clone() } else { case["precheck"]["reply"]["text"].clone() };
-        assert_eq!(json!(outcome.text()), want, "{name}");
-        let after = state(&slots, ID);
-        assert_eq!((after["held"].clone(), after["username"].clone(), after["save"].clone(), after["browser"].clone()), (json!(false), json!(false), json!(false), Value::Null), "{name}: nothing is kept");
-        if filled {
-            let mut want_fill = case["fill"]["params"].clone();
-            want_fill["input"]["value"] = json!(VALUE);
-            assert_eq!(sent, vec![("secret_precheck".to_owned(), case["precheck"]["params"].clone()), ("secret_fill".to_owned(), want_fill)], "{name}");
-            assert_eq!(fill.redact(&thread, &format!("pw={VALUE}!")), "pw=[redacted]!", "{name}: the value that was sent is remembered");
-        } else {
-            assert_eq!(sent.len(), 1, "{name}: a refused pre-check sends no value");
-            assert!(!has_value(&sent), "{name}");
-            assert_eq!(fill.redact(&thread, &format!("pw={VALUE}!")), format!("pw={VALUE}!"), "{name}: a refused value is not remembered");
-        }
-    }
-}
-
-#[tokio::test]
 async fn a_precheck_that_is_not_the_bound_desktops_ready_sends_nothing() {
     for answer in [Ok(json!({ "text": "ready", "hostId": "host-B" })), Ok(json!({ "text": "ready" })), Ok(json!({ "hostId": "host-A" })), Ok(json!({ "text": "entered", "hostId": "host-A" })), Ok(json!({})), Err(HostError::Core(CoreError::ConnectionClosed))] {
         let desk = Desk::new();
@@ -527,76 +289,6 @@ async fn a_request_is_bound_to_the_desktop_that_bound_its_page() {
     assert_eq!(inner.sent(), vec![("page_url".to_owned(), json!({ "tab": "t1" }))]);
 }
 
-/// Each browser command of a secret request leaves its `browser_timing` row, as Node's bridge client traced its
-/// `secret_bind` and `secret_input` requests (`requestBridge`); the core's fill sends `secret_precheck`, then `secret_fill`,
-/// and leaves the one `secret_input` row Node does, with the answer that ended it. A row holds the action and the timing the
-/// desktop answered with, never the value. A pre-check the changed claim refused leaves a row with no answer; with no desktop
-/// at all nothing was sent and there is none.
-#[tokio::test]
-async fn each_browser_command_of_a_secret_request_leaves_its_timing_row() {
-    let rows: Arc<Mutex<Vec<serde_json::Map<String, Value>>>> = Arc::default();
-    let log: mixdog_tools::desktop::host::BrowserTimingLog = {
-        let rows = rows.clone();
-        Arc::new(move |args| rows.lock().unwrap().push(args))
-    };
-    let desk = Desk::new();
-    let (slots, fill) = browser_fill(&desk, open());
-    let host = SecretHostCommands::new(Page::answering(Ok(json!({}))), Arc::new(fill.with_timing(log)));
-    let thread = ThreadId::from("S1");
-    let live = mixdog_rt::CancellationToken::new();
-    let bind = json!({ "request_id": ID });
-    desk.reply("secret_bind", Ok(json!({ "origin": "https://example.com", "form": "password", "timing": { "commandMs": 3 } })));
-    desk.reply("secret_precheck", Ok(json!({ "text": "ready", "hostId": "host-A", "timing": { "commandMs": 1 } })));
-    desk.reply("secret_fill", Ok(json!({ "text": "entered", "timing": { "inputMs": 2 } })));
-    host.browser(&thread, "secret_bind", bind.clone(), &live).await.unwrap();
-    assert!(slots.provide(ID, VALUE));
-    assert_eq!(host.browser(&thread, "secret_input", bind.clone(), &live).await.unwrap(), json!({ "text": "entered" }));
-
-    host.browser(&thread, "secret_bind", bind.clone(), &live).await.unwrap();
-    assert!(slots.provide(ID, VALUE));
-    desk.claimant_changes();
-    assert_eq!(host.browser(&thread, "secret_input", bind.clone(), &live).await.unwrap(), json!({ "text": "blocked" }));
-
-    desk.reply("secret_bind", Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "noClaimant".into() })));
-    assert_eq!(host.browser(&thread, "secret_bind", bind, &live).await, Err(HostCommandError::NoHost));
-
-    let rows = rows.lock().unwrap().clone();
-    assert!(!Value::from(rows.clone()).to_string().contains(VALUE), "no row holds the value");
-    let seen: Vec<(Value, Option<Value>)> = rows
-        .iter()
-        .map(|row| {
-            assert!(row["bridgeMs"].as_f64().is_some_and(|ms| ms >= 0.0), "{row:?}");
-            (row["context"].clone(), row.get("body").cloned())
-        })
-        .collect();
-    let answered = |action: &str, timing: Value| (json!({ "sessionId": "S1", "action": action }), Some(json!({ "ok": true, "value": { "timing": timing } })));
-    assert_eq!(
-        seen,
-        [
-            answered("secret_bind", json!({ "commandMs": 3 })),
-            answered("secret_input", json!({ "inputMs": 2 })),
-            answered("secret_bind", json!({ "commandMs": 3 })),
-            (json!({ "sessionId": "S1", "action": "secret_input" }), None),
-        ]
-    );
-}
-
-#[tokio::test(start_paused = true)]
-async fn an_overdue_entry_is_refused_even_before_its_timer_ran() {
-    let slots = lasting();
-    assert!(slots.provide(ID, VALUE) && slots.bind(ID, "S1", claim()) && slots.bind_computer(&format!("{ID}2"), "S1", "w1", "e1"));
-    // The timers have not run (nothing was awaited): push every deadline into the past.
-    {
-        let mut state = slots.inner.state();
-        let past = tokio::time::Instant::now() - Duration::from_millis(1);
-        state.slots.values_mut().for_each(|held| held.deadline = past);
-        state.bindings.values_mut().for_each(|held| held.deadline = past);
-    }
-    assert!(!slots.has(ID));
-    assert!(slots.browser_binding(ID).is_none() && slots.computer_binding(&format!("{ID}2")).is_none());
-    assert_eq!(slots.take(ID), "");
-}
-
 #[tokio::test]
 async fn the_secret_never_prints_through_debug() {
     let secret = "482190-PLAINTEXT";
@@ -617,81 +309,6 @@ async fn the_secret_never_prints_through_debug() {
     // Other methods still print their params.
     let other = request("thread/read", json!({ "threadId": "t1" }), None);
     assert!(format!("{other:?}").contains("t1"));
-}
-#[test]
-fn redaction_follows_the_recorded_markers_and_sessions() {
-    let doc = golden("redaction.json");
-    for case in doc["redact"].as_array().unwrap() {
-        let secrets: Vec<String> = case["secrets"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_owned()).collect();
-        assert_eq!(json!(redact_secrets(text(case, "text"), &secrets, "[redacted]")), case["out"], "{}", text(case, "name"));
-    }
-    let recorded = doc["sessions"].as_array().unwrap();
-    let sessions = SessionSecrets::new();
-    let snap = |step: &str| {
-        json!({
-            "step": step,
-            "s1": sessions.secrets_of("S1"),
-            "s2": sessions.secrets_of("S2"),
-            "redacted1": sessions.redact("S1", "abcdef abc ab a"),
-            "redacted2": sessions.redact("S2", "abcdef abc ab a"),
-            "focus1": sessions.focus_armed("S1"),
-            "focus2": sessions.focus_armed("S2"),
-        })
-    };
-    let mut got = Vec::new();
-    sessions.remember("S1", "ab");
-    got.push(snap("one secret"));
-    sessions.remember("S1", "abc");
-    sessions.remember("S1", "ab");
-    got.push(snap("a longer one and a repeat"));
-    sessions.remember("S1", "");
-    sessions.remember("", "nope");
-    sessions.remember("S2", "a");
-    got.push(snap("empties are not kept; sessions are separate"));
-    sessions.remember("S1", "abcdef");
-    got.push(snap("the longest is replaced first"));
-    sessions.arm_focus("S1");
-    got.push(snap("focus is armed"));
-    sessions.clear_focus("S1");
-    got.push(snap("focus is cleared"));
-    sessions.arm_focus("S1");
-    sessions.arm_focus("S2");
-    sessions.forget("S1");
-    got.push(snap("forget drops the secrets and the focus of one session"));
-    assert_eq!(json!(got), json!(recorded));
-}
-
-/// A paired phone submits by request id, as the card does: the service holds the value for the
-/// id with no session or connection check, and the consumers enforce the binding.
-#[tokio::test]
-async fn a_phone_submission_is_taken_as_the_window_process_takes_it() {
-    for case in golden("remote.json").as_array().unwrap() {
-        let name = text(case, "name");
-        let slots = Arc::new(lasting());
-        let service = SecretInputService::new(slots.clone());
-        if name.contains("name the session") {
-            assert!(slots.bind(ID, "S1", claim()));
-        }
-        let id = match &case["params"][0] {
-            Value::String(s) => json!(s),
-            other => other.clone(),
-        };
-        let answered = value(&service, request("approval/provideSecret", json!({ "opId": "x", "requestId": id, "secret": case["params"][1] }), Some(1))).await;
-        match &case["result"] {
-            result if result["ok"] == json!(true) => {
-                assert_eq!(answered.unwrap(), json!({}), "{name}");
-                assert_eq!(json!(slots.take(ID)), case["taken"], "{name}");
-            }
-            result if result["ok"] == json!(false) => {
-                assert!(answered.is_err(), "{name}");
-                assert!(!slots.has(ID), "{name}");
-            }
-            result => {
-                let CoreError::DomainError { message: Some(got), .. } = answered.unwrap_err() else { panic!("{name}: a domain error") };
-                assert_eq!(&*got, text(&result["error"], "message"), "{name}");
-            }
-        }
-    }
 }
 
 #[tokio::test]
@@ -950,6 +567,36 @@ mod saved_login_backend {
         assert!(edge.desktop.actions.lock().unwrap().is_empty(), "nothing reached the desktop");
     }
 
+    #[tokio::test]
+    async fn a_fill_with_no_agent_turn_no_desktop_or_auto_login_off_sends_nothing() {
+        let no_turn = rig(None, true, false);
+        let (code, message) = failure(no_turn.backend.run(login(), CancellationToken::new()).await);
+        assert_eq!(code, "saved_login_unavailable");
+        assert!(message.contains("no runtime and agent turn") && no_turn.desktop.actions.lock().unwrap().is_empty());
+
+        let gone = rig(Some(7), true, true);
+        let (code, message) = failure(gone.backend.run(login(), CancellationToken::new()).await);
+        assert_eq!(code, "saved_login_unavailable");
+        assert!(message.contains(BROWSER_UNAVAILABLE), "{message}");
+
+        let off = rig(Some(7), false, false);
+        let (code, message) = failure(off.backend.run(login(), CancellationToken::new()).await);
+        assert_eq!(code, "saved_login_unavailable");
+        assert!(message.ends_with("no input was sent"), "{message}");
+        assert!(off.helper.0.lock().unwrap().is_empty() && off.registry.spellings().is_empty());
+        assert!(!off.desktop.actions.lock().unwrap().iter().any(|action| action == "saved_login_value"));
+    }
+
+    #[tokio::test]
+    async fn every_other_action_goes_to_the_backend() {
+        let rig = rig(Some(7), true, false);
+        let list = ComputerRequest { action: ComputerAction::List, input: json!({}) };
+        assert_eq!(rig.backend.run(list, CancellationToken::new()).await.unwrap().len(), 1);
+        assert_eq!(rig.inner.0.load(Ordering::SeqCst), 1);
+        assert!(rig.desktop.actions.lock().unwrap().is_empty());
+    }
+
+
     /// The agent turn a fill is scoped to is the session's running one; its settlement (the actor's `turn_settled`) lifts the
     /// redaction and the pixel guard of that turn, and a session that ends lifts all of its own.
     #[tokio::test]
@@ -1009,33 +656,393 @@ mod saved_login_backend {
         snapshots.dispose();
         assert_eq!(inner.0.lock().unwrap().last().map(String::as_str), Some("dispose"));
     }
+}
 
-    #[tokio::test]
-    async fn a_fill_with_no_agent_turn_no_desktop_or_auto_login_off_sends_nothing() {
-        let no_turn = rig(None, true, false);
-        let (code, message) = failure(no_turn.backend.run(login(), CancellationToken::new()).await);
-        assert_eq!(code, "saved_login_unavailable");
-        assert!(message.contains("no runtime and agent turn") && no_turn.desktop.actions.lock().unwrap().is_empty());
+#[tokio::test(start_paused = true)]
+async fn an_expired_value_leaves_memory_without_any_later_operation() {
+    let slots = SecretSlots::with_binding_timeout(Duration::from_millis(100), Duration::from_millis(200));
+    assert!(slots.provide(ID, "plaintext") && slots.bind(ID, "S1", claim()));
+    mixdog_rt::time::sleep(Duration::from_millis(150)).await;
+    // Inspected beneath the operations, which would otherwise sweep it themselves.
+    assert!(slots.inner.state().slots.is_empty(), "the value outlived its deadline");
+    assert_eq!(slots.inner.state().bindings.len(), 1);
+    mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+    assert!(slots.inner.state().bindings.is_empty());
+    drop(slots);
+}
+/// Each browser command of a secret request leaves its `browser_timing` row, as Node's bridge client traced its
+/// `secret_bind` and `secret_input` requests (`requestBridge`); the core's fill sends `secret_precheck`, then `secret_fill`,
+/// and leaves the one `secret_input` row Node does, with the answer that ended it. A row holds the action and the timing the
+/// desktop answered with, never the value. A pre-check the changed claim refused leaves a row with no answer; with no desktop
+/// at all nothing was sent and there is none.
+#[tokio::test]
+async fn each_browser_command_of_a_secret_request_leaves_its_timing_row() {
+    let rows: Arc<Mutex<Vec<serde_json::Map<String, Value>>>> = Arc::default();
+    let log: mixdog_tools::desktop::host::BrowserTimingLog = {
+        let rows = rows.clone();
+        Arc::new(move |args| rows.lock().unwrap().push(args))
+    };
+    let desk = Desk::new();
+    let (slots, fill) = browser_fill(&desk, open());
+    let host = SecretHostCommands::new(Page::answering(Ok(json!({}))), Arc::new(fill.with_timing(log)));
+    let thread = ThreadId::from("S1");
+    let live = mixdog_rt::CancellationToken::new();
+    let bind = json!({ "request_id": ID });
+    desk.reply("secret_bind", Ok(json!({ "origin": "https://example.com", "form": "password", "timing": { "commandMs": 3 } })));
+    desk.reply("secret_precheck", Ok(json!({ "text": "ready", "hostId": "host-A", "timing": { "commandMs": 1 } })));
+    desk.reply("secret_fill", Ok(json!({ "text": "entered", "timing": { "inputMs": 2 } })));
+    host.browser(&thread, "secret_bind", bind.clone(), &live).await.unwrap();
+    assert!(slots.provide(ID, VALUE));
+    assert_eq!(host.browser(&thread, "secret_input", bind.clone(), &live).await.unwrap(), json!({ "text": "entered" }));
 
-        let gone = rig(Some(7), true, true);
-        let (code, message) = failure(gone.backend.run(login(), CancellationToken::new()).await);
-        assert_eq!(code, "saved_login_unavailable");
-        assert!(message.contains(BROWSER_UNAVAILABLE), "{message}");
+    host.browser(&thread, "secret_bind", bind.clone(), &live).await.unwrap();
+    assert!(slots.provide(ID, VALUE));
+    desk.claimant_changes();
+    assert_eq!(host.browser(&thread, "secret_input", bind.clone(), &live).await.unwrap(), json!({ "text": "blocked" }));
 
-        let off = rig(Some(7), false, false);
-        let (code, message) = failure(off.backend.run(login(), CancellationToken::new()).await);
-        assert_eq!(code, "saved_login_unavailable");
-        assert!(message.ends_with("no input was sent"), "{message}");
-        assert!(off.helper.0.lock().unwrap().is_empty() && off.registry.spellings().is_empty());
-        assert!(!off.desktop.actions.lock().unwrap().iter().any(|action| action == "saved_login_value"));
+    desk.reply("secret_bind", Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "noClaimant".into() })));
+    assert_eq!(host.browser(&thread, "secret_bind", bind, &live).await, Err(HostCommandError::NoHost));
+
+    let rows = rows.lock().unwrap().clone();
+    assert!(!Value::from(rows.clone()).to_string().contains(VALUE), "no row holds the value");
+    let seen: Vec<(Value, Option<Value>)> = rows
+        .iter()
+        .map(|row| {
+            assert!(row["bridgeMs"].as_f64().is_some_and(|ms| ms >= 0.0), "{row:?}");
+            (row["context"].clone(), row.get("body").cloned())
+        })
+        .collect();
+    let answered = |action: &str, timing: Value| (json!({ "sessionId": "S1", "action": action }), Some(json!({ "ok": true, "value": { "timing": timing } })));
+    assert_eq!(
+        seen,
+        [
+            answered("secret_bind", json!({ "commandMs": 3 })),
+            answered("secret_input", json!({ "inputMs": 2 })),
+            answered("secret_bind", json!({ "commandMs": 3 })),
+            (json!({ "sessionId": "S1", "action": "secret_input" }), None),
+        ]
+    );
+}
+#[tokio::test(start_paused = true)]
+async fn an_overdue_entry_is_refused_even_before_its_timer_ran() {
+    let slots = lasting();
+    assert!(slots.provide(ID, VALUE) && slots.bind(ID, "S1", claim()) && slots.bind_computer(&format!("{ID}2"), "S1", "w1", "e1"));
+    // The timers have not run (nothing was awaited): push every deadline into the past.
+    {
+        let mut state = slots.inner.state();
+        let past = tokio::time::Instant::now() - Duration::from_millis(1);
+        state.slots.values_mut().for_each(|held| held.deadline = past);
+        state.bindings.values_mut().for_each(|held| held.deadline = past);
+    }
+    assert!(!slots.has(ID));
+    assert!(slots.browser_binding(ID).is_none() && slots.computer_binding(&format!("{ID}2")).is_none());
+    assert_eq!(slots.take(ID), "");
+}
+
+
+#[cfg(node_twin)]
+fn golden(name: &str) -> Value {
+    let text = match name {
+        "slots.json" => include_str!("../../../../../fixtures/secret-input/slots.json"),
+        "computer.json" => include_str!("../../../../../fixtures/secret-input/computer.json"),
+        "browser.json" => include_str!("../../../../../fixtures/secret-input/browser.json"),
+        "redaction.json" => include_str!("../../../../../fixtures/secret-input/redaction.json"),
+        "remote.json" => include_str!("../../../../../fixtures/secret-input/remote.json"),
+        "host-replies.json" => include_str!("../../../../../fixtures/secret-host/host-replies.json"),
+        other => panic!("{other}"),
+    };
+    serde_json::from_str(text).unwrap()
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn provided_values_follow_the_recorded_slots() {
+    for case in golden("slots.json")["provide"].as_array().unwrap() {
+        let name = text(case, "name");
+        let id = text(case, "requestId");
+        let slots = lasting();
+        assert_eq!(json!(slots.provide(id, text(case, "value"))), case["accepted"], "{name}");
+        assert_eq!(json!(slots.has(id)), case["held"], "{name}");
+        assert_eq!(json!(slots.take(id)), case["taken"], "{name}");
+        assert_eq!(json!(slots.take(id)), case["takenAgain"], "{name}");
+    }
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn slots_and_bindings_follow_the_recorded_sequences() {
+    let doc = golden("slots.json");
+    let cases = doc["sequences"].as_array().unwrap();
+    let case = |name: &str| cases.iter().find(|c| text(c, "name") == name).unwrap();
+
+    let recorded = case("discard drops the value, username and save slots and the binding");
+    let slots = lasting();
+    assert!(slots.provide(ID, "a"));
+    assert!(slots.provide(&format!("{ID}{SECRET_USERNAME_SUFFIX}"), "user"));
+    assert!(slots.provide(&format!("{ID}{SECRET_SAVE_SUFFIX}"), "1"));
+    assert!(slots.bind(ID, "S1", claim()));
+    assert_eq!(state(&slots, ID), recorded["before"]);
+    slots.discard(ID);
+    assert_eq!(state(&slots, ID), recorded["after"]);
+
+    let slots = lasting();
+    assert!(slots.provide(ID, "first") && slots.provide(ID, "second"));
+    assert_eq!(json!(slots.take(ID)), case("a second value replaces the first")["taken"]);
+
+    let recorded = case("a request has one binding, of the kind bound last");
+    let slots = lasting();
+    let steps = recorded["states"].as_array().unwrap();
+    let seen = vec![(slots.bind(ID, "S1", claim()), state(&slots, ID)), (slots.bind_computer(ID, "S1", "w1", "e1"), state(&slots, ID)), (slots.bind(ID, "S2", claim()), state(&slots, ID))];
+    for ((ok, got), step) in seen.into_iter().zip(steps) {
+        assert_eq!(json!(ok), step["ok"], "{step}");
+        for key in ["held", "username", "save", "browser", "computer"] {
+            assert_eq!(got[key], step[key], "{step} {key}");
+        }
     }
 
-    #[tokio::test]
-    async fn every_other_action_goes_to_the_backend() {
-        let rig = rig(Some(7), true, false);
-        let list = ComputerRequest { action: ComputerAction::List, input: json!({}) };
-        assert_eq!(rig.backend.run(list, CancellationToken::new()).await.unwrap().len(), 1);
-        assert_eq!(rig.inner.0.load(Ordering::SeqCst), 1);
-        assert!(rig.desktop.actions.lock().unwrap().is_empty());
+    let recorded = case("a bind needs a runtime-minted id");
+    let slots = lasting();
+    assert_eq!(json!(slots.bind("not-a-request", "S1", claim())), recorded["bad"]);
+    assert_eq!(json!(slots.bind_computer("not-a-request", "S1", "w1", "e1")), recorded["badComputer"]);
+    assert_eq!(state(&slots, "not-a-request")["browser"], recorded["browser"]);
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn a_computer_request_is_bound_as_the_bridge_binds_it() {
+    for case in golden("slots.json")["bindComputer"].as_array().unwrap() {
+        let name = text(case, "name");
+        let slots = Arc::new(lasting());
+        let fill = fill_with(&slots, open(), idle_computer());
+        let thread = ThreadId::from(text(case, "sessionId"));
+        let bound = fill.computer_bind(&thread, text(case, "requestId"), text(case, "windowId"), text(case, "ref"));
+        assert_eq!(json!(bound), case["text"], "{name}");
+        let got = slots.computer_binding(text(case, "requestId")).map(|b| json!({ "sessionId": b.session, "windowId": b.window_id, "ref": b.reference }));
+        assert_eq!(got.unwrap_or(Value::Null), case["binding"], "{name}");
+    }
+}
+#[cfg(node_twin)]
+/// Every deadline passes with nothing asking for the entry, and an older timer never deletes a
+/// replacement: the schedule of the recorded timelines on a clock that only moves when told.
+#[tokio::test(start_paused = true)]
+async fn entries_expire_at_their_deadline_and_a_replacement_outlives_the_older_timer() {
+    for line in golden("slots.json")["timelines"].as_array().unwrap() {
+        let name = text(line, "name");
+        let ms = |key: &str| Duration::from_millis(line["options"][key].as_u64().unwrap());
+        let slots = SecretSlots::with_binding_timeout(ms("timeoutMs"), ms("bindingTimeoutMs"));
+        let mut now = 0;
+        let mut observed = Vec::new();
+        for step in line["steps"].as_array().unwrap() {
+            let at = step["at"].as_u64().unwrap();
+            mixdog_rt::time::sleep(Duration::from_millis(at - now)).await;
+            now = at;
+            match text(step, "do") {
+                "provide" => assert!(slots.provide(ID, text(step, "value")), "{name}"),
+                "bind" => assert!(slots.bind(ID, text(step, "session"), claim()), "{name}"),
+                _ => {
+                    let mut row = json!({ "at": at, "held": slots.has(ID) });
+                    if step["take"] == json!(true) {
+                        row["take"] = json!(slots.take(ID));
+                    }
+                    row["browser"] = json!(slots.browser_binding(ID).map(|b| b.session));
+                    observed.push(row);
+                }
+            }
+        }
+        assert_eq!(json!(observed), line["observed"], "{name}");
+    }
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn a_computer_secret_is_typed_as_the_bridge_types_it() {
+    for case in golden("computer.json")["type"].as_array().unwrap() {
+        let name = text(case, "name");
+        // A request with no session cannot be made of a thread, which always has an id.
+        let Some(thread) = thread_of(case) else { continue };
+        let slots = Arc::new(lasting());
+        let computer = Arc::new(Computer { script: case["script"].as_array().unwrap().clone(), sent: Mutex::new(Vec::new()) });
+        let gates = Gates { browser: true, computer: case["gateHeld"] != json!(true) };
+        let fill = fill_with(&slots, gates, computer.clone());
+        if let Some(provided) = case["provide"].as_str() {
+            assert!(slots.provide(ID, provided), "{name}");
+        }
+        if let Some(bind) = case["bind"].as_object() {
+            let got = |key: &str| bind[key].as_str().unwrap().to_owned();
+            assert!(slots.bind_computer(ID, &got("session"), &got("windowId"), &got("ref")), "{name}");
+        }
+        let command = &case["command"];
+        let named = |key: &str| command.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+        let outcome = fill.computer_input(&thread, text(command, "request_id"), &named("window_id"), &named("ref")).await;
+        assert_eq!(json!(outcome), case["outcome"], "{name}");
+        assert_eq!(json!(computer.sent.lock().unwrap().clone()), case["commands"], "{name}");
+        let after = &case["after"];
+        assert_eq!(json!(slots.has(ID)), after["held"], "{name}");
+        assert_eq!(state(&slots, ID)["computer"], after["computer"], "{name}");
+        assert_eq!(json!(fill.focus_armed(&thread)), after["focusArmed"], "{name}");
+        let sample = format!("pw={} and {VALUE}!", case["provide"].as_str().unwrap_or_default());
+        assert_eq!(json!(fill.redact(&thread, &sample)), after["redacted"], "{name}");
+    }
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn a_computer_secret_needs_a_computer_binding() {
+    let recorded = &golden("computer.json")["bindThenType"];
+    let slots = Arc::new(lasting());
+    let fill = fill_with(&slots, open(), idle_computer());
+    let thread = ThreadId::from("S1");
+    assert!(slots.provide(ID, VALUE));
+    assert_eq!(json!(fill.bind_browser(&thread, ID, claim())), recorded[0]["browser"]);
+    let outcome = fill.computer_input(&thread, ID, "", "").await;
+    assert_eq!(json!(outcome), recorded[1]["outcome"]);
+    assert_eq!(json!(slots.has(ID)), recorded[1]["held"]);
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn the_core_checks_of_a_browser_fill_refuse_before_the_desktop_is_asked() {
+    for case in golden("browser.json").as_array().unwrap().iter().filter(|c| text(c, "checkedBy") == "core") {
+        let name = text(case, "name");
+        let thread = ThreadId::from(text(case, "session"));
+        let desk = Desk::new();
+        let gates = Gates { browser: case["gateHeld"] != json!(true), computer: true };
+        let (slots, fill) = browser_fill(&desk, gates);
+        if case["provide"].is_object() {
+            assert!(slots.provide(ID, VALUE), "{name}");
+        }
+        if let Some(bind) = case["bind"].as_object() {
+            assert!(slots.bind(ID, bind["session"].as_str().unwrap(), claim()), "{name}");
+        }
+        if case["computerBind"] == json!(true) {
+            assert!(slots.bind_computer(ID, text(case, "session"), "w1", "e1"), "{name}");
+        }
+        let outcome = fill.fill_browser(&thread, ID).await;
+        assert_eq!(json!(outcome.text()), case["outcome"], "{name}");
+        assert!(desk.sent().is_empty(), "{name}: the desktop is not asked, and no value reaches it");
+        let after = state(&slots, ID);
+        for key in ["held", "username", "save", "browser", "computer"] {
+            assert_eq!(after[key], case["after"][key], "{name} {key}");
+        }
+        assert_eq!(fill.redact(&thread, &format!("pw={VALUE}!")), format!("pw={VALUE}!"), "{name}: a refused value is not remembered");
+    }
+}
+#[cfg(node_twin)]
+/// What the real desktop code answers (`fixtures/secret-host`): the core sends the commands the
+/// desktop was recorded with and ends as the desktop's answers say.
+#[tokio::test]
+async fn the_core_fills_through_the_desktop_as_recorded() {
+    let doc = golden("host-replies.json");
+    assert_eq!(doc["hostId"], "host-A");
+    for case in doc["cases"].as_array().unwrap() {
+        let name = text(case, "name");
+        // The core never sends an empty value: its own slot would have expired.
+        if name == "a fill with no value is blocked" {
+            continue;
+        }
+        let thread = ThreadId::from(text(case, "thread"));
+        let desk = Desk::new();
+        let (slots, fill) = browser_fill(&desk, open());
+        desk.reply("secret_precheck", Ok(case["precheck"]["reply"].clone()));
+        if let Some(sent) = case.get("fill") {
+            desk.reply("secret_fill", Ok(sent["reply"].clone()));
+        }
+        let input = case["fill"]["params"]["input"].clone();
+        assert!(slots.provide(ID, VALUE));
+        if let Some(username) = input["username"].as_str().filter(|u| !u.is_empty()) {
+            assert!(slots.provide(&format!("{ID}{SECRET_USERNAME_SUFFIX}"), username));
+        }
+        if input["save"] == json!(true) {
+            assert!(slots.provide(&format!("{ID}{SECRET_SAVE_SUFFIX}"), "1"));
+        }
+        assert!(slots.bind(ID, thread.as_str(), claim()));
+        let outcome = fill.fill_browser(&thread, ID).await;
+        let sent = desk.sent();
+        assert_eq!(sent[0], ("secret_precheck".to_owned(), case["precheck"]["params"].clone()), "{name}");
+        let filled = case.get("fill").is_some();
+        let want = if filled { case["fill"]["reply"]["text"].clone() } else { case["precheck"]["reply"]["text"].clone() };
+        assert_eq!(json!(outcome.text()), want, "{name}");
+        let after = state(&slots, ID);
+        assert_eq!((after["held"].clone(), after["username"].clone(), after["save"].clone(), after["browser"].clone()), (json!(false), json!(false), json!(false), Value::Null), "{name}: nothing is kept");
+        if filled {
+            let mut want_fill = case["fill"]["params"].clone();
+            want_fill["input"]["value"] = json!(VALUE);
+            assert_eq!(sent, vec![("secret_precheck".to_owned(), case["precheck"]["params"].clone()), ("secret_fill".to_owned(), want_fill)], "{name}");
+            assert_eq!(fill.redact(&thread, &format!("pw={VALUE}!")), "pw=[redacted]!", "{name}: the value that was sent is remembered");
+        } else {
+            assert_eq!(sent.len(), 1, "{name}: a refused pre-check sends no value");
+            assert!(!has_value(&sent), "{name}");
+            assert_eq!(fill.redact(&thread, &format!("pw={VALUE}!")), format!("pw={VALUE}!"), "{name}: a refused value is not remembered");
+        }
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn redaction_follows_the_recorded_markers_and_sessions() {
+    let doc = golden("redaction.json");
+    for case in doc["redact"].as_array().unwrap() {
+        let secrets: Vec<String> = case["secrets"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_owned()).collect();
+        assert_eq!(json!(redact_secrets(text(case, "text"), &secrets, "[redacted]")), case["out"], "{}", text(case, "name"));
+    }
+    let recorded = doc["sessions"].as_array().unwrap();
+    let sessions = SessionSecrets::new();
+    let snap = |step: &str| {
+        json!({
+            "step": step,
+            "s1": sessions.secrets_of("S1"),
+            "s2": sessions.secrets_of("S2"),
+            "redacted1": sessions.redact("S1", "abcdef abc ab a"),
+            "redacted2": sessions.redact("S2", "abcdef abc ab a"),
+            "focus1": sessions.focus_armed("S1"),
+            "focus2": sessions.focus_armed("S2"),
+        })
+    };
+    let mut got = Vec::new();
+    sessions.remember("S1", "ab");
+    got.push(snap("one secret"));
+    sessions.remember("S1", "abc");
+    sessions.remember("S1", "ab");
+    got.push(snap("a longer one and a repeat"));
+    sessions.remember("S1", "");
+    sessions.remember("", "nope");
+    sessions.remember("S2", "a");
+    got.push(snap("empties are not kept; sessions are separate"));
+    sessions.remember("S1", "abcdef");
+    got.push(snap("the longest is replaced first"));
+    sessions.arm_focus("S1");
+    got.push(snap("focus is armed"));
+    sessions.clear_focus("S1");
+    got.push(snap("focus is cleared"));
+    sessions.arm_focus("S1");
+    sessions.arm_focus("S2");
+    sessions.forget("S1");
+    got.push(snap("forget drops the secrets and the focus of one session"));
+    assert_eq!(json!(got), json!(recorded));
+}
+#[cfg(node_twin)]
+/// A paired phone submits by request id, as the card does: the service holds the value for the
+/// id with no session or connection check, and the consumers enforce the binding.
+#[tokio::test]
+async fn a_phone_submission_is_taken_as_the_window_process_takes_it() {
+    for case in golden("remote.json").as_array().unwrap() {
+        let name = text(case, "name");
+        let slots = Arc::new(lasting());
+        let service = SecretInputService::new(slots.clone());
+        if name.contains("name the session") {
+            assert!(slots.bind(ID, "S1", claim()));
+        }
+        let id = match &case["params"][0] {
+            Value::String(s) => json!(s),
+            other => other.clone(),
+        };
+        let answered = value(&service, request("approval/provideSecret", json!({ "opId": "x", "requestId": id, "secret": case["params"][1] }), Some(1))).await;
+        match &case["result"] {
+            result if result["ok"] == json!(true) => {
+                assert_eq!(answered.unwrap(), json!({}), "{name}");
+                assert_eq!(json!(slots.take(ID)), case["taken"], "{name}");
+            }
+            result if result["ok"] == json!(false) => {
+                assert!(answered.is_err(), "{name}");
+                assert!(!slots.has(ID), "{name}");
+            }
+            result => {
+                let CoreError::DomainError { message: Some(got), .. } = answered.unwrap_err() else { panic!("{name}: a domain error") };
+                assert_eq!(&*got, text(&result["error"], "message"), "{name}");
+            }
+        }
     }
 }

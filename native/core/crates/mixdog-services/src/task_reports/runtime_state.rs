@@ -6,7 +6,7 @@
 //! `PoolLive::running` read it.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use mixdog_js::{js_trim, value_to_string};
 use serde_json::Value;
@@ -56,6 +56,12 @@ pub struct RuntimeLiveness {
     // Ordered, so a read walks the entries the same way every time.
     entries: Mutex<BTreeMap<String, RuntimeEntry>>,
     dispatched: Mutex<HashMap<String, usize>>,
+    /// The most recent request of the active turn, not a copy of the session's configured route.
+    request_routes: Mutex<HashMap<String, Arc<serde_json::Map<String, Value>>>>,
+    /// Told each time a session starts or stops counting as working. The `agentPool` section lists from the working set
+    /// and is pushed only when woken: without this a turn that starts or ends after a listing leaves the pool showing the
+    /// old set (Node's desktop re-read the pool every 2 s while an agent was active).
+    working_changed: OnceLock<Arc<dyn Fn() + Send + Sync>>,
 }
 
 /// A turn counted as working until it is dropped (`whileTurnDispatched`).
@@ -67,15 +73,19 @@ pub struct Dispatched {
 
 impl Drop for Dispatched {
     fn drop(&mut self) {
-        let mut counts = self.liveness.dispatched.lock().expect("dispatched turns");
-        match counts.get(&self.id).copied() {
-            Some(left) if left > 1 => {
-                counts.insert(self.id.clone(), left - 1);
-            }
-            _ => {
-                counts.remove(&self.id);
+        let before = self.liveness.working(&self.id);
+        {
+            let mut counts = self.liveness.dispatched.lock().expect("dispatched turns");
+            match counts.get(&self.id).copied() {
+                Some(left) if left > 1 => {
+                    counts.insert(self.id.clone(), left - 1);
+                }
+                _ => {
+                    counts.remove(&self.id);
+                }
             }
         }
+        self.liveness.tell_if_moved(&self.id, before);
     }
 }
 
@@ -84,18 +94,64 @@ impl RuntimeLiveness {
         Arc::new(Self::default())
     }
 
+    /// Binds the one listener told when a session starts or stops counting as working; `false` when one is bound already.
+    pub fn bind_working_changed(&self, listener: Arc<dyn Fn() + Send + Sync>) -> bool {
+        self.working_changed.set(listener).is_ok()
+    }
+
+    /// Whether `id` is in [`in_flight_session_activity`](Self::in_flight_session_activity)'s `working`.
+    fn working(&self, id: &str) -> bool {
+        if self.dispatched.lock().expect("dispatched turns").contains_key(id) {
+            return true;
+        }
+        self.entries.lock().expect("runtime entries").get(id).is_some_and(RuntimeEntry::is_turn_in_flight)
+    }
+
+    fn tell_if_moved(&self, id: &str, before: bool) {
+        if self.working(id) != before
+            && let Some(listener) = self.working_changed.get()
+        {
+            listener();
+        }
+    }
+
     pub fn set_entry(&self, id: &str, entry: RuntimeEntry) {
+        let before = self.working(id);
         self.entries.lock().expect("runtime entries").insert(id.to_owned(), entry);
+        self.tell_if_moved(id, before);
     }
 
     pub fn remove_entry(&self, id: &str) {
+        let before = self.working(id);
+        self.request_routes.lock().expect("request routes").remove(id);
         self.entries.lock().expect("runtime entries").remove(id);
+        self.tell_if_moved(id, before);
+    }
+
+    pub fn request_route(&self, id: &str) -> Option<Arc<serde_json::Map<String, Value>>> {
+        self.request_routes.lock().expect("request routes").get(id).cloned()
+    }
+
+    /// A fallback or effort change can change the row without changing the working set.
+    pub fn publish_request_route(&self, id: &str, route: serde_json::Map<String, Value>) {
+        {
+            let mut routes = self.request_routes.lock().expect("request routes");
+            if routes.get(id).is_some_and(|current| **current == route) {
+                return;
+            }
+            routes.insert(id.to_owned(), Arc::new(route));
+        }
+        if let Some(listener) = self.working_changed.get() {
+            listener();
+        }
     }
 
     /// `whileTurnDispatched(id, run)`: `id` counts as working until the guard drops, covering the
     /// gap before the turn's own entry is in flight.
     pub fn dispatched(self: &Arc<Self>, id: &str) -> Dispatched {
+        let before = self.working(id);
         *self.dispatched.lock().expect("dispatched turns").entry(id.to_owned()).or_insert(0) += 1;
+        self.tell_if_moved(id, before);
         Dispatched { liveness: Arc::clone(self), id: id.to_owned() }
     }
 
@@ -151,8 +207,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/session-activity/golden.json");
-
+    #[cfg(node_twin)]
     fn entry_of(spec: &Value) -> RuntimeEntry {
         RuntimeEntry {
             closed: spec.get("closed") == Some(&Value::Bool(true)),
@@ -169,6 +224,7 @@ mod tests {
         names
     }
 
+    #[cfg(node_twin)]
     fn strings(value: &Value) -> Vec<String> {
         value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect()
     }
@@ -178,11 +234,54 @@ mod tests {
     }
 
     #[test]
+    fn an_entry_removed_or_closed_stops_working() {
+        let live = RuntimeLiveness::new();
+        live.set_entry("a", RuntimeEntry { stage: Some("streaming".into()), session: json!({"owner": "agent", "ownerSessionId": "lead"}), ..RuntimeEntry::default() });
+        assert_eq!(answer(&live.in_flight_session_activity()), (vec!["a".to_owned()], vec!["lead".to_owned()]));
+        live.set_entry("a", RuntimeEntry { closed: true, stage: Some("streaming".into()), ..RuntimeEntry::default() });
+        assert_eq!(answer(&live.in_flight_session_activity()), (vec![], vec![]));
+        live.remove_entry("a");
+        assert_eq!(answer(&live.in_flight_session_activity()), (vec![], vec![]));
+    }
+
+    /// The `agentPool` section is re-listed only when woken: every move of a session into or out of `working` tells the
+    /// listener, and a change that leaves `working` as it was (a second dispatch, a stage within the turn) tells nothing.
+    #[test]
+    fn a_session_starting_or_stopping_work_tells_the_listener() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let live = RuntimeLiveness::new();
+        let told = Arc::new(AtomicUsize::new(0));
+        let counter = told.clone();
+        assert!(live.bind_working_changed(Arc::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        })));
+        let told = || told.load(Ordering::SeqCst);
+        let first = live.dispatched("child");
+        assert_eq!(told(), 1, "a dispatched turn starts working");
+        let second = live.dispatched("child");
+        live.set_entry("child", RuntimeEntry { stage: Some("streaming".into()), controller_live: true, ..RuntimeEntry::default() });
+        live.set_entry("child", RuntimeEntry { stage: Some("tool_running".into()), controller_live: true, ..RuntimeEntry::default() });
+        drop(first);
+        assert_eq!(told(), 1, "still working: nothing to tell");
+        live.remove_entry("child");
+        drop(second);
+        assert_eq!(told(), 2, "the last guard ends the work");
+        live.set_entry("worker", RuntimeEntry { stage: Some("streaming".into()), ..RuntimeEntry::default() });
+        assert_eq!(told(), 3, "an in-flight entry starts working");
+        live.set_entry("worker", RuntimeEntry { closed: true, stage: Some("streaming".into()), ..RuntimeEntry::default() });
+        assert_eq!(told(), 4, "a closed entry stops working");
+    }
+
+
+    #[cfg(node_twin)]
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/session-activity/golden.json");
+    #[cfg(node_twin)]
+    #[test]
     fn the_in_flight_stages_equal_node() {
         let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         assert_eq!(strings(&golden["inFlight"]["stages"]), IN_FLIGHT_STAGES.map(str::to_owned));
     }
-
+    #[cfg(node_twin)]
     #[test]
     fn the_activity_of_every_recorded_case_equals_node() {
         let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
@@ -198,7 +297,7 @@ mod tests {
             assert_eq!(answer(&live.in_flight_session_activity()), expected("after"), "{} after", case["name"]);
         }
     }
-
+    #[cfg(node_twin)]
     #[test]
     fn a_session_dispatched_twice_works_until_both_runs_settle() {
         let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
@@ -219,16 +318,5 @@ mod tests {
         };
         assert_eq!(run(&live), Err("boom"));
         assert_eq!(answer(&live.in_flight_session_activity()), expect(4));
-    }
-
-    #[test]
-    fn an_entry_removed_or_closed_stops_working() {
-        let live = RuntimeLiveness::new();
-        live.set_entry("a", RuntimeEntry { stage: Some("streaming".into()), session: json!({"owner": "agent", "ownerSessionId": "lead"}), ..RuntimeEntry::default() });
-        assert_eq!(answer(&live.in_flight_session_activity()), (vec!["a".to_owned()], vec!["lead".to_owned()]));
-        live.set_entry("a", RuntimeEntry { closed: true, stage: Some("streaming".into()), ..RuntimeEntry::default() });
-        assert_eq!(answer(&live.in_flight_session_activity()), (vec![], vec![]));
-        live.remove_entry("a");
-        assert_eq!(answer(&live.in_flight_session_activity()), (vec![], vec![]));
     }
 }

@@ -223,6 +223,20 @@ fn one_line(value: Option<&Value>) -> String {
     escape_harness_tags(&joined)
 }
 
+/// `producedFileLines`: the files an agent's turn wrote that its report does not name; none for none.
+pub fn produced_file_lines(files: &[Value], omitted: f64) -> Vec<String> {
+    let list = normalize_handoff_files(Some(&Value::Array(files.to_vec())));
+    if list.is_empty() {
+        return Vec::new();
+    }
+    let mut lines = vec!["Files produced:".to_string()];
+    lines.extend(list.iter().map(|file| format!("- {} — {}", one_line(file.get("name")), one_line(file.get("path")))));
+    if omitted > 0.0 {
+        lines.push(format!("- …and {} more", number_to_string(omitted)));
+    }
+    lines
+}
+
 /// `artifactLines`: the model-facing list of a task report's files.
 pub fn artifact_lines(files: &[Value], omitted: f64) -> Vec<String> {
     if files.is_empty() {

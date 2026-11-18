@@ -6,7 +6,7 @@
 // answers as its own folder (a standalone root), and a one-file access token goes to the core with the project path and the
 // relative path so the core redeems it.
 import type { DesktopApi, SessionSnapshot } from '../../shared/contract.ts';
-import type { DirectKey } from '../../shared/desktop-api-split.ts';
+import type { DesktopHostExtras, DirectKey } from '../../shared/desktop-api-split.ts';
 import { createOperationLane } from '../../shared/core-lanes/desktop-operation-route.ts';
 import type { DesktopSectionsPush } from '../../shared/contract-sections.ts';
 import { isSshConnectionWindow } from '../desktop-connection.ts';
@@ -18,7 +18,7 @@ export type FilesApi = Pick<DesktopApi, DirectKey<'files'>>;
 
 export interface FilesApiOptions {
   /** The Electron host's file preview (`previewProjectFile`: a `mixdog-media` URL the main process serves by range); defaults to window.mixdogDesktopHost. */
-  host?: Pick<DesktopApi, 'previewProjectFile'>;
+  host?: Pick<DesktopApi, 'previewProjectFile'> & Partial<Pick<DesktopHostExtras, 'previewConvertedDocument'>>;
 }
 
 /** Node's `path.isAbsolute` on the PC (a Windows host also takes the POSIX form). */
@@ -132,11 +132,10 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
     return result;
   };
 
-  // A converted document's PDF is served by range in every window: the converted file's folder is a folder that is no Project, which
-  // the host's `previewProjectFile` takes as its own root (standalone on this PC; the server's own folder in a server window, where
-  // the main process serves it by ranged reads over the window's connection) and answers with a `mixdog-media://preview/<token>`
-  // URL, so the viewer shows the first page without the file being read here. A file previewed as it is (an image, audio, video or
-  // PDF) is the host's in every window.
+  // A converted document's PDF is served by range in every window: the host's `previewConvertedDocument` converts it (main owns the
+  // conversion, so an evicted PDF is converted again) and answers with a `mixdog-media://preview/<token>` URL (on this PC, or ranged
+  // reads over the window's connection in a server window), so the viewer shows the first page without the file being read here.
+  // A file previewed as it is (an image, audio, video or PDF) is the host's `previewProjectFile` in every window.
   const hostPreview = (): FilesApiOptions['host'] =>
     options.host ?? (globalThis as { mixdogDesktopHost?: FilesApiOptions['host'] }).mixdogDesktopHost;
 
@@ -221,20 +220,10 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
       }),
     previewDocumentFile: (projectPath, relPath, accessToken) =>
       direct(async () => {
-        const place = await documentPlace(projectPath, relPath, accessToken);
-        const converted = (await op('documentPreviewIn', [place.root, place.rel])) as {
-          path: string;
-          format: string;
-          mtimeMs: number;
-          size: number;
-        };
-        // The converted PDF sits in the core's cache: its folder and name are what the range reads take.
-        const cut = Math.max(converted.path.lastIndexOf('/'), converted.path.lastIndexOf('\\'));
-        const target = { root: converted.path.slice(0, cut), rel: converted.path.slice(cut + 1) };
-        const streamed = hostPreview()?.previewProjectFile;
-        if (!streamed) throw new Error('This window cannot show a document preview.');
-        const { url } = await streamed(target.root, target.rel);
-        return { url, kind: 'pdf' as const, mime: 'application/pdf', format: converted.format, mtimeMs: converted.mtimeMs, size: converted.size };
+        // The main process converts and registers the PDF with its source, so a PDF the core's cache evicted is converted again.
+        const convert = hostPreview()?.previewConvertedDocument;
+        if (!convert) throw new Error('This window cannot show a document preview.');
+        return convert(projectPath, relPath, hasToken(accessToken) ? accessToken : undefined);
       }),
     previewDocumentPages: (projectPath, relPath, accessToken, options) =>
       direct(async () => {

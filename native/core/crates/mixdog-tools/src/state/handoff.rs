@@ -145,6 +145,9 @@ pub fn validate(args: &Value) -> Result<Handoff, String> {
             ..Identity::default()
         }
     };
+    if secret && surface == "computer" && (identity.window_id.is_empty() || identity.reference.is_empty()) {
+        return Err("handoff_user computer secret needs a valid window_id and ref".to_owned());
+    }
     Ok(Handoff {
         secret,
         surface,
@@ -209,6 +212,9 @@ fn device_of(resolution: &ApprovalResolution) -> &str {
 pub fn takeover_outcome(resolution: &ApprovalResolution, page_url: &str) -> String {
     if expired(resolution) {
         return "expired".to_owned();
+    }
+    if matches!(resolution, ApprovalResolution::Unavailable { .. }) {
+        return "blocked".to_owned();
     }
     let Some(decision) = decided(resolution) else {
         return "user_skipped".to_owned();
@@ -319,11 +325,7 @@ impl HandoffUserTool {
                 bound["length"] = length.clone();
             }
         } else {
-            let outcome = if !h.identity.window_id.is_empty() && !h.identity.reference.is_empty() {
-                self.env.computer_bind(thread, &request_id, &h.identity.window_id, &h.identity.reference).await
-            } else {
-                "no_field".to_owned()
-            };
+            let outcome = self.env.computer_bind(thread, &request_id, &h.identity.window_id, &h.identity.reference).await;
             if outcome != "bound" {
                 let refused = if outcome == "no_field" { "no_field" } else { "blocked" };
                 self.record(thread, gate, refused, "").await?;
@@ -347,11 +349,13 @@ impl HandoffUserTool {
                 expires_after: Some(SECRET_REQUEST_TIMEOUT),
             })
             .await;
-        if matches!(resolution, ApprovalResolution::Cancelled { .. }) {
+        if matches!(resolution, ApprovalResolution::Cancelled { .. } | ApprovalResolution::Interrupted { .. }) {
             return Err(cancelled());
         }
         let outcome = if expired(&resolution) {
             "expired".to_owned()
+        } else if matches!(resolution, ApprovalResolution::Unavailable { .. }) {
+            "blocked".to_owned()
         } else if !matches!(decided(&resolution), Some(d) if d.response == Some(HumanGateResponse::ProvideSecret)) {
             "user_skipped".to_owned()
         } else {
@@ -404,10 +408,10 @@ impl HandoffUserTool {
             }
         }
         let resolution = ctx.approvals.request(takeover_ask(Some(ctx.call_id.clone()), takeover)).await;
-        if matches!(resolution, ApprovalResolution::Cancelled { .. }) {
+        if matches!(resolution, ApprovalResolution::Cancelled { .. } | ApprovalResolution::Interrupted { .. }) {
             return Err(cancelled());
         }
-        let page_url = if decided(&resolution).is_some() && h.surface == "browser" {
+        let page_url = if !expired(&resolution) && decided(&resolution).is_some() && h.surface == "browser" {
             self.page(thread, "page_url", tab_input(json!({})), &ctx.cancel)
                 .await
                 .and_then(|v| v.get("url").and_then(Value::as_str).map(str::to_owned))
@@ -494,6 +498,7 @@ mod tests {
 
     #[test]
     fn takeover_outcomes_are_facts_without_query() {
+        assert_eq!(takeover_outcome(&ApprovalResolution::Unavailable { at: 0 }, ""), "blocked");
         let done = decision(true, None, Some(HumanGateResponse::Done));
         assert_eq!(
             takeover_outcome(&done, "https://a.com/home?token=1#x"),

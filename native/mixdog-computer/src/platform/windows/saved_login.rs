@@ -8,7 +8,9 @@ use crate::platform::{
     saved_login_changed, saved_login_refused, SavedLoginField, SavedLoginFocus, SavedLoginImage,
     SavedLoginReads, Wid, SAVED_LOGIN_NO_FOCUS,
 };
+use crate::port::windows::{WinPort, A11y};
 use std::ffi::c_void;
+use std::sync::Arc;
 use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
 use std::time::Duration;
@@ -50,7 +52,8 @@ const MAX_ANCESTORS: usize = 4096;
 const READBACK_ATTEMPTS: u32 = 8;
 const READBACK_SETTLE: Duration = Duration::from_millis(25);
 
-pub struct Reads;
+/// The saved-login reads, and the one write through the executor's port.
+pub struct Reads(pub Arc<WinPort>);
 
 fn unreadable() -> String {
     saved_login_refused("the browser window could not be read through accessibility")
@@ -418,7 +421,7 @@ impl SavedLoginReads for Reads {
         pid: u32,
         runtime_id: &str,
         value: &str,
-        authorize: &dyn Fn() -> Result<(), String>,
+        authorize: crate::platform::Authorize<'_>,
     ) -> Result<bool, String> {
         let automation = automation()?;
         let focused = focused_of(&automation, pid)
@@ -435,8 +438,12 @@ impl SavedLoginReads for Reads {
         }
         authorize()?;
         let text = BSTR::from(value);
-        // SAFETY: the pattern is live; from here on a write may have happened.
-        let wrote = unsafe { pattern.SetValue(&text) }.is_ok();
+        // The one write, through the port; from here on a write may have happened. A refused one wrote nothing.
+        let wrote = match self.0.accessibility(0, A11y::SetValue(&pattern, &text)) {
+            Ok(()) => true,
+            Err(refused) if refused == crate::port::REVOKED => return Err(refused),
+            Err(_) => false,
+        };
         let length = value.encode_utf16().count();
         for attempt in 0..READBACK_ATTEMPTS {
             if !wrote {

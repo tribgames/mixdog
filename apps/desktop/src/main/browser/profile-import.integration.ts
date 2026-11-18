@@ -92,7 +92,7 @@ async function seedChromeProfile(fixture: ImportFixture): Promise<void> {
       profile: {
         info_cache: {
           Default: {
-            name: '재영',
+            name: '길동',
             user_name: 'owner@example.test',
           },
           '../escape': {

@@ -7,66 +7,86 @@ pub mod accounts;
 pub mod catalog;
 pub mod jobs;
 pub mod lanes;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod accounts_twin_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod lanes_twin_tests;
 pub mod catalog_fetch;
 pub mod catalog_http;
 pub mod loader;
 pub mod probe;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod catalog_fetch_twin_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod loader_twin_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod probe_twin_tests;
 pub mod upstream;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod upstream_twin_tests;
 pub mod download;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod download_twin_tests;
 pub mod usage;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod usage_twin_tests;
 pub mod adapter_http;
+pub mod references;
 pub mod image_api;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod image_api_twin_tests;
 pub mod xai;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod xai_twin_tests;
 pub mod codex_image;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod codex_image_twin_tests;
 pub mod provider_layer;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod provider_layer_twin_tests;
 pub mod gemini_image;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod gemini_image_twin_tests;
 pub mod antigravity_image;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod antigravity_image_twin_tests;
 pub mod gemini_video;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod gemini_video_twin_tests;
 pub mod ledger;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod ledger_twin_tests;
 pub mod generator;
 #[cfg(test)]
 mod generator_tests;
 pub mod renditions;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod replay_k1_tests;
 pub mod section;
 pub mod service;
 pub mod store;
 pub mod tool;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod tool_twin_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod feature_tools_node_cases;
 pub mod transfer_source;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseBrowserCookieReport } from './profile-import-cookies.ts';
+import { importBrowserCookies, parseBrowserCookieReport } from './profile-import-cookies.ts';
 
 const failures = {
   decryption: 0,
@@ -8,6 +8,53 @@ const failures = {
   invalidEncoding: 0,
   invalidPartition: 0,
 };
+
+test('automatic import does not remove a manually restored domain cookie when a host-only cookie arrives', async () => {
+  const restored = { name: 'sid', value: 'fixture-manual', domain: '.example.test', path: '/' };
+  const writes = [];
+  const cookies = {
+    get: async () => [restored],
+    remove: async (...args) => writes.push(['remove', ...args]),
+    set: async (details) => writes.push(['set', details.domain, details.value]),
+    flushStore: async () => {},
+  };
+  assert.equal(await importBrowserCookies(
+    { cookies },
+    [{ ...restored, domain: 'example.test', value: 'fixture-automatic' }],
+    async () => {},
+    failures,
+    () => true,
+  ), 1);
+  assert.deepEqual(writes, [['set', undefined, 'fixture-automatic']]);
+});
+
+test('changing the automatic source during backup leaves the jar untouched', async () => {
+  const backingUp = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  let selected = true;
+  const writes = [];
+  const cookies = {
+    get: async () => [],
+    remove: async (...args) => writes.push(['remove', ...args]),
+    set: async (...args) => writes.push(['set', ...args]),
+    flushStore: async () => writes.push(['flush']),
+  };
+  const importing = importBrowserCookies(
+    { cookies },
+    [{ name: 'sid', domain: 'example.test', value: 'fixture-old-profile' }],
+    async () => {
+      backingUp.resolve();
+      await release.promise;
+    },
+    failures,
+    () => selected,
+  );
+  await backingUp.promise;
+  selected = false;
+  release.resolve();
+  assert.equal(await importing, undefined);
+  assert.deepEqual(writes, []);
+});
 
 test('native cookie report accounts for source entries and categorized omissions', () => {
   const report = {

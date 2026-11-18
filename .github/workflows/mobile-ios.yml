@@ -1,9 +1,9 @@
 # Mixdog iOS app: signs with the one long-lived Apple Distribution certificate
 # kept in the repository secrets (.p12), fetches or creates the App Store
 # profiles bound to it through the App Store Connect API key, archives, and
-# uploads the build to TestFlight. Deploy calls it with every release whose
-# mobile sources changed (see scripts/mobile-release.mjs); it also runs on
-# mobile-v* tags and by hand.
+# uploads the build to TestFlight. Deploy calls it, after the release has succeeded, with every release whose
+# mobile sources changed (see scripts/mobile-release.mjs). It has no other entry point: a tag push or a manual run would upload with
+# no gate (scripts/ci/coverage/wiring.mjs keeps it call-only).
 #
 # Runs never create or revoke certificates. A run warns when the certificate
 # expires within 30 days and fails once it has; renew it with
@@ -19,27 +19,7 @@
 name: Mobile iOS
 
 on:
-  push:
-    tags:
-      - "mobile-v*"
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "App version X.Y.Z (defaults to apps/mobile/package.json)"
-        required: false
-        type: string
-      submit_review:
-        description: "Submit the build to the external TestFlight group for beta review (tag runs always do)"
-        required: false
-        type: boolean
-        default: true
-      ref:
-        description: "Commit to build (default: the selected branch or tag)"
-        required: false
-        type: string
-  # Deploy's call. The mobile-v* tag Deploy's Android release creates is made
-  # with the workflow token, which starts no workflow run, so the tag trigger
-  # above does not upload the same version again.
+  # Deploy's call, after the release call succeeded.
   workflow_call:
     inputs:
       version:
@@ -102,15 +82,7 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          # A called run inherits the caller's ref (a branch), so an explicit
-          # version wins; a tag push carries no inputs.
-          if [ -n "${INPUT_VERSION}" ]; then
-            version="${INPUT_VERSION}"
-          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            version="${GITHUB_REF_NAME#mobile-v}"
-          else
-            version="$(node -p "require('./package.json').version")"
-          fi
+          version="${INPUT_VERSION}"
           if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "Version must be X.Y.Z, got '$version'" >&2
             exit 1

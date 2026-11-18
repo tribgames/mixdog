@@ -3,41 +3,44 @@ import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
 import { ActionButton, Group, ResourceRow } from './capability-controls';
 import { FeedbackDialog } from './feedback-dialog';
-import { readGithubStarred, rememberGithubStarred } from './github-star-storage';
+import { rememberGithubStarred } from './github-star-storage';
 
 const MIXDOG_REPO_URL = 'https://github.com/tribgames/mixdog';
 const MIXDOG_ISSUES_URL = 'https://github.com/tribgames/mixdog/issues';
 const MIXDOG_SPONSOR_URL = 'https://github.com/sponsors/JYP8877';
 type ChangelogDialogComponent = ComponentType<{ onClose(): void }>;
 
-export function AboutPanel() {
+export function AboutPanel({ active = true }: { active?: boolean } = {}) {
   const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
   const [ghReady, setGhReady] = useState(false);
-  const [starred, setStarred] = useState(readGithubStarred);
+  const [starred, setStarred] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   // The dialog bundles CHANGELOG.md and the Markdown renderer: load it on
   // demand and mount it only once its first release is rendered-ready.
   const [ChangelogDialog, setChangelogDialog] = useState<ChangelogDialogComponent | null>(null);
-  const openChangelog = () =>
+  const openChangelog = () => {
+    setActionError('');
     void import('./changelog-dialog')
       .then(async (module) => {
         await module.prepareChangelog();
         setChangelogDialog(() => module.default);
       })
-      .catch(() => undefined);
+      .catch(() => setActionError(t('Could not open the changelog.')));
+  };
   // biome-ignore lint/correctness/useExhaustiveDependencies: host is the window bridge read per render; it is kept as the re-query trigger.
   useEffect(() => {
-    if (readGithubStarred()) return;
+    if (!active) return;
+    setGhReady(false);
+    setStarred(false);
     let live = true;
     void host
       ?.githubStarStatus?.()
       ?.then((status) => {
-        if (!status) return;
-        const confirmedStarred = rememberGithubStarred(status.starred === true);
-        if (!live) return;
+        if (!live || !status) return;
         setGhReady(status.available === true);
-        setStarred(confirmedStarred);
+        setStarred(rememberGithubStarred(status.starred === true));
       })
       .catch(() => {
         /* retain the plain repository link */
@@ -45,13 +48,22 @@ export function AboutPanel() {
     return () => {
       live = false;
     };
-  }, [host]);
-  const open = (url: string) => void host?.openExternal?.(url).catch(() => undefined);
+  }, [active, host]);
+  const open = (url: string) => {
+    setActionError('');
+    const failed = () => setActionError(t('Could not open the link.'));
+    if (!host?.openExternal) {
+      failed();
+      return;
+    }
+    void host.openExternal(url).catch(failed);
+  };
   const star = () => {
     if (starred || !ghReady || !host?.starGithub) {
       open(MIXDOG_REPO_URL);
       return;
     }
+    setActionError('');
     setBusy(true);
     void host
       .starGithub()
@@ -116,6 +128,7 @@ export function AboutPanel() {
           </ActionButton>
         }
       />
+      {actionError && <p role="alert">{actionError}</p>}
       {ChangelogDialog && <ChangelogDialog onClose={() => setChangelogDialog(null)} />}
       {feedbackOpen && (
         <FeedbackDialog

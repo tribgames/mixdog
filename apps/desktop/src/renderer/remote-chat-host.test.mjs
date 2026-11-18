@@ -202,6 +202,19 @@ test('a session this connection does not hold is not paged (READ_NOT_VIEWED)', a
   assert.deepEqual(sent, []);
 });
 
+test('history returns exact positions and uses a saved position instead of a repeated display id', async () => {
+  const rows = [
+    { ...itemOf({ kind: 'assistant', id: 'repeat', text: 'first' }), meta: { ext: { historyPosition: 'h1:0:stored-a' } } },
+    { ...itemOf({ kind: 'assistant', id: 'repeat', text: 'second' }), meta: { ext: { historyPosition: 'h1:0:stored-b' } } },
+  ];
+  const { api, sent } = adapter({ state: { items: [] }, replies: { 'thread/items/list': { data: rows, hasOlder: true } } });
+  const page = await api.readTranscriptHistory(S, { before: 'last', limit: 2 });
+  assert.deepEqual(page.items.map(({ id, text }) => [id, text]), [['repeat', 'first'], ['repeat', 'second']]);
+  assert.deepEqual(page.positions, ['h1:0:stored-a', 'h1:0:stored-b']);
+  await api.readTranscriptHistory(S, { before: 'repeat', position: page.positions[1], limit: 2 });
+  assert.equal(sent.at(-1).params.cursor, 'h1:0:stored-b');
+});
+
 // ── the stale-view refusal ────────────────────────────────────────────────────────────────────────────────────────────────────
 for (const c of recorded.cases.filter((x) => x.group === 'stale')) {
   test(`stale ${c.name}: the send is refused as Node refused it`, async () => {

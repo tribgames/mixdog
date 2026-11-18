@@ -12,9 +12,10 @@ use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 
 use crate::run_host::hop_host::*;
-use crate::run_host::route_fallback::{RouteDecision, RouteHop};
-
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/hop-host/golden.json");
+#[cfg(node_twin)]
+use crate::run_host::route_fallback::RouteDecision;
+#[cfg(node_twin)]
+use crate::run_host::route_fallback::RouteHop;
 
 struct NoCodec;
 impl WireCodec for NoCodec {
@@ -215,7 +216,7 @@ async fn harness(script: Arc<Script>, header: Value) -> (RegistryHopHost, Arc<Se
         errors: Arc::new(|e| e.message.clone()),
         wiring: Arc::new(NoWiring),
     };
-    (RegistryHopHost { deps, session: session.clone() }, session)
+    (RegistryHopHost { deps, session: session.clone(), eligibility: None }, session)
 }
 
 fn route_of(header: &Value) -> Obj {
@@ -227,42 +228,6 @@ fn route_of(header: &Value) -> Obj {
 
 fn write() -> HopWrite {
     HopWrite { chain: Vec::new(), primary: None, index: 1, failures: Vec::new(), checkpoint_route_changed: false }
-}
-
-/// Every wire pin Node recorded for a hop's session: what was asked of the provider and what
-/// was pinned. The two sessions that predate the wire table cannot follow a hop (a route change
-/// leaves `wireRoute` null), so they are not replayed.
-#[tokio::test]
-async fn the_wire_pin_is_the_one_node_makes() {
-    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
-    let mut replayed = 0;
-    for case in golden["pins"].as_array().unwrap() {
-        let session = &case["session"];
-        let asked_legacy = case["asked"].as_array().unwrap().iter().any(|a| a["legacy"] == true);
-        if asked_legacy || session.get("wireRoute").is_none() && case["answered"] == true {
-            continue;
-        }
-        let script = &case["script"];
-        let route = script["route"].as_object().map(|r| WireRoute {
-            wire: r["wire"].as_str().unwrap().into(),
-            source: r["source"].as_str().unwrap().into(),
-            profile_id: r["profileId"].as_str().unwrap().into(),
-        });
-        let provider = session["provider"].as_str().unwrap();
-        let routing = Arc::new(Script { routing: script["noRouting"] != true, route, fails: script["throws"] == true, asked: Mutex::default(), calls: None });
-        let (host, written) = harness(routing.clone(), session.clone()).await;
-        host.deps.registry.init_providers(&ensure_provider_enabled(&Obj::new(), provider)).await.unwrap();
-        host.apply_hop(route_of(session), write()).await.unwrap().expect("updated");
-        let asked: Vec<_> = routing.asked.lock().unwrap().iter().map(|(m, c)| json!({ "model": m, "agent": c.agent, "legacy": c.legacy })).collect();
-        assert_eq!(Value::Array(asked), case["asked"], "{}", case["name"]);
-        let pins = written.pins.lock().unwrap();
-        match case["pin"].as_object() {
-            Some(pin) if case["wrote"] == true => assert_eq!(*pins, [Value::Object(pin.clone())], "{}", case["name"]),
-            _ => assert!(pins.is_empty(), "{}", case["name"]),
-        }
-        replayed += 1;
-    }
-    assert!(replayed >= 10);
 }
 
 #[tokio::test]
@@ -331,13 +296,16 @@ async fn a_failed_step_escapes_the_hop_as_node_throws_it() {
 }
 /// The session of a replayed hop: a header that moves as Node's does, and a log in Node's call
 /// shapes (`record-hop-host.mjs`, `advances`).
+#[cfg(node_twin)]
 struct Replay {
     header: Mutex<Header>,
     calls: Calls,
     script: Value,
 }
 
+#[cfg(node_twin)]
 impl Replay {
+    #[cfg(node_twin)]
     fn fails(&self, key: &str) -> bool {
         self.script[key] == true
     }
@@ -351,6 +319,7 @@ impl Replay {
 }
 
 #[async_trait]
+#[cfg(node_twin)]
 impl HopSession for Replay {
     fn header(&self) -> Option<Arc<Header>> {
         Some(Arc::new(self.header.lock().unwrap().clone()))
@@ -398,12 +367,52 @@ impl HopSession for Replay {
     }
 }
 
+
+#[cfg(node_twin)]
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/hop-host/golden.json");
+/// Every wire pin Node recorded for a hop's session: what was asked of the provider and what
+/// was pinned. The two sessions that predate the wire table cannot follow a hop (a route change
+/// leaves `wireRoute` null), so they are not replayed.
+#[tokio::test]
+#[cfg(node_twin)]
+async fn the_wire_pin_is_the_one_node_makes() {
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
+    let mut replayed = 0;
+    for case in golden["pins"].as_array().unwrap() {
+        let session = &case["session"];
+        let asked_legacy = case["asked"].as_array().unwrap().iter().any(|a| a["legacy"] == true);
+        if asked_legacy || session.get("wireRoute").is_none() && case["answered"] == true {
+            continue;
+        }
+        let script = &case["script"];
+        let route = script["route"].as_object().map(|r| WireRoute {
+            wire: r["wire"].as_str().unwrap().into(),
+            source: r["source"].as_str().unwrap().into(),
+            profile_id: r["profileId"].as_str().unwrap().into(),
+        });
+        let provider = session["provider"].as_str().unwrap();
+        let routing = Arc::new(Script { routing: script["noRouting"] != true, route, fails: script["throws"] == true, asked: Mutex::default(), calls: None });
+        let (host, written) = harness(routing.clone(), session.clone()).await;
+        host.deps.registry.init_providers(&ensure_provider_enabled(&Obj::new(), provider)).await.unwrap();
+        host.apply_hop(route_of(session), write()).await.unwrap().expect("updated");
+        let asked: Vec<_> = routing.asked.lock().unwrap().iter().map(|(m, c)| json!({ "model": m, "agent": c.agent, "legacy": c.legacy })).collect();
+        assert_eq!(Value::Array(asked), case["asked"], "{}", case["name"]);
+        let pins = written.pins.lock().unwrap();
+        match case["pin"].as_object() {
+            Some(pin) if case["wrote"] == true => assert_eq!(*pins, [Value::Object(pin.clone())], "{}", case["name"]),
+            _ => assert!(pins.is_empty(), "{}", case["name"]),
+        }
+        replayed += 1;
+    }
+    assert!(replayed >= 10);
+}
 /// Node's real `advanceAgentRoute`, recorded over stand-ins for the registry, the session store
 /// and the tool surface, replayed over the registry and a session double: the same calls with the
 /// same arguments in the same order, and the same outcome (a switch with its notice, or the
 /// error that escapes). `presentErrorText` is WP-AI-CORE's: the failure line carries its recorded
 /// text.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn the_whole_hop_makes_the_calls_and_ends_as_node_does() {
     let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["advances"].as_array().unwrap() {
@@ -441,7 +450,7 @@ async fn the_whole_hop_makes_the_calls_and_ends_as_node_does() {
             errors: Arc::new(|_| "Provider is rate-limited.".to_owned()),
             wiring: Arc::new(NoWiring),
         };
-        let hop = RouteHop::new(Arc::new(RegistryHopHost { deps, session }));
+        let hop = RouteHop::new(Arc::new(RegistryHopHost { deps, session, eligibility: None }));
         let mut error = ProviderError::new(ErrorKind::RateLimited, DeliveryState::Accepted);
         error.status = Some(429);
         error.message = "slow down".to_owned();

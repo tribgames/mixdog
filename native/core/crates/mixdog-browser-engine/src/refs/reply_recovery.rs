@@ -76,8 +76,6 @@ impl std::fmt::Display for RecoveryFailure {
     }
 }
 
-impl std::error::Error for RecoveryFailure {}
-
 /// The reply text with what recovery did stated first (`decorateRecovery`).
 pub fn decorate_recovery(text: &str, context: &RefRecoveryContext) -> String {
     let mut prefix = Vec::new();
@@ -246,3 +244,6 @@ mod tests {
         assert_eq!(outcome, Err(RecoveryFailure::Message("A dialog is open".into())));
     }
 }
+
+
+impl std::error::Error for RecoveryFailure {}

@@ -248,6 +248,46 @@ fn needs_shell(file: &str) -> bool {
     lower.ends_with(".cmd") || lower.ends_with(".bat")
 }
 
+/// Whichever stop came first names the end, as the exit code only says how it died: the process
+/// manager keeps the first kill reason, so a cancel after the time limit fired still reads as
+/// timed out.
+fn end_status(cancel_requested: bool, killed: Option<KillReason>, code: Option<i32>) -> SetupStatus {
+    if killed == Some(KillReason::TimeLimit) {
+        SetupStatus::TimedOut
+    } else if cancel_requested || killed.is_some() {
+        SetupStatus::Cancelled
+    } else if code == Some(0) {
+        SetupStatus::Completed
+    } else {
+        SetupStatus::Failed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_first_stop_names_the_end_even_when_a_cancel_was_also_requested() {
+        // The limit killed it first, then the cancel arrived: timed out, whatever the order of
+        // the later signals.
+        assert_eq!(end_status(true, Some(KillReason::TimeLimit), None), SetupStatus::TimedOut);
+        assert_eq!(end_status(false, Some(KillReason::TimeLimit), None), SetupStatus::TimedOut);
+        assert_eq!(end_status(true, Some(KillReason::Requested), None), SetupStatus::Cancelled);
+        assert_eq!(end_status(true, None, Some(0)), SetupStatus::Cancelled);
+        assert_eq!(end_status(false, None, Some(0)), SetupStatus::Completed);
+        assert_eq!(end_status(false, None, Some(2)), SetupStatus::Failed);
+    }
+}
+
+fn spawn_message(error: &ProcessError, file: &str) -> String {
+    match error {
+        ProcessError::ProgramNotFound { program } => format!("spawn {program} ENOENT\n"),
+        other => format!("spawn {file} failed: {other:?}\n"),
+    }
+}
+
+
 /// The variables `overrides` set (`Some`) or remove (`None`) on top of the inherited
 /// environment; on Windows names are case-insensitive, so every spelling of a name goes first.
 fn env_of(overrides: Option<&[(String, Option<String>)]>) -> EnvSpec {
@@ -267,7 +307,6 @@ fn env_of(overrides: Option<&[(String, Option<String>)]>) -> EnvSpec {
     }
     env
 }
-
 impl SetupRunner {
     pub fn new(processes: Arc<dyn ProcessManager>) -> Self {
         Self { processes, next: AtomicU64::new(0), prefix: format!("worktree-setup-{}", std::process::id()) }
@@ -401,44 +440,5 @@ impl SetupRunner {
             mixdog_core_api::domain::process::ExitStatus::Signal(_) => None,
         };
         step(&output, end_status(cancelled, exit.killed, code), code)
-    }
-}
-
-/// Whichever stop came first names the end, as the exit code only says how it died: the process
-/// manager keeps the first kill reason, so a cancel after the time limit fired still reads as
-/// timed out.
-fn end_status(cancel_requested: bool, killed: Option<KillReason>, code: Option<i32>) -> SetupStatus {
-    if killed == Some(KillReason::TimeLimit) {
-        SetupStatus::TimedOut
-    } else if cancel_requested || killed.is_some() {
-        SetupStatus::Cancelled
-    } else if code == Some(0) {
-        SetupStatus::Completed
-    } else {
-        SetupStatus::Failed
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_first_stop_names_the_end_even_when_a_cancel_was_also_requested() {
-        // The limit killed it first, then the cancel arrived: timed out, whatever the order of
-        // the later signals.
-        assert_eq!(end_status(true, Some(KillReason::TimeLimit), None), SetupStatus::TimedOut);
-        assert_eq!(end_status(false, Some(KillReason::TimeLimit), None), SetupStatus::TimedOut);
-        assert_eq!(end_status(true, Some(KillReason::Requested), None), SetupStatus::Cancelled);
-        assert_eq!(end_status(true, None, Some(0)), SetupStatus::Cancelled);
-        assert_eq!(end_status(false, None, Some(0)), SetupStatus::Completed);
-        assert_eq!(end_status(false, None, Some(2)), SetupStatus::Failed);
-    }
-}
-
-fn spawn_message(error: &ProcessError, file: &str) -> String {
-    match error {
-        ProcessError::ProgramNotFound { program } => format!("spawn {program} ENOENT\n"),
-        other => format!("spawn {file} failed: {other:?}\n"),
     }
 }

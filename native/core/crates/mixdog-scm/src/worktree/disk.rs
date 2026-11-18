@@ -37,93 +37,28 @@ pub struct Measured {
     pub at: i64,
 }
 
+/// The walk of one path, as the callers sharing it see it: its result once it ended, whoever started it.
+type Flight = Arc<tokio::sync::watch::Sender<Option<Result<Measured, ScmFailure>>>>;
+
 struct Slot {
     measured: Option<Measured>,
-    /// The walk that will fill or refresh this slot; a forgotten slot is never resurrected by it.
+    /// The walk that will fill or refresh this slot (its token); a forgotten slot is never resurrected by it.
     refresh: Option<u64>,
+    /// That walk's result channel: a caller of a path never measured shares it.
+    flight: Option<Flight>,
 }
 
 pub type Measure = Arc<dyn Fn(&Path) -> (u64, bool) + Send + Sync>;
 
 /// Per-path folder sizes for the worktree list (Node `cachedFolderBytes`): a fresh entry is
 /// returned as is, a stale one at once while one background walk refreshes it, and only a path
-/// never measured waits for its walk. `forget` drops an entry (the worktree was removed or created).
+/// never measured waits for its walk, which every caller of that path shares. A walk belongs to
+/// the cache, not to the caller that started it: it runs, publishes and settles its slot whether
+/// or not anyone still awaits it. `forget` drops an entry (the worktree was removed or created).
 #[derive(Default)]
 pub struct SizeCache {
     slots: Mutex<HashMap<String, Slot>>,
     walks: AtomicU64,
-}
-
-fn epoch_ms() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
-}
-
-impl SizeCache {
-    pub fn forget(&self, path: &Path) {
-        if !path.as_os_str().is_empty() {
-            self.slots.lock().expect("size cache").remove(&path_key(path));
-        }
-    }
-
-    fn finish(&self, key: &str, token: u64, measured: Option<Measured>) {
-        let mut slots = self.slots.lock().expect("size cache");
-        if slots.get(key).and_then(|slot| slot.refresh) != Some(token) {
-            return;
-        }
-        match measured {
-            Some(measured) => slots.insert(key.to_owned(), Slot { measured: Some(measured), refresh: None }),
-            None => slots.remove(key),
-        };
-    }
-
-    async fn walk(self: &Arc<Self>, lane: MaintenanceIo, path: &Path, key: &str, token: u64, measure: &Measure, cancel: &CancellationToken) -> Result<Measured, ScmFailure> {
-        let (folder, measure) = (path.to_path_buf(), measure.clone());
-        let walked = on_lane(lane, cancel, move || measure(&folder)).await;
-        match walked {
-            Ok((bytes, complete)) => {
-                let measured = Measured { bytes, complete, at: epoch_ms() };
-                self.finish(key, token, Some(measured));
-                Ok(measured)
-            }
-            Err(failure) => {
-                self.finish(key, token, None);
-                Err(failure)
-            }
-        }
-    }
-
-    pub async fn get(self: &Arc<Self>, lane: MaintenanceIo, path: &Path, ttl: Duration, measure: Measure, cancel: &CancellationToken) -> Result<Measured, ScmFailure> {
-        let key = path_key(path);
-        let token = self.walks.fetch_add(1, Ordering::Relaxed) + 1;
-        let (cached, start) = {
-            let mut slots = self.slots.lock().expect("size cache");
-            match slots.get_mut(&key) {
-                Some(Slot { measured: Some(measured), refresh }) => {
-                    let stale = refresh.is_none() && epoch_ms() - measured.at >= ttl.as_millis() as i64;
-                    if stale {
-                        *refresh = Some(token);
-                    }
-                    (Some(*measured), stale)
-                }
-                _ => {
-                    slots.insert(key.clone(), Slot { measured: None, refresh: Some(token) });
-                    (None, true)
-                }
-            }
-        };
-        match cached {
-            Some(measured) => {
-                if start {
-                    let (cache, folder, key) = (self.clone(), path.to_path_buf(), key.clone());
-                    tokio::spawn(async move {
-                        let _ = cache.walk(lane, &folder, &key, token, &measure, &CancellationToken::new()).await;
-                    });
-                }
-                Ok(measured)
-            }
-            None => self.walk(lane, path, &key, token, &measure, cancel).await,
-        }
-    }
 }
 
 impl Worktrees {
@@ -328,6 +263,103 @@ mod tests {
         assert_eq!(folder_bytes(dir.path(), 10), (100, true));
     }
 
+    /// A measure whose n-th walk ends only once `release(n)` is called, so a test orders the walks itself.
+    #[derive(Default)]
+    struct Gates {
+        started: std::sync::Mutex<usize>,
+        released: std::sync::Mutex<usize>,
+        moved: std::sync::Condvar,
+    }
+
+    impl Gates {
+        fn measure(self: &Arc<Self>) -> Measure {
+            let gates = self.clone();
+            Arc::new(move |_| {
+                let mine = {
+                    let mut started = gates.started.lock().unwrap();
+                    *started += 1;
+                    *started
+                };
+                let mut released = gates.released.lock().unwrap();
+                while *released < mine {
+                    released = gates.moved.wait(released).unwrap();
+                }
+                (mine as u64, true)
+            })
+        }
+
+        fn release(&self, walks: usize) {
+            *self.released.lock().unwrap() = walks;
+            self.moved.notify_all();
+        }
+
+        async fn started(&self, walks: usize) {
+            while *self.started.lock().unwrap() < walks {
+                tokio::task::yield_now().await;
+            }
+        }
+    }
+
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn callers_of_a_path_being_measured_share_its_one_walk() {
+        let lane = mixdog_rt::testing::tokens().maintenance_io;
+        let (cache, gates, cancel) = (Arc::new(SizeCache::default()), Arc::new(Gates::default()), CancellationToken::new());
+        let path = Path::new("/virtual/worktree-size-shared-walk");
+        let measure = gates.measure();
+        let first = cache.get(lane, path, FOLDER_SIZE_TTL, measure.clone(), &cancel);
+        let second = cache.get(lane, path, FOLDER_SIZE_TTL, measure.clone(), &cancel);
+        let release = async {
+            gates.started(1).await;
+            gates.release(1);
+        };
+        let (first, second, ()) = tokio::join!(first, second, release);
+        assert_eq!((first.unwrap().bytes, second.unwrap().bytes), (1, 1));
+        assert_eq!(*gates.started.lock().unwrap(), 1, "the second caller shared the walk under way");
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_walk_settles_its_slot_when_the_caller_that_started_it_is_gone() {
+        let lane = mixdog_rt::testing::tokens().maintenance_io;
+        let (cache, gates, cancel) = (Arc::new(SizeCache::default()), Arc::new(Gates::default()), CancellationToken::new());
+        let path = Path::new("/virtual/worktree-size-starter-dropped");
+        let measure = gates.measure();
+        let mut starter = Box::pin(cache.get(lane, path, FOLDER_SIZE_TTL, measure.clone(), &cancel));
+        assert!(futures::poll!(starter.as_mut()).is_pending());
+        drop(starter);
+        gates.started(1).await;
+        let late = cache.get(lane, path, FOLDER_SIZE_TTL, measure.clone(), &cancel);
+        let release = async {
+            // The late caller is waiting on the walk before it ends.
+            tokio::task::yield_now().await;
+            gates.release(1);
+        };
+        let (late, ()) = tokio::join!(late, release);
+        assert_eq!(late.unwrap().bytes, 1);
+        assert_eq!(*gates.started.lock().unwrap(), 1, "no second walk: the first one published");
+        assert_eq!(cache.get(lane, path, FOLDER_SIZE_TTL, measure, &cancel).await.unwrap().bytes, 1, "the slot holds the result");
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_waiter_is_tied_to_the_walk_it_joined_when_the_path_is_forgotten_and_measured_again() {
+        let lane = mixdog_rt::testing::tokens().maintenance_io;
+        let (cache, gates, cancel) = (Arc::new(SizeCache::default()), Arc::new(Gates::default()), CancellationToken::new());
+        let path = Path::new("/virtual/worktree-size-forgotten");
+        let measure = gates.measure();
+        let waiter = tokio::spawn({
+            let (cache, measure, cancel) = (cache.clone(), measure.clone(), cancel.clone());
+            async move { cache.get(lane, path, FOLDER_SIZE_TTL, measure, &cancel).await }
+        });
+        gates.started(1).await;
+        // The path is forgotten and measured again while the first walk is still running.
+        cache.forget(path);
+        let again = tokio::spawn({
+            let (cache, measure, cancel) = (cache.clone(), measure.clone(), cancel.clone());
+            async move { cache.get(lane, path, FOLDER_SIZE_TTL, measure, &cancel).await }
+        });
+        gates.started(2).await;
+        gates.release(2);
+        assert_eq!(waiter.await.unwrap().unwrap().bytes, 1, "the first walk's own result");
+        assert_eq!(again.await.unwrap().unwrap().bytes, 2);
+    }
     #[tokio::test(start_paused = true)]
     async fn sizes_are_measured_once_refreshed_in_the_background_when_stale_and_forgotten_on_removal() {
         use std::sync::atomic::AtomicUsize;
@@ -363,5 +395,84 @@ mod tests {
         bytes.store(5, Ordering::SeqCst);
         assert_eq!(get(FOLDER_SIZE_TTL).await.unwrap().bytes, 5);
         assert_eq!(walks.load(Ordering::SeqCst), 3);
+    }
+}
+
+
+fn epoch_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+}
+impl SizeCache {
+    pub fn forget(&self, path: &Path) {
+        if !path.as_os_str().is_empty() {
+            self.slots.lock().expect("size cache").remove(&path_key(path));
+        }
+    }
+
+    fn finish(&self, key: &str, token: u64, measured: Option<Measured>) {
+        let mut slots = self.slots.lock().expect("size cache");
+        let Some(slot) = slots.get_mut(key).filter(|slot| slot.refresh == Some(token)) else {
+            return;
+        };
+        match measured {
+            Some(measured) => {
+                slot.measured = Some(measured);
+                slot.refresh = None;
+                slot.flight = None;
+            }
+            None => {
+                slots.remove(key);
+            }
+        }
+    }
+
+    /// Runs the walk on its own task: it settles the slot and publishes to `flight` on every outcome.
+    fn start(self: &Arc<Self>, lane: MaintenanceIo, path: &Path, key: String, token: u64, measure: Measure, flight: Flight) {
+        let (cache, folder) = (self.clone(), path.to_path_buf());
+        tokio::spawn(async move {
+            let walked = on_lane(lane, &CancellationToken::new(), move || measure(&folder)).await;
+            let result = walked.map(|(bytes, complete)| Measured { bytes, complete, at: epoch_ms() });
+            cache.finish(&key, token, result.as_ref().ok().copied());
+            flight.send_replace(Some(result));
+        });
+    }
+
+    pub async fn get(self: &Arc<Self>, lane: MaintenanceIo, path: &Path, ttl: Duration, measure: Measure, cancel: &CancellationToken) -> Result<Measured, ScmFailure> {
+        let key = path_key(path);
+        let token = self.walks.fetch_add(1, Ordering::Relaxed) + 1;
+        let new_flight = || -> Flight { Arc::new(tokio::sync::watch::channel(None).0) };
+        let (cached, flight, started) = {
+            let mut slots = self.slots.lock().expect("size cache");
+            match slots.get_mut(&key) {
+                Some(Slot { measured: Some(measured), refresh, flight }) => {
+                    let stale = refresh.is_none() && epoch_ms() - measured.at >= ttl.as_millis() as i64;
+                    if stale {
+                        *refresh = Some(token);
+                        *flight = Some(new_flight());
+                    }
+                    (Some(*measured), flight.clone().filter(|_| stale), stale)
+                }
+                Some(slot) => (None, slot.flight.clone(), false),
+                None => {
+                    let flight = new_flight();
+                    slots.insert(key.clone(), Slot { measured: None, refresh: Some(token), flight: Some(flight.clone()) });
+                    (None, Some(flight), true)
+                }
+            }
+        };
+        if started && let Some(flight) = &flight {
+            self.start(lane, path, key, token, measure, flight.clone());
+        }
+        if let Some(measured) = cached {
+            return Ok(measured);
+        }
+        let mut result = flight.expect("a path never measured has a walk under way").subscribe();
+        let cancelled = std::pin::pin!(cancel.cancelled());
+        let ended = std::pin::pin!(result.wait_for(Option::is_some));
+        match futures::future::select(cancelled, ended).await {
+            futures::future::Either::Left(_) => Err(ScmFailure::Cancelled),
+            futures::future::Either::Right((Ok(ended), _)) => ended.clone().expect("waited for a result"),
+            futures::future::Either::Right((Err(_), _)) => Err(ScmFailure::Cancelled),
+        }
     }
 }

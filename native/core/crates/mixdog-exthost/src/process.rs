@@ -379,6 +379,7 @@ mod tests {
         worker_command(Path::new(program), &args, &[])
     }
 
+
     /// A worker that starts a grandchild at its first instruction is ended, grandchild included, when its containment
     /// ends: the grandchild holds the worker's stdout, so the pipe reaches its end only once the whole tree is gone.
     #[tokio::test]
@@ -411,7 +412,6 @@ mod tests {
             .expect("the worker ended in 30 s")
             .unwrap();
     }
-
     /// A worker the job refuses is not started: the start fails and the child, created suspended and never resumed, is
     /// ended.
     #[tokio::test]

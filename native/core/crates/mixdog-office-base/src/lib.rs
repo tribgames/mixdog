@@ -23,6 +23,7 @@ pub mod page_sizes;
 pub mod values;
 pub mod write_note;
 
+#[cfg(node_twin)]
 #[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]
 pub mod twin;

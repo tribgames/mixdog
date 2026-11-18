@@ -21,7 +21,7 @@ use serde_json::json;
 
 use super::Rig;
 use super::reason;
-use super::sample::Samples;
+use super::samples::Samples;
 use super::settle;
 
 /// Methods the server answers itself instead of passing to the core. `feed/subscribe` is here
@@ -274,6 +274,60 @@ async fn origin_rules_come_from_the_table() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn handoff_secrets_accept_local_and_ssh_desktops_but_refuse_relay() {
+    let rig = Rig::new();
+    let method = "approval/provideSecret";
+    let params = |op_id| json!({ "opId": op_id, "requestId": "secret_0123456789ab", "secret": "fixture-only" });
+    let phone = rig.connect(1, Origin::Relay);
+    phone.initialize(super::VERSION, json!({}));
+    let initialized = phone.response(0).await;
+    assert_eq!(initialized["result"]["capabilities"]["remote"]["secretInput"], false);
+    phone.request(1, method, params("secret-test-relay"));
+    let denied = phone.response(1).await;
+    assert_eq!(
+        denied["error"]["data"],
+        json!({ "reason": "permissionDenied", "method": method, "origin": "relay" })
+    );
+
+    for (id, origin, op_id) in [(2, Origin::Local, "secret-test-local"), (3, Origin::Ssh, "secret-test-ssh")] {
+        let desktop = rig.connect(id, origin);
+        desktop.initialize(super::VERSION, json!({}));
+        desktop.response(0).await;
+        desktop.request(1, method, params(op_id));
+        let response = desktop.response(1).await;
+        assert_eq!(response["result"]["method"], method, "{origin:?}: {response}");
+    }
+}
+
+/// The capabilities no remote client may call (`REMOTE_BLOCKED_CAPABILITY_NAMES`, apps/desktop/src/shared/remote-blocked-capabilities.ts:
+/// the media resolver and conversation import) are refused by the core to a relay connection itself, whatever the page sends: the
+/// method table gives them no `Relay` origin, so the phone's page is not the boundary.
+#[tokio::test(start_paused = true)]
+async fn the_capabilities_withheld_from_remote_clients_are_refused_to_a_relay_connection() {
+    let rig = Rig::new();
+    let phone = rig.connect(1, Origin::Relay);
+    phone.initialize(super::VERSION, json!({}));
+    phone.response(0).await;
+    for (n, method) in [
+        "media/resolveMediaFile",
+        "import/listImportableConversations",
+        "import/getConversationImportJobs",
+        "import/registerConversationImportFile",
+        "import/startConversationImport",
+        "import/cancelConversationImport",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let id = n as i64 + 1;
+        phone.request(id, method, json!({}));
+        let denied = phone.response(id).await;
+        assert_eq!(reason(&denied), "permissionDenied", "{method}");
+        assert_eq!(denied["error"]["data"]["origin"], "relay", "{method}");
+    }
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_call_from_a_connection_without_a_known_origin_is_refused() {
     let rig = Rig::new();
     // Never registered with the transport: not even `initialize` is served.
@@ -431,37 +485,6 @@ async fn requests_of_one_key_run_one_at_a_time_and_other_keys_run_beside_them() 
     assert!(a_ends[0] < a_starts[1], "second `a` started before the first ended: {log:?}");
 }
 
-/// What a call holds for its reply (`CallContext::after_answer`, e.g. the rows of a room call's background catalog listing) is
-/// let go only once the server has queued the reply: as the response is queued, the call's hold stands; after, it has ended.
-/// The call's hold ends only after its response is queued on the connection.
-#[tokio::test]
-async fn a_calls_hold_on_its_reply_ends_only_after_the_reply_is_queued() {
-    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
-    let rig = Rig::gated(&["terminal"]);
-    let gate = Arc::clone(rig.gate("terminal"));
-    let watched = Arc::clone(&gate);
-    // At each queued frame: whether any call's hold had ended by then.
-    let (client, mut arrivals) =
-        rig.connect_watched(1, move || watched.held.lock().unwrap().iter().any(|hold| hold.is_cancelled()));
-    client.initialize(super::VERSION, json!({}));
-    let (initialized, _) = arrivals.next(DEADLINE, "the initialize response").await;
-    assert_eq!(initialized["id"], json!(0), "{initialized}");
-    client.request(1, "terminal/focus", json!({ "tabId": "a", "focused": true }));
-    gate.permits.add_permits(1);
-    let (response, ended) = arrivals.next(DEADLINE, "the response to the call").await;
-    assert_eq!(response["id"], json!(1), "{response}");
-    assert_eq!(response["result"], json!({ "done": "terminal/focus:a" }), "{response}");
-    assert!(!ended, "the call's hold had ended when its response was queued");
-    let hold = {
-        let holds = gate.held.lock().unwrap();
-        assert_eq!(holds.len(), 1, "one call");
-        holds[0].clone()
-    };
-    mixdog_rt::time::timeout(DEADLINE, hold.cancelled())
-        .await
-        .expect("the call's hold never ended after its response was queued");
-}
-
 #[tokio::test(start_paused = true)]
 async fn reads_share_a_domain_and_queue_behind_its_writes() {
     let rig = Rig::gated(&["project"]);
@@ -534,4 +557,66 @@ async fn queued_requests_of_a_closed_connection_never_run() {
     other.request(1, "project/touch", touch(&samples, "w3"));
     settle().await;
     assert_eq!(gate.log()[2], "start project/touch:w3");
+}
+
+
+/// The lanes know nothing of a client's presence: a call queued for its turn is started when the turn comes, whatever became of its
+/// connection. Whether it then runs is the call's own queue's decision: a keyed call is discarded there (the test above), a call
+/// with no key (`thread/read`) reaches its handler and its answer has nowhere to go.
+/// 1.4.5 (`call-route.mjs` over `fair-call-scheduler.mjs`) passed no abort signal for a `POST /call`, so every queued call started, keyed or not.
+#[tokio::test(start_paused = true)]
+async fn a_call_queued_in_a_lane_for_a_client_that_leaves_still_starts_and_its_answer_is_dropped() {
+    let rig = Rig::gated(&["project"]);
+    let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let thread = rig.core.mock.directory().insert(ThreadId::from("t1"));
+    thread.set_handler({
+        let reads = Arc::clone(&reads);
+        Arc::new(move |_| {
+            reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(Reply::Value(json!({ "via": "thread" })))
+        })
+    });
+    {
+        let client = rig.ready(1, json!({}));
+        client.request(1, "thread/read", json!({ "threadId": "t1" }));
+        // Queued in its lane, waiting for the next check phase; the client closes before that.
+    }
+    assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 0, "the call had not started when its client left");
+    settle().await;
+    assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 1, "the lane started it for nobody");
+    let other = rig.ready(2, json!({}));
+    other.request(1, "thread/read", json!({ "threadId": "t1" }));
+    assert_eq!(other.response(1).await["result"], json!({ "via": "thread" }), "the lane and the thread serve the next client as before");
+    assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+/// What a call holds for its reply (`CallContext::after_answer`, e.g. the rows of a room call's background catalog listing) is
+/// let go only once the server has queued the reply: as the response is queued, the call's hold stands; after, it has ended.
+/// The call's hold ends only after its response is queued on the connection.
+#[tokio::test]
+async fn a_calls_hold_on_its_reply_ends_only_after_the_reply_is_queued() {
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+    let rig = Rig::gated(&["terminal"]);
+    let gate = Arc::clone(rig.gate("terminal"));
+    let watched = Arc::clone(&gate);
+    // At each queued frame: whether any call's hold had ended by then.
+    let (client, mut arrivals) =
+        rig.connect_watched(1, move || watched.held.lock().unwrap().iter().any(|hold| hold.is_cancelled()));
+    client.initialize(super::VERSION, json!({}));
+    let (initialized, _) = arrivals.next(DEADLINE, "the initialize response").await;
+    assert_eq!(initialized["id"], json!(0), "{initialized}");
+    client.request(1, "terminal/focus", json!({ "tabId": "a", "focused": true }));
+    gate.permits.add_permits(1);
+    let (response, ended) = arrivals.next(DEADLINE, "the response to the call").await;
+    assert_eq!(response["id"], json!(1), "{response}");
+    assert_eq!(response["result"], json!({ "done": "terminal/focus:a" }), "{response}");
+    assert!(!ended, "the call's hold had ended when its response was queued");
+    let hold = {
+        let holds = gate.held.lock().unwrap();
+        assert_eq!(holds.len(), 1, "one call");
+        holds[0].clone()
+    };
+    mixdog_rt::time::timeout(DEADLINE, hold.cancelled())
+        .await
+        .expect("the call's hold never ended after its response was queued");
 }

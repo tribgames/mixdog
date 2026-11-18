@@ -4,6 +4,8 @@
 //! and Anthropic codecs lower into the deferred tool definitions), and its summary replaces the
 //! result text.
 
+use std::collections::HashMap;
+
 use mixdog_js::js_trim;
 use mixdog_js::value_to_string;
 use serde_json::Value;
@@ -11,6 +13,50 @@ use serde_json::json;
 
 /// The tools whose result may carry a native tool-search payload.
 const LOADING_TOOLS: [&str; 4] = ["load_tool", "tool_search", "Skill", "skill_view"];
+
+/// Native schemas owned by the input being assembled, not by the session's discovery flags.
+/// Track the last schema for a provider/name so a changed definition can register again.
+#[derive(Clone, Default)]
+pub struct NativeDefinitions(HashMap<(String, String), Vec<Value>>);
+
+impl NativeDefinitions {
+    pub fn record(&mut self, payload: &Value) {
+        self.collect(payload);
+    }
+
+    fn collect<'a>(&mut self, payload: &'a Value) -> std::collections::HashSet<&'a str> {
+        let provider = payload.get("provider").and_then(Value::as_str).unwrap_or_default().to_ascii_lowercase();
+        let refs = payload.get("toolReferences").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        let tools = payload.get("openaiTools").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        let mut new = std::collections::HashSet::new();
+        for name in refs.iter().filter_map(Value::as_str).chain(tools.iter().filter_map(|tool| tool.get("name").and_then(Value::as_str))) {
+            let key = (provider.clone(), name.to_owned());
+            let definitions: Vec<_> = tools.iter().filter(|tool| tool.get("name").and_then(Value::as_str) == Some(name)).cloned().collect();
+            if self.0.get(&key) != Some(&definitions) {
+                self.0.insert(key, definitions);
+                new.insert(name);
+            }
+        }
+        new
+    }
+
+    pub fn take_new(&mut self, mut payload: Value) -> Option<Value> {
+        let refs = payload.get("toolReferences").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        let tools = payload.get("openaiTools").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        if refs.is_empty() && tools.is_empty() {
+            return Some(payload);
+        }
+        let new = self.collect(&payload);
+        if new.is_empty() {
+            return None;
+        }
+        let references = refs.iter().filter(|name| name.as_str().is_some_and(|name| new.contains(name))).cloned().collect();
+        let definitions = tools.iter().filter(|tool| tool.get("name").and_then(Value::as_str).is_some_and(|name| new.contains(name))).cloned().collect();
+        payload["toolReferences"] = Value::Array(references);
+        payload["openaiTools"] = Value::Array(definitions);
+        Some(payload)
+    }
+}
 
 /// JavaScript truthiness of a parsed JSON value.
 fn truthy(value: &Value) -> bool {

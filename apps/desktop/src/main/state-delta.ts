@@ -286,41 +286,59 @@ function restoreStreamingTailEpoch(source: Record<string, unknown>, target: Reco
  *  every publish hands back equal-but-new objects, and `agentWorkers`,
  *  `agentJobs`, `shellJobs` and friends are exactly the fields that get rebuilt
  *  while an agent runs. Treating those as changed re-sent whole arrays on every
- *  streamed frame — the most expensive lane on the relay was mostly repeats. */
+ *  streamed frame — the most expensive lane on the relay was mostly repeats.
+ *  Compared as JSON values (a key holding `undefined` is absent), walked so that
+ *  a shared member (a tool result's text) costs a reference check, not its
+ *  serialization: a rebuilt row is compared on every frame. */
 function sameSnapshotField(before: unknown, after: unknown): boolean {
   if (Object.is(before, after)) return true;
   if (!before || !after || typeof before !== 'object' || typeof after !== 'object') return false;
-  return JSON.stringify(before) === JSON.stringify(after);
+  if (Array.isArray(before) || Array.isArray(after)) {
+    return (
+      Array.isArray(before) &&
+      Array.isArray(after) &&
+      before.length === after.length &&
+      before.every((value, index) => sameSnapshotField(value, after[index]))
+    );
+  }
+  const left = before as Record<string, unknown>;
+  const right = after as Record<string, unknown>;
+  const keys = Object.keys(left).filter((key) => left[key] !== undefined);
+  if (keys.length !== Object.keys(right).filter((key) => right[key] !== undefined).length) return false;
+  return keys.every((key) => Object.hasOwn(right, key) && sameSnapshotField(left[key], right[key]));
 }
 
 function itemId(item: unknown): unknown {
   return item && typeof item === 'object' ? (item as Record<string, unknown>).id : undefined;
 }
 
-/** Item-by-item reuse. Transcript items are appended and settled in place, so
- *  an unchanged prefix is the norm, and its identity is exactly what the delta
- *  encoders read to mean "the receiver already holds this". An older-history
- *  page grows the list at its HEAD instead: the held rows reappear shifted by
- *  the page length, so they are aligned on the first held row's id. */
+/** Item-by-item reuse: an item equal to the held item of its id (an id-less
+ *  one: of its position) is the held object, wherever the list moved it (an
+ *  older-history page grows the list at its head, a window cut drops it).
+ *  That identity is exactly what the delta encoders and the row renderers read
+ *  to mean "the receiver already holds this". */
 export function reconcileTranscriptItems(before: readonly unknown[], after: readonly unknown[]): readonly unknown[] {
-  const firstId = itemId(before[0]);
-  let offset = 0;
-  if (firstId != null && itemId(after[0]) !== firstId) {
-    offset = Math.max(
-      0,
-      after.findIndex((item) => itemId(item) === firstId)
-    );
+  if (before === after) return before;
+  const held = new Map<unknown, unknown>();
+  for (const item of before) {
+    const id = itemId(item);
+    if (id != null) held.set(id, item);
   }
-  let reusedAll = offset === 0 && before.length === after.length;
+  let reusedAll = before.length === after.length;
+  let reusedAny = false;
   const items = after.map((item, index) => {
-    const priorIndex = index - offset;
-    if (priorIndex >= 0 && priorIndex < before.length && sameSnapshotField(before[priorIndex], item)) {
-      return before[priorIndex];
+    const id = itemId(item);
+    const prior = id != null ? held.get(id) : before[index];
+    if (prior !== undefined && sameSnapshotField(prior, item)) {
+      if (prior !== before[index]) reusedAll = false;
+      if (prior !== item) reusedAny = true;
+      return prior;
     }
     reusedAll = false;
     return item;
   });
-  return reusedAll ? before : items;
+  if (reusedAll) return before;
+  return reusedAny ? items : after;
 }
 
 /** Fold a freshly read stored projection onto the one already held.
@@ -332,7 +350,8 @@ export function reconcileTranscriptItems(before: readonly unknown[], after: read
  *  whose screen never moved was receiving the whole transcript once a second.
  *
  *  Returns the previous snapshot itself when nothing differs, so the caller can
- *  compare by reference and publish nothing at all. */
+ *  compare by reference and publish nothing at all, and the next one itself
+ *  when it holds nothing of the previous one. */
 export function reconcileSessionProjection<T>(previous: T, next: T): T {
   if (!previous || !next || typeof previous !== 'object' || typeof next !== 'object') return next;
   if (Array.isArray(previous) || Array.isArray(next)) return next;
@@ -340,21 +359,25 @@ export function reconcileSessionProjection<T>(previous: T, next: T): T {
   const after = next as Record<string, unknown>;
   const merged: Record<string, unknown> = {};
   let identical = Object.keys(before).length === Object.keys(after).length;
+  let reused = false;
   for (const [key, value] of Object.entries(after)) {
     if (key === 'items' && Array.isArray(value) && Array.isArray(before.items)) {
       const items = reconcileTranscriptItems(before.items, value);
       merged.items = items;
       if (items !== before.items) identical = false;
+      if (items !== value) reused = true;
       continue;
     }
     if (Object.hasOwn(before, key) && sameSnapshotField(before[key], value)) {
       merged[key] = before[key];
+      if (before[key] !== value) reused = true;
       continue;
     }
     merged[key] = value;
     identical = false;
   }
-  return identical ? previous : (merged as T);
+  if (identical) return previous;
+  return reused ? (merged as T) : next;
 }
 
 function snapshotFieldsFrom(record: Record<string, unknown>): Record<string, unknown> {

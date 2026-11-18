@@ -31,7 +31,7 @@ async function packAll(dir, programs) {
   const main = join(dir, 'main');
   mkdirSync(join(main, 'bin'), { recursive: true });
   mkdirSync(join(main, 'src'));
-  for (const file of ['mixdog.mjs', 'native-layout.mjs']) writeFileSync(join(main, 'bin', file), readFileSync(join(root, 'bin', file)));
+  for (const file of ['mixdog.mjs', 'native-layout.mjs', 'staged-swap.mjs', 'invocation.mjs']) writeFileSync(join(main, 'bin', file), readFileSync(join(root, 'bin', file)));
   writeFileSync(join(main, 'src', 'skill-script-entry.mjs'), '');
   writeFileSync(join(main, 'package.json'), JSON.stringify({ name: 'mixdog', version: VERSION, type: 'module', bin: { mixdog: 'bin/mixdog.mjs' }, files: ['bin/', 'src/'] }));
   lockOptionalDependencies(join(main, 'package.json'));
@@ -114,6 +114,8 @@ test('a platform package with a program missing or an extra file, and a main pac
     mkdirSync(join(main, 'native-bin', 'linux-x64'), { recursive: true });
     writeFileSync(join(main, 'bin', 'mixdog.mjs'), '');
     writeFileSync(join(main, 'bin', 'native-layout.mjs'), '');
+    writeFileSync(join(main, 'bin', 'staged-swap.mjs'), '');
+    writeFileSync(join(main, 'bin', 'invocation.mjs'), '');
     writeFileSync(join(main, 'native-bin', 'linux-x64', 'mixdog'), 'program');
     writeFileSync(join(main, 'package.json'), JSON.stringify({ name: 'mixdog', version: VERSION, files: ['bin/', 'native-bin/'] }));
     assert.equal(npm(['pack', '--ignore-scripts', '--pack-destination', out], main).status, 0);
@@ -140,7 +142,7 @@ test(
       const main = join(dir, 'main');
       mkdirSync(join(main, 'bin'), { recursive: true });
       mkdirSync(join(main, 'src'));
-      for (const file of ['mixdog.mjs', 'native-layout.mjs']) writeFileSync(join(main, 'bin', file), readFileSync(join(root, 'bin', file)));
+      for (const file of ['mixdog.mjs', 'native-layout.mjs', 'staged-swap.mjs', 'invocation.mjs']) writeFileSync(join(main, 'bin', file), readFileSync(join(root, 'bin', file)));
       writeFileSync(join(main, 'src', 'skill-script-entry.mjs'), '');
       const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
       writeFileSync(join(main, 'package.json'), JSON.stringify({ name: 'mixdog', version, type: 'module', files: ['bin/', 'src/'] }));

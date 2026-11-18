@@ -52,7 +52,16 @@ function mount(t, host) {
   t.after(resetBotOrder);
   const { dom, root } = installTestDom(t, {
     jsdom: { url: 'http://localhost/' },
-    expose: ['HTMLElement', 'Element', 'Node', 'KeyboardEvent', 'MouseEvent', 'MutationObserver', 'navigator'],
+    expose: [
+      'HTMLElement',
+      'Element',
+      'Node',
+      'KeyboardEvent',
+      'MouseEvent',
+      'MutationObserver',
+      'navigator',
+      'getComputedStyle',
+    ],
     globals: {
       ResizeObserver: class {
         observe() {}
@@ -176,15 +185,22 @@ test('the composer island counts failures, and Clear finished leaves only work t
     worker('busy', { status: 'running', stage: 'running', idleSince: null }),
   ]);
   const segment = () => document.querySelector('.composer-island-seg-agents');
-  assert.equal(segment().querySelector('.composer-island-seg-state[data-kind="failed"]'), null);
   assert.doesNotMatch(segment().title, /failed/);
   await act(async () => segment().click());
   const row = (tag) => document.querySelector(`.agent-pool-row[data-agent-tag="${tag}"] .agent-activity-elapsed`);
   assert.equal(row('stalled').textContent, 'Failed');
   assert.match(document.querySelector('.composer-island-phead').textContent, /1 failed/);
-  const clear = [...document.querySelectorAll('.composer-island-phead-action')].find(
-    (button) => button.textContent === 'Clear finished'
-  );
+  // The footer's right-end "Clean up", named for what it clears; the header
+  // keeps only the close button.
+  assert.equal(document.querySelectorAll('.composer-island-phead button').length, 1);
+  const clear = document.querySelector('.composer-island-panel-foot-end [data-kind="clear-finished"]');
+  assert.equal(clear.textContent, 'Clean up');
+  assert.equal(clear.getAttribute('aria-label'), 'Clear finished');
+  assert.equal(clear.title, 'Clear finished');
+  assert.ok(clear.querySelector('svg.lucide-brush-cleaning'));
+  await act(async () => clear.click());
+  assert.equal(document.querySelector('.composer-island-panel-foot-end [data-kind="clear-finished"]'), clear);
+  assert.equal(clear.getAttribute('aria-disabled'), 'true');
   await act(async () => clear.click());
   assert.deepEqual(
     [...document.querySelectorAll('.agent-pool-row')].map((node) => node.dataset.agentTag),

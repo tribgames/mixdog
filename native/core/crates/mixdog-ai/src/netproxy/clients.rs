@@ -35,8 +35,6 @@ impl std::fmt::Display for ClientError {
     }
 }
 
-impl std::error::Error for ClientError {}
-
 /// The proxy as `reqwest` must be given it. `socks5://` makes reqwest resolve
 /// the destination itself and hand the proxy an address; Node's SOCKS client
 /// sends the hostname, which is `socks5h://`.
@@ -167,3 +165,6 @@ mod flavour_tests {
         assert_eq!(routed_builds.load(Ordering::SeqCst), 0, "the routed builder is not asked");
     }
 }
+
+
+impl std::error::Error for ClientError {}

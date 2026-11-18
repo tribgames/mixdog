@@ -79,9 +79,14 @@ struct HostState {
 
 pub(crate) struct Connection {
     pub(crate) id: ConnectionId,
+    pub(crate) replay_principal: Option<Arc<str>>,
+    pub(crate) replay_socket: u64,
     pub(crate) sink: Arc<dyn ConnectionSink>,
     /// Cancelled when the connection closes: queued work is dropped, running work is told.
     pub(crate) cancel: CancellationToken,
+    /// The order this connection's `host/state/set` requests arrived in, kept while their blob references are expanded.
+    pub(crate) state_order: Arc<crate::arrival_order::ArrivalOrder>,
+    pub(crate) browser_dialog_order: Arc<crate::arrival_order::ArrivalOrder>,
     session: OnceLock<Session>,
     /// Set once the initialize response is queued. The session is latched earlier, so this
     /// is what keeps a server request from overtaking the response on the control lane.
@@ -127,11 +132,16 @@ impl Drop for Slot {
 }
 
 impl Connection {
-    pub(crate) fn new(id: ConnectionId, sink: Arc<dyn ConnectionSink>) -> Self {
+    pub(crate) fn new(id: ConnectionId, sink: Arc<dyn ConnectionSink>, replay_principal: Option<Arc<str>>) -> Self {
+        static NEXT_REPLAY_SOCKET: AtomicU64 = AtomicU64::new(1);
         Self {
             id,
+            replay_principal,
+            replay_socket: NEXT_REPLAY_SOCKET.fetch_add(1, Ordering::Relaxed),
             sink,
             cancel: CancellationToken::new(),
+            state_order: Default::default(),
+            browser_dialog_order: Default::default(),
             session: OnceLock::new(),
             handshake_done: AtomicBool::new(false),
             subs: Mutex::new(Some(HashMap::new())),
@@ -192,6 +202,23 @@ impl Connection {
 
     pub(crate) fn remove_subscription(&self, feed: &FeedId) -> Option<Sub> {
         lock(&self.subs).as_mut().and_then(|subs| subs.remove(feed))
+    }
+
+    pub(crate) fn live_feed(&self, feed: &FeedId) -> Option<Arc<dyn FeedSource>> {
+        lock(&self.subs)
+            .as_ref()?
+            .get(feed)
+            .filter(|sub| sub.live)
+            .map(|sub| Arc::clone(&sub.feed))
+    }
+
+    pub(crate) fn live_feeds(&self) -> Vec<(FeedId, Arc<dyn FeedSource>)> {
+        lock(&self.subs)
+            .iter()
+            .flat_map(|subs| subs.iter())
+            .filter(|(_, sub)| sub.live)
+            .map(|(id, sub)| (id.clone(), Arc::clone(&sub.feed)))
+            .collect()
     }
 
     pub(crate) fn is_live_on(&self, feed: &FeedId) -> bool {

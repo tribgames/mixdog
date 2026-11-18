@@ -1,7 +1,6 @@
 //! `glob`, `find` and `grep` over the file service's walk and text-search
 //! streams, which run on the maintenance lane (T §3.3).
 
-use std::collections::BTreeSet;
 use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
@@ -36,8 +35,6 @@ use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
 use mixdog_core_api::domain::tool::ToolOutcome;
-use mixdog_core_api::domain::tool::ToolOutput;
-use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 
@@ -83,111 +80,6 @@ pub(super) struct Walked {
     pub capped: bool,
 }
 
-/// Pulls a recursive walk of `root` into a list of at most `cap` kept files.
-#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-async fn walk_entries(
-    ctx: &ToolContext,
-    root: &AbsPath,
-    respect_ignore: bool,
-    keep: impl Fn(&DirEntry) -> bool,
-    cap: Option<usize>,
-    server: Option<(SearchClass, u64)>,
-) -> Result<Walked, ToolError> {
-    walk_entries_pruned(ctx, root, respect_ignore, keep, root_scan_prunes(root, cfg!(not(windows))), cap, server).await
-}
-
-#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-pub(super) async fn walk_entries_pruned(
-    ctx: &ToolContext,
-    root: &AbsPath,
-    respect_ignore: bool,
-    keep: impl Fn(&DirEntry) -> bool,
-    prune: Vec<AbsPath>,
-    cap: Option<usize>,
-    server: Option<(SearchClass, u64)>,
-) -> Result<Walked, ToolError> {
-    let budget_ms = server.map_or(u64::MAX, |(_, budget)| budget);
-    let server = server.map(|(class, _)| class);
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore, require_git: true, include_dirs: false, prune, descent: Default::default(), server };
-    walk_kept(ctx, request, keep, cap, budget_ms).await
-}
-
-/// Files and directories under `root` (nothing ignored or hidden skipped; the kernel trees of a
-/// filesystem root pruned), at most `cap` kept entries.
-#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-pub(super) async fn walk_inventory(
-    ctx: &ToolContext,
-    root: &AbsPath,
-    keep: impl Fn(&DirEntry) -> bool,
-    cap: usize,
-) -> Result<Walked, ToolError> {
-    let prune = root_scan_prunes(root, cfg!(not(windows)));
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, require_git: true, include_dirs: true, prune, descent: Default::default(), server: None };
-    walk_kept(ctx, request, keep, Some(cap), u64::MAX).await
-}
-
-/// A deep `list`'s inventory (`tryNativeDeepListRows`): files and directories under `root`, nothing ignored, at most `cap`
-/// kept, as one `--files --directories` request to the search server, which is a broad search (`isBroadSearchRequest`: its
-/// args hold `--files`) and takes its turn on the broad-search gate within the search's budget. It is refused or ends past
-/// its budget as a glob's inventory does (`BROAD_REFUSALS`). The walk itself stops at `descent` (`--max-depth`, the
-/// noise folders and, unless hidden, dotted folders listed but not entered), so nothing `keep` would drop is read.
-#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-pub(super) async fn broad_listing(ctx: &ToolContext, root: &AbsPath, descent: Descent, keep: impl Fn(&DirEntry) -> bool, cap: usize) -> Result<Walked, ToolError> {
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, require_git: true, include_dirs: true, prune: Vec::new(), descent, server: Some(SearchClass::Bulk) };
-    broad_search(ctx, BROAD_REFUSALS[1], |budget| walk_kept(ctx, request, keep, Some(cap), budget)).await
-}
-
-#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-async fn walk_kept(
-    ctx: &ToolContext,
-    request: WalkRequest,
-    keep: impl Fn(&DirEntry) -> bool,
-    cap: Option<usize>,
-    budget_ms: u64,
-) -> Result<Walked, ToolError> {
-    let include_dirs = request.include_dirs;
-    // A walk the search server runs answers what it found at its soft deadline, before the client's hard timeout would refuse the
-    // search (`softDeadlineMs`, native-search-client.mjs): the served partial. Admission has already spent part of that
-    // total budget; restarting it here would put the partial beyond the enclosing hard deadline.
-    let soft = request.server.map(|_| SearchDeadlines::within(ctx, budget_ms).soft);
-    let mut walk = ctx.files.walk(ctx.io.maintenance, request);
-    let mut out = Vec::new();
-    let mut capped = false;
-    let mut refused = None;
-    let timer = async move {
-        match soft {
-            Some(at) => mixdog_rt::time::sleep_until(at).await,
-            None => std::future::pending().await,
-        }
-    };
-    let end = pull_until(ctx, walk.as_mut(), timer, |item| {
-        match item {
-            Ok(entry) => {
-                if (include_dirs || entry.kind != EntryKind::Dir) && keep(&entry) {
-                    // Exactly `cap` files is a complete list; the next one is what was cut.
-                    if cap.is_some_and(|cap| out.len() >= cap) {
-                        capped = true;
-                        return false;
-                    }
-                    out.push(entry);
-                }
-            }
-            Err(FsError { kind, .. }) => refused = refused.take().or_else(|| refusal_reason(&kind)),
-        }
-        true
-    })
-    .await;
-    let complete = match end {
-        PullEnd::Cancelled => return Err(cancelled()),
-        PullEnd::Deadline | PullEnd::Timer => false,
-        PullEnd::Exhausted => true,
-    };
-    if let Some(reason) = refused {
-        return Err(refusal(reason));
-    }
-    Ok(Walked { entries: out, complete, capped })
-}
-
 /// Node's search server refusing a request its full queue cannot take (serve_search/server.rs:370-383), which its client
 /// throws (`NATIVE_SEARCH_ERROR`, native-search-client.mjs:869-871) and the tools answer as their failure: grep's and
 /// find's `Error: native search queue saturated` (search-grep-tool.mjs:679), glob's group failure
@@ -219,7 +111,7 @@ fn refusal(reason: String) -> ToolError {
 /// Broad-search refusal prefixes: admission expiry names the wait; expiry after admission names the remaining
 /// budget, which also covers producer waiting. The tools answer both as they answer a full queue ([`broad_search`]).
 const BROAD_REFUSALS: [&str; 4] = [
-    "broad search I/O admission wait exceeded ",
+    "broad search not started: ",
     "native file inventory search exceeded its ",
     "native fuzzy search exceeded its ",
     "native content search exceeded its ",
@@ -296,6 +188,26 @@ fn gate_owner(thread: &str) -> String {
     if owner.is_empty() { "anonymous".to_owned() } else { owner }
 }
 
+/// The broad searches running and waiting on [`BROAD_SEARCH`], so a refusal can say what the search waited behind.
+static BROAD_RUNNING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static BROAD_WAITING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// A count held for as long as the value lives.
+struct Counted(&'static std::sync::atomic::AtomicUsize);
+
+impl Counted {
+    fn new(count: &'static std::sync::atomic::AtomicUsize) -> Self {
+        count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self(count)
+    }
+}
+
+impl Drop for Counted {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// How a broad search came by its turn, and how long its work then ran.
 pub(super) struct Turn {
     /// It waited behind another search. Node tells such a search's admission to whichever call was running when the
@@ -304,95 +216,19 @@ pub(super) struct Turn {
     pub ran_ms: u64,
 }
 
-/// `work`, a broad search whose hard timeout is worded `kind` (`BROAD_REFUSALS`: a file inventory's, a fuzzy search's or a
-/// content search's), run in its turn on the process's one broad-search gate, for the session of the call.
-/// The search's budget (`SearchDeadlines`, native-search-client.mjs `requestNativeWithRestart`) covers the wait and the
-/// work: a turn not had within it is refused (the gate's `waitTimeoutMs` is the budget left at the call, its whole
-/// budget here as no setup is spent), and the work has what the wait left, at least 1 ms
-/// (`searchRemainingMs`), before the search's hard timeout (`requestNative`). A cancel ends the wait, or the work and
-/// its turn with it; the turn is released as the work ends, however it ends.
-#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-async fn broad_search<T, W: Future<Output = Result<T, ToolError>>>(ctx: &ToolContext, kind: &str, work: impl FnOnce(u64) -> W) -> Result<T, ToolError> {
-    broad_search_turn(ctx, kind, work).await.map(|(out, _)| out)
-}
-
-/// As [`broad_search`], with how the turn came and went; `work` is given the budget left, in ms.
-#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-pub(super) async fn broad_search_turn<T, W: Future<Output = Result<T, ToolError>>>(
-    ctx: &ToolContext,
-    kind: &str,
-    work: impl FnOnce(u64) -> W,
-) -> Result<(T, Turn), ToolError> {
-    let budget = SearchDeadlines::of(ctx).hard_ms;
-    let queued = mixdog_rt::time::Instant::now();
-    let waited = mixdog_rt::Scope::new()
-        .cancel(&ctx.cancel)
-        .within(Duration::from_millis(budget))
-        .run(BROAD_SEARCH.enter(&gate_owner(ctx.thread_id.as_str()), &ctx.cancel))
-        .await;
-    let turn = match waited {
-        mixdog_rt::Scoped::Done(Ok(turn)) => turn,
-        mixdog_rt::Scoped::Done(Err(mixdog_rt::GateCancelled)) | mixdog_rt::Scoped::Cancelled => return Err(cancelled()),
-        mixdog_rt::Scoped::DeadlineExceeded => {
-            return Err(refusal(format!("{}{budget}ms; retry after running work completes", BROAD_REFUSALS[0])));
-        }
-    };
-    let queued_behind_others = turn.queued();
-    let admitted = std::time::Instant::now();
-    let left = budget.saturating_sub(u64::try_from(queued.elapsed().as_millis()).unwrap_or(u64::MAX)).max(1);
-    let ran = mixdog_rt::Scope::new().cancel(&ctx.cancel).within(Duration::from_millis(left)).run(work(left)).await;
-    drop(turn);
-    let turn = Turn { queued: queued_behind_others, ran_ms: u64::try_from(admitted.elapsed().as_millis()).unwrap_or(u64::MAX) };
-    match ran {
-        mixdog_rt::Scoped::Done(out) => out.map(|out| (out, turn)),
-        mixdog_rt::Scoped::Cancelled => Err(cancelled()),
-        mixdog_rt::Scoped::DeadlineExceeded => {
-            Err(refusal(format!("{kind}{left}ms remaining budget.")))
-        }
-    }
-}
-
-/// Files under `root` matching any pattern, in walk order, with their mtime (ms; `None` when the
-/// stat failed), at most `cap` of them. `complete` is false when the walk hit the deadline,
-/// `capped` true when a match past the cap was dropped.
-#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-pub(crate) async fn glob_files(
-    ctx: &ToolContext,
-    root: &AbsPath,
-    patterns: &[String],
-    include_noise: bool,
-    cap: Option<usize>,
-) -> Result<(Vec<(AbsPath, Option<u128>)>, bool, bool, Turn), ToolError> {
-    let (inc, exc, any_include) = compile_globs(patterns)?;
-    let root_path = root.as_path();
-    let rel = |p: &Path| p.strip_prefix(&root_path).map(fwd).unwrap_or_else(|_| fwd(p));
-    let ((found, complete, capped), turn) = broad_search_turn(ctx, BROAD_REFUSALS[1], |budget| async move {
-        let walked = walk_entries(ctx, root, !include_noise, |e| {
-            if !include_noise && in_noise_dir(e.path.as_path(), &root_path) {
-                return false;
-            }
-            let r = rel(e.path.as_path());
-            (!any_include || inc.is_match(&r)) && !exc.is_match(&r)
-        }, cap, Some((SearchClass::Bulk, budget)))
-        .await?;
-        let mut out = Vec::with_capacity(walked.entries.len());
-        for e in walked.entries {
-            if ctx.cancel.is_cancelled() {
-                return Err(cancelled());
-            }
-            let m = mtime_millis(ctx, &e.path).await;
-            out.push((e.path, m));
-        }
-        Ok((out, walked.complete, walked.capped))
-    })
-    .await?;
-    Ok((found, complete, capped, turn))
-}
-
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn require_dir(ctx: &ToolContext, raw: &str, abs: &AbsPath) -> Result<Option<String>, ToolError> {
     match guarded(ctx, "search", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
         Ok(_) => Ok(None),
+        // Several paths joined in one string (and one of them there): glob's own repair, not a suggestion built from the joined text.
+        Err(e) if super::not_found::missing_code(&e.kind).is_some() && super::not_found::joined_list(raw) => {
+            let code = super::not_found::missing_code(&e.kind).unwrap_or("ENOENT");
+            if let Some(text) = super::not_found::joined_path_answer(ctx, abs, raw, code, super::not_found::PathTool::Glob).await {
+                return Ok(Some(text));
+            }
+            // No part of it exists: nothing says it is a list, so no list is claimed.
+            Ok(Some(super::not_found::missing_with_tool(ctx, abs, raw, code, super::not_found::PathTool::Glob).await))
+        }
         Err(e) if matches!(e.kind, FsErrorKind::NotFound | FsErrorKind::NotADirectory) => {
             let hint = ReadTool::not_found(ctx, raw, abs).await;
             let hint = hint.trim_start_matches("[path absent] ENOENT: no such file or directory, stat ");
@@ -413,6 +249,19 @@ fn is_absolute_pattern(pattern: &str) -> bool {
 /// path-utils.mjs `canonicalizeGlobSlashes`: rg reads `/` only, so on Windows a glob's `\` is a separator.
 fn canonical_glob_slashes(glob: &str) -> String {
     if cfg!(windows) { glob.replace('\\', "/") } else { glob.to_owned() }
+}
+
+/// The base used by each glob group, including groups outside the caller's project.
+pub fn glob_result_roots(args: &JsonValue) -> Option<Vec<String>> {
+    let path = super::common::optional_path_arg(args, "path", |_| String::new()).ok()?.unwrap_or(".");
+    let patterns: Vec<_> = arg_strings(args, "pattern").iter().map(|p| canonical_glob_slashes(p)).collect();
+    let mut roots = Vec::new();
+    if patterns.is_empty() || patterns.iter().any(|p| !is_absolute_pattern(p)) {
+        roots.push(path.to_owned());
+    }
+    roots.extend(patterns.iter().filter(|p| is_absolute_pattern(p))
+        .map(|p| extract_glob_base_directory(p).0.unwrap_or_else(|| path.to_owned())));
+    Some(roots)
 }
 
 /// Node `isUncOrSmbPath`: a `\\` or `//` spelling, the device namespaces (`//./`, `//?/`) included.
@@ -648,202 +497,6 @@ impl Default for GlobTool {
     }
 }
 
-#[async_trait]
-impl Tool for GlobTool {
-    fn spec(&self) -> &ToolSpec {
-        &self.spec
-    }
-
-    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        // arg-guard.mjs (glob): a `path` or `root` that is not a string, an array included, is refused; a null or
-        // blank one is absent and the search runs from the cwd.
-        let path = super::common::optional_path_arg(&args, "path", |got| format!("Error: glob arg \"path\" must be string (got {got})"))?;
-        super::common::optional_path_arg(&args, "root", |got| format!("Error: glob arg \"root\" must be string (got {got})"))?;
-        let patterns: Vec<String> = arg_strings(&args, "pattern").iter().map(|p| canonical_glob_slashes(p)).collect();
-        let raw = path.unwrap_or(".");
-        let natural = arg_str(&args, "sort") == Some("natural");
-        let limit = match arg_u64(&args, "limit") {
-            Some(0) => usize::MAX,
-            Some(n) => n as usize,
-            None => GLOB_DEFAULT_LIMIT,
-        };
-        let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
-        if let Some(text) = glob_unc_refusal(ctx, raw, &patterns) {
-            return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
-        }
-        let root = resolve_path(&ctx.cwd, raw)?;
-        // Node `buildGlobPatternGroups`: an absolute pattern is walked from its own static prefix,
-        // anchored there; the others from `path`.
-        let (absolute, relative): (Vec<String>, Vec<String>) =
-            patterns.iter().cloned().partition(|p| is_absolute_pattern(p));
-        // Each group with the root Node names it by (`normalizeOutputPath(root)`).
-        let mut groups: Vec<(AbsPath, Vec<String>, String)> = Vec::new();
-        if !relative.is_empty() || absolute.is_empty() {
-            if let Some(missing) = require_dir(ctx, raw, &root).await? {
-                return Ok(text_output(missing));
-            }
-            groups.push((root.clone(), relative, raw.replace('\\', "/")));
-        }
-        for pattern in &absolute {
-            let (base, rest) = extract_glob_base_directory(pattern);
-            let (group_root, label) = match base {
-                Some(base) => (resolve_path(&ctx.cwd, &base)?, base.replace('\\', "/")),
-                None => (root.clone(), raw.replace('\\', "/")),
-            };
-            let rest = format!("/{rest}");
-            match groups.iter_mut().find(|(r, _, _)| *r == group_root) {
-                Some((_, rels, _)) if rels.contains(&rest) => {}
-                Some((_, rels, _)) => rels.push(rest),
-                None => groups.push((group_root, vec![rest], label)),
-            }
-        }
-        // A bounded page is ranked over every match, as Node's windowed top-K pass counts them all;
-        // an unbounded listing keeps at most GLOB_ACCUM_CAP matches and says so (Node's full rg listing).
-        let cap = (limit == usize::MAX).then_some(GLOB_ACCUM_CAP);
-        let include_noise = arg_bool(&args, "include_noise");
-        let (mut files, mut complete, mut capped) = (Vec::new(), true, false);
-        let mut errors = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        let (mut walk_ms, mut admitted_directly, mut queued_behind_others) = (0u64, 0usize, false);
-        for (group_root, rels, label) in &groups {
-            if let Some(missing) = require_dir(ctx, &fwd(group_root.as_path()), group_root).await? {
-                errors.push(missing.trim_start_matches("Error: ").to_owned());
-                continue;
-            }
-            let (found, done, cut, turn) = match glob_files(ctx, group_root, rels, include_noise, cap).await {
-                Err(e) if refused_with(&e).is_some() => {
-                    errors.push(format!("rg failed for {label}: {}", refused_with(&e).unwrap_or_default()));
-                    continue;
-                }
-                found => found?,
-            };
-            walk_ms += turn.ran_ms;
-            admitted_directly += usize::from(!turn.queued);
-            queued_behind_others |= turn.queued;
-            complete &= done;
-            capped |= cut;
-            files.extend(found.into_iter().filter(|f| seen.insert(f.0.clone())));
-        }
-        if let Some(cap) = cap.filter(|cap| files.len() > *cap) {
-            files.truncate(cap);
-            capped = true;
-        }
-        // Node's glob is one `--files` request to the search server: admitted as a broad search, served as a bulk
-        // one (`search-admission.mjs`, `native-search-runner.mjs`, `local-search-telemetry.mjs`). The walk here is
-        // that request: its handler time the walk's, from its admission on. A search that waited for its turn
-        // (`broad_search`) reports no admission of its own: Node's gate tells it to whichever call handed the turn over
-        // (`onAdmit` runs where the dispatch was scheduled), so the waiter's telemetry has neither `broad_admissions` nor
-        // `broad_admission_wait_ms` (recorded: search-admission-waiter-telemetry).
-        let mut local_search = serde_json::Map::new();
-        if admitted_directly > 0 || !queued_behind_others {
-            local_search.insert("broad_admissions".to_owned(), 1.into());
-            local_search.insert("broad_admission_wait_ms".to_owned(), 0.into());
-        }
-        for (key, value) in [("native_bulk_requests", 1), ("native_bulk_queue_ms", 0), ("native_bulk_handler_ms", walk_ms), ("native_hits", 1), ("native_ms", walk_ms)] {
-            local_search.insert(key.to_owned(), value.into());
-        }
-        let local_search = JsonValue::Object(local_search);
-        let text_output = |text: String| {
-            let mut output = text_output(text);
-            output.meta = Some(serde_json::json!({ LOCAL_SEARCH_META: local_search }));
-            output
-        };
-        // `scanGlobGroups`' `Error: …` answer, a failure as Node's result classifier reads that text.
-        if files.is_empty() && !errors.is_empty() {
-            let text = format!("Error: {}", errors.join(" | "));
-            return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
-        }
-        if natural {
-            files.sort_by(|a, b| a.0.cmp(&b.0));
-        } else {
-            let key = |p: &AbsPath| {
-                let s = fwd(p.as_path());
-                if cfg!(windows) { s.to_lowercase() } else { s }
-            };
-            // Newest first; a file whose stat failed cannot be ordered by time and keeps its walk
-            // order after the rest (Node's mtime top-K, `serve_search/mtime.rs`).
-            let (mut statted, unstatted): (Vec<_>, Vec<_>) = files.into_iter().partition(|f| f.1.is_some());
-            statted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| key(&a.0).cmp(&key(&b.0))));
-            statted.extend(unstatted);
-            files = statted;
-        }
-        let total = files.len();
-        // Node's bounded newest-first page is a top-(offset+limit+1) window of the whole set, counted in full, that
-        // then passes the same GLOB_ACCUM_CAP fold as every listing (`mergeGlobRuns`).
-        if !natural && limit != usize::MAX && offset.saturating_add(limit).saturating_add(1).min(total) > GLOB_ACCUM_CAP {
-            files.truncate(GLOB_ACCUM_CAP);
-            capped = true;
-        }
-        let windowed = files.get(offset..).unwrap_or(&[]);
-        let page = &windowed[..windowed.len().min(limit)];
-        // Node's `relativeSearchResultPath` strips `<cwd>/`; a filesystem root as the cwd already ends in its separator, so
-        // no path starts with `<cwd>//` and every one stays absolute.
-        let root_cwd = ctx.cwd.as_path().parent().is_none();
-        let lines: Vec<String> = page
-            .iter()
-            .map(|(p, _)| if root_cwd { super::common::fwd(p.as_path()) } else { display_path(p.as_path(), &ctx.cwd) })
-            .collect();
-        let remaining = total.saturating_sub(offset + page.len());
-        let mut text = lines.join("\n");
-        if remaining > 0 {
-            text.push_str(&format!(
-                "\n{}",
-                window_marker(
-                    "entries",
-                    offset as u64 + 1,
-                    (offset + page.len()) as u64,
-                    Some(total as u64),
-                    Some((offset + page.len()) as u64),
-                    None
-                )
-            ));
-        }
-        if lines.is_empty() {
-            let shown_patterns = if patterns.len() == 1 {
-                serde_json::to_string(&patterns[0])
-            } else {
-                serde_json::to_string(&patterns)
-            }
-            .unwrap_or_default();
-            let base_label = fwd(Path::new(raw));
-            if total > 0 && offset >= total {
-                text = format!("(no entries after offset={offset}; total={total}) pattern={shown_patterns} path={base_label}");
-            } else {
-                // The walk never follows a directory link; an absolute pattern that found nothing is
-                // expanded straight off the filesystem before the miss is declared (Node `directAbsoluteMatches`).
-                if errors.is_empty() {
-                    let want = if limit == usize::MAX { 50 } else { offset.saturating_add(limit) };
-                    let direct = expand_absolute_globs(ctx, &patterns, want).await;
-                    let shown: Vec<String> = direct.into_iter().skip(offset).take(limit).collect();
-                    if !shown.is_empty() {
-                        return Ok(text_output(shown.join("\n")));
-                    }
-                }
-                let base = match ctx.files.stat(ctx.io.interactive, root.clone()).await {
-                    Ok(s) if s.kind == EntryKind::Dir => "path exists (dir)",
-                    Ok(_) => "path exists (file)",
-                    Err(_) => "path does not exist (ENOENT)",
-                };
-                let empty = if complete { "(no files found)" } else { "(no files found yet)" };
-                text = format!("{empty} pattern={shown_patterns} path={base_label}; {base_label}: {base}");
-            }
-        }
-        if !errors.is_empty() {
-            text.push_str(&format!("\n... [warning] {}", errors.join(" | ")));
-        }
-        if capped {
-            text.push_str(&format!(
-                "\n{}",
-                cap_marker(&format!("{GLOB_ACCUM_CAP} matches"), "results incomplete", None, "narrow the pattern or path")
-            ));
-        }
-        if !complete {
-            text.push_str("\n[warning] search deadline reached; partial results shown.");
-        }
-        Ok(text_output(locator_budget(text, &locator_targets(&args), offset)))
-    }
-}
-
 /// `_locatorTargets` of glob: the `path` argument's values, or `.`.
 fn locator_targets(args: &JsonValue) -> Vec<String> {
     let raw = match &args["path"] {
@@ -916,67 +569,6 @@ fn locator_budget(text: String, targets: &[String], offset: usize) -> String {
     if best.is_empty() { byte_prefix(&footer(&[]), locator_max_bytes()).to_owned() } else { best }
 }
 
-/// builtin.mjs `_grepShownEntries`: the complete context blocks kept (a header with every line of its range and one
-/// more line after it), else every kept row that is not a header, separator, notice or empty.
-fn grep_shown_entries(kept: &[&str]) -> usize {
-    static HEADER: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"^# [^\n\r\u{2028}\u{2029}]+:[0-9]+ \[lines ([0-9]+)-([0-9]+)\]$").expect("a fixed pattern"));
-    let mut blocks = 0;
-    let mut saw_header = false;
-    for (index, line) in kept.iter().enumerate() {
-        let Some(header) = HEADER.captures(line) else { continue };
-        saw_header = true;
-        let (start, end) = (header[1].parse::<f64>().unwrap_or(0.0), header[2].parse::<f64>().unwrap_or(0.0));
-        if (index as f64) + end - start + 1.0 < kept.len() as f64 {
-            blocks += 1;
-        }
-    }
-    if saw_header {
-        return blocks;
-    }
-    kept.iter()
-        .filter(|l| !l.is_empty() && **l != "--" && !["#", "[", "...", "…", "("].iter().any(|p| l.starts_with(p)))
-        .count()
-}
-
-/// executeBuiltinTool's grep cap (builtin.mjs `_budgetBuiltinOutput` → `capLineOrientedToolOutput` at
-/// `GREP_OUTPUT_MAX_BYTES`, footer `_grepBudgetFooter`): the most leading lines that fit with a footer naming the match
-/// rows they hold and the offset after them; a pattern or path fan-out (`# grep ` sections) is told to narrow instead.
-fn grep_budget(text: String, offset: usize) -> String {
-    if text.len() <= grep_max_bytes() {
-        return text;
-    }
-    let lines: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
-    let footer = |kept: &[&str]| {
-        let fanout = kept.iter().any(|l| l.starts_with("# grep "));
-        let shown = grep_shown_entries(kept);
-        let narrow = if fanout {
-            "run one pattern/path per call, or add path/glob/type to cut the match set"
-        } else if shown == 0 {
-            "one match row exceeds the cap; read that file window or use a tighter pattern"
-        } else {
-            ""
-        };
-        let next = (!fanout && shown > 0).then_some((offset + shown) as u64);
-        cap_marker(&format_cap_size(grep_max_bytes()), &format!("{shown} match row(s) shown"), next, narrow)
-    };
-    let (mut lo, mut hi, mut best) = (0usize, lines.len(), String::new());
-    while lo <= hi {
-        let mid = (lo + hi) / 2;
-        let kept = &lines[..mid];
-        let candidate = format!("{}{}{}", kept.join("\n"), if kept.is_empty() { "" } else { "\n" }, footer(kept));
-        if candidate.len() <= grep_max_bytes() {
-            best = candidate;
-            lo = mid + 1;
-        } else if mid == 0 {
-            break;
-        } else {
-            hi = mid - 1;
-        }
-    }
-    if best.is_empty() { byte_prefix(&footer(&[]), grep_max_bytes()).to_owned() } else { best }
-}
-
 // ---------------------------------------------------------------------------
 // find
 
@@ -993,123 +585,6 @@ impl FindTool {
 }
 
 impl Default for FindTool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[async_trait]
-impl Tool for FindTool {
-    fn spec(&self) -> &ToolSpec {
-        &self.spec
-    }
-
-    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let query = arg_str(&args, "query").unwrap_or("").trim().to_owned();
-        if query.is_empty() {
-            return Err(invalid("query", "required", "Error: find requires query."));
-        }
-        // arg-guard.mjs (find): a `path` that is not a string is refused; a null or blank one is the cwd.
-        let raw = super::common::optional_path_arg(&args, "path", |got| format!("Error: find arg \"path\" must be a string (got {got})"))?
-            .unwrap_or(".");
-        let limit = match arg_u64(&args, "limit") {
-            Some(0) => FIND_UNLIMITED_CAP,
-            Some(n) => n as usize,
-            None => FIND_DEFAULT_LIMIT,
-        };
-        let include_noise = arg_bool(&args, "include_noise");
-        let root = resolve_path(&ctx.cwd, raw)?;
-        if let Some(missing) = require_dir(ctx, raw, &root).await? {
-            return Ok(text_output(missing));
-        }
-        let root_path = root.as_path().to_path_buf();
-        // Every file and folder is scored, as Node's native inventory ranks the whole scope (serve_search/fuzzy.rs
-        // `fuzzy_scope`: `directories`, the ignore files honoured in a repository or not unless `include_noise`). A noise
-        // folder is listed, nothing in it (`DEFAULT_IGNORE_GLOBS`, `!**/<name>/**`), and the walk does not enter it.
-        let bare = if include_noise { Vec::new() } else { noise_bare() };
-        let request = WalkRequest {
-            root: root.clone(),
-            recursive: true,
-            include_hidden: true,
-            respect_ignore: !include_noise,
-            require_git: false,
-            include_dirs: true,
-            prune: root_scan_prunes(&root, cfg!(not(windows))),
-            descent: Descent { max_depth: None, bare, bare_dotted: false },
-            server: Some(SearchClass::Fuzzy),
-        };
-        let Walked { entries, complete, .. } = broad_search(ctx, BROAD_REFUSALS[2], |budget| {
-            walk_kept(ctx, request, |e| include_noise || !in_noise_dir(e.path.as_path().parent().unwrap_or(root_path.as_path()), &root_path), None, budget)
-        })
-        .await?;
-        // serve_search/fuzzy.rs: every whitespace-separated fragment is a nucleo fuzzy atom (case ignored, Unicode
-        // normalised "smart"), all must match one path, the scores add, and the best score comes first, a tie by path.
-        let atoms: Vec<Pattern> =
-            query.split_whitespace().map(|t| Pattern::new(t, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy)).collect();
-        let mut matcher = FuzzyMatcher::new(FuzzyConfig::DEFAULT.match_paths());
-        let mut scored: Vec<(u32, String)> = entries
-            .iter()
-            .filter_map(|e| {
-                let rel = display_under(e.path.as_path(), &root_path);
-                let text = Utf32String::from(rel.as_str());
-                let mut total = 0u32;
-                for atom in &atoms {
-                    total = total.saturating_add(atom.score(text.slice(..), &mut matcher)?);
-                }
-                Some((total, rel))
-            })
-            .collect();
-        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-        let more = scored.len() > limit;
-        scored.truncate(limit);
-        let mut lines: Vec<String> = scored.into_iter().map(|(_, p)| p).collect();
-        if lines.is_empty() {
-            lines.push(format!("(no fuzzy match for \"{query}\")"));
-        } else if more {
-            lines.push(format!("... (top {limit}; additional matches omitted)"));
-        }
-        if !complete {
-            lines.push("... [search deadline reached; partial results shown]".to_owned());
-        }
-        let text = lines.join("\n");
-        if text.len() > locator_max_bytes() {
-            let (kept, dropped) = cap_lines(&text, locator_max_bytes());
-            let rows = lines.len().saturating_sub(dropped);
-            let marker = cap_marker(
-                &format_cap_size(locator_max_bytes()),
-                &format!("{rows} match row(s) shown for query={query:?}"),
-                None,
-                "use a more specific query or add path",
-            );
-            return Ok(text_output(format!("{kept}\n{marker}")));
-        }
-        Ok(text_output(text))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// grep
-
-/// Waits until a search's hard deadline: a sleep on the runtime's clock, or a test's timer.
-pub type SearchTimer = Arc<dyn Fn(std::time::Instant) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
-
-pub struct GrepTool {
-    spec: ToolSpec,
-    timer: SearchTimer,
-}
-
-impl GrepTool {
-    pub fn new() -> Self {
-        Self::with_timer(Arc::new(|at| Box::pin(mixdog_rt::time::sleep_until(at.into()))))
-    }
-
-    /// A grep whose searches' hard deadlines pass on `timer`.
-    pub fn with_timer(timer: SearchTimer) -> Self {
-        Self { spec: spec_from_def(GREP_SPEC, true, &[]), timer }
-    }
-}
-
-impl Default for GrepTool {
     fn default() -> Self {
         Self::new()
     }
@@ -1234,154 +709,15 @@ impl PipeDot for String {
     }
 }
 
-impl GrepTool {
-    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-    async fn run_one_root(
-        &self,
-        ctx: &ToolContext,
-        (raw, args, pattern, globs): (&str, &JsonValue, &str, &[String]),
-        mode: Mode,
-        bound: Option<usize>,
-        class: SearchClass,
-        budget_ms: u64,
-    ) -> Result<Scanned, ToolError> {
-        let abs = resolve_path(&ctx.cwd, raw)?;
-        let stat = match guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
-            Ok(s) => s,
-            Err(e) if super::not_found::missing_code(&e.kind).is_some() => {
-                let code = super::not_found::missing_code(&e.kind).unwrap_or("ENOENT");
-                let error = super::not_found::grep_missing(ctx, &abs, raw, code).await;
-                return Ok(Scanned { hits: Vec::new(), complete: true, timed_out: false, scan_errors: 0, error, single_file: false, bad_pattern: false });
-            }
-            Err(e) => return Err(fs_failure(&e, raw)),
-        };
-        let include_noise = arg_bool(args, "include_noise");
-        let single_file = stat.kind == EntryKind::File;
-        let (root, mut include_globs) = if single_file {
-            let parent = AbsPath::new(abs.as_path().parent().unwrap_or(abs.as_path()).to_path_buf())
-                .unwrap_or_else(|| abs.clone());
-            let name = abs.as_path().file_name().map(|n| escape_glob(&n.to_string_lossy()));
-            (parent, name.into_iter().collect::<Vec<_>>())
-        } else {
-            (abs.clone(), Vec::new())
-        };
-        let mut exclude_globs = Vec::new();
-        // grep-request.mjs `resolveGrepScope`: a caller's glob with each Windows `\` a `/` (`canonicalizeGlobSlashes`).
-        for g in globs.iter().map(|g| canonical_glob_slashes(g)) {
-            match g.strip_prefix('!') {
-                Some(neg) => exclude_globs.push(neg.to_owned()),
-                None => include_globs.push(g),
-            }
-        }
-        if !include_noise {
-            for n in NOISE_DIRS {
-                // A noise directory the caller explicitly searches inside stays visible.
-                let inside = abs.as_path().components().any(|c| c.as_os_str() == *n);
-                if !inside {
-                    exclude_globs.push(format!("**/{n}/**"));
-                }
-            }
-        }
-        let deadlines = SearchDeadlines::within(ctx, budget_ms);
-        let mut stream = ctx.files.search_text(
-            ctx.io.maintenance,
-            SearchRequest {
-                root,
-                pattern: pattern.to_owned(),
-                regex: true,
-                case_sensitive: true,
-                include_globs,
-                exclude_globs,
-                include_hidden: true,
-                respect_ignore: !include_noise,
-                // grep-request.mjs `multilineMode` (`-U --multiline-dotall`) and `pcre2Mode` (`-P`), and `text` (`--text`).
-                multiline: multiline_mode(args, pattern),
-                pcre2: UNSUPPORTED_REGEX.is_match(pattern),
-                binary_as_text: arg_bool(args, "text"),
-                // The scan itself ends at the window (a file list or counts read every match), as Node's server's
-                // `collect_until` does; an unlimited listing at the 200,000-match content cap. The sink below takes one
-                // hit before it checks a spent bound, so a bound of 0 still reads one.
-                limit: (mode == Mode::Content).then(|| bound.map_or(CONTENT_MATCH_CAP, |n| n.max(1))),
-                // A file list reads each file to its first match (`--files-with-matches`).
-                first_per_file: mode == Mode::Files,
-                deadline: Some(deadlines.soft.into_std()),
-                class,
-            },
-        );
-        let mut hits = Vec::new();
-        let mut errors = 0usize;
-        let mut bad_pattern = None;
-        let mut timed_out = false;
-        let mut refused = None;
-        // The stream is read to its end, past the bound: the scan stops itself at its limit, and the deadline it may
-        // report after its last match belongs to the answer (Node's server checks it once more after its scan).
-        let end = pull_until(ctx, stream.as_mut(), (self.timer)(deadlines.hard.into_std()),|item| {
-            match item {
-                Ok(SearchMatch { path, line, text, count, .. }) => {
-                    if mode == Mode::Content && hits.len() >= CONTENT_MATCH_CAP {
-                        return false;
-                    }
-                    // A file list is one row per file (`--files-with-matches`).
-                    if mode == Mode::Files && hits.last().is_some_and(|h: &Hit| h.path == path) {
-                        return true;
-                    }
-                    if !bound.is_some_and(|n| hits.len() >= n.max(1)) {
-                        hits.push(Hit { path, line, text, count });
-                    }
-                }
-                Err(FsError { kind: FsErrorKind::TimedOut, path, .. }) => {
-                    timed_out = true;
-                    // A file the deadline cut is not answered in part.
-                    if let Some(cut) = path {
-                        hits.retain(|h| h.path != cut);
-                    }
-                }
-                Err(e) => match e.kind {
-                    FsErrorKind::InvalidPattern { message } => bad_pattern = Some(message),
-                    ref kind @ (FsErrorKind::Saturated | FsErrorKind::CancelStalled { .. }) => refused = refusal_reason(kind),
-                    _ => {
-                        errors += 1;
-                        // A file whose search failed is not answered in part (Node's server drops its printed lines).
-                        if let Some(failed) = e.path {
-                            hits.retain(|h| h.path != failed);
-                        }
-                    }
-                },
-            }
-            true
-        })
-        .await;
-        let complete = match end {
-            PullEnd::Cancelled => return Err(cancelled()),
-            PullEnd::Deadline => false,
-            // A file the scan could not read leaves the answer incomplete (serve_search/search.rs `response_window`).
-            PullEnd::Exhausted => !timed_out && errors == 0,
-            // The search's hard deadline: the server never answered (`requestNative`'s timer, `timeoutError`); the search
-            // was stopped as Node's client cancels and then ends its server.
-            PullEnd::Timer => {
-                let text = format!("Error: native content search exceeded its {}ms total deadline.", deadlines.hard_ms);
-                return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
-            }
-        };
-        if let Some(reason) = refused {
-            return Err(refusal(reason));
-        }
-        // The parser's own text, as Node relays the search server's refusal.
-        if let Some(message) = bad_pattern {
-            let error = format!("Error: regex parse error: {message}");
-            return Ok(Scanned { hits: Vec::new(), complete: true, timed_out: false, scan_errors: 0, error, single_file, bad_pattern: true });
-        }
-        Ok(Scanned { hits, complete, timed_out, scan_errors: errors, error: String::new(), single_file, bad_pattern: false })
-    }
-}
-
-/// A combined scan's or a prefilter's failure (its hard deadline included) declines it, as Node's callers catch it
-/// (`streamCombinedLines`, `fanoutPrefilterCandidates`, `runCombinedPathFanout`); a cancel ends the call.
+/// A combined scan's or a prefilter's failure declines it, as Node's callers catch it (`streamCombinedLines`,
+/// `fanoutPrefilterCandidates`, `runCombinedPathFanout`); a cancel ends the call, and so does a refusal at admission: the
+/// search never started, the budget is spent waiting, and another strategy would be a second search on no budget. (Node
+/// swallowed it and ran the per-pattern greps; that is a decided departure, listed in `departures.json`.)
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn declined_on_failure<T>(outcome: Result<T, ToolError>) -> Result<Option<T>, ToolError> {
     match outcome {
         Ok(value) => Ok(Some(value)),
-        Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => Err(e),
+        Err(e) if matches!(e.code, ToolErrorCode::Cancelled) || refused_with(&e).is_some_and(|reason| reason.starts_with(BROAD_REFUSALS[0])) => Err(e),
         Err(_) => Ok(None),
     }
 }
@@ -1397,34 +733,6 @@ struct Scanned {
     error: String,
     single_file: bool,
     bad_pattern: bool,
-}
-
-/// native-search-client.mjs: a search's hard deadline is the caller's timeout, at most `REQUEST_TIMEOUT_MS` (17.5 s),
-/// past which the call fails; the server's soft deadline (`softDeadlineMs`) is that less a margin of 7.5 %, between
-/// 250 ms and 2 s, past which the server answers what it found, marked timed out.
-struct SearchDeadlines {
-    soft: mixdog_rt::time::Instant,
-    hard: mixdog_rt::time::Instant,
-    hard_ms: u64,
-}
-
-impl SearchDeadlines {
-    fn of(ctx: &ToolContext) -> Self {
-        Self::within(ctx, u64::MAX)
-    }
-
-    /// The deadlines of a search that has `left_ms` of its budget left: one admitted after a wait (`requestNativeWithRestart`
-    /// sets the server's soft deadline from the budget that remains).
-    fn within(ctx: &ToolContext, left_ms: u64) -> Self {
-        const REQUEST_TIMEOUT_MS: u64 = 17_500;
-        // On the runtime's clock, as the sleeps that wait for these deadlines: a test moves it by an explicit advance.
-        let now = mixdog_rt::time::Instant::now();
-        let caller = ctx.deadline.map(|at| u64::try_from(mixdog_rt::time::Instant::from_std(at).saturating_duration_since(now).as_millis()).unwrap_or(u64::MAX));
-        let hard_ms = caller.filter(|ms| *ms > 0).map_or(REQUEST_TIMEOUT_MS, |ms| ms.min(REQUEST_TIMEOUT_MS)).min(left_ms);
-        let margin = (hard_ms * 75 / 1000).clamp(250, 2000);
-        let ms = std::time::Duration::from_millis;
-        Self { soft: now + ms(hard_ms.saturating_sub(margin).max(1)), hard: now + ms(hard_ms), hard_ms }
-    }
 }
 
 /// The deadline can expire while waiting for a producer, not only while scanning.
@@ -1444,386 +752,6 @@ fn partial_warning(timed_out: bool, scan_errors: usize, streamed: bool) -> Strin
     format!(
         "\n[warning] rg exit 2 (partial results): {scan_errors} file(s) could not be read (permission or I/O error); matches from those files are missing"
     )
-}
-
-#[async_trait]
-impl Tool for GrepTool {
-    fn spec(&self) -> &ToolSpec {
-        &self.spec
-    }
-
-    /// The answer within Node's context budget (`GREP_OUTPUT_MAX_BYTES` characters), then capped as
-    /// executeBuiltinTool caps it (builtin.mjs `_budgetBuiltinOutput`: `capLineOrientedToolOutput` at
-    /// `GREP_OUTPUT_MAX_BYTES` bytes with `_grepBudgetFooter`).
-    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
-        let text = self.answer(ctx, args, grep_max_bytes()).await?;
-        Ok(text_output(grep_budget(text, offset)))
-    }
-}
-
-impl GrepTool {
-    /// One grep call's text, its context renderings fitted to `budget` characters.
-    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-    async fn answer(&self, ctx: &ToolContext, args: JsonValue, budget: usize) -> Result<String, ToolError> {
-        let patterns = arg_strings(&args, "pattern");
-        if patterns.is_empty() || patterns.iter().all(|p| p.is_empty()) {
-            return Err(invalid("pattern", "required", "Error: grep requires pattern."));
-        }
-        // arg-guard.mjs (grep): a null or blank `path`/`root` is absent (the cwd); an array is kept as the scopes and must
-        // hold 1-10 non-empty strings; any other non-string is refused.
-        let mut args = args;
-        for key in ["path", "root"] {
-            match args.get(key) {
-                Some(JsonValue::Null) => {
-                    args.as_object_mut().map(|o| o.shift_remove(key));
-                }
-                Some(JsonValue::String(s)) if mixdog_js::js_trim(s).is_empty() => {
-                    args.as_object_mut().map(|o| o.shift_remove(key));
-                }
-                Some(JsonValue::Array(items)) => {
-                    let non_empty = |v: &JsonValue| v.as_str().is_some_and(|s| !mixdog_js::js_trim(s).is_empty());
-                    if items.is_empty() || items.len() > GREP_PATH_BATCH_LIMIT || !items.iter().all(non_empty) {
-                        let text = format!(
-                            "Error: grep arg \"{key}\" must contain 1-{GREP_PATH_BATCH_LIMIT} non-empty path strings ({} given, max {GREP_PATH_BATCH_LIMIT})",
-                            items.len()
-                        );
-                        return Err(invalid(key, "type", text));
-                    }
-                }
-                Some(other) if !other.is_string() => {
-                    let got = super::read_legacy::describe_type(other);
-                    return Err(invalid(key, "type", format!("Error: grep arg \"{key}\" must be string or string[] (got {got})")));
-                }
-                _ => {}
-            }
-        }
-        // search-grep-tool.mjs: two or more distinct paths are independent greps, one `# grep <path>` section each
-        // (lib/grep-path-fanout.mjs); one is that path. Each section's context budget is the call's divided by the
-        // number of paths, at least 512 (grep-path-fanout.mjs:244 and :293, `Math.max(512, Math.floor(budget / n))`);
-        // the assembled text is capped once, by `call`.
-        if let Some(JsonValue::Array(items)) = args.get("path") {
-            let mut list: Vec<String> = Vec::new();
-            for item in items {
-                let p = mixdog_js::js_trim(item.as_str().unwrap_or_default()).to_owned();
-                if !p.is_empty() && !list.contains(&p) {
-                    list.push(p);
-                }
-            }
-            if list.len() > 1 {
-                let per_path = (budget / list.len()).max(512);
-                if let Some(bodies) = self.combined_paths(ctx, &args, &list, &patterns, per_path).await? {
-                    return Ok(fanout_sections(Fanout::Path, &list, &bodies));
-                }
-                // `runGrepPathFanout`'s fallback: each path an independent grep.
-                let mut bodies = Vec::with_capacity(list.len());
-                for p in &list {
-                    let mut one = args.clone();
-                    one["path"] = JsonValue::String(p.clone());
-                    bodies.push(match Box::pin(self.answer(ctx, one, per_path)).await {
-                        Ok(text) => text,
-                        Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => return Err(e),
-                        Err(e) => e.message_for_model,
-                    });
-                }
-                return Ok(fanout_sections(Fanout::Path, &list, &bodies));
-            }
-            if let Some(one) = list.pop() {
-                args["path"] = JsonValue::String(one);
-            }
-        }
-        let (patterns, note) = pattern_list(&patterns);
-        let mode = mode_of(&args);
-        Ok(format!("{note}{}", self.answer_patterns(ctx, &args, &patterns, mode, budget).await?))
-    }
-
-    /// One path's answer to its (distinct, capped) patterns.
-    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-    async fn answer_patterns(&self, ctx: &ToolContext, args: &JsonValue, patterns: &[String], mode: Mode, budget: usize) -> Result<String, ToolError> {
-        let args = args.clone();
-        let patterns = patterns.to_vec();
-        // Node `runGrepPatternFanout`: several content patterns are independent greps, one section
-        // each; a match line or block an earlier pattern showed is not repeated.
-        if patterns.len() > 1 && mode == Mode::Content {
-            // `perPatternCharBudget` (grep-pattern-fanout.mjs).
-            let per_pattern = (budget / patterns.len()).max(512);
-            let (bodies, residual, partial) = match self.combined_patterns(ctx, &args, &patterns, per_pattern).await? {
-                Some(answer) => answer,
-                // `runPerPatternFanout`: each pattern an independent grep.
-                None => {
-                    if self.no_candidate_files(ctx, &args, &patterns).await? {
-                        return Ok(no_matches(true));
-                    }
-                    let mut bodies = Vec::with_capacity(patterns.len());
-                    // A pattern's failure is its section's text (`runPattern`'s catch, grep-pattern-fanout.mjs:336-339).
-                    for pattern in &patterns {
-                        bodies.push(match self.search(ctx, &args, pattern, mode, true, per_pattern).await {
-                            Ok(text) => text,
-                            Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => return Err(e),
-                            Err(e) => e.message_for_model,
-                        });
-                    }
-                    (bodies, Vec::new(), None)
-                }
-            };
-            let mut seen = std::collections::HashSet::new();
-            let bodies: Vec<String> = bodies.iter().map(|body| dedupe_fanout_match_lines(body, &mut seen)).collect();
-            let mut text = fanout_sections(Fanout::Pattern, &patterns, &bodies);
-            if !residual.is_empty() {
-                // `renderCombinedSections`: lines no pattern claimed are shown, at most 40, not dropped.
-                text.push_str(&format!("\n\n# grep (unattributed matches)\n{}", residual[..residual.len().min(40)].join("\n")));
-            }
-            // The combined scan's one warning closes the answer.
-            if let Some(warning) = partial {
-                text.push_str(&warning);
-            }
-            return Ok(text);
-        }
-        let pattern = if patterns.len() == 1 { patterns[0].clone() } else { combined_regex(&patterns) };
-        self.search(ctx, &args, &pattern, mode, false, budget).await
-    }
-
-    /// One grep of `pattern`, rendered. `fanout`: a section of a several-pattern answer, whose
-    /// bare match lines carry their file (Node's combined pass, `disableContentGrouping`).
-    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-    async fn search(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, fanout: bool, budget: usize) -> Result<String, ToolError> {
-        let window = Window::of(args, mode);
-        // The native search window (serve_search/search.rs `collect_until`): the scan stops one hit past what the call
-        // can show, so the length of a cut stream is unknown.
-        let Collected { all, complete, timed_out, scan_errors, errors, single, all_bad } =
-            self.collect(ctx, args, pattern, mode, window.stream_bound(mode), SearchClass::Interactive).await?;
-        if all.is_empty() && !errors.is_empty() {
-            // A pattern the parser refused is a failed call, as Node's caller takes it; a missing path is a miss.
-            // In a several-pattern answer it fails only its own section.
-            if all_bad && !fanout {
-                let text = errors.join("\n");
-                return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
-            }
-            return Ok(errors.join("\n"));
-        }
-        let shape = Shape { mode, single: single && !fanout, fanout, complete, totals: Totals::Streamed };
-        let mut text = render(ctx, &all, &window, shape, pattern, budget).await?;
-        for e in errors {
-            text.push_str(&format!("\n{e}"));
-        }
-        if !complete {
-            text.push_str(&partial_warning(timed_out, scan_errors, window.stream_bound(mode).is_some()));
-        }
-        let _ =(BTreeSet::<u8>::new(), ToolPart::Text(String::new()), ToolOutput::default());
-        Ok(text)
-    }
-
-    /// grep-pattern-fanout.mjs `runCombinedFanout`: one scan carrying every pattern over a folder, its lines attributed
-    /// to each pattern they match, when every pattern compiles as a JavaScript regex. It keeps `min(4000, max(400,
-    /// (offset + limit + 4) × patterns))` lines (300 per pattern when unlimited); past that, or over a file, a missing
-    /// path or a pattern the scan refuses, it declines (`None`). Its sections know their totals.
-    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-    async fn combined_patterns(
-        &self,
-        ctx: &ToolContext,
-        args: &JsonValue,
-        patterns: &[String],
-        budget: usize,
-    ) -> Result<Option<(Vec<String>, Vec<String>, Option<String>)>, ToolError> {
-        // `new RegExp(p, request.caseInsensitive ? 'i' : '')`, `caseInsensitive` being `args['-i'] === true`.
-        let flags = if args.get("-i") == Some(&JsonValue::Bool(true)) { "i" } else { "" };
-        let Ok(regexes) = patterns.iter().map(|p| mixdog_js::JsRegex::new(p, flags)).collect::<Result<Vec<_>, _>>() else {
-            return Ok(None);
-        };
-        let window = Window::of(args, Mode::Content);
-        // `combinedFanoutEligible`: the automatic context travels as `-B`/`-A` (grep-request.mjs
-        // `resolveGrepContextFlags`), which the combined pass declines, as it declines a multi-line search.
-        if window.context.is_none() || patterns.iter().any(|p| multiline_mode(args, p)) {
-            return Ok(None);
-        }
-        let per_window = if window.limit == usize::MAX { 300 } else { window.offset.saturating_add(window.limit).saturating_add(4) };
-        let cap = per_window.saturating_mul(patterns.len()).clamp(400, 4000);
-        // `combinedBulkHint`: sent as a bulk search unless a glob or a type narrows it (grep-pattern-fanout.mjs:249).
-        let class = if arg_strings(args, "glob").is_empty() && arg_str(args, "type").is_none() { SearchClass::Bulk } else { SearchClass::Interactive };
-        let Some(mut found) = declined_on_failure(self.collect(ctx, args, &combined_regex(patterns), Mode::Content, Some(cap + 1), class).await)? else {
-            return Ok(None);
-        };
-        if !found.errors.is_empty() || found.single {
-            return Ok(None);
-        }
-        // `runCombinedFanout`: a partial scan (its deadline cut it, or a file could not be read) keeps the lines it found
-        // (the server's window, at most the cap) and declines only when it found none; one that ran past its cap
-        // declines.
-        let partial = found.timed_out || found.scan_errors > 0;
-        if partial {
-            if found.all.is_empty() {
-                return Ok(None);
-            }
-            found.all.truncate(cap);
-        } else if !found.complete || found.all.len() > cap {
-            return Ok(None);
-        }
-        // The stream's lines as ripgrep printed them: `path:line:text`, the path with the platform's separator, the text
-        // clipped at 500 columns.
-        let lines: Vec<String> = found
-            .all
-            .iter()
-            .map(|(label, h)| format!("{}:{}:{}", label.replace('/', std::path::MAIN_SEPARATOR_STR), h.line, h.text))
-            .collect();
-        let Some((by_pattern, residual)) = attribute_combined(&lines, &regexes) else { return Ok(None) };
-        let mut bodies = Vec::with_capacity(patterns.len());
-        for (pattern, indices) in patterns.iter().zip(&by_pattern) {
-            bodies.push(if indices.is_empty() {
-                no_matches(!partial)
-            } else {
-                let all: Vec<(String, Hit)> = indices.iter().map(|&i| found.all[i].clone()).collect();
-                let shape = Shape { mode: Mode::Content, single: false, fanout: true, complete: !partial, totals: Totals::Combined };
-                render(ctx, &all, &window, shape, pattern, budget).await?
-            });
-        }
-        let residual = residual.into_iter().map(|i| lines[i].clone()).collect();
-        Ok(Some((bodies, residual, partial.then(|| partial_warning(found.timed_out, found.scan_errors, true)))))
-    }
-
-    /// grep-pattern-fanout.mjs `fanoutPrefilterCandidates`: before the per-pattern greps, one files-with-matches scan of
-    /// every pattern over a folder; when it completes with no file the call is one no-match answer. A file, a missing
-    /// path or a scan error leaves the per-pattern greps to answer.
-    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-    async fn no_candidate_files(&self, ctx: &ToolContext, args: &JsonValue, patterns: &[String]) -> Result<bool, ToolError> {
-        // Sent as a bulk search (grep-pattern-fanout.mjs:76).
-        let Some(found) = declined_on_failure(self.collect(ctx, args, &combined_regex(patterns), Mode::Files, Some(1), SearchClass::Bulk).await)? else {
-            return Ok(false);
-        };
-        Ok(found.complete && found.errors.is_empty() && !found.single && found.all.is_empty())
-    }
-
-    /// Every root's hits (at most `bound` in all, in scan order), labelled and sorted.
-    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-    async fn collect(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, bound: Option<usize>, class: SearchClass) -> Result<Collected, ToolError> {
-        let mut roots = arg_strings(args, "path");
-        if roots.is_empty() {
-            roots.push(".".to_owned());
-        }
-        let globs = arg_strings(args, "glob");
-        let mut all: Vec<(String, Hit)> = Vec::new();
-        let mut complete = true;
-        let mut errors: Vec<String> = Vec::new();
-        let mut single = false;
-        let mut all_bad = true;
-        let mut timed_out = false;
-        let mut scan_errors = 0;
-        for raw in &roots {
-            let left = bound.map(|n| n.saturating_sub(all.len()));
-            // A bulk scan (a fan-out's prefilter or combined pass, `bulkHint`) takes its turn on the broad-search gate as
-            // Node's client makes it (search-admission.mjs `isBroadSearchRequest`); the others pass it.
-            let scanned = if class == SearchClass::Bulk {
-                broad_search(ctx, BROAD_REFUSALS[3], |budget| self.run_one_root(ctx, (raw, args, pattern, &globs), mode, left, class, budget)).await?
-            } else {
-                self.run_one_root(ctx, (raw, args, pattern, &globs), mode, left, class, u64::MAX).await?
-            };
-            complete &= scanned.complete;
-            timed_out |= scanned.timed_out;
-            scan_errors += scanned.scan_errors;
-            single = scanned.single_file && roots.len() == 1;
-            if !scanned.error.is_empty() {
-                all_bad &= scanned.bad_pattern;
-                errors.push(scanned.error);
-                continue;
-            }
-            all.extend(label_hits(ctx, raw, scanned.single_file, scanned.hits)?);
-        }
-        sort_hits(&mut all);
-        Ok(Collected { all, complete, timed_out, scan_errors, errors, single, all_bad })
-    }
-
-    /// grep-path-fanout.mjs `runCombinedPathFanout`: one scan over every path, attributed back to each path's section,
-    /// when the call is one pattern outside `count` mode over existing, non-glob, non-share paths none of which lies in
-    /// another and which share one filter set. The scan keeps `min(4000, max(400, (offset + limit + 4) × paths))` hits
-    /// (300 per path when unlimited); past that, or when a path cannot be scanned, it declines (`None`) and every path is
-    /// searched on its own. Its sections know their totals.
-    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-    async fn combined_paths(
-        &self,
-        ctx: &ToolContext,
-        args: &JsonValue,
-        list: &[String],
-        patterns: &[String],
-        budget: usize,
-    ) -> Result<Option<Vec<String>>, ToolError> {
-        let mode = mode_of(args);
-        let single: Vec<&String> = patterns.iter().filter(|p| !p.is_empty()).collect();
-        // `combinedPathRequest`: no `multiline: true`, one pattern, no literal `\n`, nothing ripgrep's default engine
-        // refuses (arg-guard.mjs `hasUnsupportedRipgrepRegex`).
-        let [pattern] = single.as_slice() else { return Ok(None) };
-        if mode == Mode::Count || arg_bool(args, "multiline") || pattern.contains("\\n") || UNSUPPORTED_REGEX.is_match(pattern) {
-            return Ok(None);
-        }
-        let window = Window::of(args, mode);
-        let globs = arg_strings(args, "glob");
-        let include_noise = arg_bool(args, "include_noise");
-        // `resolvePathRoots`, then `combinedPathRgArgs`' one-filter-set rule: a path inside a noise directory keeps
-        // that directory, and a file operand drops the globs.
-        let mut roots = Vec::with_capacity(list.len());
-        for raw in list {
-            if has_glob_magic(raw) || is_unc_or_smb(raw) {
-                return Ok(None);
-            }
-            let abs = resolve_path(&ctx.cwd, raw)?;
-            let Ok(stat) = guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs.clone())).await? else {
-                return Ok(None);
-            };
-            let is_file = stat.kind == EntryKind::File;
-            let kept: Vec<&str> = if include_noise {
-                Vec::new()
-            } else {
-                NOISE_DIRS.iter().copied().filter(|n| abs.as_path().components().any(|c| c.as_os_str() == *n)).collect()
-            };
-            let rules = (kept, if is_file { Vec::new() } else { globs.clone() });
-            roots.push((raw, abs, is_file, rules));
-        }
-        if roots.windows(2).any(|w| w[0].3 != w[1].3) {
-            return Ok(None);
-        }
-        let key = |p: &AbsPath| {
-            let s = fwd(p.as_path());
-            let s = s.trim_end_matches('/').to_owned();
-            if cfg!(windows) { s.to_lowercase() } else { s }
-        };
-        for (i, a) in roots.iter().enumerate() {
-            for b in &roots[i + 1..] {
-                let (l, r) = (key(&a.1), key(&b.1));
-                if l == r || l.starts_with(&format!("{r}/")) || r.starts_with(&format!("{l}/")) {
-                    return Ok(None);
-                }
-            }
-        }
-        let per_window = if window.limit == usize::MAX { 300 } else { window.offset.saturating_add(window.limit).saturating_add(4) };
-        let cap = per_window.saturating_mul(roots.len()).clamp(400, 4000);
-        let mut sections = Vec::with_capacity(roots.len());
-        let mut seen = 0usize;
-        for (raw, _, _, _) in &roots {
-            let scanned = self.run_one_root(ctx, (raw, args, pattern, &globs), mode, Some(cap + 1 - seen), SearchClass::Interactive, u64::MAX).await;
-            let Some(Scanned { hits, complete, error, single_file: is_file, .. }) = declined_on_failure(scanned)? else {
-                return Ok(None);
-            };
-            // A scan its deadline cut declines too (`runCombinedPathFanout` takes only a complete scan).
-            if !complete || !error.is_empty() {
-                return Ok(None);
-            }
-            seen += hits.len();
-            if seen > cap {
-                return Ok(None);
-            }
-            let mut labelled = label_hits(ctx, raw, is_file, hits)?;
-            sort_hits(&mut labelled);
-            sections.push((labelled, is_file));
-        }
-        let mut bodies = Vec::with_capacity(sections.len());
-        for (hits, is_file) in &sections {
-            bodies.push(if hits.is_empty() {
-                no_matches(true)
-            } else {
-                let shape = Shape { mode, single: *is_file, fanout: false, complete: true, totals: Totals::Combined };
-                render(ctx, hits, &window, shape, pattern, budget).await?
-            });
-        }
-        Ok(Some(bodies))
-    }
 }
 
 static CONTEXT_HEADER: std::sync::LazyLock<regex::Regex> =
@@ -2018,12 +946,62 @@ fn sort_hits(all: &mut Vec<(String, Hit)>) {
     all.dedup_by(|a, b| a.0 == b.0 && a.1.line == b.1.line);
 }
 
+/// What one section's rendering delivered: its text, how many whole results, and where the next begins when the byte
+/// cap or the result limit cut it (`None`: nothing was left behind). `oversize`: its first result alone passes the cap,
+/// so none is shown; it is named, and `next` is the result after it.
+struct Paged {
+    text: String,
+    next: Option<usize>,
+    delivered: usize,
+    oversize: bool,
+    /// The byte cap, not the result limit, left `next` behind.
+    by_cap: bool,
+}
+
+impl Paged {
+    /// An answer with no results of its own (an error): nothing delivered, nothing left.
+    fn whole(text: String) -> Self {
+        Self { text, next: None, delivered: 0, oversize: false, by_cap: false }
+    }
+
+    /// A page of `window` over `available` results after its offset, rendered as the window gave it: the results it
+    /// delivered, and the offset of the first one the limit left behind.
+    fn of(text: String, window: &Window, available: usize) -> Self {
+        let delivered = available.min(window.limit);
+        let next = (available > window.limit).then(|| window.offset + window.limit);
+        Self { text, next, delivered, oversize: false, by_cap: false }
+    }
+}
+
+/// `path` and line of a rendered result's first line (`# path:line [lines a-b]` or `path:line:text`).
+fn unit_location(first: &str) -> Option<(String, u64)> {
+    static LOCATION: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"^(?:# )?(.+?):([0-9]+)(?:[: ]|$)").expect("a fixed pattern"));
+    let found = LOCATION.captures(first)?;
+    Some((found[1].to_owned(), found[2].parse().ok()?))
+}
+
+/// What an [`oversize_notice`] says of the result, before the cap it passes.
+const OVERSIZE_MARK: &str = "alone is larger than the";
+
+/// The answer when the first result after the offset is larger than the cap by itself: it is named, and read directly. A
+/// section of a compound answer goes on after it with its cursor.
+pub(super) fn oversize_notice(cap: usize, offset: usize, first: &str, at: Option<(String, u64)>) -> String {
+    let shown: String = first.chars().take(160).collect();
+    let read = at
+        .map(|(path, line)| format!(" Read it with read {}.", serde_json::json!({ "file_path": path, "offset": line.saturating_sub(3).max(1), "limit": 9 })))
+        .unwrap_or_default();
+    format!("[result {offset} {OVERSIZE_MARK} {} response limit, so none is shown here: {shown}…]{read}", format_cap_size(cap))
+}
+
 /// One call's page: `limit` (`usize::MAX` for none) and `offset` count matches, files or count rows; `context` is the
 /// explicit radius (none is the automatic window, 0 bare match lines).
+#[derive(Clone, Copy)]
 struct Window {
     limit: usize,
     offset: usize,
     context: Option<u64>,
+    /// `-i`: the anchors' branch ranking matches case-insensitively, as the scan did.
+    case_insensitive: bool,
 }
 
 impl Window {
@@ -2038,7 +1016,7 @@ impl Window {
         let offset = arg_u64(args, "offset").unwrap_or(0) as usize;
         // `GREP_CONTEXT_MAX`.
         let context = arg_u64(args, "context").map(|c| c.min(200));
-        Self { limit, offset, context }
+        Self { limit, offset, context, case_insensitive: args.get("-i") == Some(&JsonValue::Bool(true)) }
     }
 
     /// search-grep-tool.mjs:431 `anchorCap`: the matches the adaptive renderer is fed, `min(4000, max(200, offset +
@@ -2090,11 +1068,12 @@ async fn render(
     shape: Shape,
     pattern: &str,
     budget: usize,
+    prefix: bool,
 ) -> Result<String, ToolError> {
     Ok(match shape.mode {
         Mode::Files => files_body(ctx, all, window, shape).await,
         Mode::Count => count_body(all, window, shape.complete),
-        Mode::Content if window.context != Some(0) => adaptive_body(ctx, all, window, shape, pattern, budget).await?,
+        Mode::Content if window.context != Some(0) => adaptive_body(ctx, all, window, shape, pattern, budget, prefix).await?,
         Mode::Content => bare_body(all, window, shape),
     })
 }
@@ -2109,6 +1088,7 @@ async fn adaptive_body(
     shape: Shape,
     pattern: &str,
     budget: usize,
+    prefix: bool,
 ) -> Result<String, ToolError> {
     let cap = match shape.totals {
         Totals::Streamed => window.anchor_cap(),
@@ -2120,7 +1100,7 @@ async fn adaptive_body(
         .iter()
         .map(|(label, h)| super::grep_context::Match { label, path: &h.path, line: h.line, text: h.text.clone() })
         .collect();
-    let text = super::grep_context::expand(ctx, matches, pattern, window.offset, window.limit, known, window.context.unwrap_or(0), budget).await?;
+    let text = super::grep_context::expand(ctx, matches, pattern, window.case_insensitive, window.offset, window.limit, known, window.context.unwrap_or(0), budget, prefix).await?;
     let mut out = if text.is_empty() { no_matches(known) } else { text };
     if shape.complete && !known {
         out.push_str(&format!(
@@ -2262,7 +1242,1405 @@ mod count_rows {
         let path = AbsPath::new(if cfg!(windows) { "C:\\a" } else { "/a" }).expect("an absolute path");
         let hit = |count| Hit { path: path.clone(), line: 1, text: String::new(), count };
         let all = vec![("./a.ts".to_owned(), hit(2)), ("./a.ts".to_owned(), hit(0)), ("./b.ts".to_owned(), hit(0))];
-        let window = Window { limit: usize::MAX, offset: 0, context: None };
+        let window = Window { limit: usize::MAX, offset: 0, context: None, case_insensitive: false };
         assert_eq!(count_body(&all, &window, true), "./a.ts:2\n[total 2 matches across 1 file]");
+    }
+}
+
+
+/// Pulls a recursive walk of `root` into a list of at most `cap` kept files.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn walk_entries(
+    ctx: &ToolContext,
+    root: &AbsPath,
+    respect_ignore: bool,
+    keep: impl Fn(&DirEntry) -> bool,
+    descent: Descent,
+    cap: Option<usize>,
+    server: Option<(SearchClass, u64)>,
+) -> Result<Walked, ToolError> {
+    walk_descending(ctx, root, respect_ignore, keep, root_scan_prunes(root, cfg!(not(windows))), descent, cap, server).await
+}
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+#[cfg(test)]
+pub(super) async fn walk_entries_pruned(
+    ctx: &ToolContext,
+    root: &AbsPath,
+    respect_ignore: bool,
+    keep: impl Fn(&DirEntry) -> bool,
+    prune: Vec<AbsPath>,
+    cap: Option<usize>,
+    server: Option<(SearchClass, u64)>,
+) -> Result<Walked, ToolError> {
+    walk_descending(ctx, root, respect_ignore, keep, prune, Descent::default(), cap, server).await
+}
+/// [`walk_entries_pruned`] that stops at `descent`: a folder it names is listed but not entered, so nothing under it is
+/// read. A caller names only folders whose every entry its `keep` drops: the kept entries are those of the full walk.
+#[allow(clippy::too_many_arguments, reason = "the walk request's fields, each a caller's choice")]
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn walk_descending(
+    ctx: &ToolContext,
+    root: &AbsPath,
+    respect_ignore: bool,
+    keep: impl Fn(&DirEntry) -> bool,
+    prune: Vec<AbsPath>,
+    descent: Descent,
+    cap: Option<usize>,
+    server: Option<(SearchClass, u64)>,
+) -> Result<Walked, ToolError> {
+    let budget_ms = server.map_or(u64::MAX, |(_, budget)| budget);
+    let server = server.map(|(class, _)| class);
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore, require_git: true, include_dirs: false, prune, descent, server };
+    walk_kept(ctx, request, keep, cap, budget_ms).await
+}
+/// Files and directories under `root` (nothing ignored or hidden skipped; the kernel trees of a
+/// filesystem root pruned), at most `cap` kept entries.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+pub(super) async fn walk_inventory(
+    ctx: &ToolContext,
+    root: &AbsPath,
+    descent: Descent,
+    keep: impl Fn(&DirEntry) -> bool,
+    cap: usize,
+) -> Result<Walked, ToolError> {
+    let prune = root_scan_prunes(root, cfg!(not(windows)));
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, require_git: true, include_dirs: true, prune, descent, server: None };
+    walk_kept(ctx, request, keep, Some(cap), u64::MAX).await
+}
+/// A deep `list`'s inventory (`tryNativeDeepListRows`): files and directories under `root`, nothing ignored, at most `cap`
+/// kept, as one `--files --directories` request to the search server, which is a broad search (`isBroadSearchRequest`: its
+/// args hold `--files`) and takes its turn on the broad-search gate within the search's budget. It is refused or ends past
+/// its budget as a glob's inventory does (`BROAD_REFUSALS`). The walk itself stops at `descent` (`--max-depth`, the
+/// noise folders and, unless hidden, dotted folders listed but not entered), so nothing `keep` would drop is read.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+pub(super) async fn broad_listing(ctx: &ToolContext, root: &AbsPath, descent: Descent, keep: impl Fn(&DirEntry) -> bool, cap: usize) -> Result<Walked, ToolError> {
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, require_git: true, include_dirs: true, prune: Vec::new(), descent, server: Some(SearchClass::Bulk) };
+    broad_search(ctx, BROAD_REFUSALS[1], |budget| walk_kept(ctx, request, keep, Some(cap), budget)).await
+}
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn walk_kept(
+    ctx: &ToolContext,
+    request: WalkRequest,
+    keep: impl Fn(&DirEntry) -> bool,
+    cap: Option<usize>,
+    budget_ms: u64,
+) -> Result<Walked, ToolError> {
+    let include_dirs = request.include_dirs;
+    // A walk the search server runs answers what it found at its soft deadline, before the client's hard timeout would refuse the
+    // search (`softDeadlineMs`, native-search-client.mjs): the served partial. Admission has already spent part of that
+    // total budget; restarting it here would put the partial beyond the enclosing hard deadline.
+    let soft = request.server.map(|_| SearchDeadlines::within(ctx, budget_ms).soft);
+    let mut walk = ctx.files.walk(ctx.io.maintenance, request);
+    let mut out = Vec::new();
+    let mut capped = false;
+    let mut refused = None;
+    let mut missed_entry = false;
+    let timer = async move {
+        match soft {
+            Some(at) => mixdog_rt::time::sleep_until(at).await,
+            None => std::future::pending().await,
+        }
+    };
+    let end = pull_until(ctx, walk.as_mut(), timer, |item| {
+        match item {
+            Ok(entry) => {
+                if (include_dirs || entry.kind != EntryKind::Dir) && keep(&entry) {
+                    // Exactly `cap` files is a complete list; the next one is what was cut.
+                    if cap.is_some_and(|cap| out.len() >= cap) {
+                        capped = true;
+                        return false;
+                    }
+                    out.push(entry);
+                }
+            }
+            Err(FsError { kind, .. }) => {
+                missed_entry = true;
+                refused = refused.take().or_else(|| refusal_reason(&kind));
+            }
+        }
+        true
+    })
+    .await;
+    let complete = match end {
+        PullEnd::Cancelled => return Err(cancelled()),
+        PullEnd::Deadline | PullEnd::Timer => false,
+        PullEnd::Exhausted => !missed_entry,
+    };
+    if let Some(reason) = refused {
+        return Err(refusal(reason));
+    }
+    Ok(Walked { entries: out, complete, capped })
+}
+/// `work`, a broad search whose hard timeout is worded `kind` (`BROAD_REFUSALS`: a file inventory's, a fuzzy search's or a
+/// content search's), run in its turn on the process's one broad-search gate, for the session of the call.
+/// The search's budget (`SearchDeadlines`, native-search-client.mjs `requestNativeWithRestart`) covers the wait and the
+/// work: a turn not had within it is refused (the gate's `waitTimeoutMs` is the budget left at the call, its whole
+/// budget here as no setup is spent), and the work has what the wait left, at least 1 ms
+/// (`searchRemainingMs`), before the search's hard timeout (`requestNative`). A cancel ends the wait, or the work and
+/// its turn with it; the turn is released as the work ends, however it ends.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn broad_search<T, W: Future<Output = Result<T, ToolError>>>(ctx: &ToolContext, kind: &str, work: impl FnOnce(u64) -> W) -> Result<T, ToolError> {
+    broad_search_turn(ctx, kind, work).await.map(|(out, _)| out)
+}
+/// As [`broad_search`], with how the turn came and went; `work` is given the budget left, in ms.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+pub(super) async fn broad_search_turn<T, W: Future<Output = Result<T, ToolError>>>(
+    ctx: &ToolContext,
+    kind: &str,
+    work: impl FnOnce(u64) -> W,
+) -> Result<(T, Turn), ToolError> {
+    let budget = SearchDeadlines::of(ctx).hard_ms;
+    let queued = mixdog_rt::time::Instant::now();
+    // What it queues behind, as it queued: by the time the budget ends, a holder with the same budget may have ended too.
+    let ahead = (BROAD_RUNNING.load(std::sync::atomic::Ordering::SeqCst), BROAD_WAITING.load(std::sync::atomic::Ordering::SeqCst));
+    let waiting = Counted::new(&BROAD_WAITING);
+    let waited = mixdog_rt::Scope::new()
+        .cancel(&ctx.cancel)
+        .within(Duration::from_millis(budget))
+        .run(BROAD_SEARCH.enter(&gate_owner(ctx.thread_id.as_str()), &ctx.cancel))
+        .await;
+    let turn = match waited {
+        mixdog_rt::Scoped::Done(Ok(turn)) => turn,
+        mixdog_rt::Scoped::Done(Err(mixdog_rt::GateCancelled)) | mixdog_rt::Scoped::Cancelled => return Err(cancelled()),
+        mixdog_rt::Scoped::DeadlineExceeded => {
+            // Facts the model can act on: how long it waited and behind how many (it never started, so nothing ran).
+            let (running, queued_behind) = ahead;
+            return Err(refusal(format!(
+                "{}waited {budget}ms for admission behind {running} running and {queued_behind} queued broad searches",
+                BROAD_REFUSALS[0]
+            )));
+        }
+    };
+    drop(waiting);
+    let running = Counted::new(&BROAD_RUNNING);
+    let queued_behind_others = turn.queued();
+    let admitted = std::time::Instant::now();
+    let left = budget.saturating_sub(u64::try_from(queued.elapsed().as_millis()).unwrap_or(u64::MAX)).max(1);
+    let ran = mixdog_rt::Scope::new().cancel(&ctx.cancel).within(Duration::from_millis(left)).run(work(left)).await;
+    drop(turn);
+    drop(running);
+    let turn = Turn { queued: queued_behind_others, ran_ms: u64::try_from(admitted.elapsed().as_millis()).unwrap_or(u64::MAX) };
+    match ran {
+        mixdog_rt::Scoped::Done(out) => out.map(|out| (out, turn)),
+        mixdog_rt::Scoped::Cancelled => Err(cancelled()),
+        mixdog_rt::Scoped::DeadlineExceeded => {
+            Err(refusal(format!("{kind}{left}ms remaining budget.")))
+        }
+    }
+}
+/// Files under `root` matching any pattern, in walk order, with their mtime (ms; `None` when the
+/// stat failed), at most `cap` of them. `complete` is false when the walk hit the deadline,
+/// `capped` true when a match past the cap was dropped. Also reports whether
+/// any ranked metadata could have come from a link target.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+pub(crate) async fn glob_files(
+    ctx: &ToolContext,
+    root: &AbsPath,
+    patterns: &[String],
+    include_noise: bool,
+    cap: Option<usize>,
+    guard_read_targets: bool,
+) -> Result<(Vec<(AbsPath, Option<u128>)>, bool, bool, bool, Turn), ToolError> {
+    let (inc, exc, any_include) = compile_globs(patterns)?;
+    let root_path = root.as_path();
+    let rel = |p: &Path| p.strip_prefix(&root_path).map(fwd).unwrap_or_else(|_| fwd(p));
+    let class = SearchClass::Bulk;
+    let work = |budget: u64| async move {
+        // Every file under a noise folder is dropped below: the walk lists those folders without entering them.
+        let descent = Descent { bare: if include_noise { Vec::new() } else { noise_bare() }, ..Descent::default() };
+        let walked = walk_entries(ctx, root, !include_noise, |e| {
+            if !include_noise && in_noise_dir(e.path.as_path(), &root_path) {
+                return false;
+            }
+            let r = rel(e.path.as_path());
+            (!any_include || inc.is_match(&r)) && !exc.is_match(&r)
+        }, descent, cap, Some((class, budget)))
+        .await?;
+        // The mtimes are read 64 at a time, in the walk's order (as `find` reads its stats).
+        use futures::StreamExt as _;
+        let mut out = Vec::with_capacity(walked.entries.len());
+        let followed_link = walked.entries.iter().any(|e| e.kind == EntryKind::Symlink);
+        let mut stamped = futures::stream::iter(walked.entries.into_iter().map(|e| async move {
+            let allowed = !guard_read_targets || super::read::read_target(ctx, &fwd(e.path.as_path())).await?.is_ok();
+            let m = if allowed { mtime_millis(ctx, &e.path).await } else { None };
+            Ok::<_, ToolError>((e.path, m))
+        }))
+        .buffered(64);
+        while let Some(row) = stamped.next().await {
+            if ctx.cancel.is_cancelled() {
+                return Err(cancelled());
+            }
+            out.push(row?);
+        }
+        Ok::<_, ToolError>((out, walked.complete, walked.capped, followed_link))
+    };
+    let ((found, complete, capped, followed_link), turn) = broad_search_turn(ctx, BROAD_REFUSALS[1], work).await?;
+    Ok((found, complete, capped, followed_link, turn))
+}
+#[async_trait]
+impl Tool for GlobTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        // arg-guard.mjs (glob): a `path` or `root` that is not a string, an array included, is refused; a null or
+        // blank one is absent and the search runs from the cwd.
+        let path = super::common::optional_path_arg(&args, "path", |got| format!("Error: glob arg \"path\" must be string (got {got})"))?;
+        super::common::optional_path_arg(&args, "root", |got| format!("Error: glob arg \"root\" must be string (got {got})"))?;
+        let patterns: Vec<String> = arg_strings(&args, "pattern").iter().map(|p| canonical_glob_slashes(p)).collect();
+        let raw = path.unwrap_or(".");
+        // arg-guard.mjs (glob): `sort` is natural or mtime (after a trim) and nothing else.
+        let natural = match args.get("sort") {
+            None => false,
+            Some(JsonValue::String(sort)) => match mixdog_js::js_trim(sort) {
+                "natural" => true,
+                "mtime" => false,
+                _ => {
+                    let got = JsonValue::String(mixdog_js::js_trim(sort).to_owned());
+                    return Err(invalid("sort", "type", format!("Error: glob arg \"sort\" must be one of natural|mtime (got {got})")));
+                }
+            },
+            Some(other) => return Err(invalid("sort", "type", format!("Error: glob arg \"sort\" must be one of natural|mtime (got {})", super::read_legacy::describe_type(other)))),
+        };
+        let limit = match arg_u64(&args, "limit") {
+            Some(0) => usize::MAX,
+            Some(n) => n as usize,
+            None => GLOB_DEFAULT_LIMIT,
+        };
+        let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
+        if let Some(text) = glob_unc_refusal(ctx, raw, &patterns) {
+            return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
+        }
+        let root = resolve_path(&ctx.cwd, raw)?;
+        // Node `buildGlobPatternGroups`: an absolute pattern is walked from its own static prefix,
+        // anchored there; the others from `path`.
+        let (absolute, relative): (Vec<String>, Vec<String>) =
+            patterns.iter().cloned().partition(|p| is_absolute_pattern(p));
+        // Each group with the root Node names it by (`normalizeOutputPath(root)`).
+        let mut groups: Vec<(AbsPath, Vec<String>, String)> = Vec::new();
+        if !relative.is_empty() || absolute.is_empty() {
+            if let Some(missing) = require_dir(ctx, raw, &root).await? {
+                return Ok(text_output(missing));
+            }
+            groups.push((root.clone(), relative, raw.replace('\\', "/")));
+        }
+        for pattern in &absolute {
+            let (base, rest) = extract_glob_base_directory(pattern);
+            let (group_root, label) = match base {
+                Some(base) => (resolve_path(&ctx.cwd, &base)?, base.replace('\\', "/")),
+                None => (root.clone(), raw.replace('\\', "/")),
+            };
+            let rest = format!("/{rest}");
+            match groups.iter_mut().find(|(r, _, _)| *r == group_root) {
+                Some((_, rels, _)) if rels.contains(&rest) => {}
+                Some((_, rels, _)) => rels.push(rest),
+                None => groups.push((group_root, vec![rest], label)),
+            }
+        }
+        // A bounded page is ranked over every match, as Node's windowed top-K pass counts them all;
+        // an unbounded listing keeps at most GLOB_ACCUM_CAP matches and says so (Node's full rg listing).
+        let cap = (limit == usize::MAX).then_some(GLOB_ACCUM_CAP);
+        let include_noise = arg_bool(&args, "include_noise");
+        let (mut files, mut complete, mut capped) = (Vec::new(), true, false);
+        let mut followed_link = false;
+        let mut errors = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let (mut walk_ms, mut admitted_directly, mut queued_behind_others) = (0u64, 0usize, false);
+        for (group_root, rels, label) in &groups {
+            if let Some(missing) = require_dir(ctx, &fwd(group_root.as_path()), group_root).await? {
+                errors.push(missing.trim_start_matches("Error: ").to_owned());
+                continue;
+            }
+            let (found, done, cut, links, turn) = match glob_files(ctx, group_root, rels, include_noise, cap, false).await {
+                Err(e) if refused_with(&e).is_some() => {
+                    errors.push(format!("rg failed for {label}: {}", refused_with(&e).unwrap_or_default()));
+                    continue;
+                }
+                found => found?,
+            };
+            walk_ms += turn.ran_ms;
+            admitted_directly += usize::from(!turn.queued);
+            queued_behind_others |= turn.queued;
+            complete &= done;
+            capped |= cut;
+            followed_link |= links;
+            files.extend(found.into_iter().filter(|f| seen.insert(f.0.clone())));
+        }
+        if let Some(cap) = cap.filter(|cap| files.len() > *cap) {
+            files.truncate(cap);
+            capped = true;
+        }
+        // Node's glob is one `--files` request to the search server: admitted as a broad search, served as a bulk
+        // one (`search-admission.mjs`, `native-search-runner.mjs`, `local-search-telemetry.mjs`). The walk here is
+        // that request: its handler time the walk's, from its admission on. A search that waited for its turn
+        // (`broad_search`) reports no admission of its own: Node's gate tells it to whichever call handed the turn over
+        // (`onAdmit` runs where the dispatch was scheduled), so the waiter's telemetry has neither `broad_admissions` nor
+        // `broad_admission_wait_ms` (recorded: search-admission-waiter-telemetry).
+        let mut local_search = serde_json::Map::new();
+        if admitted_directly > 0 || !queued_behind_others {
+            local_search.insert("broad_admissions".to_owned(), 1.into());
+            local_search.insert("broad_admission_wait_ms".to_owned(), 0.into());
+        }
+        for (key, value) in [("native_bulk_requests", 1), ("native_bulk_queue_ms", 0), ("native_bulk_handler_ms", walk_ms), ("native_hits", 1), ("native_ms", walk_ms)] {
+            local_search.insert(key.to_owned(), value.into());
+        }
+        let local_search = JsonValue::Object(local_search);
+        let text_output = |text: String, complete: bool, cache_safe: bool| {
+            let mut output = text_output(text);
+            output.meta = Some(serde_json::json!({
+                "complete": complete,
+                "cacheSafe": cache_safe,
+                LOCAL_SEARCH_META: local_search,
+            }));
+            output
+        };
+        // `scanGlobGroups`' `Error: …` answer, a failure as Node's result classifier reads that text.
+        if files.is_empty() && !errors.is_empty() {
+            let text = format!("Error: {}", errors.join(" | "));
+            return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
+        }
+        if natural {
+            files.sort_by(|a, b| a.0.cmp(&b.0));
+        } else {
+            let key = |p: &AbsPath| {
+                let s = fwd(p.as_path());
+                if cfg!(windows) { s.to_lowercase() } else { s }
+            };
+            // Newest first; a file whose stat failed cannot be ordered by time and keeps its walk
+            // order after the rest (Node's mtime top-K, `serve_search/mtime.rs`).
+            let (mut statted, unstatted): (Vec<_>, Vec<_>) = files.into_iter().partition(|f| f.1.is_some());
+            statted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| key(&a.0).cmp(&key(&b.0))));
+            statted.extend(unstatted);
+            files = statted;
+        }
+        let total = files.len();
+        // Node's bounded newest-first page is a top-(offset+limit+1) window of the whole set, counted in full, that
+        // then passes the same GLOB_ACCUM_CAP fold as every listing (`mergeGlobRuns`).
+        if !natural && limit != usize::MAX && offset.saturating_add(limit).saturating_add(1).min(total) > GLOB_ACCUM_CAP {
+            files.truncate(GLOB_ACCUM_CAP);
+            capped = true;
+        }
+        let windowed = files.get(offset..).unwrap_or(&[]);
+        let page = &windowed[..windowed.len().min(limit)];
+        // Node's `relativeSearchResultPath` strips `<cwd>/`; a filesystem root as the cwd already ends in its separator, so
+        // no path starts with `<cwd>//` and every one stays absolute.
+        let root_cwd = ctx.cwd.as_path().parent().is_none();
+        let lines: Vec<String> = page
+            .iter()
+            .map(|(p, _)| if root_cwd { super::common::fwd(p.as_path()) } else { display_path(p.as_path(), &ctx.cwd) })
+            .collect();
+        let remaining = total.saturating_sub(offset + page.len());
+        let mut direct_fallback = false;
+        let mut text = lines.join("\n");
+        if remaining > 0 {
+            text.push_str(&format!(
+                "\n{}",
+                window_marker(
+                    "entries",
+                    offset as u64 + 1,
+                    (offset + page.len()) as u64,
+                    Some(total as u64),
+                    Some((offset + page.len()) as u64),
+                    None
+                )
+            ));
+        }
+        if lines.is_empty() {
+            let shown_patterns = if patterns.len() == 1 {
+                serde_json::to_string(&patterns[0])
+            } else {
+                serde_json::to_string(&patterns)
+            }
+            .unwrap_or_default();
+            let base_label = fwd(Path::new(raw));
+            if total > 0 && offset >= total {
+                text = format!("(no entries after offset={offset}; total={total}) pattern={shown_patterns} path={base_label}");
+            } else {
+                // The walk never follows a directory link; an absolute pattern that found nothing is
+                // expanded straight off the filesystem before the miss is declared (Node `directAbsoluteMatches`).
+                if errors.is_empty() {
+                    direct_fallback = !absolute.is_empty();
+                    let want = if limit == usize::MAX { 50 } else { offset.saturating_add(limit) };
+                    let direct = expand_absolute_globs(ctx, &patterns, want).await;
+                    let shown: Vec<String> = direct.into_iter().skip(offset).take(limit).collect();
+                    if !shown.is_empty() {
+                        // The direct fallback can cross links outside the scanned roots.
+                        return Ok(text_output(shown.join("\n"), false, false));
+                    }
+                }
+                let base = match ctx.files.stat(ctx.io.interactive, root.clone()).await {
+                    Ok(s) if s.kind == EntryKind::Dir => "path exists (dir)",
+                    Ok(_) => "path exists (file)",
+                    Err(_) => "path does not exist (ENOENT)",
+                };
+                let empty = if complete { "(no files found)" } else { "(no files found yet)" };
+                text = format!("{empty} pattern={shown_patterns} path={base_label}; {base_label}: {base}");
+            }
+        }
+        if !errors.is_empty() {
+            text.push_str(&format!("\n... [warning] {}", errors.join(" | ")));
+        }
+        if capped {
+            text.push_str(&format!(
+                "\n{}",
+                cap_marker(&format!("{GLOB_ACCUM_CAP} matches"), "results incomplete", None, "narrow the pattern or path")
+            ));
+        }
+        if !complete {
+            text.push_str("\n[warning] search deadline reached; partial results shown.");
+        }
+        let whole = complete && !capped && errors.is_empty() && !direct_fallback && text.len() <= locator_max_bytes()
+            && (natural || files.iter().all(|(_, mtime)| mtime.is_some()));
+        Ok(text_output(locator_budget(text, &locator_targets(&args), offset), whole, natural || !followed_link))
+    }
+}
+#[async_trait]
+impl Tool for FindTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let query = arg_str(&args, "query").unwrap_or("").trim().to_owned();
+        if query.is_empty() {
+            return Err(invalid("query", "required", "Error: find requires query."));
+        }
+        // arg-guard.mjs (find): a `path` that is not a string is refused; a null or blank one is the cwd.
+        let raw = super::common::optional_path_arg(&args, "path", |got| format!("Error: find arg \"path\" must be a string (got {got})"))?
+            .unwrap_or(".");
+        let limit = match arg_u64(&args, "limit") {
+            Some(0) => FIND_UNLIMITED_CAP,
+            Some(n) => n as usize,
+            None => FIND_DEFAULT_LIMIT,
+        };
+        let include_noise = arg_bool(&args, "include_noise");
+        let root = resolve_path(&ctx.cwd, raw)?;
+        if let Some(missing) = require_dir(ctx, raw, &root).await? {
+            return Ok(text_output(missing));
+        }
+        let root_path = root.as_path().to_path_buf();
+        // Every file and folder is scored, as Node's native inventory ranks the whole scope (serve_search/fuzzy.rs
+        // `fuzzy_scope`: `directories`, the ignore files honoured in a repository or not unless `include_noise`). A noise
+        // folder is listed, nothing in it (`DEFAULT_IGNORE_GLOBS`, `!**/<name>/**`), and the walk does not enter it.
+        let bare = if include_noise { Vec::new() } else { noise_bare() };
+        let request = WalkRequest {
+            root: root.clone(),
+            recursive: true,
+            include_hidden: true,
+            respect_ignore: !include_noise,
+            require_git: false,
+            include_dirs: true,
+            prune: root_scan_prunes(&root, cfg!(not(windows))),
+            descent: Descent { max_depth: None, bare, bare_dotted: false, guard: None },
+            server: Some(SearchClass::Fuzzy),
+        };
+        let Walked { entries, complete, .. } = broad_search(ctx, BROAD_REFUSALS[2], |budget| {
+            walk_kept(ctx, request, |e| include_noise || !in_noise_dir(e.path.as_path().parent().unwrap_or(root_path.as_path()), &root_path), None, budget)
+        })
+        .await?;
+        // serve_search/fuzzy.rs: every whitespace-separated fragment is a nucleo fuzzy atom (case ignored, Unicode
+        // normalised "smart"), all must match one path, the scores add, and the best score comes first, a tie by path.
+        let atoms: Vec<Pattern> =
+            query.split_whitespace().map(|t| Pattern::new(t, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy)).collect();
+        let mut matcher = FuzzyMatcher::new(FuzzyConfig::DEFAULT.match_paths());
+        let mut scored: Vec<(u32, String)> = entries
+            .iter()
+            .filter_map(|e| {
+                let rel = display_under(e.path.as_path(), &root_path);
+                let text = Utf32String::from(rel.as_str());
+                let mut total = 0u32;
+                for atom in &atoms {
+                    total = total.saturating_add(atom.score(text.slice(..), &mut matcher)?);
+                }
+                Some((total, rel))
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+        let more = scored.len() > limit;
+        scored.truncate(limit);
+        let mut lines: Vec<String> = scored.into_iter().map(|(_, p)| p).collect();
+        if lines.is_empty() {
+            lines.push(format!("(no fuzzy match for \"{query}\")"));
+        } else if more {
+            lines.push(format!("... (top {limit}; additional matches omitted)"));
+        }
+        if !complete {
+            lines.push("... [search deadline reached; partial results shown]".to_owned());
+        }
+        let text = lines.join("\n");
+        let output = |text, complete| {
+            let mut output = text_output(text);
+            output.meta = Some(serde_json::json!({ "complete": complete }));
+            output
+        };
+        if text.len() > locator_max_bytes() {
+            let (kept, dropped) = cap_lines(&text, locator_max_bytes());
+            let rows = lines.len().saturating_sub(dropped);
+            let marker = cap_marker(
+                &format_cap_size(locator_max_bytes()),
+                &format!("{rows} match row(s) shown for query={query:?}"),
+                None,
+                "use a more specific query or add path",
+            );
+            return Ok(output(format!("{kept}\n{marker}"), false));
+        }
+        Ok(output(text, complete))
+    }
+}
+// ---------------------------------------------------------------------------
+// grep
+
+/// Waits until a search's hard deadline: a sleep on the runtime's clock, or a test's timer.
+pub type SearchTimer = Arc<dyn Fn(std::time::Instant) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+pub struct GrepTool {
+    spec: ToolSpec,
+    timer: SearchTimer,
+}
+impl GrepTool {
+    pub fn new() -> Self {
+        Self::with_timer(Arc::new(|at| Box::pin(mixdog_rt::time::sleep_until(at.into()))))
+    }
+
+    /// A grep whose searches' hard deadlines pass on `timer`.
+    pub fn with_timer(timer: SearchTimer) -> Self {
+        Self { spec: spec_from_def(GREP_SPEC, true, &[]), timer }
+    }
+}
+impl Default for GrepTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl GrepTool {
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    async fn run_one_root(
+        &self,
+        ctx: &ToolContext,
+        (raw, args, pattern, globs): (&str, &JsonValue, &str, &[String]),
+        mode: Mode,
+        bound: Option<usize>,
+        class: SearchClass,
+        budget_ms: u64,
+    ) -> Result<Scanned, ToolError> {
+        let abs = resolve_path(&ctx.cwd, raw)?;
+        let stat = match guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
+            Ok(s) => s,
+            Err(e) if super::not_found::missing_code(&e.kind).is_some() => {
+                let code = super::not_found::missing_code(&e.kind).unwrap_or("ENOENT");
+                let error = super::not_found::grep_missing(ctx, &abs, raw, code).await;
+                return Ok(Scanned { hits: Vec::new(), complete: true, timed_out: false, scan_errors: 0, error, single_file: false, bad_pattern: false });
+            }
+            Err(e) => return Err(fs_failure(&e, raw)),
+        };
+        let include_noise = arg_bool(args, "include_noise");
+        let single_file = stat.kind == EntryKind::File;
+        let (root, mut include_globs) = if single_file {
+            let parent = AbsPath::new(abs.as_path().parent().unwrap_or(abs.as_path()).to_path_buf())
+                .unwrap_or_else(|| abs.clone());
+            let name = abs.as_path().file_name().map(|n| escape_glob(&n.to_string_lossy()));
+            (parent, name.into_iter().collect::<Vec<_>>())
+        } else {
+            (abs.clone(), Vec::new())
+        };
+        let mut exclude_globs = Vec::new();
+        // grep-request.mjs `resolveGrepScope`: a caller's glob with each Windows `\` a `/` (`canonicalizeGlobSlashes`).
+        for g in globs.iter().map(|g| canonical_glob_slashes(g)) {
+            match g.strip_prefix('!') {
+                Some(neg) => exclude_globs.push(neg.to_owned()),
+                None => include_globs.push(g),
+            }
+        }
+        if !include_noise {
+            for n in NOISE_DIRS {
+                // A noise directory the caller explicitly searches inside stays visible.
+                let inside = abs.as_path().components().any(|c| c.as_os_str() == *n);
+                if !inside {
+                    exclude_globs.push(format!("**/{n}/**"));
+                }
+            }
+        }
+        let deadlines = SearchDeadlines::within(ctx, budget_ms);
+        let mut stream = ctx.files.search_text(
+            ctx.io.maintenance,
+            SearchRequest {
+                root,
+                pattern: pattern.to_owned(),
+                regex: true,
+                // `-i` (`caseInsensitive` of grep-request.mjs, ripgrep's `-i`).
+                case_sensitive: args.get("-i") != Some(&JsonValue::Bool(true)),
+                include_globs,
+                exclude_globs,
+                include_hidden: true,
+                // A file named as the path is searched whatever the ignore rules say, as ripgrep does a file operand.
+                respect_ignore: !include_noise && !single_file,
+                // grep-request.mjs `multilineMode` (`-U --multiline-dotall`) and `pcre2Mode` (`-P`), and `text` (`--text`).
+                multiline: multiline_mode(args, pattern),
+                pcre2: UNSUPPORTED_REGEX.is_match(pattern),
+                binary_as_text: arg_bool(args, "text"),
+                // The scan itself ends at the window (a file list or counts read every match), as Node's server's
+                // `collect_until` does; an unlimited listing at the 200,000-match content cap. The sink below takes one
+                // hit before it checks a spent bound, so a bound of 0 still reads one.
+                limit: (mode == Mode::Content).then(|| bound.map_or(CONTENT_MATCH_CAP, |n| n.max(1))),
+                // A file list reads each file to its first match (`--files-with-matches`).
+                first_per_file: mode == Mode::Files,
+                deadline: Some(deadlines.soft.into_std()),
+                class,
+            },
+        );
+        let mut hits = Vec::new();
+        let mut errors = 0usize;
+        let mut bad_pattern = None;
+        let mut timed_out = false;
+        let mut refused = None;
+        // The stream is read to its end, past the bound: the scan stops itself at its limit, and the deadline it may
+        // report after its last match belongs to the answer (Node's server checks it once more after its scan).
+        let end = pull_until(ctx, stream.as_mut(), (self.timer)(deadlines.hard.into_std()),|item| {
+            match item {
+                Ok(SearchMatch { path, line, text, count, .. }) => {
+                    if mode == Mode::Content && hits.len() >= CONTENT_MATCH_CAP {
+                        return false;
+                    }
+                    // A file list is one row per file (`--files-with-matches`).
+                    if mode == Mode::Files && hits.last().is_some_and(|h: &Hit| h.path == path) {
+                        return true;
+                    }
+                    if !bound.is_some_and(|n| hits.len() >= n.max(1)) {
+                        hits.push(Hit { path, line, text, count });
+                    }
+                }
+                Err(FsError { kind: FsErrorKind::TimedOut, path, .. }) => {
+                    timed_out = true;
+                    // A file the deadline cut is not answered in part.
+                    if let Some(cut) = path {
+                        hits.retain(|h| h.path != cut);
+                    }
+                }
+                Err(e) => match e.kind {
+                    FsErrorKind::InvalidPattern { message } => bad_pattern = Some(message),
+                    ref kind @ (FsErrorKind::Saturated | FsErrorKind::CancelStalled { .. }) => refused = refusal_reason(kind),
+                    _ => {
+                        errors += 1;
+                        // A file whose search failed is not answered in part (Node's server drops its printed lines).
+                        if let Some(failed) = e.path {
+                            hits.retain(|h| h.path != failed);
+                        }
+                    }
+                },
+            }
+            true
+        })
+        .await;
+        let complete = match end {
+            PullEnd::Cancelled => return Err(cancelled()),
+            PullEnd::Deadline => false,
+            // A file the scan could not read leaves the answer incomplete (serve_search/search.rs `response_window`).
+            PullEnd::Exhausted => !timed_out && errors == 0,
+            // The search's hard deadline: the server never answered (`requestNative`'s timer, `timeoutError`); the search
+            // was stopped as Node's client cancels and then ends its server.
+            PullEnd::Timer => {
+                let text = format!("Error: native content search exceeded its {}ms total deadline.", deadlines.hard_ms);
+                return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
+            }
+        };
+        if let Some(reason) = refused {
+            return Err(refusal(reason));
+        }
+        // The parser's own text, as Node relays the search server's refusal.
+        if let Some(message) = bad_pattern {
+            let error = format!("Error: regex parse error: {message}");
+            return Ok(Scanned { hits: Vec::new(), complete: true, timed_out: false, scan_errors: 0, error, single_file, bad_pattern: true });
+        }
+        Ok(Scanned { hits, complete, timed_out, scan_errors: errors, error: String::new(), single_file, bad_pattern: false })
+    }
+}
+/// native-search-client.mjs: a search's hard deadline is the caller's timeout, at most `REQUEST_TIMEOUT_MS` (17.5 s),
+/// past which the call fails; the server's soft deadline (`softDeadlineMs`) is that less a margin of 7.5 %, between
+/// 250 ms and 2 s, past which the server answers what it found, marked timed out.
+struct SearchDeadlines {
+    soft: mixdog_rt::time::Instant,
+    hard: mixdog_rt::time::Instant,
+    hard_ms: u64,
+}
+impl SearchDeadlines {
+    fn of(ctx: &ToolContext) -> Self {
+        Self::within(ctx, u64::MAX)
+    }
+
+    /// The deadlines of a search that has `left_ms` of its budget left: one admitted after a wait (`requestNativeWithRestart`
+    /// sets the server's soft deadline from the budget that remains).
+    fn within(ctx: &ToolContext, left_ms: u64) -> Self {
+        const REQUEST_TIMEOUT_MS: u64 = 17_500;
+        // On the runtime's clock, as the sleeps that wait for these deadlines: a test moves it by an explicit advance.
+        let now = mixdog_rt::time::Instant::now();
+        let caller = ctx.deadline.map(|at| u64::try_from(mixdog_rt::time::Instant::from_std(at).saturating_duration_since(now).as_millis()).unwrap_or(u64::MAX));
+        // The search ends this much before the call's own deadline, so its typed stage ("not started: waiting for
+        // admission", "exceeded its budget while scanning") is what the call reports, not the generic outer timeout.
+        const OUTER_MARGIN_MS: u64 = 250;
+        let hard_ms = caller.filter(|ms| *ms > 0).map_or(REQUEST_TIMEOUT_MS, |ms| ms.saturating_sub(OUTER_MARGIN_MS).max(1).min(REQUEST_TIMEOUT_MS)).min(left_ms);
+        let margin = (hard_ms * 75 / 1000).clamp(250, 2000);
+        let ms = std::time::Duration::from_millis;
+        Self { soft: now + ms(hard_ms.saturating_sub(margin).max(1)), hard: now + ms(hard_ms), hard_ms }
+    }
+}
+#[async_trait]
+impl Tool for GrepTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    /// The answer within Node's context budget (`GREP_OUTPUT_MAX_BYTES` characters), then capped as
+    /// executeBuiltinTool caps it (builtin.mjs `_budgetBuiltinOutput`: `capLineOrientedToolOutput` at
+    /// `GREP_OUTPUT_MAX_BYTES` bytes with `_grepBudgetFooter`).
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let cap = grep_max_bytes();
+        let mut complete = true;
+        let output = |text, complete| {
+            let mut output = text_output(text);
+            output.meta = Some(serde_json::json!({ "complete": complete }));
+            output
+        };
+        // A resumed fan-out (`section`) goes straight to the sections it names.
+        if args.get("section").is_some() {
+            return match self.fanout_paged(ctx, &args, cap, &mut complete).await? {
+                Some(text) => Ok(output(text, complete)),
+                None => Err(invalid("section", "range", "Error: grep arg \"section\" continues a call over several paths or patterns; this call has one section.")),
+            };
+        }
+        let text = self.answer(ctx, args.clone(), cap, Some(cap), &mut complete).await?;
+        // One section is fitted to the cap where it is rendered. Sections assembled past it, or one that names a result too
+        // large for the cap in place of showing it, are re-delivered as whole units from the first section onward, ending at
+        // a (section, offset) cursor ([`Self::fanout_paged`]), so what follows a named result is not lost.
+        if (text.len() > cap || text.contains(OVERSIZE_MARK))
+            && let Some(paged) = self.fanout_paged(ctx, &args, cap, &mut complete).await?
+        {
+            return Ok(output(paged, complete));
+        }
+        Ok(output(text, complete))
+    }
+}
+impl GrepTool {
+    /// One grep call's text, its context renderings fitted to `budget` characters.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    async fn answer(&self, ctx: &ToolContext, args: JsonValue, budget: usize, fit: Option<usize>, complete: &mut bool) -> Result<String, ToolError> {
+        let patterns = arg_strings(&args, "pattern");
+        if patterns.is_empty() || patterns.iter().all(|p| p.is_empty()) {
+            return Err(invalid("pattern", "required", "Error: grep requires pattern."));
+        }
+        // arg-guard.mjs (grep): a null or blank `path`/`root` is absent (the cwd); an array is kept as the scopes and must
+        // hold 1-10 non-empty strings; any other non-string is refused.
+        let mut args = args;
+        for key in ["path", "root"] {
+            match args.get(key) {
+                Some(JsonValue::Null) => {
+                    args.as_object_mut().map(|o| o.shift_remove(key));
+                }
+                Some(JsonValue::String(s)) if mixdog_js::js_trim(s).is_empty() => {
+                    args.as_object_mut().map(|o| o.shift_remove(key));
+                }
+                Some(JsonValue::Array(items)) => {
+                    let non_empty = |v: &JsonValue| v.as_str().is_some_and(|s| !mixdog_js::js_trim(s).is_empty());
+                    if items.is_empty() || items.len() > GREP_PATH_BATCH_LIMIT || !items.iter().all(non_empty) {
+                        let text = format!(
+                            "Error: grep arg \"{key}\" must contain 1-{GREP_PATH_BATCH_LIMIT} non-empty path strings ({} given, max {GREP_PATH_BATCH_LIMIT})",
+                            items.len()
+                        );
+                        return Err(invalid(key, "type", text));
+                    }
+                }
+                Some(other) if !other.is_string() => {
+                    let got = super::read_legacy::describe_type(other);
+                    return Err(invalid(key, "type", format!("Error: grep arg \"{key}\" must be string or string[] (got {got})")));
+                }
+                _ => {}
+            }
+        }
+        // search-grep-tool.mjs: two or more distinct paths are independent greps, one `# grep <path>` section each
+        // (lib/grep-path-fanout.mjs); one is that path. Each section's context budget is the call's divided by the
+        // number of paths, at least 512 (grep-path-fanout.mjs:244 and :293, `Math.max(512, Math.floor(budget / n))`);
+        // the assembled text is capped once, by `call`.
+        if let Some(JsonValue::Array(items)) = args.get("path") {
+            let mut list: Vec<String> = Vec::new();
+            for item in items {
+                let p = mixdog_js::js_trim(item.as_str().unwrap_or_default()).to_owned();
+                if !p.is_empty() && !list.contains(&p) {
+                    list.push(p);
+                }
+            }
+            if list.len() > 1 {
+                let per_path = (budget / list.len()).max(512);
+                if let Some(bodies) = self.combined_paths(ctx, &args, &list, &patterns, per_path).await? {
+                    return Ok(fanout_sections(Fanout::Path, &list, &bodies));
+                }
+                // `runGrepPathFanout`'s fallback: each path an independent grep.
+                let mut bodies = Vec::with_capacity(list.len());
+                for p in &list {
+                    let mut one = args.clone();
+                    one["path"] = JsonValue::String(p.clone());
+                    bodies.push(match Box::pin(self.answer(ctx, one, per_path, None, complete)).await {
+                        Ok(text) => text,
+                        Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => return Err(e),
+                        Err(e) => {
+                            *complete = false;
+                            e.message_for_model
+                        }
+                    });
+                }
+                return Ok(fanout_sections(Fanout::Path, &list, &bodies));
+            }
+            if let Some(one) = list.pop() {
+                args["path"] = JsonValue::String(one);
+            }
+        }
+        let (patterns, note) = pattern_list(&patterns);
+        let mode = mode_of(&args);
+        Ok(format!("{note}{}", self.answer_patterns(ctx, &args, &patterns, mode, budget, fit, complete).await?))
+    }
+
+    /// One path's answer to its (distinct, capped) patterns.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    #[allow(clippy::too_many_arguments)]
+    async fn answer_patterns(&self, ctx: &ToolContext, args: &JsonValue, patterns: &[String], mode: Mode, budget: usize, fit: Option<usize>, complete: &mut bool) -> Result<String, ToolError> {
+        let args = args.clone();
+        let patterns = patterns.to_vec();
+        // Node `runGrepPatternFanout`: several content patterns are independent greps, one section
+        // each; a match line or block an earlier pattern showed is not repeated.
+        if patterns.len() > 1 && mode == Mode::Content {
+            // `perPatternCharBudget` (grep-pattern-fanout.mjs).
+            let per_pattern = (budget / patterns.len()).max(512);
+            let (bodies, residual, partial) = match self.combined_patterns(ctx, &args, &patterns, per_pattern).await? {
+                Some(answer) => answer,
+                // `runPerPatternFanout`: each pattern an independent grep.
+                None => {
+                    if self.no_candidate_files(ctx, &args, &patterns).await? {
+                        return Ok(no_matches(true));
+                    }
+                    let mut bodies = Vec::with_capacity(patterns.len());
+                    // A pattern's failure is its section's text (`runPattern`'s catch, grep-pattern-fanout.mjs:336-339).
+                    for pattern in &patterns {
+                        bodies.push(match self.search(ctx, &args, pattern, mode, true, per_pattern, None, complete).await {
+                            Ok(text) => text,
+                            Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => return Err(e),
+                            Err(e) => {
+                                *complete = false;
+                                e.message_for_model
+                            }
+                        });
+                    }
+                    (bodies, Vec::new(), None)
+                }
+            };
+            let mut seen = std::collections::HashSet::new();
+            let bodies: Vec<String> = bodies.iter().map(|body| dedupe_fanout_match_lines(body, &mut seen)).collect();
+            let mut text = fanout_sections(Fanout::Pattern, &patterns, &bodies);
+            if !residual.is_empty() {
+                // `renderCombinedSections`: lines no pattern claimed are shown, at most 40, not dropped.
+                text.push_str(&format!("\n\n# grep (unattributed matches)\n{}", residual[..residual.len().min(40)].join("\n")));
+            }
+            // The combined scan's one warning closes the answer.
+            if let Some(warning) = partial {
+                *complete = false;
+                text.push_str(&warning);
+            }
+            return Ok(text);
+        }
+        let pattern = if patterns.len() == 1 { patterns[0].clone() } else { combined_regex(&patterns) };
+        self.search(ctx, &args, &pattern, mode, false, budget, fit, complete).await
+    }
+
+    /// One grep of `pattern`, rendered. `fanout`: a section of a several-pattern answer, whose
+    /// bare match lines carry their file (Node's combined pass, `disableContentGrouping`). `fit`: the byte cap the text must
+    /// come within, by delivering fewer whole results ([`Paged`]).
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    #[allow(clippy::too_many_arguments)]
+    async fn search(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, fanout: bool, budget: usize, fit: Option<usize>, complete: &mut bool) -> Result<String, ToolError> {
+        let paged = self.search_paged(ctx, args, pattern, mode, fanout, false, budget, fit, complete).await?;
+        *complete &= !paged.by_cap;
+        match (paged.oversize, paged.next) {
+            // A result named for being too large is not skipped: the call that goes on after it is given, as a section of a
+            // compound answer gives its cursor.
+            (true, Some(next)) => {
+                let mut after = args.clone();
+                if let Some(object) = after.as_object_mut() {
+                    object.insert("offset".to_owned(), JsonValue::from(next));
+                }
+                Ok(format!("{}\n[the results after it start at offset {next}. Continue with grep {after}]", paged.text))
+            }
+            // Rows were dropped to fit the byte cap: the renderer's notice only pages, so the cap is named here.
+            (false, Some(next)) if paged.by_cap => {
+                let cap = fit.map(format_cap_size).unwrap_or_default();
+                Ok(format!("{}\n[response limit {cap} reached after {} result(s); the rest starts at offset {next}]", paged.text, paged.delivered))
+            }
+            _ => Ok(paged.text),
+        }
+    }
+
+    /// [`Self::search`] with what the page delivered and where it continues, whether the cut came from the byte cap or
+    /// from the result limit. The collected hits are rendered as often as the fit needs; nothing is scanned again. A page
+    /// cut to fit is the first `n` results after the offset (a prefix of whole logical units: a match row, a context block
+    /// with the matches it covers, a file row, a count row), and the renderer's own paging notice names the offset of the
+    /// first one not delivered. `section`: the page is one section of a compound answer, whose cursor names that offset,
+    /// so it is rendered as such a prefix whatever left results behind (the limit, the context budget or the byte cap).
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    #[allow(clippy::too_many_arguments)]
+    async fn search_paged(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, fanout: bool, section: bool, budget: usize, fit: Option<usize>, complete: &mut bool) -> Result<Paged, ToolError> {
+        let window = Window::of(args, mode);
+        // The native search window (serve_search/search.rs `collect_until`): the scan stops one hit past what the call
+        // can show, so the length of a cut stream is unknown.
+        let collected = self.collect(ctx, args, pattern, mode, window.stream_bound(mode), SearchClass::Interactive).await?;
+        *complete &= collected.complete && collected.errors.is_empty();
+        Self::page(ctx, collected, window, pattern, (mode, fanout, section), budget, fit, Totals::Streamed).await
+    }
+
+    /// The page of hits already collected: rendered as `totals` says (a path's own scan is a stream cut at its window; a
+    /// section of the combined scan knows its totals and keeps the scan's order), cut to fit `fit`, with what it delivered.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    #[allow(clippy::too_many_arguments)]
+    async fn page(ctx: &ToolContext, collected: Collected, window: Window, pattern: &str, (mode, fanout, section): (Mode, bool, bool), budget: usize, fit: Option<usize>, totals: Totals) -> Result<Paged, ToolError> {
+        let Collected { all, complete, timed_out, scan_errors, errors, single, all_bad } = collected;
+        if all.is_empty() && !errors.is_empty() {
+            // A pattern the parser refused is a failed call, as Node's caller takes it; a missing path is a miss.
+            // In a several-pattern answer it fails only its own section.
+            if all_bad && !fanout {
+                let text = errors.join("\n");
+                return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
+            }
+            return Ok(Paged::whole(errors.join("\n")));
+        }
+        let shape = Shape { mode, single: single && !fanout, fanout, complete, totals };
+        let streamed = window.stream_bound(mode).is_some();
+        let compose = |window: Window, prefix: bool| {
+            let (all, errors) = (&all, &errors);
+            async move {
+                let mut text = render(ctx, all, &window, shape, pattern, budget, prefix).await?;
+                for e in errors {
+                    text.push_str(&format!("\n{e}"));
+                }
+                if !complete {
+                    text.push_str(&partial_warning(timed_out, scan_errors, streamed));
+                }
+                Ok::<String, ToolError>(text)
+            }
+        };
+        let available = all.len().saturating_sub(window.offset);
+        // A section of a compound answer is always the first `limit` results after its offset, none dropped out of order by
+        // the context budget or skipped: what the renderer cannot fit is cut by the page below, and the cursor names it.
+        let text = compose(window, section).await?;
+        let Some(cap) = fit.filter(|cap| text.len() > *cap) else { return Ok(Paged::of(text, &window, available)) };
+        // The most results after the offset whose rendering fits.
+        let upper = if window.limit == usize::MAX { available } else { window.limit.min(available) }.max(1);
+        let (mut low, mut high, mut best) = (1usize, upper, None::<(usize, String)>);
+        while low <= high {
+            let mid = low + (high - low) / 2;
+            let page = compose(Window { limit: mid, ..window }, true).await?;
+            if page.len() <= cap {
+                best = Some((mid, page));
+                low = mid + 1;
+            } else if mid == 1 {
+                break;
+            } else {
+                high = mid - 1;
+            }
+        }
+        match best {
+            Some((delivered, text)) => {
+                let delivered = delivered.min(available);
+                let next = (delivered < available).then_some(window.offset + delivered);
+                Ok(Paged { text, next, delivered, oversize: false, by_cap: delivered < upper })
+            }
+            None => {
+                let one = compose(Window { limit: 1, ..window }, true).await?;
+                let first = one.lines().next().unwrap_or_default();
+                let at = if mode == Mode::Content && window.context == Some(0) {
+                    all.get(window.offset).map(|(label, hit)| (label.clone(), hit.line))
+                } else {
+                    unit_location(first)
+                };
+                // It is named, not skipped; the page goes on after it.
+                let next = (available > 1).then_some(window.offset + 1);
+                Ok(Paged { text: oversize_notice(cap, window.offset, first, at), next, delivered: 0, oversize: true, by_cap: true })
+            }
+        }
+    }
+
+    /// A call over several paths and/or patterns whose assembled answer passes the byte cap, delivered as whole sections in a
+    /// deterministic order (paths in the order given, each with the patterns in the order given), the last one cut to
+    /// whole results if it alone passes what is left. What is not delivered is named by the compound cursor `section`
+    /// (the index in that order) with `offset` (the first undelivered result of that section; later sections start at their
+    /// first result): the footer gives the exact call that continues. `None` when the call has a single section.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    async fn fanout_paged(&self, ctx: &ToolContext, args: &JsonValue, cap: usize, complete: &mut bool) -> Result<Option<String>, ToolError> {
+        let (patterns, note) = pattern_list(&arg_strings(args, "pattern"));
+        let mode = mode_of(args);
+        let by_pattern = patterns.len() > 1 && mode == Mode::Content;
+        let mut list: Vec<String> = Vec::new();
+        if let Some(JsonValue::Array(items)) = args.get("path") {
+            for item in items {
+                let p = mixdog_js::js_trim(item.as_str().unwrap_or_default()).to_owned();
+                if !p.is_empty() && !list.contains(&p) {
+                    list.push(p);
+                }
+            }
+        }
+        let by_path = list.len() > 1;
+        if !by_pattern && !by_path {
+            return Ok(None);
+        }
+        let pats: Vec<String> = if by_pattern { patterns } else if patterns.len() == 1 { patterns } else { vec![combined_regex(&patterns)] };
+        // The paths the combined scan takes keep its order and totals, as in the answer they continue (a file list is in scan
+        // order there, not newest first); the others are searched one by one.
+        let combined = if by_path && !by_pattern { self.combined_collect(ctx, args, &list, &arg_strings(args, "pattern")).await? } else { None };
+        let paths: Vec<Option<String>> = if by_path { list.into_iter().map(Some).collect() } else { vec![None] };
+        let total = paths.len() * pats.len();
+        let resumed = args.get("section").is_some();
+        let (start, given) = (arg_u64(args, "section").unwrap_or(0) as usize, arg_u64(args, "offset").unwrap_or(0) as usize);
+        if start >= total {
+            return Err(invalid("section", "range", format!("Error: grep arg \"section\" is {start}, but this call has {total} section(s) (0-{}).", total - 1)));
+        }
+        let label_of = |i: usize, j: usize| match (&paths[i], by_pattern) {
+            (Some(path), true) => format!("{path} pattern:{}", serde_json::to_string(&pats[j]).unwrap_or_default()),
+            (Some(path), false) => path.clone(),
+            (None, _) => format!("pattern:{}", serde_json::to_string(&pats[j]).unwrap_or_default()),
+        };
+        // What the footer needs room for: the exact call that continues.
+        let reserve = 320 + args.to_string().len();
+        let (mut parts, mut missed, mut used) = (Vec::<String>::new(), Vec::<String>::new(), note.len());
+        let (mut cursor, mut delivered_units) = (None::<(usize, usize)>, 0usize);
+        // Whether the byte cap, not the result limit, ended the page: the footer names the one that did.
+        let mut cut_by_cap = true;
+        for section in start..total {
+            let (i, j) = (section / pats.len(), section % pats.len());
+            // `section` given: its offset is the first section's alone; none: Node's, every section's.
+            let offset = if resumed { if section == start { given } else { 0 } } else { given };
+            let mut one = args.clone();
+            if let Some(object) = one.as_object_mut() {
+                object.shift_remove("section");
+                object.insert("offset".to_owned(), JsonValue::from(offset));
+                object.insert("pattern".to_owned(), JsonValue::String(pats[j].clone()));
+                if let Some(path) = &paths[i] {
+                    object.insert("path".to_owned(), JsonValue::String(path.clone()));
+                }
+            }
+            let header = format!("# grep {}\n", label_of(i, j));
+            let room = cap.saturating_sub(used + header.len() + reserve + 2);
+            if room == 0 && !parts.is_empty() {
+                cursor = Some((section, offset));
+                break;
+            }
+            let outcome = match &combined {
+                Some((pattern, sections)) => {
+                    let (hits, is_file) = &sections[i];
+                    if hits.is_empty() {
+                        Ok(Paged::whole(no_matches(true)))
+                    } else {
+                        let collected = Collected { all: hits.clone(), complete: true, timed_out: false, scan_errors: 0, errors: Vec::new(), single: *is_file, all_bad: false };
+                        Self::page(ctx, collected, Window::of(&one, mode), pattern, (mode, false, true), room.max(512), Some(room.max(1)), Totals::Combined).await
+                    }
+                }
+                None => self.search_paged(ctx, &one, &pats[j], mode, by_pattern, true, room.max(512), Some(room.max(1)), complete).await,
+            };
+            let paged = match outcome {
+                Ok(paged) => paged,
+                Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => return Err(e),
+                Err(e) => {
+                    *complete = false;
+                    Paged::whole(e.message_for_model)
+                }
+            };
+            if paged.oversize && !parts.is_empty() {
+                // It starts the next call, which has the whole cap for it and names it.
+                cursor = Some((section, offset));
+                break;
+            }
+            // Node drops from a later pattern's section the lines an earlier one showed; a cursor cannot know what an earlier
+            // response showed, so here each section is its own complete result and a line two patterns match is in both.
+            let body = paged.text.clone();
+            if body == no_matches(true) || body == no_matches(false) {
+                missed.push(label_of(i, j));
+                continue;
+            }
+            if body.trim().is_empty() {
+                continue;
+            }
+            used += header.len() + body.len() + 2;
+            parts.push(format!("{header}{body}"));
+            delivered_units += paged.delivered;
+            // The page ends where the section does not: whatever cut it (the byte cap, the result limit, or a result
+            // named instead of shown), the cursor is the first result after what was delivered or named.
+            if let Some(next) = paged.next {
+                cursor = Some((section, next));
+                cut_by_cap = paged.by_cap;
+                break;
+            }
+        }
+        if !missed.is_empty() {
+            let kind = match (by_path, by_pattern) {
+                (true, true) => "sections",
+                (true, false) => "paths",
+                _ => "patterns",
+            };
+            let all_missed = missed.len() == total && parts.is_empty();
+            parts.push(if all_missed { no_matches(true) } else { format!("{} {kind}={}", no_matches(true), serde_json::to_string(&missed).unwrap_or_default()) });
+        }
+        let mut text = format!("{note}{}", parts.join("\n\n"));
+        if let Some((section, offset)) = cursor {
+            *complete &= !cut_by_cap;
+            let mut next = args.clone();
+            if let Some(object) = next.as_object_mut() {
+                object.insert("section".to_owned(), JsonValue::from(section));
+                object.insert("offset".to_owned(), JsonValue::from(offset));
+            }
+            let reached = if cut_by_cap {
+                format!("response limit {}", format_cap_size(cap))
+            } else {
+                format!("result limit {}", Window::of(args, mode).limit)
+            };
+            text.push_str(&format!(
+                "\n[{reached} reached after {delivered_units} result(s); the first not delivered is in section {section} ({}) at offset {offset}; later sections start at their first result. Continue with grep {}]",
+                label_of(section / pats.len(), section % pats.len()),
+                next
+            ));
+        }
+        Ok(Some(text))
+    }
+
+    /// grep-pattern-fanout.mjs `runCombinedFanout`: one scan carrying every pattern over a folder, its lines attributed
+    /// to each pattern they match, when every pattern compiles as a JavaScript regex. It keeps `min(4000, max(400,
+    /// (offset + limit + 4) × patterns))` lines (300 per pattern when unlimited); past that, or over a file, a missing
+    /// path or a pattern the scan refuses, it declines (`None`). Its sections know their totals.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    async fn combined_patterns(
+        &self,
+        ctx: &ToolContext,
+        args: &JsonValue,
+        patterns: &[String],
+        budget: usize,
+    ) -> Result<Option<(Vec<String>, Vec<String>, Option<String>)>, ToolError> {
+        // `new RegExp(p, request.caseInsensitive ? 'i' : '')`, `caseInsensitive` being `args['-i'] === true`.
+        let flags = if args.get("-i") == Some(&JsonValue::Bool(true)) { "i" } else { "" };
+        let Ok(regexes) = patterns.iter().map(|p| mixdog_js::JsRegex::new(p, flags)).collect::<Result<Vec<_>, _>>() else {
+            return Ok(None);
+        };
+        let window = Window::of(args, Mode::Content);
+        // `combinedFanoutEligible`: the automatic context travels as `-B`/`-A` (grep-request.mjs
+        // `resolveGrepContextFlags`), which the combined pass declines, as it declines a multi-line search.
+        if window.context.is_none() || patterns.iter().any(|p| multiline_mode(args, p)) {
+            return Ok(None);
+        }
+        let per_window = if window.limit == usize::MAX { 300 } else { window.offset.saturating_add(window.limit).saturating_add(4) };
+        let cap = per_window.saturating_mul(patterns.len()).clamp(400, 4000);
+        // `combinedBulkHint`: sent as a bulk search unless a glob or a type narrows it (grep-pattern-fanout.mjs:249).
+        let class = if arg_strings(args, "glob").is_empty() && arg_str(args, "type").is_none() { SearchClass::Bulk } else { SearchClass::Interactive };
+        let Some(mut found) = declined_on_failure(self.collect(ctx, args, &combined_regex(patterns), Mode::Content, Some(cap + 1), class).await)? else {
+            return Ok(None);
+        };
+        if !found.errors.is_empty() || found.single {
+            return Ok(None);
+        }
+        // `runCombinedFanout`: a partial scan (its deadline cut it, or a file could not be read) keeps the lines it found
+        // (the server's window, at most the cap) and declines only when it found none; one that ran past its cap
+        // declines.
+        let partial = found.timed_out || found.scan_errors > 0;
+        if partial {
+            if found.all.is_empty() {
+                return Ok(None);
+            }
+            found.all.truncate(cap);
+        } else if !found.complete || found.all.len() > cap {
+            return Ok(None);
+        }
+        // The stream's lines as ripgrep printed them: `path:line:text`, the path with the platform's separator, the text
+        // clipped at 500 columns.
+        let lines: Vec<String> = found
+            .all
+            .iter()
+            .map(|(label, h)| format!("{}:{}:{}", label.replace('/', std::path::MAIN_SEPARATOR_STR), h.line, h.text))
+            .collect();
+        let Some((by_pattern, residual)) = attribute_combined(&lines, &regexes) else { return Ok(None) };
+        let mut bodies = Vec::with_capacity(patterns.len());
+        for (pattern, indices) in patterns.iter().zip(&by_pattern) {
+            bodies.push(if indices.is_empty() {
+                no_matches(!partial)
+            } else {
+                let all: Vec<(String, Hit)> = indices.iter().map(|&i| found.all[i].clone()).collect();
+                let shape = Shape { mode: Mode::Content, single: false, fanout: true, complete: !partial, totals: Totals::Combined };
+                render(ctx, &all, &window, shape, pattern, budget, false).await?
+            });
+        }
+        let residual = residual.into_iter().map(|i| lines[i].clone()).collect();
+        Ok(Some((bodies, residual, partial.then(|| partial_warning(found.timed_out, found.scan_errors, true)))))
+    }
+
+    /// grep-pattern-fanout.mjs `fanoutPrefilterCandidates`: before the per-pattern greps, one files-with-matches scan of
+    /// every pattern over a folder; when it completes with no file the call is one no-match answer. A file, a missing
+    /// path or a scan error leaves the per-pattern greps to answer.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    async fn no_candidate_files(&self, ctx: &ToolContext, args: &JsonValue, patterns: &[String]) -> Result<bool, ToolError> {
+        // Sent as a bulk search (grep-pattern-fanout.mjs:76).
+        let Some(found) = declined_on_failure(self.collect(ctx, args, &combined_regex(patterns), Mode::Files, Some(1), SearchClass::Bulk).await)? else {
+            return Ok(false);
+        };
+        Ok(found.complete && found.errors.is_empty() && !found.single && found.all.is_empty())
+    }
+
+    /// Whether `raw` names an existing file (a missing path or a stat failure is left to the scan to answer).
+    async fn names_a_file(&self, ctx: &ToolContext, raw: &str) -> bool {
+        let Ok(abs) = resolve_path(&ctx.cwd, raw) else { return false };
+        matches!(guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs)).await, Ok(Ok(stat)) if stat.kind == EntryKind::File)
+    }
+
+    /// Every root's hits (at most `bound` in all, in scan order), labelled and sorted.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    async fn collect(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, bound: Option<usize>, class: SearchClass) -> Result<Collected, ToolError> {
+        let mut roots = arg_strings(args, "path");
+        if roots.is_empty() {
+            roots.push(".".to_owned());
+        }
+        let globs = arg_strings(args, "glob");
+        let mut all: Vec<(String, Hit)> = Vec::new();
+        let mut complete = true;
+        let mut errors: Vec<String> = Vec::new();
+        let mut single = false;
+        let mut all_bad = true;
+        let mut timed_out = false;
+        let mut scan_errors = 0;
+        for raw in &roots {
+            let left = bound.map(|n| n.saturating_sub(all.len()));
+            // A bulk scan (a fan-out's prefilter or combined pass, `bulkHint`) takes its turn on the broad-search gate as
+            // Node's client makes it (search-admission.mjs `isBroadSearchRequest`); the others pass it.
+            // Node's fan-out stats the path first and declines a path that is not a folder before any scan is sent
+            // (`fanoutPrefilterCandidates`, `streamCombinedLines`: `if (!preStat.isDirectory()) return null`), so a bulk pass over
+            // one file never takes a turn on the gate: it is answered as the decline it is (`single`).
+            if class == SearchClass::Bulk && roots.len() == 1 && self.names_a_file(ctx, raw).await {
+                single = true;
+                continue;
+            }
+            let scanned = if class == SearchClass::Bulk {
+                broad_search(ctx, BROAD_REFUSALS[3], |budget| self.run_one_root(ctx, (raw, args, pattern, &globs), mode, left, class, budget)).await?
+            } else {
+                self.run_one_root(ctx, (raw, args, pattern, &globs), mode, left, class, u64::MAX).await?
+            };
+            complete &= scanned.complete;
+            timed_out |= scanned.timed_out;
+            scan_errors += scanned.scan_errors;
+            single = scanned.single_file && roots.len() == 1;
+            if !scanned.error.is_empty() {
+                all_bad &= scanned.bad_pattern;
+                errors.push(scanned.error);
+                continue;
+            }
+            all.extend(label_hits(ctx, raw, scanned.single_file, scanned.hits)?);
+        }
+        sort_hits(&mut all);
+        Ok(Collected { all, complete, timed_out, scan_errors, errors, single, all_bad })
+    }
+
+    /// grep-path-fanout.mjs `runCombinedPathFanout`: one scan over every path, attributed back to each path's section,
+    /// when the call is one pattern outside `count` mode over existing, non-glob, non-share paths none of which lies in
+    /// another and which share one filter set. The scan keeps `min(4000, max(400, (offset + limit + 4) × paths))` hits
+    /// (300 per path when unlimited); past that, or when a path cannot be scanned, it declines (`None`) and every path is
+    /// searched on its own. Its sections know their totals.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    async fn combined_paths(
+        &self,
+        ctx: &ToolContext,
+        args: &JsonValue,
+        list: &[String],
+        patterns: &[String],
+        budget: usize,
+    ) -> Result<Option<Vec<String>>, ToolError> {
+        let Some((pattern, sections)) = self.combined_collect(ctx, args, list, patterns).await? else { return Ok(None) };
+        let window = Window::of(args, mode_of(args));
+        let mut bodies = Vec::with_capacity(sections.len());
+        for (hits, is_file) in &sections {
+            bodies.push(if hits.is_empty() {
+                no_matches(true)
+            } else {
+                let shape = Shape { mode: mode_of(args), single: *is_file, fanout: false, complete: true, totals: Totals::Combined };
+                render(ctx, hits, &window, shape, &pattern, budget, false).await?
+            });
+        }
+        Ok(Some(bodies))
+    }
+
+    /// The scan of [`Self::combined_paths`]: the single pattern and each path's hits (in scan order, with whether the path is
+    /// a file), or `None` when the call is not one the combined scan takes.
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+    async fn combined_collect(
+        &self,
+        ctx: &ToolContext,
+        args: &JsonValue,
+        list: &[String],
+        patterns: &[String],
+    ) -> Result<Option<(String, Vec<(Vec<(String, Hit)>, bool)>)>, ToolError> {
+        let mode = mode_of(args);
+        let single: Vec<&String> = patterns.iter().filter(|p| !p.is_empty()).collect();
+        // `combinedPathRequest`: no `multiline: true`, one pattern, no literal `\n`, nothing ripgrep's default engine
+        // refuses (arg-guard.mjs `hasUnsupportedRipgrepRegex`).
+        let [pattern] = single.as_slice() else { return Ok(None) };
+        if mode == Mode::Count || arg_bool(args, "multiline") || pattern.contains("\\n") || UNSUPPORTED_REGEX.is_match(pattern) {
+            return Ok(None);
+        }
+        let window = Window::of(args, mode);
+        let globs = arg_strings(args, "glob");
+        let include_noise = arg_bool(args, "include_noise");
+        // `resolvePathRoots`, then `combinedPathRgArgs`' one-filter-set rule: a path inside a noise directory keeps
+        // that directory, and a file operand drops the globs.
+        let mut roots = Vec::with_capacity(list.len());
+        for raw in list {
+            if has_glob_magic(raw) || is_unc_or_smb(raw) {
+                return Ok(None);
+            }
+            let abs = resolve_path(&ctx.cwd, raw)?;
+            let Ok(stat) = guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs.clone())).await? else {
+                return Ok(None);
+            };
+            let is_file = stat.kind == EntryKind::File;
+            let kept: Vec<&str> = if include_noise {
+                Vec::new()
+            } else {
+                NOISE_DIRS.iter().copied().filter(|n| abs.as_path().components().any(|c| c.as_os_str() == *n)).collect()
+            };
+            let rules = (kept, if is_file { Vec::new() } else { globs.clone() });
+            roots.push((raw, abs, is_file, rules));
+        }
+        if roots.windows(2).any(|w| w[0].3 != w[1].3) {
+            return Ok(None);
+        }
+        let key = |p: &AbsPath| {
+            let s = fwd(p.as_path());
+            let s = s.trim_end_matches('/').to_owned();
+            if cfg!(windows) { s.to_lowercase() } else { s }
+        };
+        for (i, a) in roots.iter().enumerate() {
+            for b in &roots[i + 1..] {
+                let (l, r) = (key(&a.1), key(&b.1));
+                if l == r || l.starts_with(&format!("{r}/")) || r.starts_with(&format!("{l}/")) {
+                    return Ok(None);
+                }
+            }
+        }
+        let per_window = if window.limit == usize::MAX { 300 } else { window.offset.saturating_add(window.limit).saturating_add(4) };
+        let cap = per_window.saturating_mul(roots.len()).clamp(400, 4000);
+        let mut sections = Vec::with_capacity(roots.len());
+        let mut seen = 0usize;
+        for (raw, _, _, _) in &roots {
+            let scanned = self.run_one_root(ctx, (raw, args, pattern, &globs), mode, Some(cap + 1 - seen), SearchClass::Interactive, u64::MAX).await;
+            let Some(Scanned { hits, complete, error, single_file: is_file, .. }) = declined_on_failure(scanned)? else {
+                return Ok(None);
+            };
+            // A scan its deadline cut declines too (`runCombinedPathFanout` takes only a complete scan).
+            if !complete || !error.is_empty() {
+                return Ok(None);
+            }
+            seen += hits.len();
+            if seen > cap {
+                return Ok(None);
+            }
+            let mut labelled = label_hits(ctx, raw, is_file, hits)?;
+            sort_hits(&mut labelled);
+            sections.push((labelled, is_file));
+        }
+        Ok(Some((pattern.to_string(), sections)))
     }
 }

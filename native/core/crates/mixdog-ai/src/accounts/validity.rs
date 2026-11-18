@@ -4,7 +4,8 @@
 //! document the rule rejects reads absent, as a logout does; Node's probes are memoised for 3 s and
 //! keyed on the file, which changes nothing about the answer.
 //!
-//! Not here: Cursor's `CURSOR_ACCESS_TOKEN` environment token, which the Rust Cursor provider never reads.
+//! Not here: Cursor's `CURSOR_ACCESS_TOKEN` environment token, which the provider reads itself
+//! (`providers::cursor::auth::FileAccess::with_env_token`).
 
 use base64::Engine;
 use base64::engine::DecodePaddingMode;
@@ -61,6 +62,18 @@ pub fn normalize_expires_at_ms(value: Option<&Value>) -> f64 {
         return 0.0;
     }
     if n < 1e12 { n * 1000.0 } else { n }
+}
+
+/// `_normalizeExpiresAt(primary ?? alternate)`: the first spelling that is not null or missing, in the order the
+/// provider's Node reads them (a present `0` wins over the other spelling, as `??` has it); 0 is unknown.
+pub fn stated_expiry(primary: Option<Value>, alternate: Option<Value>) -> u64 {
+    let chosen = primary.filter(|v| !v.is_null()).or(alternate);
+    normalize_expires_at_ms(chosen.as_ref()) as u64
+}
+
+/// `expires_at || expiryFromAccessToken(token)`: a document that records no expiry still ends with its token's claim.
+pub fn expiry_or_claim(expires_at: u64, access_token: &str) -> u64 {
+    if expires_at > 0 { expires_at } else { expiry_from_access_token(access_token) as u64 }
 }
 
 /// `decodeJwtPayload`: the claims of a three-part token, or `None`. Node's base64 decoding takes

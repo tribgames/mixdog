@@ -18,6 +18,7 @@ pub use service::{
     SendFailure,
 };
 
+
 /// The most bytes a feedback request body may declare or carry: the text envelope, the base64 of the attachment total cap and
 /// the names and JSON around them (`MAX_FEEDBACK_BODY_BYTES`).
 pub const MAX_BODY_BYTES: usize = 32_768 + attachments::MAX_TOTAL_BYTES.div_ceil(3) * 4 + 4096;

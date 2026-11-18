@@ -36,6 +36,9 @@ mod tests {
     fn lists_the_pointers_of_a_method() {
         assert_eq!(fields("projectFs/writeText"), ["/content", "/expectedContent"]);
         assert!(fields("turn/start").contains(&"/input/prompt/*/data"));
+        // A page's library (ECharts, Mermaid) and a snapshot of every session are each over one frame.
+        assert_eq!(fields("projectFs/localPage/virtual"), ["/files/*/dataBase64"]);
+        assert_eq!(fields("host/state/set"), ["/value"]);
     }
 
     #[test]

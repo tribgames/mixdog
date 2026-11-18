@@ -5,41 +5,15 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
-Cette version ajoute les approbations d'actions, les autorisations des sites du navigateur et les réglages de proxy réseau, passe les sessions à un journal en ajout seul et corrige les ralentissements lorsque de nombreuses sessions sont ouvertes.
+Mixdog 1.5.0 passe à un moteur plus rapide et plus léger, entièrement réécrit en Rust. C'était un chantier de grande ampleur, et nous avons jugé ce changement nécessaire pour l'avenir à long terme de Mixdog.
 
-### Nouvelles fonctionnalités
+Grâce à ce nouveau moteur, la consommation globale de mémoire est fortement réduite et le travail en parallèle avec de nombreuses sessions et agents fonctionne bien mieux. En conséquence, l'application est sensiblement plus rapide et reste beaucoup plus stable au quotidien.
 
-- **Approbations d'actions** — Ajout d'Autoriser pour cette session et, dans les discussions de code, de Toujours autoriser sur les cartes d'approbation, révocables via « Demander à nouveau » ; les paiements et suppressions définitives demandent toujours.
-- **Autorisations des sites du navigateur** — Ajout des autorisations par défaut et des exceptions par site dans Réglages › Authentification, avec des invites mémorisant le choix pour un site, tous les sites ou jusqu'à la fermeture de l'application.
-- **Importation automatique des cookies Chrome** — Ajout dans Réglages › Authentification pour réimporter automatiquement les cookies au démarrage de l'application et à la fermeture de Chrome après une première importation manuelle avec approbation d'administrateur, afin de garder les sites connectés pour Browser Use ; désactivable au même endroit.
-- **Codes de vérification automatiques** — Ajout du remplissage automatique des codes de connexion à usage unique depuis votre boîte mail connectée, ainsi que d'invites sur téléphone pour les mots de passe et les codes.
-- **Proxy réseau** — Ajout des modes proxy système, `http`/`https`/`socks5` personnalisé et désactivé avec règles de contournement et test de connexion dans Réglages › Système › Proxy réseau et dans les réglages sur téléphone, en appliquant les changements dès la requête suivante chez tous les fournisseurs (#317).
+En raison de l'ampleur de cette transition, la mise à jour a pris bien plus de temps que prévu, et nous sommes sincèrement désolés de vous avoir fait attendre. Quelques erreurs peuvent encore apparaître juste après ce changement, et nous réagirons rapidement pour corriger tout problème que vous rencontrerez. Merci beaucoup d'avoir attendu patiemment cette version tardive.
 
-### Modifications
+Après la mise à jour vers 1.5.0, un retour à 1.4.5 conserve les fichiers joints, mais la liste des conversations ne revient pas. Si vous pensez vouloir revenir en arrière, copiez votre dossier de données avant de mettre à jour.
 
-- Modification de l'enregistrement des sessions vers un journal en ajout seul pour une sauvegarde plus rapide et plus sûre à la fermeture, avec conversion automatique des sessions existantes en arrière-plan au premier lancement tout en conservant les fichiers d'origine et en affichant l'état dans `/doctor`.
-- Modification des actions du navigateur pour cliquer directement à travers les étapes et essayer d'abord les sessions existantes ou identifiants enregistrés, ne déléguant que mots de passe, cartes, codes ou contrôles d'identité.
-- Modification de l'application Android pour afficher un écran de reconnexion, se reconnecter automatiquement au retour du réseau ou à la réouverture de l'application, et proposer « Choisir un autre PC ».
-- Modification de la suppression d'un worktree pour ne supprimer une branche que lorsque Mixdog l'a créée et que git la considère fusionnée, tout en gardant ses commits récupérables.
-- Modification de l'adresse d'assistance en support@mixdog.ai et du lien du site web en mixdog.ai.
-
-### Corrections de bugs
-
-- Correction du ralentissement ou du blocage de l'application avec de nombreuses sessions ouvertes, et accélération de l'ouverture des sessions après le lancement (#316).
-- Correction des clics Computer Use manquant leur cible sur les écrans HiDPI mis à l'échelle, des actions en arrière-plan volant le focus et faisant clignoter la fenêtre active, et de la mise en pause par vos entrées souris ou clavier de tous les agents au lieu du seul agent interrompu, qui reprend désormais à l'inactivité ou avec Reprendre (#323).
-- Correction de l'état des workers et sous-agents pour afficher l'état réel du début à la fin et compter la réflexion masquée comme une progression, afin qu'un agent actif ne soit plus considéré comme bloqué (#319).
-- Correction des détails des tickets de réinitialisation dans la fenêtre d'utilisation afin qu'ils se déplient sur place et que la date d'expiration de chaque ticket reste lisible (#324).
-- Correction du chevauchement du texte de la ligne d'état en direct sous un tour en cours dans les fenêtres étroites lors d'une longue attente (#326).
-- Correction du clignotement du cadre de fenêtre vers son apparence inactive lors du passage du focus à une autre fenêtre ou au retour sous Windows Mica.
-- Correction de l'arrêt du service d'arrière-plan lorsque le disque est plein, au lieu de réessayer les sauvegardes et de continuer à livrer les résultats shell.
-- Correction de `/stop` sur les tâches shell pour signaler correctement les tâches déjà terminées au lieu d'afficher « Impossible d'arrêter » et libérer immédiatement le dossier du projet.
-- Correction de l'attente sur les contenus volumineux à l'ouverture des panneaux latéraux de l'application sur téléphone, de la troncature des valeurs dans le menu des modèles de l'éditeur de routes, de la déconnexion après un seul accusé de réception manqué et du blocage au démarrage de la saisie vocale.
-- Correction de la coupure des mots coréens lors du retour à la ligne dans la visite guidée et les cartes d'accueil, de l'affichage d'une erreur au lieu d'un menu de branches vide pour les dossiers de projet sans dépôt git, et des nouvelles tentatives liées aux limites de débit Gemini prises à tort pour un blocage.
-- Correction de l'échec de connexion au site des périphériques HID choisis dans le navigateur intégré (#313).
-- Correction du sélecteur de périphériques HID qui affichait des ovales plats étirés sur toute la ligne au lieu du nom des périphériques (#314).
-- Correction de la liste Sessions qui affichait des lignes vides en revenant d'un autre menu ou sautait tout en haut au-delà de 40 lignes (#315).
-- Correction de la recherche de code sous Linux qui affichait des résultats obsolètes pour les fichiers atteints via des liens symboliques.
-- Correction du sélecteur de modèle dans l'éditeur d'agent qui s'étirait sur toute la largeur de la boîte de dialogue.
+À l'avenir, nous travaillerons à améliorer et à stabiliser plus rapidement les fonctionnalités de Mixdog. Si vous rencontrez un problème, n'hésitez pas à le signaler sur [GitHub Issues](https://github.com/tribgames/mixdog/issues) ou dans l'application via Réglages › À propos › Envoyer un commentaire.
 
 ## v1.4.5 - 2026-11-03
 

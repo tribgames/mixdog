@@ -1,8 +1,8 @@
 # Mixdog Android app: builds the release APK signed with the upload keystore and
 # attaches it to a GitHub Release tagged mobile-vX.Y.Z (the app's own update
 # check reads these releases). Deploy calls it with every release whose mobile
-# sources changed (see scripts/mobile-release.mjs); it also runs on mobile-v*
-# tags and by hand.
+# sources changed (see scripts/mobile-release.mjs), after the release gate of that commit has passed. It has no other entry point: a
+# tag push or a manual run would publish with no gate (scripts/ci/coverage/wiring.mjs keeps it call-only).
 #
 # Secrets: ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
 # ANDROID_KEY_PASSWORD, FIREBASE_GOOGLE_SERVICES_JSON_B64. See apps/mobile/README.md.
@@ -10,33 +10,7 @@
 name: Mobile Android
 
 on:
-  push:
-    tags:
-      - "mobile-v*"
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "App version X.Y.Z (the release tag becomes mobile-vX.Y.Z)"
-        required: true
-        type: string
-      publish:
-        description: "Create/update the GitHub Release and attach the APK"
-        required: false
-        type: boolean
-        default: false
-      draft:
-        description: "Create a new release as a hidden draft (publish it by hand later)"
-        required: false
-        type: boolean
-        default: true
-      ref:
-        description: "Commit to build (default: the selected branch or tag)"
-        required: false
-        type: string
-  # Deploy's call publishes directly. Creating that release creates its
-  # mobile-v* tag at `ref` through the API with the workflow token, and events
-  # caused by that token start no workflow run, so the tag trigger above never
-  # builds the same version a second time.
+  # Deploy's call (through release.yml, whose `coverage-gate` this call needs) publishes directly.
   workflow_call:
     inputs:
       version:
@@ -96,20 +70,10 @@ jobs:
         working-directory: .
         run: |
           set -euo pipefail
-          # A called run inherits the caller's ref (a branch), so an explicit
-          # version wins; a tag push carries no inputs.
-          if [ -n "${INPUT_VERSION}" ]; then
-            version="${INPUT_VERSION}"
-            publish="${INPUT_PUBLISH}"
-            draft="${INPUT_DRAFT}"
-          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            version="${GITHUB_REF_NAME#mobile-v}"
-            publish=true
-            draft=true
-          else
-            echo "A version is required outside a mobile-v* tag run" >&2
-            exit 1
-          fi
+          # A called run inherits the caller's ref (a branch): the explicit version and flags are the call's.
+          version="${INPUT_VERSION}"
+          publish="${INPUT_PUBLISH}"
+          draft="${INPUT_DRAFT}"
           if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "Version must be X.Y.Z, got '$version'" >&2
             exit 1
@@ -207,7 +171,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           DRAFT: ${{ steps.version.outputs.draft }}
-          TARGET_SHA: ${{ inputs.ref || github.sha }}
+          TARGET_SHA: ${{ inputs.ref }}
           APK: ${{ runner.temp }}/Mixdog-${{ steps.version.outputs.version }}.apk
         run: |
           set -euo pipefail
@@ -217,6 +181,12 @@ jobs:
           # --draft (tag and manual runs): a new mobile release stays private
           # (repo maintainers only; the app's update check ignores drafts) until
           # someone publishes it. Deploy's call publishes directly.
+          # A mobile tag that exists names this commit: a release made at another commit never receives this APK, and no tag moves.
+          REMOTE=$(git ls-remote --tags origin "refs/tags/${TAG}" | awk 'NR == 1 { print $1 }')
+          if [[ -n "$REMOTE" && "$REMOTE" != "$TARGET_SHA" ]]; then
+            echo "::error::${TAG} names ${REMOTE}, not the release commit ${TARGET_SHA}"
+            exit 1
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" --clobber
             if [ "$DRAFT" != true ] && [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true ]; then

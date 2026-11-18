@@ -174,6 +174,16 @@ mod tests {
         async fn record_changes(&self, _: &Path, _: &str, _: Vec<FileChange>) {}
     }
 
+    #[test]
+    fn a_side_over_the_review_limit_is_an_omitted_marker_never_bytes() {
+        assert_eq!(bounded(vec![0; 3]), ReviewContent::bytes(vec![0; 3]));
+        assert_eq!(
+            bounded(vec![0; PATCH_EDIT_MAX_BYTES + 1]),
+            ReviewContent::Omitted { size: PATCH_EDIT_MAX_BYTES as u64 + 1, reason: Some("oversized".into()) }
+        );
+    }
+
+
     /// Node asks `graphBinaryPath()` at each tidy call, so a binary that appears after the host
     /// was built (the code-graph tool's download) is found by the next call.
     #[tokio::test]
@@ -189,14 +199,5 @@ mod tests {
         assert_eq!(host.graph_binary().await, None);
         present.store(true, Ordering::SeqCst);
         assert!(host.graph_binary().await.is_some());
-    }
-
-    #[test]
-    fn a_side_over_the_review_limit_is_an_omitted_marker_never_bytes() {
-        assert_eq!(bounded(vec![0; 3]), ReviewContent::bytes(vec![0; 3]));
-        assert_eq!(
-            bounded(vec![0; PATCH_EDIT_MAX_BYTES + 1]),
-            ReviewContent::Omitted { size: PATCH_EDIT_MAX_BYTES as u64 + 1, reason: Some("oversized".into()) }
-        );
     }
 }

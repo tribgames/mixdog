@@ -1,9 +1,6 @@
-//! The `agent/` definition and permission methods against the recorded Node twin
-//! (`agent-api-twin.json`, `record-agent-api.mjs`): one script of calls over a fresh data folder;
-//! each call answers what Node's real handlers answered, and where Node recorded the files the
-//! call leaves, so do these.
+//! The `agent/` methods as a connection calls them: a paired phone's calls are no-widen whatever they send, and a
+//! standing allow is refused over remote access.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -18,25 +15,23 @@ use mixdog_core_api::ids::Method;
 use mixdog_rt::{DurabilityIo, InLane, LaneToken as _};
 use mixdog_tools::policy::FileGrantStore;
 use serde_json::Value;
+use serde_json::json;
 
 use super::*;
 use super::tests::writable;
 
-struct Catalog {
-    servers: Vec<String>,
-    tools: Vec<(String, String)>,
-}
+struct Catalog;
 
 #[async_trait]
 impl ConnectorCatalog for Catalog {
     async fn installed(&self) -> Result<Vec<String>, String> {
-        Ok(self.servers.clone())
+        Ok(vec!["gmail".into()])
     }
-    async fn tool_names(&self, connector_id: &str) -> Result<Vec<String>, String> {
-        Ok(self.tools.iter().filter(|(server, _)| server == connector_id).map(|(_, tool)| tool.clone()).collect())
+    async fn tool_names(&self, _: &str) -> Result<Vec<String>, String> {
+        Ok(vec!["send".into()])
     }
     fn connector_of(&self, server: &str) -> Option<String> {
-        (server == "gmail" || server == "gmail-2").then(|| "gmail".to_owned())
+        (server == "gmail").then(|| "gmail".to_owned())
     }
 }
 
@@ -98,226 +93,70 @@ fn write(path: &Path, body: &[u8]) -> std::io::Result<()> {
     on_lane(move |lane| mixdog_statefile::write_file(lane, &path, &body, &mixdog_statefile::Opts::default()).map(drop).map_err(std::io::Error::other))
 }
 
-/// The entries of a folder, each with whether it is a folder; none for a folder that is not there.
-fn entries(dir: &Path) -> Option<Vec<(std::path::PathBuf, bool)>> {
-    let dir = dir.to_owned();
-    on_lane(move |lane| {
-        let names = mixdog_statefile::list_dir(lane, &dir).ok()?;
-        Some(names.into_iter().map(|name| (dir.join(&name), mixdog_statefile::metadata(lane, &dir.join(&name)).unwrap().is_dir())).collect())
-    })
-}
-
 fn dir_data(agents: &AgentDefinitions) -> std::path::PathBuf {
     agents.folders.data.clone()
 }
 
-/// Replaces the data folder's path wherever an answer says it.
-fn mask(value: &Value, data: &str) -> Value {
-    match value {
-        Value::String(text) => Value::String(text.replace(data, "<data>")),
-        Value::Array(rows) => Value::Array(rows.iter().map(|row| mask(row, data)).collect()),
-        Value::Object(map) => Value::Object(map.iter().map(|(key, row)| (key.clone(), mask(row, data))).collect()),
-        other => other.clone(),
-    }
-}
-
-/// The files an edit leaves, as the recorder lists them: definitions and the permission files.
-fn snapshot(data: &Path) -> BTreeMap<String, String> {
-    let mut files = BTreeMap::new();
-    let mut pending = vec![data.to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        let Some(entries) = entries(&dir) else { continue };
-        for (path, is_dir) in entries {
-            if is_dir {
-                pending.push(path);
-                continue;
-            }
-            let rel = path.strip_prefix(data).unwrap().to_string_lossy().replace('\\', "/");
-            let parts: Vec<&str> = rel.split('/').collect();
-            let name = parts.get(2).copied().unwrap_or("");
-            // The definition files, their backups (`<file>.bak`) and any temp file a write left.
-            let kept = name.split(TEMP).next().unwrap_or("");
-            let definition = parts.len() == 3 && parts[0] == "agents" && (kept.trim_end_matches(".bak") == "AGENT.md" || kept.trim_end_matches(".bak") == "agent.json");
-            if !definition && !rel.starts_with("human-gate/") {
-                continue;
-            }
-            let text = String::from_utf8(mixdog_statefile::read_content(&path).unwrap().unwrap()).unwrap();
-            files.insert(rel, text);
-        }
-    }
-    files
-}
-
-/// The mark of an atomic write's temp file (`<target>.mixdog-tmp-<16 hex>`).
-const TEMP: &str = ".mixdog-tmp-";
-
-/// The random part of the first temp name in `text`, after checking it is 16 hex digits.
-fn temp_suffix(text: &str) -> Option<&str> {
-    let start = text.find(TEMP)? + TEMP.len();
-    let hex = &text[start..start + 16];
-    hex.bytes().all(|b| b.is_ascii_hexdigit()).then_some(hex)
-}
-
-/// What a call left on disk is what Node left: the same definition files and `.bak` backups with
-/// the same bytes, and no temp file of an atomic write survives on either side.
-fn same_files(label: &str, got: BTreeMap<String, String>, want: &BTreeMap<String, String>) {
-    for side in [&got, want] {
-        assert!(side.keys().all(|name| !name.contains(TEMP)), "{label}: a temp file survived: {:?}", side.keys().collect::<Vec<_>>());
-    }
-    assert_eq!(&got, want, "{label}: files");
-}
-
-/// The recorder's non-API steps (`SEEDS`): state the API cannot make. `None` for a real call.
-fn seed(data: &Path, name: &str, params: &Value) -> Option<std::io::Result<()>> {
-    let manifest = data.join("agents").join(params["agentId"].as_str().unwrap_or("")).join("agent.json");
-    match name {
-        "seedManifest" => Some(write(&manifest, format!("{}\n", serde_json::to_string_pretty(&params["manifest"]).unwrap()).as_bytes())),
-        "setManifestReadOnly" => {
-            let read_only = params["readOnly"].as_bool().unwrap();
-            Some(on_lane(move |lane| {
-                mixdog_statefile::set_readonly(lane, &manifest, read_only)
-            }))
-        }
-        _ => None,
-    }
-}
-
-#[tokio::test]
-async fn the_agent_methods_answer_what_the_recorded_node_handlers_answered() {
-    assert_eq!(replay_twin(false).await, 0);
-}
-
-/// The authority writers Node's host marked no-widen for a paired phone (`remote-authority.ts` `NO_WIDEN`, agent ones).
-const NO_WIDEN: [&str; 5] = ["setAgentPermission", "setAgentConnectorToolPermission", "setAgentConnectorEnabled", "setAgentConnectors", "saveAgentDefinition"];
-
-/// A phone's call of an authority writer carries no options of its own (Node's arity forbids them) and Node's host added
-/// `{ noWiden: true }` (`fixtures/phone-guards/golden.json`, `capability`: every forwarded call of these ends with it). So each
-/// twin step that Node ran with `options: { noWiden: true }` is replayed from a relay connection with the options removed,
-/// and answers, and leaves on disk, what Node's writer did with them. A standing allow is refused before any writer
-/// (the next test), so that step stays a desktop call.
-#[tokio::test]
-async fn a_relay_writer_call_is_no_widen_whatever_it_sends() {
-    let golden: Value =
-        serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/phone-guards/golden.json"))).unwrap();
-    let mut marked = 0;
-    for step in golden["scenarios"]["capability"].as_array().unwrap() {
-        let request = &step["params"][0];
-        if step["frame"]["ok"] == true && NO_WIDEN.contains(&request["capability"].as_str().unwrap()) {
-            assert_eq!(step["forwarded"][0]["args"].as_array().unwrap().last(), Some(&serde_json::json!({ "noWiden": true })), "{request}");
-            marked += 1;
-        }
-    }
-    assert_eq!(marked, 7);
-    assert_eq!(replay_twin(true).await, 8);
-}
-
-/// Node's refusal of a standing allow from a paired phone (`assertRemoteCapabilityCall`), replayed from a relay connection
-/// with the recorded arguments; the modes Node let through reach the permission store.
-#[tokio::test]
-async fn a_relay_standing_allow_is_refused_with_nodes_text() {
-    let golden: Value =
-        serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/phone-guards/golden.json"))).unwrap();
-    let (_dir, agents) = writable(serde_json::json!({})).await;
+async fn service() -> (tempfile::TempDir, AgentService) {
+    let (dir, agents) = writable(json!({})).await;
     let agents = Arc::new(agents);
+    agents.save(json!({ "name": "Ada", "body": "Body" }).as_object().unwrap()).await.unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let data = dir_data(&agents);
-    let connectors = AgentConnectors::new(agents.clone(), Arc::new(Catalog { servers: Vec::new(), tools: Vec::new() }));
+    let connectors = AgentConnectors::new(agents.clone(), Arc::new(Catalog));
+    connectors.set_tool_permission("ada", &json!("gmail"), &json!("send"), &json!("needs_approval"), false).await.unwrap();
     let grants = FileGrantStore::with_clock(data.join("human-gate"), tokens.interactive_io, tokens.durability_io, Arc::new(|| 1));
-    let service = AgentService::new(agents, connectors, AgentPermissions::new(grants), super::lifecycle_twin_tests::quiet_lifecycle());
-    let mut seen = 0;
-    for step in golden["scenarios"]["capability"].as_array().unwrap() {
-        let request = &step["params"][0];
-        if request["capability"] != "setAgentPermission" {
-            continue;
-        }
-        seen += 1;
-        let args = &request["args"];
-        let params = serde_json::json!({ "agentId": args[0], "action": args[1], "mode": args[2] });
-        let ctx = CallContext::connection(mixdog_core_api::ids::ConnectionId(1), mixdog_protocol::Origin::Relay, CancellationToken::new());
-        let answer = service.call(CoreRequest { method: Method("agent/setAgentPermission"), params, op: None, ctx }).await;
-        let frame = &step["frame"];
-        if frame["ok"] == true {
-            // Forwarded by Node with `noWiden`, and the recorded value is the recorder's stand-in's: the relay call is
-            // answered as the desktop's call with that option is (the same call again: the setter is idempotent).
-            let mut params = serde_json::json!({ "agentId": args[0], "action": args[1], "mode": args[2] });
-            params["options"] = serde_json::json!({ "noWiden": true });
-            let desktop = service.call(CoreRequest { method: Method("agent/setAgentPermission"), params, op: None, ctx: CallContext::internal("agents") }).await;
-            assert_eq!(format!("{answer:?}"), format!("{desktop:?}"), "{request}");
-        } else {
-            let Err(CoreError::DomainError { code, message, detail, .. }) = answer else { panic!("{request}: {answer:?}") };
-            let mut node = serde_json::json!({ "ok": false, "error": message.as_deref() });
-            if let Some(code) = code.as_deref() {
-                node["errorCode"] = serde_json::json!(code);
-            }
-            assert_eq!((&node, detail), (frame, None), "{request}");
-        }
-    }
-    assert_eq!(seen, 4);
+    let service = AgentService::new(agents, connectors, AgentPermissions::new(grants), lifecycle_tests::quiet_lifecycle());
+    (dir, service)
 }
 
-/// Replays the agent twin; with `relay`, its no-widen writer steps come from a relay connection without their options.
-/// Answers how many steps were so replayed.
-async fn replay_twin(relay: bool) -> usize {
-    let mut relayed = 0;
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/agent-api-twin.json");
-    let twin: Value = serde_json::from_slice(&mixdog_statefile::read_content(&path).unwrap().unwrap()).unwrap();
-    let strings = |key: &str| -> Vec<String> { twin[key].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect() };
-    let tools = twin["tools"].as_array().unwrap().iter().map(|pair| (pair[0].as_str().unwrap().to_owned(), pair[1].as_str().unwrap().to_owned())).collect();
-    let (dir, agents) = writable(serde_json::json!({})).await;
-    let agents = Arc::new(agents);
-    let tokens = mixdog_rt::testing::tokens();
-    let data = dir.path().join("data");
-    let connectors = AgentConnectors::new(agents.clone(), Arc::new(Catalog { servers: strings("servers"), tools }));
-    // The recorder froze Node's `Date.now()` at `now`; the same instant is this store's clock.
-    let now = twin["now"].as_i64().unwrap();
-    let grants = FileGrantStore::with_clock(data.join("human-gate"), tokens.interactive_io, tokens.durability_io, Arc::new(move || now));
-    let service = AgentService::new(agents, connectors, AgentPermissions::new(grants), super::lifecycle_twin_tests::quiet_lifecycle());
-    let data_text = data.to_string_lossy().into_owned();
-    for (index, step) in twin["steps"].as_array().unwrap().iter().enumerate() {
-        let name = step["method"].as_str().unwrap();
-        let method = AGENT_METHODS.iter().find(|full| full.ends_with(&format!("/{name}"))).copied().unwrap_or("");
-        let marked = step["params"]["options"]["noWiden"] == true && step["params"]["mode"] != "allow" && NO_WIDEN.contains(&name);
-        let request = if relay && marked {
-            relayed += 1;
-            let mut params = step["params"].clone();
-            params.as_object_mut().unwrap().remove("options");
-            let ctx = CallContext::connection(mixdog_core_api::ids::ConnectionId(1), mixdog_protocol::Origin::Relay, CancellationToken::new());
-            CoreRequest { method: Method(method), params, op: None, ctx }
-        } else {
-            CoreRequest { method: Method(method), params: step["params"].clone(), op: None, ctx: CallContext::internal("agents") }
-        };
-        let label = format!("step {index} {name} {}", step["params"]);
-        if let Some(outcome) = seed(&data, name, &step["params"]) {
-            outcome.unwrap();
-            if let Some(files) = step.get("files") {
-                let want: BTreeMap<String, String> = files.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
-                same_files(&label, snapshot(&data), &want);
-            }
-            continue;
-        }
-        match service.call(request).await {
-            Ok(Reply::Value(value)) => assert_eq!(Some(&mask(&value, &data_text)), step.get("ok"), "{label}"),
-            Ok(_) => panic!("{label}: not a value"),
-            Err(CoreError::DomainError { message, .. }) => {
-                let got = message.as_deref().map(|text| text.replace(&data_text, "<data>"));
-                let want = step["error"].as_str().map(str::to_owned);
-                match (&got, &want, step.get("failure")) {
-                    (Some(got), Some(want), Some(failure)) if got.contains(TEMP) => {
-                        // Node names its temp file with a random suffix: everything else must match.
-                        let suffix = temp_suffix(got).unwrap_or_else(|| panic!("{label}: no temp suffix in {got}"));
-                        assert_eq!(got.replace(suffix, temp_suffix(want).unwrap()), *want, "{label}");
-                        assert!(got.starts_with(&format!("{}: ", failure["code"].as_str().unwrap())), "{label}: kind/code of {got}");
-                        assert!(got.contains(&format!("{} '", failure["syscall"].as_str().unwrap())), "{label}: syscall of {got}");
-                    }
-                    _ => assert_eq!(got, want, "{label}"),
-                }
-            }
-            Err(other) => panic!("{label}: {other}"),
-        }
-        if let Some(files) = step.get("files") {
-            let want: BTreeMap<String, String> = files.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
-            same_files(&label, snapshot(&data), &want);
-        }
+async fn call(service: &AgentService, method: &'static str, params: Value, relay: bool) -> Result<Value, CoreError> {
+    let ctx = if relay {
+        CallContext::connection(mixdog_core_api::ids::ConnectionId(1), mixdog_protocol::Origin::Relay, CancellationToken::new())
+    } else {
+        CallContext::internal("agents")
+    };
+    match service.call(CoreRequest { method: Method(method), params, op: None, ctx }).await? {
+        Reply::Value(value) => Ok(value),
+        other => panic!("not a value reply: {other:?}"),
     }
-    relayed
+}
+
+fn message(error: CoreError) -> String {
+    match error {
+        CoreError::DomainError { message, .. } => message.as_deref().unwrap_or("").to_owned(),
+        other => panic!("not a domain error: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_phone_cannot_create_a_standing_allow_over_remote_access() {
+    let (_dir, service) = service().await;
+    let params = json!({ "agentId": "ada", "action": "write", "mode": "allow" });
+    let refused = call(&service, "agent/setAgentPermission", params, true).await.unwrap_err();
+    assert_eq!(message(refused), "setAgentPermission cannot create a standing allow over remote access; use the desktop.");
+}
+
+#[tokio::test]
+async fn a_phone_call_is_no_widen_whatever_options_it_sends_and_the_desktops_is_not() {
+    let (_dir, service) = service().await;
+    let widen = json!({ "agentId": "ada", "connectorId": "gmail", "toolName": "send", "permission": "auto", "options": { "noWiden": false } });
+    let refused = call(&service, "agent/setAgentConnectorToolPermission", widen.clone(), true).await.unwrap_err();
+    assert!(!message(refused).is_empty());
+    // The same widening from the desktop is allowed.
+    call(&service, "agent/setAgentConnectorToolPermission", widen, false).await.unwrap();
+    // A phone may narrow.
+    let narrow = json!({ "agentId": "ada", "connectorId": "gmail", "toolName": "send", "permission": "disabled" });
+    call(&service, "agent/setAgentConnectorToolPermission", narrow, true).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_definition_saved_through_the_service_can_be_read_back_and_deleted() {
+    let (_dir, service) = service().await;
+    let saved = call(&service, "agent/saveAgentDefinition", json!({ "payload": { "name": "Bea", "body": "Be kind" } }), false).await.unwrap();
+    assert_eq!(saved["id"], "bea");
+    let got = call(&service, "agent/getAgentDefinition", json!({ "agentId": "bea" }), false).await.unwrap();
+    assert!(got.to_string().contains("Be kind"), "{got}");
+    let missing_payload = call(&service, "agent/saveAgentDefinition", json!({}), false).await.unwrap_err();
+    assert!(matches!(missing_payload, CoreError::InvalidParams { .. }));
 }

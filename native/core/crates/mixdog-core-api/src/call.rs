@@ -67,6 +67,35 @@ pub struct CallContext {
     pub window: Option<WindowScope>,
     /// Whether the calling connection is the current host claimant (`host/claim`), read by the server from its claim table.
     pub host_claimant: bool,
+    /// Authenticated reconnect identity, supplied by the transport only for a paired relay peer.
+    pub replay_principal: Option<Arc<str>>,
+    /// Server-assigned identity for this accepted socket, distinct even across servers in one process.
+    pub replay_socket: Option<u64>,
+    /// Asks, when the request is applied (not when it was received: a blob it names may have been expanding while the claim
+    /// changed hands), whether the calling connection is the current claimant of the visualize host role.
+    pub visualize_claim: ClaimProbe,
+}
+
+/// The live answer to "is the caller the current claimant of the visualize host role".
+/// Empty (always `None`) for an internal producer and a context built without a server.
+#[derive(Clone, Default)]
+pub struct ClaimProbe(Option<Arc<dyn Fn() -> bool + Send + Sync>>);
+
+impl ClaimProbe {
+    pub fn new(probe: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+        Self(Some(Arc::new(probe)))
+    }
+
+    /// Whether the caller is the current claimant now.
+    pub fn is_current(&self) -> bool {
+        self.0.as_ref().is_some_and(|probe| probe())
+    }
+}
+
+impl std::fmt::Debug for ClaimProbe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "ClaimProbe(live)" } else { "ClaimProbe(none)" })
+    }
 }
 
 /// Guards a service hands the server to keep until the request's answer has been handed to the connection's outgoing queue (written,
@@ -113,6 +142,9 @@ impl CallContext {
             lone_surrogates: Vec::new(),
             window: None,
             host_claimant: false,
+            replay_principal: None,
+            replay_socket: None,
+            visualize_claim: ClaimProbe::default(),
         }
     }
 
@@ -134,6 +166,9 @@ impl CallContext {
             lone_surrogates: Vec::new(),
             window: None,
             host_claimant: false,
+            replay_principal: None,
+            replay_socket: None,
+            visualize_claim: ClaimProbe::default(),
         }
     }
 }

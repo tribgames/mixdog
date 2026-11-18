@@ -121,6 +121,27 @@ test('several opens during a turn publish nothing visible; the turn end reveals 
   }
 });
 
+test('a snapshot taken during a held turn carries the hold and since when; after the release it carries none', async () => {
+  const t = setup();
+  try {
+    await t.service.setTurnActive(SESSION, true);
+    await t.run('open', { targets: ['site/a.html'] });
+    const since = t.events[0].heldSince;
+    assert.ok(Number.isFinite(since));
+    // What a reclaim publishes (the host's snapshot) and what a reloaded window reads: both say the turn is held.
+    for (const snapshot of [t.service.hostSnapshot(), t.service.snapshot()]) {
+      assert.equal(snapshot.length, 1);
+      assert.deepEqual([snapshot[0].held, snapshot[0].heldSince], [true, since]);
+    }
+    await t.service.setTurnActive(SESSION, false);
+    for (const snapshot of [t.service.hostSnapshot(), t.service.snapshot()]) {
+      assert.deepEqual([snapshot[0].held, snapshot[0].heldSince], [undefined, undefined], 'released: the state alone');
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
 test('a failed or cancelled turn still shows what it opened', async () => {
   const t = setup();
   try {

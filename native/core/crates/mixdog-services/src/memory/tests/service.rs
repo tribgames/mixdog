@@ -11,19 +11,29 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::{CoreRequest, DomainService, Reply};
 use serde_json::{Value, json};
 
+#[cfg(node_twin)]
 use super::recall::{CASES, Provider, SEED, load_seed};
+#[cfg(node_twin)]
 use crate::memory::embed::engine::EmbedConfig;
+#[cfg(node_twin)]
 use crate::memory::embed::provider::EmbeddingProvider;
+#[cfg(node_twin)]
 use crate::memory::ingest::embed_flush::RawEmbedFlush;
+#[cfg(node_twin)]
 use crate::memory::ingest::SessionIngest;
+#[cfg(node_twin)]
 use crate::memory::pg::db::Schema;
+#[cfg(node_twin)]
 use crate::memory::recall::period::Clock;
+#[cfg(node_twin)]
 use crate::memory::recall::{Recall, RecallDeps};
+#[cfg(node_twin)]
 use crate::memory::schema::ensure_memory_schema;
-use crate::memory::service::{LocalMemory, MemoryModule, MemoryService, SessionData, SessionSource};
+#[cfg(node_twin)]
+use crate::memory::service::LocalMemory;
+use crate::memory::service::{MemoryModule, MemoryService, SessionData, SessionSource};
+#[cfg(node_twin)]
 use crate::memory::tests::support::TestPg;
-
-const COMPOSITION: &str = include_str!("../../../../../fixtures/tools/memory/service/recall.json");
 
 #[derive(Default)]
 struct FakeMemory {
@@ -82,6 +92,187 @@ async fn ask(service: &MemoryService, params: Value) -> String {
     }
 }
 
+/// A thread's recall that reaches the memory runtime (`memoryModule()`) marks that session's runtime as holding the
+/// module; one its own rows answer, or one that names no thread, marks nothing.
+#[tokio::test]
+async fn a_recall_that_reaches_the_memory_runtime_marks_its_session() {
+    let memory = Arc::new(FakeMemory::default());
+    let session = SessionData { id: "sess_1".into(), messages: vec![json!({ "role": "user", "content": "the lighthouse is green" })] };
+    let service = MemoryService::new(memory.clone(), Arc::new(Sessions { session: Some(session), cwd: None, title: String::new() }));
+    ask(&service, json!({ "threadId": "sess_1", "query": "lighthouse" })).await;
+    assert!(memory.noted.lock().expect("noted").is_empty(), "answered from the session's own rows");
+    ask(&service, json!({ "threadId": "sess_1", "query": "harbor" })).await;
+    ask(&service, json!({ "query": "harbor" })).await;
+    assert_eq!(*memory.noted.lock().expect("noted"), ["sess_1"]);
+}
+
+fn service_with(memory: &Arc<FakeMemory>, session: Option<SessionData>, title: &str) -> MemoryService {
+    MemoryService::new(memory.clone(), Arc::new(Sessions { session, cwd: Some("/work/current".into()), title: title.to_owned() }))
+}
+
+fn live_session() -> SessionData {
+    SessionData { id: "sess_1".into(), messages: vec![json!({ "role": "user", "content": "the lighthouse is green" })] }
+}
+
+fn calls(memory: &FakeMemory) -> Vec<Value> {
+    memory.calls.lock().unwrap().clone()
+}
+
+#[tokio::test]
+async fn an_identity_question_is_answered_from_the_profile_title_and_asks_memory_nothing() {
+    let memory = Arc::new(FakeMemory::default());
+    let service = service_with(&memory, None, "  Alice  ");
+    let answer = ask(&service, json!({ "query": "Who am I" })).await;
+    assert_eq!(answer, "[profile] Current configured user name/identity: Alice. This profile value is authoritative; ignore stale memory rows that say the user's identity is unknown.");
+    assert!(calls(&memory).is_empty());
+}
+
+#[tokio::test]
+async fn an_identity_question_with_no_profile_title_goes_to_memory_like_any_other() {
+    let memory = Arc::new(FakeMemory::default());
+    let service = service_with(&memory, None, "");
+    ask(&service, json!({ "query": "whoami" })).await;
+    assert_eq!(calls(&memory), [json!(["recall", { "query": "whoami", "cwd": "/work/current" }])]);
+}
+
+#[tokio::test]
+async fn a_recall_without_a_session_asks_memory_once_with_the_query_and_the_threads_directory() {
+    let memory = Arc::new(FakeMemory { results: Mutex::new(VecDeque::from(["the answer".to_owned()])), ..FakeMemory::default() });
+    let service = service_with(&memory, None, "");
+    assert_eq!(ask(&service, json!({ "query": "harbor", "args": { "limit": 3 } })).await, "the answer");
+    assert_eq!(calls(&memory), [json!(["recall", { "limit": 3, "query": "harbor", "cwd": "/work/current" }])]);
+}
+
+#[tokio::test]
+async fn the_query_may_come_from_the_arguments_and_their_directory_outranks_the_threads() {
+    let memory = Arc::new(FakeMemory::default());
+    let service = service_with(&memory, None, "");
+    ask(&service, json!({ "args": { "query": "harbor", "cwd": "/elsewhere" } })).await;
+    assert_eq!(calls(&memory), [json!(["recall", { "query": "harbor", "cwd": "/elsewhere" }])]);
+}
+
+#[tokio::test]
+async fn a_session_that_does_not_match_is_ingested_then_recalled_scoped_to_itself() {
+    let memory = Arc::new(FakeMemory { results: Mutex::new(VecDeque::from(["found in memory".to_owned()])), ..FakeMemory::default() });
+    let service = service_with(&memory, Some(live_session()), "");
+    assert_eq!(ask(&service, json!({ "query": "harbor", "threadId": "sess_1" })).await, "found in memory");
+    assert_eq!(
+        calls(&memory),
+        [
+            json!(["memory", { "action": "ingest_session", "sessionId": "sess_1", "cwd": "/work/current", "messages": live_session().messages }]),
+            json!(["recall", {
+                "query": "harbor", "cwd": "/work/current", "currentSessionId": "sess_1", "sessionId": "sess_1", "currentSession": true,
+                "projectScope": "all", "includeRaw": true, "includeArchived": true
+            }]),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn an_empty_scoped_answer_falls_back_to_the_unscoped_recall() {
+    let memory = Arc::new(FakeMemory::default());
+    let service = service_with(&memory, Some(live_session()), "");
+    assert_eq!(ask(&service, json!({ "query": "harbor" })).await, "(no results)");
+    let seen = calls(&memory);
+    assert_eq!(seen.len(), 3, "ingest, the scoped recall, the plain recall: {seen:?}");
+    assert_eq!(seen[2], json!(["recall", { "query": "harbor", "cwd": "/work/current", "currentSessionId": "sess_1" }]));
+}
+
+#[tokio::test]
+async fn the_callers_scope_and_raw_and_archive_choices_stand_in_the_scoped_recall() {
+    let memory = Arc::new(FakeMemory { results: Mutex::new(VecDeque::from(["x".to_owned()])), ..FakeMemory::default() });
+    let service = service_with(&memory, Some(live_session()), "");
+    ask(&service, json!({ "query": "harbor", "args": { "projectScope": "proj-a", "includeRaw": false, "includeArchived": false } })).await;
+    let scoped = &calls(&memory)[1][1];
+    assert_eq!((scoped["projectScope"].clone(), scoped["includeRaw"].clone(), scoped["includeArchived"].clone()), (json!("proj-a"), json!(false), json!(false)));
+}
+
+#[tokio::test]
+async fn a_caller_can_skip_the_sessions_own_rows_and_the_ingest() {
+    let memory = Arc::new(FakeMemory::default());
+    let service = service_with(&memory, Some(live_session()), "");
+    ask(&service, json!({ "query": "lighthouse", "args": { "currentSession": false } })).await;
+    assert_eq!(calls(&memory).len(), 1, "no own-row answer and no ingest: one plain recall");
+    let memory = Arc::new(FakeMemory::default());
+    let service = service_with(&memory, Some(live_session()), "");
+    ask(&service, json!({ "query": "harbor", "args": { "forceCycleOnEmpty": false } })).await;
+    assert_eq!(calls(&memory).len(), 1, "no ingest when the cycle is not forced");
+    assert_eq!(calls(&memory)[0][0], "recall");
+}
+
+#[tokio::test]
+async fn a_session_with_no_messages_is_not_ingested() {
+    let memory = Arc::new(FakeMemory::default());
+    let service = service_with(&memory, Some(SessionData { id: "sess_2".into(), messages: Vec::new() }), "");
+    ask(&service, json!({ "query": "harbor" })).await;
+    assert_eq!(calls(&memory).len(), 1);
+}
+
+#[tokio::test]
+async fn the_memory_control_call_passes_its_arguments_and_marks_the_thread() {
+    let memory = Arc::new(FakeMemory::default());
+    let service = service_with(&memory, None, "");
+    let reply = service
+        .call(CoreRequest { method: Method("memory/memoryControl"), params: json!({ "threadId": "sess_9", "args": { "action": "status" } }), op: None, ctx: CallContext::internal("test") })
+        .await
+        .expect("answers");
+    assert!(matches!(reply, Reply::Value(Value::String(text)) if text == "ingest_session: considered=1 inserted=1"));
+    assert_eq!(calls(&memory), [json!(["memory", { "action": "status" }])]);
+    assert_eq!(*memory.noted.lock().unwrap(), ["sess_9"]);
+    let bare = service.call(CoreRequest { method: Method("memory/memoryControl"), params: json!({ "args": 0 }), op: None, ctx: CallContext::internal("test") }).await;
+    assert!(bare.is_ok());
+    assert_eq!(calls(&memory)[1], json!(["memory", {}]), "arguments that are not truthy are an empty object");
+}
+
+#[tokio::test]
+async fn a_method_the_service_does_not_have_is_refused() {
+    let service = service_with(&Arc::new(FakeMemory::default()), None, "");
+    assert!(service.call(CoreRequest { method: Method("memory/other"), params: json!({}), op: None, ctx: CallContext::internal("test") }).await.is_err());
+    assert_eq!(service.methods(), ["memory/memoryControl", "memory/recall"]);
+}
+
+struct NeverReady;
+
+#[async_trait]
+impl MemoryModule for NeverReady {
+    async fn ready(&self) -> Result<(), String> {
+        Err("initdb failed: the real reason".into())
+    }
+    async fn memory(&self, _: Value) -> String {
+        unreachable!("never reached")
+    }
+    async fn recall(&self, _: Value, _: &tokio_util::sync::CancellationToken) -> String {
+        unreachable!("never reached")
+    }
+}
+
+#[tokio::test]
+async fn a_memory_runtime_that_never_came_up_is_refused_with_the_proxys_text_not_its_own_error() {
+    let service = MemoryService::new(Arc::new(NeverReady), Arc::new(Sessions { session: None, cwd: None, title: String::new() }));
+    let Err(error) = service.call(request(json!({ "query": "harbor" }))).await else { panic!("a runtime that never came up refuses") };
+    let error = error.to_string();
+    assert!(error.contains("memory runtime did not become ready") && !error.contains("initdb"), "{error}");
+}
+
+#[tokio::test]
+async fn a_cancelled_memory_control_call_is_cancelled_before_it_reaches_memory() {
+    let memory = Arc::new(FakeMemory::default());
+    let service = service_with(&memory, None, "");
+    let cancelled = CallContext::internal("test");
+    cancelled.cancel.cancel();
+    let result = service.call(CoreRequest { method: Method("memory/memoryControl"), params: json!({ "args": { "action": "status" } }), op: None, ctx: cancelled }).await;
+    assert!(result.is_err());
+    assert!(calls(&memory).is_empty());
+}
+#[cfg(node_twin)]
+async fn service_db(pg: &TestPg) -> crate::memory::pg::db::Db {
+    pg.db(Schema::Memory).await
+}
+
+
+#[cfg(node_twin)]
+const COMPOSITION: &str = include_str!("../../../../../fixtures/tools/memory/service/recall.json");
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_answer_order_and_memory_calls_match_the_node_product() {
     let scenarios: Vec<Value> = serde_json::from_str(COMPOSITION).expect("golden parses");
@@ -107,21 +298,7 @@ async fn the_answer_order_and_memory_calls_match_the_node_product() {
         assert_eq!(Value::Array(memory.calls.lock().expect("calls").clone()), scenario["calls"], "{name}: memory calls");
     }
 }
-
-/// A thread's recall that reaches the memory runtime (`memoryModule()`) marks that session's runtime as holding the
-/// module; one its own rows answer, or one that names no thread, marks nothing.
-#[tokio::test]
-async fn a_recall_that_reaches_the_memory_runtime_marks_its_session() {
-    let memory = Arc::new(FakeMemory::default());
-    let session = SessionData { id: "sess_1".into(), messages: vec![json!({ "role": "user", "content": "the lighthouse is green" })] };
-    let service = MemoryService::new(memory.clone(), Arc::new(Sessions { session: Some(session), cwd: None, title: String::new() }));
-    ask(&service, json!({ "threadId": "sess_1", "query": "lighthouse" })).await;
-    assert!(memory.noted.lock().expect("noted").is_empty(), "answered from the session's own rows");
-    ask(&service, json!({ "threadId": "sess_1", "query": "harbor" })).await;
-    ask(&service, json!({ "query": "harbor" })).await;
-    assert_eq!(*memory.noted.lock().expect("noted"), ["sess_1"]);
-}
-
+#[cfg(node_twin)]
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME), the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_goldens() {
@@ -194,9 +371,9 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
     let expected = recall.recall_cancellable(&expected_args, &tokio_util::sync::CancellationToken::new()).await.text;
     assert_eq!(answer, expected);
 }
-
 /// The first recall on a fresh profile whose runtime is installed (the stack opens the database at that call: `initdb`, the postmaster, the schema) from a new,
 /// empty session answers what Node's answered (`record-memory-first-request.mjs`, the `value` of its `session.configure` result).
+#[cfg(node_twin)]
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn the_first_recall_on_a_fresh_profile_answers_as_node() {
@@ -232,8 +409,4 @@ async fn the_first_recall_on_a_fresh_profile_answers_as_node() {
     stack.stop().await.expect("stops");
     let answer = answer.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
     assert_eq!(answer, recorded["answer"]["body"]["result"]["value"].as_str().expect("Node's answer"));
-}
-
-async fn service_db(pg: &TestPg) -> crate::memory::pg::db::Db {
-    pg.db(Schema::Memory).await
 }

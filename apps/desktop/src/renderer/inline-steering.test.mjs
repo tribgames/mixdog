@@ -13,7 +13,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 const { restore: restoreBootstrapDom } = installTestDom(null);
 after(restoreBootstrapDom);
 const [
-  { steerPromptItems, pendingPromptTranscriptItems, PROMPT_TURN_REPORT_WAIT_MS },
+  { steerPromptItems, pendingPromptTranscriptItems },
   { appendLiveTranscriptRows, projectSettledTranscriptRows },
   { transcriptTurnKeys },
   { SteerStatus },
@@ -109,26 +109,51 @@ test('a message sent while the reply streams is a bubble right away, below the r
   assert.equal(delivered.at(-1).key, rows.at(-1).key, 'the working row keeps its identity');
 });
 
-// The core publishes an idle submit's own row a few states before the turn's running state (actor.rs: the row, prompt
-// history, turn/started, the runtime), and the pane takes each state; Node published the row with `busy` in one frame.
-test('an idle submit keeps its working band from the bubble through the turn report, only so long without one, and not past its row', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000 });
+// A pane over the real submit action, pending-prompt state and row projection.
+// The core's states are handed in as `{ settledItems, busy, queued }`: the
+// core publishes an accepted prompt's row with its turn's start (busy) in one
+// state, and a refused start shows no row.
+async function mountSendPane(t, { queuedAtSubmit = false } = {}) {
   const { root } = mount(t);
-  const earlier = [prompt, { kind: 'assistant', id: 'a0', text: 'Done.' }];
-  const sent = { id: 'sub-1', kind: 'user', text: 'next step', pending: true, accepted: true, submittedAt: 1_000, settledUserBaseline: 1 };
-  let rows;
-  function Pane({ settledItems, busy }) {
-    const [optimisticPrompts, setOptimisticPrompts] = useState([sent]);
+  const view = { rows: [], actions: null };
+  const host = { reply: null };
+  const refs = {
+    armFollowOnSubmitRef: { current: () => {} },
+    composerActions: {
+      current: {
+        invokeResult: (action) => action(),
+        submit: () =>
+          new Promise((resolve) => {
+            host.reply = resolve;
+          }),
+      },
+    },
+    draftModeRef: { current: false },
+    goalSubmission: { current: null },
+    goalSubmitScopeRef: { current: 's' },
+    queuedBehindTurnAtSubmit: { current: queuedAtSubmit },
+    routeSessionIdRef: { current: 's' },
+    suppressDraftSubmitPaintHandoff: { current: false },
+  };
+  function Pane({ settledItems, busy, queued }) {
+    const [optimisticPrompts, setOptimisticPrompts] = useState([]);
     const pending = useConversationPendingPrompts({
       optimisticPrompts,
       setOptimisticPrompts,
       settledItems,
-      queued: [],
-      busy,
+      queued,
       transcriptSessionKey: 's',
       promotedOwnDraft: { current: false },
     });
-    rows = useTranscriptRows({
+    view.actions = useConversationComposerActions({
+      ...refs,
+      settledUsersRef: pending.settledUsersRef,
+      goalSubmission: pending.goalSubmission,
+      goalSubmitScopeRef: pending.goalSubmitScopeRef,
+      setOptimisticPrompts,
+    });
+    view.clock = pending.optimisticActivityStartedAt;
+    view.rows = useTranscriptRows({
       identity: 's',
       sessionKey: 's',
       settledItems,
@@ -145,33 +170,113 @@ test('an idle submit keeps its working band from the bubble through the turn rep
     }).transcriptRows;
     return null;
   }
-  const show = (settledItems, busy, key = 'first') =>
-    act(async () => root.render(React.createElement(Pane, { key, settledItems, busy })));
-  const shape = () => rows.map((row) => `${row._tag}:${row.key}`);
-  const landed = [...earlier, { kind: 'user', id: 'sub-1', text: 'next step' }];
+  const show = ({ settledItems, busy = false, queued = [] }) =>
+    act(async () => root.render(React.createElement(Pane, { settledItems, busy, queued })));
+  const shape = () => view.rows.map((row) => `${row._tag}:${row.key}`);
+  const banded = () => view.rows.at(-1)?._tag === 'Thinking';
+  const bubble = (id) => view.rows.find((row) => row._tag === 'UserMessage' && String(row.item.id) === id);
+  return { view, host, show, shape, banded, bubble };
+}
 
-  await show(earlier, false);
-  const submitted = shape();
-  assert.equal(submitted.at(-1).startsWith('Thinking:'), true, 'the bubble brings the band');
-  // The row lands; the turn is not reported yet: the rows are the submit's, keys and all.
-  await show(landed, false);  assert.deepEqual(shape(), submitted);
-  await show(landed, true);
-  assert.deepEqual(shape(), submitted, 'the running turn takes the band over');
-  // A prompt whose turn is never reported does not keep the band.
-  await show(earlier, false, 'second');
-  await show(landed, false, 'second');
-  await act(async () => t.mock.timers.tick(PROMPT_TURN_REPORT_WAIT_MS - 1));
-  assert.equal(rows.at(-1)._tag, 'Thinking', 'still within the wait');
-  await act(async () => t.mock.timers.tick(1));
-  assert.notEqual(rows.at(-1)._tag, 'Thinking');
-  // A clear or rewind takes the landed row away while the turn is awaited: the prompt is retired, not a bubble again.
-  await show(earlier, false, 'third');
-  await show(landed, false, 'third');
-  await show(earlier, false, 'third');
-  const settledShape = ['UserMessage:s:p1', 'AssistantPart:s:a0'];
-  assert.deepEqual(shape(), settledShape, 'no bubble and no band once its row is gone');
-  await act(async () => t.mock.timers.tick(10_000));
-  assert.deepEqual(shape(), settledShape);
+const finished = [prompt, { kind: 'assistant', id: 'a0', text: 'Done.' }];
+const sentRow = { kind: 'user', id: 'sub-1', text: 'next step' };
+
+test('an idle send: the bubble holds the band until the core states the running turn, in the state that brings its row', async (t) => {
+  const pane = await mountSendPane(t);
+  await pane.show({ settledItems: finished });
+  let sending;
+  await act(async () => {
+    sending = pane.view.actions.composerSubmit('next step', { id: 'sub-1' });
+  });
+  const submitted = pane.shape();
+  assert.ok(pane.bubble('sub-1')?.item.pending, 'the bubble shows at the submit');
+  assert.ok(pane.banded(), 'the pending bubble brings the band');
+  // The core's reply: the start is accepted; nothing it states has changed yet.
+  await act(async () => {
+    pane.host.reply(true);
+    await sending;
+  });
+  assert.deepEqual(pane.shape(), submitted, 'the reply moves nothing');
+  // One state: the row and the turn's start. The rows are the submit's, keys
+  // and all — the running turn takes the band over in the same commit.
+  await pane.show({ settledItems: [...finished, sentRow], busy: true });
+  assert.deepEqual(pane.shape(), submitted);
+  assert.equal(pane.bubble('sub-1').item.pending, undefined, 'the durable row stands in the bubble');
+  // The turn ends: the band goes with the core's busy, nothing else holds it.
+  await pane.show({ settledItems: [...finished, sentRow, { kind: 'assistant', id: 'a1', text: 'Next.' }] });
+  assert.equal(pane.banded(), false);
+});
+
+test('a row that arrives without busy ends the bubble and its activity clock in that same state, no timer involved', async (t) => {
+  // Mocked timers that are never advanced: nothing may wait on one.
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 1_000 });
+  const pane = await mountSendPane(t);
+  await pane.show({ settledItems: finished });
+  let sending;
+  await act(async () => {
+    sending = pane.view.actions.composerSubmit('next step', { id: 'sub-1' });
+  });
+  assert.ok(pane.view.clock > 0, 'the pending bubble runs the activity clock');
+  assert.ok(pane.banded());
+  await act(async () => {
+    pane.host.reply(true);
+    await sending;
+  });
+  // The pane's own durable row, and the core states no running turn (a
+  // prompt that starts none): the bubble and its band end here.
+  await pane.show({ settledItems: [...finished, sentRow] });
+  assert.equal(pane.bubble('sub-1').item.pending, undefined, 'the durable row stands in the bubble');
+  assert.equal(pane.view.clock, 0, 'the activity clock is cleared');
+  assert.equal(pane.banded(), false, 'no band without the core stating a running turn');
+});
+
+test('a refused start takes the bubble and its band back out; the transcript is as before the send', async (t) => {
+  const pane = await mountSendPane(t);
+  await pane.show({ settledItems: finished });
+  const before = pane.shape();
+  let sending;
+  await act(async () => {
+    sending = pane.view.actions.composerSubmit('next step', { id: 'sub-1' });
+  });
+  assert.ok(pane.banded());
+  await act(async () => {
+    pane.host.reply(false);
+    await sending;
+  });
+  assert.deepEqual(pane.shape(), before, 'no bubble, no band: the core shows no row for a refused start');
+});
+
+test('a queued send stays one bubble through its drain and gets the band with its own turn', async (t) => {
+  const running = [prompt, { kind: 'assistant', id: 'a0', text: 'Working on it' }];
+  const pane = await mountSendPane(t, { queuedAtSubmit: true });
+  await pane.show({ settledItems: running, busy: true });
+  let sending;
+  await act(async () => {
+    sending = pane.view.actions.composerSubmit('next step', { id: 'sub-1' });
+  });
+  const key = pane.bubble('sub-1')?.key;
+  assert.ok(key, 'the queued bubble shows at the submit');
+  await act(async () => {
+    pane.host.reply(true);
+    await sending;
+  });
+  const entry = { id: 'sub-1', displayText: 'next step', submittedAt: 5 };
+  await pane.show({ settledItems: running, busy: true, queued: [entry] });
+  assert.equal(pane.bubble('sub-1')?.key, key, "the queue entry takes its twin's place");
+  // The running turn ends with the entry still queued.
+  const ended = [...running, { kind: 'turndone', id: 'd0' }];
+  await pane.show({ settledItems: ended, queued: [entry] });
+  assert.equal(pane.bubble('sub-1')?.key, key);
+  // The drain's first state: the entry has left the queue, its row has not
+  // arrived and the session is idle. The pane's own submit still shows it.
+  await pane.show({ settledItems: ended });
+  assert.equal(pane.bubble('sub-1')?.key, key, 'the bubble stands through the drain');
+  assert.equal(pane.banded(), false, 'an idle session states no running turn');
+  // The row with its turn's start, in one state.
+  await pane.show({ settledItems: [...ended, sentRow], busy: true });
+  assert.equal(pane.bubble('sub-1')?.key, key, 'the durable row lands where the bubble stood');
+  assert.equal(pane.bubble('sub-1').item.pending, undefined);
+  assert.ok(pane.banded(), 'the running turn brings the band');
 });
 
 test('a queued bot message keeps its sending bot, like the delivered row', () => {

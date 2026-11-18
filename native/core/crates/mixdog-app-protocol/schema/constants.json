@@ -60,6 +60,7 @@
     "maxMediaFrameBytes": 67108864,
     "maxProcesses": 64,
     "maxSnapshotBytes": 3145728,
+    "maxUploadInFlightBytes": 3145728,
     "orderedQueueBytes": 8388608,
     "queueBytes": 8388608,
     "ringBytes": 4194304,
@@ -311,5 +312,311 @@
       "notification": "connections/updated",
       "section": "connections"
     }
-  ]
+  ],
+  "sshMessages": {
+    "client": [
+      {
+        "code": "server-not-ready",
+        "english": "The server on {name} is not ready to accept connections. Try connecting again."
+      },
+      {
+        "code": "server-not-ready-unnamed",
+        "english": "The server is not ready to accept connections. Try connecting again."
+      },
+      {
+        "code": "server-no-ssh-response",
+        "english": "The server on {name} did not respond over SSH. Try connecting again."
+      },
+      {
+        "code": "server-refused-app",
+        "english": "The server on {name} did not accept this app: {error}"
+      },
+      {
+        "code": "foreign-program-answered",
+        "english": "Another program answered over SSH on {name} instead of the server the app started. The connection was stopped and nothing was sent to it. Connect again to start over."
+      },
+      {
+        "code": "ssh-connection-not-ready",
+        "english": "The SSH connection to {name} is not ready after {ms} ms."
+      },
+      {
+        "code": "ssh-connection-closed",
+        "english": "The SSH connection to {name} is closed."
+      },
+      {
+        "code": "server-connection-closed",
+        "english": "The connection to the server is closed."
+      },
+      {
+        "code": "link-closed",
+        "english": "The connection to {name} was closed."
+      },
+      {
+        "code": "reconnect-off",
+        "english": "Automatic reconnection is off for this server."
+      },
+      {
+        "code": "folder-control-characters",
+        "english": "The server folder must not contain control characters."
+      },
+      {
+        "code": "folder-not-absolute",
+        "english": "The server folder must be an absolute server path: {folder}"
+      },
+      {
+        "code": "app-lacks-install-files",
+        "english": "This app does not include the files needed to install on a server."
+      },
+      {
+        "code": "app-older-than-server",
+        "english": "This app ({client}) is older than the version on {display} ({server}). Update the app on this PC, then reconnect."
+      },
+      {
+        "code": "server-version-mismatch",
+        "english": "The version running on {display} ({server}) does not match this app ({client}). Reconnect to install the matching version on the server."
+      },
+      {
+        "code": "password-refused",
+        "english": "The password was not accepted. Check it and try again."
+      },
+      {
+        "code": "passphrase-refused",
+        "english": "The passphrase for the key was not accepted. Check it and try again."
+      },
+      {
+        "code": "code-refused",
+        "english": "The code was not accepted. Check it and try again."
+      },
+      {
+        "code": "bootstrap-no-result",
+        "english": "The server did not answer the install check. Try connecting again."
+      },
+      {
+        "code": "bootstrap-no-platform",
+        "english": "The server did not say which system it runs. Try connecting again."
+      },
+      {
+        "code": "bootstrap-exited",
+        "english": "The install check on the server stopped unexpectedly (status {status}). Try connecting again."
+      },
+      {
+        "code": "server-runs-windows",
+        "english": "The server runs Windows. Servers need Linux (x64 or arm64, glibc) or macOS (x64 or arm64)."
+      },
+      {
+        "code": "server-system-unsupported",
+        "english": "The server is {found}. Servers need Linux (x64 or arm64, glibc) or macOS (x64 or arm64)."
+      },
+      {
+        "code": "install-id-unsafe",
+        "english": "The install name is not a safe folder name: {id}"
+      },
+      {
+        "code": "upload-needs-checksums",
+        "english": "An upload needs the checksum of the files and of their bundle."
+      },
+      {
+        "code": "install-no-gzip",
+        "english": "gzip was not found on the server."
+      },
+      {
+        "code": "install-no-tar",
+        "english": "tar was not found on the server."
+      },
+      {
+        "code": "install-no-checksum-tool",
+        "english": "Neither sha256sum nor shasum was found on the server."
+      },
+      {
+        "code": "upload-not-stored",
+        "english": "The uploaded files could not be stored on the server."
+      },
+      {
+        "code": "upload-checksum-mismatch",
+        "english": "The uploaded files do not match their checksum."
+      },
+      {
+        "code": "upload-folder-failed",
+        "english": "The upload folder could not be created on the server."
+      },
+      {
+        "code": "upload-not-unpacked",
+        "english": "The uploaded files could not be unpacked on the server."
+      },
+      {
+        "code": "upload-no-program",
+        "english": "The uploaded files do not contain the server program."
+      },
+      {
+        "code": "install-missing",
+        "english": "The app is not installed on the server and must be uploaded."
+      },
+      {
+        "code": "host-keys-unreadable",
+        "english": "The SSH host keys saved on this PC could not be read: {error}"
+      },
+      {
+        "code": "host-keys-newer-version",
+        "english": "The SSH host keys saved on this PC were written by a newer version of the app. Update the app and try again. ({error})"
+      },
+      {
+        "code": "host-keys-malformed",
+        "english": "The SSH host keys saved on this PC contain an entry the app cannot read. Fix or remove that entry in the known_hosts file, then try again. ({error})"
+      },
+      {
+        "code": "ssh-settings-not-updated",
+        "english": "The SSH settings on this PC could not be updated: {error}"
+      },
+      {
+        "code": "host-key-changed-while-confirming",
+        "english": "The server presented another key while this one was being confirmed. Check the server again."
+      },
+      {
+        "code": "host-key-revoked-while-confirming",
+        "english": "This server's key was revoked while you were confirming it, so it was not saved. Check the server again."
+      },
+      {
+        "code": "host-keys-changed-while-confirming",
+        "english": "The saved host keys changed while you were confirming this key, so it was not saved. Check the server again."
+      },
+      {
+        "code": "saved-entry-removal-failed",
+        "english": "The saved entry for {name} could not be removed."
+      },
+      {
+        "code": "server-upgrade-required",
+        "english": "The app on the server ({server}) does not offer the connection this app needs. Remove it from the server and connect again to install a matching version."
+      },
+      {
+        "code": "host-key-manual-edit",
+        "english": "This host key is also listed in an entry the app did not add, or in several entries, so it cannot be replaced automatically. Edit the known_hosts file by hand, then try again. ({path})"
+      },
+      {
+        "code": "ssh-config-unreadable",
+        "english": "ssh could not read its configuration for this address."
+      },
+      {
+        "code": "proxy-host-unreadable",
+        "english": "The host name cannot be read through a proxy."
+      },
+      {
+        "code": "no-key-to-save",
+        "english": "There is no key to save."
+      },
+      {
+        "code": "no-key-to-replace",
+        "english": "There is no key to replace."
+      },
+      {
+        "code": "server-not-saved",
+        "english": "This SSH server is no longer saved."
+      },
+      {
+        "code": "cleanup-nothing-running",
+        "english": "Nothing was running on the server."
+      },
+      {
+        "code": "cleanup-stopped",
+        "english": "Stopped what was running on the server (process {pid})."
+      },
+      {
+        "code": "cleanup-left-running",
+        "english": "Left process {pid} running: it could not be confirmed as the app’s."
+      },
+      {
+        "code": "cleanup-removed",
+        "english": "Removed {removed}."
+      },
+      {
+        "code": "cleanup-removed-kept",
+        "english": "Removed {removed}; kept {kept}."
+      },
+      {
+        "code": "cleanup-removed-nothing",
+        "english": "Removed nothing."
+      },
+      {
+        "code": "cleanup-removed-nothing-kept",
+        "english": "Removed nothing; kept {kept}."
+      },
+      {
+        "code": "connect-first",
+        "english": "Connect to {name} to manage its logins."
+      },
+      {
+        "code": "pc-accounts",
+        "english": "{name} uses this PC's accounts. Switch it to server accounts to manage its logins."
+      },
+      {
+        "code": "forward-connection-closed",
+        "english": "The SSH connection is closed."
+      },
+      {
+        "code": "forward-connection-not-ready",
+        "english": "The SSH connection is not ready after {ms} ms."
+      }
+    ],
+    "server": [
+      {
+        "code": "ensure-install-locked",
+        "english": "Another installation on the server holds {lock} ({owner}). Try again when it has finished."
+      },
+      {
+        "code": "ensure-install-missing",
+        "english": "The app is not installed on the server (install {install}) and must be uploaded."
+      },
+      {
+        "code": "ensure-checksum-mismatch",
+        "english": "The uploaded files do not match their checksum (expected {expected}, got {actual})."
+      },
+      {
+        "code": "ensure-unsafe-install-id",
+        "english": "The install name is not a safe folder name: {id}"
+      },
+      {
+        "code": "ensure-bad-version",
+        "english": "The version is not valid: {version}"
+      },
+      {
+        "code": "ensure-core-exited",
+        "english": "The app stopped on the server (status {status}). {log}: {tail}"
+      },
+      {
+        "code": "ensure-core-not-ready",
+        "english": "The app did not become ready on the server within {seconds} s (it is still {state}). {log}: {tail}"
+      },
+      {
+        "code": "ensure-controller-gone",
+        "english": "The connection to the server closed while the app was starting; it was left starting."
+      },
+      {
+        "code": "ensure-core-control",
+        "english": "Managing the app on the server failed: {detail}"
+      },
+      {
+        "code": "ensure-install-failed",
+        "english": "The install on the server failed: {detail}"
+      },
+      {
+        "code": "ensure-unproven",
+        "english": "A process on the server could not be confirmed as the app’s, so it was left alone. {detail}"
+      },
+      {
+        "code": "ensure-stop-failed",
+        "english": "The app on the server (process {pid}) did not stop."
+      },
+      {
+        "code": "ensure-client-outdated",
+        "english": "This app (version {desktop_version}) is older than the version on the server (version {server_version}). Update the app on this PC."
+      },
+      {
+        "code": "ensure-busy",
+        "english": "The version on the server ({server_version}) is still running work. Wait for it to finish, or stop it."
+      },
+      {
+        "code": "ensure-arguments",
+        "english": "The server program was not given usable arguments: {detail}"
+      }
+    ]
+  }
 }

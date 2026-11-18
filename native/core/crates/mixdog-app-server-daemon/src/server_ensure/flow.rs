@@ -24,6 +24,7 @@ use super::layout::RemotePaths;
 use super::lock::InstallLock;
 use super::lock::LockOptions;
 use super::manage;
+use super::report::is_intended;
 use super::report::Replaced;
 use super::report::Report;
 use crate::compat;
@@ -101,7 +102,22 @@ fn ensure(
     let _lock = InstallLock::acquire(&paths.lock, &lock_options(args, format!("install {}", args.install_id)), host)?;
 
     // A core of a newer version than this desktop is never touched, and nothing is installed.
-    let found = access.discovery()?;
+    let mut found = access.discovery()?;
+    // One rule for every discovery read: a core of this install that has not reached `serving` has published nothing a
+    // decision can use (no model proxy endpoint yet, no rpc), so it is waited for, as `await_core` waits for a launched
+    // one. One that exits meanwhile is gone and discovery is read again, and the rule applies to what it now names (a
+    // replacement instance may be migrating too). Only a settled core, or none, is decided on. The whole attempt has one
+    // deadline, counted from the first wait.
+    let mut waiting_since = None;
+    while let Some(core) = found.clone().filter(|core| {
+        matches!(core.state, DiscoveryPhase::Booting | DiscoveryPhase::Migrating) && core.version == args.version && core.build == args.build
+    }) {
+        let since = *waiting_since.get_or_insert_with(std::time::Instant::now);
+        found = match access.await_serving(&core, since)? {
+            CoreReport::Reached(settled) => Some(settled),
+            CoreReport::Exited { .. } => access.discovery()?,
+        };
+    }
     let decision = match &found {
         Some(core) => {
             let server = compat::parse(&core.version).map_err(|e| EnsureError::BadVersion(e.0))?;
@@ -112,8 +128,9 @@ fn ensure(
                     server_version: core.version.clone(),
                 });
             }
-            // Same version, other model-login mode: the only reason such a core is not current.
-            if decision == Decision::Attach && core.model_proxy != args.wants_model_proxy() {
+            // Same version but another build or another model-login mode: not the core asked for, so it goes the ordinary
+            // way of a replacement (hold, idle drain, the user's confirmation when it is busy) and is never attached to.
+            if decision == Decision::Attach && !is_intended(core, args) {
                 Decision::Replace
             } else {
                 decision
@@ -164,7 +181,7 @@ fn ensure(
     access.launch(&Launch {
         exe: installed.exe.clone(),
         args: vec!["serve".to_owned()],
-        env: launch_env(&paths, args.model_login),
+        env: launch_env(&paths, args.model_login, args.grace_ms),
         // The launcher's OS-proxy decision is Node's `delete env[HANDOFF_VAR]` (`system-proxy.mjs:461`):
         // the core it starts never inherits it.
         env_remove: {
@@ -194,7 +211,7 @@ fn ensure(
 
 /// The desktop-managed core is kept apart from a core of the user's own install: its own runtime
 /// root and Mixdog home live inside the version independent `user-data`.
-fn launch_env(paths: &RemotePaths, model_login: Option<ModelLogin>) -> Vec<(String, String)> {
+fn launch_env(paths: &RemotePaths, model_login: Option<ModelLogin>, grace_ms: Option<u64>) -> Vec<(String, String)> {
     let text = |path: &Path| path.to_string_lossy().into_owned();
     let mut env = vec![
         ("MIXDOG_RUNTIME_ROOT".to_owned(), text(&paths.runtime_root)),
@@ -204,6 +221,11 @@ fn launch_env(paths: &RemotePaths, model_login: Option<ModelLogin>) -> Vec<(Stri
     ];
     if model_login != Some(ModelLogin::Server) {
         env.push(("MIXDOG_MODEL_PROXY".to_owned(), "client".to_owned()));
+    }
+    // The host's grace after its last client leaves; the core reads it when it arms the grace (`ClientGrace::after`), and a
+    // changed setting applies from the next core start (as in 1.4.5, `remote-install-daemon.ts`).
+    if let Some(ms) = grace_ms {
+        env.push(("MIXDOG_REMOTE_CLIENT_GRACE_MS".to_owned(), ms.to_string()));
     }
     env
 }
@@ -241,7 +263,7 @@ fn rotate_log(log: &std::path::Path) {
     }
 }
 
-fn log_tail(log: &std::path::Path, from: u64) -> String {
+pub(super) fn log_tail(log: &std::path::Path, from: u64) -> String {
     let bytes = fs::read(log).unwrap_or_default();
     let start = usize::try_from(from).unwrap_or(usize::MAX).min(bytes.len());
     let text = String::from_utf8_lossy(&bytes[start..]);

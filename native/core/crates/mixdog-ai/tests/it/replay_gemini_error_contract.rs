@@ -250,6 +250,48 @@ struct Walk<'a> {
     error_at: usize,
 }
 
+fn opt_str(value: &Exact) -> Option<&str> {
+    match value {
+        Exact::Undefined | Exact::Null => None,
+        other => Some(other.as_str()),
+    }
+}
+
+/// `retryInfoDelayMs`: the first positive RetryInfo delay written in seconds (`"<n>s"` or `{seconds, nanos}`).
+fn retry_info_ms(details: &Exact) -> Option<f64> {
+    for detail in details.as_array() {
+        let ms = match detail.try_get("retryDelay") {
+            Some(Exact::String(text)) => text.trim().strip_suffix('s').and_then(|n| n.parse::<f64>().ok()).map(|n| n * 1000.0),
+            Some(Exact::Object(_)) => {
+                let delay = provider_cases::plain(detail.get("retryDelay"));
+                let n = |k: &str| delay.get(k).map_or(0.0, mixdog_js::to_number);
+                Some(n("seconds") * 1000.0 + n("nanos") / 1_000_000.0)
+            }
+            _ => None,
+        };
+        if let Some(ms) = ms.filter(|ms| ms.is_finite() && *ms > 0.0) {
+            return Some(ms.ceil());
+        }
+    }
+    None
+}
+
+pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "gemini-error-contract", run: every_case_answers_as_nodes }];
+
+#[test]
+fn every_case_answers_as_nodes() {
+    let set = CaseSet::load("gemini-error-contract");
+    assert_eq!(set.cases.len(), 26, "the recorded cases");
+    for case in &set.cases {
+        let answers = answer(case);
+        let mut walk = Walk { case: &case.id, now: now(), answers, error_at: 0 };
+        walk.node("", &case.recorded());
+        assert!(walk.answers.contracts.is_empty() && walk.answers.errors.is_empty(), "{}: every call answered", case.id);
+        assert!(walk.answers.kinds.is_empty() && walk.answers.capacity.is_empty() && walk.answers.policy.is_empty(), "{}", case.id);
+    }
+}
+
+
 impl Walk<'_> {
     fn node(&mut self, key: &str, recorded: &Recorded<'_>) {
         let what = format!("{}: {}", self.case, recorded.path());
@@ -298,31 +340,6 @@ impl Walk<'_> {
     }
 }
 
-fn opt_str(value: &Exact) -> Option<&str> {
-    match value {
-        Exact::Undefined | Exact::Null => None,
-        other => Some(other.as_str()),
-    }
-}
-
-/// `retryInfoDelayMs`: the first positive RetryInfo delay written in seconds (`"<n>s"` or `{seconds, nanos}`).
-fn retry_info_ms(details: &Exact) -> Option<f64> {
-    for detail in details.as_array() {
-        let ms = match detail.try_get("retryDelay") {
-            Some(Exact::String(text)) => text.trim().strip_suffix('s').and_then(|n| n.parse::<f64>().ok()).map(|n| n * 1000.0),
-            Some(Exact::Object(_)) => {
-                let delay = provider_cases::plain(detail.get("retryDelay"));
-                let n = |k: &str| delay.get(k).map_or(0.0, mixdog_js::to_number);
-                Some(n("seconds") * 1000.0 + n("nanos") / 1_000_000.0)
-            }
-            _ => None,
-        };
-        if let Some(ms) = ms.filter(|ms| ms.is_finite() && *ms > 0.0) {
-            return Some(ms.ceil());
-        }
-    }
-    None
-}
 
 /// One recorded error against the core's, every field through the table (the driver's [`Recorded::assert_error`]).
 pub fn compare_error(what: &str, recorded: &Exact, built: &Built) {
@@ -447,20 +464,5 @@ pub fn compare_error(what: &str, recorded: &Exact, built: &Built) {
             "rawUsage" => assert!(matches!(value, Exact::Null) && error.partial_usage.is_none(), "{what}"),
             other => panic!("{what}: no comparison for {other}"),
         }
-    }
-}
-
-pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "gemini-error-contract", run: every_case_answers_as_nodes }];
-
-#[test]
-fn every_case_answers_as_nodes() {
-    let set = CaseSet::load("gemini-error-contract");
-    assert_eq!(set.cases.len(), 26, "the recorded cases");
-    for case in &set.cases {
-        let answers = answer(case);
-        let mut walk = Walk { case: &case.id, now: now(), answers, error_at: 0 };
-        walk.node("", &case.recorded());
-        assert!(walk.answers.contracts.is_empty() && walk.answers.errors.is_empty(), "{}: every call answered", case.id);
-        assert!(walk.answers.kinds.is_empty() && walk.answers.capacity.is_empty() && walk.answers.policy.is_empty(), "{}", case.id);
     }
 }

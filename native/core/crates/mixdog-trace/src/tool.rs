@@ -715,10 +715,6 @@ fn tool_name_of(a: &Args) -> String {
     }
 }
 
-fn result_text_string(a: &Args) -> Option<&str> {
-    a.get("resultText").and_then(Value::as_str)
-}
-
 /// `traceAgentToolFailure`'s row (`None`: Node writes nothing). `ts` is `now_ms`.
 pub fn tool_failure_row(a: &Args, now_ms: i64) -> Option<Value> {
     let clean = redact_log_text(&tool_trace_text(a.get("resultText").unwrap_or(&Value::Null)));
@@ -759,8 +755,10 @@ pub fn tool_failure_row(a: &Args, now_ms: i64) -> Option<Value> {
 /// `traceAgentTool`: the `tool` row, the `tool_slow` row and the failure row.
 pub fn tool_records(a: &Args, slow: &SlowTool, now_ms: i64) -> ToolRecords {
     let tool_name = tool_name_of(a);
-    let result = a.get("resultText");
-    let result_str = result_text_string(a);
+    let result_kind = a.get("resultKind").and_then(Value::as_str);
+    let served_from_cache = matches!(result_kind, Some("cache-hit" | "scoped-cache-hit"));
+    let result = a.get("resultText").filter(|_| !served_from_cache);
+    let result_str = result.and_then(Value::as_str);
     let next_calls = count_json_next_calls(&match result {
         None | Some(Value::Null) => String::new(),
         Some(v) => value_to_string(v),
@@ -769,10 +767,9 @@ pub fn tool_records(a: &Args, slow: &SlowTool, now_ms: i64) -> ToolRecords {
     let lines_est = result_str.map_or(0, |s| if s.is_empty() { 0 } else { s.split('\n').count() });
     let numeric_tool_ms = number_of(a.get("toolMs"));
     let timing = summarize_tool_timing(a.get("toolTiming"));
-    let args = a.get("toolArgs");
+    let args = a.get("toolArgs").filter(|_| !served_from_cache);
     let summarized = summarize_tool_args(&tool_name, args);
     let summarized_value = summarized.clone().unwrap_or(Value::Null);
-    let result_kind = a.get("resultKind").and_then(Value::as_str);
     let grep = parse_grep_coverage(result.unwrap_or(&Value::Null), a.get("toolName").and_then(Value::as_str).unwrap_or(""), args, result_kind);
     let hashed = match args {
         Some(v) if v.is_object() || v.is_array() => Some(v),
@@ -841,7 +838,7 @@ pub fn tool_records(a: &Args, slow: &SlowTool, now_ms: i64) -> ToolRecords {
     put(&mut tool, "payload", Value::Object(payload));
     put(&mut tool, "cwd", or_null(a.get("cwd")));
 
-    let slow_row = (numeric_tool_ms.is_finite() && numeric_tool_ms >= slow.threshold_ms as f64 && slow.matches(&tool_name)).then(|| {
+    let slow_row = (!served_from_cache && numeric_tool_ms.is_finite() && numeric_tool_ms >= slow.threshold_ms as f64 && slow.matches(&tool_name)).then(|| {
         let mut payload = Map::new();
         put(&mut payload, "threshold_ms", Value::from(slow.threshold_ms));
         put(&mut payload, "result_kind", or_null(a.get("resultKind")));

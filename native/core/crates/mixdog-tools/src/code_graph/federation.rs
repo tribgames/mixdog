@@ -18,7 +18,7 @@ use rayon::prelude::*;
 
 use super::args::Args;
 use super::dispatch::{Answer, Env, run_scoped};
-use super::output::{Warnings, wrap};
+use super::output::{Warnings, max_bytes, wrap_with_status};
 use super::roots::{
     abs_from, child_project_roots, find_dir_project_root, is_filesystem_root, path_key,
 };
@@ -54,6 +54,7 @@ impl TrustSnapshot {
         self
     }
 
+    #[cfg(node_twin)]
     #[cfg(test)]
     pub(super) fn of(registered: Vec<PathBuf>) -> Self {
         Self { registered, ..Self::default() }
@@ -207,8 +208,8 @@ pub(super) struct Plan {
     pub active: bool,
     exact_dot: bool,
     raw_mode: String,
-    roots: Vec<PathBuf>,
-    files: Vec<String>,
+    pub(super) roots: Vec<PathBuf>,
+    pub(super) files: Vec<String>,
 }
 
 /// Whether, and over which roots, this call federates (`planFederation`).
@@ -273,12 +274,15 @@ struct Child {
 
 fn run_child(args: &Args, root: &Path, excluded: &[PathBuf], env: &Env<'_>) -> Child {
     match run_scoped(args, root, env, excluded) {
-        Ok(answer) => Child {
-            complete: answer.complete && !answer.error,
-            roots: answer.dependency_roots.unwrap_or_default(),
+        Ok(answer) => {
+            if args.mode == "callers" && args.depth.unwrap_or(1.0) >= 2.0 {
+                // Keep raw rows for the outer cap so an early child cap cannot discard continuations.
+                return Child { complete: answer.complete && !answer.error, roots: answer.dependency_roots.unwrap_or_default(), text: answer.warnings.prefix(answer.text) };
+            }
             // A section is its own `executeCodeGraphTool` call: its own warning and budget.
-            text: wrap(answer.text, &answer.warnings, args),
-        },
+            let (text, uncapped) = wrap_with_status(answer.text, &answer.warnings, args, max_bytes());
+            Child { complete: answer.complete && !answer.error && uncapped, roots: answer.dependency_roots.unwrap_or_default(), text }
+        }
         Err(message) => Child { text: format!("Error: {message}"), roots: Vec::new(), complete: false },
     }
 }

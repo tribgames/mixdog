@@ -12,13 +12,12 @@
 //! [`LateRoomMembers`] is the session side's `noteMemberRows`: a member thread's questions moved,
 //! so its room is published again.
 
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::Weak;
 
 use async_trait::async_trait;
+use mixdog_app_protocol::v2::thread::ThreadRoomView;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_base::rooms::ids::room_member_session_id;
 use mixdog_core_rooms::rooms::live::ApprovalAnswer;
@@ -36,21 +35,22 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-type Pending = Arc<Mutex<HashMap<String, (Option<ExchangeView>, Vec<Value>)>>>;
+/// The log's `roomView` for what the room's exchange shows and its members' questions.
+pub fn room_view_of(view: Option<ExchangeView>, questions: &[Value]) -> Option<ThreadRoomView> {
+    let state = view.map(|view| RoomViewState { speaking: view.speaking, speaking_name: view.speaking_name, typing_id: view.typing_id, approval: view.approval, deciding: view.deciding });
+    room_view(state.as_ref(), questions)
+}
 
 pub struct SessionRoomApprovals {
     directory: Arc<SessionDirectory>,
     /// Bound once the room summaries exist: they sit on the thread list, which reads the room runner, which sits on the live rooms that hold these approvals (a true cycle).
     summaries: OnceLock<Arc<RoomSummaries>>,
     questions: Arc<HandoffQuestionsHub>,
-    /// The newest view of each room not published yet: a publish sends what is newest when it
-    /// runs, so views published in quick succession never land out of order.
-    pending: Pending,
 }
 
 impl SessionRoomApprovals {
     pub fn new(directory: Arc<SessionDirectory>, questions: Arc<HandoffQuestionsHub>) -> Self {
-        Self { directory, summaries: OnceLock::new(), questions, pending: Arc::default() }
+        Self { directory, summaries: OnceLock::new(), questions }
     }
 
     /// Binds the room summaries; a second bind is refused.
@@ -67,10 +67,6 @@ impl crate::run_host::late::Bound for SessionRoomApprovals {
     fn is_bound(&self) -> bool {
         self.summaries.get().is_some()
     }
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// `resolveToolApproval(id, decision)` (`tui/session/session-api/lifecycle.mjs:64-79`): the
@@ -130,14 +126,11 @@ impl RoomApprovals for SessionRoomApprovals {
         out
     }
 
-    fn publish_view(&self, room_session_id: &str, view: Option<ExchangeView>, questions: Vec<Value>) {
-        lock(&self.pending).insert(room_session_id.to_owned(), (view, questions));
-        let (summaries, pending, room) = (self.summaries.get().expect("room summaries bound (compose::verify_bound)").clone(), self.pending.clone(), room_session_id.to_owned());
-        mixdog_rt::spawn("rooms.publish-view", mixdog_rt::TaskClass::Work, async move {
-            let Some((view, questions)) = lock(&pending).remove(&room) else { return };
-            let state = view.map(|view| RoomViewState { speaking: view.speaking, speaking_name: view.speaking_name, typing_id: view.typing_id, approval: view.approval });
-            summaries.publish_room(&ThreadId::from(room), room_view(state.as_ref(), &questions)).await;
-        });
+    /// Published in the order the room asks: the room awaits each call inside its one publication, so there is no queue of
+    /// pending views here to land out of order with a row post.
+    async fn publish_view(&self, room_session_id: &str, view: Option<ExchangeView>, questions: Vec<Value>) {
+        let summaries = self.summaries.get().expect("room summaries bound (compose::verify_bound)");
+        summaries.publish_room(&ThreadId::from(room_session_id), room_view_of(view, &questions)).await;
     }
 }
 
@@ -145,12 +138,21 @@ impl RoomApprovals for SessionRoomApprovals {
 /// published again (`noteMemberRows`). The rooms are built over the directory, which is built over
 /// the deps that carry this, so they are bound afterwards. Before the bind no room is hosted.
 #[derive(Default)]
-pub struct LateRoomMembers(OnceLock<Weak<LiveRooms>>);
+pub struct LateRoomMembers(OnceLock<Weak<LiveRooms>>, OnceLock<RoomStop>);
+
+/// The room's stop (`RoomCalls::stop_ticket`): whether an exchange or a message on its way was stopped, and the completion of
+/// every durable member stop it owes (`Err` names the one that could not be saved).
+pub type RoomStop = Arc<dyn Fn(&str) -> (bool, mixdog_core_rooms::rooms::calls::StopSaved) + Send + Sync>;
 
 impl LateRoomMembers {
     /// Binds the rooms; a second bind is refused.
     pub fn bind(&self, rooms: &Arc<LiveRooms>) -> Result<(), Weak<LiveRooms>> {
         self.0.set(Arc::downgrade(rooms))
+    }
+
+    /// Binds what a Stop on a room log reaches; a second bind is refused.
+    pub fn bind_stop(&self, stop: RoomStop) -> Result<(), RoomStop> {
+        self.1.set(stop)
     }
 
     fn rooms(&self) -> Option<Arc<LiveRooms>> {
@@ -169,5 +171,17 @@ impl RoomMemberEvents for LateRoomMembers {
         if let Some(rooms) = self.rooms() {
             rooms.member_resolved(room_id, approval_id);
         }
+    }
+
+    fn stop_room(&self, room_id: &str) -> Option<mixdog_core_api::thread::RoomStopped> {
+        let rooms = self.rooms()?;
+        if !rooms.hosts(room_id) {
+            return None;
+        }
+        let Some((stopped, saved)) = self.1.get().map(|stop| stop(room_id)) else {
+            return Some(mixdog_core_api::thread::RoomStopped { stopped: false, saved: Box::pin(async { Ok(()) }) });
+        };
+        let saved = Box::pin(async move { saved.await.map_err(|error| mixdog_core_base::support::coded("session", mixdog_core_session::session::STOP_NOT_SAVED, error)) });
+        Some(mixdog_core_api::thread::RoomStopped { stopped, saved })
     }
 }

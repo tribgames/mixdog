@@ -4,13 +4,13 @@
 // posts and the state. The core binary is MIXDOGD_BIN.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { realpathSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { builtCoreBin } from './built-core.mjs';
 
 const recorder = fileURLToPath(new URL('../../../../benchmarks/rust-core/recorders/record-phone-settings.mjs', import.meta.url));
 // Started by its real path: the core finds its own processes by image path, which a path through a folder link is not.
-const BIN = realpathSync(process.env.MIXDOGD_BIN || 'D:\\mixdog-build\\pool\\w3-target\\debug\\mixdogd.exe');
+const BIN = builtCoreBin();
 
 // The recorder is a script that ends with `process.exit` inside its top-level evaluation, which the runner's spawn ledger fails as
 // dropped tests; it is not a test file, so it runs without the ledger.

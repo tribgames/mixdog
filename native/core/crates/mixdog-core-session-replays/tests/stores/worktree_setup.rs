@@ -27,15 +27,20 @@ use mixdog_core_session::session::worktree::worktree_maintenance::WorktreeMainte
 use mixdog_core_session::session::worktree::worktree_maintenance::cleanup_summary;
 use mixdog_core_session::session::worktree::worktree_maintenance::startup_summary;
 use mixdog_core_session::session::worktree::worktree_setup::WorktreeSetup;
+#[cfg(node_twin)]
 use mixdog_core_session::session::worktree::PreparationReport;
+#[cfg(node_twin)]
 use mixdog_core_session::session::worktree::worktree_preparation_note;
+#[cfg(node_twin)]
 use mixdog_core_session::replay_access::OutputWindow;
 use mixdog_core_session::session::worktree::RunOptions;
 use mixdog_core_session::session::worktree::SetupEvent;
 use mixdog_core_session::session::worktree::SetupReport;
 use mixdog_core_session::session::worktree::SetupRunner;
 use mixdog_core_session::session::worktree::SetupStatus;
+#[cfg(node_twin)]
 use mixdog_core_session::session::worktree::SetupStep;
+#[cfg(node_twin)]
 use mixdog_core_session::replay_access::output_tail;
 use mixdog_core_session::session::worktree::worktree_tests::enter;
 use mixdog_core_session::session::worktree::worktree_tests::rig;
@@ -47,35 +52,12 @@ use mixdog_scm::worktree::registry::WorktreeRecord;
 use mixdog_tools::git::SessionOp;
 use serde_json::json;
 
-const GOLDENS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-core-session/src/session/worktree_goldens/setup_goldens.json");
-
-fn goldens() -> Value {
-    serde_json::from_str(&GOLDENS).unwrap()
-}
-
+#[cfg(node_twin)]
 fn text(value: &Value, key: &str) -> String {
     value[key].as_str().unwrap().to_owned()
 }
 
-#[test]
-fn output_tails_equal_nodes() {
-    for case in goldens()["tail"].as_array().unwrap() {
-        assert_eq!(output_tail(case["input"].as_str().unwrap()), text(case, "output"), "{}", case["input"]);
-    }
-}
-
-#[test]
-fn output_windows_equal_nodes() {
-    for case in goldens()["windows"].as_array().unwrap() {
-        let mut window = OutputWindow::new(case["limit"].as_u64().unwrap() as usize);
-        for chunk in case["chunks"].as_array().unwrap() {
-            window.append(chunk.as_str().unwrap().as_bytes());
-        }
-        assert_eq!(window.text(), text(case, "text"), "{}", case["limit"]);
-        assert_eq!(window.truncated(), case["truncated"].as_bool().unwrap());
-    }
-}
-
+#[cfg(node_twin)]
 fn status_of(value: &Value) -> SetupStatus {
     match value.as_str().unwrap() {
         "completed" => SetupStatus::Completed,
@@ -85,6 +67,7 @@ fn status_of(value: &Value) -> SetupStatus {
     }
 }
 
+#[cfg(node_twin)]
 fn command_of(value: &Value) -> SetupCommand {
     SetupCommand {
         command: text(value, "command"),
@@ -96,6 +79,7 @@ fn command_of(value: &Value) -> SetupCommand {
     }
 }
 
+#[cfg(node_twin)]
 fn report_of(value: &Value) -> SetupReport {
     SetupReport {
         status: status_of(&value["status"]),
@@ -118,30 +102,9 @@ fn report_of(value: &Value) -> SetupReport {
     }
 }
 
+#[cfg(node_twin)]
 fn strings(value: &Value) -> Vec<String> {
     value.as_array().map(|items| items.iter().map(|s| s.as_str().unwrap().to_owned()).collect()).unwrap_or_default()
-}
-
-#[test]
-fn preparation_notes_equal_nodes() {
-    for case in goldens()["notes"].as_array().unwrap() {
-        let report = &case["report"];
-        let installs = report.get("installs").map(report_of);
-        let (dependency_notes, notes) = (strings(&report["dependencyNotes"]), strings(&report["notes"]));
-        let note = worktree_preparation_note(&PreparationReport {
-            root: report["root"].as_str().unwrap_or(""),
-            prepared: report.get("prepared"),
-            dependency_notes: &dependency_notes,
-            installs: installs.as_ref(),
-            notes: &notes,
-        });
-        assert_eq!(note, text(case, "note"), "{}", case["name"]);
-    }
-}
-
-fn runner() -> SetupRunner {
-    let tokens = mixdog_rt::testing::tokens();
-    SetupRunner::new(Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default())))
 }
 
 fn command(file: &str, args: &[&str], cwd: &Path) -> SetupCommand {
@@ -158,105 +121,6 @@ fn command(file: &str, args: &[&str], cwd: &Path) -> SetupCommand {
 
 fn sleeper(cwd: &Path) -> SetupCommand {
     if cfg!(windows) { command("ping", &["-n", "30", "127.0.0.1"], cwd) } else { command("sleep", &["30"], cwd) }
-}
-
-async fn run_all(commands: Vec<SetupCommand>, cancel: &CancellationToken, options: RunOptions) -> (SetupReport, Vec<SetupEvent>) {
-    let mut events = Vec::new();
-    let report = runner().run(commands, cancel, &options, &mut |event| events.push(event)).await;
-    (report, events)
-}
-
-#[tokio::test]
-async fn commands_run_in_order_and_the_first_that_fails_ends_the_run() {
-    let dir = tempfile::tempdir().unwrap();
-    let commands = vec![
-        command("git", &["--version"], dir.path()),
-        command("git", &["no-such-subcommand"], dir.path()),
-        command("git", &["--version"], dir.path()),
-    ];
-    let (report, events) = run_all(commands, &CancellationToken::new(), RunOptions::default()).await;
-    assert_eq!(report.status, SetupStatus::Failed);
-    assert_eq!(report.total, 3);
-    assert_eq!(report.steps.len(), 2);
-    assert_eq!(report.steps[0].status, SetupStatus::Completed);
-    assert_eq!(report.steps[0].exit_code, Some(0));
-    assert!(report.steps[0].output.starts_with("git version"), "{}", report.steps[0].output);
-    assert_eq!(report.steps[1].status, SetupStatus::Failed);
-    assert_eq!(report.steps[1].exit_code, Some(1));
-    assert!(report.steps[1].output.contains("no-such-subcommand"), "{}", report.steps[1].output);
-    assert_eq!(report.pending.len(), 1);
-    // A start per command that ran, then the report.
-    let starts: Vec<usize> = events.iter().filter_map(|e| if let SetupEvent::Running { index, output, .. } = e { output.is_empty().then_some(*index) } else { None }).collect();
-    assert_eq!(starts, [0, 1]);
-    let Some(SetupEvent::Final(last)) = events.last() else { panic!("no final event") };
-    assert_eq!(last, &report);
-    assert_eq!(events.last().unwrap().to_value()["final"], true);
-}
-
-#[tokio::test]
-async fn a_program_that_does_not_exist_fails_the_step_with_its_spawn_text() {
-    let dir = tempfile::tempdir().unwrap();
-    let (report, _) = run_all(vec![command("no-such-program-xyz", &[], dir.path())], &CancellationToken::new(), RunOptions::default()).await;
-    assert_eq!(report.status, SetupStatus::Failed);
-    assert_eq!(report.steps[0].exit_code, None);
-    assert!(report.steps[0].output.contains("ENOENT"), "{}", report.steps[0].output);
-}
-
-// The limit is the process manager's own: an OS thread enforces it, so no tokio clock (paused or not) moves it. The run
-// waits on the process's exit event.
-#[tokio::test]
-async fn a_command_over_its_time_limit_is_killed_and_reported_timed_out() {
-    let dir = tempfile::tempdir().unwrap();
-    let options = RunOptions { timeout: Duration::from_millis(300), ..RunOptions::default() };
-    let (report, _) = run_all(vec![sleeper(dir.path()), command("git", &["--version"], dir.path())], &CancellationToken::new(), options).await;
-    assert_eq!(report.status, SetupStatus::TimedOut);
-    assert_eq!(report.steps[0].status, SetupStatus::TimedOut);
-    assert_eq!(report.pending.len(), 1);
-}
-
-#[tokio::test]
-async fn a_cancel_kills_the_running_command_and_leaves_the_rest_pending() {
-    let dir = tempfile::tempdir().unwrap();
-    let cancel = CancellationToken::new();
-    // The cancel lands as the sleeper's step begins: the run kills the process it just started.
-    let report = runner()
-        .run(vec![sleeper(dir.path()), command("git", &["--version"], dir.path())], &cancel, &RunOptions::default(), &mut |event| {
-            if matches!(event, SetupEvent::Running { .. }) {
-                cancel.cancel();
-            }
-        })
-        .await;
-    assert_eq!(report.status, SetupStatus::Cancelled);
-    assert_eq!(report.steps[0].status, SetupStatus::Cancelled);
-    assert_eq!(report.pending.len(), 1);
-    // Cancelled before the next command: nothing runs.
-    let (after, _) = run_all(vec![command("git", &["--version"], dir.path())], &cancel, RunOptions::default()).await;
-    assert_eq!((after.status, after.steps.len(), after.pending.len()), (SetupStatus::Cancelled, 0, 1));
-}
-
-#[tokio::test]
-async fn the_first_turn_in_a_new_worktree_is_prepared_once_and_noted() {
-    let rig = rig();
-    let entered = run(&rig, enter("feat", "c1")).await.unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let processes = Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default()));
-    let setup = WorktreeSetup::new(rig.worktrees.clone(), processes);
-    let seen = Arc::new(Mutex::new(Vec::<Value>::new()));
-    let sink = seen.clone();
-    let _subscription = setup.on_worktree_setup(Arc::new(move |event| sink.lock().unwrap().push(event)));
-    let cancel = CancellationToken::new();
-    let first = setup.run_pending("lead", Some(&entered["workspace"]), &cancel).await.unwrap();
-    let notice = first.notice.expect("a new worktree is prepared at its first turn");
-    assert!(!first.cancelled);
-    assert!(notice.content.starts_with("<system-reminder>\n# Worktree Preparation\nThis worktree was made from the main checkout at "), "{}", notice.content);
-    assert!(notice.content.contains("No lockfile or dependency manifest found; nothing was installed."), "{}", notice.content);
-    // The preparation is claimed before it runs: a second turn there has nothing to do.
-    let second = setup.run_pending("lead", Some(&entered["workspace"]), &cancel).await.unwrap();
-    assert!(second.notice.is_none());
-    // A session in the project folder has no worktree to prepare.
-    let project = Workspace::project(rig.repo.to_str().unwrap(), rig.repo.to_str().unwrap()).to_value();
-    assert!(setup.run_pending("lead", Some(&project), &cancel).await.unwrap().notice.is_none());
-    assert!(seen.lock().unwrap().is_empty(), "no command was planned, so no progress");
 }
 
 /// The listing only counts rows; nobody keeps or owns them.
@@ -281,41 +145,6 @@ fn link_dir(link: &Path, target: &Path) {
     }
     #[cfg(not(windows))]
     std::os::unix::fs::symlink(target, link).unwrap();
-}
-
-#[tokio::test]
-async fn a_link_an_install_could_reach_through_blocks_the_installs_until_it_is_recorded_as_asked_for() {
-    let rig = rig();
-    std::fs::write(rig.repo.join("package.json"), "{}\n").unwrap();
-    mixdog_core_session::session::worktree::worktree_tests::git(&rig.repo, &["add", "."]);
-    mixdog_core_session::session::worktree::worktree_tests::git(&rig.repo, &["commit", "-q", "-m", "manifest"]);
-    let entered = run(&rig, enter("feat", "c1")).await.unwrap();
-    let worktree_id = entered["workspace"]["worktreeId"].as_str().unwrap().to_owned();
-    let cwd = PathBuf::from(entered["workspace"]["cwd"].as_str().unwrap());
-    let shared_target = tempfile::tempdir().unwrap();
-    std::fs::write(shared_target.path().join("keep.txt"), "keep").unwrap();
-    link_dir(&cwd.join("node_modules"), shared_target.path());
-
-    let tokens = mixdog_rt::testing::tokens();
-    let setup = WorktreeSetup::new(rig.worktrees.clone(), Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default())));
-    let cancel = CancellationToken::new();
-    // Written before the link was made (`pending`), as creation does: not yet a link the user
-    // asked for, so an install through it could empty the folder it points at.
-    rig.worktrees.record_link(&worktree_id, "node_modules", shared_target.path(), "pending", &cancel).await.unwrap();
-    let blocked = setup.run_pending("lead", Some(&entered["workspace"]), &cancel).await.unwrap();
-    let content = blocked.notice.expect("the preparation is reported").content;
-    assert!(
-        content.contains("Dependencies were not installed: node_modules is a link, and any install here could empty the folder it points at (such as the main checkout's) through it. Remove the link (never its target); the next turn installs."),
-        "{content}"
-    );
-    assert!(shared_target.path().join("keep.txt").exists(), "nothing was emptied through the link");
-
-    // Still pending: once the link is recorded as created (asked for), the next turn goes on.
-    rig.worktrees.record_link(&worktree_id, "node_modules", shared_target.path(), "created", &cancel).await.unwrap();
-    let next = setup.run_pending("lead", Some(&entered["workspace"]), &cancel).await.unwrap();
-    let content = next.notice.expect("the pending preparation runs on the next turn").content;
-    assert!(!content.contains("Dependencies were not installed"), "{content}");
-    assert!(shared_target.path().join("keep.txt").exists());
 }
 
 #[derive(Default)]
@@ -429,9 +258,180 @@ async fn a_deleted_session_with_nothing_reports_nothing_and_still_stops_its_clea
 }
 
 struct BoardClock;
+
+#[test]
+fn the_daemon_log_lines_equal_nodes() {
+    let quiet = json!({"removed": [], "recovered": [], "pruned": [], "kept": [{"id": "a", "reason": "dirty"}], "errors": []});
+    assert_eq!(startup_summary(&quiet), None);
+    assert_eq!(cleanup_summary(&quiet), None);
+    let busy = json!({
+        "removed": ["a"], "recovered": ["b", "c"], "pruned": [],
+        "kept": [{"id": "x", "reason": "incomplete"}, {"id": "y", "reason": "incomplete"}, {"id": "z", "reason": "dirty"}],
+        "errors": [{"id": "e", "error": "boom"}],
+    });
+    assert_eq!(
+        startup_summary(&busy).unwrap(),
+        r#"worktree reconcile: removed 1, recovered 2, pruned 0, incomplete 2, errors 1 [{"id":"e","error":"boom"}]"#
+    );
+    assert_eq!(cleanup_summary(&busy).unwrap(), "worktree cleanup: removed 1, incomplete 2 (x, y), errors 1");
+    let none = json!({"removed": [], "kept": [{"id": "x", "reason": "incomplete"}], "errors": []});
+    assert_eq!(cleanup_summary(&none).unwrap(), "worktree cleanup: removed 0, incomplete 1 (x), errors 0");
+}
+
+fn runner() -> SetupRunner {
+    let tokens = mixdog_rt::testing::tokens();
+    SetupRunner::new(Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default())))
+}
+async fn run_all(commands: Vec<SetupCommand>, cancel: &CancellationToken, options: RunOptions) -> (SetupReport, Vec<SetupEvent>) {
+    let mut events = Vec::new();
+    let report = runner().run(commands, cancel, &options, &mut |event| events.push(event)).await;
+    (report, events)
+}
+#[tokio::test]
+async fn commands_run_in_order_and_the_first_that_fails_ends_the_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let commands = vec![
+        command("git", &["--version"], dir.path()),
+        command("git", &["no-such-subcommand"], dir.path()),
+        command("git", &["--version"], dir.path()),
+    ];
+    let (report, events) = run_all(commands, &CancellationToken::new(), RunOptions::default()).await;
+    assert_eq!(report.status, SetupStatus::Failed);
+    assert_eq!(report.total, 3);
+    assert_eq!(report.steps.len(), 2);
+    assert_eq!(report.steps[0].status, SetupStatus::Completed);
+    assert_eq!(report.steps[0].exit_code, Some(0));
+    assert!(report.steps[0].output.starts_with("git version"), "{}", report.steps[0].output);
+    assert_eq!(report.steps[1].status, SetupStatus::Failed);
+    assert_eq!(report.steps[1].exit_code, Some(1));
+    assert!(report.steps[1].output.contains("no-such-subcommand"), "{}", report.steps[1].output);
+    assert_eq!(report.pending.len(), 1);
+    // A start per command that ran, then the report.
+    let starts: Vec<usize> = events.iter().filter_map(|e| if let SetupEvent::Running { index, output, .. } = e { output.is_empty().then_some(*index) } else { None }).collect();
+    assert_eq!(starts, [0, 1]);
+    let Some(SetupEvent::Final(last)) = events.last() else { panic!("no final event") };
+    assert_eq!(last, &report);
+    assert_eq!(events.last().unwrap().to_value()["final"], true);
+}
+#[tokio::test]
+async fn a_program_that_does_not_exist_fails_the_step_with_its_spawn_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let (report, _) = run_all(vec![command("no-such-program-xyz", &[], dir.path())], &CancellationToken::new(), RunOptions::default()).await;
+    assert_eq!(report.status, SetupStatus::Failed);
+    assert_eq!(report.steps[0].exit_code, None);
+    assert!(report.steps[0].output.contains("ENOENT"), "{}", report.steps[0].output);
+}
+// The limit is the process manager's own: an OS thread enforces it, so no tokio clock (paused or not) moves it. The run
+// waits on the process's exit event.
+#[tokio::test]
+async fn a_command_over_its_time_limit_is_killed_and_reported_timed_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let options = RunOptions { timeout: Duration::from_millis(300), ..RunOptions::default() };
+    let (report, _) = run_all(vec![sleeper(dir.path()), command("git", &["--version"], dir.path())], &CancellationToken::new(), options).await;
+    assert_eq!(report.status, SetupStatus::TimedOut);
+    assert_eq!(report.steps[0].status, SetupStatus::TimedOut);
+    assert_eq!(report.pending.len(), 1);
+}
+#[tokio::test]
+async fn a_cancel_kills_the_running_command_and_leaves_the_rest_pending() {
+    let dir = tempfile::tempdir().unwrap();
+    let cancel = CancellationToken::new();
+    // The cancel lands as the sleeper's step begins: the run kills the process it just started.
+    let report = runner()
+        .run(vec![sleeper(dir.path()), command("git", &["--version"], dir.path())], &cancel, &RunOptions::default(), &mut |event| {
+            if matches!(event, SetupEvent::Running { .. }) {
+                cancel.cancel();
+            }
+        })
+        .await;
+    assert_eq!(report.status, SetupStatus::Cancelled);
+    assert_eq!(report.steps[0].status, SetupStatus::Cancelled);
+    assert_eq!(report.pending.len(), 1);
+    // Cancelled before the next command: nothing runs.
+    let (after, _) = run_all(vec![command("git", &["--version"], dir.path())], &cancel, RunOptions::default()).await;
+    assert_eq!((after.status, after.steps.len(), after.pending.len()), (SetupStatus::Cancelled, 0, 1));
+}
+#[tokio::test]
+async fn the_first_turn_in_a_new_worktree_is_prepared_once_and_noted() {
+    let rig = rig();
+    let entered = run(&rig, enter("feat", "c1")).await.unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let processes = Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default()));
+    let setup = WorktreeSetup::new(rig.worktrees.clone(), processes);
+    let seen = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let sink = seen.clone();
+    let _subscription = setup.on_worktree_setup(Arc::new(move |event| sink.lock().unwrap().push(event)));
+    let cancel = CancellationToken::new();
+    let first = setup.run_pending("lead", Some(&entered["workspace"]), &cancel).await.unwrap();
+    let notice = first.notice.expect("a new worktree is prepared at its first turn");
+    assert!(!first.cancelled);
+    assert!(notice.content.starts_with("<system-reminder>\n# Worktree Preparation\nThis worktree was made from the main checkout at "), "{}", notice.content);
+    assert!(notice.content.contains("No lockfile or dependency manifest found; nothing was installed."), "{}", notice.content);
+    // The preparation is claimed before it runs: a second turn there has nothing to do.
+    let second = setup.run_pending("lead", Some(&entered["workspace"]), &cancel).await.unwrap();
+    assert!(second.notice.is_none());
+    // A session in the project folder has no worktree to prepare.
+    let project = Workspace::project(rig.repo.to_str().unwrap(), rig.repo.to_str().unwrap()).to_value();
+    assert!(setup.run_pending("lead", Some(&project), &cancel).await.unwrap().notice.is_none());
+    assert!(seen.lock().unwrap().is_empty(), "no command was planned, so no progress");
+}
+#[tokio::test]
+async fn a_link_an_install_could_reach_through_blocks_the_installs_until_it_is_recorded_as_asked_for() {
+    let rig = rig();
+    std::fs::write(rig.repo.join("package.json"), "{}\n").unwrap();
+    mixdog_core_session::session::worktree::worktree_tests::git(&rig.repo, &["add", "."]);
+    mixdog_core_session::session::worktree::worktree_tests::git(&rig.repo, &["commit", "-q", "-m", "manifest"]);
+    let entered = run(&rig, enter("feat", "c1")).await.unwrap();
+    let worktree_id = entered["workspace"]["worktreeId"].as_str().unwrap().to_owned();
+    let cwd = PathBuf::from(entered["workspace"]["cwd"].as_str().unwrap());
+    let shared_target = tempfile::tempdir().unwrap();
+    std::fs::write(shared_target.path().join("keep.txt"), "keep").unwrap();
+    link_dir(&cwd.join("node_modules"), shared_target.path());
+
+    let tokens = mixdog_rt::testing::tokens();
+    let setup = WorktreeSetup::new(rig.worktrees.clone(), Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default())));
+    let cancel = CancellationToken::new();
+    // Written before the link was made (`pending`), as creation does: not yet a link the user
+    // asked for, so an install through it could empty the folder it points at.
+    rig.worktrees.record_link(&worktree_id, "node_modules", shared_target.path(), "pending", &cancel).await.unwrap();
+    let blocked = setup.run_pending("lead", Some(&entered["workspace"]), &cancel).await.unwrap();
+    let content = blocked.notice.expect("the preparation is reported").content;
+    assert!(
+        content.contains("Dependencies were not installed: node_modules is a link, and any install here could empty the folder it points at (such as the main checkout's) through it. Remove the link (never its target); the next turn installs."),
+        "{content}"
+    );
+    assert!(shared_target.path().join("keep.txt").exists(), "nothing was emptied through the link");
+
+    // Still pending: once the link is recorded as created (asked for), the next turn goes on.
+    rig.worktrees.record_link(&worktree_id, "node_modules", shared_target.path(), "created", &cancel).await.unwrap();
+    let next = setup.run_pending("lead", Some(&entered["workspace"]), &cancel).await.unwrap();
+    let content = next.notice.expect("the pending preparation runs on the next turn").content;
+    assert!(!content.contains("Dependencies were not installed"), "{content}");
+    assert!(shared_target.path().join("keep.txt").exists());
+}
 impl mixdog_agent::env::Clock for BoardClock {
     fn now_ms(&self) -> i64 {
         1
+    }
+}
+/// `clearGatewaySessionRoute`: an id the store never keys is refused; a session with no route
+/// leaves the store untouched (Node's mutator answers `undefined`), so no file appears.
+#[tokio::test]
+async fn a_gateway_route_clear_keeps_what_node_keeps() {
+    use mixdog_core_session::session::gateway_routes::clear_session_route;
+    use mixdog_core_session::session::gateway_routes::normalize_session_id;
+    use mixdog_rt::LaneToken;
+    assert_eq!(normalize_session_id("  sess_abc1  "), Some("sess_abc1"));
+    assert_eq!(normalize_session_id("short"), None);
+    assert_eq!(normalize_session_id("_leading"), None);
+    let data = tempfile::tempdir().unwrap();
+    let path = data.path().join("routes.json");
+    let maintenance = mixdog_rt::testing::tokens().maintenance_io;
+    for (id, cleared) in [("tiny", false), ("sess_absent", true)] {
+        let target = path.clone();
+        let job = maintenance.submit(&CancellationToken::new(), move |lane| clear_session_route(lane, &target, id, 5));
+        assert_eq!(job.expect("lane").await.expect("ran"), Ok(cleared), "{id}");
+        assert!(!path.exists(), "{id}");
     }
 }
 
@@ -529,24 +529,47 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
     deletion.forget_session_search("sess_gone");
 }
 
-/// `clearGatewaySessionRoute`: an id the store never keys is refused; a session with no route
-/// leaves the store untouched (Node's mutator answers `undefined`), so no file appears.
-#[tokio::test]
-async fn a_gateway_route_clear_keeps_what_node_keeps() {
-    use mixdog_core_session::session::gateway_routes::clear_session_route;
-    use mixdog_core_session::session::gateway_routes::normalize_session_id;
-    use mixdog_rt::LaneToken;
-    assert_eq!(normalize_session_id("  sess_abc1  "), Some("sess_abc1"));
-    assert_eq!(normalize_session_id("short"), None);
-    assert_eq!(normalize_session_id("_leading"), None);
-    let data = tempfile::tempdir().unwrap();
-    let path = data.path().join("routes.json");
-    let maintenance = mixdog_rt::testing::tokens().maintenance_io;
-    for (id, cleared) in [("tiny", false), ("sess_absent", true)] {
-        let target = path.clone();
-        let job = maintenance.submit(&CancellationToken::new(), move |lane| clear_session_route(lane, &target, id, 5));
-        assert_eq!(job.expect("lane").await.expect("ran"), Ok(cleared), "{id}");
-        assert!(!path.exists(), "{id}");
+
+#[cfg(node_twin)]
+const GOLDENS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-core-session/src/session/worktree_goldens/setup_goldens.json");
+#[cfg(node_twin)]
+fn goldens() -> Value {
+    serde_json::from_str(&GOLDENS).unwrap()
+}
+#[cfg(node_twin)]
+#[test]
+fn output_tails_equal_nodes() {
+    for case in goldens()["tail"].as_array().unwrap() {
+        assert_eq!(output_tail(case["input"].as_str().unwrap()), text(case, "output"), "{}", case["input"]);
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn output_windows_equal_nodes() {
+    for case in goldens()["windows"].as_array().unwrap() {
+        let mut window = OutputWindow::new(case["limit"].as_u64().unwrap() as usize);
+        for chunk in case["chunks"].as_array().unwrap() {
+            window.append(chunk.as_str().unwrap().as_bytes());
+        }
+        assert_eq!(window.text(), text(case, "text"), "{}", case["limit"]);
+        assert_eq!(window.truncated(), case["truncated"].as_bool().unwrap());
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn preparation_notes_equal_nodes() {
+    for case in goldens()["notes"].as_array().unwrap() {
+        let report = &case["report"];
+        let installs = report.get("installs").map(report_of);
+        let (dependency_notes, notes) = (strings(&report["dependencyNotes"]), strings(&report["notes"]));
+        let note = worktree_preparation_note(&PreparationReport {
+            root: report["root"].as_str().unwrap_or(""),
+            prepared: report.get("prepared"),
+            dependency_notes: &dependency_notes,
+            installs: installs.as_ref(),
+            notes: &notes,
+        });
+        assert_eq!(note, text(case, "note"), "{}", case["name"]);
     }
 }
 
@@ -579,23 +602,4 @@ async fn the_daemon_jobs_reconcile_at_start_and_clean_up_on_the_hour() {
     assert!(schedule.run_tasks(false, due + hour - 1).await.ran.is_empty());
     assert_eq!(schedule.run_tasks(false, due + hour).await.ran, ["worktree-cleanup"]);
     assert_eq!(lines.lock().unwrap().len(), 1, "a cleanup that did nothing logs nothing");
-}
-
-#[test]
-fn the_daemon_log_lines_equal_nodes() {
-    let quiet = json!({"removed": [], "recovered": [], "pruned": [], "kept": [{"id": "a", "reason": "dirty"}], "errors": []});
-    assert_eq!(startup_summary(&quiet), None);
-    assert_eq!(cleanup_summary(&quiet), None);
-    let busy = json!({
-        "removed": ["a"], "recovered": ["b", "c"], "pruned": [],
-        "kept": [{"id": "x", "reason": "incomplete"}, {"id": "y", "reason": "incomplete"}, {"id": "z", "reason": "dirty"}],
-        "errors": [{"id": "e", "error": "boom"}],
-    });
-    assert_eq!(
-        startup_summary(&busy).unwrap(),
-        r#"worktree reconcile: removed 1, recovered 2, pruned 0, incomplete 2, errors 1 [{"id":"e","error":"boom"}]"#
-    );
-    assert_eq!(cleanup_summary(&busy).unwrap(), "worktree cleanup: removed 1, incomplete 2 (x, y), errors 1");
-    let none = json!({"removed": [], "kept": [{"id": "x", "reason": "incomplete"}], "errors": []});
-    assert_eq!(cleanup_summary(&none).unwrap(), "worktree cleanup: removed 0, incomplete 1 (x), errors 0");
 }

@@ -75,6 +75,8 @@ use super::seams::SessionLog;
 use super::seams::StoredOp;
 use super::seams::ThreadStore;
 use super::seams::WindowRead;
+use super::seams::check_turn_read_cancel;
+use super::seams::turn_read_cancelled;
 use super::turn_draft::RunDraft;
 
 /// UI window rows read at open (P §5.3).
@@ -108,24 +110,6 @@ fn internal(step: &str, error: &dyn std::fmt::Display) -> CoreError {
     }
 }
 
-/// Forwards every barrier's projection to the index writer in barrier order; the blob store
-/// keeps the batch's pins until the projection is committed.
-#[derive(Clone)]
-pub struct Projector {
-    queue: mpsc::UnboundedSender<Projecting>,
-    /// Projections queued or running.
-    pending: Arc<std::sync::atomic::AtomicUsize>,
-    /// Set when the forwarding task has ended (a panic included): nothing waits on it any more.
-    stopped: Arc<std::sync::atomic::AtomicBool>,
-    /// How long an exact read waits ([`FENCE_BOUND`](super::thread_list::FENCE_BOUND); a test sets its own).
-    bound: std::time::Duration,
-    /// The number of the last projection sent.
-    sent: Arc<std::sync::atomic::AtomicU64>,
-    /// Per session, the number of its first projection the index failed to take: its frames are missing from the index until
-    /// the next start re-projects the session from its log.
-    lost: Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>>,
-}
-
 enum Projecting {
     Frames(u64, Box<Projection>),
     /// Answered once every projection sent before it is committed.
@@ -156,165 +140,6 @@ impl Drop for StopMark {
     }
 }
 
-impl Projector {
-    /// Starts the forwarding task on the current Tokio runtime.
-    pub fn spawn(index: SqliteStore) -> Self {
-        // A failed projection leaves the session dirty; reconcile re-projects it from its log at the next start. The open's own
-        // reconcile needs no wait here: every way into the index waits for it and answers its failure (`SqliteStore`'s gate).
-        Self::spawn_with(move |projection| {
-            let index = index.clone();
-            async move {
-                let committed = index.queue_projection(projection).await.map_err(|error| error.to_string())?;
-                Ok(async move { committed.await.map_err(|error| error.to_string()) })
-            }
-        })
-    }
-
-    /// The forwarding task over `project`, which queues a projection at the index writer and resolves with the wait for its
-    /// commit. A projection is queued, in barrier order, as soon as it is sent, without waiting for the commits of those before it,
-    /// so the writer commits every projection queued meanwhile in one transaction (one sync of the index for them, not one each);
-    /// their answers are taken in barrier order.
-    fn spawn_with<P, Q, C>(mut project: P) -> Self
-    where
-        P: FnMut(Projection) -> Q + Send + 'static,
-        Q: std::future::Future<Output = Result<C, String>> + Send,
-        C: std::future::Future<Output = Result<(), String>> + Send + 'static,
-    {
-        let (queue, mut rx) = mpsc::unbounded_channel::<Projecting>();
-        let pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let lost: Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>> = Arc::default();
-        let (done_count, mark, failed) = (pending.clone(), StopMark(stopped.clone()), lost.clone());
-        #[cfg(feature = "replay-settled")]
-        {
-            let pending = pending.clone();
-            super::replay_settled::watch(move || (pending.load(std::sync::atomic::Ordering::SeqCst) != 0).then_some("the index projector has a projection in flight"));
-        }
-        tokio::spawn(async move {
-            use futures::StreamExt;
-            let _mark = mark;
-            let answer = |settled: Settled| match settled {
-                Settled::Projected(number, session, result) => {
-                    match result {
-                        Err(error) => {
-                            tracing::error!(%session, %error, "the index did not take a projection: the session is re-projected at the next start");
-                            failed.lock().unwrap_or_else(|e| e.into_inner()).entry(session).or_insert(number);
-                        }
-                        // A later projection carries the session's whole head (its header), so the index holds the header
-                        // writes again: the header waits stop failing.
-                        Ok(()) => drop(failed.lock().unwrap_or_else(|e| e.into_inner()).remove(&session)),
-                    }
-                    done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-                    #[cfg(feature = "replay-settled")]
-                    super::replay_settled::changed();
-                }
-                Settled::Flushed(done) => drop(done.send(())),
-            };
-            // The projections queued at the writer and the flushes sent after them, answered in the order they were sent.
-            let mut committing: futures::stream::FuturesOrdered<futures::future::BoxFuture<'static, Settled>> = futures::stream::FuturesOrdered::new();
-            loop {
-                tokio::select! {
-                    biased;
-                    Some(settled) = committing.next(), if !committing.is_empty() => answer(settled),
-                    msg = rx.recv() => match msg {
-                        None => break,
-                        Some(Projecting::Frames(number, projection)) => {
-                            let session = projection.session.clone();
-                            committing.push_back(match project(*projection).await {
-                                Ok(commit) => Box::pin(async move { Settled::Projected(number, session, commit.await) }),
-                                Err(error) => Box::pin(std::future::ready(Settled::Projected(number, session, Err(error)))),
-                            });
-                        }
-                        Some(Projecting::Flush(done)) => committing.push_back(Box::pin(std::future::ready(Settled::Flushed(done)))),
-                        Some(Projecting::Hold { reached, release }) => {
-                            while let Some(settled) = committing.next().await {
-                                answer(settled);
-                            }
-                            let _ = reached.send(());
-                            drop(release.await);
-                            done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-                        }
-                    },
-                }
-            }
-        });
-        Self { queue, pending, stopped, bound: super::thread_list::FENCE_BOUND, sent: Arc::default(), lost }
-    }
-
-    /// Holds the index writes behind every projection sent so far: `reached` resolves once those are committed (an error
-    /// when the projector is gone), and nothing sent later is taken, an exact read waiting included, until `release` is
-    /// sent or dropped.
-    fn hold(&self) -> (tokio::sync::oneshot::Receiver<()>, tokio::sync::oneshot::Sender<()>) {
-        let (reached, reached_rx) = tokio::sync::oneshot::channel();
-        let (release, release_rx) = tokio::sync::oneshot::channel();
-        self.pending.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        if self.queue.send(Projecting::Hold { reached, release: release_rx }).is_err() {
-            self.pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-        }
-        (reached_rx, release)
-    }
-
-    fn send(&self, projection: Projection) {
-        // Counted before it is queued, so a reader that follows the barrier's ack sees it pending until the index holds it.
-        self.pending.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let number = self.sent.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        if self.queue.send(Projecting::Frames(number, Box::new(projection))).is_err() {
-            self.pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-        }
-    }
-
-    /// [`caught_up`](Self::caught_up), then the writes of `session` acknowledged so far are in the index: an error with the
-    /// reason when one of them failed to go in (the index lacks it until the next start re-projects the session), so a call
-    /// that answers after this never reports a write the listings cannot show.
-    async fn indexed(&self, session: &str) -> Result<(), CoreError> {
-        let mark = self.sent.load(std::sync::atomic::Ordering::SeqCst);
-        self.caught_up().await?;
-        let lost = self.lost.lock().unwrap_or_else(|e| e.into_inner()).get(session).copied();
-        match lost {
-            Some(number) if number <= mark => Err(internal(
-                "index-write-failed",
-                &format_args!("the index did not take the change to session {session}: it is not listed until the next start re-projects it"),
-            )),
-            _ => Ok(()),
-        }
-    }
-
-    /// The display class (D-reads-5: `thread/list` and the summary only). `None` when no projection is queued or running, or the
-    /// projector has stopped (atomic loads); otherwise the wait for those already sent, with no bound of its own: the list bounds it
-    /// ([`FENCE_BOUND`](super::thread_list::FENCE_BOUND)) and answers what the index holds past it.
-    fn settle(&self) -> Option<futures::future::BoxFuture<'static, ()>> {
-        if self.stopped.load(std::sync::atomic::Ordering::SeqCst) || self.pending.load(std::sync::atomic::Ordering::SeqCst) == 0 {
-            return None;
-        }
-        let projector = self.clone();
-        Some(Box::pin(async move { projector.drained().await }))
-    }
-
-    /// The exact class: every other store read that depends on the index (an operation's dedupe, fences, activation's window,
-    /// prompts, history, the context, the purge). `Ok` once every barrier acked so far has been through the index writer; an error
-    /// that says the index is behind when it has not within [`FENCE_BOUND`](super::thread_list::FENCE_BOUND), or when the projector
-    /// stopped with projections it never finished: such a read never answers from an index older than the write it depends on.
-    async fn caught_up(&self) -> Result<(), CoreError> {
-        let bound = self.bound;
-        if mixdog_rt::time::timeout(bound, self.drained()).await.is_err() {
-            return Err(internal("index-behind", &format_args!("the index has not taken the writes acknowledged before this read within {bound:?}")));
-        }
-        if self.stopped.load(std::sync::atomic::Ordering::SeqCst) && self.pending.load(std::sync::atomic::Ordering::SeqCst) != 0 {
-            return Err(internal("index-behind", &"the index projector stopped before it took the writes acknowledged before this read"));
-        }
-        Ok(())
-    }
-
-    /// Until every projection sent so far has been through the index writer, or the projector is gone. Unbounded: only
-    /// [`settle`](Self::settle) and [`caught_up`](Self::caught_up) use it, each with its class's rule at the bound.
-    async fn drained(&self) {
-        let (done, wait) = tokio::sync::oneshot::channel();
-        if self.queue.send(Projecting::Flush(done)).is_ok() {
-            drop(wait.await);
-        }
-    }
-}
-
 /// `AppendError::outcome()`: `NotApplied` → `Failed`, `Unknown` → `Indeterminate`.
 fn barrier(error: AppendError) -> BarrierError {
     let io_kind: Arc<str> = error.io_kind().into();
@@ -327,16 +152,6 @@ fn barrier(error: AppendError) -> BarrierError {
         Outcome::NotApplied => BarrierError::Failed { io_kind, cause },
         Outcome::Unknown => BarrierError::Indeterminate { io_kind, cause },
     }
-}
-
-/// [`SessionLog`] over a `LogWriter` (which places checkpoints and rotates by itself).
-struct StoreLog {
-    /// `None` when the log could not be reopened after a rewrite: the next start settles it (`log_rewrite::recover`).
-    writer: Option<LogWriter>,
-    projector: Projector,
-    redaction: Option<Redaction>,
-    /// The store's retention version: moved by every batch this log commits that sets or clears a sidebar retention mark.
-    retention: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// Whether `record` writes a header key the worktree retention reads: a session's favorite or archive mark. A change kept in a
@@ -397,31 +212,6 @@ struct Rewrites {
 /// One running rewrite; ends when dropped.
 struct Rewriting(Arc<Rewrites>);
 
-impl Rewrites {
-    fn start(self: &Arc<Self>) -> Rewriting {
-        self.running.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Rewriting(self.clone())
-    }
-
-    /// Once none runs, or after `bound` (the read then waits inside its job, as before).
-    async fn idle(&self, bound: std::time::Duration) {
-        let wait = async {
-            loop {
-                let done = self.done.notified();
-                tokio::pin!(done);
-                done.as_mut().enable();
-                if self.running.load(std::sync::atomic::Ordering::SeqCst) == 0 {
-                    return;
-                }
-                done.await;
-            }
-        };
-        if mixdog_rt::time::timeout(bound, wait).await.is_err() {
-            tracing::warn!(bound_ms = bound.as_millis() as u64, "a read waited out its bound for a sensitive rewrite; it goes on and waits on the lane");
-        }
-    }
-}
-
 impl Drop for Rewriting {
     fn drop(&mut self) {
         self.0.running.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
@@ -458,6 +248,727 @@ mod rewrite_holds {
     pub(super) fn at(_point: &str) {}
 }
 
+/// What the row reads of a thread take from its opened log, and the logs it was folded from at their versions.
+pub(super) struct LogShape {
+    /// The thread's own log, then each base's.
+    logs: Vec<String>,
+    /// `log_epoch::settled` of each of `logs` when they were read.
+    versions: Vec<u64>,
+    lineage: Vec<LineageLevel>,
+    base_cut: Option<u64>,
+    history_rev: u64,
+}
+
+impl LogShape {
+    pub(super) fn is_current(&self) -> bool {
+        self.logs.len() == self.versions.len()
+            && self.logs.iter().zip(&self.versions).all(|(log, v)| mixdog_store::log_epoch::settled(log) == Some(*v))
+    }
+}
+
+/// The most rows one record's ids are searched back over (`Ids::next` numbers a record's rows).
+const ROWS_PER_RECORD: u128 = 64;
+
+/// The item ids of stored records that can show a row under `shown`, a client's row id: the record's own id (the first row
+/// shows it), the record that numbers its later rows `<iid>:<n>` or `<iid>:model:<at>`, or `itm_` + its 128-bit id plus the row's
+/// position. A row of another record can show `shown` only as a submission id, which the index looks up as an alias.
+fn anchor_iids(shown: &str) -> Vec<String> {
+    let mut ids = vec![shown.to_owned()];
+    ids.extend(shown.match_indices(':').filter(|(at, _)| *at > 0).map(|(at, _)| shown[..at].to_owned()));
+    if let Some(bits) = shown.strip_prefix("itm_").filter(|hex| hex.len() == 32).and_then(|hex| u128::from_str_radix(hex, 16).ok()) {
+        ids.extend((1..ROWS_PER_RECORD).map(|back| format!("itm_{:032x}", bits.wrapping_sub(back))));
+    }
+    ids
+}
+
+/// The window rows a compaction took out of the context, which a restored window still shows (1.4.5 `archived: true`): the model
+/// rows it dropped, and the display rows (a turn's end) of a turn none of whose messages is left.
+fn archived_ordinals(rows: &[HistoryRow]) -> Vec<u64> {
+    use std::collections::HashSet;
+    let turn_of = |row: &HistoryRow| row.turn.clone();
+    let gone: HashSet<String> = rows.iter().filter(|row| row.model && row.archived).filter_map(turn_of).collect();
+    let live: HashSet<String> = rows.iter().filter(|row| row.model && !row.archived).filter_map(turn_of).collect();
+    rows.iter()
+        .filter(|row| match (row.model, &row.turn) {
+            (true, _) => row.archived,
+            (false, Some(turn)) => gone.contains(turn) && !live.contains(turn),
+            (false, None) => false,
+        })
+        .map(|row| row.ordinal)
+        .collect()
+}
+
+/// Context rows read per page.
+const CONTEXT_PAGE_ROWS: usize = 200;
+
+/// A model-context read between its lane steps.
+struct ContextState {
+    lineage: Vec<LineageLevel>,
+    cut: Option<u64>,
+    out: Vec<(ItemId, Value)>,
+    at: ContextAt,
+    /// The read gate's generation its first job read under.
+    generation: u64,
+    /// The context's first rows the read leaves out (a restart leaves out as many).
+    skip: usize,
+}
+
+enum ContextAt {
+    /// The next page is read from this cursor (io).
+    Next(ContextCursor),
+    /// A page to decode (cpu).
+    Page(ContextPage),
+    /// A decoded page whose blobs are read next (io).
+    Decoded(DecodedContext),
+    /// A decoded page and its blobs, to finish (cpu).
+    Finish(DecodedContext, ContextBlobs),
+    /// Between a page's finish and its successor.
+    Pending,
+}
+
+/// J2's reads, handed to decode.
+struct Window {
+    window: Vec<(u64, ItemRecord)>,
+    archived: Vec<u64>,
+    dividers: Vec<super::seams::WindowDivider>,
+    has_older: bool,
+    prompts: Vec<String>,
+    runs: Vec<(u64, mixdog_store::schema::record::RunRecord)>,
+    drafts: Vec<(String, RunDraft)>,
+    approvals: Vec<(u64, mixdog_store::schema::record::ApprovalRecord)>,
+    queue: Vec<(u64, mixdog_store::schema::record::QueueRecord)>,
+}
+
+fn unexpected(what: &str) -> CoreError {
+    internal("open-set", &format!("frame is not a {what} record"))
+}
+
+/// [`super::FeedFactory`] over WP-FEED's [`mixdog_core_base::feed::CoreFeed`]: one per actor instance,
+/// with the thread-feed limits (SPEC §3.1: `ringBytes` 4 MiB).
+pub struct CoreThreadFeeds {
+    pub limits: mixdog_core_base::feed::FeedLimits,
+    pub cpu: CpuInteractive,
+}
+
+impl CoreThreadFeeds {
+    /// Thread feeds under the core's wire limits (`ringBytes`, `maxSnapshotBytes`); `cpu` runs
+    /// their snapshot encodes.
+    pub fn new(limits: &mixdog_app_protocol::limits::Limits, cpu: CpuInteractive) -> Self {
+        let bytes = |n: u64| usize::try_from(n).unwrap_or(usize::MAX);
+        Self {
+            limits: mixdog_core_base::feed::FeedLimits { ring_bytes: bytes(limits.ring_bytes), max_snapshot_bytes: bytes(limits.max_snapshot_bytes) },
+            cpu,
+        }
+    }
+}
+
+impl super::FeedFactory for CoreThreadFeeds {
+    fn thread_feed(
+        &self,
+        id: mixdog_core_api::ids::FeedId,
+        epoch: mixdog_core_api::ids::FeedEpoch,
+        view: Arc<dyn mixdog_core_api::FeedView>,
+    ) -> Arc<dyn mixdog_core_api::Feed> {
+        Arc::new(mixdog_core_base::feed::CoreFeed::new(id, epoch, view, self.limits, self.cpu))
+    }
+}
+
+/// A prompt as the row the prompt recompute reads (`prompt` only).
+fn prompt_row(text: String) -> ItemRecord {
+    ItemRecord {
+        iid: mixdog_store::schema::bounded::Id::try_from("prompt").expect("short"),
+        turn: None,
+        role: None,
+        form: mixdog_store::schema::record::Form::Message,
+        model: false,
+        visible: false,
+        archive: None,
+        op: None,
+        prompt: Some(Slot::Inline(text)),
+        refs: Vec::new().try_into().expect("empty list fits"),
+        body: Slot::Inline(serde_json::Value::Null),
+    }
+}
+
+#[cfg(test)]
+mod archived_tests {
+    use super::*;
+    use mixdog_store::schema::record::Form;
+
+    fn row(ordinal: u64, turn: &str, model: bool, archived: bool) -> HistoryRow {
+        HistoryRow {
+            session: "sess_a".into(),
+            ordinal,
+            iid: format!("i{ordinal}"),
+            turn: Some(turn.into()),
+            form: if model { Form::Message } else { Form::Display },
+            model,
+            pos: mixdog_store::schema::checkpoint::FramePos { ordinal, file_no: 0, offset: 0 },
+            frame_len: 0,
+            amend: None,
+            archived,
+            dropped_text: archived,
+            dropped_calls: Vec::new(),
+            kept: Vec::new(),
+            model_switches: Vec::new(),
+        }
+    }
+
+    /// A restored window marks the rows a compaction took out: its model rows, and the end row of a turn none of whose messages
+    /// is left; a turn that kept a message stays live whole.
+    #[test]
+    fn a_window_marks_the_rows_a_compaction_took_out_and_the_end_of_a_turn_left_with_nothing() {
+        let rows = [
+            row(1, "t1", true, true),
+            row(2, "t1", false, false),
+            row(3, "t2", true, true),
+            row(4, "t2", true, false),
+            row(5, "t2", false, false),
+            row(6, "t3", true, false),
+            row(7, "t3", false, false),
+        ];
+        assert_eq!(archived_ordinals(&rows), vec![1, 2, 3]);
+    }
+}
+
+#[cfg(test)]
+mod projector_tests {
+    use super::*;
+    use mixdog_store::sqlite::SqliteStore;
+    use mixdog_store::summary::CatalogHead;
+
+    async fn index_in(data: &Path) -> SqliteStore {
+        let tokens = mixdog_rt::testing::tokens();
+        let root = data.to_path_buf();
+        mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index")
+    }
+
+    fn empty_projection(session: &str) -> Projection {
+        let head = CatalogHead { session: session.into(), log_id: "L".into(), base_session: None, header: serde_json::Map::new() };
+        Projection { session: session.into(), frames: Vec::new(), head }
+    }
+
+    /// A projector whose task died (a panic while projecting) leaves its count of queued projections behind; a list must not wait
+    /// on it from then on: the wait that was pending ends, and no later list gets one.
+    #[tokio::test]
+    async fn a_projector_that_died_is_not_waited_on() {
+        let projector = Projector::spawn_with(|_| async { Ok(async { panic!("the projection panicked") }) });
+        projector.send(empty_projection("sess_lost"));
+        projector.settle().expect("a queued projection is pending").await;
+        assert!(projector.settle().is_none(), "a dead projector is waited on");
+    }
+
+    /// A session write the index failed to take is never answered as in the index: the wait after it (`ThreadStore::indexed`,
+    /// which a header patch awaits before it answers) fails with the reason, and keeps failing for that session, as the index
+    /// keeps lacking it until the next start re-projects it; another session's write that went in answers done.
+    #[tokio::test]
+    async fn a_write_the_index_failed_to_take_is_not_answered_as_indexed() {
+        let projector = Projector::spawn_with(|projection: Projection| {
+            let session = projection.session.clone();
+            async move { Ok(async move { if session == "sess_bad" { Err("disk I/O error".to_owned()) } else { Ok(()) } }) }
+        });
+        projector.send(empty_projection("sess_bad"));
+        projector.send(empty_projection("sess_ok"));
+        let failed = |result: Result<(), CoreError>| match result {
+            Err(CoreError::Internal { incident_id }) => assert!(incident_id.contains("index-write-failed") && incident_id.contains("sess_bad"), "{incident_id}"),
+            Ok(()) => panic!("a write the index did not take was answered as indexed"),
+            Err(other) => panic!("{other:?}"),
+        };
+        failed(projector.indexed("sess_bad").await);
+        projector.indexed("sess_ok").await.expect("the write that went in");
+        failed(projector.indexed("sess_bad").await);
+    }
+
+    /// Once a later projection of the session goes in, the index holds its head again (a projection carries the whole header),
+    /// so the header waits after it answer done instead of failing until a restart.
+    #[tokio::test]
+    async fn a_session_the_index_took_again_is_answered_as_indexed() {
+        let refused = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let projector = Projector::spawn_with({
+            let refused = refused.clone();
+            move |_: Projection| {
+                let refuse = refused.swap(false, std::sync::atomic::Ordering::SeqCst);
+                async move { Ok(async move { if refuse { Err("disk I/O error".to_owned()) } else { Ok(()) } }) }
+            }
+        });
+        projector.send(empty_projection("sess_bad"));
+        assert!(projector.indexed("sess_bad").await.is_err(), "the refused write");
+        projector.send(empty_projection("sess_bad"));
+        projector.indexed("sess_bad").await.expect("the index holds the session again");
+    }
+
+
+    /// What a list asks of the projector: pending from the moment a projection is queued until the index holds it, and nothing
+    /// to wait for (no future at all) when idle.
+    #[tokio::test]
+    async fn a_queued_projection_is_pending_until_the_index_holds_it() {
+        let data = crate::session::testing::DataDir::default();
+        let projector = Projector::spawn(data.index(index_in(data.path()).await));
+        assert!(projector.settle().is_none(), "idle");
+        projector.send(empty_projection("sess_ok"));
+        let wait = projector.settle().expect("a queued projection is pending");
+        wait.await;
+        assert!(projector.settle().is_none(), "the index holds it");
+    }
+    /// The projector queues every projection sent at the index writer, in barrier order, without waiting for the commits of those
+    /// before it (so the writer commits them in one transaction), and a list's wait still ends only once each one is committed.
+    #[tokio::test]
+    async fn the_projections_sent_are_all_queued_at_the_index_before_the_first_is_committed() {
+        let queued = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (commit, committed) = tokio::sync::watch::channel(false);
+        let projector = Projector::spawn_with({
+            let queued = queued.clone();
+            move |projection: Projection| {
+                queued.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(projection.session);
+                let mut committed = committed.clone();
+                async move { Ok(async move { committed.wait_for(|done| *done).await.map(drop).map_err(|error| error.to_string()) }) }
+            }
+        });
+        let sessions = ["sess_a", "sess_b", "sess_c"];
+        for session in sessions {
+            projector.send(empty_projection(session));
+        }
+        let mut wait = projector.settle().expect("the projections are pending");
+        crate::session::testing::awaiting(|| "every projection sent to be queued at the index".to_owned(), async {
+            while queued.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len() < sessions.len() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        assert_eq!(*queued.lock().unwrap_or_else(std::sync::PoisonError::into_inner), sessions, "queued in barrier order");
+        assert!(futures::poll!(wait.as_mut()).is_pending(), "the list's wait ended before the commits");
+        assert!(projector.settle().is_some(), "none is committed yet");
+        commit.send_replace(true);
+        wait.await;
+        assert!(projector.settle().is_none(), "the index holds them all");
+    }
+    /// The exact class's wait: behind a projection that never ends it still waits one tick before
+    /// [`FENCE_BOUND`](super::super::thread_list::FENCE_BOUND), and at the bound it fails, saying the index is behind; it never goes
+    /// on to read.
+    #[tokio::test(start_paused = true)]
+    async fn an_exact_read_behind_a_stuck_projection_fails_at_the_bound() {
+        let bound = super::super::thread_list::FENCE_BOUND;
+        let _clock = crate::session::testing::HeldClock::hold();
+        let projector = Projector::spawn_with(|_| std::future::ready(Ok(std::future::pending::<Result<(), String>>())));
+        projector.send(empty_projection("sess_stuck"));
+        let read = projector.caught_up();
+        tokio::pin!(read);
+        let mut polled = || read.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
+        assert!(polled().is_pending(), "the read did not wait for the queued projection");
+        tokio::time::advance(bound - std::time::Duration::from_millis(1)).await;
+        assert!(polled().is_pending(), "the read stopped waiting before the bound");
+        tokio::time::advance(std::time::Duration::from_millis(1)).await;
+        match polled() {
+            std::task::Poll::Ready(Err(CoreError::Internal { incident_id })) => assert!(incident_id.contains("index-behind"), "{incident_id}"),
+            other => panic!("at the bound the exact read answered {other:?}, not that the index is behind"),
+        }
+    }
+    /// Every exact read of the store (an operation's dedupe, the fences an activation restores, activation's window, prompt rows,
+    /// the whole history, the switch anchor's row, the compaction entry, the model's context, the purge) fails, saying the index is
+    /// behind, while an acknowledged write is still queued for the index past the bound: none answers absent, empty or stale. The
+    /// operation gate's read (`ThreadOpStore::get`) passes `thread_op`'s error on, so an acknowledged operation is never taken as
+    /// unseen. (The bound is zero here: the projection is stuck before any read starts.)
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn every_exact_read_fails_while_an_acknowledged_write_is_behind_the_bound() {
+        let data = crate::session::testing::DataDir::default();
+        let index = data.index(index_in(data.path()).await);
+        let tokens = mixdog_rt::testing::tokens();
+        let store = StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+            .await
+            .expect("store");
+        let mut stuck = Projector::spawn_with(|_| std::future::ready(Ok(std::future::pending::<Result<(), String>>())));
+        stuck.bound = std::time::Duration::ZERO;
+        stuck.send(empty_projection("sess_a"));
+        let store = Arc::new(StoreThreads { projector: stuck, ..store });
+        let id = ThreadId::from("sess_a");
+        let reads = mixdog_rt::LaneToken::submit(tokens.interactive_io, &mixdog_rt::CancellationToken::new(), {
+            let store = store.clone();
+            move |lane| {
+                let failed = |result: Result<(), CoreError>| match result {
+                    Err(CoreError::Internal { incident_id }) if incident_id.contains("index-behind") => None,
+                    other => Some(format!("{other:?}")),
+                };
+                vec![
+                    ("thread_op", failed(ThreadStore::thread_op(&*store, lane, &id, "op-1").map(drop))),
+                    ("fenced_ops", failed(ThreadStore::fenced_ops(&*store, lane, &id).map(drop))),
+                    ("read_window", failed(ThreadStore::read_window(&*store, lane, &id, &HeadRead(Box::new(()))).map(drop))),
+                    ("user_rows", failed(ThreadStore::user_rows(&*store, lane, &id).map(drop))),
+                    ("history_rows", failed(ThreadStore::history_rows(&*store, lane, &id).map(drop))),
+                    ("history_row", failed(ThreadStore::history_row(&*store, lane, &id, "i-1").map(drop))),
+                    ("compaction_entry", failed(ThreadStore::compaction_entry(&*store, lane, &id, "i-1").map(drop))),
+                    ("context_io", failed(ThreadStore::context_io(&*store, lane, &id, None).map(drop))),
+                ]
+            }
+        })
+        .expect("lane")
+        .await
+        .expect("job ran");
+        let purge = ThreadStore::purge_deleted(&*store).await;
+        let mut answered: Vec<String> = reads.into_iter().filter_map(|(read, other)| other.map(|other| format!("{read}: {other}"))).collect();
+        if !matches!(&purge, Err(CoreError::Internal { incident_id }) if incident_id.contains("index-behind")) {
+            answered.push(format!("purge_deleted: {purge:?}"));
+        }
+        assert!(answered.is_empty(), "exact reads that did not fail as behind: {answered:?}");
+    }
+    /// The index reads a store job makes on the read lane run on the job's own thread: a job never waits for a lane slot behind
+    /// itself. The lane here refuses every job submitted from inside the job, as a lane whose every thread is held and whose queue is
+    /// full refuses it; the reads still answer.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_store_read_inside_a_lane_job_takes_no_second_lane_slot() {
+        let data = crate::session::testing::DataDir::default();
+        let index = data.index(index_in(data.path()).await);
+        let tokens = mixdog_rt::testing::tokens();
+        let store = Arc::new(
+            StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
+                .await
+                .expect("store"),
+        );
+        let id = ThreadId::from("sess_unknown");
+        let (ops, fenced) = mixdog_rt::LaneToken::submit(tokens.interactive_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            let _held = mixdog_rt::testing::refuse_jobs_on_this_thread();
+            (ThreadStore::thread_op(&*store, lane, &id, "op-1").map(|op| op.is_none()), ThreadStore::fenced_ops(&*store, lane, &id))
+        })
+        .expect("lane")
+        .await
+        .expect("job ran");
+        assert!(ops.expect("thread_op read on the job's thread"), "an unknown thread recorded no op");
+        assert_eq!(fenced.expect("fenced_ops read on the job's thread"), Vec::<String>::new());
+    }
+}
+
+
+#[cfg(test)]
+mod anchor_tests {
+    use super::anchor_iids;
+    use crate::session::transcript::transcript_rows::Ids;
+
+    /// Every id a record's rows show names the record back: `Ids` numbers a live record's later rows from its 128-bit id, and
+    /// another record's by `<iid>:<n>`.
+    #[test]
+    fn a_rows_id_names_its_records_iid() {
+        for iid in ["itm_00000000000000000000000000000fff", "itm_ffffffffffffffffffffffffffffffff", "hist_ab12"] {
+            let mut ids = Ids::new(iid);
+            for part in 1..=40 {
+                let shown = ids.next();
+                assert!(anchor_iids(&shown).iter().any(|candidate| candidate == iid), "{iid} row {part} shows {shown}");
+            }
+        }
+        assert!(anchor_iids("itm_0000000000000000000000000000000a:model:12").contains(&"itm_0000000000000000000000000000000a".to_owned()));
+    }
+}
+
+
+/// [`super::seams::TurnIngest`] over the session-search writer; `None` when the process has no memory runtime.
+pub struct SessionSearchTurns(pub Option<Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>>);
+impl SessionSearchTurns {
+    /// Over the memory service's one session-search writer (`SessionSearchIngest::new(db,
+    /// sensitive)`, the same one `forgetSessionSearch` and the backfill use).
+    pub fn new(ingest: Option<Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>>) -> Self {
+        Self(ingest)
+    }
+}
+/// What the session-search writer takes of a session: its model context, and
+/// `isAgentOnlySession` (store-summary-visibility.mjs) of the session record. Node's record is
+/// the header with its `id` (`{ ...header, id }`); a stored header carries no `id`, and a root
+/// Lead is recognized by its owner link naming that id.
+pub(crate) fn search_session(
+    id: &ThreadId,
+    header: &mixdog_store::schema::record::Header,
+    messages: Vec<Value>,
+) -> mixdog_services::memory::session_search::ingest::IngestSession {
+    let mut session = header.clone();
+    session.insert("id".into(), Value::String(id.as_str().to_owned()));
+    mixdog_services::memory::session_search::ingest::IngestSession {
+        id: id.as_str().to_owned(),
+        messages,
+        agent_only: mixdog_store::summary::session_visibility(&session) == "agent-only",
+    }
+}
+impl super::seams::TurnIngest for SessionSearchTurns {
+    fn ingest_turn(&self, id: &ThreadId, header: &mixdog_store::schema::record::Header, messages: Vec<Value>) {
+        if let Some(ingest) = &self.0 {
+            ingest.ingest_turn(search_session(id, header, messages));
+        }
+    }
+}
+
+/// Forwards every barrier's projection to the index writer in barrier order; the blob store
+/// keeps the batch's pins until the projection is committed.
+#[derive(Clone)]
+pub struct Projector {
+    queue: mpsc::UnboundedSender<Projecting>,
+    /// Projections queued or running.
+    pending: Arc<std::sync::atomic::AtomicUsize>,
+    /// Set when the forwarding task has ended (a panic included): nothing waits on it any more.
+    stopped: Arc<std::sync::atomic::AtomicBool>,
+    /// How long an exact read waits ([`FENCE_BOUND`](super::thread_list::FENCE_BOUND); a test sets its own).
+    bound: std::time::Duration,
+    /// The number of the last projection sent.
+    sent: Arc<std::sync::atomic::AtomicU64>,
+    /// Per session, the number of its first projection the index failed to take: its frames are missing from the index until
+    /// the next start re-projects the session from its log.
+    lost: Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>>,
+    /// The numbers of the projections queued or running that carry a favorite or archive mark write.
+    marking: Arc<std::sync::Mutex<std::collections::HashSet<u64>>>,
+    /// The sessions whose mark write the index failed to take and no later projection of the session has restored: the
+    /// index holds an older mark for them, so a read derived from the marks cannot be trusted while any is here.
+    marks_lost: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// Advances whenever what [`marks_lost`](Self::marks_lost) says can have changed: every settlement of a mark-carrying
+    /// projection, and a success that restored a lost session. A read of the marks is valid only if it did not move across it.
+    marks_epoch: Arc<std::sync::atomic::AtomicU64>,
+    /// A test's switch: the next projection is refused by the index.
+    refuse_next: Arc<std::sync::atomic::AtomicBool>,
+}
+impl Projector {
+    /// Starts the forwarding task on the current Tokio runtime.
+    pub fn spawn(index: SqliteStore) -> Self {
+        // A failed projection leaves the session dirty; reconcile re-projects it from its log at the next start. The open's own
+        // reconcile needs no wait here: every way into the index waits for it and answers its failure (`SqliteStore`'s gate).
+        let refuse_next = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut projector = Self::spawn_with({
+            let refuse_next = refuse_next.clone();
+            move |projection| {
+                let index = index.clone();
+                let refuse_next = refuse_next.clone();
+                async move {
+                    #[cfg(any(test, feature = "test-support"))]
+                    if refuse_next.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                        return Err("the index refused the projection".to_owned());
+                    }
+                    let _ = &refuse_next;
+                    let committed = index.queue_projection(projection).await.map_err(|error| error.to_string())?;
+                    Ok(async move { committed.await.map_err(|error| error.to_string()) })
+                }
+            }
+        });
+        projector.refuse_next = refuse_next;
+        projector
+    }
+
+    /// The forwarding task over `project`, which queues a projection at the index writer and resolves with the wait for its
+    /// commit. A projection is queued, in barrier order, as soon as it is sent, without waiting for the commits of those before it,
+    /// so the writer commits every projection queued meanwhile in one transaction (one sync of the index for them, not one each);
+    /// their answers are taken in barrier order.
+    fn spawn_with<P, Q, C>(mut project: P) -> Self
+    where
+        P: FnMut(Projection) -> Q + Send + 'static,
+        Q: std::future::Future<Output = Result<C, String>> + Send,
+        C: std::future::Future<Output = Result<(), String>> + Send + 'static,
+    {
+        let (queue, mut rx) = mpsc::unbounded_channel::<Projecting>();
+        let pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let lost: Arc<std::sync::Mutex<std::collections::HashMap<String, u64>>> = Arc::default();
+        let marking: Arc<std::sync::Mutex<std::collections::HashSet<u64>>> = Arc::default();
+        let marks_lost: Arc<std::sync::Mutex<std::collections::HashSet<String>>> = Arc::default();
+        let (done_count, mark, failed) = (pending.clone(), StopMark(stopped.clone()), lost.clone());
+        let marks_epoch: Arc<std::sync::atomic::AtomicU64> = Arc::default();
+        let (marking_here, marks_lost_here, epoch_here) = (marking.clone(), marks_lost.clone(), marks_epoch.clone());
+        #[cfg(feature = "replay-settled")]
+        {
+            let pending = pending.clone();
+            super::replay_settled::watch(move || (pending.load(std::sync::atomic::Ordering::SeqCst) != 0).then_some("the index projector has a projection in flight"));
+        }
+        tokio::spawn(async move {
+            use futures::StreamExt;
+            let _mark = mark;
+            let answer = |settled: Settled| match settled {
+                Settled::Projected(number, session, result) => {
+                    let marked = marking_here.lock().unwrap_or_else(|e| e.into_inner()).remove(&number);
+                    match result {
+                        Err(error) => {
+                            tracing::error!(%session, %error, "the index did not take a projection: the session is re-projected at the next start");
+                            if marked {
+                                let mut lost_marks = marks_lost_here.lock().unwrap_or_else(|e| e.into_inner());
+                                epoch_here.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                lost_marks.insert(session.clone());
+                                drop(lost_marks);
+                            }
+                            failed.lock().unwrap_or_else(|e| e.into_inner()).entry(session).or_insert(number);
+                        }
+                        // A later projection carries the session's whole head (its header), so the index holds the header
+                        // writes again: the header waits stop failing.
+                        Ok(()) => {
+                            // The epoch moves before the loss is cleared, both under the set's lock: a reader never sees the
+                            // loss gone with the epoch it captured before the restoring write.
+                            let mut lost_marks = marks_lost_here.lock().unwrap_or_else(|e| e.into_inner());
+                            if marked || lost_marks.contains(&session) {
+                                epoch_here.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            }
+                            lost_marks.remove(&session);
+                            drop(lost_marks);
+                            failed.lock().unwrap_or_else(|e| e.into_inner()).remove(&session);
+                        }
+                    }
+                    done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    #[cfg(feature = "replay-settled")]
+                    super::replay_settled::changed();
+                }
+                Settled::Flushed(done) => drop(done.send(())),
+            };
+            // The projections queued at the writer and the flushes sent after them, answered in the order they were sent.
+            let mut committing: futures::stream::FuturesOrdered<futures::future::BoxFuture<'static, Settled>> = futures::stream::FuturesOrdered::new();
+            loop {
+                tokio::select! {
+                    biased;
+                    Some(settled) = committing.next(), if !committing.is_empty() => answer(settled),
+                    msg = rx.recv() => match msg {
+                        None => break,
+                        Some(Projecting::Frames(number, projection)) => {
+                            let session = projection.session.clone();
+                            committing.push_back(match project(*projection).await {
+                                Ok(commit) => Box::pin(async move { Settled::Projected(number, session, commit.await) }),
+                                Err(error) => Box::pin(std::future::ready(Settled::Projected(number, session, Err(error)))),
+                            });
+                        }
+                        Some(Projecting::Flush(done)) => committing.push_back(Box::pin(std::future::ready(Settled::Flushed(done)))),
+                        Some(Projecting::Hold { reached, release }) => {
+                            while let Some(settled) = committing.next().await {
+                                answer(settled);
+                            }
+                            let _ = reached.send(());
+                            drop(release.await);
+                            done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    },
+                }
+            }
+        });
+        Self { queue, pending, stopped, bound: super::thread_list::FENCE_BOUND, sent: Arc::default(), lost, marking, marks_lost, marks_epoch, refuse_next: Arc::default() }
+    }
+
+    /// Holds the index writes behind every projection sent so far: `reached` resolves once those are committed (an error
+    /// when the projector is gone), and nothing sent later is taken, an exact read waiting included, until `release` is
+    /// sent or dropped.
+    fn hold(&self) -> (tokio::sync::oneshot::Receiver<()>, tokio::sync::oneshot::Sender<()>) {
+        let (reached, reached_rx) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = tokio::sync::oneshot::channel();
+        self.pending.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.queue.send(Projecting::Hold { reached, release: release_rx }).is_err() {
+            self.pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        (reached_rx, release)
+    }
+
+    fn send(&self, projection: Projection) {
+        self.send_marking(projection, false);
+    }
+
+    /// [`send`](Self::send); `marks`: the projection carries a favorite or archive mark write, which a failed projection leaves
+    /// out of the index ([`marks_lost`](Self::marks_lost)).
+    fn send_marking(&self, projection: Projection, marks: bool) {
+        // Counted before it is queued, so a reader that follows the barrier's ack sees it pending until the index holds it.
+        self.pending.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let number = self.sent.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        if marks {
+            self.marking.lock().unwrap_or_else(|e| e.into_inner()).insert(number);
+        }
+        if self.queue.send(Projecting::Frames(number, Box::new(projection))).is_err() {
+            self.pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            self.marking.lock().unwrap_or_else(|e| e.into_inner()).remove(&number);
+        }
+    }
+
+    /// Whether a mark write the index failed to take is still missing from it: the sessions, until a later projection of each
+    /// restores its head.
+    fn marks_lost(&self) -> Vec<String> {
+        self.marks_lost.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect()
+    }
+
+    fn marks_epoch(&self) -> u64 {
+        self.marks_epoch.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// [`caught_up`](Self::caught_up), then the writes of `session` acknowledged so far are in the index: an error with the
+    /// reason when one of them failed to go in (the index lacks it until the next start re-projects the session), so a call
+    /// that answers after this never reports a write the listings cannot show.
+    async fn indexed(&self, session: &str) -> Result<(), CoreError> {
+        let mark = self.sent.load(std::sync::atomic::Ordering::SeqCst);
+        self.caught_up().await?;
+        let lost = self.lost.lock().unwrap_or_else(|e| e.into_inner()).get(session).copied();
+        match lost {
+            Some(number) if number <= mark => Err(internal(
+                "index-write-failed",
+                &format_args!("the index did not take the change to session {session}: it is not listed until the next start re-projects it"),
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    /// The display class (D-reads-5: `thread/list` and the summary only). `None` when no projection is queued or running, or the
+    /// projector has stopped (atomic loads); otherwise the wait for those already sent, with no bound of its own: the list bounds it
+    /// ([`FENCE_BOUND`](super::thread_list::FENCE_BOUND)) and answers what the index holds past it.
+    fn settle(&self) -> Option<futures::future::BoxFuture<'static, ()>> {
+        if self.stopped.load(std::sync::atomic::Ordering::SeqCst) || self.pending.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            return None;
+        }
+        let projector = self.clone();
+        Some(Box::pin(async move { projector.drained().await }))
+    }
+
+    /// The exact class: every other store read that depends on the index (an operation's dedupe, fences, activation's window,
+    /// prompts, history, the context, the purge). `Ok` once every barrier acked so far has been through the index writer; an error
+    /// that says the index is behind when it has not within [`FENCE_BOUND`](super::thread_list::FENCE_BOUND), or when the projector
+    /// stopped with projections it never finished: such a read never answers from an index older than the write it depends on.
+    async fn caught_up(&self) -> Result<(), CoreError> {
+        let bound = self.bound;
+        if mixdog_rt::time::timeout(bound, self.drained()).await.is_err() {
+            return Err(internal("index-behind", &format_args!("the index has not taken the writes acknowledged before this read within {bound:?}")));
+        }
+        if self.stopped.load(std::sync::atomic::Ordering::SeqCst) && self.pending.load(std::sync::atomic::Ordering::SeqCst) != 0 {
+            return Err(internal("index-behind", &"the index projector stopped before it took the writes acknowledged before this read"));
+        }
+        Ok(())
+    }
+
+    /// Until every projection sent so far has been through the index writer, or the projector is gone. Unbounded: only
+    /// [`settle`](Self::settle) and [`caught_up`](Self::caught_up) use it, each with its class's rule at the bound.
+    async fn drained(&self) {
+        let (done, wait) = tokio::sync::oneshot::channel();
+        if self.queue.send(Projecting::Flush(done)).is_ok() {
+            drop(wait.await);
+        }
+    }
+}
+/// [`SessionLog`] over a `LogWriter` (which places checkpoints and rotates by itself).
+struct StoreLog {
+    /// `None` when the log could not be reopened after a rewrite: the next start settles it (`log_rewrite::recover`).
+    writer: Option<LogWriter>,
+    projector: Projector,
+    redaction: Option<Redaction>,
+    /// The store's retention version: moved by every batch this log commits that sets or clears a sidebar retention mark.
+    retention: Arc<std::sync::atomic::AtomicU64>,
+}
+impl Rewrites {
+    fn start(self: &Arc<Self>) -> Rewriting {
+        self.running.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Rewriting(self.clone())
+    }
+
+    /// Once none runs, or after `bound` (the read then waits inside its job, as before).
+    async fn idle(&self, bound: std::time::Duration) {
+        let wait = async {
+            loop {
+                let done = self.done.notified();
+                tokio::pin!(done);
+                done.as_mut().enable();
+                if self.running.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                    return;
+                }
+                done.await;
+            }
+        };
+        if mixdog_rt::time::timeout(bound, wait).await.is_err() {
+            tracing::warn!(bound_ms = bound.as_millis() as u64, "a read waited out its bound for a sensitive rewrite; it goes on and waits on the lane");
+        }
+    }
+}
 impl Redaction {
     /// As `StoreThreads::wait`: a lane thread is no runtime thread; an inline lane (tests) runs on a runtime worker.
     #[allow(clippy::disallowed_methods, reason = "runs inside the io-durability job (lane proof argument)")]
@@ -476,9 +987,9 @@ impl Redaction {
         rewrite_holds::at("held");
         *writer = None;
         let session = self.thread.as_str().to_owned();
-        let (index, blobs) = (self.index.clone(), self.deps.blobs.clone());
-        let mut index_step = |superseded| {
-            let rewrite = mixdog_store::sqlite::Rewritten { data: self.data.clone(), session: session.clone(), dirty: DirtyMark::Set, superseded, blobs: blobs.clone() };
+        let index = self.index.clone();
+        let mut index_step = || {
+            let rewrite = mixdog_store::sqlite::Rewritten { data: self.data.clone(), session: session.clone(), dirty: DirtyMark::Set };
             self.wait(index.reproject(rewrite)).map_err(|e| e.to_string())
         };
         let settled = mixdog_store::log_rewrite::settle(lane, &self.data, &session, &*self.deps.io, &self.deps.blobs, &mut index_step);
@@ -501,7 +1012,6 @@ impl Redaction {
         settled.is_ok()
     }
 }
-
 impl StoreLog {
     /// Runs before the barrier of a batch when the thread took a mark since the last rewrite, or a rewrite of its log
     /// stopped: `log_rewrite`'s steps, with the index taking no projection meanwhile (a read that waits for it sees the
@@ -529,13 +1039,11 @@ impl StoreLog {
             drop(replace);
             rewrite_holds::at("planned");
             match planned {
-                Ok(None) => redaction.seen = version,
-                // The new blobs' pins hold until the rebuilt rows name them.
-                Ok(Some(pins)) => {
+                Ok(false) => redaction.seen = version,
+                Ok(true) => {
                     if redaction.settle(lane, &mut self.writer) {
                         redaction.seen = version;
                     }
-                    drop(pins);
                 }
                 Err(error) => tracing::warn!(thread = %session, "the sensitive rewrite of the log could not be planned; it is tried again at the next barrier: {error}"),
             }
@@ -565,7 +1073,6 @@ impl StoreLog {
         Ok(encoded)
     }
 }
-
 impl SessionLog for StoreLog {
     fn commit(
         &mut self,
@@ -577,11 +1084,15 @@ impl SessionLog for StoreLog {
         let writer = self.writer.as_mut().ok_or_else(writer_lost)?;
         let ack = writer.append_barrier(lane, encoded).map_err(barrier)?;
         let ordinals = ack.positions.iter().map(|p| p.ordinal).collect();
-        // After the batch is durable, so a scan that read the header before it is never the one a later ask is served.
-        if batch.iter().any(|c| touches_retention(&c.record)) {
+        // The projection is registered before the version moves: a reader that sees the new version then sees the projection
+        // pending (or in the index), so a scan keyed by that version never holds index contents older than the write. After the
+        // batch is durable, so a scan that read before it is never the one a later ask is served.
+        let marks = batch.iter().any(|c| touches_retention(&c.record));
+        self.projector.send_marking(ack.projection, marks);
+        if marks {
             self.retention.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+            rewrite_holds::at("retention-moved");
         }
-        self.projector.send(ack.projection);
         Ok(ordinals)
     }
 
@@ -593,7 +1104,6 @@ impl SessionLog for StoreLog {
         self.redact_written(lane);
     }
 }
-
 /// [`ThreadStore`] over `<data>/sessions/<id>`, the blob store and the index.
 pub struct StoreThreads {
     data: PathBuf,
@@ -611,14 +1121,21 @@ pub struct StoreThreads {
     gate: ReadGate,
     rewrites: Arc<Rewrites>,
     retention: Arc<std::sync::atomic::AtomicU64>,
+    /// What the reads of a thread's rows take from its opened log, by thread, with the stamp of the log it was read from
+    /// ([`StoreThreads::shape`]).
+    shapes: std::sync::Mutex<std::collections::HashMap<String, Arc<LogShape>>>,
+    /// The header members read of a stored thread, by thread and by the list of members asked for, with the version of
+    /// its log they were read at ([`ThreadStore::read_header_fields`]).
+    picked: std::sync::Mutex<std::collections::HashMap<(String, usize, usize), (u64, Option<Header>)>>,
+    /// A test's pause between a marks read's snapshot and its check.
+    #[cfg(any(test, feature = "test-support"))]
+    after_snapshot: std::sync::Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
-
 impl super::thread_list::ListFence for StoreThreads {
     fn pending(&self) -> Option<futures::future::BoxFuture<'static, ()>> {
         self.projector.settle()
     }
 }
-
 impl StoreThreads {
     /// `data` is the data dir; `writer.blobs`/`writer.index` are the same stores; `maintenance`
     /// runs the purge after each delete. Call on the Tokio runtime the catalog writes and
@@ -638,6 +1155,10 @@ impl StoreThreads {
             gate: ReadGate::default(),
             rewrites: Arc::default(),
             retention: Arc::default(),
+            shapes: std::sync::Mutex::default(),
+            picked: std::sync::Mutex::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            after_snapshot: std::sync::Mutex::default(),
         }
     }
 
@@ -646,6 +1167,62 @@ impl StoreThreads {
     #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(super) fn hold_index(&self) -> (tokio::sync::oneshot::Receiver<()>, tokio::sync::oneshot::Sender<()>) {
         self.projector.hold()
+    }
+
+    /// The sessions whose favorite or archive write the index did not take (see [`Projector::marks_lost`]).
+    /// Every stored session's row as the index holds the marks, as one observation: valid only for the mark-projection state it
+    /// was read against. Once the index holds every write acknowledged so far, the rows are read; an `Err` (never cached by the
+    /// caller, the next ask reads again) when a mark write the index refused is still missing from them, or when that state
+    /// moved while the rows were read (a settlement or a restoring write between the snapshot and the check).
+    pub(super) async fn marked_catalog(&self) -> Result<Vec<mixdog_store::sqlite::lead::LeadRow>, String> {
+        use super::thread_list::ListFence as _;
+        if let Some(wait) = self.pending() {
+            wait.await;
+        }
+        let epoch = self.projector.marks_epoch();
+        let rows = self.index.marked_rows().await.map_err(|error| error.to_string())?;
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            let hold = self.after_snapshot.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            if let Some(hold) = hold {
+                hold();
+            }
+        }
+        let lost = self.projector.marks_lost();
+        if let Some(first) = lost.first() {
+            return Err(format!(
+                "the index did not take the favorite or archive marks of {} session(s) (first: {first}); they are read again once a later write of the session is indexed",
+                lost.len()
+            ));
+        }
+        if self.projector.marks_epoch() != epoch {
+            return Err("the marks' projections settled while they were read; they are read again".to_owned());
+        }
+        Ok(rows)
+    }
+
+    /// The sessions whose mark write the index refused and no later projection of the session has restored.
+    #[cfg(all(test, node_twin))]
+    pub(super) fn marks_lost(&self) -> Vec<String> {
+        self.projector.marks_lost()
+    }
+
+    /// Runs `hold` between a marks read's snapshot and its check.
+    #[cfg(all(test, node_twin))]
+    pub(super) fn hold_after_marks_snapshot(&self, hold: impl Fn() + Send + Sync + 'static) {
+        *self.after_snapshot.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(hold));
+    }
+
+    /// The next projection is refused by the index, as a full disk would.
+    #[cfg(all(test, node_twin))]
+    pub(super) fn refuse_next_projection(&self) {
+        self.projector.refuse_next.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// How many projections have been registered with the index so far.
+    #[cfg(all(test, node_twin))]
+    pub(super) fn projections_sent(&self) -> u64 {
+        self.projector.sent.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// The read gate, shared for one lane job of a read (see [`ReadGate`]). Taken after any wait on the projector: a
@@ -787,6 +1364,17 @@ impl StoreThreads {
         &self.index
     }
 
+    /// A stale position must not make backfill skip an acknowledged but unprojected write.
+    pub(crate) async fn search_position(&self, session: &str) -> Result<Option<mixdog_store::schema::checkpoint::FramePos>, CoreError> {
+        self.projector.indexed(session).await?;
+        self.index.projected(session).await.map_err(|e| internal("search stamp", &e))
+    }
+
+    pub(super) fn search_shape(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Arc<LogShape>, CoreError> {
+        let _gate = self.read_gate();
+        self.shape(lane, id)
+    }
+
     /// Returns once the index holds every write acked so far (the projection runs behind the ack).
     #[cfg(any(test, feature = "test-support"))]
     #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
@@ -820,6 +1408,71 @@ impl StoreThreads {
             return Err(Self::not_found(id));
         }
         Ok(opened)
+    }
+
+    /// What the row reads take from `id`'s opened log. A count or a tail of an idle thread is asked again and again (an
+    /// agent row's message count on every status pass, the desktop's final-answer read while it waits), and each was a
+    /// bounded open: the newest file's tail read and every record in it parsed. It is opened again only when one of the
+    /// logs it was folded from (the thread's own and each base's) was written since, which `log_epoch` counts by the
+    /// operations that write a log, not by what the files look like: a truncation grown back or a rewrite in place leaves
+    /// the files' listing, lengths and write times as they were. A deleted thread's delete mark is an append, so its
+    /// version moves and the open that follows refuses it.
+    ///
+    /// A shape is kept only when the versions of its logs, taken before the open, are the ones after it and nothing was
+    /// writing either time: the bytes read are then those of that version. The bases are known only once the log is read;
+    /// a read that finds other logs than the ones whose versions it took is made again over those.
+    fn shape(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Arc<LogShape>, CoreError> {
+        let lock = || self.shapes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let versions = |logs: &[String]| logs.iter().map(|log| mixdog_store::log_epoch::settled(log)).collect::<Option<Vec<u64>>>();
+        let held = lock().get(id.as_str()).cloned();
+        if let Some(held) = &held
+            && held.is_current()
+        {
+            return Ok(held.clone());
+        }
+        let mut logs = held.map_or_else(|| vec![id.as_str().to_owned()], |held| held.logs.clone());
+        loop {
+            let before = versions(&logs);
+            let read = self.open(lane, id).and_then(|opened| Ok((self.lineage(lane, &opened.fold)?, opened.fold.base_cut, opened.fold.history_rev)));
+            let (lineage, base_cut, history_rev) = match read {
+                Ok(read) => read,
+                Err(error) => {
+                    lock().remove(id.as_str());
+                    return Err(error);
+                }
+            };
+            let read_logs: Vec<String> =
+                std::iter::once(id.as_str().to_owned()).chain(lineage.iter().skip(1).map(|level| level.session.as_str().to_owned())).collect();
+            if read_logs != logs {
+                logs = read_logs;
+                continue;
+            }
+            let kept = before.filter(|before| versions(&logs).as_ref() == Some(before));
+            let keep = kept.is_some();
+            let shape = Arc::new(LogShape { logs, versions: kept.unwrap_or_default(), lineage, base_cut, history_rev });
+            if keep {
+                lock().insert(id.as_str().to_owned(), shape.clone());
+            } else {
+                lock().remove(id.as_str());
+            }
+            return Ok(shape);
+        }
+    }
+
+    /// The shape a row read of `id` takes now, under the read gate as a read holds it.
+    #[cfg(test)]
+    pub(super) fn shape_now(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Arc<LogShape> {
+        let _gate = self.read_gate();
+        self.shape(lane, id).expect("the thread's shape")
+    }
+
+    /// What `shape` answers for `id` against an open made now: its history revision and inherited-history cut, each twice.
+    #[cfg(test)]
+    pub(super) fn shape_and_open(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> ((u64, Option<u64>), (u64, Option<u64>)) {
+        let _gate = self.read_gate();
+        let shape = self.shape(lane, id).expect("the thread's shape");
+        let opened = self.open(lane, id).expect("the thread's log");
+        ((shape.history_rev, shape.base_cut), (opened.fold.history_rev, opened.fold.base_cut))
     }
 
     fn read_error(id: &ThreadId, error: ReadError) -> CoreError {
@@ -938,10 +1591,11 @@ impl StoreThreads {
         cursor: Option<mixdog_store::sqlite::PageCursor>,
         want: usize,
     ) -> Result<Option<(Vec<ItemRecord>, bool)>, CoreError> {
-        Ok(self.read_rows_marked(lane, id, lineage, cut, cursor, want)?.map(|(rows, _, complete)| (rows, complete)))
+        Ok(self.read_rows_marked(lane, id, lineage, cut, cursor, want, None)?.map(|(rows, _, complete)| (rows, complete)))
     }
 
     /// [`read_rows`](Self::read_rows) with the index rows the records were read from (the same order).
+    #[allow(clippy::too_many_arguments)]
     fn read_rows_marked(
         &self,
         lane: &InLane<InteractiveIo>,
@@ -950,10 +1604,12 @@ impl StoreThreads {
         cut: Option<u64>,
         mut cursor: Option<mixdog_store::sqlite::PageCursor>,
         want: usize,
+        cancel: Option<&mixdog_rt::CancellationToken>,
     ) -> Result<Option<StoredHistoryPage>, CoreError> {
         let mut rows = Vec::new();
         let mut marks = Vec::new();
         loop {
+            if let Some(cancel) = cancel { check_turn_read_cancel(cancel)?; }
             // One row more than wanted says whether more are left: never an index row past what the page needs.
             let room = want - rows.len();
             let (page, next) = match self.index.history_page_on_lane(lane, lineage, cut, cursor, WINDOW_ROWS.min(room.saturating_add(1))) {
@@ -963,6 +1619,7 @@ impl StoreThreads {
             };
             // Only the rows still wanted are read from the log.
             for row in page.iter().take(room) {
+                if let Some(cancel) = cancel { check_turn_read_cancel(cancel)?; }
                 rows.push(self.history_item(lane, id, row)?);
             }
             let more = page.len() > room;
@@ -976,6 +1633,33 @@ impl StoreThreads {
                 Some(next) => cursor = Some(next),
                 None => return Ok(Some((rows, marks, true))),
             }
+        }
+    }
+
+    fn history_with_decor(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        want: usize,
+        cancel: Option<&mixdog_rt::CancellationToken>,
+    ) -> Result<(u64, Vec<ItemRecord>, Vec<super::seams::RowDecor>, bool), CoreError> {
+        let barrier = self.projector.caught_up();
+        if let Some(cancel) = cancel {
+            self.wait(lane, mixdog_rt::Scope::new().cancel(cancel).run(barrier)).done().ok_or_else(turn_read_cancelled)??;
+        } else {
+            self.wait(lane, barrier)?;
+        }
+        let _gate = self.read_gate();
+        loop {
+            if let Some(cancel) = cancel { check_turn_read_cancel(cancel)?; }
+            let shape = self.shape(lane, id)?;
+            let Some((mut rows, marks, complete)) = self.read_rows_marked(lane, id, &shape.lineage, shape.base_cut, None, want, cancel)? else {
+                continue;
+            };
+            if let Some(cancel) = cancel { check_turn_read_cancel(cancel)?; }
+            let decor = self.page_decor(lane, &shape.lineage, shape.base_cut, &marks, complete, true)?;
+            rows.reverse();
+            return Ok((shape.history_rev, rows, decor, complete));
         }
     }
 
@@ -1080,67 +1764,6 @@ impl StoreThreads {
         Ok(out)
     }
 }
-
-/// The most rows one record's ids are searched back over (`Ids::next` numbers a record's rows).
-const ROWS_PER_RECORD: u128 = 64;
-
-/// The item ids of stored records that can show a row under `shown`, a client's row id: the record's own id (the first row
-/// shows it), the record that numbers its later rows `<iid>:<n>` or `<iid>:model:<at>`, or `itm_` + its 128-bit id plus the row's
-/// position. A row of another record can show `shown` only as a submission id, which the index looks up as an alias.
-fn anchor_iids(shown: &str) -> Vec<String> {
-    let mut ids = vec![shown.to_owned()];
-    ids.extend(shown.match_indices(':').filter(|(at, _)| *at > 0).map(|(at, _)| shown[..at].to_owned()));
-    if let Some(bits) = shown.strip_prefix("itm_").filter(|hex| hex.len() == 32).and_then(|hex| u128::from_str_radix(hex, 16).ok()) {
-        ids.extend((1..ROWS_PER_RECORD).map(|back| format!("itm_{:032x}", bits.wrapping_sub(back))));
-    }
-    ids
-}
-
-/// The window rows a compaction took out of the context, which a restored window still shows (1.4.5 `archived: true`): the model
-/// rows it dropped, and the display rows (a turn's end) of a turn none of whose messages is left.
-fn archived_ordinals(rows: &[HistoryRow]) -> Vec<u64> {
-    use std::collections::HashSet;
-    let turn_of = |row: &HistoryRow| row.turn.clone();
-    let gone: HashSet<String> = rows.iter().filter(|row| row.model && row.archived).filter_map(turn_of).collect();
-    let live: HashSet<String> = rows.iter().filter(|row| row.model && !row.archived).filter_map(turn_of).collect();
-    rows.iter()
-        .filter(|row| match (row.model, &row.turn) {
-            (true, _) => row.archived,
-            (false, Some(turn)) => gone.contains(turn) && !live.contains(turn),
-            (false, None) => false,
-        })
-        .map(|row| row.ordinal)
-        .collect()
-}
-
-/// Context rows read per page.
-const CONTEXT_PAGE_ROWS: usize = 200;
-
-/// A model-context read between its lane steps.
-struct ContextState {
-    lineage: Vec<LineageLevel>,
-    cut: Option<u64>,
-    out: Vec<(ItemId, Value)>,
-    at: ContextAt,
-    /// The read gate's generation its first job read under.
-    generation: u64,
-    /// The context's first rows the read leaves out (a restart leaves out as many).
-    skip: usize,
-}
-
-enum ContextAt {
-    /// The next page is read from this cursor (io).
-    Next(ContextCursor),
-    /// A page to decode (cpu).
-    Page(ContextPage),
-    /// A decoded page whose blobs are read next (io).
-    Decoded(DecodedContext),
-    /// A decoded page and its blobs, to finish (cpu).
-    Finish(DecodedContext, ContextBlobs),
-    /// Between a page's finish and its successor.
-    Pending,
-}
-
 impl StoreThreads {
     /// The first page of the read, over the lineage as of now; the caller holds the read gate at `generation`.
     fn context_start(
@@ -1150,9 +1773,9 @@ impl StoreThreads {
         generation: u64,
         skip: usize,
     ) -> Result<ContextState, CoreError> {
-        let opened = self.open(lane, id)?;
-        let lineage = self.lineage(lane, &opened.fold)?;
-        let cut = opened.fold.base_cut;
+        let shape = self.shape(lane, id)?;
+        let lineage = shape.lineage.clone();
+        let cut = shape.base_cut;
         let page = if skip == 0 {
             self.index.context_page_on_lane(lane, &self.sessions, &lineage, cut, None, CONTEXT_PAGE_ROWS)
         } else {
@@ -1192,356 +1815,6 @@ impl StoreThreads {
         })
     }
 }
-
-/// [`super::seams::TurnIngest`] over the session-search writer; `None` when the process has no memory runtime.
-pub struct SessionSearchTurns(pub Option<Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>>);
-
-impl SessionSearchTurns {
-    /// Over the memory service's one session-search writer (`SessionSearchIngest::new(db,
-    /// sensitive)`, the same one `forgetSessionSearch` and the backfill use).
-    pub fn new(ingest: Option<Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>>) -> Self {
-        Self(ingest)
-    }
-}
-
-/// What the session-search writer takes of a session: its model context, and
-/// `isAgentOnlySession` (store-summary-visibility.mjs) of the session record. Node's record is
-/// the header with its `id` (`{ ...header, id }`); a stored header carries no `id`, and a root
-/// Lead is recognized by its owner link naming that id.
-pub(crate) fn search_session(
-    id: &ThreadId,
-    header: &mixdog_store::schema::record::Header,
-    messages: Vec<Value>,
-) -> mixdog_services::memory::session_search::ingest::IngestSession {
-    let mut session = header.clone();
-    session.insert("id".into(), Value::String(id.as_str().to_owned()));
-    mixdog_services::memory::session_search::ingest::IngestSession {
-        id: id.as_str().to_owned(),
-        messages,
-        agent_only: mixdog_store::summary::session_visibility(&session) == "agent-only",
-    }
-}
-
-impl super::seams::TurnIngest for SessionSearchTurns {
-    fn ingest_turn(&self, id: &ThreadId, header: &mixdog_store::schema::record::Header, messages: Vec<Value>) {
-        if let Some(ingest) = &self.0 {
-            ingest.ingest_turn(search_session(id, header, messages));
-        }
-    }
-}
-
-/// [`super::seams::SensitiveMarks`] over the process's sensitive-value store, with the bodies the store's projection
-/// redacted, as they were committed: thread → item id → body. Like the store's values, they stay for the life of the
-/// process (Node's loaded session holds the same text in memory, `sensitive-values.mjs:12`), and nothing writes them.
-pub struct SensitiveMarksOf {
-    store: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
-    held: std::sync::Mutex<std::collections::HashMap<String, std::collections::HashMap<String, Value>>>,
-}
-
-impl SensitiveMarksOf {
-    pub fn new(store: Arc<mixdog_services::memory::sensitive::SensitiveStore>) -> Self {
-        Self { store, held: std::sync::Mutex::default() }
-    }
-
-    fn held_bodies(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, std::collections::HashMap<String, Value>>> {
-        self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    /// `_withSensitiveHeaderRedacted` (`store/serialize.mjs`, the Node fix `node-fix-sensitive-header-summary.patch`): the
-    /// header fields that hold the conversation's text (the title, from the first prompt) or a tool call's arguments (the
-    /// repeat-failure guards keep each failed call's signature) take the marker. True when one changed.
-    fn header_redacted(&self, session: &str, header: &mut mixdog_store::schema::record::Header) -> bool {
-        let mut changed = false;
-        let mut text = |value: &mut Value| {
-            if let Value::String(text) = value {
-                let next = self.store.redact_text(session, text);
-                if next != *text {
-                    *text = next;
-                    changed = true;
-                }
-            }
-        };
-        if let Some(title) = header.get_mut("title") {
-            text(title);
-        }
-        for key in ["_repeatFailGuard", "_repeatArgShapeFailGuard"] {
-            if let Some(sig) = header.get_mut(key).and_then(|guard| guard.get_mut("sig")) {
-                text(sig);
-            }
-        }
-        if let Some(Value::Array(history)) = header.get_mut("_repeatFailHistory") {
-            history.iter_mut().for_each(&mut text);
-        }
-        changed
-    }
-
-    /// Every string of an inline slot with the thread's values replaced; true when one changed.
-    fn text_redacted(&self, session: &str, slot: Option<&mut mixdog_store::schema::blob::Slot<Value>>) -> bool {
-        fn walk(store: &mixdog_services::memory::sensitive::SensitiveStore, session: &str, value: &mut Value) -> bool {
-            match value {
-                Value::String(text) => {
-                    let next = store.redact_text(session, text);
-                    let changed = next != *text;
-                    *text = next;
-                    changed
-                }
-                Value::Array(items) => items.iter_mut().fold(false, |changed, item| walk(store, session, item) | changed),
-                Value::Object(map) => map.values_mut().fold(false, |changed, item| walk(store, session, item) | changed),
-                Value::Null | Value::Bool(_) | Value::Number(_) => false,
-            }
-        }
-        match slot {
-            Some(mixdog_store::schema::blob::Slot::Inline(value)) => walk(&self.store, session, value),
-            _ => false,
-        }
-    }
-
-    /// `record` as the log stores it, and each message body it carries with the body as committed when the projection
-    /// changed it (`None`: stored as it is). `None` for a record stored as it is.
-    #[allow(clippy::type_complexity)]
-    fn projected(&self, session: &str, record: &mixdog_store::schema::record::Record) -> (Option<mixdog_store::schema::record::Record>, Vec<(String, Option<Value>)>) {
-        use mixdog_store::schema::blob::Slot;
-        use mixdog_store::schema::record::Record;
-        let mut out = record.clone();
-        // (item id, the body as committed when the projection changed it).
-        let mut bodies: Vec<(String, Option<Value>)> = Vec::new();
-        let mut project = |iid: &str, body: &mut Value| {
-            let next = self.store.redact_message(session, body);
-            if next == *body {
-                bodies.push((iid.to_owned(), None));
-            } else {
-                bodies.push((iid.to_owned(), Some(std::mem::replace(body, next))));
-            }
-        };
-        let mut prompt_changed = false;
-        match &mut out {
-            Record::Item(row) => {
-                if let Slot::Inline(body) = &mut row.body {
-                    project(row.iid.as_str(), body);
-                }
-                // The prompt-history text is the row's own text as it displays (`content`'s text): stored as its content is.
-                if let Some(Slot::Inline(prompt)) = &mut row.prompt
-                    && let Value::String(next) = self.store.redact_content(session, &Value::String(prompt.clone()))
-                    && next != *prompt
-                {
-                    *prompt = next;
-                    prompt_changed = true;
-                }
-            }
-            Record::Amend(amend) => {
-                if let Slot::Inline(body) = &mut amend.body {
-                    project(amend.iid.as_str(), body);
-                }
-            }
-            Record::Compacted(compacted) => {
-                if let Slot::Inline(entries) = &mut compacted.replacement {
-                    for entry in entries {
-                        project(&entry.iid, &mut entry.body);
-                    }
-                }
-            }
-            Record::Meta(meta) => {
-                if let Slot::Inline(change) = &mut meta.change {
-                    prompt_changed = self.header_redacted(session, &mut change.set);
-                }
-            }
-            Record::Session(start) => {
-                if let Slot::Inline(header) = &mut start.header {
-                    prompt_changed = self.header_redacted(session, header);
-                }
-            }
-            Record::Checkpoint(checkpoint) => {
-                if let Slot::Inline(state) = &mut checkpoint.state {
-                    prompt_changed = self.header_redacted(session, &mut state.header);
-                }
-            }
-            // Text that is no message: a run's failure detail, an op's error, an approval's request (a tool call's
-            // arguments) or decision, a queued message: every string of them takes the marker.
-            Record::Run(run) => prompt_changed = self.text_redacted(session, run.detail.as_mut()),
-            Record::Op(op) => prompt_changed = self.text_redacted(session, op.detail.as_mut()),
-            Record::Approval(approval) => prompt_changed = self.text_redacted(session, approval.body.as_mut()),
-            Record::Queue(queue) => prompt_changed = self.text_redacted(session, queue.entry.as_mut()),
-            Record::Draft(draft) => prompt_changed = self.text_redacted(session, Some(&mut draft.body)),
-            // No text: positions, ids, a provider and model id.
-            Record::Rewind(_) | Record::ModelSwitch(_) => return (None, Vec::new()),
-        }
-        let changed = prompt_changed || bodies.iter().any(|(_, body)| body.is_some());
-        (changed.then_some(out), bodies)
-    }
-}
-
-impl super::seams::SensitiveMarks for SensitiveMarksOf {
-    fn on_marked(&self, thread: &ThreadId, listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn Send> {
-        Box::new(self.store.on_marked(thread.as_str(), move |_| listener()))
-    }
-
-    fn remember(&self, thread: &ThreadId, calls: &[Value]) -> bool {
-        self.store.remember(thread.as_str(), calls)
-    }
-
-    fn carry(&self, from: &ThreadId, to: &ThreadId) {
-        self.store.carry(from.as_str(), to.as_str());
-    }
-
-    fn on_carried(&self, listener: Box<dyn Fn(&ThreadId) + Send + Sync>) -> bool {
-        self.store.on_carried(move |session| listener(&ThreadId::from(session)))
-    }
-
-    fn restore(&self, thread: &ThreadId, values: &[String]) -> bool {
-        self.store.restore(thread.as_str(), values)
-    }
-
-    fn journal_with(&self, journal: Arc<dyn mixdog_services::memory::sensitive::MarkJournal>) -> bool {
-        self.store.journal_with(journal)
-    }
-
-    fn stored(&self, thread: &ThreadId, record: &mixdog_store::schema::record::Record) -> Option<mixdog_store::schema::record::Record> {
-        let session = thread.as_str();
-        // A thread with no marked value holds no redacted body either (both live for the process).
-        if self.store.version(session) == 0 {
-            return None;
-        }
-        let (out, bodies) = self.projected(session, record);
-        let mut held = self.held_bodies();
-        let thread_held = held.entry(session.to_owned()).or_default();
-        for (iid, body) in bodies {
-            match body {
-                Some(body) => {
-                    thread_held.insert(iid, body);
-                }
-                // A later body of the row (an amend) that holds no value is stored as it is and read as stored.
-                None => {
-                    thread_held.remove(&iid);
-                }
-            }
-        }
-        out
-    }
-
-    fn version(&self, thread: &ThreadId) -> u64 {
-        self.store.version(thread.as_str())
-    }
-
-    fn redact_text(&self, thread: &ThreadId, text: &str) -> String {
-        self.store.redact_text(thread.as_str(), text)
-    }
-
-    fn rewriter<'a>(&'a self, thread: &ThreadId) -> Box<dyn FnMut(&mixdog_store::schema::record::Record) -> Option<mixdog_store::schema::record::Record> + 'a> {
-        let session = thread.as_str().to_owned();
-        // The rows whose body this pass took out; a later body of one of them that holds no value is read as stored.
-        let mut taken = std::collections::HashSet::new();
-        Box::new(move |record| {
-            if self.store.version(&session) == 0 {
-                return None;
-            }
-            let (out, bodies) = self.projected(&session, record);
-            let mut held = self.held_bodies();
-            let thread_held = held.entry(session.clone()).or_default();
-            for (iid, body) in bodies {
-                match body {
-                    // The record handed here may already be a stored copy (redacted for an earlier mark): the body the
-                    // first redaction kept, the committed one, stays.
-                    Some(body) => {
-                        thread_held.entry(iid.clone()).or_insert(body);
-                        taken.insert(iid);
-                    }
-                    None if taken.contains(&iid) => {
-                        thread_held.remove(&iid);
-                    }
-                    None => {}
-                }
-            }
-            out
-        })
-    }
-
-    fn redacted(&self, thread: &ThreadId, messages: &[Value]) -> Vec<Value> {
-        self.store.redact_messages(thread.as_str(), messages)
-    }
-
-    fn held(&self, thread: &ThreadId, rows: &mut [(ItemId, Value)]) {
-        let held = self.held_bodies();
-        let Some(bodies) = held.get(thread.as_str()) else {
-            return;
-        };
-        for (iid, body) in rows {
-            if let Some(full) = bodies.get(iid.as_str()) {
-                body.clone_from(full);
-            }
-        }
-    }
-
-    fn redact_settled(&self, thread: &ThreadId, text: &str) -> String {
-        self.store.redact_settled_text(thread.as_str(), text)
-    }
-}
-
-/// [`super::seams::CloseIngest`] over the memory module's `ingest_session` action; `None` when
-/// memory was not started this run. A session whose runtime never loaded the module (today's
-/// `getMemoryModPromise()` returning null: no recall or memory call since it was opened) is not
-/// ingested, its turns reach memory through the transcript watcher alone. The messages
-/// go out with the session's sensitive values redacted, as its log is written
-/// (`node-fix-memory-sensitive.patch`: 1.4.5 fed them in plain text).
-pub struct MemoryCloseIngest {
-    memory: Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>,
-    sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
-}
-
-impl MemoryCloseIngest {
-    /// Over the memory module the daemon started (`LocalMemory`), or `None` when memory is off.
-    pub fn new(
-        memory: Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>,
-        sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
-    ) -> Self {
-        Self { memory, sensitive }
-    }
-}
-
-impl super::seams::CloseIngest for MemoryCloseIngest {
-    fn ingest(&self, id: &ThreadId, cwd: &str, messages: Vec<Value>) -> futures::future::BoxFuture<'static, ()> {
-        let Some(memory) = self.memory.clone() else {
-            return Box::pin(async {});
-        };
-        // Taken at every close, as the runtime that held the module ends with it.
-        let loaded = memory.take_session_use(id.as_str());
-        if !loaded || std::env::var("MIXDOG_DISABLE_MEMORY_INGEST").as_deref() == Ok("1") || messages.is_empty() {
-            return Box::pin(async {});
-        }
-        // `session.cwd || getCurrentCwd()`.
-        let cwd = if cwd.is_empty() {
-            std::env::current_dir().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default()
-        } else {
-            cwd.to_owned()
-        };
-        let args = serde_json::json!({
-            "action": "ingest_session",
-            "sessionId": id.as_str(),
-            "cwd": cwd,
-            "messages": self.sensitive.redact_messages(id.as_str(), &messages),
-        });
-        Box::pin(async move {
-            memory.memory(args).await;
-        })
-    }
-}
-
-/// J2's reads, handed to decode.
-struct Window {
-    window: Vec<(u64, ItemRecord)>,
-    archived: Vec<u64>,
-    dividers: Vec<super::seams::WindowDivider>,
-    has_older: bool,
-    prompts: Vec<String>,
-    runs: Vec<(u64, mixdog_store::schema::record::RunRecord)>,
-    drafts: Vec<(String, RunDraft)>,
-    approvals: Vec<(u64, mixdog_store::schema::record::ApprovalRecord)>,
-    queue: Vec<(u64, mixdog_store::schema::record::QueueRecord)>,
-}
-
-fn unexpected(what: &str) -> CoreError {
-    internal("open-set", &format!("frame is not a {what} record"))
-}
-
 impl ThreadStore for StoreThreads {
     #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
     fn read_head(
@@ -1568,6 +1841,45 @@ impl ThreadStore for StoreThreads {
             return Err(Self::not_found(id));
         }
         Ok(self.open(lane, id)?.fold.header.clone())
+    }
+
+    /// Kept by the version of the session's log (`log_epoch`), as [`StoreThreads::shape`] is: the header is folded
+    /// from the session's own log alone, so the picked members hold until an operation on that log begins.
+    fn read_header_fields(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, fields: &'static [&'static str]) -> Result<Option<Header>, CoreError> {
+        let lock = || self.picked.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let key = (id.as_str().to_owned(), fields.as_ptr() as usize, fields.len());
+        let version = mixdog_store::log_epoch::settled(id.as_str());
+        if let Some(version) = version
+            && let Some((_, held)) = lock().get(&key).filter(|(at, _)| *at == version)
+        {
+            return Ok(held.clone());
+        }
+        let header = match self.read_header(lane, id) {
+            Ok(header) => header,
+            Err(error) => {
+                lock().remove(&key);
+                return Err(error);
+            }
+        };
+        let picked = super::seams::header_fields(&header, fields);
+        match version.filter(|version| mixdog_store::log_epoch::settled(id.as_str()) == Some(*version)) {
+            Some(version) => lock().insert(key, (version, picked.clone())),
+            None => lock().remove(&key),
+        };
+        Ok(picked)
+    }
+
+    fn listed_rows(&self, lane: &InLane<InteractiveIo>, ids: &[ThreadId]) -> Result<Vec<Option<Option<Header>>>, CoreError> {
+        let ids: Vec<String> = ids.iter().map(|id| id.as_str().to_owned()).collect();
+        let rows = self.index.listed_many(lane, &ids).map_err(|e| internal("listed", &e))?;
+        // A row that does not parse is not an answer: the record is read instead.
+        Ok(rows
+            .into_iter()
+            .map(|row| match row? {
+                None => Some(None),
+                Some(json) => serde_json::from_str::<Header>(&json).ok().map(Some),
+            })
+            .collect())
     }
 
     fn read_log_id(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError> {
@@ -1739,15 +2051,84 @@ impl ThreadStore for StoreThreads {
         self.wait(lane, self.projector.caught_up())?;
         let _gate = self.read_gate();
         loop {
-            let opened = self.open(lane, id)?;
-            let lineage = self.lineage(lane, &opened.fold)?;
-            let Some((mut rows, complete)) = self.read_rows(lane, id, &lineage, opened.fold.base_cut, None, want)? else {
+            let shape = self.shape(lane, id)?;
+            let Some((mut rows, complete)) = self.read_rows(lane, id, &shape.lineage, shape.base_cut, None, want)? else {
                 continue;
             };
             // Pages run newest first; the seam returns rows oldest first.
             rows.reverse();
-            return Ok((opened.fold.history_rev, rows, complete));
+            return Ok((shape.history_rev, rows, complete));
         }
+    }
+
+    fn turn_history_chunk(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        after: Option<super::seams::TurnHistoryCursor>,
+        cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<Option<super::seams::TurnHistoryChunk>, CoreError> {
+        use mixdog_store::sqlite::PageCursor;
+        use super::seams::{TurnHistoryChunk, TurnHistoryCursor};
+
+        const RECORDS_PER_CHUNK: usize = 16;
+        check_turn_read_cancel(cancel)?;
+        let _gate = self.read_gate();
+        check_turn_read_cancel(cancel)?;
+        let (shape, cursor) = match after {
+            Some(after) => *after.0.downcast::<(Arc<LogShape>, PageCursor)>().expect("turn history cursor"),
+            None => {
+                let shape = self.shape(lane, id)?;
+                if !shape.is_current() {
+                    return Ok(None);
+                }
+                // An append can be durable but not yet projected even when history_rev is unchanged.
+                // Prove the starting index view against the logs, not the global projector queue.
+                for session in &shape.logs {
+                    check_turn_read_cancel(cancel)?;
+                    let opened = log::open_log(lane, &self.dir(session), &self.blobs, &self.index)
+                        .map_err(|error| Self::open_error(id, error))?;
+                    let end = FramePos { ordinal: opened.fold.next_ordinal, file_no: opened.newest_file_no, offset: opened.committed_end };
+                    if !self.index.history_projected_through_on_lane(lane, session, &opened.fold.log_id, end)
+                        .map_err(|error| internal("history", &error))?
+                    {
+                        return Ok(None);
+                    }
+                }
+                let cursor = PageCursor { history_rev: shape.history_rev, level: 0, before: u64::MAX };
+                (shape, cursor)
+            }
+        };
+        // Once caught up, only a change to one of these logs can move the scan's index view.
+        // The read gate excludes rewrites during each chunk; log epochs cover changes between chunks.
+        if !shape.is_current() {
+            return Ok(None);
+        }
+        let (rows, next) = match self.index.history_page_on_lane(lane, &shape.lineage, shape.base_cut, Some(cursor), RECORDS_PER_CHUNK) {
+            Ok(page) => page,
+            Err(DbError::CursorStale) => return Ok(None),
+            Err(error) => return Err(internal("history", &error)),
+        };
+        let records = rows.iter().map(|row| {
+            check_turn_read_cancel(cancel)?;
+            self.history_item(lane, id, row)
+        }).collect::<Result<Vec<_>, _>>();
+        check_turn_read_cancel(cancel)?;
+        if !shape.is_current() {
+            return Ok(None);
+        }
+        let next = next.map(|cursor| TurnHistoryCursor(Box::new((shape, cursor))));
+        Ok(Some(TurnHistoryChunk { records: records?, next }))
+    }
+
+    fn turn_history_full(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<(Vec<ItemRecord>, Vec<super::seams::RowDecor>), CoreError> {
+        let (_, records, decor, _) = self.history_with_decor(lane, id, usize::MAX, Some(cancel))?;
+        Ok((records, decor))
     }
 
     fn window_archived(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<u64>, CoreError> {
@@ -1766,18 +2147,7 @@ impl ThreadStore for StoreThreads {
         id: &ThreadId,
         want: usize,
     ) -> Result<(u64, Vec<ItemRecord>, Vec<super::seams::RowDecor>, bool), CoreError> {
-        self.wait(lane, self.projector.caught_up())?;
-        let _gate = self.read_gate();
-        loop {
-            let opened = self.open(lane, id)?;
-            let lineage = self.lineage(lane, &opened.fold)?;
-            let Some((mut rows, marks, complete)) = self.read_rows_marked(lane, id, &lineage, opened.fold.base_cut, None, want)? else {
-                continue;
-            };
-            let decor = self.page_decor(lane, &lineage, opened.fold.base_cut, &marks, complete, true)?;
-            rows.reverse();
-            return Ok((opened.fold.history_rev, rows, decor, complete));
-        }
+        self.history_with_decor(lane, id, want, None)
     }
 
     fn history_before(
@@ -1793,12 +2163,16 @@ impl ThreadStore for StoreThreads {
             let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
             let cut = opened.fold.base_cut;
-            let named = self.index.history_anchor_on_lane(lane, &lineage, cut, &anchor_iids(anchor), anchor).map_err(|e| internal("history", &e))?;
+            let (ids, alias) = match super::reads::history_cursor_iid(anchor) {
+                Some(iid) => (vec![iid.to_owned()], ""),
+                None => (anchor_iids(anchor), anchor),
+            };
+            let named = self.index.history_anchor_on_lane(lane, &lineage, cut, &ids, alias).map_err(|e| internal("history", &e))?;
             let Some(named) = named else {
                 return Ok(None);
             };
             // The named record first, then the `rows` older.
-            let Some((mut records, marks, complete)) = self.read_rows_marked(lane, id, &lineage, cut, Some(named.cursor), rows.saturating_add(1))? else {
+            let Some((mut records, marks, complete)) = self.read_rows_marked(lane, id, &lineage, cut, Some(named.cursor), rows.saturating_add(1), None)? else {
                 continue;
             };
             // The newest record is the cursor's own: what follows it belongs to the page that shows it.
@@ -1816,7 +2190,9 @@ impl ThreadStore for StoreThreads {
         };
         let record =
             log::read_frame(lane, &self.dir(id.as_str()), row.pos, row.frame_len).map_err(|e| Self::read_error(id, e))?;
-        let result = super::thread_ops::op_ref_of(&record).and_then(|o| o.result.as_ref()).map(|r| r.get().clone());
+        let op_ref = super::thread_ops::op_ref_of(&record);
+        let result = op_ref.and_then(|o| o.result.as_ref()).map(|r| r.get().clone());
+        let audience = op_ref.and_then(|o| o.audience.as_ref()).map(|a| a.as_str().to_owned());
         let detail = match &record {
             Record::Op(r) => match &r.detail {
                 Some(slot) => match self.resolve(lane, slot)? {
@@ -1827,7 +2203,13 @@ impl ThreadStore for StoreThreads {
             },
             _ => None,
         };
-        Ok(Some(StoredOp { method: row.method, digest: row.payload_digest, state: row.state, seq: row.pos.ordinal, result, detail }))
+        Ok(Some(StoredOp { method: row.method, digest: row.payload_digest, audience, state: row.state, seq: row.pos.ordinal, result, detail }))
+    }
+
+    fn submission(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, submission: &str) -> Result<Option<Value>, CoreError> {
+        self.wait(lane, self.projector.caught_up())?;
+        let _gate = self.read_gate();
+        self.index.submission_on_lane(lane, id.as_str(), submission).map_err(|e| internal("submission", &e))
     }
 
     fn fenced_ops(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError> {
@@ -2020,9 +2402,8 @@ impl ThreadStore for StoreThreads {
         // The read must see every row acked so far, as a context read does.
         self.wait(lane, self.projector.caught_up())?;
         let _gate = self.read_gate();
-        let opened = self.open(lane, id)?;
-        let lineage = self.lineage(lane, &opened.fold)?;
-        self.index.context_len_on_lane(lane, &lineage, opened.fold.base_cut).map_err(|e| internal("context", &e))
+        let shape = self.shape(lane, id)?;
+        self.index.context_len_on_lane(lane, &shape.lineage, shape.base_cut).map_err(|e| internal("context", &e))
     }
 
     fn context_from_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, skip: usize) -> Result<ContextRead, CoreError> {
@@ -2042,7 +2423,8 @@ impl ThreadStore for StoreThreads {
         self.wait(lane, self.index.mark_dirty(id.as_str()))
             .map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
         let writer = LogWriter::open(lane, opened, self.writer.clone()).map_err(|e| match e {
-            OpenAppendError::StoreDamaged(_) => BarrierError::failed("storeDamaged"),
+            // A fold that lost state with its blobs (mixdog-store FORMAT.md §4.5): read-only as a damaged log is.
+            OpenAppendError::StoreDamaged(_) | OpenAppendError::BodiesLost(_) => BarrierError::failed("storeDamaged"),
             OpenAppendError::Io(e) => BarrierError::Failed {
                 io_kind: e.op.to_string().into(),
                 cause: e.source.to_string().into(),
@@ -2113,324 +2495,295 @@ impl ThreadStore for StoreThreads {
     }
 }
 
-/// [`super::FeedFactory`] over WP-FEED's [`mixdog_core_base::feed::CoreFeed`]: one per actor instance,
-/// with the thread-feed limits (SPEC §3.1: `ringBytes` 4 MiB).
-pub struct CoreThreadFeeds {
-    pub limits: mixdog_core_base::feed::FeedLimits,
-    pub cpu: CpuInteractive,
+
+/// [`super::seams::SensitiveMarks`] over the process's sensitive-value store, with the bodies the store's projection
+/// redacted, as they were committed: thread → item id → body. Like the store's values, they stay for the life of the
+/// process (Node's loaded session holds the same text in memory, `sensitive-values.mjs:12`), and nothing writes them.
+pub struct SensitiveMarksOf {
+    store: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
+    held: std::sync::Mutex<std::collections::HashMap<String, std::collections::HashMap<String, Value>>>,
 }
-
-impl CoreThreadFeeds {
-    /// Thread feeds under the core's wire limits (`ringBytes`, `maxSnapshotBytes`); `cpu` runs
-    /// their snapshot encodes.
-    pub fn new(limits: &mixdog_app_protocol::limits::Limits, cpu: CpuInteractive) -> Self {
-        let bytes = |n: u64| usize::try_from(n).unwrap_or(usize::MAX);
-        Self {
-            limits: mixdog_core_base::feed::FeedLimits { ring_bytes: bytes(limits.ring_bytes), max_snapshot_bytes: bytes(limits.max_snapshot_bytes) },
-            cpu,
-        }
-    }
-}
-
-impl super::FeedFactory for CoreThreadFeeds {
-    fn thread_feed(
-        &self,
-        id: mixdog_core_api::ids::FeedId,
-        epoch: mixdog_core_api::ids::FeedEpoch,
-        view: Arc<dyn mixdog_core_api::FeedView>,
-    ) -> Arc<dyn mixdog_core_api::Feed> {
-        Arc::new(mixdog_core_base::feed::CoreFeed::new(id, epoch, view, self.limits, self.cpu))
-    }
-}
-
-/// A prompt as the row the prompt recompute reads (`prompt` only).
-fn prompt_row(text: String) -> ItemRecord {
-    ItemRecord {
-        iid: mixdog_store::schema::bounded::Id::try_from("prompt").expect("short"),
-        turn: None,
-        role: None,
-        form: mixdog_store::schema::record::Form::Message,
-        model: false,
-        visible: false,
-        archive: None,
-        op: None,
-        prompt: Some(Slot::Inline(text)),
-        refs: Vec::new().try_into().expect("empty list fits"),
-        body: Slot::Inline(serde_json::Value::Null),
-    }
-}
-
-#[cfg(test)]
-mod archived_tests {
-    use super::*;
-    use mixdog_store::schema::record::Form;
-
-    fn row(ordinal: u64, turn: &str, model: bool, archived: bool) -> HistoryRow {
-        HistoryRow {
-            session: "sess_a".into(),
-            ordinal,
-            iid: format!("i{ordinal}"),
-            turn: Some(turn.into()),
-            form: if model { Form::Message } else { Form::Display },
-            model,
-            pos: mixdog_store::schema::checkpoint::FramePos { ordinal, file_no: 0, offset: 0 },
-            frame_len: 0,
-            amend: None,
-            archived,
-            dropped_text: archived,
-            dropped_calls: Vec::new(),
-            kept: Vec::new(),
-            model_switches: Vec::new(),
-        }
+impl SensitiveMarksOf {
+    pub fn new(store: Arc<mixdog_services::memory::sensitive::SensitiveStore>) -> Self {
+        Self { store, held: std::sync::Mutex::default() }
     }
 
-    /// A restored window marks the rows a compaction took out: its model rows, and the end row of a turn none of whose messages
-    /// is left; a turn that kept a message stays live whole.
-    #[test]
-    fn a_window_marks_the_rows_a_compaction_took_out_and_the_end_of_a_turn_left_with_nothing() {
-        let rows = [
-            row(1, "t1", true, true),
-            row(2, "t1", false, false),
-            row(3, "t2", true, true),
-            row(4, "t2", true, false),
-            row(5, "t2", false, false),
-            row(6, "t3", true, false),
-            row(7, "t3", false, false),
-        ];
-        assert_eq!(archived_ordinals(&rows), vec![1, 2, 3]);
-    }
-}
-
-#[cfg(test)]
-mod projector_tests {
-    use super::*;
-    use mixdog_store::sqlite::SqliteStore;
-    use mixdog_store::summary::CatalogHead;
-
-    async fn index_in(data: &Path) -> SqliteStore {
-        let tokens = mixdog_rt::testing::tokens();
-        let root = data.to_path_buf();
-        mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
-            SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
-        })
-        .expect("lane")
-        .await
-        .expect("job ran")
-        .expect("index")
+    fn held_bodies(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, std::collections::HashMap<String, Value>>> {
+        self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn empty_projection(session: &str) -> Projection {
-        let head = CatalogHead { session: session.into(), log_id: "L".into(), base_session: None, header: serde_json::Map::new() };
-        Projection { session: session.into(), frames: Vec::new(), head, pins: Vec::new() }
-    }
-
-    /// What a list asks of the projector: pending from the moment a projection is queued until the index holds it, and nothing
-    /// to wait for (no future at all) when idle.
-    #[tokio::test]
-    async fn a_queued_projection_is_pending_until_the_index_holds_it() {
-        let data = crate::session::testing::DataDir::default();
-        let projector = Projector::spawn(data.index(index_in(data.path()).await));
-        assert!(projector.settle().is_none(), "idle");
-        projector.send(empty_projection("sess_ok"));
-        let wait = projector.settle().expect("a queued projection is pending");
-        wait.await;
-        assert!(projector.settle().is_none(), "the index holds it");
-    }
-
-    /// The projector queues every projection sent at the index writer, in barrier order, without waiting for the commits of those
-    /// before it (so the writer commits them in one transaction), and a list's wait still ends only once each one is committed.
-    #[tokio::test]
-    async fn the_projections_sent_are_all_queued_at_the_index_before_the_first_is_committed() {
-        let queued = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let (commit, committed) = tokio::sync::watch::channel(false);
-        let projector = Projector::spawn_with({
-            let queued = queued.clone();
-            move |projection: Projection| {
-                queued.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(projection.session);
-                let mut committed = committed.clone();
-                async move { Ok(async move { committed.wait_for(|done| *done).await.map(drop).map_err(|error| error.to_string()) }) }
+    /// `_withSensitiveHeaderRedacted` (`store/serialize.mjs`, the Node fix `node-fix-sensitive-header-summary.patch`): the
+    /// header fields that hold the conversation's text (the title, from the first prompt) or a tool call's arguments (the
+    /// repeat-failure guards keep each failed call's signature) take the marker. True when one changed.
+    fn header_redacted(&self, session: &str, header: &mut mixdog_store::schema::record::Header) -> bool {
+        let mut changed = false;
+        let mut text = |value: &mut Value| {
+            if let Value::String(text) = value {
+                let next = self.store.redact_text(session, text);
+                if next != *text {
+                    *text = next;
+                    changed = true;
+                }
             }
-        });
-        let sessions = ["sess_a", "sess_b", "sess_c"];
-        for session in sessions {
-            projector.send(empty_projection(session));
-        }
-        let mut wait = projector.settle().expect("the projections are pending");
-        crate::session::testing::awaiting(|| "every projection sent to be queued at the index".to_owned(), async {
-            while queued.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len() < sessions.len() {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await;
-        assert_eq!(*queued.lock().unwrap_or_else(std::sync::PoisonError::into_inner), sessions, "queued in barrier order");
-        assert!(futures::poll!(wait.as_mut()).is_pending(), "the list's wait ended before the commits");
-        assert!(projector.settle().is_some(), "none is committed yet");
-        commit.send_replace(true);
-        wait.await;
-        assert!(projector.settle().is_none(), "the index holds them all");
-    }
-
-    /// A projector whose task died (a panic while projecting) leaves its count of queued projections behind; a list must not wait
-    /// on it from then on: the wait that was pending ends, and no later list gets one.
-    #[tokio::test]
-    async fn a_projector_that_died_is_not_waited_on() {
-        let projector = Projector::spawn_with(|_| async { Ok(async { panic!("the projection panicked") }) });
-        projector.send(empty_projection("sess_lost"));
-        projector.settle().expect("a queued projection is pending").await;
-        assert!(projector.settle().is_none(), "a dead projector is waited on");
-    }
-
-    /// A session write the index failed to take is never answered as in the index: the wait after it (`ThreadStore::indexed`,
-    /// which a header patch awaits before it answers) fails with the reason, and keeps failing for that session, as the index
-    /// keeps lacking it until the next start re-projects it; another session's write that went in answers done.
-    #[tokio::test]
-    async fn a_write_the_index_failed_to_take_is_not_answered_as_indexed() {
-        let projector = Projector::spawn_with(|projection: Projection| {
-            let session = projection.session.clone();
-            async move { Ok(async move { if session == "sess_bad" { Err("disk I/O error".to_owned()) } else { Ok(()) } }) }
-        });
-        projector.send(empty_projection("sess_bad"));
-        projector.send(empty_projection("sess_ok"));
-        let failed = |result: Result<(), CoreError>| match result {
-            Err(CoreError::Internal { incident_id }) => assert!(incident_id.contains("index-write-failed") && incident_id.contains("sess_bad"), "{incident_id}"),
-            Ok(()) => panic!("a write the index did not take was answered as indexed"),
-            Err(other) => panic!("{other:?}"),
         };
-        failed(projector.indexed("sess_bad").await);
-        projector.indexed("sess_ok").await.expect("the write that went in");
-        failed(projector.indexed("sess_bad").await);
-    }
-
-    /// Once a later projection of the session goes in, the index holds its head again (a projection carries the whole header),
-    /// so the header waits after it answer done instead of failing until a restart.
-    #[tokio::test]
-    async fn a_session_the_index_took_again_is_answered_as_indexed() {
-        let refused = Arc::new(std::sync::atomic::AtomicBool::new(true));
-        let projector = Projector::spawn_with({
-            let refused = refused.clone();
-            move |_: Projection| {
-                let refuse = refused.swap(false, std::sync::atomic::Ordering::SeqCst);
-                async move { Ok(async move { if refuse { Err("disk I/O error".to_owned()) } else { Ok(()) } }) }
+        if let Some(title) = header.get_mut("title") {
+            text(title);
+        }
+        for key in ["_repeatFailGuard", "_repeatArgShapeFailGuard"] {
+            if let Some(sig) = header.get_mut(key).and_then(|guard| guard.get_mut("sig")) {
+                text(sig);
             }
-        });
-        projector.send(empty_projection("sess_bad"));
-        assert!(projector.indexed("sess_bad").await.is_err(), "the refused write");
-        projector.send(empty_projection("sess_bad"));
-        projector.indexed("sess_bad").await.expect("the index holds the session again");
+        }
+        if let Some(Value::Array(history)) = header.get_mut("_repeatFailHistory") {
+            history.iter_mut().for_each(&mut text);
+        }
+        changed
     }
 
-    /// The exact class's wait: behind a projection that never ends it still waits one tick before
-    /// [`FENCE_BOUND`](super::super::thread_list::FENCE_BOUND), and at the bound it fails, saying the index is behind; it never goes
-    /// on to read.
-    #[tokio::test(start_paused = true)]
-    async fn an_exact_read_behind_a_stuck_projection_fails_at_the_bound() {
-        let bound = super::super::thread_list::FENCE_BOUND;
-        let _clock = crate::session::testing::HeldClock::hold();
-        let projector = Projector::spawn_with(|_| std::future::ready(Ok(std::future::pending::<Result<(), String>>())));
-        projector.send(empty_projection("sess_stuck"));
-        let read = projector.caught_up();
-        tokio::pin!(read);
-        let mut polled = || read.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
-        assert!(polled().is_pending(), "the read did not wait for the queued projection");
-        tokio::time::advance(bound - std::time::Duration::from_millis(1)).await;
-        assert!(polled().is_pending(), "the read stopped waiting before the bound");
-        tokio::time::advance(std::time::Duration::from_millis(1)).await;
-        match polled() {
-            std::task::Poll::Ready(Err(CoreError::Internal { incident_id })) => assert!(incident_id.contains("index-behind"), "{incident_id}"),
-            other => panic!("at the bound the exact read answered {other:?}, not that the index is behind"),
+    /// Every string of an inline slot with the thread's values replaced; true when one changed.
+    fn text_redacted(&self, session: &str, slot: Option<&mut mixdog_store::schema::blob::Slot<Value>>) -> bool {
+        fn walk(store: &mixdog_services::memory::sensitive::SensitiveStore, session: &str, value: &mut Value) -> bool {
+            match value {
+                Value::String(text) => {
+                    let next = store.redact_text(session, text);
+                    let changed = next != *text;
+                    *text = next;
+                    changed
+                }
+                Value::Array(items) => items.iter_mut().fold(false, |changed, item| walk(store, session, item) | changed),
+                Value::Object(map) => map.values_mut().fold(false, |changed, item| walk(store, session, item) | changed),
+                Value::Null | Value::Bool(_) | Value::Number(_) => false,
+            }
+        }
+        match slot {
+            Some(mixdog_store::schema::blob::Slot::Inline(value)) => walk(&self.store, session, value),
+            _ => false,
         }
     }
 
-    /// Every exact read of the store (an operation's dedupe, the fences an activation restores, activation's window, prompt rows,
-    /// the whole history, the switch anchor's row, the compaction entry, the model's context, the purge) fails, saying the index is
-    /// behind, while an acknowledged write is still queued for the index past the bound: none answers absent, empty or stale. The
-    /// operation gate's read (`ThreadOpStore::get`) passes `thread_op`'s error on, so an acknowledged operation is never taken as
-    /// unseen. (The bound is zero here: the projection is stuck before any read starts.)
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn every_exact_read_fails_while_an_acknowledged_write_is_behind_the_bound() {
-        let data = crate::session::testing::DataDir::default();
-        let index = data.index(index_in(data.path()).await);
-        let tokens = mixdog_rt::testing::tokens();
-        let store = StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
-            .await
-            .expect("store");
-        let mut stuck = Projector::spawn_with(|_| std::future::ready(Ok(std::future::pending::<Result<(), String>>())));
-        stuck.bound = std::time::Duration::ZERO;
-        stuck.send(empty_projection("sess_a"));
-        let store = Arc::new(StoreThreads { projector: stuck, ..store });
-        let id = ThreadId::from("sess_a");
-        let reads = mixdog_rt::LaneToken::submit(tokens.interactive_io, &mixdog_rt::CancellationToken::new(), {
-            let store = store.clone();
-            move |lane| {
-                let failed = |result: Result<(), CoreError>| match result {
-                    Err(CoreError::Internal { incident_id }) if incident_id.contains("index-behind") => None,
-                    other => Some(format!("{other:?}")),
-                };
-                vec![
-                    ("thread_op", failed(ThreadStore::thread_op(&*store, lane, &id, "op-1").map(drop))),
-                    ("fenced_ops", failed(ThreadStore::fenced_ops(&*store, lane, &id).map(drop))),
-                    ("read_window", failed(ThreadStore::read_window(&*store, lane, &id, &HeadRead(Box::new(()))).map(drop))),
-                    ("user_rows", failed(ThreadStore::user_rows(&*store, lane, &id).map(drop))),
-                    ("history_rows", failed(ThreadStore::history_rows(&*store, lane, &id).map(drop))),
-                    ("history_row", failed(ThreadStore::history_row(&*store, lane, &id, "i-1").map(drop))),
-                    ("compaction_entry", failed(ThreadStore::compaction_entry(&*store, lane, &id, "i-1").map(drop))),
-                    ("context_io", failed(ThreadStore::context_io(&*store, lane, &id, None).map(drop))),
-                ]
+    /// `record` as the log stores it, and each message body it carries with the body as committed when the projection
+    /// changed it (`None`: stored as it is). `None` for a record stored as it is.
+    #[allow(clippy::type_complexity)]
+    fn projected(&self, session: &str, record: &mixdog_store::schema::record::Record) -> (Option<mixdog_store::schema::record::Record>, Vec<(String, Option<Value>)>) {
+        use mixdog_store::schema::blob::Slot;
+        use mixdog_store::schema::record::Record;
+        let mut out = record.clone();
+        // (item id, the body as committed when the projection changed it).
+        let mut bodies: Vec<(String, Option<Value>)> = Vec::new();
+        let mut project = |iid: &str, body: &mut Value| {
+            let next = self.store.redact_message(session, body);
+            if next == *body {
+                bodies.push((iid.to_owned(), None));
+            } else {
+                bodies.push((iid.to_owned(), Some(std::mem::replace(body, next))));
             }
-        })
-        .expect("lane")
-        .await
-        .expect("job ran");
-        let purge = ThreadStore::purge_deleted(&*store).await;
-        let mut answered: Vec<String> = reads.into_iter().filter_map(|(read, other)| other.map(|other| format!("{read}: {other}"))).collect();
-        if !matches!(&purge, Err(CoreError::Internal { incident_id }) if incident_id.contains("index-behind")) {
-            answered.push(format!("purge_deleted: {purge:?}"));
+        };
+        let mut prompt_changed = false;
+        match &mut out {
+            Record::Item(row) => {
+                if let Slot::Inline(body) = &mut row.body {
+                    project(row.iid.as_str(), body);
+                }
+                // The prompt-history text is the row's own text as it displays (`content`'s text): stored as its content is.
+                if let Some(Slot::Inline(prompt)) = &mut row.prompt
+                    && let Value::String(next) = self.store.redact_content(session, &Value::String(prompt.clone()))
+                    && next != *prompt
+                {
+                    *prompt = next;
+                    prompt_changed = true;
+                }
+            }
+            Record::Amend(amend) => {
+                if let Slot::Inline(body) = &mut amend.body {
+                    project(amend.iid.as_str(), body);
+                }
+            }
+            Record::Compacted(compacted) => {
+                if let Slot::Inline(entries) = &mut compacted.replacement {
+                    for entry in entries {
+                        project(&entry.iid, &mut entry.body);
+                    }
+                }
+            }
+            Record::Meta(meta) => {
+                if let Slot::Inline(change) = &mut meta.change {
+                    prompt_changed = self.header_redacted(session, &mut change.set);
+                }
+            }
+            Record::Session(start) => {
+                if let Slot::Inline(header) = &mut start.header {
+                    prompt_changed = self.header_redacted(session, header);
+                }
+            }
+            Record::Checkpoint(checkpoint) => {
+                if let Slot::Inline(state) = &mut checkpoint.state {
+                    prompt_changed = self.header_redacted(session, &mut state.header);
+                }
+            }
+            // Text that is no message: a run's failure detail, an op's error, an approval's request (a tool call's
+            // arguments) or decision, a queued message: every string of them takes the marker.
+            Record::Run(run) => prompt_changed = self.text_redacted(session, run.detail.as_mut()),
+            Record::Op(op) => prompt_changed = self.text_redacted(session, op.detail.as_mut()),
+            Record::Approval(approval) => prompt_changed = self.text_redacted(session, approval.body.as_mut()),
+            Record::Queue(queue) => prompt_changed = self.text_redacted(session, queue.entry.as_mut()),
+            Record::Draft(draft) => prompt_changed = self.text_redacted(session, Some(&mut draft.body)),
+            // A Stop's hand-back text is the prompt's.
+            Record::WorkStop(stop) => prompt_changed = self.text_redacted(session, stop.body.as_mut()),
+            // No text: positions, ids, a provider and model id.
+            Record::Rewind(_) | Record::ModelSwitch(_) => return (None, Vec::new()),
         }
-        assert!(answered.is_empty(), "exact reads that did not fail as behind: {answered:?}");
-    }
-
-    /// The index reads a store job makes on the read lane run on the job's own thread: a job never waits for a lane slot behind
-    /// itself. The lane here refuses every job submitted from inside the job, as a lane whose every thread is held and whose queue is
-    /// full refuses it; the reads still answer.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_store_read_inside_a_lane_job_takes_no_second_lane_slot() {
-        let data = crate::session::testing::DataDir::default();
-        let index = data.index(index_in(data.path()).await);
-        let tokens = mixdog_rt::testing::tokens();
-        let store = Arc::new(
-            StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
-                .await
-                .expect("store"),
-        );
-        let id = ThreadId::from("sess_unknown");
-        let (ops, fenced) = mixdog_rt::LaneToken::submit(tokens.interactive_io, &mixdog_rt::CancellationToken::new(), move |lane| {
-            let _held = mixdog_rt::testing::refuse_jobs_on_this_thread();
-            (ThreadStore::thread_op(&*store, lane, &id, "op-1").map(|op| op.is_none()), ThreadStore::fenced_ops(&*store, lane, &id))
-        })
-        .expect("lane")
-        .await
-        .expect("job ran");
-        assert!(ops.expect("thread_op read on the job's thread"), "an unknown thread recorded no op");
-        assert_eq!(fenced.expect("fenced_ops read on the job's thread"), Vec::<String>::new());
+        let changed = prompt_changed || bodies.iter().any(|(_, body)| body.is_some());
+        (changed.then_some(out), bodies)
     }
 }
+impl super::seams::SensitiveMarks for SensitiveMarksOf {
+    fn on_marked(&self, thread: &ThreadId, listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn Send> {
+        Box::new(self.store.on_marked(thread.as_str(), move |_| listener()))
+    }
 
-#[cfg(test)]
-mod anchor_tests {
-    use super::anchor_iids;
-    use crate::session::transcript::transcript_rows::Ids;
+    fn remember(&self, thread: &ThreadId, calls: &[Value]) -> bool {
+        self.store.remember(thread.as_str(), calls)
+    }
 
-    /// Every id a record's rows show names the record back: `Ids` numbers a live record's later rows from its 128-bit id, and
-    /// another record's by `<iid>:<n>`.
-    #[test]
-    fn a_rows_id_names_its_records_iid() {
-        for iid in ["itm_00000000000000000000000000000fff", "itm_ffffffffffffffffffffffffffffffff", "hist_ab12"] {
-            let mut ids = Ids::new(iid);
-            for part in 1..=40 {
-                let shown = ids.next();
-                assert!(anchor_iids(&shown).iter().any(|candidate| candidate == iid), "{iid} row {part} shows {shown}");
+    fn carry(&self, from: &ThreadId, to: &ThreadId) {
+        self.store.carry(from.as_str(), to.as_str());
+    }
+
+    fn on_carried(&self, listener: Box<dyn Fn(&ThreadId) + Send + Sync>) -> bool {
+        self.store.on_carried(move |session| listener(&ThreadId::from(session)))
+    }
+
+    fn restore(&self, thread: &ThreadId, values: &[String]) -> bool {
+        self.store.restore(thread.as_str(), values)
+    }
+
+    fn journal_with(&self, journal: Arc<dyn mixdog_services::memory::sensitive::MarkJournal>) -> bool {
+        self.store.journal_with(journal)
+    }
+
+    fn stored(&self, thread: &ThreadId, record: &mixdog_store::schema::record::Record) -> Option<mixdog_store::schema::record::Record> {
+        let session = thread.as_str();
+        // A thread with no marked value holds no redacted body either (both live for the process).
+        if self.store.version(session) == 0 {
+            return None;
+        }
+        let (out, bodies) = self.projected(session, record);
+        let mut held = self.held_bodies();
+        let thread_held = held.entry(session.to_owned()).or_default();
+        for (iid, body) in bodies {
+            match body {
+                Some(body) => {
+                    thread_held.insert(iid, body);
+                }
+                // A later body of the row (an amend) that holds no value is stored as it is and read as stored.
+                None => {
+                    thread_held.remove(&iid);
+                }
             }
         }
-        assert!(anchor_iids("itm_0000000000000000000000000000000a:model:12").contains(&"itm_0000000000000000000000000000000a".to_owned()));
+        out
+    }
+
+    fn version(&self, thread: &ThreadId) -> u64 {
+        self.store.version(thread.as_str())
+    }
+
+    fn redact_text(&self, thread: &ThreadId, text: &str) -> String {
+        self.store.redact_text(thread.as_str(), text)
+    }
+
+    fn rewriter<'a>(&'a self, thread: &ThreadId) -> Box<dyn FnMut(&mixdog_store::schema::record::Record) -> Option<mixdog_store::schema::record::Record> + 'a> {
+        let session = thread.as_str().to_owned();
+        // The rows whose body this pass took out; a later body of one of them that holds no value is read as stored.
+        let mut taken = std::collections::HashSet::new();
+        Box::new(move |record| {
+            if self.store.version(&session) == 0 {
+                return None;
+            }
+            let (out, bodies) = self.projected(&session, record);
+            let mut held = self.held_bodies();
+            let thread_held = held.entry(session.clone()).or_default();
+            for (iid, body) in bodies {
+                match body {
+                    // The record handed here may already be a stored copy (redacted for an earlier mark): the body the
+                    // first redaction kept, the committed one, stays.
+                    Some(body) => {
+                        thread_held.entry(iid.clone()).or_insert(body);
+                        taken.insert(iid);
+                    }
+                    None if taken.contains(&iid) => {
+                        thread_held.remove(&iid);
+                    }
+                    None => {}
+                }
+            }
+            out
+        })
+    }
+
+    fn redacted(&self, thread: &ThreadId, messages: &[Value]) -> Vec<Value> {
+        self.store.redact_messages(thread.as_str(), messages)
+    }
+
+    fn held(&self, thread: &ThreadId, rows: &mut [(ItemId, Value)]) {
+        let held = self.held_bodies();
+        let Some(bodies) = held.get(thread.as_str()) else {
+            return;
+        };
+        for (iid, body) in rows {
+            if let Some(full) = bodies.get(iid.as_str()) {
+                body.clone_from(full);
+            }
+        }
+    }
+
+    fn redact_settled(&self, thread: &ThreadId, text: &str) -> String {
+        self.store.redact_settled_text(thread.as_str(), text)
+    }
+}
+/// [`super::seams::CloseIngest`] over the memory module's `ingest_session` action; `None` when
+/// memory was not started this run. A session whose runtime never loaded the module (today's
+/// `getMemoryModPromise()` returning null: no recall or memory call since it was opened) is not
+/// ingested, its turns reach memory through the transcript watcher alone. The messages
+/// go out with the session's sensitive values redacted, as its log is written
+/// (`node-fix-memory-sensitive.patch`: 1.4.5 fed them in plain text).
+pub struct MemoryCloseIngest {
+    memory: Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>,
+    sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
+}
+impl MemoryCloseIngest {
+    /// Over the memory module the daemon started (`LocalMemory`), or `None` when memory is off.
+    pub fn new(
+        memory: Option<Arc<dyn mixdog_services::memory::service::MemoryModule>>,
+        sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
+    ) -> Self {
+        Self { memory, sensitive }
+    }
+}
+impl super::seams::CloseIngest for MemoryCloseIngest {
+    fn ingest(&self, id: &ThreadId, cwd: &str, messages: Vec<Value>) -> futures::future::BoxFuture<'static, ()> {
+        let Some(memory) = self.memory.clone() else {
+            return Box::pin(async {});
+        };
+        // Taken at every close, as the runtime that held the module ends with it.
+        let loaded = memory.take_session_use(id.as_str());
+        if !loaded || std::env::var("MIXDOG_DISABLE_MEMORY_INGEST").as_deref() == Ok("1") || messages.is_empty() {
+            return Box::pin(async {});
+        }
+        // `session.cwd || getCurrentCwd()`.
+        let cwd = if cwd.is_empty() {
+            std::env::current_dir().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default()
+        } else {
+            cwd.to_owned()
+        };
+        let args = serde_json::json!({
+            "action": "ingest_session",
+            "sessionId": id.as_str(),
+            "cwd": cwd,
+            "messages": self.sensitive.redact_messages(id.as_str(), &messages),
+        });
+        Box::pin(async move {
+            memory.memory(args).await;
+        })
     }
 }

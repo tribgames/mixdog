@@ -172,40 +172,9 @@ mod tests {
     /// The one deadline of every wait in these tests.
     const DEADLINE: Duration = Duration::from_secs(30);
 
-    /// Awaits `task` for the deadline; a timeout names `what`.
-    async fn within<T>(what: &str, task: impl std::future::Future<Output = T>) -> T {
-        mixdog_rt::time::timeout(DEADLINE, task).await.unwrap_or_else(|_| panic!("timed out after {DEADLINE:?} waiting for {what}"))
-    }
-
     /// Receives from `channel` for the deadline; a timeout names `what`.
     fn receive<T>(what: &str, channel: &mpsc::Receiver<T>) -> T {
         channel.recv_timeout(DEADLINE).unwrap_or_else(|e| panic!("{e} after {DEADLINE:?} waiting for {what}"))
-    }
-
-    /// A wait that never ends fails at its deadline, naming what it waited for (on the paused clock, which jumps to it).
-    #[tokio::test(start_paused = true)]
-    async fn a_wait_past_its_deadline_fails_naming_what_it_waits_for() {
-        use futures::FutureExt as _;
-        let failed = std::panic::AssertUnwindSafe(within("a task that never ends", std::future::pending::<()>())).catch_unwind().await;
-        let message = failed.expect_err("the wait has a deadline").downcast::<String>().expect("a formatted message");
-        assert!(message.contains("a task that never ends") && message.contains("30s"), "{message}");
-    }
-
-    /// Work of a replay that moves off the replay's thread (here to the runtime's blocking pool) draws from the replay's
-    /// script, in order, and a draw past its end fails loudly.
-    #[test]
-    fn work_that_moves_off_the_replay_thread_draws_from_its_script() {
-        super::run_scoped(async {
-            super::script([vec![7; 8], vec![8; 8]]);
-            super::script_jitter([(0.5, 0.5)]);
-            let moved = within("a draw on the blocking pool", tokio::task::spawn_blocking(|| (super::bytes::<8>(), super::jitter())))
-                .await
-                .expect("a draw on the blocking pool");
-            assert_eq!(moved, ([7; 8], Some((0.5, 0.5))));
-            assert_eq!(super::bytes::<8>(), [8; 8]);
-            let past = within("a draw past the script", tokio::task::spawn_blocking(super::bytes::<8>)).await.expect_err("a draw past the script panics");
-            assert!(past.into_panic().downcast_ref::<String>().is_some_and(|m| m.contains("past the end")));
-        });
     }
 
     /// Blocking work still running when the replay's future has ended finishes inside the replay's scope: it draws the
@@ -226,6 +195,35 @@ mod tests {
         assert_eq!(receive("the escaping task's draw", &outcome), [9; 8]);
     }
 
+
+    /// Awaits `task` for the deadline; a timeout names `what`.
+    async fn within<T>(what: &str, task: impl std::future::Future<Output = T>) -> T {
+        mixdog_rt::time::timeout(DEADLINE, task).await.unwrap_or_else(|_| panic!("timed out after {DEADLINE:?} waiting for {what}"))
+    }
+    /// A wait that never ends fails at its deadline, naming what it waited for (on the paused clock, which jumps to it).
+    #[tokio::test(start_paused = true)]
+    async fn a_wait_past_its_deadline_fails_naming_what_it_waits_for() {
+        use futures::FutureExt as _;
+        let failed = std::panic::AssertUnwindSafe(within("a task that never ends", std::future::pending::<()>())).catch_unwind().await;
+        let message = failed.expect_err("the wait has a deadline").downcast::<String>().expect("a formatted message");
+        assert!(message.contains("a task that never ends") && message.contains("30s"), "{message}");
+    }
+    /// Work of a replay that moves off the replay's thread (here to the runtime's blocking pool) draws from the replay's
+    /// script, in order, and a draw past its end fails loudly.
+    #[test]
+    fn work_that_moves_off_the_replay_thread_draws_from_its_script() {
+        super::run_scoped(async {
+            super::script([vec![7; 8], vec![8; 8]]);
+            super::script_jitter([(0.5, 0.5)]);
+            let moved = within("a draw on the blocking pool", tokio::task::spawn_blocking(|| (super::bytes::<8>(), super::jitter())))
+                .await
+                .expect("a draw on the blocking pool");
+            assert_eq!(moved, ([7; 8], Some((0.5, 0.5))));
+            assert_eq!(super::bytes::<8>(), [8; 8]);
+            let past = within("a draw past the script", tokio::task::spawn_blocking(super::bytes::<8>)).await.expect_err("a draw past the script panics");
+            assert!(past.into_panic().downcast_ref::<String>().is_some_and(|m| m.contains("past the end")));
+        });
+    }
     /// Two replays scripting their draws at the same time each draw their own, and a thread outside both draws fresh
     /// without failing while both hold scripts.
     #[test]

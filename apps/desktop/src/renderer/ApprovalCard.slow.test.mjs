@@ -118,17 +118,17 @@ test('an outbound post: a centred question, the target, the editable text and �
     assert.equal(prompt.getAttribute('role'), 'alertdialog');
     assert.equal(ui.doc.getElementById(prompt.getAttribute('aria-labelledby')).textContent, 'Post this comment?');
     assert.equal(ui.doc.querySelector('.approval-preview-main').textContent, '22nsuk/mixdog#120');
-    assert.deepEqual(ui.rows(), ['Deny', 'Always allow', 'Allow just once']);
+    assert.deepEqual(ui.rows(), ['Deny', 'Allow for this agent', 'Allow just once']);
     assert.equal(ui.row(2).dataset.tone, 'primary');
     assert.equal(ui.doc.activeElement, ui.row(2), 'the allow takes focus when nothing holds it');
     assert.deepEqual(
       [...ui.doc.querySelectorAll('.approval-kbd')].map((chip) => chip.textContent),
       ['Esc', 'Enter']
     );
-    // No text lines under the card (reason, note, scope): what "Always allow"
+    // No text lines under the card (reason, note, scope): what "Allow for this agent"
     // changes is that button's tooltip; the others keep their label.
     assert.equal(ui.doc.querySelector('.approval-reason, .approval-note, .approval-scope'), null);
-    assert.equal(ui.button('Always allow').title, "With Always allow, github-watcher's Post a comment won't ask again");
+    assert.equal(ui.button('Allow for this agent').title, "github won't ask again for github-watcher, in any conversation");
     assert.equal(ui.button('Allow just once').title, 'Allow just once');
     const box = ui.doc.querySelector('.approval-edit textarea');
     await ui.type(box, 'Edited text');
@@ -149,7 +149,7 @@ test('a coding session shows only the LEAD mark; a bot chat shows the bot', asyn
   try {
     assert.ok(ui.doc.querySelector('.approval-face .approval-lead-mark'));
     assert.equal(ui.requester(), undefined);
-    assert.equal(ui.button('Always allow').title, "With Always allow, Lead's Post a comment won't ask again");
+    assert.equal(ui.button('Allow for this agent').title, "github won't ask again for Lead, in any conversation");
   } finally {
     await ui.done();
   }
@@ -167,10 +167,10 @@ test('a bot connector-tool ask offers 항상 허용 naming that tool; without re
   const c = card({ ...ask, remember: ['once', 'agent'] });
   let ui = await mount(c.element);
   try {
-    assert.deepEqual(ui.rows(), ['Deny', 'Always allow', 'Allow just once']);
-    assert.match(ui.button('Always allow').title, /github-watcher's create_page \(notion\)/);
+    assert.deepEqual(ui.rows(), ['Deny', 'Allow for this agent', 'Allow just once']);
+    assert.match(ui.button('Allow for this agent').title, /create_page \(notion\) won't ask again for github-watcher/);
     assert.equal(ui.doc.querySelector('.approval-service').textContent, 'Notion');
-    await ui.click(ui.button('Always allow'));
+    await ui.click(ui.button('Allow for this agent'));
     assert.deepEqual(c.decisions, [{ approved: true, remember: 'agent' }]);
   } finally {
     await ui.done();
@@ -209,8 +209,8 @@ test("a held request row offers the scopes the gate gave it: a room seat's row c
     },
   };
   try {
-    assert.deepEqual(ui.rows(), ['Deny', 'Always allow', 'Allow just once']);
-    await ui.click(ui.button('Always allow'));
+    assert.deepEqual(ui.rows(), ['Deny', 'Allow for this agent', 'Allow just once']);
+    await ui.click(ui.button('Allow for this agent'));
     assert.deepEqual(answers, [['sess_home_github-watcher', 'held_1', { approved: true, remember: 'agent' }]]);
   } finally {
     delete dom.window.mixdogDesktop;
@@ -237,7 +237,7 @@ test('항상 허용 resolves with the agent scope and shows no toast', async () 
   const c = card({ ...comment, id: 'a2' });
   const ui = await mount(c.element);
   try {
-    await ui.click(ui.button('Always allow'));
+    await ui.click(ui.button('Allow for this agent'));
     assert.deepEqual(c.decisions, [{ approved: true, remember: 'agent' }]);
     assert.deepEqual(toasts, []);
   } finally {
@@ -511,15 +511,16 @@ test('Always allow is never the initial focus nor the default Enter; a focused o
   );
   const remembered = card({ ...comment, id: 'r1', remember: ['once', 'agent'] });
   for (const c of [permission, remembered]) {
+    const grant = c === permission ? 'Always allow' : 'Allow for this agent';
     const ui = await mount(c.element);
     try {
-      assert.deepEqual(ui.rows(), ['Deny', 'Always allow', 'Allow just once']);
+      assert.deepEqual(ui.rows(), ['Deny', grant, 'Allow just once']);
       assert.equal(ui.doc.activeElement, ui.row(2), 'initial focus is Allow just once');
-      assert.notEqual(ui.doc.activeElement, ui.button('Always allow'));
+      assert.notEqual(ui.doc.activeElement, ui.button(grant));
       await settle();
       assert.notEqual(
         ui.doc.activeElement,
-        ui.button('Always allow'),
+        ui.button(grant),
         'nothing moves focus there after the settle window'
       );
       ui.doc.activeElement.blur();
@@ -538,7 +539,7 @@ test('Always allow is never the initial focus nor the default Enter; a focused o
   const ui = await mount(c.element);
   try {
     await settle();
-    const always = ui.button('Always allow');
+    const always = ui.button('Allow for this agent');
     always.focus();
     for (const [type, key] of [
       ['keydown', 'Enter'],
@@ -583,7 +584,7 @@ test('a permission request: the narrowest once option wins, ties go to the first
     await ui.done();
   }
 });
-test('a takeover waits for "human control ready": "Stopping the agent…" cannot be chosen until this PC reports it', async () => {
+test('a takeover shows Done from the start, choosable once this PC reports the agent stopped; no deadline', async () => {
   const previous = dom.window.mixdogDesktop;
   let markReady;
   const asked = [];
@@ -600,19 +601,22 @@ test('a takeover waits for "human control ready": "Stopping the agent…" cannot
     name: 'ask_user',
     kind: 'takeover',
     sessionId: 'sess-r',
+    requestedAt: Date.now(),
     takeover: { surface: 'browser', instructions: 'Sign in', target: 'shop login', tab: 'p2' },
   });
   const ui = await mount(c.element);
   try {
     assert.deepEqual(asked, [['sess-r', 't-ready']]);
-    assert.equal(ui.rows()[1], 'Stopping the agent…');
+    assert.equal(ui.rows()[1], 'Done');
     assert.equal(ui.row(1).disabled, true);
+    assert.equal(ui.doc.querySelector('.approval-queue').textContent, '', 'a takeover shows no deadline');
     await settle();
     ui.doc.activeElement?.blur();
     await ui.key('Enter', {}, ui.doc.body);
-    assert.equal(ui.rows()[1], 'Stopping the agent…', 'the key cannot start it either');
+    assert.deepEqual(c.decisions, [], 'the key cannot finish it before the agent stopped');
     await act(async () => markReady(true));
     assert.equal(ui.rows()[1], 'Done');
+    assert.equal(ui.row(1).disabled, false);
     assert.deepEqual(c.decisions, [], 'done never comes from readiness alone');
     await ui.click(ui.row(1));
     assert.deepEqual(c.decisions, [{ approved: true, response: 'done' }]);
@@ -845,7 +849,7 @@ test('a login card waits for the agent to stop before 로그인하기 can open a
   const c = card(loginTakeover('l3'));
   const ui = await mount(c.element);
   try {
-    assert.equal(ui.rows()[1], 'Stopping the agent…');
+    assert.equal(ui.rows()[1], 'Sign in…');
     assert.equal(ui.row(1).disabled, true);
     await settle();
     ui.doc.activeElement?.blur();
@@ -853,6 +857,7 @@ test('a login card waits for the agent to stop before 로그인하기 can open a
     assert.deepEqual(desktop.calls, []);
     await act(async () => markReady(true));
     assert.equal(ui.rows()[1], 'Sign in…');
+    assert.equal(ui.row(1).disabled, false);
     const inCard = ui.doc.querySelector('.approval-prompt');
     inCard.focus();
     await ui.key('Escape', {}, inCard);
@@ -930,14 +935,26 @@ test('the phone never takes a secret: "PC에서 입력하세요" with Cancel, no
   }
 });
 
-test('a phone whose secret call fails says so, keeps the card open and sends no decision', async () => {
+test('a decision that could not be recorded says so without naming the app, and the card stays answerable', async () => {
+  const c = card(comment, { resolve: async () => undefined });
+  const ui = await mount(c.element);
+  try {
+    await ui.click(ui.button('Allow just once'));
+    const text = ui.doc.querySelector('.error-notice, [role="alert"]')?.textContent || '';
+    assert.equal(text, 'This decision could not be saved. Please try again.');
+    assert.doesNotMatch(text, /Mixdog/);
+    assert.equal(ui.button('Allow just once').disabled, false, 'an unrecorded decision can be tried again');
+  } finally {
+    await ui.done();
+  }
+});
+test('a failed desktop secret submission keeps the card open and sends no decision', async () => {
   const previous = dom.window.mixdogDesktop;
   const attempts = [];
-  // The remote shim's provideSecretInput rejects when the leg drops or the PC is older.
   dom.window.mixdogDesktop = {
     provideSecretInput: async (requestId, value) => {
       attempts.push([requestId, value]);
-      throw new Error('mixdog remote connection interrupted');
+      throw new Error('desktop core connection interrupted');
     },
     readSettings: async () => ({}),
   };
@@ -1047,17 +1064,45 @@ test('a sign-in whose saveChatLogins loads off never sends the save slot', async
   ]);
 });
 
-test('a sign-in whose settings read fails reports it and never sends the save slot', async () => {
-  const { provided, diagnostics, id } = await submitLoginWith(async () => {
+test('a sign-in whose settings read fails never sends the save slot', async () => {
+  const { provided, id } = await submitLoginWith(async () => {
     throw new TypeError('settings unreadable');
   });
   assert.deepEqual(provided, [
     [`${id}-username`, 'data-team'],
     [id, 'pw-123'],
   ]);
-  assert.equal(diagnostics.length, 1);
-  assert.equal(diagnostics[0].phase, 'unhandled-rejection');
-  assert.equal(diagnostics[0].errorName, 'TypeError');
+});
+
+test('a failed saveChatLogins read offers no save box (never an "off" one) until an announcement reads the setting', async () => {
+  const previous = dom.window.mixdogDesktop;
+  const desktop = secretDesktop();
+  const listeners = new Set();
+  let read = async () => {
+    throw new Error('core not ready');
+  };
+  dom.window.mixdogDesktop = {
+    ...desktop.api,
+    readSettings: () => read(),
+    subscribeSettingsChanged: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const c = card(secretRequest('s11', { origin: 'https://www.dart.fss.or.kr', form: 'login' }));
+  const ui = await mount(c.element);
+  try {
+    assert.equal(ui.doc.querySelector('.approval-check input'), null, 'unknown is not shown as off');
+    read = async () => ({});
+    await act(async () => {
+      for (const listener of [...listeners]) listener({ scope: 'desktop' });
+      await new Promise((done) => setTimeout(done, 0));
+    });
+    assert.equal(ui.doc.querySelector('.approval-check input').checked, true, 'the stored default (on) once it arrives');
+  } finally {
+    dom.window.mixdogDesktop = previous;
+    await ui.done();
+  }
 });
 
 test('a sign-in whose saveChatLogins loads on sends the save slot', async () => {
@@ -1247,7 +1292,7 @@ test('a secret or sign-in card in the chat that delegated it names the asking se
   }
 });
 
-test('the top-left says how long is left: a secret by its expiry, a takeover 15 minutes from when it was asked', async () => {
+test('the top-left says how long a secret has left by its expiry; a takeover shows none', async () => {
   const { deadlineText } = await import('./approval-prompt.tsx');
   assert.equal(deadlineText(15 * 60_000), 'Within 15 min');
   assert.equal(deadlineText(61_000), 'Within 2 min');
@@ -1262,7 +1307,7 @@ test('the top-left says how long is left: a secret by its expiry, a takeover 15 
   }
   ui = await mount(card(loginTakeover('t2', { requestedAt: Date.now() })).element);
   try {
-    assert.equal(ui.doc.querySelector('.approval-queue').textContent, 'Within 15 min');
+    assert.equal(ui.doc.querySelector('.approval-queue').textContent, '');
   } finally {
     dom.window.mixdogDesktop = previous;
     await ui.done();
@@ -2133,7 +2178,7 @@ test("the runtime's known reasons read in the UI language; an agent's own reason
   const { approvalReasonText } = await import('./ApprovalCard.tsx');
   const { readFileSync, readdirSync } = await import('node:fs');
   const known = [
-    'This sends or posts outside Mixdog; it needs your approval.',
+    'This sends or posts on your behalf; it needs your approval.',
     "This agent's permission blocks this action.",
     'This connector tool is set to ask before it runs for this agent.',
   ];
@@ -2222,8 +2267,8 @@ test("a sub-agent's request shown in the top-level chat names its chain, links i
     assert.equal(ui.doc.querySelector('.approval-chip').title, '사무관 › Worker');
     await ui.click(ui.doc.querySelector('.approval-who .approval-link'));
     assert.deepEqual(opened, ['sess_sub']);
-    assert.match(ui.button('Always allow').title, /github-watcher's Post a comment/);
-    await ui.click(ui.button('Always allow'));
+    assert.match(ui.button('Allow for this agent').title, /github won't ask again for github-watcher/);
+    await ui.click(ui.button('Allow for this agent'));
     assert.deepEqual(c.decisions, [{ approved: true, remember: 'agent' }]);
   } finally {
     await ui.done();

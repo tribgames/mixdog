@@ -124,6 +124,16 @@ impl Atspi {
         Ok(Atspi { bus })
     }
 
+    /// One AT-SPI request that changes the application (an action, a text or value write, a selection): handed over to the
+    /// provider by the executor's port; its answer is data. Reads go through `call`.
+    fn act<B, R>(&self, node: &Ref, interface: &str, method: &str, body: &B) -> Result<R, String>
+    where
+        B: serde::Serialize + DynamicType,
+        R: for<'d> serde::Deserialize<'d> + Type,
+    {
+        super::port::atspi_act(&self.bus, node, interface, method, body)
+    }
+
     fn call<B, R>(&self, node: &Ref, interface: &str, method: &str, body: &B) -> Result<R, String>
     where
         B: serde::Serialize + DynamicType,
@@ -274,7 +284,7 @@ impl Atspi {
             .iter()
             .find_map(|wanted| actions.iter().position(|name| name == wanted))
             .unwrap_or(0);
-        let done: bool = self.call(node, ACTION, "DoAction", &(index as i32,))?;
+        let done: bool = self.act(node, ACTION, "DoAction", &(index as i32,))?;
         done.then_some(())
             .ok_or_else(|| format!("a11y_action_failed: '{}' was refused", actions[index]))
     }
@@ -475,7 +485,7 @@ impl Atspi {
         &self,
         window: &WindowInfo,
         path: &[String],
-        authorize: &dyn Fn() -> Result<(), String>,
+        authorize: crate::platform::Authorize<'_>,
     ) -> Result<MenuOutcome, String> {
         let frame = self.frame_for(window)?;
         let bar = self
@@ -533,7 +543,7 @@ impl Atspi {
                     "menu_item_not_invokable: '{segment}' opens a submenu; name one of its entries"
                 ));
             }
-            authorize()?;
+            let _commit = authorize()?;
             self.do_action(item, &["click", "activate", "press"])
                 .map_err(|error| format!("menu_item_not_invokable: '{segment}': {error}"))?;
             return Ok(MenuOutcome {
@@ -648,7 +658,7 @@ impl Element for AtspiElement {
         if self.has_interface(EDITABLE_TEXT) {
             let done: bool =
                 self.atspi
-                    .call(&self.node, EDITABLE_TEXT, "SetTextContents", &(text,))?;
+                    .act(&self.node, EDITABLE_TEXT, "SetTextContents", &(text,))?;
             return done
                 .then_some(())
                 .ok_or_else(|| "a11y_value_failed: the text was refused".to_string());
@@ -657,7 +667,7 @@ impl Element for AtspiElement {
             .trim()
             .parse()
             .map_err(|_| format!("a11y_value_failed: '{text}' is not a number for this control"))?;
-        self.atspi.call::<_, ()>(
+        self.atspi.act::<_, ()>(
             &self.node,
             PROPERTIES,
             "Set",
@@ -677,7 +687,7 @@ impl Element for AtspiElement {
             .call(&self.node, ACCESSIBLE, "GetIndexInParent", &())?;
         let done: bool = self
             .atspi
-            .call(&parent, SELECTION, "SelectChild", &(index,))?;
+            .act(&parent, SELECTION, "SelectChild", &(index,))?;
         done.then_some(())
             .ok_or_else(|| "a11y_action_failed: selection was refused".to_string())
     }
@@ -706,7 +716,7 @@ impl Element for AtspiElement {
             };
             let step = ((maximum - minimum) * 0.05).max(1.0);
             let target = (before + increments as f64 * step).clamp(minimum, maximum);
-            self.atspi.call::<_, ()>(
+            self.atspi.act::<_, ()>(
                 &bar,
                 PROPERTIES,
                 "Set",

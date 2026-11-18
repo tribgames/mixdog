@@ -1,5 +1,14 @@
 import { X } from 'lucide-react';
-import { type KeyboardEvent, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 
 import { useComposerIslandTab } from './composer-island-state';
@@ -12,6 +21,7 @@ import { MxIcon } from './MxIcon';
 import { useMobileBack } from './mobile-back';
 import { acquireModalLayer } from './modal-layer';
 import { RowOverflowMenu } from './RowOverflowMenu';
+import { useRowWindow, windowedRows } from './source-control-support';
 import { useSurfaceActive } from './surface-activity';
 import {
   SESSION_CHANGES_SOURCES,
@@ -25,6 +35,11 @@ import { bumpTurnChangesEpoch } from './turn-changes-model';
 import type { TurnReviewFileEntry } from './turn-review-model';
 
 const MENU_ITEM = "[role='menuitem']:not(:disabled)";
+/** `.turn-review-files-row`'s desktop height (15-composer.css); the open list
+ *  learns the real one (the touch row on a phone) from its first row. */
+const FILE_ROW_PX = 26;
+/** Delete history and View changes, after the file rows in the menu's order. */
+const FOOT_ITEMS = 2;
 const runningTurnNotice = () =>
   new Error(t("Change history can't be deleted while a response is running. Try again after it finishes."));
 /** The source picker's menu is a body portal: presses and keys there belong to it. */
@@ -112,6 +127,52 @@ export function TurnReviewFilesMenu({
   const surfaceActive = useSurfaceActive();
   // A segment that leaves (its files went away) takes its open tab with it.
   useEffect(() => () => setOpenRef.current(false), []);
+  // The list mounts only the rows in or near its viewport (any file count);
+  // spacers keep the whole list's scroll height.
+  // Once per file list (a data change): its rows and where each path is.
+  const { entries, indexOf } = useMemo(() => {
+    const listed = [...files.entries()];
+    return { entries: listed, indexOf: new Map(listed.map(([path], index) => [path, index])) };
+  }, [files]);
+  const list = useRef<HTMLDivElement>(null);
+  const [rowHeight, setRowHeight] = useState(FILE_ROW_PX);
+  const rowWindow = useRowWindow(list, rowHeight, entries.length, open, '');
+  // The row holding focus, and the one a key press moves focus to, stay
+  // mounted wherever the list is scrolled; held by path, so new files
+  // arriving above never move the pin to another file.
+  const [focusedPath, setFocusedPath] = useState('');
+  const [focusRequest, setFocusRequest] = useState('');
+  // The row box (26px, the 44px touch row): read from a drawn row after every
+  // commit that has one — the list filling in, a layout change re-rendering
+  // it — and whenever that row's box changes size.
+  const sizedRow = useRef<{ row: Element; observer: ResizeObserver | null } | null>(null);
+  useLayoutEffect(() => {
+    if (!open) {
+      if (focusedPath) setFocusedPath('');
+      return;
+    }
+    const row = list.current?.querySelector('.turn-review-files-row') ?? null;
+    if (!row) return;
+    const learn = () => {
+      const height = row.getBoundingClientRect().height;
+      if (height > 0) setRowHeight((current) => (Math.abs(height - current) > 0.5 ? height : current));
+    };
+    learn();
+    if (sizedRow.current?.row === row) return;
+    sizedRow.current?.observer?.disconnect();
+    const Observer = typeof window.ResizeObserver === 'function' ? window.ResizeObserver : null;
+    const observer = Observer ? new Observer(learn) : null;
+    observer?.observe(row);
+    sizedRow.current = { row, observer };
+  });
+  useEffect(() => () => sizedRow.current?.observer?.disconnect(), []);
+  // The requested row is in this commit (the request pins it): focus it.
+  useLayoutEffect(() => {
+    if (!focusRequest) return;
+    setFocusRequest('');
+    const index = indexOf.get(focusRequest);
+    list.current?.querySelector<HTMLButtonElement>(`[data-index="${index}"]`)?.focus({ preventScroll: true });
+  }, [focusRequest, indexOf]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: setOpen is rebuilt each render; the listeners only rebind when the tab opens or closes
   useEffect(() => {
@@ -157,18 +218,79 @@ export function TurnReviewFilesMenu({
       close(false);
       return;
     }
-    const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>(MENU_ITEM) ?? [])];
-    if (!entries.length) return;
-    const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
+    // The menu's order: every file row (mounted or not), then the foot.
+    const foot = [
+      ...(panel.current?.querySelectorAll<HTMLButtonElement>(`.turn-review-files-foot ${MENU_ITEM}`) ?? []),
+    ];
+    const total = entries.length + foot.length;
+    if (!total) return;
+    const active = document.activeElement as HTMLElement | null;
+    const row = active?.closest<HTMLElement>('.turn-review-files-row[data-index]');
+    const footIndex = foot.indexOf(active as HTMLButtonElement);
+    let current = 0;
+    if (row) current = Number(row.dataset.index);
+    else if (footIndex >= 0) current = entries.length + footIndex;
     let next: number;
-    if (event.key === 'ArrowDown') next = (current + 1) % entries.length;
-    else if (event.key === 'ArrowUp') next = (current - 1 + entries.length) % entries.length;
+    if (event.key === 'ArrowDown') next = (current + 1) % total;
+    else if (event.key === 'ArrowUp') next = (current - 1 + total) % total;
     else if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = entries.length - 1;
+    else if (event.key === 'End') next = total - 1;
     else return;
     event.preventDefault();
-    entries[next]?.focus();
+    if (next >= entries.length) {
+      foot[next - entries.length]?.focus();
+      return;
+    }
+    // Scroll the row into the list's view; the request mounts it (wherever the
+    // window is) and focuses it in the same commit.
+    const scroller = list.current;
+    if (scroller) {
+      const top = next * rowHeight;
+      if (top < scroller.scrollTop) scroller.scrollTop = top;
+      else if (top + rowHeight > scroller.scrollTop + scroller.clientHeight)
+        scroller.scrollTop = top + rowHeight - scroller.clientHeight;
+    }
+    setFocusRequest(entries[next]?.[0] ?? '');
   };
+  const menuSize = entries.length + FOOT_ITEMS;
+  const fileRow = (index: number) => {
+    const [path, entry] = entries[index] as [string, TurnReviewFileEntry];
+    const clean = path.replace(/\\/g, '/');
+    const slash = clean.lastIndexOf('/');
+    return (
+      <button
+        key={path}
+        type="button"
+        role="menuitem"
+        className="turn-review-files-row"
+        data-index={index}
+        aria-posinset={index + 1}
+        aria-setsize={menuSize}
+        title={clean}
+        onFocus={() => setFocusedPath(path)}
+        onPointerDown={() => prefetchSessionChanges(sessionId, { paneKey, focusPath: path })}
+        onClick={() => {
+          close(false);
+          onOpenFile(path);
+        }}
+      >
+        <span className="turn-review-files-path">
+          {slash >= 0 && <span className="turn-review-files-dir">{clean.slice(0, slash + 1)}</span>}
+          {clean.slice(slash + 1)}
+        </span>
+        {entry.lineStats && (
+          <span className="diff-stats">
+            {entry.additions > 0 && <i>+{entry.additions}</i>}
+            {entry.additions > 0 && entry.deletions > 0 && ' '}
+            {entry.deletions > 0 && <em>−{entry.deletions}</em>}
+          </span>
+        )}
+      </button>
+    );
+  };
+  // The window plus the pinned rows, resolved from their paths to where they are now.
+  const pinned = [focusedPath, focusRequest].map((path) => (path ? (indexOf.get(path) ?? -1) : -1));
+  const listNodes = windowedRows(rowWindow, entries.length, pinned, fileRow);
   const deleteHistory = async () => {
     // The segment counts the selected Changes source. A Git root's sources
     // (uncommitted, branch, staged…) read the working tree, which deleting
@@ -242,37 +364,8 @@ export function TurnReviewFilesMenu({
             {/* A source picked here with no files keeps the menu, saying so. */}
             {files.size === 0 && <p className="turn-review-files-empty">{ready ? emptyText : ''}</p>}
             {/* Every changed file in one scrolling list; a row opens its diff. */}
-            <div className="turn-review-files-list">
-              {[...files.entries()].map(([path, entry]) => {
-                const clean = path.replace(/\\/g, '/');
-                const slash = clean.lastIndexOf('/');
-                return (
-                  <button
-                    key={path}
-                    type="button"
-                    role="menuitem"
-                    className="turn-review-files-row"
-                    title={clean}
-                    onPointerDown={() => prefetchSessionChanges(sessionId, { paneKey, focusPath: path })}
-                    onClick={() => {
-                      close(false);
-                      onOpenFile(path);
-                    }}
-                  >
-                    <span className="turn-review-files-path">
-                      {slash >= 0 && <span className="turn-review-files-dir">{clean.slice(0, slash + 1)}</span>}
-                      {clean.slice(slash + 1)}
-                    </span>
-                    {entry.lineStats && (
-                      <span className="diff-stats">
-                        {entry.additions > 0 && <i>+{entry.additions}</i>}
-                        {entry.additions > 0 && entry.deletions > 0 && ' '}
-                        {entry.deletions > 0 && <em>−{entry.deletions}</em>}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+            <div ref={list} className="turn-review-files-list">
+              {listNodes}
             </div>
             {error !== null && <ErrorNotice error={error} />}
             <div className="turn-review-files-foot" role="none" hidden={files.size === 0}>
@@ -280,6 +373,8 @@ export function TurnReviewFilesMenu({
                 type="button"
                 role="menuitem"
                 className="composer-island-button danger"
+                aria-posinset={entries.length + 1}
+                aria-setsize={menuSize}
                 onClick={() => {
                   // The runtime refuses deletion mid-turn: say so here instead of confirming.
                   if (busy) {
@@ -296,6 +391,8 @@ export function TurnReviewFilesMenu({
                 type="button"
                 role="menuitem"
                 className="composer-island-button"
+                aria-posinset={entries.length + 2}
+                aria-setsize={menuSize}
                 onPointerDown={() => prefetchSessionChanges(sessionId, { paneKey })}
                 onFocus={() => prefetchSessionChanges(sessionId, { paneKey })}
                 onClick={() => {

@@ -20,13 +20,14 @@ impl AgentConfigStore for Config {
     /// `saveConfigAndAdopt`'s write, inside the transaction: what `change` made of the section is stored as the difference of
     /// the two stored forms (`createConfigPatch`), so a section's defaults are never written.
     async fn update(&self, change: AgentChange) -> Result<(), CoreError> {
+        let origin = self.origin();
         self.update_agent(move |agent| {
             let mut after = agent.clone();
             change(&mut after).map_err(ConfigError::Rejected)?;
             // The runtime holds the grandfathered config (`adoptConfig`, as `settings::save_and_adopt` reads it), so the seed is the
             // stored section's builtins as `withGrandfatheredBuiltins` reads them, written only where the file lacks them.
             let changes = patch::create_config_patch(agent, &after);
-            *agent = patch::apply_config_patch(agent, &patch::with_seeds(&crate::tool_modules::with_grandfathered_builtins(agent), changes));
+            *agent = patch::apply_config_patch(agent, &patch::with_seeds(&crate::tool_modules::adopt(agent, origin), changes));
             Ok(())
         })
         .await
@@ -54,7 +55,8 @@ mod tests {
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let (config, _) =
             Config::open(path.clone(), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-        (config, path)
+        // The fixture is a literal config object, as Node's recorders hand one to `withGrandfatheredBuiltins`.
+        (config.with_origin(crate::tool_modules::Origin::Given), path)
     }
 
     #[tokio::test]

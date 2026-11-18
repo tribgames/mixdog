@@ -19,30 +19,11 @@ use super::*;
 use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 
-const GOLDEN: &str = include_str!("../../../fixtures/client-versions/golden.json");
-
 pub(crate) struct TestEnv(pub HashMap<String, String>);
 
 impl Environment for TestEnv {
     fn var(&self, name: &str) -> Option<String> {
         self.0.get(name).cloned()
-    }
-}
-
-/// The lookups that outlive their timers end at Node's: the npm read at 4 s (`sites.npmVersion`) and the update manifest at
-/// 5 s (`sites.antigravityVersion`), each an `AbortSignal.timeout` on a raw `fetch`.
-#[tokio::test(start_paused = true)]
-async fn a_lookup_that_outlives_its_timer_ends_at_nodes() {
-    use crate::transport::site_probe::{TimingOut, assert_transport};
-
-    let tokens = mixdog_rt::testing::tokens();
-    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-    for (dialect, site) in [(Dialect::Codex, "npmVersion"), (Dialect::Antigravity, "antigravityVersion")] {
-        let dir = tempfile::tempdir().unwrap();
-        let transport = TimingOut::new();
-        let versions = ClientVersions::with_clock(transport.clone(), dir.path().to_owned(), io.clone(), Arc::new(TestEnv(HashMap::new())), Arc::new(|| 1_000_000_000_000));
-        versions.warm(dialect).await;
-        assert_transport(site, &transport);
     }
 }
 
@@ -85,13 +66,7 @@ impl HttpSend for Net {
     }
 }
 
-pub(crate) fn versions_in(dir: &std::path::Path, net: &Arc<Net>, env: HashMap<String, String>, clock: &Arc<AtomicU64>) -> Arc<ClientVersions> {
-    let tokens = mixdog_rt::testing::tokens();
-    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-    let now = Arc::clone(clock);
-    ClientVersions::with_clock(net.clone(), dir.to_owned(), io, Arc::new(TestEnv(env)), Arc::new(move || now.load(Ordering::SeqCst)))
-}
-
+#[cfg(node_twin)]
 fn dialect(name: &str) -> Dialect {
     match name {
         "codex" => Dialect::Codex,
@@ -101,6 +76,7 @@ fn dialect(name: &str) -> Dialect {
     }
 }
 
+#[cfg(node_twin)]
 fn present(versions: &ClientVersions, name: &str) -> String {
     match name {
         "codex" => versions.codex(),
@@ -110,81 +86,23 @@ fn present(versions: &ClientVersions, name: &str) -> String {
     }
 }
 
-#[tokio::test]
-async fn the_dialects_fetch_cache_remember_and_present_versions_as_node_does() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-    let base = golden["base"].as_u64().unwrap();
-    assert!(golden["scenarios"].as_array().unwrap().len() >= 20);
-    for scenario in golden["scenarios"].as_array().unwrap() {
-        let name = scenario["name"].as_str().unwrap();
-        let env: HashMap<String, String> =
-            scenario["env"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
-        let dir = tempfile::tempdir().unwrap();
-        let net = Arc::new(Net::default());
-        let clock = Arc::new(AtomicU64::new(base));
-        let mut versions = versions_in(dir.path(), &net, env.clone(), &clock);
-        for (step, want) in scenario["steps"].as_array().unwrap().iter().zip(scenario["trace"].as_array().unwrap()) {
-            let ctx = format!("{name} @{}", step["at"]);
-            clock.store(base + step["at"].as_u64().unwrap(), Ordering::SeqCst);
-            net.log.lock().unwrap().clear();
-            *net.queue.lock().unwrap() = step["net"].as_array().cloned().unwrap_or_default().into();
-            match step["do"].as_str().unwrap() {
-                "restart" => {
-                    // A new process: nothing in memory, the data directory kept.
-                    versions = versions_in(dir.path(), &net, env.clone(), &clock);
-                }
-                "learn" => {
-                    let learned = versions.learn_grok_required(step["text"].as_str().unwrap_or(""));
-                    assert_eq!(Value::Bool(learned), want["learned"], "{ctx} learned");
-                    assert_eq!(Value::String(versions.grok()), want["version"], "{ctx} grok version");
-                }
-                _ => {
-                    let which = step["dialect"].as_str().unwrap();
-                    let times = step["concurrent"].as_u64().unwrap_or(1);
-                    futures::future::join_all((0..times).map(|_| versions.warm(dialect(which)))).await;
-                    assert_eq!(Value::String(present(&versions, which)), want["version"], "{ctx} version");
-                }
-            }
-            let fetched: Vec<(String, BTreeMap<String, String>)> = want["fetched"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|f| {
-                    let headers = f["headers"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
-                    (f["url"].as_str().unwrap().to_owned(), headers)
-                })
-                .collect();
-            assert_eq!(*net.log.lock().unwrap(), fetched, "{ctx} fetched");
-        }
-    }
-}
-
+/// A manifest answering a version below the pinned floor is not believed; the floor itself and anything newer is.
 #[test]
-fn the_pure_helpers_answer_as_nodes_do() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-    let helpers = &golden["helpers"];
-    for case in helpers["maxSemver"].as_array().unwrap() {
-        let candidates: Vec<Option<&str>> = case["candidates"].as_array().unwrap().iter().map(Value::as_str).collect();
-        assert_eq!(max_semver(&candidates).map(Value::String).unwrap_or(Value::Null), case["result"], "{case}");
-    }
-    for case in helpers["manifest"].as_array().unwrap() {
-        let got = parse_antigravity_manifest_version(case["input"].as_str().unwrap());
-        assert_eq!(got.map(Value::String).unwrap_or(Value::Null), case["result"], "{case}");
-    }
-    for case in helpers["cursorBuild"].as_array().unwrap() {
-        let got = parse_cursor_install_build(case["input"].as_str().unwrap());
-        assert_eq!(got.map(Value::String).unwrap_or(Value::Null), case["result"], "{case}");
-    }
-    for case in helpers["cursorNewer"].as_array().unwrap() {
-        let got = cursor_build_newer(case["next"].as_str().unwrap(), case["current"].as_str().unwrap());
-        assert_eq!(Value::Bool(got), case["result"], "{case}");
-    }
-    for case in helpers["npmLatest"].as_array().unwrap() {
-        let got = parse_npm_latest(case["input"].as_str().unwrap());
-        assert_eq!(got.map(Value::String).unwrap_or(Value::Null), case["result"], "{case}");
-    }
+fn an_update_manifest_below_the_pinned_floor_is_rejected() {
+    use crate::providers::google::auth::antigravity::VERSION_FALLBACK;
+    assert!(!antigravity_version_acceptable("2.19.1"));
+    assert!(!antigravity_version_acceptable("2.31.9"));
+    assert!(antigravity_version_acceptable(VERSION_FALLBACK));
+    assert!(antigravity_version_acceptable("2.33.0"));
+    assert!(antigravity_version_acceptable("10.0.0"));
 }
 
+pub(crate) fn versions_in(dir: &std::path::Path, net: &Arc<Net>, env: HashMap<String, String>, clock: &Arc<AtomicU64>) -> Arc<ClientVersions> {
+    let tokens = mixdog_rt::testing::tokens();
+    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let now = Arc::clone(clock);
+    ClientVersions::with_clock(net.clone(), dir.to_owned(), io, Arc::new(TestEnv(env)), Arc::new(move || now.load(Ordering::SeqCst)))
+}
 /// `readLastKnownVersion` accepts only its own schema and a plain token; `rememberLastKnownVersion`
 /// keeps the other clients' entries.
 #[tokio::test]
@@ -230,10 +148,123 @@ async fn the_remembered_file_keeps_each_clients_entry_and_refuses_foreign_conten
     assert_eq!(known.read("grok-cli").await, None);
 }
 
+/// The lookups that outlive their timers end at their windows: the npm read at 4 s and the update manifest at 5 s.
+#[tokio::test(start_paused = true)]
+async fn a_lookup_that_outlives_its_timer_ends_at_its_window() {
+    use crate::transport::site_probe::TimingOut;
+
+    let tokens = mixdog_rt::testing::tokens();
+    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    for (dialect, seconds) in [(Dialect::Codex, 4), (Dialect::Antigravity, 5)] {
+        let dir = tempfile::tempdir().unwrap();
+        let transport = TimingOut::new();
+        let versions = ClientVersions::with_clock(transport.clone(), dir.path().to_owned(), io.clone(), Arc::new(TestEnv(HashMap::new())), Arc::new(|| 1_000_000_000_000));
+        versions.warm(dialect).await;
+        let seen = transport.seen();
+        assert_eq!((seen[0].after, seen[0].text.as_str()), (std::time::Duration::from_secs(seconds), "The operation was aborted due to timeout"));
+    }
+}
+
+#[cfg(node_twin)]
+const GOLDEN: &str = include_str!("../../../fixtures/client-versions/golden.json");
+#[cfg(node_twin)]
+#[tokio::test]
+async fn the_dialects_fetch_cache_remember_and_present_versions_as_node_does() {
+    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let base = golden["base"].as_u64().unwrap();
+    assert!(golden["scenarios"].as_array().unwrap().len() >= 20);
+    for scenario in golden["scenarios"].as_array().unwrap() {
+        let name = scenario["name"].as_str().unwrap();
+        let env: HashMap<String, String> =
+            scenario["env"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
+        // Decided departure from the recording: an Antigravity update manifest answering less than the pinned fallback (the floor the
+        // service needs for current models) is not believed, so the version presented is the floor and the rejected answer is not
+        // remembered; the fetches that follow it are then not Node's. The recording stays as recorded: such a scenario is replayed
+        // with the floored versions and its fetch log is not compared.
+        let floor = crate::providers::google::auth::antigravity::VERSION_FALLBACK;
+        let below_floor = |recorded: &Value| env.get("MIXDOG_ANTIGRAVITY_VERSION").is_none() && recorded.as_str().is_some_and(|v| is_semver(v) && compare_semver(v, floor) == std::cmp::Ordering::Less);
+        let departed = scenario["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(scenario["trace"].as_array().unwrap())
+            .any(|(step, want)| step["dialect"].as_str() == Some("antigravity") && below_floor(&want["version"]));
+        if departed {
+            eprintln!("DEPARTED client-versions {name}: an Antigravity manifest below the pinned floor {floor} is rejected");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let net = Arc::new(Net::default());
+        let clock = Arc::new(AtomicU64::new(base));
+        let mut versions = versions_in(dir.path(), &net, env.clone(), &clock);
+        for (step, want) in scenario["steps"].as_array().unwrap().iter().zip(scenario["trace"].as_array().unwrap()) {
+            let ctx = format!("{name} @{}", step["at"]);
+            clock.store(base + step["at"].as_u64().unwrap(), Ordering::SeqCst);
+            net.log.lock().unwrap().clear();
+            *net.queue.lock().unwrap() = step["net"].as_array().cloned().unwrap_or_default().into();
+            match step["do"].as_str().unwrap() {
+                "restart" => {
+                    // A new process: nothing in memory, the data directory kept.
+                    versions = versions_in(dir.path(), &net, env.clone(), &clock);
+                }
+                "learn" => {
+                    let learned = versions.learn_grok_required(step["text"].as_str().unwrap_or(""));
+                    assert_eq!(Value::Bool(learned), want["learned"], "{ctx} learned");
+                    assert_eq!(Value::String(versions.grok()), want["version"], "{ctx} grok version");
+                }
+                _ => {
+                    let which = step["dialect"].as_str().unwrap();
+                    let times = step["concurrent"].as_u64().unwrap_or(1);
+                    futures::future::join_all((0..times).map(|_| versions.warm(dialect(which)))).await;
+                    let wanted = if departed && which == "antigravity" && below_floor(&want["version"]) { Value::String(floor.to_owned()) } else { want["version"].clone() };
+                    assert_eq!(Value::String(present(&versions, which)), wanted, "{ctx} version");
+                }
+            }
+            let fetched: Vec<(String, BTreeMap<String, String>)> = want["fetched"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|f| {
+                    let headers = f["headers"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
+                    (f["url"].as_str().unwrap().to_owned(), headers)
+                })
+                .collect();
+            if !departed {
+                assert_eq!(*net.log.lock().unwrap(), fetched, "{ctx} fetched");
+            }
+        }
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn the_pure_helpers_answer_as_nodes_do() {
+    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let helpers = &golden["helpers"];
+    for case in helpers["maxSemver"].as_array().unwrap() {
+        let candidates: Vec<Option<&str>> = case["candidates"].as_array().unwrap().iter().map(Value::as_str).collect();
+        assert_eq!(max_semver(&candidates).map(Value::String).unwrap_or(Value::Null), case["result"], "{case}");
+    }
+    for case in helpers["manifest"].as_array().unwrap() {
+        let got = parse_antigravity_manifest_version(case["input"].as_str().unwrap());
+        assert_eq!(got.map(Value::String).unwrap_or(Value::Null), case["result"], "{case}");
+    }
+    for case in helpers["cursorBuild"].as_array().unwrap() {
+        let got = parse_cursor_install_build(case["input"].as_str().unwrap());
+        assert_eq!(got.map(Value::String).unwrap_or(Value::Null), case["result"], "{case}");
+    }
+    for case in helpers["cursorNewer"].as_array().unwrap() {
+        let got = cursor_build_newer(case["next"].as_str().unwrap(), case["current"].as_str().unwrap());
+        assert_eq!(Value::Bool(got), case["result"], "{case}");
+    }
+    for case in helpers["npmLatest"].as_array().unwrap() {
+        let got = parse_npm_latest(case["input"].as_str().unwrap());
+        assert_eq!(got.map(Value::String).unwrap_or(Value::Null), case["result"], "{case}");
+    }
+}
 /// Node's cold `anthropic-oauth` listing with no credential (`record-claude-oauth-cold-listing.mjs`): `ensureAuth` awaits
 /// `warmCliVersion` (the claude-code package's npm `latest`, unless `MIXDOG_CLI_VERSION` names the version) before it
 /// finds no credential, and `listModels` answers its offline rows. Rust's source for the route, over the same scripted
 /// network, makes the same requests in the same order and answers the same rows.
+#[cfg(node_twin)]
 #[tokio::test]
 async fn a_cold_claude_oauth_listing_asks_and_answers_as_nodes() {
     use crate::catalog::{ModelSource, OauthModelCache};
@@ -281,12 +312,12 @@ async fn a_cold_claude_oauth_listing_asks_and_answers_as_nodes() {
         assert_eq!(Value::Array(rows), scenario["rows"], "{name}: rows");
     }
 }
-
+#[cfg(node_twin)]
 const CURSOR_CASES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/cursor-client-version-cases/golden.json");
-
 /// `providers/cursor-client-version.test.mjs` recorded from the reference tree (`cursor-client-version-cases`): the installer
 /// answer, the environment and the warms of each case are the recorded ones; the version presented, the floor and the URLs
 /// fetched are compared with Node's.
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_cursor_version_follows_the_recorded_node_cases() {
     let recorded = mixdog_testkit::Exact::decode(&serde_json::from_str(&CURSOR_CASES).unwrap()).unwrap();

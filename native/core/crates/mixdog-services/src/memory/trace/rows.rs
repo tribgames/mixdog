@@ -3,6 +3,7 @@
 //! carry what Node binds, so a test compares them with the recorded parameters.
 
 #[cfg(test)]
+#[cfg(node_twin)]
 use mixdog_js::json_number;
 use mixdog_js::to_number;
 use mixdog_js::value_to_string;
@@ -69,6 +70,7 @@ fn number_or_null(value: Option<&Value>) -> Option<f64> {
     value.filter(|v| !v.is_null()).map(to_number)
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 fn number_json(value: Option<f64>) -> Value {
     value.map_or(Value::Null, json_number)
@@ -202,6 +204,7 @@ impl TraceEventRow {
         })
     }
 
+    #[cfg(node_twin)]
     /// The parameters as Node binds them, for the golden comparison.
     #[cfg(test)]
     pub fn params_json(&self) -> Vec<Value> {
@@ -281,6 +284,7 @@ pub enum Column {
 }
 
 impl Column {
+    #[cfg(node_twin)]
     #[cfg(test)]
     pub fn to_json(&self) -> Value {
         match self {

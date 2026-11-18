@@ -2,9 +2,10 @@
 //! whatever the hooks said short of a deny, unless the acting agent's
 //! permission for that action kind is `allow`; `block` denies it without a
 //! card. The outbound rule applies only while a bot acts; an ordinary coding
-//! session's outbound call passes with the hook decision unchanged. A hook's
-//! own `ask` is remembered by the action kind where the call is a classified
-//! send or post, else per tool (`tool:<name>`).
+//! session's outbound call passes with the hook decision unchanged. An approval
+//! that is remembered covers the one tool approved (`tool:<identity>`: its
+//! connector and tool name, whichever account serves it), never every tool of
+//! the same action category; the category only carries a `block`.
 //!
 //! Schedule and webhook runs never ask (see [`super::run_policy`]). The
 //! "Allow all actions" developer option skips every ask except a payment or
@@ -27,13 +28,16 @@ use super::grants::GrantStore;
 use super::grants::PermissionMode;
 use super::grants::SESSION_REMEMBERED_DECISION;
 use super::grants::StoreError;
+use super::offer::Caller;
+use super::offer::Card;
+use super::offer::offered_scopes;
 use super::run_policy::AUTOMATION_GRANT_REASON;
 use super::run_policy::RUN_FORBIDDEN_REASON;
 use super::run_policy::RunKind;
 use super::run_policy::saves_automation;
 use super::session_grants::SessionGrants;
 
-const OUTBOUND_APPROVAL_REASON: &str = "This sends or posts outside Mixdog; it needs your approval.";
+pub const OUTBOUND_APPROVAL_REASON: &str = "This sends or posts on your behalf; it needs your approval.";
 pub const BLOCKED_ACTION_REASON: &str = "This agent's permission blocks this action.";
 pub const DEFAULT_ASK_REASON: &str = "approval requested by hook";
 
@@ -61,6 +65,11 @@ impl SessionFacts {
     pub fn attended(&self) -> bool {
         self.run.is_none()
     }
+
+    /// Who answers this session's cards ([`offered_scopes`]).
+    pub fn caller(&self) -> Caller {
+        if self.attended() { Caller::Attended } else { Caller::Unattended }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -82,6 +91,9 @@ pub enum HookAction {
 
 pub struct GateCall<'a> {
     pub name: &'a str,
+    /// The tool's stable identity (`ConnectorPermissions::tool_identity`): what a
+    /// remembered approval is keyed by.
+    pub identity: &'a str,
     pub args: &'a Value,
     /// `Tool::outbound_kind` of the call as it will run.
     pub kind: Option<ActionKind>,
@@ -114,25 +126,37 @@ pub enum AskRequest {
         card: OutboundCard,
         remember: Vec<ApprovalRemember>,
     },
+    /// [`Card::ConnectorPolicy`]: the acting contact bot's connector tool set to ask.
+    Connector {
+        agent_id: String,
+        remember: Vec<ApprovalRemember>,
+    },
 }
 
 /// The audit identity of an ask and the grant its answer may store.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct GateAudit {
     pub agent_id: String,
-    pub kind: &'static str,
+    pub card: Card,
     pub action: Option<GrantKey>,
+    /// The tool an answer may be remembered for; `None` where nothing is remembered.
+    pub grant: Option<GrantKey>,
+    /// The call's outbound classification, if any.
+    pub category: Option<ActionKind>,
     pub tool: String,
     pub target: String,
-    /// The scopes the request offered: a grant is stored only for one of them.
-    pub remember: Vec<ApprovalRemember>,
 }
 
 impl GateAudit {
+    /// The scopes this ask offers `caller`, and the only ones its answer may store.
+    pub fn offered(&self, caller: Caller) -> Vec<ApprovalRemember> {
+        offered_scopes(self.card, self.grant.as_ref(), self.category, caller)
+    }
+
     pub fn entry(&self, decision: &str, device: &str) -> AuditEntry {
         AuditEntry {
             agent_id: self.agent_id.clone(),
-            kind: self.kind.to_owned(),
+            kind: self.card.kind().to_owned(),
             action: self.action.as_ref().map(GrantKey::render).unwrap_or_default(),
             tool: self.tool.clone(),
             target: self.target.clone(),
@@ -142,9 +166,10 @@ impl GateAudit {
         }
     }
 
-    fn with_action(&self, action: &GrantKey) -> Self {
+    fn with_grant(&self, grant: &GrantKey) -> Self {
         Self {
-            action: Some(action.clone()),
+            action: Some(grant.clone()),
+            grant: Some(grant.clone()),
             ..self.clone()
         }
     }
@@ -183,27 +208,14 @@ pub enum GateVerdict {
     Ask(Box<AskPlan>),
 }
 
-/// Scopes a card for an action kind offers: just once, for this session (only
-/// where a person attends), or always for this agent; payments and deletes
-/// only once.
-fn outbound_remember(kind: ActionKind, attended: bool) -> Vec<ApprovalRemember> {
-    use ApprovalRemember::*;
-    match (kind.rememberable(), attended) {
-        (false, _) => vec![Once],
-        (true, true) => vec![Once, Session, Agent],
-        (true, false) => vec![Once, Agent],
+/// The key a call's remembered approval is stored under: its tool. Never a
+/// payment or permanent delete, and never a tool whose approval is always
+/// answered once (`GrantKey::tool`).
+fn grant_key(identity: &str, kind: Option<ActionKind>) -> Option<GrantKey> {
+    if kind.is_some_and(|kind| !kind.rememberable()) {
+        return None;
     }
-}
-
-/// Scopes a card for a hook's own `ask` offers: once, this session (only where
-/// a person attends) and always for every agent.
-fn hook_ask_remember(action: &GrantKey, attended: bool) -> Vec<ApprovalRemember> {
-    use ApprovalRemember::*;
-    if attended && action.rememberable() {
-        vec![Once, Session, Always]
-    } else {
-        vec![Once]
-    }
+    GrantKey::tool(identity)
 }
 
 fn skips_approval(kind: Option<ActionKind>, settings: PolicySettings) -> bool {
@@ -237,7 +249,6 @@ async fn allowance_for_hook_ask(
 pub async fn decide(cx: &GateCx<'_>, call: &GateCall<'_>) -> Result<GateVerdict, StoreError> {
     let facts = cx.facts;
     let agent = facts.agent_id.as_str();
-    let attended = facts.attended();
     let asked = call.hook == HookAction::Ask;
 
     if facts.run.is_some_and(RunKind::is_granted) && call.kind == Some(ActionKind::Delete) {
@@ -263,18 +274,16 @@ pub async fn decide(cx: &GateCx<'_>, call: &GateCall<'_>) -> Result<GateVerdict,
 
     let mut card = OutboundCard::build(call.name, call.args, kind);
     let action = GrantKey::Kind(kind);
-    let remember = if asked {
-        hook_ask_remember(&action, attended)
-    } else {
-        outbound_remember(kind, attended)
-    };
+    let grant = grant_key(call.identity, Some(kind));
+    // A hook's `ask` on the call still gets the outbound card and what it offers.
     let audit = GateAudit {
         agent_id: agent.to_owned(),
-        kind: "outbound",
+        card: Card::Outbound,
         action: Some(action.clone()),
+        grant: grant.clone(),
+        category: Some(kind),
         tool: card.tool.clone(),
         target: card.target.clone(),
-        remember: remember.clone(),
     };
     let record = |decision: &str| cx.store.record_audit(audit.entry(decision, ""));
 
@@ -291,23 +300,29 @@ pub async fn decide(cx: &GateCx<'_>, call: &GateCall<'_>) -> Result<GateVerdict,
         record(DEV_ALLOW_ALL_DECISION).await?;
         return Ok(GateVerdict::Run { remembered: false });
     }
-    // A saved allow, or this session's own allowance for the kind (never an
-    // unattended run's, never a payment or permanent delete's), answers the call.
-    let standing = mode == PermissionMode::Allow;
-    if !asked && (standing || session_allows(cx, &action)) {
-        record(if standing {
-            "remembered"
+    // A saved allow of this very tool, or this session's own allowance for it
+    // (never an unattended run's, never a payment or permanent delete's),
+    // answers the call.
+    if let Some(grant) = &grant {
+        if asked {
+            if let Some(answered) = allowance_for_hook_ask(cx, grant).await? {
+                record(answered).await?;
+                // It answers the hook's ask only: not `remembered`, so a connector's
+                // own approval layer still asks its own question.
+                return Ok(GateVerdict::Run { remembered: false });
+            }
         } else {
-            SESSION_REMEMBERED_DECISION
-        })
-        .await?;
-        return Ok(GateVerdict::Run { remembered: true });
-    }
-    if asked && let Some(answered) = allowance_for_hook_ask(cx, &action).await? {
-        record(answered).await?;
-        // It answers the hook's ask only: not `remembered`, so a connector's
-        // own approval layer still asks its own question.
-        return Ok(GateVerdict::Run { remembered: false });
+            let standing = cx.store.mode_for(agent, grant, false).await? == PermissionMode::Allow;
+            if standing || session_allows(cx, grant) {
+                record(if standing {
+                    "remembered"
+                } else {
+                    SESSION_REMEMBERED_DECISION
+                })
+                .await?;
+                return Ok(GateVerdict::Run { remembered: true });
+            }
+        }
     }
     if let Some(enricher) = cx.enricher {
         enricher.enrich(cx.mcp_scope, call.name, call.args, &mut card).await;
@@ -317,7 +332,7 @@ pub async fn decide(cx: &GateCx<'_>, call: &GateCall<'_>) -> Result<GateVerdict,
         request: AskRequest::Outbound {
             agent_id: agent.to_owned(),
             card,
-            remember,
+            remember: audit.offered(facts.caller()),
         },
         audit,
     })))
@@ -332,11 +347,12 @@ async fn decide_plain(cx: &GateCx<'_>, call: &GateCall<'_>) -> Result<GateVerdic
     let agent = cx.facts.agent_id.as_str();
     let base = GateAudit {
         agent_id: agent.to_owned(),
-        kind: "approval",
+        card: Card::HookAsk,
         action: None,
+        grant: None,
+        category: call.kind,
         tool: call.name.to_owned(),
         target: String::new(),
-        remember: Vec::new(),
     };
     if skips_approval(call.kind, cx.settings) {
         cx.store
@@ -344,42 +360,30 @@ async fn decide_plain(cx: &GateCx<'_>, call: &GateCall<'_>) -> Result<GateVerdic
             .await?;
         return Ok(GateVerdict::Run { remembered: false });
     }
-    // Remembered by the action kind when the call is a classified send or post
-    // (never a payment or permanent delete), else per tool — never per argument.
-    let grant_action = match call.kind {
-        Some(kind) if kind.rememberable() => Some(GrantKey::Kind(kind)),
-        Some(_) => None,
-        None => GrantKey::tool(call.name),
-    };
+    // Remembered per tool (never a payment or permanent delete), never per argument.
+    let grant_action = grant_key(call.identity, call.kind);
     if let Some(action) = &grant_action
         && let Some(answered) = allowance_for_hook_ask(cx, action).await?
     {
         cx.store
-            .record_audit(base.with_action(action).entry(answered, ""))
+            .record_audit(base.with_grant(action).entry(answered, ""))
             .await?;
         return Ok(GateVerdict::Run { remembered: false });
     }
-    let remember = match &grant_action {
-        Some(action) => hook_ask_remember(action, cx.facts.attended()),
-        None => vec![ApprovalRemember::Once],
-    };
     let reason = if saves_automation(call.name, call.args) {
         AUTOMATION_GRANT_REASON.to_owned()
     } else {
         reason_of(call.hook_reason, DEFAULT_ASK_REASON)
     };
     let audit = match &grant_action {
-        Some(action) => GateAudit {
-            remember: remember.clone(),
-            ..base.with_action(action)
-        },
+        Some(action) => base.with_grant(action),
         None => base,
     };
     Ok(GateVerdict::Ask(Box::new(AskPlan {
         reason,
         request: AskRequest::Approval {
             agent_id: agent.to_owned(),
-            remember,
+            remember: audit.offered(cx.facts.caller()),
             grant_action,
             action_kind: call.kind,
         },
@@ -454,6 +458,7 @@ mod tests {
             let args = json!({"action": "issue.comment", "repo": "o/r", "number": 3, "body": "draft"});
             let call = GateCall {
                 name,
+                identity: name,
                 args: &args,
                 kind,
                 hook,
@@ -491,6 +496,7 @@ mod tests {
             [ApprovalRemember::Once, ApprovalRemember::Session, ApprovalRemember::Agent]
         );
         assert_eq!(plan.audit.action, Some(GrantKey::Kind(ActionKind::Comment)));
+        assert_eq!(plan.audit.grant, GrantKey::tool("github"), "the answer is remembered for the tool, not the category");
     }
 
     #[tokio::test]
@@ -507,6 +513,7 @@ mod tests {
     async fn a_block_denies_without_a_card_and_an_allow_runs_remembered() {
         let f = Fixture::new();
         let comment = GrantKey::Kind(ActionKind::Comment);
+        let github = GrantKey::tool("github").expect("key");
         f.store.set_mode("mailer", &comment, PermissionMode::Block);
         let verdict = f
             .run(&bot(), PolicySettings::default(), "github", Some(ActionKind::Comment), HookAction::Allow)
@@ -515,7 +522,10 @@ mod tests {
             verdict,
             GateVerdict::Deny { rule: DenyRule::Blocked, reason: BLOCKED_ACTION_REASON }
         );
-        f.store.set_mode("mailer", &comment, PermissionMode::Allow);
+        // A block of the category is lifted by setting it back, and a tool the agent
+        // was allowed runs remembered.
+        f.store.set_mode("mailer", &comment, PermissionMode::Ask);
+        f.store.set_mode("mailer", &github, PermissionMode::Allow);
         let verdict = f
             .run(&bot(), PolicySettings::default(), "github", Some(ActionKind::Comment), HookAction::Allow)
             .await;
@@ -523,11 +533,69 @@ mod tests {
         assert_eq!(f.audit_decisions(), ["blocked", "remembered"]);
     }
 
+    /// Finding 1: an approval covers the one tool approved, not every tool of its category.
     #[tokio::test]
-    async fn a_hook_ask_is_not_answered_by_the_bots_own_allow() {
+    async fn an_approval_covers_only_the_tool_approved_whatever_the_scope() {
+        let comment = Some(ActionKind::Comment);
+        let github = GrantKey::tool("github").expect("key");
+        let other = "mcp__slack__post_comment";
+        // Agent scope, stored the way the pipeline stores it.
+        let mut table = GrantTable::default();
+        assert!(table.grant("mailer", &github, ApprovalRemember::Agent, "", 0).is_some());
+        let f = Fixture { store: MemoryGrantStore::with_table(table), grants: SessionGrants::default() };
+        let verdict = f.run(&bot(), PolicySettings::default(), "github", comment, HookAction::Allow).await;
+        assert_eq!(verdict, GateVerdict::Run { remembered: true });
+        let plan = ask(f.run(&bot(), PolicySettings::default(), other, comment, HookAction::Allow).await);
+        assert_eq!(plan.audit.grant, GrantKey::tool(other));
+        // Another agent is asked for the same tool.
+        let stranger = SessionFacts { agent_id: "other".into(), ..bot() };
+        assert!(matches!(
+            f.run(&stranger, PolicySettings::default(), "github", comment, HookAction::Allow).await,
+            GateVerdict::Ask(_)
+        ));
+        // Every-agent scope.
+        let mut table = GrantTable::default();
+        assert!(table.grant("mailer", &github, ApprovalRemember::Always, "", 0).is_some());
+        let f = Fixture { store: MemoryGrantStore::with_table(table), grants: SessionGrants::default() };
+        assert!(matches!(
+            f.run(&stranger, PolicySettings::default(), "github", comment, HookAction::Allow).await,
+            GateVerdict::Run { remembered: true }
+        ));
+        assert!(matches!(
+            f.run(&bot(), PolicySettings::default(), other, comment, HookAction::Allow).await,
+            GateVerdict::Ask(_)
+        ));
+        // This conversation.
+        let f = Fixture::new();
+        assert!(f.grants.grant("mailer", &github, "life"));
+        assert_eq!(
+            f.run(&bot(), PolicySettings::default(), "github", comment, HookAction::Allow).await,
+            GateVerdict::Run { remembered: true }
+        );
+        assert!(matches!(
+            f.run(&bot(), PolicySettings::default(), other, comment, HookAction::Allow).await,
+            GateVerdict::Ask(_)
+        ));
+    }
+
+    /// A category stored as allowed (what a card wrote before) answers nothing.
+    #[tokio::test]
+    async fn a_category_allow_answers_no_call() {
+        let f = Fixture::new();
+        f.store.set_mode("mailer", &GrantKey::Kind(ActionKind::Comment), PermissionMode::Allow);
+        assert!(matches!(
+            f.run(&bot(), PolicySettings::default(), "github", Some(ActionKind::Comment), HookAction::Allow).await,
+            GateVerdict::Ask(_)
+        ));
+    }
+
+    /// A hook's `ask` on a bot's outbound call is put on the outbound card, and that card offers
+    /// what an outbound card offers: never "always" for every agent.
+    #[tokio::test]
+    async fn a_hook_ask_is_not_answered_by_the_bots_own_allow_and_its_outbound_card_offers_no_every_agent_scope() {
         let f = Fixture::new();
         f.store
-            .set_mode("mailer", &GrantKey::Kind(ActionKind::Comment), PermissionMode::Allow);
+            .set_mode("mailer", &GrantKey::tool("github").expect("key"), PermissionMode::Allow);
         let plan = ask(f
             .run(&bot(), PolicySettings::default(), "github", Some(ActionKind::Comment), HookAction::Ask)
             .await);
@@ -536,15 +604,16 @@ mod tests {
             AskRequest::Outbound {
                 agent_id: "mailer".into(),
                 card: OutboundCard::build("github", &json!({"action": "issue.comment", "repo": "o/r", "number": 3, "body": "draft"}), ActionKind::Comment),
-                remember: vec![ApprovalRemember::Once, ApprovalRemember::Session, ApprovalRemember::Always],
+                remember: vec![ApprovalRemember::Once, ApprovalRemember::Session, ApprovalRemember::Agent],
             }
         );
+        assert!(!plan.audit.offered(Caller::Attended).contains(&ApprovalRemember::Always));
     }
 
     #[tokio::test]
     async fn an_every_agent_allow_answers_a_hook_ask_but_is_not_remembered() {
         let mut table = GrantTable::default();
-        table.grant("x", &GrantKey::Kind(ActionKind::Comment), ApprovalRemember::Always, "", 0);
+        table.grant("x", &GrantKey::tool("github").expect("key"), ApprovalRemember::Always, "", 0);
         let f = Fixture {
             store: MemoryGrantStore::with_table(table),
             grants: SessionGrants::default(),
@@ -559,7 +628,7 @@ mod tests {
     #[tokio::test]
     async fn this_sessions_allowance_answers_only_where_a_person_attends() {
         let f = Fixture::new();
-        let comment = GrantKey::Kind(ActionKind::Comment);
+        let comment = GrantKey::tool("github").expect("key");
         assert!(f.grants.grant("mailer", &comment, "life"));
         let verdict = f
             .run(&bot(), PolicySettings::default(), "github", Some(ActionKind::Comment), HookAction::Allow)
@@ -581,8 +650,7 @@ mod tests {
         let f = Fixture::new();
         let allow_all = PolicySettings { allow_all_actions: true };
         for kind in [ActionKind::Payment, ActionKind::Delete] {
-            f.store.set_mode("mailer", &GrantKey::Kind(kind), PermissionMode::Allow);
-            assert!(f.grants.grant("mailer", &GrantKey::Kind(kind), "life") == false);
+            assert!(!f.grants.grant("mailer", &GrantKey::Kind(kind), "life"));
             let plan = ask(f.run(&bot(), allow_all, "mcp__shop__buy", Some(kind), HookAction::Allow).await);
             let AskRequest::Outbound { remember, .. } = plan.request else {
                 panic!("outbound request");
@@ -681,7 +749,7 @@ mod tests {
             mcp_scope: None,
         };
         let args = json!({"action": "save_automation"});
-        let call = GateCall { name: "setup", args: &args, kind: None, hook: HookAction::Ask, hook_reason: Some("hook says") };
+        let call = GateCall { name: "setup", identity: "setup", args: &args, kind: None, hook: HookAction::Ask, hook_reason: Some("hook says") };
         let plan = ask(decide(&cx, &call).await.expect("decide"));
         assert_eq!(plan.reason, AUTOMATION_GRANT_REASON);
     }

@@ -1,6 +1,4 @@
-//! `mixdog-relay verify-release` against local stand-ins of a deployed relay: the cases of `deploy/verify-release.test.mjs` that
-//! need no running relay (the two that start the relay itself are twin scenarios of the server tasks), plus every failure
-//! message, the startup window, the DNS override with TLS name validation and the response cap.
+//! `mixdog-relay verify-release` against local stand-ins of a deployed relay: identity and readiness checks, the websocket gates, timeouts, the startup window, the DNS override with TLS name validation and the response cap.
 
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};

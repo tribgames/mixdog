@@ -77,6 +77,8 @@ fn call_failed(error: &ClientError) -> LoginError {
     LoginError(server_message(error))
 }
 
+const FLOW_UNAVAILABLE: &str = "OAuth login flow is no longer available.";
+
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -528,29 +530,34 @@ impl ServerLogins {
         Ok(SshServerLoginFlow { url: opened, forwarded, open_url, ..started.public })
     }
 
-    /// The login's state on the server; a login that ended no longer needs its forward. A status nobody can read (the server
-    /// went, the call failed) ends the dialog's polling: the forward goes with it, and the server is told to drop the login.
+    /// A failed observation is not a cancellation. Only an authoritative status or the attachment ending settles the login.
     pub async fn status(&self, id: &str, flow_id: &str) -> LoginResult<SshServerLoginFlow> {
         let inner = &self.inner;
         let key = inner.flow_key(id, flow_id)?;
-        let read = async {
-            let (_, server) = inner.server_connection(id)?;
-            let value = call(&*server, "account/getOAuthProviderLoginStatus", json!({ "flowId": flow_id })).await?;
-            inner.settle(&key, &value).await
+        let (_, server) = inner.server_connection(id)?;
+        let owner = locked(&inner.state).pending.get(&key).cloned();
+        let answer = server.client().call_raw(
+            "account/getOAuthProviderLoginStatus",
+            json!({ "flowId": flow_id }),
+            CallOptions::default(),
+        ).await;
+        let still_owns = || {
+            let state = locked(&inner.state);
+            match (owner.as_ref(), state.pending.get(&key)) {
+                (Some(old), Some(current)) => Arc::ptr_eq(old, current),
+                (None, None) => true,
+                _ => false,
+            }
         };
-        match read.await {
-            Ok(flow) => Ok(flow),
+        match answer {
+            Ok(value) if still_owns() => inner.settle(&key, &value).await,
+            Ok(value) => Ok(flow_of(&value, false)?.public),
             Err(error) => {
-                let login = inner.forget_login(&key);
-                inner.close_forward(&key).await;
-                if let Some(login) = login {
-                    // Not awaited: the error must not wait for a dead link.
-                    let inner = inner.clone();
-                    drop(mixdog_rt::spawn("server-login-cancel", TaskClass::Control, async move {
-                        inner.cancel_or_queue(&login, None).await;
-                    }));
+                if matches!(&error, ClientError::Rpc(body) if body.message == FLOW_UNAVAILABLE) && still_owns() {
+                    inner.forget_login(&key);
+                    inner.close_forward(&key).await;
                 }
-                Err(error)
+                Err(call_failed(&error))
             }
         }
     }
@@ -703,10 +710,11 @@ impl Inner {
     fn server_connection(&self, id: &str) -> LoginResult<(SshHostRecord, Arc<dyn LoginServer>)> {
         let host = self.saved_host(id)?;
         let Some(server) = self.servers.attached(&host.id) else {
-            return fail(format!("Connect to {} to manage its logins.", host.name));
+            // A thrown error leads with its code (the way every coded error of this domain reaches the window): the interface words it.
+        return fail(format!("{}: {}", mixdog_ssh::said::CONNECT_FIRST.code, mixdog_ssh::said::CONNECT_FIRST.said([("name", host.name.as_str())]).english));
         };
         if server.model_login() != ModelLogin::Server {
-            return fail(format!("{} uses this PC's accounts. Switch it to server accounts to manage its logins.", host.name));
+            return fail(format!("{}: {}", mixdog_ssh::said::PC_ACCOUNTS.code, mixdog_ssh::said::PC_ACCOUNTS.said([("name", host.name.as_str())]).english));
         }
         Ok((host, server))
     }

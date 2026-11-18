@@ -29,7 +29,7 @@ const MODEL_SELECTION_KEYS: [&str; 10] = [
 /// choice sends as `keepMainModel: false`. Node compares each with `=== true` or `!== false`, so a value of any type is
 /// taken; `onlyIfEmpty` is the selection's own key.
 const ROUTE_WRITE_OPTION_KEYS: [&str; 4] = ["applyToCurrentSession", "keepMainModel", "sessionOnly", "validateOnly"];
-const MODEL_CATALOG_OPTION_KEYS: [&str; 3] = ["force", "refresh", "quick"];
+const MODEL_CATALOG_OPTION_KEYS: [&str; 4] = ["force", "refresh", "quick", "withCatalogState"];
 const TOOL_APPROVAL_KEYS: [&str; 8] =
     ["approved", "reason", "answers", "reply", "response", "editedArgs", "remember", "scope"];
 const TOOL_APPROVAL_RESPONSES: [&str; 6] = ["approve", "deny", "edit-and-approve", "provide-secret", "skip", "done"];
@@ -103,19 +103,23 @@ fn route(params: Option<&Value>, nullable: bool) -> Checked {
     }
 }
 
-/// The `route` of `route/set`: `requiredModelSelection` of the selection without the options of the write.
+/// Agent writes carry an on/off flag beside the model selection, never inside a fallback.
 fn route_write(params: Option<&Value>) -> Checked {
-    match field(params, "route") {
-        Some(Value::Object(object)) if ROUTE_WRITE_OPTION_KEYS.iter().any(|key| object.contains_key(*key)) => {
-            let selection: Map<String, Value> = object
-                .iter()
-                .filter(|(key, _)| !ROUTE_WRITE_OPTION_KEYS.contains(&key.as_str()))
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect();
-            model_selection(&Value::Object(selection), "/route")
-        }
-        _ => route(params, false),
+    let Some(Value::Object(object)) = field(params, "route") else { return route(params, false) };
+    let agent_disabled = field(params, "agentId").and_then(Value::as_str).is_some_and(|id| !js_trim(id).is_empty())
+        && object.contains_key("disabled");
+    if !agent_disabled && !ROUTE_WRITE_OPTION_KEYS.iter().any(|key| object.contains_key(*key)) {
+        return route(params, false);
     }
+    if agent_disabled {
+        boolean(object.get("disabled"), "/route/disabled", "selection.disabled must be a boolean.")?;
+    }
+    let selection: Map<String, Value> = object
+        .iter()
+        .filter(|(key, _)| !ROUTE_WRITE_OPTION_KEYS.contains(&key.as_str()) && !(agent_disabled && key.as_str() == "disabled"))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    model_selection(&Value::Object(selection), "/route")
 }
 
 /// `requiredModelSelection`, also the check of a new task draft's `route` (prompt group).
@@ -181,7 +185,7 @@ pub(super) fn model_selection(value: &Value, path: &str) -> Checked {
     Ok(())
 }
 
-/// `requiredModelCatalogOptions` on the options the protocol carries: the three flags are booleans; the other fields
+/// `requiredModelCatalogOptions` on the options the protocol carries: the flags are booleans; the other fields
 /// of the params (`opId`, `providerId`) are the typed decode's.
 fn catalog_options(params: Option<&Value>) -> Checked {
     let Some(params) = params else {
@@ -353,6 +357,21 @@ mod tests {
     #[test]
     fn validate_model_other_methods_are_not_owned() {
         assert!(check("thread/start", Some(&json!({}))).is_none());
+    }
+
+    #[test]
+    fn disabled_is_a_boolean_option_of_agent_route_writes_only() {
+        for (method, params, path) in [
+            ("route/set", json!({"route": {"disabled": true}}), "/route"),
+            ("route/set", json!({"threadId": "t", "route": {"disabled": true}}), "/route"),
+            ("thread/fork", json!({"agentId": "watcher", "route": {"disabled": true}}), "/route"),
+            ("route/set", json!({"agentId": "watcher", "route": {"disabled": true, "extra": 1}}), "/route"),
+            ("route/set", json!({"agentId": "watcher", "route": {"disabled": true, "fallbacks": [{"disabled": true}]}}), "/route/fallbacks/0"),
+        ] {
+            assert_eq!(verdict(method, &params), refuse(path, "model selection contains an unsupported field."));
+        }
+        let wrong_type = json!({"agentId": "watcher", "route": {"disabled": "true"}});
+        assert_eq!(verdict("route/set", &wrong_type), refuse("/route/disabled", "selection.disabled must be a boolean."));
     }
 
     #[test]

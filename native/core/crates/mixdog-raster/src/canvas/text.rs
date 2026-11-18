@@ -220,7 +220,7 @@ pub(crate) fn lay_out<P: ReadProof>(proof: &P, registry: &Registry, font: &Parse
     }
     let chain = Chain::new(proof, registry, font);
     let Some(primary) = chain.ids().first().map(|id| registry.face(*id)) else {
-        return Err(RasterError::new("no font is registered"));
+        return Err(RasterError::new(mixdog_fonts::NO_FONT_REGISTERED));
     };
     let size = font.size;
     let per_unit = size / f32::from(primary.units_per_em.max(1));
@@ -298,7 +298,7 @@ mod tests {
         let registry = Registry::new();
         let font = mixdog_fonts::css_font::parse("12px Arial").unwrap();
         let error = lay_out(&mixdog_fsio::Unlaned, &registry, &font, "x", 0.0).err().expect("an error");
-        assert_eq!(error.message(), "no font is registered");
+        assert_eq!(error.message(), mixdog_fonts::NO_FONT_REGISTERED);
         let nul = lay_out(&mixdog_fsio::Unlaned, &registry, &font, "a\0", 0.0).err().expect("an error");
         assert_eq!(nul.message(), "Convert String to CString failed");
     }

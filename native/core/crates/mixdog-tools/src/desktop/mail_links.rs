@@ -128,8 +128,9 @@ pub fn link_for(session: &str, url: &str, now: i64) -> Option<MailLink> {
     links.get(session)?.iter().find(|link| link.url == href).cloned()
 }
 
-/// Node's recording of the same operations (`fixtures/mail-link-navigation`), for the replays here and in `browser.rs`.
-#[cfg(test)]
+
+/// The recorded operations of the mail-link navigation case, replayed by `browser.rs`.
+#[cfg(all(test, node_twin))]
 pub(crate) mod replay {
     use std::sync::Mutex;
     use std::sync::MutexGuard;
@@ -182,46 +183,79 @@ pub(crate) mod replay {
 
 #[cfg(test)]
 mod tests {
-    use super::replay::Case;
-    use super::replay::exclusive;
     use super::*;
 
-    /// Every `record` and `probe` of the recorded case, in order, answered as Node answered.
-    fn replays(title: &str) {
-        let _turn = exclusive();
-        let case = Case::of(title);
-        let mut probes = 0;
-        for op in &case.ops {
-            let session = op["session"].as_str().expect("session");
-            match op["op"].as_str().expect("op") {
-                "record" => record(session, op["mail"].as_str().expect("mail"), case.at(&op["at"])),
-                "probe" => {
-                    probes += 1;
-                    assert_eq!(link_for(session, op["url"].as_str().expect("url"), case.at(&op["at"])), case.link(&op["link"]), "{}: {}", session, op["why"]);
-                }
-                other => panic!("unexpected recorded operation {other}"),
-            }
-        }
-        assert!(probes > 0, "{title}: nothing was probed");
+    const NOW: i64 = 1_700_000_000_000;
+
+    /// A read_email result: its header line, a blank line, the body.
+    fn mail(from: &str, dmarc: Value, dkim: Value, links: &[&str]) -> String {
+        let head = json!({
+            "fromAddresses": [{ "address": from }],
+            "authentication": { "dmarc": dmarc, "dkim": dkim },
+            "links": links,
+        });
+        format!("{head}\n\nbody")
+    }
+
+    fn passed(domain: &str) -> Value {
+        json!({ "result": "pass", "from": domain })
     }
 
     #[test]
     fn a_mails_links_are_offered_for_exactly_the_targets_it_writes() {
-        replays("the links are the exact targets the mail writes");
+        let session = "links-exact";
+        record(session, &mail("a@news.example.com", passed("news.example.com"), json!([]), &["https://news.example.com/confirm?t=1"]), NOW);
+        let link = link_for(session, "https://news.example.com/confirm?t=1", NOW).expect("the written target is offered");
+        assert_eq!(link, MailLink { url: "https://news.example.com/confirm?t=1".into(), from_domain: "news.example.com".into(), read_at: NOW });
+        assert_eq!(link.to_json(), json!({ "url": "https://news.example.com/confirm?t=1", "from_domain": "news.example.com", "read_at": NOW }));
+        assert!(link_for(session, "https://news.example.com/confirm?t=2", NOW).is_none(), "another target of the same host");
+        assert!(link_for("another-session", "https://news.example.com/confirm?t=1", NOW).is_none(), "another session");
     }
 
     #[test]
     fn a_link_is_offered_only_while_recent_and_over_https() {
-        replays("a link is offered only while recent and over https");
+        let session = "links-window";
+        let body = mail(
+            "a@example.com",
+            passed("example.com"),
+            json!([]),
+            &["https://example.com/ok", "http://example.com/plain", "https://user:pw@example.com/creds"],
+        );
+        record(session, &body, NOW);
+        assert!(link_for(session, "https://example.com/ok", NOW + MAIL_LINK_WINDOW_MS).is_some(), "the last moment of the window");
+        assert!(link_for(session, "http://example.com/plain", NOW).is_none(), "http is never recorded");
+        assert!(link_for(session, "https://user:pw@example.com/creds", NOW).is_none(), "credentials in the link are never recorded");
+        assert!(link_for(session, "https://example.com/ok", NOW + MAIL_LINK_WINDOW_MS + 1).is_none(), "past the window");
+        assert!(link_for(session, "https://example.com/ok", NOW).is_none(), "an expired link is forgotten");
     }
 
     #[test]
     fn only_a_single_from_mailbox_gmail_authenticated_counts() {
-        replays("only a single From mailbox that Gmail authenticated counts");
+        let record_for = |session: &str, head: Value| record(session, &format!("{head}\n\nbody"), NOW);
+        let links = ["https://example.com/go"];
+        let authenticated = json!({ "dmarc": passed("example.com"), "dkim": [] });
+        // Unauthenticated, failing and misaligned verdicts record nothing.
+        record_for("mb-none", json!({ "fromAddresses": [{ "address": "a@example.com" }], "links": links }));
+        record_for("mb-fail", json!({ "fromAddresses": [{ "address": "a@example.com" }], "authentication": { "dmarc": { "result": "fail", "from": "example.com" }, "dkim": [] }, "links": links }));
+        record_for("mb-misaligned", json!({ "fromAddresses": [{ "address": "a@example.com" }], "authentication": { "dmarc": passed("other.org"), "dkim": [] }, "links": links }));
+        // Two mailboxes in From: one verdict cannot vouch for the one a link names.
+        record_for("mb-two", json!({ "fromAddresses": [{ "address": "a@example.com" }, { "address": "b@example.com" }], "authentication": authenticated, "links": links }));
+        for session in ["mb-none", "mb-fail", "mb-misaligned", "mb-two"] {
+            assert!(link_for(session, "https://example.com/go", NOW).is_none(), "{session}");
+        }
+        // A passing DKIM signature aligned with the sender in relaxed mode (same organizational domain) vouches for it.
+        record_for("mb-dkim", json!({ "fromAddresses": [{ "address": "a@mail.example.com" }], "authentication": { "dkim": [{ "result": "pass", "domain": "example.com" }] }, "links": links }));
+        assert_eq!(link_for("mb-dkim", "https://example.com/go", NOW).map(|l| l.from_domain), Some("mail.example.com".to_owned()));
     }
 
     #[test]
-    fn the_hostnames_a_mail_spells_are_judged_as_tldts_judges_them() {
-        replays("the hostnames the sender, the signing domain and the link may spell");
+    fn the_hostnames_a_mail_spells_are_normalised_before_they_are_judged() {
+        // Upper case in the sender's domain and the link's host reads as the lower case host.
+        record("host-case", &mail("A@Example.COM", passed("EXAMPLE.com"), json!([]), &["https://EXAMPLE.com/Path"]), NOW);
+        let link = link_for("host-case", " https://example.com/Path ", NOW).expect("surrounding white space is trimmed and the host lower-cased");
+        assert_eq!((link.url.as_str(), link.from_domain.as_str()), ("https://example.com/Path", "example.com"));
+        // A sender that is not a host name (no dot) never authenticates.
+        record("host-bare", &mail("a@localhost", passed("localhost"), json!([]), &["https://example.com/x"]), NOW);
+        assert!(link_for("host-bare", "https://example.com/x", NOW).is_none());
     }
 }

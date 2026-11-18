@@ -92,6 +92,9 @@ impl Observable {
         for row in &written {
             attachment_refs(&row.body, &mut refs);
         }
+        for (_, entry) in &model.queue {
+            attachment_refs(entry, &mut refs);
+        }
         Ok(Self {
             header,
             transcript: live

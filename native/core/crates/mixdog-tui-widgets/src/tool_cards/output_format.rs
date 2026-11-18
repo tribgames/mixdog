@@ -71,12 +71,6 @@ pub fn resolve_max_render_lines(primary: Option<&str>, fallback: Option<&str>) -
     fallback.filter(|raw| !js_trim(raw).is_empty()).and_then(positive).unwrap_or(DEFAULT_MAX_RENDER_LINES)
 }
 
-/// [`resolve_max_render_lines`] of this process's environment.
-pub fn max_render_lines_from_env() -> usize {
-    let read = |name: &str| std::env::var(name).ok();
-    resolve_max_render_lines(read("MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES").as_deref(), read("MIXDOG_TUI_EXPANDED_MAX_ROWS").as_deref())
-}
-
 fn omitted_physical_rows_marker(omitted: usize, is_shell: bool) -> String {
     if is_shell {
         let n = omitted.max(1);
@@ -677,4 +671,11 @@ mod tests {
         assert_eq!(infer_lang_family("Makefile"), None);
         assert_eq!(infer_lang_family(""), None);
     }
+}
+
+
+/// [`resolve_max_render_lines`] of this process's environment.
+pub fn max_render_lines_from_env() -> usize {
+    let read = |name: &str| std::env::var(name).ok();
+    resolve_max_render_lines(read("MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES").as_deref(), read("MIXDOG_TUI_EXPANDED_MAX_ROWS").as_deref())
 }

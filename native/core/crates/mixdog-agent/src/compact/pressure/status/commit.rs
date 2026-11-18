@@ -240,7 +240,7 @@ pub fn commit_compaction(input: &CommitInput<'_>) -> Committed {
     }
     let transcript_len = input.compacted.len() + input.appended.len();
     // `afterTranscriptTokens`: the calibrated estimate plus the request reserve of the final transcript.
-    let (tokens, request_reserve, reserve, policy) = match worker_policy(session, &input.after_tools, true) {
+    let (tokens, request_reserve, reserve, policy) = match worker_policy(status.env, session, &input.after_tools, true) {
         Some(Worker::Policy(policy)) => (current_estimate_tokens(message_tokens, &policy), policy.request_reserve_tokens, policy.reserve_tokens, Some(policy_header(&policy))),
         Some(Worker::Off) => (current_estimate_tokens(message_tokens, &Policy::default()), None, None, None),
         None => (message_tokens + plan.reserve_tokens, None, None, None),

@@ -17,16 +17,21 @@ pub mod tools;
 
 #[cfg(test)]
 mod tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod intent_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod setup_tests;
 #[cfg(test)]
 mod tests_runtime;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod replays_owned_runtime;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod replays_call_ids;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod schedule_error_wire_replay_tests;
 

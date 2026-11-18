@@ -170,6 +170,7 @@ pub(super) struct ScreenDisplay {
     pub capture_source_id: String,
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 fn summarize_display(display: &ScreenDisplay) -> Value {
     json!({
@@ -441,6 +442,7 @@ impl AbortSignal {
     }
 
     /// Runs `listener` at the abort (never if it has already happened).
+    #[cfg(node_twin)]
     #[cfg(test)]
     pub(super) fn on_abort(&self, listener: Box<dyn FnOnce() + Send>) {
         let mut state = lock(&self.state);
@@ -1765,6 +1767,7 @@ impl ScreenSession {
     }
 
     /// The displays a phone may choose, before `start`.
+    #[cfg(node_twin)]
     #[cfg(test)]
     pub(super) fn list_displays(&self) -> Vec<Value> {
         self.inner.entry(|| self.inner.deps.displays.list().iter().map(summarize_display).collect())
@@ -1796,6 +1799,7 @@ impl ScreenSession {
         self.inner.entry(|| self.inner.state().status.clone())
     }
 
+    #[cfg(node_twin)]
     #[cfg(test)]
     pub(super) fn video_path(&self) -> VideoPath {
         self.inner.entry(|| self.inner.state().video_path)

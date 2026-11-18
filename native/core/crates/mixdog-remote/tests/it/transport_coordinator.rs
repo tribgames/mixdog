@@ -1,8 +1,7 @@
-//! The transport coordinator against Node's recorded behavior
-//! (`fixtures/remote-transport-coordinator/scenarios.json`, recorded from
-//! `apps/desktop/src/main/remote-transport/coordinator.ts` at b6f10295a): every step's effects, in
+//! The transport coordinator's behaviour, step by step (the recorded scenarios of the local-only comparison run live in
+//! `fixtures/remote-transport-coordinator/scenarios.json`): every step's effects, in
 //! order (relay writes, peer sends and closes, sealed control messages, deliveries, callbacks, log
-//! lines, lane operations), the settled sends and the diagnostics afterwards are what Node did.
+//! lines, lane operations), the settled sends and the diagnostics afterwards are the expected ones.
 //!
 //! The E2EE channel is the recorder's stand-in (see the fixture's `convention`): the boxes are
 //! `magic | u64 sequence | 12 zero bytes | JSON | 16 zero bytes`, control messages boxed as
@@ -16,10 +15,12 @@ use base64::Engine;
 use mixdog_remote::e2ee::ControlLane;
 use mixdog_remote::e2ee::ControlOpen;
 use mixdog_remote::transport::coordinator::Coordinator;
+#[cfg(node_twin)]
 use mixdog_remote::transport::coordinator::EndReason;
 use mixdog_remote::transport::coordinator::Ended;
 use mixdog_remote::transport::coordinator::Host;
 use mixdog_remote::transport::coordinator::LocalOffer;
+#[cfg(node_twin)]
 use mixdog_remote::transport::coordinator::MediaAdapter;
 use mixdog_remote::transport::coordinator::PeerChannel;
 use mixdog_remote::transport::coordinator::PeerInit;
@@ -36,13 +37,12 @@ use mixdog_remote::webrtc::config::Candidate;
 use mixdog_remote::webrtc::signal::Fingerprint;
 use mixdog_remote::webrtc::signal::candidate_json;
 use mixdog_remote::webrtc::signal::ice_servers_json;
+#[cfg(node_twin)]
 use mixdog_remote::webrtc::signal::parse_candidate;
 use serde_json::Value;
 use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
-
-const RECORDED: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/remote-transport-coordinator/scenarios.json");
 
 const APP_MAGIC: [u8; 4] = [0x4d, 0x58, 0x45, 0x01];
 const CONTROL_MAGIC: [u8; 4] = [0x4d, 0x58, 0x43, 0x01];
@@ -110,6 +110,7 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+#[cfg(node_twin)]
 fn unhex(text: &str) -> Vec<u8> {
     (0..text.len() / 2).map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).expect("hex")).collect()
 }
@@ -389,10 +390,12 @@ fn settled_entry(tag: &Value, result: SendResult) -> Value {
     }
 }
 
+#[cfg(node_twin)]
 struct StubMedia {
     log: Log,
 }
 
+#[cfg(node_twin)]
 impl MediaAdapter for StubMedia {
     fn receive(&mut self, payload: &Value) -> bool {
         if payload.get("type").and_then(Value::as_str) == Some("stub-media") {
@@ -411,12 +414,14 @@ impl MediaAdapter for StubMedia {
     }
 }
 
+#[cfg(node_twin)]
 fn padded(call_id: u64, length: usize) -> String {
     let head = format!("{{\"id\":{call_id},\"pad\":\"");
     let tail = "\"}";
     format!("{head}{}{tail}", "a".repeat(length.saturating_sub(head.len() + tail.len())))
 }
 
+#[cfg(node_twin)]
 fn end_reason(name: Option<&str>) -> EndReason {
     match name {
         Some("revoked") => EndReason::Revoked,
@@ -428,10 +433,12 @@ fn end_reason(name: Option<&str>) -> EndReason {
     }
 }
 
+#[cfg(node_twin)]
 fn close_reason(name: &str) -> CloseReason {
     CloseReason::from_wire(name).unwrap_or_else(|| panic!("a close reason: {name}"))
 }
 
+#[cfg(node_twin)]
 fn run_step(step: &Value, coordinator: &mut Coordinator<ChannelFake, HostFake>, log: &Log, now: &Cell<u64>) {
     now.set(step.get("at").and_then(Value::as_u64).expect("at"));
     {
@@ -542,54 +549,9 @@ fn run_step(step: &Value, coordinator: &mut Coordinator<ChannelFake, HostFake>, 
     coordinator.settle();
 }
 
-#[test]
-fn the_coordinator_does_what_node_did_over_every_recorded_scenario() {
-    let recorded: Value = serde_json::from_str(&RECORDED).expect("the recording is JSON");
-    let scenarios = recorded["scenarios"].as_array().expect("scenarios");
-    assert!(scenarios.len() >= 20);
-    let mut steps_checked = 0;
-    for scenario in scenarios {
-        let name = scenario["name"].as_str().expect("name");
-        let now = Rc::new(Cell::new(scenario["start"].as_u64().expect("start")));
-        let log: Log = std::sync::Arc::new(Guarded(std::sync::Mutex::new(Shared {
-            effects: Vec::new(),
-            results: Vec::new(),
-            options: scenario["options"].clone(),
-            refuse: false,
-            buffered: 0,
-            encrypt: None,
-            seal_control: None,
-            pending_deliver: 0,
-            meters: Vec::new(),
-            tickets: HashMap::new(),
-            peers: Vec::new(),
-            creates: 0,
-            minted: 0,
-            relay_raw: Vec::new(),
-        })));
-        let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new(), on_seal: None };
-        let host = HostFake { log: log.clone(), now: now.clone() };
-        let mut coordinator = Coordinator::new(scenario["sessionId"].as_str().expect("session"), channel, host, AssemblyPool::default());
-        if scenario["options"]["media"] == true {
-            coordinator.set_media(Box::new(StubMedia { log: log.clone() }));
-        }
-        for (index, step) in scenario["steps"].as_array().expect("steps").iter().enumerate() {
-            run_step(step, &mut coordinator, &log, &now);
-            let shared = log.borrow();
-            let at = format!("{name}: step {index} ({})", step["op"]);
-            assert_eq!(Value::Array(shared.effects.clone()), step["effects"], "effects of {at}");
-            assert_eq!(Value::Array(shared.results.clone()), step["results"], "results of {at}");
-            drop(shared);
-            assert_eq!(coordinator.diagnostics().to_json(), step["diagnostics"], "diagnostics of {at}");
-            steps_checked += 1;
-        }
-    }
-    assert!(steps_checked > 300);
-}
-
 /// A live-view write is asked about once, at its write, and enters the stream whole in that step: an unpair that lands while a later
 /// fragment of a large frame is sealed waits for the write, and the next write after it is refused whole with no hole in the stream
-/// (the patched Node's `mayWrite`, asked after its last fragment is sealed).
+/// (the `mayWrite` question, asked after its last fragment is sealed).
 #[test]
 fn an_unpair_that_lands_while_a_later_fragment_is_sealed_waits_for_the_whole_write() {
     let log = gated_log();
@@ -688,44 +650,6 @@ struct RelayPhone {
     messages: Vec<String>,
 }
 
-impl RelayPhone {
-    fn new() -> Self {
-        Self {
-            receiver: mixdog_remote::transport::receiver::Receiver::new(),
-            assembler: mixdog_remote::transport::split::MessageAssembler::new(AssemblyPool::default()),
-            taken: 0,
-            acks: 0,
-            messages: Vec::new(),
-        }
-    }
-
-    /// Takes what the desktop wrote, then acks what it took. False: nothing new.
-    fn read_and_ack(&mut self, log: &Log, coordinator: &mut Coordinator<ChannelFake, HostFake>) -> bool {
-        let written: Vec<Vec<u8>> = log.borrow().relay_raw[self.taken..].to_vec();
-        self.taken += written.len();
-        let mut through = None;
-        for message in &written {
-            if let mixdog_remote::transport::frame::Message::Record(record) = mixdog_remote::transport::frame::decode_message(message).expect("a conforming message") {
-                self.receiver.accept(&record, 0);
-            }
-        }
-        while let Some((sequence, box_bytes)) = self.receiver.next().map(|(sequence, bytes)| (sequence, bytes.to_vec())) {
-            let (_, plaintext) = open_box(&box_bytes, APP_MAGIC).expect("an application box");
-            self.receiver.commit(sequence, 0).expect("in order");
-            if let mixdog_remote::transport::split::Assembly::Complete(bytes) = self.assembler.accept(&plaintext, 0).expect("the phone's reassembly takes it") {
-                self.messages.push(String::from_utf8(bytes).expect("text"));
-            }
-            through = Some(sequence);
-        }
-        let Some(through) = through else { return false };
-        self.acks += 1;
-        let ack = make_box(CONTROL_MAGIC, self.acks, &mixdog_remote::transport::control::ack_json(through, &[]));
-        coordinator.receive("relay", &mixdog_remote::transport::frame::encode_control(&ack).expect("a control message"));
-        coordinator.settle();
-        true
-    }
-}
-
 fn picture(jpeg_bytes: usize) -> String {
     let data = base64::engine::general_purpose::STANDARD.encode(vec![0x5a; jpeg_bytes]);
     format!(r#"{{"method":"browser/frame","params":{{"sessionId":"sess_1","seq":1,"image":{{"mimeType":"image/jpeg","data":"{data}"}}}}}}"#)
@@ -785,7 +709,7 @@ impl LiveView {
 
 /// A live-view picture larger than the old ceiling (8 records of a 4 MiB JPEG), and one larger than the whole window (a 10 MiB
 /// JPEG), each arrive whole: the gate is asked at the first record, every record is sealed then, and they enter the window as the
-/// phone's acks admit them, as Node b6f10295a sent them. A picture still waiting for the window, behind another message, when
+/// phone's acks admit them, as the coordinator sends them. A picture still waiting for the window, behind another message, when
 /// the device is unpaired enters none of it, and the stream goes on with no hole.
 #[test]
 fn a_live_view_picture_past_the_old_ceiling_arrives_whole_and_one_waiting_at_an_unpair_none_of_it() {
@@ -846,4 +770,126 @@ fn a_live_view_picture_half_in_the_stream_at_an_unpair_sends_no_more_and_ends_th
         }
         assert_eq!(view.phone.messages, [before.clone()], "the phone rebuilt nothing of the half-sent picture");
     }
+}
+
+/// A delivery withdrawn while it waits in the queue (its authority ended before it was committed): nothing of it was sealed, so it
+/// leaves the queue, settles as dropped, and the stream has no hole — the next message takes the next sequence and arrives. A
+/// delivery with a record already in the stream cannot be withdrawn without a hole, so the session ends instead.
+#[test]
+fn a_send_withdrawn_while_it_waits_for_the_window_leaves_no_hole_and_one_half_in_the_stream_ends_the_session() {
+    let mut view = LiveView::new();
+    let other = format!(r#"{{"method":"thread/updated","params":{{"data":"{}"}}}}"#, "b".repeat(6 * 1024 * 1024));
+    view.send("other", &other);
+    view.send("withdrawn", &picture(1024));
+    assert!(view.settled("withdrawn").is_none(), "the picture waits for the window behind the other message");
+    let ticket = view.tickets;
+    view.coordinator.cancel_send(ticket);
+    view.coordinator.settle();
+    assert_eq!(view.settled("withdrawn"), Some(json!({ "id": "withdrawn", "ok": null })), "withdrawn: dropped, its ticket released");
+    // A ticket already settled is not found: nothing happens.
+    view.coordinator.cancel_send(ticket);
+    view.coordinator.settle();
+    view.read_all();
+    assert_eq!(view.phone.messages.last(), Some(&other), "the other message arrived whole");
+    view.send("after", r#"{"method":"event","params":{}}"#);
+    view.read_all();
+    assert_eq!(view.phone.messages.last().map(String::as_str), Some(r#"{"method":"event","params":{}}"#), "the stream has no hole");
+    assert!(view.ended().is_empty(), "the session goes on");
+
+    let mut view = LiveView::new();
+    view.send("half sent", &picture(6 * 1024 * 1024));
+    view.send("behind it", &picture(1024));
+    assert!(view.settled("half sent").is_none() && view.relay_writes() > 2, "its head entered, its tail waits for the window");
+    view.coordinator.cancel_send(1);
+    view.coordinator.settle();
+    assert_eq!(view.ended(), [json!("revoked")], "a record of it is in the stream: the session ends rather than leave a hole");
+}
+
+impl RelayPhone {
+    fn new() -> Self {
+        Self {
+            receiver: mixdog_remote::transport::receiver::Receiver::new(),
+            assembler: mixdog_remote::transport::split::MessageAssembler::new(AssemblyPool::default()),
+            taken: 0,
+            acks: 0,
+            messages: Vec::new(),
+        }
+    }
+
+    /// Takes what the desktop wrote, then acks what it took. False: nothing new.
+    fn read_and_ack(&mut self, log: &Log, coordinator: &mut Coordinator<ChannelFake, HostFake>) -> bool {
+        let written: Vec<Vec<u8>> = log.borrow().relay_raw[self.taken..].to_vec();
+        self.taken += written.len();
+        let mut through = None;
+        for message in &written {
+            if let mixdog_remote::transport::frame::Message::Record(record) = mixdog_remote::transport::frame::decode_message(message).expect("a conforming message") {
+                self.receiver.accept(&record, 0);
+            }
+        }
+        while let Some((sequence, box_bytes)) = self.receiver.next().map(|(sequence, bytes)| (sequence, bytes.to_vec())) {
+            let (_, plaintext) = open_box(&box_bytes, APP_MAGIC).expect("an application box");
+            self.receiver.commit(sequence, 0).expect("in order");
+            if let mixdog_remote::transport::split::Assembly::Complete(bytes) = self.assembler.accept(&plaintext, 0).expect("the phone's reassembly takes it") {
+                self.messages.push(String::from_utf8(bytes).expect("text"));
+            }
+            through = Some(sequence);
+        }
+        let Some(through) = through else { return false };
+        self.acks += 1;
+        let ack = make_box(CONTROL_MAGIC, self.acks, &mixdog_remote::transport::control::ack_json(through, &[]));
+        coordinator.receive("relay", &mixdog_remote::transport::frame::encode_control(&ack).expect("a control message"));
+        coordinator.settle();
+        true
+    }
+}
+
+
+#[cfg(node_twin)]
+mod recorded {
+use super::*;
+const RECORDED: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/remote-transport-coordinator/scenarios.json");
+#[test]
+fn the_coordinator_does_what_node_did_over_every_recorded_scenario() {
+    let recorded: Value = serde_json::from_str(&RECORDED).expect("the recording is JSON");
+    let scenarios = recorded["scenarios"].as_array().expect("scenarios");
+    assert!(scenarios.len() >= 20);
+    let mut steps_checked = 0;
+    for scenario in scenarios {
+        let name = scenario["name"].as_str().expect("name");
+        let now = Rc::new(Cell::new(scenario["start"].as_u64().expect("start")));
+        let log: Log = std::sync::Arc::new(Guarded(std::sync::Mutex::new(Shared {
+            effects: Vec::new(),
+            results: Vec::new(),
+            options: scenario["options"].clone(),
+            refuse: false,
+            buffered: 0,
+            encrypt: None,
+            seal_control: None,
+            pending_deliver: 0,
+            meters: Vec::new(),
+            tickets: HashMap::new(),
+            peers: Vec::new(),
+            creates: 0,
+            minted: 0,
+            relay_raw: Vec::new(),
+        })));
+        let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new(), on_seal: None };
+        let host = HostFake { log: log.clone(), now: now.clone() };
+        let mut coordinator = Coordinator::new(scenario["sessionId"].as_str().expect("session"), channel, host, AssemblyPool::default());
+        if scenario["options"]["media"] == true {
+            coordinator.set_media(Box::new(StubMedia { log: log.clone() }));
+        }
+        for (index, step) in scenario["steps"].as_array().expect("steps").iter().enumerate() {
+            run_step(step, &mut coordinator, &log, &now);
+            let shared = log.borrow();
+            let at = format!("{name}: step {index} ({})", step["op"]);
+            assert_eq!(Value::Array(shared.effects.clone()), step["effects"], "effects of {at}");
+            assert_eq!(Value::Array(shared.results.clone()), step["results"], "results of {at}");
+            drop(shared);
+            assert_eq!(coordinator.diagnostics().to_json(), step["diagnostics"], "diagnostics of {at}");
+            steps_checked += 1;
+        }
+    }
+    assert!(steps_checked > 300);
+}
 }

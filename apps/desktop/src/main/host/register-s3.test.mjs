@@ -17,6 +17,7 @@ registerHooks({
   },
 });
 const { registerComputerHost } = await import('./register-s3.ts');
+const { createComputerSwitch } = await import('./computer-scope.ts');
 
 function fakeConnection() {
   const handlers = new Map();
@@ -53,6 +54,7 @@ function rig() {
     environment: { ready: new Promise((resolve) => (ready = resolve)), sources: () => ({ power, screen }) },
     desktopHostScreen: () => null,
     desktopHostCommand: () => null,
+    computerSwitch: createComputerSwitch(true),
   });
   return { connection, mirror, power, stop, ready };
 }

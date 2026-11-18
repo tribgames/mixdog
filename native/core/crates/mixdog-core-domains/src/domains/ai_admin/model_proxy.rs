@@ -9,7 +9,9 @@
 //!
 //! Retries belong to the PC's broker, once; the server end never retries a proxied send.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -19,6 +21,9 @@ use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::service::model_proxy::{redacted_text, without_attachment_references};
 use mixdog_ai::service::model_proxy_inline::{AttachmentReader, MODEL_PROXY_INLINE_MAX_BYTES, ReadError, inline_attachments};
 use mixdog_app_protocol::v2::model_proxy as w;
+use mixdog_core_api::domain::cache_tail::{
+    Admission, Claim, Cold, ColdRequest, Counters, Digest, Marker, Permit, Purpose, Resolution, TailGate, TailGateHandle, TailRefusal, TailRoute, Verdict, WireManifest, Zone,
+};
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider as p;
 use mixdog_core_api::ids::{ThreadId, TurnId};
@@ -74,7 +79,10 @@ fn phase_out(ph: p::Phase) -> w::ProxyPhase {
 
 fn part_out(part: &p::ContentPart) -> w::ProxyPart {
     match part {
-        p::ContentPart::Text(text, _) => w::ProxyPart::Text { text: text.clone() },
+        p::ContentPart::Text(text, fields) => w::ProxyPart::Text {
+            text: text.clone(),
+            cache_control: fields.as_ref().and_then(|fields| fields.get("cache_control")).filter(|marker| marker.is_object()).cloned(),
+        },
         p::ContentPart::Image(source) => w::ProxyPart::Image {
             source: match source {
                 p::ImageSource::Base64 { data, mime_type, .. } => w::ProxyImage::Base64 { data: data.clone(), mime_type: mime_type.clone() },
@@ -133,7 +141,11 @@ fn message_out(m: &p::Message) -> w::ProxyMessage {
         }),
         turn_reminder: m.turn_reminder.clone(),
         provider_replay: m.provider_replay().iter().map(replay_out).collect(),
-        account_routing: m.account_routing.as_ref().map(|r| w::ProxyAccountRouting { provider: r.provider.clone(), account_id: r.account_id.clone(), session_account_id: r.session_account_id.clone() }),
+        account_routing: m.account_routing.as_ref().map(|r| w::ProxyAccountRouting {
+            provider: r.provider.clone(),
+            account_id: r.account_id.clone(),
+            session_account_id: r.session_account_id.clone(),
+        }),
     }
 }
 
@@ -150,6 +162,8 @@ fn options_out(o: &p::RequestOptions) -> w::ProxyOptions {
         prompt_cache_key: o.prompt_cache_key.clone(),
         prompt_cache_scope: o.prompt_cache_scope.clone(),
         xai_responses_cache_scope: o.xai_responses_cache_scope.clone(),
+        xai_api_mode: o.xai_api_mode.clone(),
+        xai_responses_transport: o.xai_responses_transport.clone(),
         model_parameters: o.model_parameters.clone(),
         thread: o.thread.as_ref().map(|t| w::ProxyThread { id: t.id.to_string(), window: t.window, turn: t.turn.as_ref().map(ToString::to_string) }),
         parent_session_id: o.parent_session_id.clone(),
@@ -213,7 +227,10 @@ fn plain_json(value: Value) -> Result<Value, Invalid> {
 
 fn part_in(part: w::ProxyPart) -> Result<p::ContentPart, Invalid> {
     Ok(match part {
-        w::ProxyPart::Text { text } => p::ContentPart::Text(text, None),
+        w::ProxyPart::Text { text, cache_control } => p::ContentPart::Text(
+            text,
+            cache_control.filter(Value::is_object).map(|marker| [("cache_control".to_owned(), marker)].into_iter().collect()),
+        ),
         w::ProxyPart::Image { source } => p::ContentPart::Image(match source {
             w::ProxyImage::Base64 { data, mime_type } => p::ImageSource::Base64 { data, mime_type, width: None, height: None },
             w::ProxyImage::Url { url } => p::ImageSource::Url(url),
@@ -273,7 +290,11 @@ fn message_in(m: w::ProxyMessage) -> Result<p::Message, Invalid> {
         w::ProxyMessageSource::TailReminder => p::MessageSource::TailReminder,
     });
     out.turn_reminder = m.turn_reminder;
-    out.account_routing = m.account_routing.map(|r| p::AccountRouting { provider: r.provider, account_id: r.account_id, session_account_id: r.session_account_id });
+    out.account_routing = m.account_routing.map(|r| p::AccountRouting {
+        provider: r.provider,
+        account_id: r.account_id,
+        session_account_id: r.session_account_id,
+    });
     for r in m.provider_replay {
         out.push_replay(p::ProviderReplay { owner: r.owner.as_str().into(), items: plain_json(r.items)? });
     }
@@ -290,6 +311,12 @@ fn options_in(o: w::ProxyOptions) -> Result<p::RequestOptions, Invalid> {
         // The proxy wire does not carry the session's wire pin (Node's `options.session.wireRoute`): this PC's
         // gateway routes the model afresh.
         wire_pin: None,
+        // No book of the server's session lives on this PC: a session send's owner judges each POST over the call's link
+        // (`ProxyRunner::send` sets it), and a plain send goes out as Node 1.4.5 sent it.
+        tail_gate: None,
+        tail_purpose: Default::default(),
+        tail_generation: None,
+        tail_unreduced: None,
         max_output_tokens_override: o.max_output_tokens_override,
         fast: o.fast,
         tool_choice: o.tool_choice,
@@ -299,6 +326,8 @@ fn options_in(o: w::ProxyOptions) -> Result<p::RequestOptions, Invalid> {
         prompt_cache_key: o.prompt_cache_key,
         prompt_cache_scope: o.prompt_cache_scope,
         xai_responses_cache_scope: o.xai_responses_cache_scope,
+        xai_api_mode: o.xai_api_mode,
+        xai_responses_transport: o.xai_responses_transport,
         model_parameters: o.model_parameters,
         thread: o.thread.map(|t| p::RequestThread { id: ThreadId::from(t.id.as_str()), window: t.window, turn: t.turn.map(|t| TurnId::from(t.as_str())), turn_started_at_ms: None }),
         parent_session_id: o.parent_session_id,
@@ -396,6 +425,7 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         },
         E::TextDelta(text) => w::ProxyEvent::TextDelta { text: text.clone() },
         E::ReasoningDelta(text) => w::ProxyEvent::ReasoningDelta { text: text.clone() },
+        E::ProgressDelta(text) => w::ProxyEvent::ProgressDelta { text: text.clone() },
         E::ReasoningReplay(r) => w::ProxyEvent::ReasoningReplay { replay: replay_out(r) },
         E::ToolCallStart { id, name } => w::ProxyEvent::ToolCallStart { id: id.clone(), name: name.clone() },
         E::ToolCallArgsDelta { id, delta } => w::ProxyEvent::ToolCallArgsDelta { id: id.clone(), delta: delta.clone() },
@@ -470,6 +500,7 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
         },
         w::ProxyEvent::TextDelta { text } => E::TextDelta(text),
         w::ProxyEvent::ReasoningDelta { text } => E::ReasoningDelta(text),
+        w::ProxyEvent::ProgressDelta { text } => E::ProgressDelta(text),
         w::ProxyEvent::ReasoningReplay { replay } => E::ReasoningReplay(p::ProviderReplay { owner: replay.owner.as_str().into(), items: replay.items }),
         w::ProxyEvent::ToolCallStart { id, name } => E::ToolCallStart { id, name },
         w::ProxyEvent::ToolCallArgsDelta { id, delta } => E::ToolCallArgsDelta { id, delta },
@@ -515,6 +546,8 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
                 w::ProxyStop::Other { value } => p::StopReason::Other(value),
             }),
         },
+        // The owner's checks of a session send are the call's, not an attempt's ([`remote_send`] answers them).
+        w::ProxyEvent::TailAsk { .. } | w::ProxyEvent::TailSettle { .. } => return Err("a prompt-cache check is not an attempt's event".to_owned()),
         w::ProxyEvent::AttemptDiscarded => return Ok(Incoming::Discard),
         w::ProxyEvent::AttemptAbandoned { usage, model } => return Ok(Incoming::Abandoned(usage_in(usage), model)),
     }))
@@ -581,6 +614,8 @@ pub fn failure_out(e: &p::ProviderError, outcome: w::ProxyOutcome) -> w::ProxyFa
             },
             F::TruncatedStream => w::ProxyFault::TruncatedStream,
             F::Io { os_code } => w::ProxyFault::Io { os_code: *os_code },
+            F::TooManyEncodings => w::ProxyFault::TooManyEncodings,
+            F::CorruptBody => w::ProxyFault::CorruptBody,
         }),
         message: redacted_text(&e.message, MAX_ERROR_TEXT),
         partial_usage: e.partial_usage.as_deref().map(usage_out),
@@ -634,6 +669,8 @@ pub fn failure_in(f: w::ProxyFailure) -> Result<(p::ProviderError, w::ProxyOutco
         },
         w::ProxyFault::TruncatedStream => F::TruncatedStream,
         w::ProxyFault::Io { os_code } => F::Io { os_code },
+        w::ProxyFault::TooManyEncodings => F::TooManyEncodings,
+        w::ProxyFault::CorruptBody => F::CorruptBody,
     });
     e.message = f.message;
     e.partial_usage = f.partial_usage.map(|u| Box::new(usage_in(u)));
@@ -826,6 +863,294 @@ fn wire_in(w: w::ProxyWireIds) -> p::WireIds {
     }
 }
 
+// -- the session owner's checks of a session send ---------------------------------------------
+
+fn hex(digest: &Digest) -> String {
+    digest.0.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn unhex(text: &str) -> Option<Digest> {
+    if text.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (i, byte) in out.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(text.get(i * 2..i * 2 + 2)?, 16).ok()?;
+    }
+    Some(Digest(out))
+}
+
+fn manifest_out(m: &WireManifest) -> w::ProxyManifest {
+    let narrow = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    w::ProxyManifest {
+        markers: m
+            .markers
+            .iter()
+            .map(|marker| w::ProxyMarker {
+                zone: match marker.zone {
+                    Zone::Tools => w::ProxyZone::Tools,
+                    Zone::System => w::ProxyZone::System,
+                    Zone::Messages => w::ProxyZone::Messages,
+                },
+                ttl_ms: marker.ttl_ms,
+                block: narrow(marker.block),
+                digest: hex(&marker.digest),
+            })
+            .collect(),
+        boundaries: m.boundaries.iter().map(hex).collect(),
+        tail: m.tail.map(narrow),
+    }
+}
+
+/// The layout a PC described, `None` when it does not read as one (a digest that is not 64 hex digits, a tail outside the
+/// markers).
+fn manifest_in(m: w::ProxyManifest) -> Option<WireManifest> {
+    let markers = m
+        .markers
+        .into_iter()
+        .map(|marker| {
+            Some(Marker {
+                zone: match marker.zone {
+                    w::ProxyZone::Tools => Zone::Tools,
+                    w::ProxyZone::System => Zone::System,
+                    w::ProxyZone::Messages => Zone::Messages,
+                },
+                ttl_ms: marker.ttl_ms,
+                block: marker.block as usize,
+                digest: unhex(&marker.digest)?,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let boundaries = m.boundaries.iter().map(|b| unhex(b)).collect::<Option<Vec<_>>>()?;
+    let tail = m.tail.map(|t| t as usize);
+    if tail.is_some_and(|t| t >= markers.len()) {
+        return None;
+    }
+    Some(WireManifest { markers, boundaries, tail })
+}
+
+fn counters_out(c: Counters) -> w::ProxyCounters {
+    w::ProxyCounters { read: c.read, created: c.created, created5m: c.created_5m, created1h: c.created_1h }
+}
+
+fn counters_in(c: w::ProxyCounters) -> Counters {
+    Counters { read: c.read, created: c.created, created_5m: c.created5m, created_1h: c.created1h }
+}
+
+fn cold_out(c: Cold) -> w::ProxyCold {
+    match c {
+        Cold::Expired => w::ProxyCold::Expired,
+        Cold::Unproven => w::ProxyCold::Unproven,
+    }
+}
+
+fn cold_in(c: w::ProxyCold) -> Cold {
+    match c {
+        w::ProxyCold::Expired => Cold::Expired,
+        w::ProxyCold::Unproven => Cold::Unproven,
+    }
+}
+
+fn refusal_out(r: TailRefusal) -> w::ProxyTailRefusal {
+    match r {
+        TailRefusal::Rebuild(ColdRequest { ticket, cold }) => w::ProxyTailRefusal::Rebuild { ticket, cold: cold_out(cold) },
+        TailRefusal::Skip(cold) => w::ProxyTailRefusal::Skip { cold: cold_out(cold) },
+        TailRefusal::Wait(ticket) => w::ProxyTailRefusal::Wait { ticket },
+        // The owner's own book judges here and never answers unjudged; were it to, the PC sends nothing either way.
+        TailRefusal::Stale | TailRefusal::Unjudged => w::ProxyTailRefusal::Stale,
+    }
+}
+
+fn refusal_in(r: w::ProxyTailRefusal) -> TailRefusal {
+    match r {
+        w::ProxyTailRefusal::Rebuild { ticket, cold } => TailRefusal::Rebuild(ColdRequest { ticket, cold: cold_in(cold) }),
+        w::ProxyTailRefusal::Skip { cold } => TailRefusal::Skip(cold_in(cold)),
+        w::ProxyTailRefusal::Wait { ticket } => TailRefusal::Wait(ticket),
+        w::ProxyTailRefusal::Stale => TailRefusal::Stale,
+    }
+}
+
+/// The serving account's cache namespace as the owner sees it: a digest of the PC's route (provider endpoint, model and the
+/// credential's own identity), so no account file name or key hash of the PC leaves it.
+fn opaque_route(route: &TailRoute) -> String {
+    use sha2::Digest as _;
+    let digest: [u8; 32] = sha2::Sha256::digest(route.0.as_bytes()).into();
+    format!("proxy:{}", hex(&Digest(digest)))
+}
+
+/// The link from a session send running on this PC back to the session's owner on the server: each ask this PC's adapter
+/// makes before a POST goes out as an event of the call, and the owner's verdict comes back by its ask
+/// ([`OwnerLink::deliver`]). Once the link to the owner is gone ([`OwnerLink::close`]) every ask, waiting or later, is
+/// unjudged and nothing is sent.
+pub struct OwnerLink {
+    emit: Box<dyn Fn(w::ProxyEvent) + Send + Sync>,
+    asks: AtomicU64,
+    /// The asks waiting for their verdict; `None` once the link is gone.
+    waiting: Mutex<Option<HashMap<u64, tokio::sync::oneshot::Sender<w::ProxyVerdict>>>>,
+}
+
+impl OwnerLink {
+    /// `emit` writes an event of the call, in order with its other events.
+    pub fn new(emit: impl Fn(w::ProxyEvent) + Send + Sync + 'static) -> Arc<Self> {
+        Arc::new(Self { emit: Box::new(emit), asks: AtomicU64::new(1), waiting: Mutex::new(Some(HashMap::new())) })
+    }
+
+    /// The owner's verdict on `ask`; one for an ask that is not waiting (answered, given up) changes nothing.
+    pub fn deliver(&self, ask: u64, verdict: w::ProxyVerdict) {
+        let waiter = self.waiting.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut().and_then(|waiting| waiting.remove(&ask));
+        if let Some(waiter) = waiter {
+            let _ = waiter.send(verdict);
+        }
+    }
+
+    /// The link to the owner is gone: the asks waiting end unjudged, and so does every later one.
+    pub fn close(&self) {
+        self.waiting.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    }
+
+    /// Asks the owner to judge the POST of `manifest` on `route`; `None` when the owner cannot be reached.
+    async fn ask(&self, route: String, manifest: w::ProxyManifest) -> (u64, Option<w::ProxyVerdict>) {
+        let ask = self.asks.fetch_add(1, Ordering::Relaxed);
+        let (tell, verdict) = tokio::sync::oneshot::channel();
+        {
+            let mut waiting = self.waiting.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Some(waiting) = waiting.as_mut() else { return (ask, None) };
+            waiting.insert(ask, tell);
+        }
+        (self.emit)(w::ProxyEvent::TailAsk { ask, route, manifest });
+        (ask, verdict.await.ok())
+    }
+}
+
+/// The gate of a session send on this PC: every POST of the call is judged by the session's owner on the server, asked
+/// immediately before the write with the account and the body layout of that POST; its usage goes back as the owner's
+/// evidence. The book, the generation and any compaction are the owner's: none of them is kept here.
+struct RemoteGate(Arc<OwnerLink>);
+
+impl TailGate for RemoteGate {
+    /// The adapter writes the POST as soon as this returns, so the verdict's validity is checked here, last: a verdict
+    /// that lapsed on the way (its judgement no longer holds by the time it arrived) is settled unsent and asked again,
+    /// and the owner judges the POST anew at its own clock. The contract is "live at admission", not "live when the
+    /// provider reads it", and a rewrite the owner commits after its judgement is not visible to this PC once it posts.
+    fn admit<'a>(&'a self, admission: Admission<'a>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Verdict> + Send + 'a>> {
+        Box::pin(async move {
+            loop {
+                // Before the ask leaves: the owner judges after this instant, so what elapsed since it bounds what elapsed
+                // since the judgement, whatever the two hosts' clocks read.
+                let asked = mixdog_rt::time::Instant::now();
+                let (ask, verdict) = self.0.ask(opaque_route(admission.route), manifest_out(admission.manifest)).await;
+                match verdict {
+                    Some(w::ProxyVerdict::Send { holds_ms: Some(holds), .. }) if asked.elapsed() >= std::time::Duration::from_millis(holds) => {
+                        (self.0.emit)(w::ProxyEvent::TailSettle { ask, counters: None });
+                    }
+                    // The permit names the ask, so its settlement reaches the owner's permit for this very POST.
+                    Some(w::ProxyVerdict::Send { generation, admitted_at, holds_ms }) => {
+                        return Verdict::Send(Permit {
+                            id: ask,
+                            route: admission.route.clone(),
+                            purpose: admission.purpose,
+                            manifest: Arc::new(admission.manifest.clone()),
+                            dispatched_at: admitted_at,
+                            generation,
+                            holds_ms,
+                        });
+                    }
+                    Some(w::ProxyVerdict::Refuse { refusal }) => return Verdict::Refuse(refusal_in(refusal)),
+                    None => return Verdict::Refuse(TailRefusal::Unjudged),
+                }
+            }
+        })
+    }
+
+    fn settle(&self, permit: &Permit, counters: Option<Counters>) {
+        (self.0.emit)(w::ProxyEvent::TailSettle { ask: permit.id, counters: counters.map(counters_out) });
+    }
+
+    // The PC runs no turn: it offers, claims and decides no rewrite, and holds no book. A refusal goes back to the owner,
+    // whose run compacts and sends the rebuilt transcript as a new call.
+    fn claim(&self, _: ColdRequest) -> Claim {
+        Claim::Stale
+    }
+
+    fn resolve(&self, _: u64, _: Resolution) -> Option<mixdog_core_api::domain::cache_tail::Unreduced> {
+        None
+    }
+
+    fn rebuilt(&self) -> u64 {
+        0
+    }
+
+    fn snapshot(&self) -> Option<Value> {
+        None
+    }
+
+    fn generation(&self) -> u64 {
+        0
+    }
+
+    fn wait_for(&self, _: u64) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        Box::pin(std::future::ready(()))
+    }
+}
+
+/// The owner's end of a session send: each ask of the PC judged on the session's own book, at the owner's clock, with
+/// the purpose and generation of the request it carries; each settlement matched to the permit of its POST.
+struct OwnerEnd {
+    gate: TailGateHandle,
+    purpose: Purpose,
+    generation: Option<u64>,
+    /// The leave of the failed rewrite this request was decided for, which every POST of the call carries.
+    unreduced: Option<mixdog_core_api::domain::cache_tail::Unreduced>,
+    permits: HashMap<u64, Permit>,
+    /// The refusal of the call's last ask, when it was refused: the call's failure is that refusal.
+    refused: Option<TailRefusal>,
+}
+
+impl OwnerEnd {
+    async fn hear(&mut self, event: w::ProxyEvent, say: &tokio::sync::mpsc::UnboundedSender<Value>) {
+        match event {
+            w::ProxyEvent::TailAsk { ask, route, manifest } => {
+                let verdict = match manifest_in(manifest) {
+                    Some(manifest) => {
+                        let route = TailRoute(route);
+                        self.gate.0.admit(Admission { purpose: self.purpose, route: &route, manifest: &manifest, generation: self.generation, unreduced: self.unreduced }).await
+                    }
+                    // A layout that does not read proves nothing: the POST is not sent.
+                    None => Verdict::Refuse(TailRefusal::Skip(Cold::Unproven)),
+                };
+                let verdict = match verdict {
+                    Verdict::Send(permit) => {
+                        let verdict = w::ProxyVerdict::Send { generation: permit.generation, admitted_at: permit.dispatched_at, holds_ms: permit.holds_ms };
+                        self.permits.insert(ask, permit);
+                        self.refused = None;
+                        verdict
+                    }
+                    Verdict::Refuse(refusal) => {
+                        self.refused = Some(refusal);
+                        w::ProxyVerdict::Refuse { refusal: refusal_out(refusal) }
+                    }
+                };
+                // The PC is gone if this fails: its call ends on the stream.
+                let _ = say.send(serde_json::json!({ "ask": ask, "verdict": verdict }));
+            }
+            // Once per permit: a duplicate or a stray settlement finds none.
+            w::ProxyEvent::TailSettle { ask, counters } => {
+                if let Some(permit) = self.permits.remove(&ask) {
+                    self.gate.0.settle(&permit, counters.map(counters_in));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The call is over: a POST whose usage never came back (the link went mid-stream) reported nothing.
+    fn end(self) {
+        for permit in self.permits.into_values() {
+            self.gate.0.settle(&permit, None);
+        }
+    }
+}
+
 // -- the PC end -----------------------------------------------------------------------------
 
 /// The PC's providers by name (`ProviderRegistry::get`).
@@ -844,6 +1169,12 @@ impl ProviderLookup for ProviderRegistry {
 /// Where the events of a running call go: `modelProxy/run/event` on the connection that asked.
 pub trait ProxyEvents: Send + Sync {
     fn emit(&self, event: w::ProxyEvent);
+
+    /// The link back to the session's owner that a session send asks before each POST; `None` where the call arrived on a
+    /// path that carries no verdicts back (`modelProxy/run` from a connection), which runs no session send.
+    fn owner(&self) -> Option<Arc<OwnerLink>> {
+        None
+    }
 }
 
 /// `quotaUsable`: a forced usage reading per account, decided by
@@ -978,7 +1309,11 @@ impl ProxyRunner {
             return Err(cancelled_failure());
         }
         // "Restricted to the provider the daemon named": checked before the provider is looked up (host.ts:713).
-        if let w::ProxyCall::QuotaUsable { provider, .. } | w::ProxyCall::ResolveWireRoute { provider, .. } | w::ProxyCall::ListModels { provider, .. } | w::ProxyCall::Send { provider, .. } = &call
+        if let w::ProxyCall::QuotaUsable { provider, .. }
+        | w::ProxyCall::ResolveWireRoute { provider, .. }
+        | w::ProxyCall::ListModels { provider, .. }
+        | w::ProxyCall::Send { provider, .. }
+        | w::ProxyCall::SessionSend { provider, .. } = &call
             && !provider.is_empty()
             && !allows(allowed, provider)
         {
@@ -1014,7 +1349,8 @@ impl ProxyRunner {
                 let snapshot = self.catalog.snapshot();
                 let id = mixdog_protocol::ProviderId::from(provider.as_str());
                 let models = snapshot.models_of(&id);
-                if let (true, Some(mixdog_ai::catalog::ProviderStatus::Missing { message, .. })) = (models.is_empty(), snapshot.status.get(&id)) {
+                let status = snapshot.status.get(&id);
+                if let (true, Some(mixdog_ai::catalog::ProviderStatus::Missing { message, .. })) = (models.is_empty(), status) {
                     return Err(refusal("MODEL_PROXY_LISTING_FAILED", message.clone(), p::ErrorKind::Transient));
                 }
                 // The budget depends on the model, so it rides with the model's own row (host.ts `catalog`).
@@ -1025,43 +1361,64 @@ impl ProxyRunner {
                 };
                 Ok(w::ProxyAnswer::Models {
                     models: models.iter().map(|m| w::ProxyModel { first_response_budget: budget(&m.id), ..catalog_model_out(m) }).collect(),
+                    complete: Some(matches!(status, Some(mixdog_ai::catalog::ProviderStatus::Ok))),
                 })
             }
-            w::ProxyCall::Send { provider, request } => {
-                let adapter = self.adapter(&provider).await?;
-                let forked = request.options.forked_transport_scope;
-                let mut request = request_in(*request).map_err(|e| refusal("MODEL_PROXY_REQUEST_INVALID", e.0, p::ErrorKind::InvalidRequest))?;
-                // A request the server forked from a session gets a scope allocated here (`forkTransportScope(sessionId || name,
-                // 'proxy')`), released when it ends whatever the outcome (`disposeTransportScope`).
-                let scope = forked.then(|| format!("{}#proxy:{}", request.options.session_id.as_deref().filter(|id| !id.is_empty()).unwrap_or(&provider), uuid::Uuid::new_v4()));
-                request.options.transport_scope.clone_from(&scope);
-                // The server's tools this PC's adapter leaves out go back to the server (Node's `onToolExcluded`).
-                let (excluded, reports) = std::sync::mpsc::channel();
-                request.options.on_tool_excluded = Some(p::ToolExclusionSink(Arc::new(move |report| {
-                    let _ = excluded.send(report);
-                })));
-                let key = LaneKey::new(provider.as_str().into(), "default");
-                let lane = self.broker.admission().lane(&key, process_lane_settings()(&key));
-                let send = SendRequest { request: Arc::new(request), lane, admission: AdmissionRequest::default() };
-                let mut sink = EventSink { events, excluded: reports };
-                let sent = self.broker.send(adapter.as_ref(), send, &mut sink, cancel).await;
-                if let Some(scope) = &scope {
-                    adapter.release_transport_scope(scope);
-                }
-                sink.flush_excluded();
-                match sent {
-                    Ok(attempts) => Ok(w::ProxyAnswer::Sent { attempts }),
-                    Err(SendError::Provider(e)) => Err(failure_out(&e, w::ProxyOutcome::Provider)),
-                    Err(SendError::Exhausted(e)) => Err(failure_out(&e, w::ProxyOutcome::Exhausted)),
-                    Err(SendError::Fallback { model, last }) => Err(failure_out(&last, w::ProxyOutcome::Fallback { model })),
-                    Err(SendError::Admission(e)) => {
-                        let mut error = p::ProviderError::new(p::ErrorKind::Transient, p::DeliveryState::NotSent);
-                        error.message = format!("{e:?}");
-                        Err(failure_out(&error, w::ProxyOutcome::Admission))
-                    }
-                    Err(SendError::Cancelled) => Err(cancelled_failure()),
-                }
+            // A 1.4.5 server (or a send no session owns) has no cache-tail judgement: serving it as 1.4.5 did is no regression.
+            w::ProxyCall::Send { provider, request } => self.send(&provider, request, None, events, cancel).await,
+            // A session's transcript: each POST is judged by its owner, asked over the call's own link.
+            w::ProxyCall::SessionSend { provider, request } => {
+                let Some(owner) = events.owner() else {
+                    return Err(refusal(
+                        "MODEL_PROXY_SESSION_UNSUPPORTED",
+                        "The app on your PC is too old to send this request; update the app on your PC.".to_owned(),
+                        p::ErrorKind::InvalidRequest,
+                    ));
+                };
+                self.send(&provider, request, Some(owner), events, cancel).await
             }
+        }
+    }
+
+    /// One send of the server's `request` on this PC's provider `provider`, with every attempt's events. `owner`: the
+    /// session that owns the request's transcript judges each POST (no owner: nothing judges it).
+    #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
+    async fn send(&self, provider: &str, request: Box<w::ProxyRequest>, owner: Option<Arc<OwnerLink>>, events: &dyn ProxyEvents, cancel: &CancellationToken) -> Result<w::ProxyAnswer, w::ProxyFailure> {
+        let provider = provider.to_owned();
+        let adapter = self.adapter(&provider).await?;
+        let forked = request.options.forked_transport_scope;
+        let mut request = request_in(*request).map_err(|e| refusal("MODEL_PROXY_REQUEST_INVALID", e.0, p::ErrorKind::InvalidRequest))?;
+        // The owner's book is the one that judges: the generation and the purpose are the owner's, never stamped here.
+        request.options.tail_gate = owner.map(|owner| TailGateHandle(Arc::new(RemoteGate(owner))));
+        // A request the server forked from a session gets a scope allocated here (`forkTransportScope(sessionId || name,
+        // 'proxy')`), released when it ends whatever the outcome (`disposeTransportScope`).
+        let scope = forked.then(|| format!("{}#proxy:{}", request.options.session_id.as_deref().filter(|id| !id.is_empty()).unwrap_or(&provider), uuid::Uuid::new_v4()));
+        request.options.transport_scope.clone_from(&scope);
+        // The server's tools this PC's adapter leaves out go back to the server (Node's `onToolExcluded`).
+        let (excluded, reports) = std::sync::mpsc::channel();
+        request.options.on_tool_excluded = Some(p::ToolExclusionSink(Arc::new(move |report| {
+            let _ = excluded.send(report);
+        })));
+        let key = LaneKey::new(provider.as_str().into(), "default");
+        let lane = self.broker.admission().lane(&key, process_lane_settings()(&key));
+        let send = SendRequest { request: Arc::new(request), lane, admission: AdmissionRequest::default() };
+        let mut sink = EventSink { events, excluded: reports };
+        let sent = self.broker.send(adapter.as_ref(), send, &mut sink, cancel).await;
+        if let Some(scope) = &scope {
+            adapter.release_transport_scope(scope);
+        }
+        sink.flush_excluded();
+        match sent {
+            Ok(attempts) => Ok(w::ProxyAnswer::Sent { attempts }),
+            Err(SendError::Provider(e)) => Err(failure_out(&e, w::ProxyOutcome::Provider)),
+            Err(SendError::Exhausted(e)) => Err(failure_out(&e, w::ProxyOutcome::Exhausted)),
+            Err(SendError::Fallback { model, last }) => Err(failure_out(&last, w::ProxyOutcome::Fallback { model })),
+            Err(SendError::Admission(e)) => {
+                let mut error = p::ProviderError::new(p::ErrorKind::Transient, p::DeliveryState::NotSent);
+                error.message = format!("{e:?}");
+                Err(failure_out(&error, w::ProxyOutcome::Admission))
+            }
+            Err(SendError::Cancelled) => Err(cancelled_failure()),
         }
     }
 
@@ -1076,7 +1433,7 @@ impl ProxyRunner {
 
 // -- the server end -------------------------------------------------------------------------
 
-fn transient(message: &str, delivery: p::DeliveryState) -> p::ProviderError {
+pub(super) fn transient(message: &str, delivery: p::DeliveryState) -> p::ProviderError {
     let mut error = p::ProviderError::new(p::ErrorKind::Transient, delivery);
     error.message = message.to_owned();
     error
@@ -1085,6 +1442,7 @@ fn transient(message: &str, delivery: p::DeliveryState) -> p::ProviderError {
 fn execution_error(error: ProxyError) -> SendError {
     match error {
         ProxyError::Unavailable(message) => SendError::Provider(transient(&message, p::DeliveryState::NotSent)),
+        ProxyError::Lost(message) => SendError::Provider(transient(&message, p::DeliveryState::Ambiguous)),
         ProxyError::Cancelled => SendError::Cancelled,
         ProxyError::Remote(value) => match serde_json::from_value::<w::ProxyFailure>(value.clone()).ok().map(failure_in) {
             Some(Ok((error, w::ProxyOutcome::Exhausted))) => SendError::Exhausted(error),
@@ -1098,6 +1456,11 @@ fn execution_error(error: ProxyError) -> SendError {
 /// A proxied send, the server end of `ModelBroker::send`: the stored attachments the request
 /// carries are inlined (newest first, under one byte budget), the call goes to the PC, and the
 /// events of each attempt reach `sink`. Returns the attempts the PC's broker made.
+///
+/// A request whose transcript a session here owns (`tail_gate`) goes as a session send: the PC asks before each POST and
+/// this end judges it on the session's book, at this clock, as any attempt of the session is judged; the PC sends only what
+/// was admitted, and each admitted POST's usage comes back to its permit. A refusal is the call's failure (the session
+/// compacts, waits or reloads and sends again). Any other request goes out unjudged, as Node 1.4.5 sent it.
 #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
 pub async fn remote_send(
     transport: &dyn ModelProxyTransport,
@@ -1111,24 +1474,72 @@ pub async fn remote_send(
     inline_attachments(&mut request.messages, attachments, MODEL_PROXY_INLINE_MAX_BYTES)
         .await
         .map_err(|e| SendError::Provider(transient(&e, p::DeliveryState::NotSent)))?;
-    let call = w::ProxyCall::Send { provider: provider.to_owned(), request: Box::new(request_out(&request)) };
+    let wire = Box::new(request_out(&request));
+    let call = match request.options.tail_gate {
+        Some(_) => w::ProxyCall::SessionSend { provider: provider.to_owned(), request: wire },
+        None => w::ProxyCall::Send { provider: provider.to_owned(), request: wire },
+    };
     let call = serde_json::to_value(&call).map_err(|e| SendError::Provider(transient(&e.to_string(), p::DeliveryState::NotSent)))?;
     let excluded = request.options.on_tool_excluded.clone();
+    let (heard, mut checks) = tokio::sync::mpsc::unbounded_channel();
     let mut on_event = |value: Value| {
         // An event this core cannot read is dropped: deltas are hints and the terminal event decides.
-        match serde_json::from_value::<w::ProxyEvent>(value).ok().map(event_in) {
-            Some(Ok(Incoming::Event(event))) => sink.event(event),
-            Some(Ok(Incoming::Excluded(report))) => {
+        let Ok(event) = serde_json::from_value::<w::ProxyEvent>(value) else { return };
+        if matches!(event, w::ProxyEvent::TailAsk { .. } | w::ProxyEvent::TailSettle { .. }) {
+            let _ = heard.send(event);
+            return;
+        }
+        match event_in(event) {
+            Ok(Incoming::Event(event)) => sink.event(event),
+            Ok(Incoming::Excluded(report)) => {
                 if let Some(excluded) = &excluded {
                     excluded.report(report);
                 }
             }
-            Some(Ok(Incoming::Discard)) => sink.discard(),
-            Some(Ok(Incoming::Abandoned(usage, model))) => sink.abandoned(&usage, model.as_deref()),
-            _ => {}
+            Ok(Incoming::Discard) => sink.discard(),
+            Ok(Incoming::Abandoned(usage, model)) => sink.abandoned(&usage, model.as_deref()),
+            Err(_) => {}
         }
     };
-    let answer = mixdog_ai::broker::execute_via_proxy(transport, call, &mut on_event, cancel).await.map_err(execution_error)?;
+    let answer = match request.options.tail_gate.clone() {
+        None => mixdog_ai::broker::execute_via_proxy(transport, call, &mut on_event, cancel).await.map_err(execution_error),
+        Some(gate) => {
+            if cancel.is_cancelled() {
+                return Err(SendError::Cancelled);
+            }
+            let mut owner = OwnerEnd { gate, purpose: request.options.tail_purpose, generation: request.options.tail_generation, unreduced: request.options.tail_unreduced, permits: HashMap::new(), refused: None };
+            let (say, back) = tokio::sync::mpsc::unbounded_channel();
+            let answer = {
+                let exchange = transport.execute_duplex(call, &mut on_event, back, cancel);
+                tokio::pin!(exchange);
+                loop {
+                    tokio::select! {
+                        biased;
+                        Some(check) = checks.recv() => owner.hear(check, &say).await,
+                        answer = &mut exchange => break answer,
+                    }
+                }
+            };
+            // The settlements the PC wrote just before it answered.
+            while let Ok(check) = checks.try_recv() {
+                owner.hear(check, &say).await;
+            }
+            let refused = owner.refused;
+            owner.end();
+            answer.map_err(execution_error).map_err(|error| match (error, refused) {
+                // The PC sent nothing of the refused POST: the call's failure is the owner's own refusal, never the PC's copy.
+                (SendError::Provider(mut error), Some(refusal)) => {
+                    error.tail_refusal = Some(refusal);
+                    SendError::Provider(error)
+                }
+                (SendError::Exhausted(mut error), Some(refusal)) => {
+                    error.tail_refusal = Some(refusal);
+                    SendError::Exhausted(error)
+                }
+                (error, _) => error,
+            })
+        }
+    }?;
     match serde_json::from_value::<w::ProxyAnswer>(answer.clone()).ok() {
         Some(w::ProxyAnswer::Sent { attempts }) => Ok(attempts),
         _ => Err(SendError::Provider(transient(&format!("model proxy answered a send with {answer}"), p::DeliveryState::Ambiguous))),
@@ -1136,40 +1547,82 @@ pub async fn remote_send(
 }
 
 /// The PC's model listing as the remote catalog sees it (`ModelProxyProvider.listModels` /
-/// `_refreshModelCache`, model-proxy-provider.mjs:159-165).
-pub struct ProxyListing<T: ModelProxyTransport> {
-    pub transport: T,
-    pub provider: String,
+/// `_refreshModelCache`, model-proxy-provider.mjs:159-165). Each listing replaces the first-response budgets the PC
+/// reported per model (Node's adopted `modelInfo`).
+pub struct ProxyListing {
+    transport: Arc<dyn ModelProxyTransport>,
+    provider: String,
+    budgets: Mutex<HashMap<String, p::FirstResponseBudget>>,
 }
 
-impl<T: ModelProxyTransport> ProxyListing<T> {
+impl ProxyListing {
+    pub fn new(transport: Arc<dyn ModelProxyTransport>, provider: String) -> Self {
+        Self { transport, provider, budgets: Mutex::default() }
+    }
+
+    /// The budget the PC's catalog states for `model`, as the last listing reported it.
+    pub fn budget(&self, model: &str) -> Option<p::FirstResponseBudget> {
+        self.budgets.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(model).copied()
+    }
+
     #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
-    async fn ask(&self, refresh: bool) -> Result<Vec<p::ModelRecord>, p::ProviderError> {
+    async fn ask(&self, refresh: bool) -> Result<p::ListedRoster, p::ProviderError> {
         let call = serde_json::to_value(w::ProxyCall::ListModels { provider: self.provider.clone(), refresh })
             .map_err(|e| transient(&e.to_string(), p::DeliveryState::NotSent))?;
-        let mut ignore = |_: Value| {};
-        let answer = self.transport.execute(call, &mut ignore, &CancellationToken::new()).await.map_err(|e| match execution_error(e) {
-            SendError::Provider(e) | SendError::Exhausted(e) => e,
-            SendError::Fallback { last, .. } => last,
-            _ => transient("The remote session cancelled the model call.", p::DeliveryState::NotSent),
-        })?;
+        let answer = ask_pc(self.transport.as_ref(), call).await?;
         match serde_json::from_value::<w::ProxyAnswer>(answer).map_err(|e| transient(&format!("model proxy answered a listing wrongly: {e}"), p::DeliveryState::Ambiguous))? {
-            w::ProxyAnswer::Models { models } => Ok(models.into_iter().map(model_in).collect()),
+            w::ProxyAnswer::Models { models, complete } => {
+                let complete = complete == Some(true);
+                let mut budgets = self.budgets.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if complete {
+                    budgets.clear();
+                }
+                budgets.extend(models.iter().filter_map(|m| Some((m.id.clone(), budget_in(m.first_response_budget?)?))));
+                Ok(p::ListedRoster {
+                    rows: models.into_iter().map(model_in).collect(),
+                    provenance: p::Provenance::Proxied { complete },
+                    identity: Default::default(),
+                })
+            }
             _ => Err(transient("model proxy answered a listing with another result", p::DeliveryState::Ambiguous)),
         }
     }
+}
 
-    /// `listModels`: the PC's cached catalog.
-    #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
-    pub async fn cached(&self) -> Result<Vec<p::ModelRecord>, p::ProviderError> {
-        self.ask(false).await
-    }
+/// One call of the PC that streams nothing (a listing, a wire route): its answer, or its failure as the provider error it
+/// stands for.
+#[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
+pub(super) async fn ask_pc(transport: &dyn ModelProxyTransport, call: Value) -> Result<Value, p::ProviderError> {
+    let mut ignore = |_: Value| {};
+    transport.execute(call, &mut ignore, &CancellationToken::new()).await.map_err(|e| match execution_error(e) {
+        SendError::Provider(e) | SendError::Exhausted(e) => e,
+        SendError::Fallback { last, .. } => last,
+        _ => transient(pc_left(), p::DeliveryState::Ambiguous),
+    })
+}
+
+/// What a call reads as whose PC went away while it ran (Node's `disconnect('the desktop client disconnected')`).
+pub(super) fn pc_left() -> &'static str {
+    mixdog_core_api::model_proxy_unavailable_text(&mixdog_core_api::CoreError::CapabilityUnavailable {
+        capability: "desktopHost".into(),
+        detail: mixdog_core_api::host::CLAIMANT_CLOSED.into(),
+    })
+}
+
+/// A first-response budget the PC reported, both figures positive (`reportedBudget`).
+pub(super) fn budget_in(budget: w::ProxyBudget) -> Option<p::FirstResponseBudget> {
+    let ms = |value: u64| i64::try_from(value).ok().filter(|ms| *ms > 0);
+    Some(p::FirstResponseBudget { transport_ms: ms(budget.transport_ms)?, semantic_ms: ms(budget.semantic_ms)? })
 }
 
 #[async_trait]
-impl<T: ModelProxyTransport> p::ModelListing for ProxyListing<T> {
+impl p::ModelListing for ProxyListing {
     /// The catalog's refresh: the PC re-reads its provider first (`_refreshModelCache`).
     async fn list_models(&self) -> Result<Vec<p::ModelRecord>, p::ProviderError> {
+        Ok(self.list_roster().await?.rows)
+    }
+
+    async fn list_roster(&self) -> Result<p::ListedRoster, p::ProviderError> {
         self.ask(true).await
     }
 }

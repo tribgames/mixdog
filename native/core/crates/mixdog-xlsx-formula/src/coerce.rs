@@ -437,49 +437,6 @@ fn ends_with_iso_day(text: &str) -> bool {
     false
 }
 
-/// `parseDate(value)`: a `Date` (possibly invalid) or the error it is. A number is a serial; text that is not a
-/// number is read as a date.
-pub fn parse_date(value: &Value) -> Value {
-    if !is_nan_of(value) {
-        if let Value::Date(time) = value {
-            return Value::Date(*time);
-        }
-        let serial = parse_float_utf16(&to_js_utf16(value));
-        if serial < 0.0 || serial >= 2_958_466.0 {
-            return Value::Error(ErrorValue::Num);
-        }
-        return Value::Date(serial_to_date(serial));
-    }
-    if let Value::Utf16(raw) = value {
-        let mut units = raw.clone();
-        let iso = (8..=10).any(|length| {
-            units.len() >= length
-                && String::from_utf16(&units[units.len() - length..])
-                    .is_ok_and(|s| ends_with_iso_day(&s))
-        });
-        if iso {
-            units.extend("T00:00:00.000".encode_utf16());
-        }
-        let time = mixdog_js::time::date_parse_utf16(&units);
-        return if time.is_nan() {
-            Value::Error(ErrorValue::Value)
-        } else {
-            Value::Date(time)
-        };
-    }
-    if let Value::Text(text) = value {
-        let time = if ends_with_iso_day(text) {
-            mixdog_js::time::date_parse(&format!("{text}T00:00:00.000"))
-        } else {
-            mixdog_js::time::date_parse(text)
-        };
-        if !time.is_nan() {
-            return Value::Date(time);
-        }
-    }
-    Value::Error(ErrorValue::Value)
-}
-
 /// `parseString(value)`: text, or the error it is.
 pub fn parse_string(value: &Value) -> Value {
     match value {
@@ -504,20 +461,6 @@ pub fn parse_number_array(values: &[Value]) -> Result<Vec<Value>, ErrorValue> {
             Value::Error(error) => return Err(error),
             number => parsed[at] = number,
         }
-    }
-    Ok(parsed)
-}
-
-/// `parseDateArray(values)`: the dates, or `#VALUE!`; an element out of the date range stays `#NUM!` inside the
-/// result, as the library keeps it.
-pub fn parse_date_array(values: &[Value]) -> Result<Vec<Value>, ErrorValue> {
-    let mut parsed = values.to_vec();
-    for at in (0..parsed.len()).rev() {
-        let date = parse_date(&parsed[at]);
-        if matches!(date, Value::Error(ErrorValue::Value)) {
-            return Err(ErrorValue::Value);
-        }
-        parsed[at] = date;
     }
     Ok(parsed)
 }
@@ -937,6 +880,62 @@ pub fn apply_criteria(args: &[Value]) -> Result<Vec<Value>, ErrorValue> {
     Ok(values)
 }
 
+/// `parseDate(value)`: a `Date` (possibly invalid) or the error it is. A number is a serial; text that is not a
+/// number is read as a date.
+pub fn parse_date(value: &Value) -> Value {
+    if !is_nan_of(value) {
+        if let Value::Date(time) = value {
+            return Value::Date(*time);
+        }
+        let serial = parse_float_utf16(&to_js_utf16(value));
+        if serial < 0.0 || serial >= 2_958_466.0 {
+            return Value::Error(ErrorValue::Num);
+        }
+        return Value::Date(serial_to_date(serial));
+    }
+    if let Value::Utf16(raw) = value {
+        let mut units = raw.clone();
+        let iso = (8..=10).any(|length| {
+            units.len() >= length
+                && String::from_utf16(&units[units.len() - length..])
+                    .is_ok_and(|s| ends_with_iso_day(&s))
+        });
+        if iso {
+            units.extend("T00:00:00.000".encode_utf16());
+        }
+        let time = mixdog_js::time::date_parse_utf16(&units);
+        return if time.is_nan() {
+            Value::Error(ErrorValue::Value)
+        } else {
+            Value::Date(time)
+        };
+    }
+    if let Value::Text(text) = value {
+        let time = if ends_with_iso_day(text) {
+            mixdog_js::time::date_parse(&format!("{text}T00:00:00.000"))
+        } else {
+            mixdog_js::time::date_parse(text)
+        };
+        if !time.is_nan() {
+            return Value::Date(time);
+        }
+    }
+    Value::Error(ErrorValue::Value)
+}
+/// `parseDateArray(values)`: the dates, or `#VALUE!`; an element out of the date range stays `#NUM!` inside the
+/// result, as the library keeps it.
+pub fn parse_date_array(values: &[Value]) -> Result<Vec<Value>, ErrorValue> {
+    let mut parsed = values.to_vec();
+    for at in (0..parsed.len()).rev() {
+        let date = parse_date(&parsed[at]);
+        if matches!(date, Value::Error(ErrorValue::Value)) {
+            return Err(ErrorValue::Value);
+        }
+        parsed[at] = date;
+    }
+    Ok(parsed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1060,40 +1059,6 @@ mod tests {
                 45322.0
             );
             assert_eq!(date_to_serial(local_to_utc_ms(1900, 1, 1, 0, 0, 0, 0)), 1.0);
-        });
-    }
-
-    #[test]
-    fn parse_date_reads_serials_and_text() {
-        let seoul: Tz = "Asia/Seoul".parse().expect("zone");
-        with_local_zone(seoul, || {
-            let ms = |value: Value| match parse_date(&value) {
-                Value::Date(time) => time,
-                other => panic!("not a date: {other:?}"),
-            };
-            assert_eq!(ms(n(45322.0)), local_to_utc_ms(2024, 1, 31, 0, 0, 0, 0));
-            assert_eq!(
-                ms(Value::text("2024-01-05")),
-                local_to_utc_ms(2024, 1, 5, 0, 0, 0, 0)
-            );
-            assert!(matches!(
-                parse_date(&n(-1.0)),
-                Value::Error(ErrorValue::Num)
-            ));
-            assert!(matches!(
-                parse_date(&n(2_958_466.0)),
-                Value::Error(ErrorValue::Num)
-            ));
-            assert!(matches!(
-                parse_date(&Value::text("not a date")),
-                Value::Error(ErrorValue::Value)
-            ));
-            assert!(matches!(
-                parse_date(&Value::Undefined),
-                Value::Error(ErrorValue::Value)
-            ));
-            assert!(ends_with_iso_day("on 2024-01-31") && ends_with_iso_day("2024-1-3"));
-            assert!(!ends_with_iso_day("2024-01-311") && !ends_with_iso_day("24-01-31"));
         });
     }
 
@@ -1245,5 +1210,40 @@ mod tests {
             create_matrix(&Value::Undefined, &number(2.0)),
             Ok(Value::Error(ErrorValue::Na))
         );
+    }
+
+
+    #[test]
+    fn parse_date_reads_serials_and_text() {
+        let seoul: Tz = "Asia/Seoul".parse().expect("zone");
+        with_local_zone(seoul, || {
+            let ms = |value: Value| match parse_date(&value) {
+                Value::Date(time) => time,
+                other => panic!("not a date: {other:?}"),
+            };
+            assert_eq!(ms(n(45322.0)), local_to_utc_ms(2024, 1, 31, 0, 0, 0, 0));
+            assert_eq!(
+                ms(Value::text("2024-01-05")),
+                local_to_utc_ms(2024, 1, 5, 0, 0, 0, 0)
+            );
+            assert!(matches!(
+                parse_date(&n(-1.0)),
+                Value::Error(ErrorValue::Num)
+            ));
+            assert!(matches!(
+                parse_date(&n(2_958_466.0)),
+                Value::Error(ErrorValue::Num)
+            ));
+            assert!(matches!(
+                parse_date(&Value::text("not a date")),
+                Value::Error(ErrorValue::Value)
+            ));
+            assert!(matches!(
+                parse_date(&Value::Undefined),
+                Value::Error(ErrorValue::Value)
+            ));
+            assert!(ends_with_iso_day("on 2024-01-31") && ends_with_iso_day("2024-1-3"));
+            assert!(!ends_with_iso_day("2024-01-311") && !ends_with_iso_day("24-01-31"));
+        });
     }
 }

@@ -1,5 +1,0 @@
----
-name: Helper
----
-
-Help out.

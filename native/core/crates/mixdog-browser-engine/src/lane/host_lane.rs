@@ -14,6 +14,8 @@
 //! The console ledger's floor that `page/sync` also answers is not read: the ledgers here keep their own report marks.
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -25,7 +27,7 @@ use mixdog_app_protocol::v2::browser_engine::PageFacts;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostError;
-use mixdog_core_api::host::CLAIMANT_CLOSED;
+use mixdog_core_api::host::NO_CLAIMANT;
 use mixdog_core_api::ids::Method;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::Scope;
@@ -53,9 +55,9 @@ pub struct HostLane {
     seq_wait: Duration,
 }
 
-/// What a command that outlived its claim fails with.
-fn claim_ended() -> HostCallError {
-    HostCallError::Unavailable { detail: CLAIMANT_CLOSED.to_owned() }
+/// What a request fails with when its claim ended before the request future was ever polled: nothing was handed over.
+fn claim_ended_before_send() -> HostCallError {
+    HostCallError::Unavailable { detail: NO_CLAIMANT.to_owned() }
 }
 
 /// The page facts an answer carries: its own `facts`, a resolved `page`'s, and each of a listing's `pages`.
@@ -72,86 +74,6 @@ fn facts_of(answer: &Value) -> Vec<PageFacts> {
         take(page.get("facts"));
     }
     found
-}
-
-impl HostLane {
-    pub fn new(channel: Arc<dyn HostChannel>, blobs: Arc<dyn BlobPort>) -> Self {
-        Self { channel, blobs, mirror: Arc::new(Mirror::new()), hold: Arc::new(UserHold::new()), seq_wait: FACTS_SEQ_WAIT }
-    }
-
-    /// A lane whose results wait `wait` for their notifications.
-    pub fn with_seq_wait(mut self, wait: Duration) -> Self {
-        self.seq_wait = wait;
-        self
-    }
-
-    /// The ledgers this lane keeps; the sink that feeds them is `EngineSinkImpl::new(lane.mirror().clone(), lane.hold().clone())`.
-    pub fn mirror(&self) -> &Arc<Mirror> {
-        &self.mirror
-    }
-
-    /// The person's holds of this lane's pages: the sink records them, the command queue refuses by them, and a page the host
-    /// closed lets go of its own.
-    pub fn hold(&self) -> &Arc<UserHold> {
-        &self.hold
-    }
-
-    /// A payload the host left in its blob store by digest (a large screenshot or a download).
-    pub async fn read_blob(&self, blob: &BrowserBlobRef) -> Result<Bytes, HostCallError> {
-        self.blobs.read(&blob.digest).await.map_err(|message| HostCallError::Failed { message })
-    }
-
-    /// One request, as the channel answers it, under `claim`.
-    async fn exchange(&self, method: &'static str, params: Value, cancel: &CancellationToken, claim: &CancellationToken) -> Result<Value, HostCallError> {
-        let sent = self.channel.request_scoped(HostCapability::BrowserEngine, Method(method), params, cancel);
-        let Scoped::Done(answer) = Scope::new().cancel(claim).run(sent).await else {
-            return Err(claim_ended());
-        };
-        if claim.is_cancelled() {
-            return Err(claim_ended());
-        }
-        answer.map_err(HostCallError::from)
-    }
-
-    /// Returns when the mirror holds everything the host pushed up to `facts.seq`.
-    async fn reach(&self, facts: &PageFacts, cancel: &CancellationToken, claim: &CancellationToken) -> Result<(), HostCallError> {
-        let waited = Scope::new().cancel(cancel).within(self.seq_wait).run(self.mirror.caught_up(&facts.page_id, facts.seq)).await;
-        if claim.is_cancelled() {
-            return Err(claim_ended());
-        }
-        match waited {
-            Scoped::Cancelled => Err(HostCallError::Cancelled),
-            Scoped::Done(Caught::Up) => Ok(()),
-            Scoped::Done(Caught::Unseen) => {
-                if self.mirror.resync(claim, facts) { Ok(()) } else { Err(claim_ended()) }
-            }
-            Scoped::Done(Caught::Gapped) | Scoped::DeadlineExceeded => self.sync(&facts.page_id, cancel, claim).await,
-        }
-    }
-
-    /// The page is gone: its ledgers and the person's hold on it go with it.
-    fn forget(&self, page_id: &str) {
-        self.mirror.forget(page_id);
-        self.hold.release_page(page_id);
-    }
-
-    /// `host/browser/page/sync`: the mirror takes the page's facts as the host holds them now.
-    async fn sync(&self, page_id: &str, cancel: &CancellationToken, claim: &CancellationToken) -> Result<(), HostCallError> {
-        let params = serde_json::to_value(HostBrowserPageSyncParams { page_id: page_id.to_owned() })
-            .map_err(|error| HostCallError::Failed { message: format!("{PAGE_SYNC}: params do not serialize: {error}") })?;
-        let answer = match self.exchange(PAGE_SYNC, params, cancel, claim).await {
-            Ok(answer) => answer,
-            // The page closed after it answered: there is nothing left to catch up with.
-            Err(HostCallError::PageGone) => {
-                self.forget(page_id);
-                return Ok(());
-            }
-            Err(error) => return Err(error),
-        };
-        let synced: HostBrowserPageSyncResult =
-            serde_json::from_value(answer).map_err(|error| HostCallError::Failed { message: format!("{PAGE_SYNC}: malformed answer: {error}") })?;
-        if self.mirror.resync(claim, &synced.facts) { Ok(()) } else { Err(claim_ended()) }
-    }
 }
 
 #[async_trait]
@@ -216,6 +138,8 @@ mod tests {
         Rpc(i64),
         /// Never answers.
         Hang,
+        /// Ends `claim` (the desktop going away) and refuses the request, with the detail of a capability that was unavailable.
+        EndsClaimAndRefuses(CancellationToken, &'static str),
     }
 
     /// Sets its flag when the request that holds it is dropped.
@@ -262,6 +186,10 @@ mod tests {
                 Reply::Hang => {
                     let _abandoned = Abandoned(self.abandoned.clone());
                     std::future::pending().await
+                }
+                Reply::EndsClaimAndRefuses(claim, detail) => {
+                    claim.cancel();
+                    Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: detail.into() }))
                 }
             }
         }
@@ -334,25 +262,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_gap_is_synced_at_once() {
-        let script = Arc::new(Script::default());
-        let lane = HostLane::new(script.clone(), Arc::new(Blobs)).with_seq_wait(Duration::from_secs(30));
-        let sink = EngineSinkImpl::new(lane.mirror().clone(), lane.hold().clone());
-        sink.events(events("p1", 2));
-        sink.events(events("p1", 5));
-        assert_eq!(lane.mirror().cursor("p1"), Some(2), "a batch after a gap is not applied");
-        script.reply(STOP, facts_result("p1", 6));
-        script.reply(PAGE_SYNC, Reply::Result(json!({"facts": page_facts("p1", 6), "consoleFloor": 0})));
-        let started = std::time::Instant::now();
-        lane.page_stop(stop("p1"), &CancellationToken::new()).await.expect("answered");
-        assert!(started.elapsed() < Duration::from_secs(5), "a gap does not wait out the bound");
-        assert_eq!(script.calls(), vec![STOP, PAGE_SYNC]);
-        assert_eq!(lane.mirror().cursor("p1"), Some(6));
-        sink.events(events("p1", 7));
-        assert_eq!(lane.mirror().cursor("p1"), Some(7), "the page takes notifications again after the sync");
-    }
-
-    #[tokio::test]
     async fn notifications_that_never_come_end_in_a_sync_after_the_bound() {
         let script = Arc::new(Script::default());
         let lane = HostLane::new(script.clone(), Arc::new(Blobs)).with_seq_wait(Duration::from_millis(30));
@@ -391,16 +300,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_dropped_command_abandons_the_request() {
-        let (lane, script, _sink) = rig();
-        script.reply(STOP, Reply::Hang);
-        let token = CancellationToken::new();
-        let outcome = mixdog_rt::time::timeout(Duration::from_millis(20), lane.page_stop(stop("p1"), &token)).await;
-        assert!(outcome.is_err(), "the host never answered");
-        assert!(script.abandoned());
-    }
-
-    #[tokio::test]
     async fn the_host_going_away_fails_the_command_in_flight_and_drops_the_pages() {
         let (lane, script, sink) = rig();
         sink.events(events("p1", 2));
@@ -411,13 +310,27 @@ mod tests {
             sink.host_gone();
         };
         let (result, ()) = tokio::join!(lane.page_stop(stop("p1"), &token), driver);
-        assert_eq!(result.unwrap_err(), HostCallError::Unavailable { detail: CLAIMANT_CLOSED.to_owned() });
+        assert_eq!(result.unwrap_err(), HostCallError::ConnectionLost);
         assert!(script.abandoned());
         assert_eq!(lane.mirror().cursor("p1"), None);
         // The next claimant is served under a claim of its own.
         script.reply(STOP, facts_result("p2", 1));
         lane.page_stop(stop("p2"), &token).await.expect("answered");
         assert_eq!(lane.mirror().cursor("p2"), Some(1));
+    }
+
+    /// A claim cancelled before the request future is polled handed nothing over: not the typed loss. One cancelled after the request
+    /// was polled is (`the_host_going_away_fails_the_command_in_flight_and_drops_the_pages`).
+    #[tokio::test]
+    async fn a_claim_cancelled_before_its_request_is_polled_is_not_a_loss_after_dispatch() {
+        let (lane, script, _sink) = rig();
+        script.reply(STOP, Reply::Hang);
+        let claim = CancellationToken::new();
+        claim.cancel();
+        let params = serde_json::to_value(stop("p1")).expect("params");
+        let error = lane.exchange(STOP, params, &CancellationToken::new(), &claim).await.unwrap_err();
+        assert_eq!(error, HostCallError::Unavailable { detail: "noClaimant".into() });
+        assert!(script.calls().is_empty(), "nothing reached the channel");
     }
 
     #[tokio::test]
@@ -432,7 +345,7 @@ mod tests {
             sink.host_gone();
         };
         let (result, ()) = tokio::join!(lane.page_stop(stop("p1"), &token), driver);
-        assert_eq!(result.unwrap_err(), HostCallError::Unavailable { detail: CLAIMANT_CLOSED.to_owned() });
+        assert_eq!(result.unwrap_err(), HostCallError::ConnectionLost);
         assert_eq!(lane.mirror().cursor("p1"), None, "a dead claim's page is not kept");
     }
 
@@ -520,5 +433,150 @@ mod tests {
             lane.read_blob(&BrowserBlobRef { digest: "d2".into(), size: 0 }).await.unwrap_err(),
             HostCallError::Failed { message: "no blob d2".into() }
         );
+    }
+
+
+    #[tokio::test]
+    async fn a_gap_is_synced_at_once() {
+        let script = Arc::new(Script::default());
+        let lane = HostLane::new(script.clone(), Arc::new(Blobs)).with_seq_wait(Duration::from_secs(30));
+        let sink = EngineSinkImpl::new(lane.mirror().clone(), lane.hold().clone());
+        sink.events(events("p1", 2));
+        sink.events(events("p1", 5));
+        assert_eq!(lane.mirror().cursor("p1"), Some(2), "a batch after a gap is not applied");
+        script.reply(STOP, facts_result("p1", 6));
+        script.reply(PAGE_SYNC, Reply::Result(json!({"facts": page_facts("p1", 6), "consoleFloor": 0})));
+        let started = std::time::Instant::now();
+        lane.page_stop(stop("p1"), &CancellationToken::new()).await.expect("answered");
+        assert!(started.elapsed() < Duration::from_secs(5), "a gap does not wait out the bound");
+        assert_eq!(script.calls(), vec![STOP, PAGE_SYNC]);
+        assert_eq!(lane.mirror().cursor("p1"), Some(6));
+        sink.events(events("p1", 7));
+        assert_eq!(lane.mirror().cursor("p1"), Some(7), "the page takes notifications again after the sync");
+    }
+    #[tokio::test]
+    async fn a_dropped_command_abandons_the_request() {
+        let (lane, script, _sink) = rig();
+        script.reply(STOP, Reply::Hang);
+        let token = CancellationToken::new();
+        let outcome = mixdog_rt::time::timeout(Duration::from_millis(20), lane.page_stop(stop("p1"), &token)).await;
+        assert!(outcome.is_err(), "the host never answered");
+        assert!(script.abandoned());
+    }
+    /// The channel's answer is examined first: a refusal it gave before anything was sent stays unavailable although the claim ended
+    /// at the same moment; a close after the hand-over is the typed loss, and the loss is latched for the command that asked.
+    #[tokio::test]
+    async fn a_refusal_before_the_send_is_not_overwritten_by_the_claim_ending() {
+        let (lane, script, _sink) = rig();
+        let claim = CancellationToken::new();
+        script.reply(STOP, Reply::EndsClaimAndRefuses(claim.clone(), "noClaimant"));
+        let params = serde_json::to_value(stop("p1")).expect("params");
+        let (error, lost) = crate::error::track_connection_loss(lane.exchange(STOP, params, &CancellationToken::new(), &claim)).await;
+        assert_eq!(error.unwrap_err(), HostCallError::Unavailable { detail: "noClaimant".into() });
+        assert!(!lost, "a refusal before the send is not a loss");
+
+        let params = serde_json::to_value(stop("p1")).expect("params");
+        let claim = CancellationToken::new();
+        script.reply(STOP, Reply::EndsClaimAndRefuses(claim.clone(), "claimantClosed"));
+        let (error, lost) = crate::error::track_connection_loss(lane.exchange(STOP, params, &CancellationToken::new(), &claim)).await;
+        assert_eq!(error.unwrap_err(), HostCallError::ConnectionLost);
+        assert!(lost, "the loss after the hand-over is latched where it is produced");
+    }
+}
+
+
+/// What a command fails with when its claim ended after one of its requests was handed to the outgoing path (the writer's queue,
+/// not a confirmed socket write): the command may have run.
+fn claim_ended() -> HostCallError {
+    crate::error::note_connection_lost();
+    HostCallError::ConnectionLost
+}
+impl HostLane {
+    pub fn new(channel: Arc<dyn HostChannel>, blobs: Arc<dyn BlobPort>) -> Self {
+        Self { channel, blobs, mirror: Arc::new(Mirror::new()), hold: Arc::new(UserHold::new()), seq_wait: FACTS_SEQ_WAIT }
+    }
+
+    /// A lane whose results wait `wait` for their notifications.
+    pub fn with_seq_wait(mut self, wait: Duration) -> Self {
+        self.seq_wait = wait;
+        self
+    }
+
+    /// The ledgers this lane keeps; the sink that feeds them is `EngineSinkImpl::new(lane.mirror().clone(), lane.hold().clone())`.
+    pub fn mirror(&self) -> &Arc<Mirror> {
+        &self.mirror
+    }
+
+    /// The person's holds of this lane's pages: the sink records them, the command queue refuses by them, and a page the host
+    /// closed lets go of its own.
+    pub fn hold(&self) -> &Arc<UserHold> {
+        &self.hold
+    }
+
+    /// A payload the host left in its blob store by digest (a large screenshot or a download).
+    pub async fn read_blob(&self, blob: &BrowserBlobRef) -> Result<Bytes, HostCallError> {
+        self.blobs.read(&blob.digest).await.map_err(|message| HostCallError::Failed { message })
+    }
+
+    /// One request, as the channel answers it, under `claim`.
+    async fn exchange(&self, method: &'static str, params: Value, cancel: &CancellationToken, claim: &CancellationToken) -> Result<Value, HostCallError> {
+        // The request is handed to the channel when its future is first polled; a claim cancelled before that (cancellation wins the
+        // race in `Scope`) sent nothing.
+        let handed = AtomicBool::new(false);
+        let sent = async {
+            handed.store(true, Ordering::SeqCst);
+            self.channel.request_scoped(HostCapability::BrowserEngine, Method(method), params, cancel).await
+        };
+        let Scoped::Done(answer) = Scope::new().cancel(claim).run(sent).await else {
+            return Err(if handed.load(Ordering::SeqCst) { claim_ended() } else { claim_ended_before_send() });
+        };
+        // The channel's answer is examined first: a refusal it gives before anything was sent (no claimant, a method the claimant does
+        // not serve) stays what it is even if the claim ended at the same moment; a close or timeout after the hand-over is the loss.
+        match answer.map_err(HostCallError::from) {
+            Err(HostCallError::ConnectionLost) => Err(claim_ended()),
+            Err(error) => Err(error),
+            Ok(_) if claim.is_cancelled() => Err(claim_ended()),
+            Ok(value) => Ok(value),
+        }
+    }
+
+    /// Returns when the mirror holds everything the host pushed up to `facts.seq`.
+    async fn reach(&self, facts: &PageFacts, cancel: &CancellationToken, claim: &CancellationToken) -> Result<(), HostCallError> {
+        let waited = Scope::new().cancel(cancel).within(self.seq_wait).run(self.mirror.caught_up(&facts.page_id, facts.seq)).await;
+        if claim.is_cancelled() {
+            return Err(claim_ended());
+        }
+        match waited {
+            Scoped::Cancelled => Err(HostCallError::Cancelled),
+            Scoped::Done(Caught::Up) => Ok(()),
+            Scoped::Done(Caught::Unseen) => {
+                if self.mirror.resync(claim, facts) { Ok(()) } else { Err(claim_ended()) }
+            }
+            Scoped::Done(Caught::Gapped) | Scoped::DeadlineExceeded => self.sync(&facts.page_id, cancel, claim).await,
+        }
+    }
+
+    /// The page is gone: its ledgers and the person's hold on it go with it.
+    fn forget(&self, page_id: &str) {
+        self.mirror.forget(page_id);
+        self.hold.release_page(page_id);
+    }
+
+    /// `host/browser/page/sync`: the mirror takes the page's facts as the host holds them now.
+    async fn sync(&self, page_id: &str, cancel: &CancellationToken, claim: &CancellationToken) -> Result<(), HostCallError> {
+        let params = serde_json::to_value(HostBrowserPageSyncParams { page_id: page_id.to_owned() })
+            .map_err(|error| HostCallError::Failed { message: format!("{PAGE_SYNC}: params do not serialize: {error}") })?;
+        let answer = match self.exchange(PAGE_SYNC, params, cancel, claim).await {
+            Ok(answer) => answer,
+            // The page closed after it answered: there is nothing left to catch up with.
+            Err(HostCallError::PageGone) => {
+                self.forget(page_id);
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
+        let synced: HostBrowserPageSyncResult =
+            serde_json::from_value(answer).map_err(|error| HostCallError::Failed { message: format!("{PAGE_SYNC}: malformed answer: {error}") })?;
+        if self.mirror.resync(claim, &synced.facts) { Ok(()) } else { Err(claim_ended()) }
     }
 }

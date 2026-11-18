@@ -45,7 +45,9 @@ const MAX_CHANGE_BYTES_PER_SESSION: usize = 32 * 1024 * 1024;
 const MAX_CHANGE_RECORD_FILES: usize = 512;
 const CHANGE_RECORD_TTL_MS: f64 = 30.0 * 24.0 * 60.0 * 60.0 * 1000.0;
 const CHANGE_RECORDS_CACHE_SESSIONS: usize = 8;
-const CHANGE_RECORDS_CACHE_BYTES: u64 = 64 * 1024 * 1024;
+const CHANGE_RECORDS_CACHE_BYTES: u64 = 16 * 1024 * 1024;
+/// A session's parsed change records no read or write touched for this long leave memory; the file is read again.
+const CHANGE_RECORDS_CACHE_IDLE: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
 pub type Record = Obj;
 

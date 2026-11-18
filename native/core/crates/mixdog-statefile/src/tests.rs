@@ -9,14 +9,6 @@ use serde_json::json;
 
 use crate::*;
 
-/// Runs `job` as a durability-lane job (the inline test backend runs it on this thread).
-pub(crate) fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
-    let lanes = mixdog_rt::testing::tokens();
-    tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
-        lanes.durability_io.submit(&CancellationToken::new(), job).unwrap().await.unwrap()
-    })
-}
-
 #[test]
 fn a_quarantine_name_never_overwrites_a_kept_copy() {
     let dir = tempfile::tempdir().unwrap();
@@ -57,6 +49,43 @@ fn a_request_waiting_in_the_line_times_out_at_its_one_deadline() {
 }
 
 #[test]
+fn rename_retries_follow_nodes_schedule_and_skip_read_only_targets() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("t");
+    mixdog_testkit::write(&target, "x");
+    #[cfg(unix)]
+    let denied = std::io::Error::from_raw_os_error(libc::EACCES);
+    #[cfg(windows)]
+    let denied = std::io::Error::from_raw_os_error(5);
+
+    let first = crate::publish::next_rename_delay(&mixdog_fsio::Unlaned, &denied, 0, &target).unwrap();
+    assert!((25..50).contains(&(first.as_millis() as u64)), "{first:?}");
+    let late = crate::publish::next_rename_delay(&mixdog_fsio::Unlaned, &denied, 22, &target).unwrap();
+    assert!((200..250).contains(&(late.as_millis() as u64)), "{late:?}");
+    assert!(crate::publish::next_rename_delay(&mixdog_fsio::Unlaned, &denied, 23, &target).is_none());
+    assert!(crate::publish::next_rename_delay(&mixdog_fsio::Unlaned, &std::io::Error::from(std::io::ErrorKind::NotFound), 0, &target).is_none());
+
+    mixdog_testkit::set_readonly(&target, true);
+    assert!(crate::publish::next_rename_delay(&mixdog_fsio::Unlaned, &denied, 0, &target).is_none());
+    mixdog_testkit::set_readonly(&target, false);
+}
+
+#[test]
+fn only_nul_and_blanks_hold_no_data() {
+    assert!(holds_no_data(b""));
+    assert!(holds_no_data(b"\0 \t\r\n\0"));
+    assert!(!holds_no_data(b"\0{\0"));
+    assert!(!holds_no_data("\u{a0}".as_bytes()));
+}
+
+/// Runs `job` as a durability-lane job (the inline test backend runs it on this thread).
+pub(crate) fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
+    let lanes = mixdog_rt::testing::tokens();
+    tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
+        lanes.durability_io.submit(&CancellationToken::new(), job).unwrap().await.unwrap()
+    })
+}
+#[test]
 fn a_held_lock_times_out_with_nodes_codes_and_is_free_afterwards() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("f.json");
@@ -84,7 +113,6 @@ fn a_held_lock_times_out_with_nodes_codes_and_is_free_afterwards() {
     assert_eq!(taken, 7);
     assert!(!mixdog_testkit::exists(lock_path(&file)), "released: the lock file is unlinked as Node's is");
 }
-
 #[test]
 fn a_lock_of_a_dead_owner_is_reclaimed_and_a_live_one_is_not() {
     let dir = tempfile::tempdir().unwrap();
@@ -111,7 +139,6 @@ fn a_lock_of_a_dead_owner_is_reclaimed_and_a_live_one_is_not() {
     let stale = LockOpts { timeout: Some(Duration::ZERO), stale: Some(Duration::ZERO), strict_owner: false };
     on_lane(move |lane| with_lock(lane, &file, &stale, || ()).unwrap());
 }
-
 #[test]
 fn a_nested_request_for_a_held_lock_does_not_wait_on_itself() {
     let dir = tempfile::tempdir().unwrap();
@@ -124,7 +151,6 @@ fn a_nested_request_for_a_held_lock_does_not_wait_on_itself() {
     });
     assert_eq!(inner, 3);
 }
-
 #[test]
 fn a_panicking_body_still_releases_the_lock() {
     let dir = tempfile::tempdir().unwrap();
@@ -137,7 +163,6 @@ fn a_panicking_body_still_releases_the_lock() {
     assert!(panicked.is_err());
     assert!(!mixdog_testkit::exists(lock_path(&file)));
 }
-
 /// Node (`file-lock.mjs`) and this port take the same lock file, so each excludes the other.
 #[test]
 fn node_and_this_port_exclude_each_other() {
@@ -190,7 +215,6 @@ fn node_and_this_port_exclude_each_other() {
     assert_eq!(outside.trim(), "ELOCKCONTENDED");
     assert_eq!(mixdog_testkit::output("node", &[taker.as_os_str(), lock.as_os_str()]).trim(), "took");
 }
-
 #[test]
 fn recovery_restores_with_a_flush_whatever_the_callers_fsync_choice() {
     let dir = tempfile::tempdir().unwrap();
@@ -208,7 +232,6 @@ fn recovery_restores_with_a_flush_whatever_the_callers_fsync_choice() {
     assert!(trace[create + 1].starts_with("fsync f.json.mixdog-tmp-"), "{trace:?}");
     assert_eq!(mixdog_testkit::read_string(&file), "{\"a\":1}\n");
 }
-
 #[test]
 fn valid_node_json_is_never_taken_for_damage() {
     let dir = tempfile::tempdir().unwrap();
@@ -237,7 +260,6 @@ fn valid_node_json_is_never_taken_for_damage() {
         "{\n  \"again\": {\n    \"s\": \"x\\ud83d\",\n    \"big\": 12345678901234567000\n  }\n}\n"
     );
 }
-
 #[test]
 fn private_directories_are_created_owner_only_with_their_ancestors() {
     let dir = tempfile::tempdir().unwrap();
@@ -253,7 +275,6 @@ fn private_directories_are_created_owner_only_with_their_ancestors() {
     assert!(inner_ok && outer_ok);
     assert!(mixdog_testkit::is_dir(&nested));
 }
-
 #[test]
 fn concurrent_updates_through_the_lock_lose_nothing() {
     let dir = tempfile::tempdir().unwrap();
@@ -287,7 +308,6 @@ fn concurrent_updates_through_the_lock_lose_nothing() {
     let stored: serde_json::Value = serde_json::from_slice(&mixdog_testkit::read(&file)).unwrap();
     assert_eq!(stored["n"], 80);
 }
-
 #[test]
 fn threads_that_release_and_ask_again_cannot_starve_the_others() {
     let dir = tempfile::tempdir().unwrap();
@@ -311,7 +331,6 @@ fn threads_that_release_and_ask_again_cannot_starve_the_others() {
         thread.join().unwrap();
     }
 }
-
 /// A wait in the line of this process spends none of the request's budget: the budget is for the
 /// file (Node's `lockQueue` waits without a deadline and `acquireLock` starts its clock at the
 /// front), so a request that queues behind a live holder takes the free lock when its turn comes,
@@ -352,7 +371,6 @@ fn waiting_in_line_behind_a_live_holder_spends_none_of_the_budget() {
     holder.join().unwrap();
     assert_eq!(waiter.join().unwrap().unwrap(), 7);
 }
-
 #[test]
 fn a_file_that_cannot_be_read_is_an_error_not_an_empty_state() {
     let dir = tempfile::tempdir().unwrap();
@@ -361,7 +379,6 @@ fn a_file_that_cannot_be_read_is_an_error_not_an_empty_state() {
     let result = on_lane(move |lane| read_json(lane, &path, None, &Opts::default()));
     assert!(result.is_err());
 }
-
 #[test]
 fn a_secret_write_is_owner_only_and_leaves_no_temp_file() {
     let dir = tempfile::tempdir().unwrap();
@@ -378,7 +395,6 @@ fn a_secret_write_is_owner_only_and_leaves_no_temp_file() {
     }));
     assert_eq!(mixdog_testkit::entry_names(dir.path()).len(), 1);
 }
-
 #[test]
 fn a_failed_write_removes_its_temp_file() {
     let dir = tempfile::tempdir().unwrap();
@@ -394,37 +410,6 @@ fn a_failed_write_removes_its_temp_file() {
     let names = mixdog_testkit::entry_names(dir.path());
     assert_eq!(names, vec![std::ffi::OsString::from("f.json")]);
 }
-
-#[test]
-fn rename_retries_follow_nodes_schedule_and_skip_read_only_targets() {
-    let dir = tempfile::tempdir().unwrap();
-    let target = dir.path().join("t");
-    mixdog_testkit::write(&target, "x");
-    #[cfg(unix)]
-    let denied = std::io::Error::from_raw_os_error(libc::EACCES);
-    #[cfg(windows)]
-    let denied = std::io::Error::from_raw_os_error(5);
-
-    let first = crate::publish::next_rename_delay(&mixdog_fsio::Unlaned, &denied, 0, &target).unwrap();
-    assert!((25..50).contains(&(first.as_millis() as u64)), "{first:?}");
-    let late = crate::publish::next_rename_delay(&mixdog_fsio::Unlaned, &denied, 22, &target).unwrap();
-    assert!((200..250).contains(&(late.as_millis() as u64)), "{late:?}");
-    assert!(crate::publish::next_rename_delay(&mixdog_fsio::Unlaned, &denied, 23, &target).is_none());
-    assert!(crate::publish::next_rename_delay(&mixdog_fsio::Unlaned, &std::io::Error::from(std::io::ErrorKind::NotFound), 0, &target).is_none());
-
-    mixdog_testkit::set_readonly(&target, true);
-    assert!(crate::publish::next_rename_delay(&mixdog_fsio::Unlaned, &denied, 0, &target).is_none());
-    mixdog_testkit::set_readonly(&target, false);
-}
-
-#[test]
-fn only_nul_and_blanks_hold_no_data() {
-    assert!(holds_no_data(b""));
-    assert!(holds_no_data(b"\0 \t\r\n\0"));
-    assert!(!holds_no_data(b"\0{\0"));
-    assert!(!holds_no_data("\u{a0}".as_bytes()));
-}
-
 #[test]
 fn a_recovery_stamps_the_fixed_clock_and_the_next_name_is_taken_not_overwritten() {
     let dir = tempfile::tempdir().unwrap();
@@ -453,7 +438,6 @@ fn a_recovery_stamps_the_fixed_clock_and_the_next_name_is_taken_not_overwritten(
     assert_eq!(stamps.len(), 3);
     assert!(stamps.iter().any(|stamp| *stamp > 1_700_000_000_001), "{stamps:?}");
 }
-
 #[test]
 fn set_readonly_sets_and_clears_the_attribute_and_a_missing_file_is_an_error() {
     let dir = tempfile::tempdir().unwrap();
@@ -479,7 +463,6 @@ fn set_readonly_sets_and_clears_the_attribute_and_a_missing_file_is_an_error() {
     let error = on_lane(move |lane| set_readonly(lane, &missing, true).unwrap_err());
     assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
 }
-
 #[test]
 fn symlink_metadata_reports_the_entry_and_not_what_a_link_leads_to() {
     let dir = tempfile::tempdir().unwrap();
@@ -511,13 +494,52 @@ fn symlink_metadata_reports_the_entry_and_not_what_a_link_leads_to() {
     #[cfg(not(unix))]
     assert_eq!(followed, (false, false));
 }
-
-/// A damaged state file writes the line `reportDamaged` writes to stderr, byte for byte as a real Node run wrote it
-/// (`node-stderr/lines.json`, `stateDamaged`).
+/// The guard a lease hands out owns the lock's release: dropping it, claimed or not (a receiver that vanished after the
+/// lane took the lock), removes the file at once and with nothing queued, and only while the file still names its owner.
 #[test]
-fn a_damaged_file_writes_the_line_node_wrote() {
-    let recorded: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/node-stderr/lines.json")).unwrap();
-    let _clock = fix_recovery_clock(recorded["stamp"].as_u64().unwrap().into());
+fn a_lease_guard_releases_on_drop_and_only_its_own_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let lock = dir.path().join("f.refresh.lock");
+    let owner = LockOwner::another_in_process();
+    let take = |owner: &LockOwner| {
+        let (lock, owner) = (lock.clone(), owner.clone());
+        on_lane(move |lane| lock_steps::attempt_leased(lane, &lock, &LockOpts::default(), &owner, Access::Inherit, 0).unwrap())
+    };
+    let taken = take(&owner);
+    assert!(taken.is_some() && lock.exists());
+    // Another holder is live: no guard, nothing released.
+    assert!(take(&LockOwner::another_in_process()).is_none() && lock.exists());
+    drop(taken);
+    assert!(!lock.exists(), "the drop is the release");
+
+    // A lock another owner took meanwhile is not this guard's to remove.
+    let guard = take(&owner).unwrap();
+    mixdog_testkit::write(&lock, format!("{} 1 other-token\n", std::process::id()));
+    drop(guard);
+    assert!(lock.exists());
+}
+/// A dead holder's lock is taken over by the next lease; a live one's never is.
+#[test]
+fn a_second_lease_reclaims_a_dead_holders_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let lock = dir.path().join("f.refresh.lock");
+    mixdog_testkit::write(&lock, format!("{} 1 tok\n", mixdog_testkit::dead_pid()));
+    let owner = LockOwner::another_in_process();
+    let taken = on_lane({
+        let (lock, owner) = (lock.clone(), owner.clone());
+        move |lane| lock_steps::attempt_leased(lane, &lock, &LockOpts::default(), &owner, Access::Inherit, 0).unwrap()
+    });
+    assert!(taken.is_some(), "the dead owner's lock was reclaimed");
+    drop(taken);
+    assert!(!lock.exists());
+}
+
+
+/// A damaged state file tells the user which file it set aside, and where, before it starts empty.
+#[test]
+fn a_damaged_file_reports_where_it_was_kept() {
+    let stamp: u64 = 1_794_196_679_432;
+    let _clock = fix_recovery_clock(stamp.into());
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("state.json");
     mixdog_testkit::write(&file, "{\"a\":");
@@ -530,12 +552,7 @@ fn a_damaged_file_writes_the_line_node_wrote() {
             got
         }
     });
-    let stamp = recorded["stamp"].to_string();
-    let want: Vec<String> = recorded["sites"]["stateDamaged"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|line| line.as_str().unwrap().strip_suffix('\n').unwrap().replace("<DIR>", &dir.path().display().to_string()).replace("<STAMP>", &stamp))
-        .collect();
-    assert_eq!(lines, want);
+    let kept = format!("{}.corrupt-{stamp}", file.display());
+    assert_eq!(lines, [format!("[state] {} is damaged (Unexpected end of JSON input); kept as {kept}; starting empty", file.display())]);
+    assert!(mixdog_testkit::exists(&kept));
 }

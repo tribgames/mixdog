@@ -348,7 +348,13 @@ struct Next {
 
 impl Next {
     fn of_prefix(layer: &Layer, upto: usize) -> Self {
-        Self { bytes: layer.bytes[..upto].to_vec(), spans: (0..upto).map(|i| layer.span(i)).collect(), dropped_from: None }
+        // A decoded escape is never longer than the escape, so the next layer is at most this one's length: room for all of
+        // it once, instead of both vectors growing by doubling through every text that holds an escape.
+        let mut bytes = Vec::with_capacity(layer.bytes.len());
+        bytes.extend_from_slice(&layer.bytes[..upto]);
+        let mut spans = Vec::with_capacity(layer.bytes.len());
+        spans.extend((0..upto).map(|i| layer.span(i)));
+        Self { bytes, spans, dropped_from: None }
     }
 
     fn push(&mut self, bytes: &[u8], span: Span) {

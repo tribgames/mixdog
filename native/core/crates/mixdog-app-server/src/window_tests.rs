@@ -175,6 +175,7 @@ async fn blob_ref_expanded() {
     assert_eq!(response["error"]["data"]["path"], json!("/input/prompt/$blobRef"), "{response}");
 }
 
+
 /// Every input the TUI, the phone and the protocol clients send today passes the validators.
 #[test]
 fn clients_accepted_corpus_passes() {

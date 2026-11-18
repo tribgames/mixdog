@@ -7,7 +7,7 @@
 // instead, marked "~" because its token count is the runtime's estimate until
 // the provider reports the exact one.
 import { Coins, DatabaseZap, Gauge, type LucideIcon } from 'lucide-react';
-import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } from 'react';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { asRecord } from './text-format';
@@ -148,6 +148,32 @@ export interface ReadoutParts {
   hit: ReadoutItem | null;
 }
 
+/** 97.8%: a cache-hit share as the readout shows it. */
+export function formatHitPercent(share: number): string {
+  return `${(share * 100).toFixed(1)}%`;
+}
+
+/** The token-total item (`730.5M tokens`) for an already formatted value;
+ *  the composer agents panel's footer shows its total through it too. */
+export function tokensReadoutItem(tokens: string): ReadoutItem {
+  return {
+    icon: Coins,
+    text: tokens,
+    label: t('Total tokens {{tokens}}', { tokens }),
+    word: t('Total {{tokens}} tokens', { tokens, defaultValue: '{{tokens}} tokens' }),
+  };
+}
+
+/** The cache-hit item (`Cache hit 97.8%`) for an already formatted value. */
+export function cacheHitReadoutItem(percent: string): ReadoutItem {
+  return {
+    icon: DatabaseZap,
+    text: percent,
+    label: t('Cache hit {{percent}}', { percent }),
+    word: t('Cache hit {{percent}}', { percent }),
+  };
+}
+
 /** The readout's three items, null where there is no data. `liveSpeed`
  *  replaces the session speed while a call streams. */
 export function usageReadoutParts(usage: SessionUsageTotals | null, liveSpeed: number | null = null): ReadoutParts {
@@ -157,18 +183,8 @@ export function usageReadoutParts(usage: SessionUsageTotals | null, liveSpeed: n
   let speedValue = '';
   if (liveSpeed !== null) speedValue = `~${Math.round(liveSpeed)}`;
   else if (speed !== null) speedValue = String(Math.round(speed));
-  const tokens = total === null ? '' : formatCompactTokens(total);
-  const percent = hit === null ? '' : `${(hit * 100).toFixed(1)}%`;
   return {
-    total:
-      total === null
-        ? null
-        : {
-            icon: Coins,
-            text: tokens,
-            label: t('Total tokens {{tokens}}', { tokens }),
-            word: t('Total {{tokens}} tokens', { tokens, defaultValue: '{{tokens}} tokens' }),
-          },
+    total: total === null ? null : tokensReadoutItem(formatCompactTokens(total)),
     speed: speedValue
       ? {
           icon: Gauge,
@@ -177,15 +193,7 @@ export function usageReadoutParts(usage: SessionUsageTotals | null, liveSpeed: n
           word: `${speedValue} tok/s`,
         }
       : null,
-    hit:
-      hit === null
-        ? null
-        : {
-            icon: DatabaseZap,
-            text: percent,
-            label: t('Cache hit {{percent}}', { percent }),
-            word: t('Cache hit {{percent}}', { percent }),
-          },
+    hit: hit === null ? null : cacheHitReadoutItem(formatHitPercent(hit)),
   };
 }
 
@@ -313,8 +321,9 @@ function ReadoutItems({ items }: { items: ReadoutItem[] }): ReactNode {
 }
 
 /** A muted line of icon + value items with no hover card. On a narrow line it
- *  drops items in the variants' order instead of ellipsizing; both readouts
- *  (usage, routines) fit through here. */
+ *  drops items in the variants' order instead of ellipsizing; the readouts
+ *  (usage, routines, the agents panel's footer) fit through here. Without
+ *  `onClick` it is a plain group named by `title`, not a button. */
 export function FittedReadout({
   variants,
   onClick,
@@ -322,11 +331,11 @@ export function FittedReadout({
   className = '',
 }: {
   variants: ReadoutItem[][];
-  onClick(): void;
+  onClick?(): void;
   title: string;
   className?: string;
 }) {
-  const ref = useRef<HTMLButtonElement>(null);
+  const ref = useRef<HTMLElement>(null);
   const [shown, setShown] = useState(0);
   const key = variants.map((items) => items.map((item) => `${item.icon ? 1 : 0}${item.text}`).join('\t')).join('\n');
   // biome-ignore lint/correctness/useExhaustiveDependencies: the variants' texts are the key
@@ -397,16 +406,32 @@ export function FittedReadout({
   }, [key]);
   if (!variants.length) return null;
   const index = shown < 0 ? -1 : Math.min(shown, variants.length - 1);
+  const classes = `composer-usage-readout ${className}`.trim();
+  const items = <ReadoutItems items={variants[Math.max(index, 0)]} />;
+  if (!onClick) {
+    return (
+      // biome-ignore lint/a11y/useSemanticElements: fieldset default border/padding/margin would change the line.
+      <span
+        ref={ref as RefObject<HTMLSpanElement>}
+        className={classes}
+        role="group"
+        aria-label={title}
+        hidden={index < 0}
+      >
+        {items}
+      </span>
+    );
+  }
   return (
     <button
-      ref={ref}
+      ref={ref as RefObject<HTMLButtonElement>}
       type="button"
-      className={`composer-usage-readout ${className}`.trim()}
+      className={classes}
       hidden={index < 0}
       onClick={onClick}
       title={title}
     >
-      <ReadoutItems items={variants[Math.max(index, 0)]} />
+      {items}
     </button>
   );
 }

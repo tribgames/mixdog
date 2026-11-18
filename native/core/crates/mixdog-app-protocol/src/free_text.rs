@@ -496,9 +496,101 @@ pub fn refused<'a>(kind: Kind, method: &str, lone: &'a [LoneAt]) -> Option<&'a s
     lone.iter().find(|at| !is_free_text(kind, method, at)).map(LoneAt::pointer)
 }
 
+/// The deepest nesting of arrays and objects in JSON text, by a scan that reads strings as strings.
+fn nesting(text: &str) -> usize {
+    let (mut depth, mut deepest, mut in_string, mut escaped) = (0usize, 0usize, false, false);
+    for b in text.bytes() {
+        if in_string {
+            match (escaped, b) {
+                (true, _) => escaped = false,
+                (false, b'\\') => escaped = true,
+                (false, b'"') => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_string = true,
+            b'[' | b'{' => {
+                depth += 1;
+                deepest = deepest.max(depth);
+            }
+            b']' | b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    deepest
+}
+
+/// [`refused`] for a field that carries JSON as text (a blob expanded as text is one string by the time the frame check ran):
+/// the lone surrogates of `text`, placed under `prefix` (the field's pointer), are judged as if the JSON had been inline.
+///
+/// Text that held a lone surrogate and nests deeper than the inline value could (the frame parse's `MAX_JSON_DEPTH`, counted
+/// from where the field sits) is refused at `prefix` before anything walks it. Text without one costs the one scan.
+pub fn refused_in_text(kind: Kind, method: &str, prefix: &str, text: &str) -> Option<String> {
+    if mixdog_js::json_without_lone_surrogates(text.as_bytes()).1 == 0 {
+        return None;
+    }
+    // The levels around the field in a frame: the message, `params`, then one per pointer segment
+    // (measured: the frame's untagged message reading costs one more level, `a_nested_text_..._frame_depth`).
+    let enclosing = 2 + prefix.matches('/').count();
+    if nesting(text) + enclosing > crate::rpc::MAX_JSON_DEPTH {
+        return Some(prefix.to_owned());
+    }
+    let placed: Vec<LoneAt> = mixdog_js::json_lone_surrogates(text)
+        .into_iter()
+        .map(|at| match at {
+            LoneAt::Value(p) => LoneAt::Value(format!("{prefix}{p}")),
+            LoneAt::Key(p) => LoneAt::Key(format!("{prefix}{p}")),
+            LoneAt::MergedKey(p) => LoneAt::MergedKey(format!("{prefix}{p}")),
+            LoneAt::Unit { pointer, at, unit } => LoneAt::Unit { pointer: format!("{prefix}{pointer}"), at, unit },
+        })
+        .collect();
+    refused(kind, method, &placed).map(str::to_owned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A visualize value is judged alike where it is a JSON value of the frame and where it is the text a blob expanded to.
+    #[test]
+    fn a_visualize_value_is_judged_alike_inline_and_as_text() {
+        for (field, refused_at) in [("label", None), ("id", Some("/value/0/tabs/0/id"))] {
+            let mut tab = serde_json::json!({ "id": "t", "label": "l" });
+            tab[field] = serde_json::json!("MARK");
+            let value = serde_json::json!([{ "sessionId": "s", "tabs": [tab] }]).to_string().replace("MARK", "a\\ud800b");
+            let frame = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"host/state/set","params":{{"key":"visualize","value":{value}}}}}"#);
+            let crate::rpc::InboundText::Message(crate::rpc::JsonRpcMessage::Request(request)) = crate::rpc::decode_inbound_text(&frame, usize::MAX) else {
+                panic!("a request")
+            };
+            assert_eq!(refused(Kind::Request, "host/state/set", &request.lone_surrogates), refused_at, "inline {field}");
+            assert_eq!(refused_in_text(Kind::Request, "host/state/set", "/value", &value).as_deref(), refused_at, "text {field}");
+        }
+    }
+
+    /// Text is held to the depth the frame parse allows its inline form: at the limit it is judged by its places, one level
+    /// deeper (or 20,000 levels, which no walk may reach) it is refused whole at its field.
+    #[test]
+    fn a_nested_text_with_a_lone_surrogate_is_held_to_the_frame_depth() {
+        let nested = |n: usize| format!("{}\"\\ud800\"{}", "[".repeat(n), "]".repeat(n));
+        let inline = |value: &str| {
+            let frame = format!(r#"{{"jsonrpc":"2.0","id":1,"method":"host/state/set","params":{{"key":"visualize","value":{value}}}}}"#);
+            matches!(crate::rpc::decode_inbound_text(&frame, usize::MAX), crate::rpc::InboundText::Message(_))
+        };
+        let probe = (1..200).filter(|n| inline(&nested(*n))).max();
+        assert_eq!(probe, Some(crate::rpc::MAX_JSON_DEPTH - 3));
+        let at_limit = crate::rpc::MAX_JSON_DEPTH - 3;
+        let pointer = format!("/value{}", "/0".repeat(at_limit));
+        assert!(inline(&nested(at_limit)));
+        assert_eq!(refused_in_text(Kind::Request, "host/state/set", "/value", &nested(at_limit)), Some(pointer));
+        assert!(!inline(&nested(at_limit + 1)));
+        for n in [at_limit + 1, 20_000] {
+            assert_eq!(refused_in_text(Kind::Request, "host/state/set", "/value", &nested(n)).as_deref(), Some("/value"), "{n}");
+        }
+        // Without a lone surrogate nothing is walked at all.
+        assert_eq!(refused_in_text(Kind::Request, "host/state/set", "/value", &"[".repeat(20_000)), None);
+    }
 
     #[test]
     fn a_frame_is_refused_unless_every_lone_place_is_free_text() {

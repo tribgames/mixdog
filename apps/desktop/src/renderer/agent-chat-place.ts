@@ -592,12 +592,18 @@ export function agentChatPlace(
     const other = rowTime(row);
     return !at || !other || minuteOf(other) === minuteOf(at);
   };
+  // A message waiting behind the running turn (`steer`) lands after that
+  // turn's reply: it is a run of its own until then, so the bubble before it
+  // keeps its time instead of losing it at the send and getting it back when
+  // the reply lands between them.
+  const waits = (row: TranscriptRowModel) => Boolean(rowItem(row)?.steer);
   const grouped = (hit: { sender: Sender; row: TranscriptRowModel } | null) =>
     (own.side === 'agent' || own.side === 'user') &&
     hit?.sender.side === own.side &&
     hit.sender.speaker === own.speaker &&
     Boolean(hit.sender.bot) === Boolean(own.bot) &&
     (hit.sender.source ?? '') === (own.source ?? '') &&
+    waits(hit.row) === waits(rows[index]) &&
     together(hit.row);
   let newDay = false;
   if (at) {

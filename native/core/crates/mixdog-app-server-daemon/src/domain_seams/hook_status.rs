@@ -233,13 +233,6 @@ impl HookEventLog {
     }
 }
 
-impl HookObserver for HookEventLog {
-    fn emit(&self, event: &str, payload: Value) {
-        let now = mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
-        self.emit_at(event, &payload, now);
-    }
-}
-
 /// `summarizeRule(rule, index)` (`hook-bus/rules.mjs`).
 pub(crate) fn summarize_rule(rule: &Value, index: usize) -> Value {
     let or_null = |keys: &[&str]| first_truthy(rule, keys).cloned().unwrap_or(Value::Null);
@@ -313,61 +306,6 @@ pub struct HookStatus {
     cache: Mutex<Option<Arc<HookConfig>>>,
 }
 
-impl HookStatus {
-    pub fn new(data_dir: PathBuf, maintenance: MaintenanceIo, log: Arc<HookEventLog>, observer: Arc<dyn HookObserver>) -> Arc<Self> {
-        Arc::new(Self { data_dir, maintenance, log, observer, cache: Mutex::new(None) })
-    }
-
-    async fn load(&self, cwd: PathBuf) -> Result<Loaded, String> {
-        let previous = self.cache.lock().unwrap_or_else(PoisonError::into_inner).clone();
-        let data_dir = self.data_dir.clone();
-        let env_file = std::env::var_os("MIXDOG_HOOKS_FILE").map(PathBuf::from);
-        let loaded = self
-            .maintenance
-            .submit(&CancellationToken::new(), move |lane| {
-                let loaded = load_config(lane, &data_dir, &cwd, env_file.as_deref(), previous);
-                let trusted = read_trusted_projects(lane, &data_dir);
-                let plugins = read_registry(lane, &data_dir);
-                let entries = config_entries(&HookSources {
-                    env_file: env_file.as_deref(),
-                    data_dir: &data_dir,
-                    project_dir: &cwd,
-                    trusted_projects: &trusted,
-                    plugins: &plugins,
-                });
-                let mut sources = Vec::new();
-                let mut configured: Vec<String> = Vec::new();
-                for entry in &entries {
-                    let Some(document) = parsed_document(&entry.path) else { continue };
-                    sources.push(Source { path: entry.path.clone(), kind: entry.source_type, plugin_root: entry.plugin_root.clone() });
-                    if !config_report(&document).standard {
-                        continue;
-                    }
-                    let kept = parse_standard(&document, &entry.path, entry);
-                    for event in document.get("hooks").and_then(Value::as_object).map(js_object_keys).unwrap_or_default() {
-                        if kept.contains_key(event.as_str()) && !configured.contains(event) {
-                            configured.push(event.clone());
-                        }
-                    }
-                }
-                let rules_path = env_file.unwrap_or_else(|| data_dir.join("hooks.json"));
-                let rules_path = std::path::absolute(&rules_path).unwrap_or(rules_path);
-                (loaded, sources, configured, rules_path)
-            })
-            .map_err(|_| "the maintenance lane is full".to_owned())?
-            .await
-            .map_err(|error| format!("{error:?}"))?;
-        let (loaded, sources, configured, rules_path) = loaded;
-        if loaded.fresh {
-            for (file, problem) in &loaded.config.errors {
-                self.observer.emit("hook:error", json!({ "error": format!("failed to parse hooks file {}: {problem}", file.display()) }));
-            }
-        }
-        *self.cache.lock().unwrap_or_else(PoisonError::into_inner) = Some(loaded.config.clone());
-        Ok(Loaded { config: loaded.config, sources, configured, rules_path })
-    }
-}
-
 #[async_trait]
 impl HooksStatus for HookStatus {
     async fn status(&self) -> Value {
@@ -422,15 +360,19 @@ impl HooksStatus for HookStatus {
     }
 }
 
+// Every test here compares the status, the payload and rule summaries against Node's recording of the same inputs.
+#[cfg(node_twin)]
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]
 mod tests {
     use super::*;
+    #[cfg(node_twin)]
     use crate::domain_seams::golden;
     use crate::domain_seams::portable;
 
     const FROZEN: i64 = 1_700_000_000_000;
 
+    #[cfg(node_twin)]
     #[test]
     fn payload_summaries_and_compaction_match_nodes() {
         // `compact_value` keeps the first 12 keys in insertion order: the compared text holds the key order.
@@ -441,6 +383,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn rule_summaries_match_nodes() {
         for case in golden()["hooks"]["rules"].as_array().unwrap() {
@@ -462,6 +405,8 @@ mod tests {
         }
     }
 
+
+    #[cfg(node_twin)]
     #[tokio::test(flavor = "multi_thread")]
     async fn the_status_of_each_scenario_matches_nodes() {
         for scenario in golden()["hooks"]["scenarios"].as_array().unwrap() {
@@ -491,5 +436,67 @@ mod tests {
             assert_eq!(status, scenario["status"], "{name}");
             assert_eq!(portable(&Value::Array(tee.errors.lock().unwrap().clone()), base), scenario["loaderEmits"], "{name}");
         }
+    }
+}
+
+
+impl HookObserver for HookEventLog {
+    fn emit(&self, event: &str, payload: Value) {
+        let now = mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        self.emit_at(event, &payload, now);
+    }
+}
+impl HookStatus {
+    pub fn new(data_dir: PathBuf, maintenance: MaintenanceIo, log: Arc<HookEventLog>, observer: Arc<dyn HookObserver>) -> Arc<Self> {
+        Arc::new(Self { data_dir, maintenance, log, observer, cache: Mutex::new(None) })
+    }
+
+    async fn load(&self, cwd: PathBuf) -> Result<Loaded, String> {
+        let previous = self.cache.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let data_dir = self.data_dir.clone();
+        let env_file = std::env::var_os("MIXDOG_HOOKS_FILE").map(PathBuf::from);
+        let loaded = self
+            .maintenance
+            .submit(&CancellationToken::new(), move |lane| {
+                let loaded = load_config(lane, &data_dir, &cwd, env_file.as_deref(), previous);
+                let trusted = read_trusted_projects(lane, &data_dir);
+                let plugins = read_registry(lane, &data_dir);
+                let entries = config_entries(&HookSources {
+                    env_file: env_file.as_deref(),
+                    data_dir: &data_dir,
+                    project_dir: &cwd,
+                    trusted_projects: &trusted,
+                    plugins: &plugins,
+                });
+                let mut sources = Vec::new();
+                let mut configured: Vec<String> = Vec::new();
+                for entry in &entries {
+                    let Some(document) = parsed_document(&entry.path) else { continue };
+                    sources.push(Source { path: entry.path.clone(), kind: entry.source_type, plugin_root: entry.plugin_root.clone() });
+                    if !config_report(&document).standard {
+                        continue;
+                    }
+                    let kept = parse_standard(&document, &entry.path, entry);
+                    for event in document.get("hooks").and_then(Value::as_object).map(js_object_keys).unwrap_or_default() {
+                        if kept.contains_key(event.as_str()) && !configured.contains(event) {
+                            configured.push(event.clone());
+                        }
+                    }
+                }
+                let rules_path = env_file.unwrap_or_else(|| data_dir.join("hooks.json"));
+                let rules_path = std::path::absolute(&rules_path).unwrap_or(rules_path);
+                (loaded, sources, configured, rules_path)
+            })
+            .map_err(|_| "the maintenance lane is full".to_owned())?
+            .await
+            .map_err(|error| format!("{error:?}"))?;
+        let (loaded, sources, configured, rules_path) = loaded;
+        if loaded.fresh {
+            for (file, problem) in &loaded.config.errors {
+                self.observer.emit("hook:error", json!({ "error": format!("failed to parse hooks file {}: {problem}", file.display()) }));
+            }
+        }
+        *self.cache.lock().unwrap_or_else(PoisonError::into_inner) = Some(loaded.config.clone());
+        Ok(Loaded { config: loaded.config, sources, configured, rules_path })
     }
 }

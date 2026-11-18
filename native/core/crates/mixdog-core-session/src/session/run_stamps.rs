@@ -216,6 +216,7 @@ mod tests {
         }
     }
 
+
     /// Node reads a record from the store (`loadRecord`), loaded or not: a worker whose parent
     /// is not loaded here still has the parent's run, and an unloaded session has its own.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -250,4 +251,5 @@ mod tests {
         assert_eq!(stamps.stamp_of(&parent).await, Some(run), "an unloaded session has its own stored run");
         assert!(second.handle(&parent).is_none(), "reading a record loads nothing");
         assert_eq!(stamps.stamp_of(&ThreadId::from("sess_missing")).await, None);
-    }}
+    }
+}

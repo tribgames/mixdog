@@ -5,16 +5,13 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: "Existing graph-vMAJOR.MINOR.PATCH tag to build"
+        description: "graph-vMAJOR.MINOR.PATCH tag to release; created at `sha` when absent, and it must name `sha` when present"
         required: true
         type: string
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing graph-vMAJOR.MINOR.PATCH tag to resume"
+      sha:
+        description: "The gated commit every job checks out and the tag names"
         required: true
         type: string
-
 permissions:
   contents: read
 
@@ -31,7 +28,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     permissions:
-      contents: write # unverified: lists releases to match an existing hidden draft (drafts need push access)
+      contents: write # creates the tag at the gated commit; lists releases to match an existing hidden draft (drafts need push access)
     outputs:
       tag: ${{ steps.verify.outputs.tag }}
       version: ${{ steps.verify.outputs.version }}
@@ -44,33 +41,42 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          case "$GITHUB_EVENT_NAME" in
-            push)
-              [[ "$GITHUB_REF" =~ ^refs/tags/(graph-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))$ ]]
-              TAG=${BASH_REMATCH[1]}
-              ;;
-            workflow_dispatch|workflow_call)
-              TAG=$REQUESTED_TAG
-              [[ "$TAG" =~ ^graph-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-              ;;
-            *)
-              echo "Unsupported graph release event: $GITHUB_EVENT_NAME" >&2
-              exit 1
-              ;;
-          esac
+          TAG=$REQUESTED_TAG
+          [[ "$TAG" =~ ^graph-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
-          ref: refs/tags/${{ steps.resolve.outputs.tag }}
+          ref: ${{ inputs.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      # The tag is made here, after the full gate verified this commit (Deploy's coverage-gate), and never moved: an existing tag
+      # must already name the gated commit (a re-run of the same deploy), or nothing is built or published under it.
+      - name: Create the tag at the gated commit, or require it to name it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+          SHA: ${{ inputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SHA"
+          if ! git ls-remote --exit-code --tags origin "refs/tags/${TAG}" > /dev/null; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/${TAG}" -f sha="$SHA" > /dev/null
+          fi
+          git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          if [[ "$(git rev-list -n 1 "refs/tags/${TAG}")" != "$SHA" ]]; then
+            echo "::error::${TAG} names $(git rev-list -n 1 "refs/tags/${TAG}"), not the gated commit ${SHA}; a release tag is never moved"
+            exit 1
+          fi
 
       - name: Verify immutable source and version
         id: verify
         env:
           GH_TOKEN: ${{ github.token }}
           GRAPH_TAG: ${{ steps.resolve.outputs.tag }}
+          GATED_SHA: ${{ inputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -84,9 +90,7 @@ jobs:
           test "$(git rev-parse "refs/tags/${TAG}")" = "$REMOTE_TAG_OBJECT"
           SOURCE_SHA=$(git rev-list -n 1 "refs/tags/${TAG}")
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
-            test "$SOURCE_SHA" = "$GITHUB_SHA"
-          fi
+          test "$SOURCE_SHA" = "$GATED_SHA"
 
           CARGO_VERSION=$(node - <<'NODE'
           const text = require('fs').readFileSync('native/mixdog-graph/Cargo.toml', 'utf8');
@@ -126,7 +130,7 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
-          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          ref: ${{ inputs.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -180,7 +184,7 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
-          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          ref: ${{ inputs.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -277,7 +281,7 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
-          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          ref: ${{ inputs.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -328,7 +332,7 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
-          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          ref: ${{ inputs.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -433,7 +437,8 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: supply-records-${{ github.run_id }}-${{ github.run_attempt }}
+          name: supply-records-${{ github.run_id }}
+          overwrite: true
           path: |
             _release/graph-manifest.json
             _release/SHA256SUMS
@@ -572,24 +577,27 @@ jobs:
             cmp "_release/${NAME}" "/tmp/final-${NAME}"
           done < /tmp/assets.tsv
 
+  # Publishes the verified draft. The manifest the app bundles stays an artifact of this run (supply-records-<run>):
+  # Deploy's prepare-app commits it into the release commit, which is gated before the default branch moves; nothing here writes one.
   sync:
     needs: [gate, prepare]
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     permissions:
-      contents: write # push manifest and publish the release
+      contents: write # publish the release
     concurrency:
       group: graph-release-finalize
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
-          ref: main
+          ref: ${{ inputs.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: supply-records-${{ github.run_id }}-${{ github.run_attempt }}
+          name: supply-records-${{ github.run_id }}
           path: _generated
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -598,16 +606,14 @@ jobs:
           path: _builds
           merge-multiple: true
 
-      - name: Sync latest default branch
+      - name: Verify the generated manifest names this release and is not older than the bundled one
         env:
-          DEFAULT_BRANCH: main
           GRAPH_TAG: ${{ needs.gate.outputs.tag }}
           GRAPH_VERSION: ${{ needs.gate.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin "$DEFAULT_BRANCH"
-          test "$(git rev-parse HEAD)" = "$(git rev-parse "origin/${DEFAULT_BRANCH}")"
+          test "$(git rev-parse HEAD)" = "${{ inputs.sha }}"
 
           set +e
           node <<'NODE'
@@ -638,23 +644,7 @@ jobs:
           set -e
           test "$STATUS" = 0
 
-          cp _generated/graph-manifest.json "$MANIFEST"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$MANIFEST"
-          if git diff --cached --quiet; then
-            echo "Bundled graph manifest is already current."
-            exit 0
-          fi
-          git commit -m "chore(graph): sync manifest for ${GRAPH_TAG}"
-          for attempt in 1 2 3; do
-            git pull --rebase origin "$DEFAULT_BRANCH"
-            if git push origin "HEAD:${DEFAULT_BRANCH}"; then exit 0; fi
-            sleep "$((attempt * 2))"
-          done
-          exit 1
-
-      - name: Verify main and publish matching draft
+      - name: Verify and publish the matching draft
         env:
           GH_TOKEN: ${{ github.token }}
           GRAPH_TAG: ${{ needs.gate.outputs.tag }}
@@ -663,10 +653,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main
-          git show origin/main:"$MANIFEST" > /tmp/main-manifest.json
-          cmp _generated/graph-manifest.json /tmp/main-manifest.json
-
           mkdir _expected
           cp _builds/mixdog-graph-darwin-arm64 _expected/
           cp _builds/mixdog-graph-darwin-x64 _expected/
@@ -723,11 +709,9 @@ jobs:
             cmp "_expected/${NAME}" "/tmp/publish-${NAME}"
           done < /tmp/assets.tsv
 
-          git fetch origin main
-          git show origin/main:"$MANIFEST" > /tmp/final-main-manifest.json
-          cmp _generated/graph-manifest.json /tmp/final-main-manifest.json
           git fetch --force origin "+refs/tags/${GRAPH_TAG}:refs/tags/${GRAPH_TAG}"
           test "$(git rev-list -n 1 "refs/tags/${GRAPH_TAG}")" = "$SOURCE_SHA"
+          test "$SOURCE_SHA" = "${{ inputs.sha }}"
           gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
             -F draft=false -f make_latest=false > /tmp/published.json
           node -e "const r=require('/tmp/published.json'); if (r.draft) process.exit(1)"

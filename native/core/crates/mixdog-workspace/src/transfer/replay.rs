@@ -33,8 +33,6 @@ use super::*;
 use crate::service::Deps;
 use crate::service::WorkspaceService;
 
-const RECORDING: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/file-downloads/file-downloads.json");
-
 /// A text naming a staged download's folder in the recording's terms, as the recorder wrote Node's: the folder (the temp folder's
 /// `mixdog-download-<id>`) is `<staged>`, with forward slashes.
 fn unstaged(text: &str) -> Option<String> {
@@ -393,6 +391,7 @@ async fn build(base: PathBuf, start: i64) -> (World, tokio::task::JoinHandle<()>
             code_graph: None,
             turn_review: None,
             releases: crate::release::FolderReleases::new(),
+            upload_chunk_bytes: mixdog_app_protocol::limits::Limits::default().max_blob_put_chunk_bytes,
         },
         transfers.clone(),
     )
@@ -417,7 +416,77 @@ async fn build(base: PathBuf, start: i64) -> (World, tokio::task::JoinHandle<()>
 /// The scenarios recorded on Windows alone (their `platform`): their path rules are that system's, so another system does not run them,
 /// and says so. On the system a scenario was recorded for, none may be left out.
 const WINDOWS_ONLY: [&str; 1] = ["windows path names"];
+/// What the unpair's `revoke_device` reaches, by the name it is given: the unpair walks the live connections of the device and names each by
+/// its id (`PairedDeviceCleanup::unpaired`), which owns the device's grants through its credential; a connection with no credential owns its
+/// own by its id; and the credential itself names the grants of a device with no live connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unpair_ends_the_downloads_of_the_device_by_whichever_name_the_owner_has() {
+    let dir = tempfile::tempdir().unwrap();
+    let (world, sweeping) = build(canonical(dir.path()).unwrap(), 1_000).await;
+    let file = world.dir.join("a.bin");
+    std::fs::write(&file, b"0123456789abcdef").unwrap();
+    let authorize = |connection: u64| {
+        let body = json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": file.to_string_lossy() }, "purpose": "save" });
+        let request = CoreRequest { method: Method("transfer/authorizeRead"), params: body, op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, CancellationToken::new()) };
+        let service = world.service.clone();
+        async move {
+            match service.call(request).await.unwrap() {
+                Reply::Value(value) => value["grantId"].as_str().unwrap().to_owned(),
+                Reply::Subscribe(_) => unreachable!(),
+            }
+        }
+    };
+    let redeem = |connection: u64, grant: String| {
+        let request = CoreRequest { method: Method("transfer/redeemGrant"), params: json!({ "grantId": grant }), op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, CancellationToken::new()) };
+        let service = world.service.clone();
+        async move { service.call(request).await }
+    };
+    let expired = |result: Result<Reply, CoreError>| matches!(result, Err(CoreError::DomainError { code: Some(code), .. }) if &*code == "file-download:expired");
+    // A paired device's connection names the device: the grant is the credential's.
+    let paired = authorize(1).await;
+    world.service.revoke_device("1");
+    assert!(expired(redeem(1, paired).await), "a connection id of a paired device ends the credential's grants");
+    // The grant store is told the credential of a device that unpairs, whether or not a connection of it is attached.
+    let by_credential = authorize(2).await;
+    world.store.revoke_device("bbbbbbb2");
+    assert!(expired(redeem(2, by_credential).await), "the credential ends its grants");
+    // A connection with no credential owns its grants by its id.
+    let anonymous = authorize(9).await;
+    world.service.revoke_device("9");
+    assert!(expired(redeem(9, anonymous).await), "a connection with no credential ends its own");
+    // And nothing of another device.
+    let kept = authorize(1).await;
+    world.service.revoke_device("2");
+    assert!(redeem(1, kept).await.is_ok(), "another device's grant lives");
+    sweeping.abort();
+}
 
+/// A phone whose connection is `connection`, with a transfer begun on `a.bin` of the world: its transfer id and version.
+async fn begun(world: &World, connection: u64) -> (String, String) {
+    let call = |method: &'static str, params: Value| {
+        let request = CoreRequest { method: Method(method), params, op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, CancellationToken::new()) };
+        let service = world.service.clone();
+        async move {
+            match service.call(request).await.unwrap() {
+                Reply::Value(value) => value,
+                Reply::Subscribe(_) => unreachable!(),
+            }
+        }
+    };
+    let granted = call("transfer/authorizeRead", json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": world.dir.join("a.bin").to_string_lossy() }, "purpose": "save" })).await;
+    let leased = call("transfer/redeemGrant", json!({ "grantId": granted["grantId"] })).await;
+    (leased["transferId"].as_str().unwrap().to_owned(), leased["version"].as_str().unwrap().to_owned())
+}
+
+/// A range of the transfer as `connection` asks it, as the frame the phone would get.
+async fn range_frame(world: &World, connection: u64, transfer: &(String, String), offset: u64, length: u64) -> Value {
+    let params = json!({ "transferId": transfer.0, "offset": offset, "length": length, "version": transfer.1 });
+    let request = CoreRequest { method: Method("transfer/readRange"), params, op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, CancellationToken::new()) };
+    frame_of("fileDownloadRange", world.service.call(request).await)
+}
+
+
+const RECORDING: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/file-downloads/file-downloads.json");
 /// Every recorded scenario, every step: the file operations, the clock, the unpair, the catalog, each call as the adapter makes it of the
 /// production service dispatch (reply compared whole with the frame Node's phone got), each call held at a point of the service while the
 /// recorded event happens, and after every `handles` step the files the service holds open equal Node's.
@@ -598,51 +667,6 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
     let expected: &[&str] = if cfg!(windows) { &[] } else { &WINDOWS_ONLY };
     assert_eq!(not_run, expected, "the scenarios this system did not run");
 }
-/// What the unpair's `revoke_device` reaches, by the name it is given: the unpair walks the live connections of the device and names each by
-/// its id (`PairedDeviceCleanup::unpaired`), which owns the device's grants through its credential; a connection with no credential owns its
-/// own by its id; and the credential itself names the grants of a device with no live connection.
-#[tokio::test(flavor = "multi_thread")]
-async fn an_unpair_ends_the_downloads_of_the_device_by_whichever_name_the_owner_has() {
-    let dir = tempfile::tempdir().unwrap();
-    let (world, sweeping) = build(canonical(dir.path()).unwrap(), 1_000).await;
-    let file = world.dir.join("a.bin");
-    std::fs::write(&file, b"0123456789abcdef").unwrap();
-    let authorize = |connection: u64| {
-        let body = json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": file.to_string_lossy() }, "purpose": "save" });
-        let request = CoreRequest { method: Method("transfer/authorizeRead"), params: body, op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, CancellationToken::new()) };
-        let service = world.service.clone();
-        async move {
-            match service.call(request).await.unwrap() {
-                Reply::Value(value) => value["grantId"].as_str().unwrap().to_owned(),
-                Reply::Subscribe(_) => unreachable!(),
-            }
-        }
-    };
-    let redeem = |connection: u64, grant: String| {
-        let request = CoreRequest { method: Method("transfer/redeemGrant"), params: json!({ "grantId": grant }), op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, CancellationToken::new()) };
-        let service = world.service.clone();
-        async move { service.call(request).await }
-    };
-    let expired = |result: Result<Reply, CoreError>| matches!(result, Err(CoreError::DomainError { code: Some(code), .. }) if &*code == "file-download:expired");
-    // A paired device's connection names the device: the grant is the credential's.
-    let paired = authorize(1).await;
-    world.service.revoke_device("1");
-    assert!(expired(redeem(1, paired).await), "a connection id of a paired device ends the credential's grants");
-    // The grant store is told the credential of a device that unpairs, whether or not a connection of it is attached.
-    let by_credential = authorize(2).await;
-    world.store.revoke_device("bbbbbbb2");
-    assert!(expired(redeem(2, by_credential).await), "the credential ends its grants");
-    // A connection with no credential owns its grants by its id.
-    let anonymous = authorize(9).await;
-    world.service.revoke_device("9");
-    assert!(expired(redeem(9, anonymous).await), "a connection with no credential ends its own");
-    // And nothing of another device.
-    let kept = authorize(1).await;
-    world.service.revoke_device("2");
-    assert!(redeem(1, kept).await.is_ok(), "another device's grant lives");
-    sweeping.abort();
-}
-
 /// A relay caller can call the core directly, so the core decides what a conversation is and where its project is, from its own catalog
 /// (Node's `sessionRow` / `projectRoot`): a conversation it does not list is unavailable, a task conversation has no project, and what the
 /// caller says of the project (an extra `root` or `projectPath`) changes nothing, so a path through a link out of the project is refused
@@ -686,7 +710,6 @@ async fn a_relay_caller_gets_nothing_the_catalog_does_not_give_it() {
     same(ask("s1", json!({ "kind": "file", "rel": "link/n.bin" })).await, recorded("ancestor swapped between resolving and opening", 0));
     sweeping.abort();
 }
-
 /// The core is the boundary, not the adapter: every authorize, begin and finish whose arguments Node's method table refused before its
 /// service (no service call recorded), sent straight to the core by a relay caller in the core's own terms (the source kinds renamed, the
 /// conversation beside the source), is refused with Node's sentence and no download code, before any conversation or file is looked up.
@@ -740,24 +763,6 @@ async fn a_relay_caller_that_skips_the_adapter_is_refused_as_nodes_table_refuses
     assert!(sent >= 18, "{sent} refused calls sent");
     sweeping.abort();
 }
-
-/// A phone whose connection is `connection`, with a transfer begun on `a.bin` of the world: its transfer id and version.
-async fn begun(world: &World, connection: u64) -> (String, String) {
-    let call = |method: &'static str, params: Value| {
-        let request = CoreRequest { method: Method(method), params, op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, CancellationToken::new()) };
-        let service = world.service.clone();
-        async move {
-            match service.call(request).await.unwrap() {
-                Reply::Value(value) => value,
-                Reply::Subscribe(_) => unreachable!(),
-            }
-        }
-    };
-    let granted = call("transfer/authorizeRead", json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": world.dir.join("a.bin").to_string_lossy() }, "purpose": "save" })).await;
-    let leased = call("transfer/redeemGrant", json!({ "grantId": granted["grantId"] })).await;
-    (leased["transferId"].as_str().unwrap().to_owned(), leased["version"].as_str().unwrap().to_owned())
-}
-
 /// The frame Node's phone got for the held call of the scenario `name`.
 fn node_answer(name: &str) -> Value {
     let recording: Value = serde_json::from_str(&RECORDING).unwrap();
@@ -766,14 +771,12 @@ fn node_answer(name: &str) -> Value {
     frame.as_object_mut().unwrap().remove("id");
     frame
 }
-
 /// How many files Node's service held open at the `n`th count of the scenario.
 fn node_open(name: &str, n: usize) -> usize {
     let recording: Value = serde_json::from_str(&RECORDING).unwrap();
     let steps = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name}"))["steps"].as_array().unwrap().clone();
     steps.iter().filter(|step| step["op"] == "handles").nth(n).unwrap()["open"].as_u64().unwrap() as usize
 }
-
 /// The frame Node's phone got for the first call of the scenario `name` by `device` of the phone method `method`.
 fn node_call(name: &str, device: &str, method: &str) -> Value {
     let recording: Value = serde_json::from_str(&RECORDING).unwrap();
@@ -782,14 +785,6 @@ fn node_call(name: &str, device: &str, method: &str) -> Value {
     frame.as_object_mut().unwrap().remove("id");
     frame
 }
-
-/// A range of the transfer as `connection` asks it, as the frame the phone would get.
-async fn range_frame(world: &World, connection: u64, transfer: &(String, String), offset: u64, length: u64) -> Value {
-    let params = json!({ "transferId": transfer.0, "offset": offset, "length": length, "version": transfer.1 });
-    let request = CoreRequest { method: Method("transfer/readRange"), params, op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, CancellationToken::new()) };
-    frame_of("fileDownloadRange", world.service.call(request).await)
-}
-
 /// The conversation is deleted while a range read waits at the file: the deletion lands in the step the catalog drops it, and the read,
 /// which finds its transfer gone when it looks again, answers as Node's does (`session deleted during a range read`).
 #[tokio::test(flavor = "multi_thread")]
@@ -810,7 +805,6 @@ async fn a_deletion_while_a_range_is_read_ends_the_read() {
     assert_eq!(world.transfers.held_downloads(), node_open("session deleted during a range read", 0));
     sweeping.abort();
 }
-
 /// A revoke that lands after the range took its last look, while the lane's answer waits to be taken up, is never followed by bytes:
 /// the service looks again before it answers. Node's answer for a revoke in a read is its `unpair during a read`.
 #[tokio::test(flavor = "multi_thread")]
@@ -829,7 +823,6 @@ async fn a_revoke_after_the_last_look_of_a_range_is_not_followed_by_bytes() {
     world.transfers.on_point(None);
     sweeping.abort();
 }
-
 /// The file is cut short while a range waits at it: the file ended before the window did, so the read answers `changed` as Node's does and
 /// the transfer is gone with its handle (`file truncated during a range read`).
 #[tokio::test(flavor = "multi_thread")]
@@ -849,7 +842,6 @@ async fn a_file_cut_short_during_a_range_read_ends_the_transfer() {
     assert_eq!(world.transfers.held_downloads(), node_open("file truncated during a range read", 0), "the dropped transfer's handle is closed");
     sweeping.abort();
 }
-
 /// A connection of this machine and a paired phone are different owners whatever the phone's credential spells: a phone admitted as `6`
 /// owns its transfer as a device, and the local connection numbered 6 can neither read it nor end it.
 #[tokio::test(flavor = "multi_thread")]

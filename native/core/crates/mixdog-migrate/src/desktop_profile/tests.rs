@@ -26,20 +26,6 @@ use super::*;
 use crate::durable;
 use crate::framework::BlobStatuses;
 
-/// `MIXDOG_MIGRATION_CORPUS` names the corpus root; CI restores it as an artifact.
-fn corpus_root() -> PathBuf {
-    let root = std::env::var_os("MIXDOG_MIGRATION_CORPUS").map_or_else(
-        || PathBuf::from(r"C:\Users\tempe\.mixdog\data\scratch\rust-core\migration-corpus"),
-        PathBuf::from,
-    );
-    assert!(
-        root.join("electron-profile").is_dir(),
-        "the migration corpus is missing at {}; set MIXDOG_MIGRATION_CORPUS",
-        root.display()
-    );
-    root
-}
-
 fn copy_tree(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for entry in std::fs::read_dir(from).unwrap() {
@@ -63,18 +49,6 @@ fn files_of(dir: &Path) -> BTreeMap<String, PathBuf> {
 
 fn hash_of(path: &Path) -> String {
     durable::hash_file(path).unwrap().1
-}
-
-fn session_item(id: &str) -> ManifestItem {
-    crate::plan::item(
-        &format!("session/{id}"),
-        KindGroup::Data,
-        ItemKind::Session,
-        Contract::Convert,
-        Vec::new(),
-        Some(Target::Session { id: id.to_owned() }),
-    )
-    .unwrap()
 }
 
 /// The session ids of the corpus (v145 and dev146 session files).
@@ -103,130 +77,6 @@ struct Run {
     driver: DesktopProfileDriver,
     blobs: BlobStatuses,
     states: BTreeMap<String, ItemState>,
-}
-
-impl Run {
-    /// A profile holding `files` (or a copy of `profile_from`), planned beside `sessions`.
-    fn new(profile_from: Option<&Path>, files: &[(&str, &[u8])], sessions: &BTreeSet<String>) -> Self {
-        let data = TempDir::new().unwrap();
-        let profile = TempDir::new().unwrap();
-        if let Some(from) = profile_from {
-            copy_tree(from, profile.path());
-        }
-        for (name, content) in files {
-            let path = profile.path().join(name);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, content).unwrap();
-        }
-        let roots = MigrationRoots {
-            data: data.path().to_path_buf(),
-            home: data.path().join("home"),
-            profile: Some(profile.path().to_path_buf()),
-        };
-        let mut sink = PlanSink::new(&roots);
-        for id in sessions {
-            sink.add_item(session_item(id)).unwrap();
-        }
-        let driver = DesktopProfileDriver::new();
-        driver.plan(&roots, &mut sink).unwrap();
-        let manifest = sink.into_manifest(&roots);
-        Self {
-            data,
-            profile,
-            roots,
-            manifest,
-            driver,
-            blobs: BlobStatuses::default(),
-            states: BTreeMap::new(),
-        }
-    }
-
-    fn cx(&self) -> ItemContext<'_> {
-        ItemContext {
-            roots: &self.roots,
-            manifest: &self.manifest,
-            manifest_sha256: MANIFEST_SHA,
-            fault: None,
-            blobs: &self.blobs,
-            states: &self.states,
-        }
-    }
-
-    fn items(&self) -> impl Iterator<Item = &ManifestItem> {
-        self.manifest.items.iter().filter(|item| self.driver.owns(item))
-    }
-
-    fn item(&self, kind: ItemKind) -> &ManifestItem {
-        self.items().find(|item| item.kind == kind).unwrap_or_else(|| panic!("no {kind:?} item"))
-    }
-
-    fn stage(&self, item: &ManifestItem) -> Result<Stage> {
-        self.driver.stage(&self.cx(), item)
-    }
-
-    fn entry(item: &ManifestItem, staged: &Stage) -> StagedEntry {
-        let Stage::Output {
-            output_sha256,
-            replaced_surrogates,
-        } = staged
-        else {
-            panic!("{} did not stage", item.key.as_str());
-        };
-        StagedEntry {
-            key: item.key.clone(),
-            output_sha256: output_sha256.as_str().try_into().unwrap(),
-            replaced_surrogates: *replaced_surrogates,
-        }
-    }
-
-    /// stage → publish → verify, as the framework's state machine runs an item.
-    fn migrate_item(&self, item: &ManifestItem) -> Result<Outcome> {
-        let cx = self.cx();
-        let staged = match self.driver.stage(&cx, item)? {
-            Stage::Quarantine { code, .. } => return Ok(Outcome::Quarantined(code)),
-            staged @ Stage::Output { .. } => staged,
-        };
-        self.driver.publish(&cx, item, &Self::entry(item, &staged))?;
-        Ok(match self.driver.verify(&cx, item)? {
-            Verdict::Verified { digest } => Outcome::Verified(digest.expect("every profile item has a digest")),
-            Verdict::Quarantine { code, .. } => Outcome::Quarantined(code),
-        })
-    }
-
-    /// Every item in wave then key order; retire items are verified by planning alone.
-    /// Then the framework's disposal: verified and retired sources are re-hashed and deleted.
-    fn migrate_all(&self) -> Report {
-        let mut report = Report::default();
-        let mut order: Vec<&ManifestItem> = self.items().collect();
-        order.sort_by_key(|item| (self.driver.wave(item), item.key.as_str().to_owned()));
-        for item in order {
-            if item.contract == Contract::Retire {
-                report.retired += 1;
-                continue;
-            }
-            match self.migrate_item(item).unwrap_or_else(|error| panic!("{}: {error}", item.key.as_str())) {
-                Outcome::Verified(digest) => {
-                    report.verified.insert(item.key.as_str().to_owned(), digest);
-                }
-                Outcome::Quarantined(code) => report.quarantined.push((item.key.as_str().to_owned(), code)),
-            }
-        }
-        for item in self.items() {
-            let disposable = item.contract == Contract::Retire || report.verified.contains_key(item.key.as_str());
-            if !disposable {
-                continue;
-            }
-            for file in &item.sources {
-                let path = self.cx().source_path(file).unwrap();
-                assert_eq!(hash_of(&path), file.sha256, "{} changed before disposal", file.path);
-                durable::remove_file(&path).unwrap();
-            }
-        }
-        for shared in &self.manifest.shared {
-            durable::remove_file(&self.cx().source_path(&shared.file).unwrap()).unwrap();
-        }
-        report
-    }
 }
 
 #[derive(Debug)]
@@ -265,124 +115,6 @@ const CORPUS_KEYS: &[&str] = &[
     "desktopProfile/sessionMetadata",
     "desktopProfile/webPush",
 ];
-
-#[test]
-fn the_electron_profile_corpus_migrates_verified_and_leaves_electron_files_alone() {
-    let corpus = corpus_root();
-    let sessions = corpus_session_ids(&corpus);
-    let run = Run::new(Some(&corpus.join("electron-profile")), &[], &sessions);
-    let before = files_of(run.profile.path());
-
-    let mut keys: Vec<&str> = run.items().map(|item| item.key.as_str()).collect();
-    let retired = keys.iter().filter(|key| key.starts_with("retire/profile/")).count();
-    keys.retain(|key| !key.starts_with("retire/profile/"));
-    assert_eq!(keys, CORPUS_KEYS);
-    // Four `.bak` copies and the interrupted metadata write; the four task receipts are carried over.
-    assert_eq!(retired, 5);
-    let planned: BTreeSet<String> = run
-        .items()
-        .flat_map(|item| item.sources.iter().map(|file| file.path.clone()))
-        .chain(run.manifest.shared.iter().map(|shared| shared.file.path.clone()))
-        .collect();
-    let manifest = serde_json::to_string(&run.manifest).unwrap();
-    assert_eq!(serde_json::from_str::<Manifest>(&manifest).unwrap(), run.manifest);
-    for secret in ["feedface", "deadbeef"] {
-        assert!(!manifest.contains(secret), "the manifest must not carry secret content");
-    }
-    let shared = &run.manifest.shared[0];
-    assert_eq!(shared.file.path, SESSION_METADATA_FILE);
-    assert_eq!(shared.consumers, [SESSION_METADATA_KEY]);
-
-    let report = run.migrate_all();
-    assert!(report.quarantined.is_empty(), "{:?}", report.quarantined);
-    // `webPush` retires: the framework verifies it by planning alone.
-    assert_eq!(report.verified.len(), CORPUS_KEYS.len() - 1);
-    assert_eq!(report.retired, 6);
-
-    // The corpus's own expectation: how many entries of each map name a corpus session.
-    let manifest_json = json(&corpus.join("manifest.json"));
-    let filter = &manifest_json["electronProfile"]["metadataFilter"];
-    let cx = run.cx();
-    let headers: Vec<_> = sessions
-        .iter()
-        .filter_map(|id| run.driver.session_meta(&cx, id).unwrap())
-        .collect();
-    let carrying = |key: &str| headers.iter().filter(|header| header.contains_key(key)).count() as u64;
-    for (map, key) in [
-        ("titles", "title"),
-        ("names", "name"),
-        ("archived", "archivedAt"),
-        ("favorites", "favoriteAt"),
-        ("reads", "readState"),
-        ("retired", "retiredAt"),
-    ] {
-        assert_eq!(carrying(key), filter[map]["inCorpus"].as_u64().unwrap(), "{map}");
-    }
-    // Entries naming no migrated session retire with the file, counted.
-    let orphans = filter["titles"]["orphans"].as_u64().unwrap();
-    let dangling = run.driver.dangling(&cx, run.item(ItemKind::SessionMetadata)).unwrap();
-    assert!(dangling >= orphans, "{dangling} < {orphans}");
-
-    // Converted values.
-    let data = run.data.path();
-    let config = json(&data.join("mixdog-config.json"));
-    assert_eq!(config["remote"]["activatedAt"], 1_792_308_233_327u64);
-    assert_eq!(config["desktop"]["retentionState"]["enabledAt"], 1_793_450_746_723u64);
-    assert!(config["agents"]["greeted"].as_array().unwrap().len() > 3);
-    assert!(config["notifications"]["devices"]["pc"]["scope"].is_string());
-    let connection = rusqlite::Connection::open(data.join("state").join("core.sqlite")).unwrap();
-    let count = |sql: &str| connection.query_row(sql, [], |row| row.get::<_, i64>(0)).unwrap();
-    assert_eq!(count("SELECT count(*) FROM projects"), 2);
-    assert_eq!(count("SELECT count(*) FROM projects WHERE alias = 'mixdog.ai'"), 1);
-    assert_eq!(count("SELECT count(*) FROM rooms"), 0);
-    assert_eq!(count("SELECT count(*) FROM meta WHERE key LIKE 'migration:%'"), 4);
-
-    // Preserved files: bytes unchanged, secrets owner-only.
-    for (source, target) in [
-        ("relay-device.json", "remote/device.json"),
-        ("relay-device-revocations.json", "remote/device-revocations.json"),
-        ("relay-e2ee.json", "remote/e2ee.json"),
-        ("remote-bridge.token", "remote/pairing-token"),
-        ("remote-native-push.json", "remote/native-push.json"),
-        ("remote-clients.json", "remote/clients.json"),
-        ("selected-file-grants.json", "desktop/selected-file-grants.json"),
-    ] {
-        let moved = data.join(target);
-        assert_eq!(hash_of(&moved), hash_of(&corpus.join("electron-profile").join(source)), "{target}");
-        assert!(fsx::is_owner_only(&moved).unwrap(), "{target} owner-only");
-    }
-    let backups = files_of(&corpus.join("electron-profile").join("editor-backups"));
-    assert_eq!(backups.len(), 1);
-    for (name, path) in backups {
-        let moved = data.join("userdata/editor-backups").join(name);
-        assert_eq!(hash_of(&moved), hash_of(&path));
-        assert!(fsx::is_owner_only(&moved).unwrap());
-    }
-
-    // The receipts Node wrote come across under their names with their bytes, so a request retried after the upgrade is answered from them.
-    let receipts = files_of(&corpus.join("electron-profile").join("new-task-receipts"));
-    assert_eq!(receipts.len(), 4);
-    for (name, path) in receipts {
-        let moved = data.join("userdata/new-task-receipts").join(name);
-        assert_eq!(std::fs::read(&moved).unwrap(), std::fs::read(&path).unwrap());
-        assert!(mixdog_statefile::new_task_receipt::Receipt::parse(&std::fs::read(&moved).unwrap()).is_some());
-    }
-    // Disposal removed exactly the planned sources; everything else is byte-identical.
-    let after = files_of(run.profile.path());
-    for (name, path) in &before {
-        if planned.contains(name) {
-            assert!(!after.contains_key(name), "{name} should be disposed");
-        } else {
-            let kept = after.get(name).unwrap_or_else(|| panic!("{name} was removed"));
-            assert_eq!(hash_of(kept), hash_of(path), "{name} changed");
-        }
-    }
-    assert!(!planned.contains("last-launch-version"));
-    assert_eq!(
-        std::fs::read(run.profile.path().join("last-launch-version")).unwrap(),
-        std::fs::read(corpus.join("electron-profile/last-launch-version")).unwrap()
-    );
-}
 
 /// The receipts Node wrote in each phase come across under their names with their bytes (the core answers a retried request from them);
 /// what is no receipt (`readReceipt` binds nothing for it) retires.
@@ -488,22 +220,6 @@ fn the_user_editor_settings_of_the_old_app_apply_after_the_move() {
 }
 
 #[test]
-fn titles_and_names_equal_what_the_desktops_own_functions_produce() {
-    #[derive(serde::Deserialize)]
-    struct Vector {
-        input: String,
-        generated: String,
-        name: String,
-    }
-    let vectors: Vec<Vector> = serde_json::from_str(include_str!("vectors/titles.json")).unwrap();
-    assert!(vectors.len() > 60);
-    for vector in vectors {
-        assert_eq!(title::generated_title(&vector.input), vector.generated, "title of {:?}", vector.input);
-        assert_eq!(title::normalized_name(&vector.input), vector.name, "name of {:?}", vector.input);
-    }
-}
-
-#[test]
 fn a_damaged_state_file_is_restored_from_its_bak_and_set_aside_as_expected() {
     let good = br#"{"rooms":{"r1":{"id":"r1","name":"restored","running":{"startedAt":1}}}}"#;
     let run = Run::new(None, &[("agent-rooms.json", b"{\"rooms\":"), ("agent-rooms.json.bak", good)], &BTreeSet::new());
@@ -522,6 +238,7 @@ fn a_damaged_state_file_is_restored_from_its_bak_and_set_aside_as_expected() {
     let doc: String = connection.query_row("SELECT doc FROM rooms WHERE room_id = 'r1'", [], |row| row.get(0)).unwrap();
     let doc: Value = serde_json::from_str(&doc).unwrap();
     assert_eq!((doc["name"].as_str(), &doc["running"]), (Some("restored"), &Value::Null));
+    assert_eq!(doc["interruptedAt"], 1);
     // The damaged file stays for the framework to move into quarantine.
     assert!(run.profile.path().join("agent-rooms.json").exists());
     assert!(!run.profile.path().join("agent-rooms.json.bak").exists());
@@ -618,6 +335,7 @@ fn every_step_is_idempotent_so_a_resume_after_a_crash_reenters_it() {
         ("agent-greetings.json", br#"{"seen":["b","a"]}"#.as_slice()),
         ("desktop-projects.json", br#"{"version":2,"aliases":{"C:/p":"P"},"hidden":["C:/q"]}"#.as_slice()),
         ("relay-device.json", br#"{"deviceId":"x","deviceSecret":"y"}"#.as_slice()),
+        ("remote-activated.json", b"{not json".as_slice()),
     ] {
         let run = Run::new(None, &[(name, content)], &BTreeSet::new());
         let item = run.items().next().unwrap();
@@ -641,7 +359,6 @@ fn a_damaged_or_wrongly_shaped_source_is_quarantined_not_blocked() {
         ("agent-rooms.json", b"[1]".as_slice(), QuarantineCode::SchemaViolation),
         ("notification-preferences.json", br#"{"version":9}"#.as_slice(), QuarantineCode::SchemaViolation),
         ("relay-device.json", b"{not json".as_slice(), QuarantineCode::ParseError),
-        ("remote-activated.json", br#"{"other":1}"#.as_slice(), QuarantineCode::SchemaViolation),
     ] {
         let run = Run::new(None, &[(name, content)], &BTreeSet::new());
         let item = run.items().next().unwrap();
@@ -649,6 +366,19 @@ fn a_damaged_or_wrongly_shaped_source_is_quarantined_not_blocked() {
             panic!("{name} should quarantine");
         };
         assert_eq!(found, code, "{name}");
+    }
+}
+
+#[test]
+fn a_legacy_activation_marker_preserves_activation_even_without_a_timestamp() {
+    for contents in [b"{}".as_slice(), b"".as_slice()] {
+        let run = Run::new(None, &[("remote-activated.json", contents)], &BTreeSet::new());
+        let item = run.items().next().unwrap();
+        let staged = run.stage(item).unwrap();
+        let cx = run.cx();
+        run.driver.publish(&cx, item, &Run::entry(item, &staged)).unwrap();
+        let config = json(&run.data.path().join("mixdog-config.json"));
+        assert!(config["remote"]["activatedAt"].as_u64().is_some_and(|at| at > 0));
     }
 }
 
@@ -840,7 +570,336 @@ fn final_state(roots: &MigrationRoots) -> String {
     lines.join("\n")
 }
 
+const CHILD_ROOT: &str = "MIXDOG_CRASH_CHILD_ROOT";
+const CHILD_KILL_AT: &str = "MIXDOG_CRASH_CHILD_KILL_AT";
+
+fn roots_in(dir: &Path) -> MigrationRoots {
+    MigrationRoots {
+        data: dir.join("data"),
+        home: dir.join("home"),
+        profile: Some(dir.join("profile")),
+    }
+}
+
+/// Ends this process the way a kill does. Not `abort`: on Windows it is a fail-fast that
+/// starts Windows Error Reporting, which holds every child for seconds.
+fn kill_self() -> ! {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Threading::GetCurrentProcess;
+        use windows_sys::Win32::System::Threading::TerminateProcess;
+        // SAFETY: the pseudo-handle of this process is always valid.
+        unsafe { TerminateProcess(GetCurrentProcess(), 1) };
+    }
+    std::process::abort()
+}
+
+/// Work dirs the fault points are split over. A kill-and-resume of one point shares nothing
+/// with another's, and a run is bound by its journal and publication syncs, not by the
+/// processor, so the points of different dirs overlap their waits.
+const MATRIX_WORKERS: usize = 8;
+/// A work dir whose migration completed with no profile named (the core ran standalone
+/// first); the returned roots name the corpus profile for the later run.
+fn completed_without_profile(work: &Work, corpus: &Path) -> (MigrationRoots, mixdog_store::schema::migration::Complete) {
+    let roots = work.prepare(corpus);
+    let bare = MigrationRoots { profile: None, ..roots.clone() };
+    let first = migrator(&bare, None).run().unwrap();
+    assert_eq!(first.kinds.desktop_profile.verified, 0);
+    assert!(!roots.data.join("remote").exists(), "nothing was migrated from the profile");
+    (roots, first)
+}
+
+/// What the run that resumes an interrupted late pass names.
+#[derive(Clone, Copy)]
+enum Resume {
+    /// The profile the pass was started with.
+    Same,
+    /// Another profile, `profile-b`.
+    Other,
+    /// No profile at all.
+    Nothing,
+}
+
+/// The fault points of one uninterrupted late pass, in order.
+fn late_points(corpus: &Path) -> Vec<String> {
+    let work = Work::new();
+    let (roots, _) = completed_without_profile(&work, corpus);
+    let points = Arc::new(Mutex::new(Vec::<String>::new()));
+    let record = Arc::clone(&points);
+    let recorder: FaultHook = Arc::new(move |point| {
+        record.lock().unwrap().push(point.to_owned());
+        Ok(())
+    });
+    migrator(&roots, Some(recorder)).run().unwrap();
+    let points = points.lock().unwrap().clone();
+    assert!(points.len() > 100, "{} late fault points", points.len());
+    points
+}
+
+/// `MIXDOG_MIGRATION_CORPUS` names the corpus root; CI restores it as an artifact.
+fn corpus_root() -> PathBuf {
+    let root = std::env::var_os("MIXDOG_MIGRATION_CORPUS").map(PathBuf::from).expect("MIXDOG_MIGRATION_CORPUS names the migration corpus");
+    assert!(
+        root.join("electron-profile").is_dir(),
+        "the migration corpus is missing at {}; set MIXDOG_MIGRATION_CORPUS",
+        root.display()
+    );
+    root
+}
+fn session_item(id: &str) -> ManifestItem {
+    crate::plan::item(
+        &format!("session/{id}"),
+        KindGroup::Data,
+        ItemKind::Session,
+        Contract::Convert,
+        Vec::new(),
+        Some(Target::Session { id: id.to_owned() }),
+    )
+    .unwrap()
+}
+impl Run {
+    /// A profile holding `files` (or a copy of `profile_from`), planned beside `sessions`.
+    fn new(profile_from: Option<&Path>, files: &[(&str, &[u8])], sessions: &BTreeSet<String>) -> Self {
+        let data = TempDir::new().unwrap();
+        let profile = TempDir::new().unwrap();
+        if let Some(from) = profile_from {
+            copy_tree(from, profile.path());
+        }
+        for (name, content) in files {
+            let path = profile.path().join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        }
+        let roots = MigrationRoots {
+            data: data.path().to_path_buf(),
+            home: data.path().join("home"),
+            profile: Some(profile.path().to_path_buf()),
+        };
+        let mut sink = PlanSink::new(&roots);
+        for id in sessions {
+            sink.add_item(session_item(id)).unwrap();
+        }
+        let driver = DesktopProfileDriver::new();
+        driver.plan(&roots, &mut sink).unwrap();
+        let manifest = sink.into_manifest(&roots);
+        Self {
+            data,
+            profile,
+            roots,
+            manifest,
+            driver,
+            blobs: BlobStatuses::default(),
+            states: BTreeMap::new(),
+        }
+    }
+
+    fn cx(&self) -> ItemContext<'_> {
+        ItemContext {
+            roots: &self.roots,
+            manifest: &self.manifest,
+            manifest_sha256: MANIFEST_SHA,
+            fault: None,
+            blobs: &self.blobs,
+            states: &self.states,
+        }
+    }
+
+    fn items(&self) -> impl Iterator<Item = &ManifestItem> {
+        self.manifest.items.iter().filter(|item| self.driver.owns(item))
+    }
+
+    fn item(&self, kind: ItemKind) -> &ManifestItem {
+        self.items().find(|item| item.kind == kind).unwrap_or_else(|| panic!("no {kind:?} item"))
+    }
+
+    fn stage(&self, item: &ManifestItem) -> Result<Stage> {
+        self.driver.stage(&self.cx(), item)
+    }
+
+    fn entry(item: &ManifestItem, staged: &Stage) -> StagedEntry {
+        let Stage::Output {
+            output_sha256,
+            replaced_surrogates,
+        } = staged
+        else {
+            panic!("{} did not stage", item.key.as_str());
+        };
+        StagedEntry {
+            key: item.key.clone(),
+            output_sha256: output_sha256.as_str().try_into().unwrap(),
+            replaced_surrogates: *replaced_surrogates,
+        }
+    }
+
+    /// stage → publish → verify, as the framework's state machine runs an item.
+    fn migrate_item(&self, item: &ManifestItem) -> Result<Outcome> {
+        let cx = self.cx();
+        let staged = match self.driver.stage(&cx, item)? {
+            Stage::Quarantine { code, .. } => return Ok(Outcome::Quarantined(code)),
+            staged @ Stage::Output { .. } => staged,
+        };
+        self.driver.publish(&cx, item, &Self::entry(item, &staged))?;
+        Ok(match self.driver.verify(&cx, item)? {
+            Verdict::Verified { digest } => Outcome::Verified(digest.expect("every profile item has a digest")),
+            Verdict::Quarantine { code, .. } => Outcome::Quarantined(code),
+        })
+    }
+
+    /// Every item in wave then key order; retire items are verified by planning alone.
+    /// Then the framework's disposal: verified and retired sources are re-hashed and deleted.
+    fn migrate_all(&self) -> Report {
+        let mut report = Report::default();
+        let mut order: Vec<&ManifestItem> = self.items().collect();
+        order.sort_by_key(|item| (self.driver.wave(item), item.key.as_str().to_owned()));
+        for item in order {
+            if item.contract == Contract::Retire {
+                report.retired += 1;
+                continue;
+            }
+            match self.migrate_item(item).unwrap_or_else(|error| panic!("{}: {error}", item.key.as_str())) {
+                Outcome::Verified(digest) => {
+                    report.verified.insert(item.key.as_str().to_owned(), digest);
+                }
+                Outcome::Quarantined(code) => report.quarantined.push((item.key.as_str().to_owned(), code)),
+            }
+        }
+        for item in self.items() {
+            let disposable = item.contract == Contract::Retire || report.verified.contains_key(item.key.as_str());
+            if !disposable {
+                continue;
+            }
+            for file in &item.sources {
+                let path = self.cx().source_path(file).unwrap();
+                assert_eq!(hash_of(&path), file.sha256, "{} changed before disposal", file.path);
+                durable::remove_file(&path).unwrap();
+            }
+        }
+        for shared in &self.manifest.shared {
+            durable::remove_file(&self.cx().source_path(&shared.file).unwrap()).unwrap();
+        }
+        report
+    }
+}
 #[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
+fn the_electron_profile_corpus_migrates_verified_and_leaves_electron_files_alone() {
+    let corpus = corpus_root();
+    let sessions = corpus_session_ids(&corpus);
+    let run = Run::new(Some(&corpus.join("electron-profile")), &[], &sessions);
+    let before = files_of(run.profile.path());
+
+    let mut keys: Vec<&str> = run.items().map(|item| item.key.as_str()).collect();
+    let retired = keys.iter().filter(|key| key.starts_with("retire/profile/")).count();
+    keys.retain(|key| !key.starts_with("retire/profile/"));
+    assert_eq!(keys, CORPUS_KEYS);
+    // Four `.bak` copies and the interrupted metadata write; the four task receipts are carried over.
+    assert_eq!(retired, 5);
+    let planned: BTreeSet<String> = run
+        .items()
+        .flat_map(|item| item.sources.iter().map(|file| file.path.clone()))
+        .chain(run.manifest.shared.iter().map(|shared| shared.file.path.clone()))
+        .collect();
+    let manifest = serde_json::to_string(&run.manifest).unwrap();
+    assert_eq!(serde_json::from_str::<Manifest>(&manifest).unwrap(), run.manifest);
+    for secret in ["feedface", "deadbeef"] {
+        assert!(!manifest.contains(secret), "the manifest must not carry secret content");
+    }
+    let shared = &run.manifest.shared[0];
+    assert_eq!(shared.file.path, SESSION_METADATA_FILE);
+    assert_eq!(shared.consumers, [SESSION_METADATA_KEY]);
+
+    let report = run.migrate_all();
+    assert!(report.quarantined.is_empty(), "{:?}", report.quarantined);
+    // `webPush` retires: the framework verifies it by planning alone.
+    assert_eq!(report.verified.len(), CORPUS_KEYS.len() - 1);
+    assert_eq!(report.retired, 6);
+
+    // The corpus's own expectation: how many entries of each map name a corpus session.
+    let manifest_json = json(&corpus.join("manifest.json"));
+    let filter = &manifest_json["electronProfile"]["metadataFilter"];
+    let cx = run.cx();
+    let headers: Vec<_> = sessions
+        .iter()
+        .filter_map(|id| run.driver.session_meta(&cx, id).unwrap())
+        .collect();
+    let carrying = |key: &str| headers.iter().filter(|header| header.contains_key(key)).count() as u64;
+    for (map, key) in [
+        ("titles", "title"),
+        ("names", "name"),
+        ("archived", "archivedAt"),
+        ("favorites", "favoriteAt"),
+        ("reads", "readState"),
+        ("retired", "retiredAt"),
+    ] {
+        assert_eq!(carrying(key), filter[map]["inCorpus"].as_u64().unwrap(), "{map}");
+    }
+    // Entries naming no migrated session retire with the file, counted.
+    let orphans = filter["titles"]["orphans"].as_u64().unwrap();
+    let dangling = run.driver.dangling(&cx, run.item(ItemKind::SessionMetadata)).unwrap();
+    assert!(dangling >= orphans, "{dangling} < {orphans}");
+
+    // Converted values.
+    let data = run.data.path();
+    let config = json(&data.join("mixdog-config.json"));
+    assert_eq!(config["remote"]["activatedAt"], 1_792_308_233_327u64);
+    assert_eq!(config["desktop"]["retentionState"]["enabledAt"], 1_793_450_746_723u64);
+    assert!(config["agents"]["greeted"].as_array().unwrap().len() > 3);
+    assert!(config["notifications"]["devices"]["pc"]["scope"].is_string());
+    let connection = rusqlite::Connection::open(data.join("state").join("core.sqlite")).unwrap();
+    let count = |sql: &str| connection.query_row(sql, [], |row| row.get::<_, i64>(0)).unwrap();
+    assert_eq!(count("SELECT count(*) FROM projects"), 2);
+    assert_eq!(count("SELECT count(*) FROM projects WHERE alias = 'mixdog.ai'"), 1);
+    assert_eq!(count("SELECT count(*) FROM rooms"), 0);
+    assert_eq!(count("SELECT count(*) FROM meta WHERE key LIKE 'migration:%'"), 4);
+
+    // Preserved files: bytes unchanged, secrets owner-only.
+    for (source, target) in [
+        ("relay-device.json", "remote/device.json"),
+        ("relay-device-revocations.json", "remote/device-revocations.json"),
+        ("relay-e2ee.json", "remote/e2ee.json"),
+        ("remote-bridge.token", "remote/pairing-token"),
+        ("remote-native-push.json", "remote/native-push.json"),
+        ("remote-clients.json", "remote/clients.json"),
+        ("selected-file-grants.json", "desktop/selected-file-grants.json"),
+    ] {
+        let moved = data.join(target);
+        assert_eq!(hash_of(&moved), hash_of(&corpus.join("electron-profile").join(source)), "{target}");
+        assert!(fsx::is_owner_only(&moved).unwrap(), "{target} owner-only");
+    }
+    let backups = files_of(&corpus.join("electron-profile").join("editor-backups"));
+    assert_eq!(backups.len(), 1);
+    for (name, path) in backups {
+        let moved = data.join("userdata/editor-backups").join(name);
+        assert_eq!(hash_of(&moved), hash_of(&path));
+        assert!(fsx::is_owner_only(&moved).unwrap());
+    }
+
+    // The receipts Node wrote come across under their names with their bytes, so a request retried after the upgrade is answered from them.
+    let receipts = files_of(&corpus.join("electron-profile").join("new-task-receipts"));
+    assert_eq!(receipts.len(), 4);
+    for (name, path) in receipts {
+        let moved = data.join("userdata/new-task-receipts").join(name);
+        assert_eq!(std::fs::read(&moved).unwrap(), std::fs::read(&path).unwrap());
+        assert!(mixdog_statefile::new_task_receipt::Receipt::parse(&std::fs::read(&moved).unwrap()).is_some());
+    }
+    // Disposal removed exactly the planned sources; everything else is byte-identical.
+    let after = files_of(run.profile.path());
+    for (name, path) in &before {
+        if planned.contains(name) {
+            assert!(!after.contains_key(name), "{name} should be disposed");
+        } else {
+            let kept = after.get(name).unwrap_or_else(|| panic!("{name} was removed"));
+            assert_eq!(hash_of(kept), hash_of(path), "{name} changed");
+        }
+    }
+    assert!(!planned.contains("last-launch-version"));
+    assert_eq!(
+        std::fs::read(run.profile.path().join("last-launch-version")).unwrap(),
+        std::fs::read(corpus.join("electron-profile/last-launch-version")).unwrap()
+    );
+}
+#[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
 fn the_migrator_completes_the_corpus_profile_with_nothing_quarantined_unexpectedly() {
     let corpus = corpus_root();
     let work = Work::new();
@@ -856,18 +915,6 @@ fn the_migrator_completes_the_corpus_profile_with_nothing_quarantined_unexpected
     // A finished migration answers from its marker.
     assert_eq!(migrator(&roots, None).run().unwrap(), complete);
 }
-
-const CHILD_ROOT: &str = "MIXDOG_CRASH_CHILD_ROOT";
-const CHILD_KILL_AT: &str = "MIXDOG_CRASH_CHILD_KILL_AT";
-
-fn roots_in(dir: &Path) -> MigrationRoots {
-    MigrationRoots {
-        data: dir.join("data"),
-        home: dir.join("home"),
-        profile: Some(dir.join("profile")),
-    }
-}
-
 /// The child half of the crash matrix: a no-op in a normal run. Launched by the matrix
 /// with the work dir and the index of the fault point, it runs the migration and dies
 /// there like a killed process: no unwinding, no destructors, no buffered state saved.
@@ -890,20 +937,6 @@ fn crash_child() {
     // Reached only when the fault point was never hit.
     std::process::exit(0);
 }
-
-/// Ends this process the way a kill does. Not `abort`: on Windows it is a fail-fast that
-/// starts Windows Error Reporting, which holds every child for seconds.
-fn kill_self() -> ! {
-    #[cfg(windows)]
-    {
-        use windows_sys::Win32::System::Threading::GetCurrentProcess;
-        use windows_sys::Win32::System::Threading::TerminateProcess;
-        // SAFETY: the pseudo-handle of this process is always valid.
-        unsafe { TerminateProcess(GetCurrentProcess(), 1) };
-    }
-    std::process::abort()
-}
-
 /// The longest one child migration of the corpus may take before the matrix fails.
 
 /// Runs the migration in a child process that dies at fault point `kill_at`.
@@ -919,12 +952,6 @@ fn run_child_killed_at(work: &Path, kill_at: usize) -> std::process::ExitStatus 
     // The child kills itself at `kill_at`; its exit is what is waited for.
     child.wait().unwrap()
 }
-
-/// Work dirs the fault points are split over. A kill-and-resume of one point shares nothing
-/// with another's, and a run is bound by its journal and publication syncs, not by the
-/// processor, so the points of different dirs overlap their waits.
-const MATRIX_WORKERS: usize = 8;
-
 /// Kills the migration in a child at each of `points[worker]`, `points[worker + MATRIX_WORKERS]`,
 /// ... in a work dir of its own, resumes it and compares with that dir's uninterrupted run (the
 /// manifest names the dir's roots, so the state differs from dir to dir).
@@ -951,8 +978,8 @@ fn kill_and_resume_each_point(corpus: &Path, points: &[String], worker: usize) {
         assert_eq!(final_state(&roots), expected, "after a kill at {point}");
     }
 }
-
 #[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
 fn the_crash_matrix_ends_in_the_state_of_an_uninterrupted_run() {
     // The trees compared are read back from the running OS; a flush to the device changes none of them.
     mixdog_store::fsio::elide_syncs();
@@ -977,8 +1004,8 @@ fn the_crash_matrix_ends_in_the_state_of_an_uninterrupted_run() {
         }
     });
 }
-
 #[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
 fn a_failing_rename_blocks_the_run_and_the_retry_completes_it() {
     let corpus = corpus_root();
     let work = Work::new();
@@ -1000,11 +1027,11 @@ fn a_failing_rename_blocks_the_run_and_the_retry_completes_it() {
     migrator(&roots, None).run().unwrap();
     assert_eq!(final_state(&roots), expected);
 }
-
 /// The destination of the config publish is held open without `FILE_SHARE_DELETE`, so
 /// the rename over it itself fails; once the handle is released the retry completes.
 #[cfg(windows)]
 #[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
 fn a_rename_onto_an_open_destination_fails_and_the_retry_recovers() {
     use std::os::windows::fs::OpenOptionsExt;
     const FILE_SHARE_READ_WRITE: u32 = 0x1 | 0x2;
@@ -1035,18 +1062,8 @@ fn a_rename_onto_an_open_destination_fails_and_the_retry_recovers() {
     migrator(&roots, None).run().unwrap();
     assert_eq!(final_state(&roots), expected);
 }
-/// A work dir whose migration completed with no profile named (the core ran standalone
-/// first); the returned roots name the corpus profile for the later run.
-fn completed_without_profile(work: &Work, corpus: &Path) -> (MigrationRoots, mixdog_store::schema::migration::Complete) {
-    let roots = work.prepare(corpus);
-    let bare = MigrationRoots { profile: None, ..roots.clone() };
-    let first = migrator(&bare, None).run().unwrap();
-    assert_eq!(first.kinds.desktop_profile.verified, 0);
-    assert!(!roots.data.join("remote").exists(), "nothing was migrated from the profile");
-    (roots, first)
-}
-
 #[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
 fn a_profile_named_after_a_profileless_completion_migrates_once() {
     let corpus = corpus_root();
     let work = Work::new();
@@ -1067,8 +1084,8 @@ fn a_profile_named_after_a_profileless_completion_migrates_once() {
     assert_eq!(migrator(&roots, None).run().unwrap(), late);
     assert_eq!(final_state(&roots), state);
 }
-
 #[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
 fn a_different_profile_named_after_a_profile_migrated_changes_nothing() {
     let corpus = corpus_root();
     for profileless_first in [false, true] {
@@ -1096,34 +1113,6 @@ fn a_different_profile_named_after_a_profile_migrated_changes_nothing() {
         assert_eq!(files_of(&other).values().map(|p| hash_of(p)).collect::<Vec<_>>(), hashes, "profile B is never touched");
     }
 }
-
-/// What the run that resumes an interrupted late pass names.
-#[derive(Clone, Copy)]
-enum Resume {
-    /// The profile the pass was started with.
-    Same,
-    /// Another profile, `profile-b`.
-    Other,
-    /// No profile at all.
-    Nothing,
-}
-
-/// The fault points of one uninterrupted late pass, in order.
-fn late_points(corpus: &Path) -> Vec<String> {
-    let work = Work::new();
-    let (roots, _) = completed_without_profile(&work, corpus);
-    let points = Arc::new(Mutex::new(Vec::<String>::new()));
-    let record = Arc::clone(&points);
-    let recorder: FaultHook = Arc::new(move |point| {
-        record.lock().unwrap().push(point.to_owned());
-        Ok(())
-    });
-    migrator(&roots, Some(recorder)).run().unwrap();
-    let points = points.lock().unwrap().clone();
-    assert!(points.len() > 100, "{} late fault points", points.len());
-    points
-}
-
 /// Kills the late pass in a child at each of `points[worker]`, `points[worker + MATRIX_WORKERS]`,
 /// ... and resumes it naming `resume(kill_at)`. A kill from the late manifest's publication on
 /// is committed to its profile, so the resumed tree is the uninterrupted one whatever the resume
@@ -1165,7 +1154,6 @@ fn kill_and_resume_each_late_point(
         assert_eq!(now, other_hashes, "profile B is never touched (kill at {point})");
     }
 }
-
 fn kill_every_late_point(resume: impl Fn(usize) -> Resume + Sync) {
     // The trees compared are read back from the running OS; a flush to the device changes none of them.
     mixdog_store::fsio::elide_syncs();
@@ -1178,13 +1166,17 @@ fn kill_every_late_point(resume: impl Fn(usize) -> Resume + Sync) {
         }
     });
 }
-
 #[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
 fn a_late_pass_killed_at_every_point_resumes_to_the_uninterrupted_tree() {
     kill_every_late_point(|_| Resume::Same);
 }
-
 #[test]
+#[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
 fn a_late_pass_started_with_a_profile_resumes_with_it_whatever_the_restart_names() {
     kill_every_late_point(|kill_at| if kill_at % 2 == 0 { Resume::Other } else { Resume::Nothing });
 }
+
+#[cfg(node_twin)]
+#[path = "node-twin/titles.rs"]
+mod titles;

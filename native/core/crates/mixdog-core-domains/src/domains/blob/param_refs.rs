@@ -37,9 +37,9 @@ const MAX_TEXT_FILE_LENGTH: u64 = 4_194_304;
 /// fields, so the expansion refuses no input that is accepted and the method's own validator applies the finer bounds.
 fn expansion_bound(method: &str) -> u64 {
     match method {
-        // The prompt (text `MAX_PROMPT_LENGTH`, images `MAX_PROMPT_IMAGE_BASE64_TOTAL`, files
-        // `MAX_PROMPT_FILE_BASE64_TOTAL`, prompt-limits.ts) and the submit options validated apart.
-        "turn/start" | "thread/start" | "room/send" => 1_000_000 + 30_000_000 + 28_000_000 + MAX_STRUCTURED_STRING_TOTAL,
+        // Prompt and submit text are validated in UTF-16 units, but the pre-read bound counts bytes (up to three per unit).
+        // Prompt image/file payloads are ASCII base64. Expanded fields still pass all normal submit validation.
+        "turn/start" | "thread/start" | "room/send" => 3 * 1_000_000 + 30_000_000 + 28_000_000 + 3 * MAX_STRUCTURED_STRING_TOTAL,
         // Up to 100 files, each with content and expected content (`requiredWorkspaceTextWrites`).
         "projectFs/writeTextBatch" => 100 * 2 * MAX_TEXT_FILE_LENGTH,
         // A "Save as" source: at most 64 MiB of characters (`requiredSaveSource`), the base64 of the file.
@@ -166,6 +166,150 @@ fn scan(value: &Value, pointers: &[&str], path: &mut Vec<String>, found: &mut Ve
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use mixdog_core_api::CallContext;
+    use mixdog_core_api::CoreRequest;
+    use mixdog_core_api::Reply;
+    use mixdog_core_api::ids::Method;
+    use mixdog_core_api::service::DomainService;
+    use mixdog_store::blobs::digest_of;
+    use serde_json::json;
+
+    use super::*;
+    use crate::domains::blob::BlobService;
+
+    struct Fixture {
+        _dir: tempfile::TempDir,
+        refs: BlobParamRefs,
+    }
+
+    #[test]
+    fn bound_is_what_the_method_accepts_today() {
+        assert_eq!(expansion_bound("turn/start"), 157_000_000);
+        assert_eq!(expansion_bound("room/send"), expansion_bound("thread/start"));
+        assert_eq!(expansion_bound("projectFs/writeTextBatch"), 838_860_800);
+        assert!(expansion_bound("projectFs/writeText") >= 2 * MAX_TEXT_FILE_LENGTH);
+        assert_eq!(expansion_bound("voice/transcribeAudio"), 32_000_000);
+    }
+
+
+    /// A store holding `blobs`, uploaded through `blob/put` as a client does; returns their digests in order.
+    async fn fixture(blobs: &[&[u8]]) -> (Fixture, Vec<String>) {
+        let dir = tempfile::tempdir().unwrap();
+        let limits = Limits::default();
+        let tokens = mixdog_rt::testing::tokens();
+        let service = BlobService::new(BlobStore::new(dir.path()), &tokens, &limits);
+        let mut digests = Vec::new();
+        for bytes in blobs {
+            let digest = digest_of(bytes).as_str().to_owned();
+            let req = CoreRequest {
+                method: Method("blob/put"),
+                params: json!({ "digest": digest, "offset": 0, "bytesB64": STANDARD.encode(bytes) }),
+                op: None,
+                ctx: CallContext::internal("test"),
+            };
+            assert!(matches!(service.call(req).await.unwrap(), Reply::Value(_)));
+            digests.push(digest);
+        }
+        let refs = BlobParamRefs { store: BlobStore::new(dir.path()), interactive: tokens.interactive_io, bound: expansion_bound };
+        (Fixture { _dir: dir, refs }, digests)
+    }
+    async fn expand(fixture: &Fixture, method: &str, params: &mut Value) -> Result<(), CoreError> {
+        fixture.refs.expand(method, params, &CancellationToken::new()).await
+    }
+    #[tokio::test]
+    async fn expands_text() {
+        let (fixture, digests) = fixture(&["héllo\nworld".as_bytes()]).await;
+        let mut params = json!({ "root": "r", "rel": "a.txt", "content": { "$blobRef": digests[0], "as": "text" }, "expectedContent": "" });
+        expand(&fixture, "projectFs/writeText", &mut params).await.unwrap();
+        assert_eq!(params["content"], "héllo\nworld");
+        assert_eq!(params["expectedContent"], "");
+    }
+    #[tokio::test]
+    async fn expands_base64() {
+        let (fixture, digests) = fixture(&[&[0u8, 255, 1, 2]]).await;
+        let mut params = json!({ "input": { "prompt": [
+            { "type": "text", "text": "x" },
+            { "type": "image", "mimeType": "image/png", "data": { "$blobRef": digests[0], "as": "base64" } }
+        ] } });
+        expand(&fixture, "turn/start", &mut params).await.unwrap();
+        assert_eq!(params["input"]["prompt"][1]["data"], STANDARD.encode([0u8, 255, 1, 2]));
+        assert_eq!(params["input"]["prompt"][0]["text"], "x");
+    }
+    #[tokio::test]
+    async fn params_without_a_reference_are_left_alone() {
+        let (fixture, _) = fixture(&[]).await;
+        let mut params = json!({ "input": { "prompt": "hi", "other": {} } });
+        let before = params.clone();
+        expand(&fixture, "turn/start", &mut params).await.unwrap();
+        assert_eq!(params, before);
+    }
+    #[tokio::test]
+    async fn unlisted_pointer_refused() {
+        let (fixture, digests) = fixture(&[b"abc"]).await;
+        let reference = json!({ "$blobRef": digests[0], "as": "text" });
+        // A place of a listed method that is not listed.
+        let mut params = json!({ "input": { "prompt": "x", "options": { "displayText": reference.clone() } } });
+        let error = expand(&fixture, "turn/start", &mut params).await.unwrap_err();
+        assert!(matches!(&error, CoreError::InvalidParams { path, expected } if &**path == "/input/options/displayText" && &**expected == "a string"));
+        // A method that lists nothing.
+        let mut params = json!({ "anything": reference.clone() });
+        let error = expand(&fixture, "thread/list", &mut params).await.unwrap_err();
+        assert!(matches!(&error, CoreError::InvalidParams { path, .. } if &**path == "/anything"));
+        // Below a listed pointer.
+        let mut params = json!({ "content": { "deeper": reference } });
+        assert!(expand(&fixture, "projectFs/writeText", &mut params).await.is_err());
+    }
+    #[tokio::test]
+    async fn malformed_reference_refused() {
+        let (fixture, digests) = fixture(&[b"abc"]).await;
+        for reference in [
+            json!({ "$blobRef": "sha256:xyz", "as": "text" }),
+            json!({ "$blobRef": digests[0] }),
+            json!({ "$blobRef": digests[0], "as": "hex" }),
+            json!({ "$blobRef": digests[0], "as": "text", "more": 1 }),
+        ] {
+            let mut params = json!({ "content": reference });
+            let error = expand(&fixture, "projectFs/writeText", &mut params).await.unwrap_err();
+            assert!(matches!(error, CoreError::InvalidParams { .. }));
+        }
+    }
+    #[tokio::test]
+    async fn invalid_utf8_as_text_refused() {
+        let (fixture, digests) = fixture(&[&[0xff, 0xfe, 0x41]]).await;
+        let mut params = json!({ "content": { "$blobRef": digests[0], "as": "text" } });
+        let error = expand(&fixture, "projectFs/writeText", &mut params).await.unwrap_err();
+        assert!(matches!(error, CoreError::InvalidParams { .. }));
+        let mut params = json!({ "content": { "$blobRef": digests[0], "as": "base64" } });
+        expand(&fixture, "projectFs/writeText", &mut params).await.unwrap();
+    }
+    #[tokio::test]
+    async fn missing_blob() {
+        let (fixture, _) = fixture(&[]).await;
+        let absent = digest_of(b"never uploaded").as_str().to_owned();
+        let mut params = json!({ "content": { "$blobRef": absent, "as": "text" } });
+        let error = expand(&fixture, "projectFs/writeText", &mut params).await.unwrap_err();
+        assert!(matches!(error, CoreError::BlobNotFound { .. }));
+    }
+    #[tokio::test]
+    async fn over_limit_refused() {
+        let (mut fixture, digests) = fixture(&[b"0123456789", b"abcdef"]).await;
+        // 10 text characters and 8 base64 characters: each within a bound of 17, together over it.
+        fixture.refs.bound = |_| 17;
+        let mut one = json!({ "content": { "$blobRef": digests[0], "as": "text" } });
+        expand(&fixture, "projectFs/writeText", &mut one).await.unwrap();
+        let mut both = json!({
+            "content": { "$blobRef": digests[0], "as": "text" },
+            "expectedContent": { "$blobRef": digests[1], "as": "base64" }
+        });
+        let error = expand(&fixture, "projectFs/writeText", &mut both).await.unwrap_err();
+        assert!(matches!(error, CoreError::ItemTooLarge { limit: 17 }));
+        assert!(both["content"].is_object(), "nothing was expanded");
+    }
+}
+
+
 #[async_trait]
 impl ParamRefs for BlobParamRefs {
     async fn expand(&self, method: &str, params: &mut Value, cancel: &CancellationToken) -> Result<(), CoreError> {
@@ -195,156 +339,5 @@ impl ParamRefs for BlobParamRefs {
             }
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use mixdog_core_api::CallContext;
-    use mixdog_core_api::CoreRequest;
-    use mixdog_core_api::Reply;
-    use mixdog_core_api::ids::Method;
-    use mixdog_core_api::service::DomainService;
-    use mixdog_store::blobs::digest_of;
-    use serde_json::json;
-
-    use super::*;
-    use crate::domains::blob::BlobService;
-
-    struct Fixture {
-        _dir: tempfile::TempDir,
-        refs: BlobParamRefs,
-    }
-
-    /// A store holding `blobs`, uploaded through `blob/put` as a client does; returns their digests in order.
-    async fn fixture(blobs: &[&[u8]]) -> (Fixture, Vec<String>) {
-        let dir = tempfile::tempdir().unwrap();
-        let limits = Limits::default();
-        let tokens = mixdog_rt::testing::tokens();
-        let service = BlobService::new(BlobStore::new(dir.path()), &tokens, &limits);
-        let mut digests = Vec::new();
-        for bytes in blobs {
-            let digest = digest_of(bytes).as_str().to_owned();
-            let req = CoreRequest {
-                method: Method("blob/put"),
-                params: json!({ "digest": digest, "offset": 0, "bytesB64": STANDARD.encode(bytes) }),
-                op: None,
-                ctx: CallContext::internal("test"),
-            };
-            assert!(matches!(service.call(req).await.unwrap(), Reply::Value(_)));
-            digests.push(digest);
-        }
-        let refs = BlobParamRefs { store: BlobStore::new(dir.path()), interactive: tokens.interactive_io, bound: expansion_bound };
-        (Fixture { _dir: dir, refs }, digests)
-    }
-
-    async fn expand(fixture: &Fixture, method: &str, params: &mut Value) -> Result<(), CoreError> {
-        fixture.refs.expand(method, params, &CancellationToken::new()).await
-    }
-
-    #[tokio::test]
-    async fn expands_text() {
-        let (fixture, digests) = fixture(&["héllo\nworld".as_bytes()]).await;
-        let mut params = json!({ "root": "r", "rel": "a.txt", "content": { "$blobRef": digests[0], "as": "text" }, "expectedContent": "" });
-        expand(&fixture, "projectFs/writeText", &mut params).await.unwrap();
-        assert_eq!(params["content"], "héllo\nworld");
-        assert_eq!(params["expectedContent"], "");
-    }
-
-    #[tokio::test]
-    async fn expands_base64() {
-        let (fixture, digests) = fixture(&[&[0u8, 255, 1, 2]]).await;
-        let mut params = json!({ "input": { "prompt": [
-            { "type": "text", "text": "x" },
-            { "type": "image", "mimeType": "image/png", "data": { "$blobRef": digests[0], "as": "base64" } }
-        ] } });
-        expand(&fixture, "turn/start", &mut params).await.unwrap();
-        assert_eq!(params["input"]["prompt"][1]["data"], STANDARD.encode([0u8, 255, 1, 2]));
-        assert_eq!(params["input"]["prompt"][0]["text"], "x");
-    }
-
-    #[tokio::test]
-    async fn params_without_a_reference_are_left_alone() {
-        let (fixture, _) = fixture(&[]).await;
-        let mut params = json!({ "input": { "prompt": "hi", "other": {} } });
-        let before = params.clone();
-        expand(&fixture, "turn/start", &mut params).await.unwrap();
-        assert_eq!(params, before);
-    }
-
-    #[tokio::test]
-    async fn unlisted_pointer_refused() {
-        let (fixture, digests) = fixture(&[b"abc"]).await;
-        let reference = json!({ "$blobRef": digests[0], "as": "text" });
-        // A place of a listed method that is not listed.
-        let mut params = json!({ "input": { "prompt": "x", "options": { "displayText": reference.clone() } } });
-        let error = expand(&fixture, "turn/start", &mut params).await.unwrap_err();
-        assert!(matches!(&error, CoreError::InvalidParams { path, expected } if &**path == "/input/options/displayText" && &**expected == "a string"));
-        // A method that lists nothing.
-        let mut params = json!({ "anything": reference.clone() });
-        let error = expand(&fixture, "thread/list", &mut params).await.unwrap_err();
-        assert!(matches!(&error, CoreError::InvalidParams { path, .. } if &**path == "/anything"));
-        // Below a listed pointer.
-        let mut params = json!({ "content": { "deeper": reference } });
-        assert!(expand(&fixture, "projectFs/writeText", &mut params).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn malformed_reference_refused() {
-        let (fixture, digests) = fixture(&[b"abc"]).await;
-        for reference in [
-            json!({ "$blobRef": "sha256:xyz", "as": "text" }),
-            json!({ "$blobRef": digests[0] }),
-            json!({ "$blobRef": digests[0], "as": "hex" }),
-            json!({ "$blobRef": digests[0], "as": "text", "more": 1 }),
-        ] {
-            let mut params = json!({ "content": reference });
-            let error = expand(&fixture, "projectFs/writeText", &mut params).await.unwrap_err();
-            assert!(matches!(error, CoreError::InvalidParams { .. }));
-        }
-    }
-
-    #[tokio::test]
-    async fn invalid_utf8_as_text_refused() {
-        let (fixture, digests) = fixture(&[&[0xff, 0xfe, 0x41]]).await;
-        let mut params = json!({ "content": { "$blobRef": digests[0], "as": "text" } });
-        let error = expand(&fixture, "projectFs/writeText", &mut params).await.unwrap_err();
-        assert!(matches!(error, CoreError::InvalidParams { .. }));
-        let mut params = json!({ "content": { "$blobRef": digests[0], "as": "base64" } });
-        expand(&fixture, "projectFs/writeText", &mut params).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn missing_blob() {
-        let (fixture, _) = fixture(&[]).await;
-        let absent = digest_of(b"never uploaded").as_str().to_owned();
-        let mut params = json!({ "content": { "$blobRef": absent, "as": "text" } });
-        let error = expand(&fixture, "projectFs/writeText", &mut params).await.unwrap_err();
-        assert!(matches!(error, CoreError::BlobNotFound { .. }));
-    }
-
-    #[tokio::test]
-    async fn over_limit_refused() {
-        let (mut fixture, digests) = fixture(&[b"0123456789", b"abcdef"]).await;
-        // 10 text characters and 8 base64 characters: each within a bound of 17, together over it.
-        fixture.refs.bound = |_| 17;
-        let mut one = json!({ "content": { "$blobRef": digests[0], "as": "text" } });
-        expand(&fixture, "projectFs/writeText", &mut one).await.unwrap();
-        let mut both = json!({
-            "content": { "$blobRef": digests[0], "as": "text" },
-            "expectedContent": { "$blobRef": digests[1], "as": "base64" }
-        });
-        let error = expand(&fixture, "projectFs/writeText", &mut both).await.unwrap_err();
-        assert!(matches!(error, CoreError::ItemTooLarge { limit: 17 }));
-        assert!(both["content"].is_object(), "nothing was expanded");
-    }
-
-    #[test]
-    fn bound_is_what_the_method_accepts_today() {
-        assert_eq!(expansion_bound("turn/start"), 91_000_000);
-        assert_eq!(expansion_bound("room/send"), expansion_bound("thread/start"));
-        assert_eq!(expansion_bound("projectFs/writeTextBatch"), 838_860_800);
-        assert!(expansion_bound("projectFs/writeText") >= 2 * MAX_TEXT_FILE_LENGTH);
-        assert_eq!(expansion_bound("voice/transcribeAudio"), 32_000_000);
     }
 }

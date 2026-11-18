@@ -295,6 +295,8 @@ pub struct BuildInputs<'a> {
     /// The body's `prompt_cache_key` where the route derives it from the request's prefix (instructions, tools, effort,
     /// service tier) as well as its own key.
     pub prompt_cache_key: Option<&'a dyn Fn(&super::cache_key::Prefix<'_>) -> String>,
+    /// A later transport pass may strip a prefix, so the tool outputs must stand alone.
+    pub keep_full_tool_outputs: bool,
 }
 
 impl<'a> BuildInputs<'a> {
@@ -305,6 +307,7 @@ impl<'a> BuildInputs<'a> {
             effort: None,
             schemas: None,
             prompt_cache_key: None,
+            keep_full_tool_outputs: false,
         }
     }
 }
@@ -499,6 +502,7 @@ pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Built
         start_index: inputs.continuation.map_or(0, |c| c.start_index),
         reasoning_by_index: inputs.continuation.map(|c| c.reasoning_by_index.clone()).unwrap_or_default(),
         effort: inputs.effort.cloned(),
+        keep_full_tool_outputs: inputs.keep_full_tool_outputs,
     };
     let previous_response_id = inputs.continuation.and_then(|c| c.previous_response_id.clone());
     let mut input = lower_from(&request.messages, &profile.input, &extras);

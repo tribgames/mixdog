@@ -25,52 +25,70 @@ window.matchMedia = () => ({
   removeEventListener() {},
 });
 
-let settings = { browserInstalled: false };
-let pendingSettingsRead = null;
+// The core's pushed sections, as the window's section store folds them.
+const listeners = new Set();
+const latest = new Map();
+let revision = 0;
+const publish = (section, key, value) => {
+  const entry = { section, key, revision: ++revision, value };
+  latest.set(`${section}\u0000${key}`, entry);
+  for (const listener of [...listeners]) listener({ kind: 'sections', changes: [{ section, key, entry }] });
+};
 window.mixdogDesktop = {
   setTitleBarDimmed() {},
   rendererDiagnostic() {},
-  readSettings: () => pendingSettingsRead ?? Promise.resolve(settings),
+  // A one-shot read must play no part: it answers "not installed" for a config that has not arrived.
+  readSettings: () => Promise.resolve({ browserInstalled: false }),
+  sections: {
+    core: async () => false,
+    snapshot: async () => ({ status: 'ready', entries: [...latest.values()] }),
+    subscribe: (next) => (listeners.add(next), () => void listeners.delete(next)),
+  },
 };
 
 const { useBrowserFeatureInstalled } = await import('./browser-feature-install.ts');
 
-test('the Browser launcher follows the Browser Use install marker', async () => {
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+test('the Browser toggle follows the pushed desktop section: unknown until it arrives, then every consumer, with no retry cap', async () => {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
-  const seen = [];
-  const Probe = () => {
-    seen.push(useBrowserFeatureInstalled());
-    return null;
-  };
+  const seenA = [];
+  const seenB = [];
+  const ProbeA = () => (seenA.push(useBrowserFeatureInstalled()), null);
+  const ProbeB = () => (seenB.push(useBrowserFeatureInstalled()), null);
   try {
-    let resolveSettings;
-    pendingSettingsRead = new Promise((resolve) => {
-      resolveSettings = resolve;
-    });
     await act(async () => {
-      root.render(React.createElement(Probe));
+      root.render(React.createElement(React.Fragment, null, React.createElement(ProbeA), React.createElement(ProbeB)));
+      await tick();
     });
-    // Unknown marker: the caller hides the launcher rather than flash an icon
-    // that vanishes a frame later.
-    assert.equal(seen[0], null);
-
+    // Nothing arrived (the core is still starting): unknown, never "not installed".
+    assert.equal(seenA[seenA.length - 1], null);
+    // Other sections arriving, however many, say nothing about this one.
+    for (let i = 0; i < 8; i += 1) {
+      await act(async () => {
+        publish('config', 'agent', {});
+        await tick();
+      });
+    }
+    assert.equal(seenA[seenA.length - 1], null);
+    // The section arrives late, with no settings announcement: every mounted consumer follows.
     await act(async () => {
-      resolveSettings(settings);
-      await pendingSettingsRead;
+      publish('config', 'desktop', { browserControl: true, browserInstalled: true });
+      await tick();
     });
-    pendingSettingsRead = null;
-    assert.equal(seen[seen.length - 1], false);
-
-    // The settings panel announces the install; the launcher appears live.
-    settings = { browserInstalled: true };
+    assert.equal(seenA[seenA.length - 1], true);
+    assert.equal(seenB[seenB.length - 1], true);
+    assert.equal(window.localStorage.getItem('mixdog.desktop.browser-feature-installed.v1'), 'true');
+    // An uninstall reaches them too.
     await act(async () => {
-      window.dispatchEvent(new dom.window.Event('mixdog:built-in-features-changed'));
+      publish('config', 'desktop', { browserInstalled: false });
+      await tick();
     });
-    assert.equal(seen[seen.length - 1], true);
+    assert.equal(seenA[seenA.length - 1], false);
+    assert.equal(seenB[seenB.length - 1], false);
   } finally {
-    pendingSettingsRead = null;
     await act(async () => root.unmount());
     host.remove();
   }

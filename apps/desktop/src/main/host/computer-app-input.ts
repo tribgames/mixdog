@@ -22,9 +22,11 @@ import {
   type ElectronTextDispatch,
   dispatchElectronText,
 } from '../computer/host/input-dispatch-electron-text';
+import type { ScopeEndpoint } from '../computer/host/electron-input-port';
 import { electronKeyPresses } from '../computer/host/input-electron-keys';
 import type { ComputerCommand, PowerShellResponse } from '../computer/shared/types';
 import { appWindowBounds, appWindowById } from './computer-app-windows';
+import type { ComputerScopes } from './computer-scope';
 import { HOST_COMMAND_FAILED, HOST_INVALID_PARAMS, type HostConnection, HostRpcError, objectParams } from './connection';
 
 export const HOST_COMPUTER_APP_INPUT = 'host/computer/appInput';
@@ -45,6 +47,8 @@ export type ComputerAppInputAnswer = Omit<HostComputerAppInputResult, 'effect'> 
 export interface ComputerAppInputDeps {
   /** Shows the agent's arrow at a native physical point (the presence overlay's `showCursor`). */
   showCursor(sessionId: string, x: number, y: number, action: string): void;
+  /** The connection's automation scopes: every event is committed under the request's scope right before it is sent. */
+  scopes: ComputerScopes;
 }
 
 /** CSS pixels one wheel notch scrolls (the core sends deltas already multiplied by it). */
@@ -172,15 +176,30 @@ function answerOf(
 }
 
 export function registerComputerAppInput(connection: HostConnection, deps: ComputerAppInputDeps): void {
-  connection.handleRequest(HOST_COMPUTER_APP_INPUT, async (params, signal): Promise<ComputerAppInputAnswer> => {
+  connection.handleRequest(HOST_COMPUTER_APP_INPUT, async (params, requestSignal): Promise<ComputerAppInputAnswer> => {
     const input = validate(params);
+    const scope = deps.scopes.admit(params, requestSignal);
+    // Aborts with the core's abort, and with the scope's revocation or Computer Use going off.
+    const signal = scope.signal;
     const found = appWindowById(input.windowId);
     if (!found || gone(found)) invalid('the window is not owned by the desktop');
     const renderer = found as NonNullable<typeof found>;
     const bounds = appWindowBounds(renderer);
     const native = input.point ? { x: bounds.x + input.point.x, y: bounds.y + input.point.y } : undefined;
     let cursor: ElectronCursor | undefined;
+    // The scope endpoint the renderer's input port arbitrates each event against, in the turn it hands it over (after the
+    // window's input queue): the core's abort, the scope and the window. Its signal lets the port let go of what it holds.
+    const endpoint: ScopeEndpoint = {
+      signal,
+      commit(): void {
+        signal.throwIfAborted();
+        scope.commit();
+        if (gone(renderer)) throw new HostRpcError(HOST_COMMAND_FAILED, 'computer_window_gone');
+      },
+      track: (reply) => scope.track(reply),
+    };
     const dispatch: ElectronTextDispatch = {
+      scope: endpoint,
       command: commandOf(input),
       target: {
         targetWindowId: input.windowId,
@@ -188,10 +207,9 @@ export function registerComputerAppInput(connection: HostConnection, deps: Compu
         ...(native ? { physicalX: native.x, physicalY: native.y } : {}),
       },
       renderer,
-      // Every event that can reach the renderer is re-authorized right before it is sent: the core's abort and the window.
+      // The early refusal before a step's preparation; the binding arbitration is the port's, at each hand-over.
       authorizeDispatch: async (): Promise<DispatchAuthority> => {
-        signal.throwIfAborted();
-        if (gone(renderer)) throw new HostRpcError(HOST_COMMAND_FAILED, 'computer_window_gone');
+        endpoint.commit();
         return {};
       },
       host: {
@@ -200,7 +218,7 @@ export function registerComputerAppInput(connection: HostConnection, deps: Compu
         // The click that focuses a typing point lands in the renderer itself, never through the OS pointer.
         callPowerShell: async (request): Promise<PowerShellResponse> => {
           try {
-            await sendElectronPointer(renderer, { x: Number(request.x), y: Number(request.y) }, { kind: 'click' });
+            await sendElectronPointer(renderer, { x: Number(request.x), y: Number(request.y) }, { kind: 'click' }, endpoint);
             return { id: 0, ok: true, result: { action: 'click', delivery_accepted: true } };
           } catch (error) {
             return { id: 0, ok: false, error: error instanceof Error ? error.message : String(error) };

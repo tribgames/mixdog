@@ -1,0 +1,28 @@
+[package]
+name = "mixdog-image-vault"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The versioned image verdict store and the migration of legacy images into it"
+
+[lints]
+workspace = true
+
+[dependencies]
+mixdog-image-egress = { workspace = true }
+mixdog-imaging = { workspace = true }
+mixdog-rt = { workspace = true }
+mixdog-statefile = { workspace = true }
+mixdog-store = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+base64 = { workspace = true }
+mixdog-core-base = { workspace = true, features = ["test-support"] }
+mixdog-image-egress = { workspace = true, features = ["test-support"] }
+mixdog-imaging = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+mixdog-store = { workspace = true, features = ["test-support"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio-util = { workspace = true }

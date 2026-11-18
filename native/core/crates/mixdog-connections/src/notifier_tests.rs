@@ -223,158 +223,12 @@ async fn settle() {
     }
 }
 
-async fn advance(ms: u64) {
-    settle().await;
-    tokio::time::advance(Duration::from_millis(ms)).await;
-    settle().await;
-}
-
 /// A baseline roster, then the turn of `id` ends.
 async fn finish_turn(rig: &Rig, id: &str, title: &str) {
     rig.sessions.send(vec![row(id, title, true)]).unwrap();
     settle().await;
     rig.sessions.send(vec![row(id, title, false)]).unwrap();
     settle().await;
-}
-
-#[tokio::test(start_paused = true)]
-async fn final_answer_once() {
-    let rig = rig();
-    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("**Done** with the fix."))));
-    finish_turn(&rig, "a", "Fix the build").await;
-    advance(LEAD_FINISHED_MS + 50).await;
-    let shown = rig.shown();
-    assert_eq!(shown.len(), 1);
-    assert_eq!(shown[0].title, "Build box · Fix the build");
-    assert_eq!(shown[0].body, "Done with the fix.");
-    assert_eq!(shown[0].thread_id.as_ref().map(|id| id.as_str()), Some("a"));
-    assert_eq!(shown[0].connection_id.as_deref(), Some("srv"));
-    assert_eq!(shown[0].label.as_deref(), Some("Build box"));
-    // The same roster again, and a later idle one, tell nothing more.
-    rig.sessions.send(vec![row("a", "Fix the build", false)]).unwrap();
-    advance(STABILIZE_MS * 2).await;
-    assert_eq!(rig.shown().len(), 1);
-    assert_eq!(rig.answers.reads.lock().unwrap().len(), 1);
-}
-
-#[tokio::test(start_paused = true)]
-async fn the_first_roster_is_a_baseline() {
-    let rig = rig();
-    rig.sessions.send(vec![row("a", "Idle one", false)]).unwrap();
-    advance(STABILIZE_MS * 2).await;
-    assert!(rig.shown().is_empty());
-    assert!(rig.answers.reads.lock().unwrap().is_empty());
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_pending_answer_is_polled_until_it_lands() {
-    let rig = rig();
-    finish_turn(&rig, "a", "Slow").await;
-    advance(LEAD_FINISHED_MS + 50).await;
-    assert!(rig.shown().is_empty());
-    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("Finished."))));
-    advance(ANSWER_POLL_MS + 50).await;
-    assert_eq!(rig.shown().len(), 1);
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_cancelled_turn_a_reaction_and_a_quiet_reply_tell_nothing() {
-    let rig = rig();
-    let mut cancelled = done("");
-    cancelled.status = FinalAnswerStatus::Cancelled;
-    let mut reacted = done("");
-    reacted.reacted = true;
-    rig.answers.by_session.lock().unwrap().insert("c".into(), Ok(Some(cancelled)));
-    rig.answers.by_session.lock().unwrap().insert("r".into(), Ok(Some(reacted)));
-    rig.answers.by_session.lock().unwrap().insert("q".into(), Ok(Some(done("  ROUTINE_QUIET "))));
-    let all = |working| vec![row("c", "C", working), row("r", "R", working), row("q", "Q", working)];
-    rig.sessions.send(all(true)).unwrap();
-    settle().await;
-    rig.sessions.send(all(false)).unwrap();
-    advance(LEAD_FINISHED_MS + 50).await;
-    advance(ANSWER_POLL_MS * 4).await;
-    assert!(rig.shown().is_empty());
-    assert_eq!(rig.answers.reads.lock().unwrap().len(), 3);
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_failed_turn_is_an_error_notification_when_errors_are_on() {
-    let rig = rig();
-    {
-        let mut view = rig.prefs.view.lock().unwrap();
-        view.preferences.events.error = true;
-    }
-    let mut failed = done("");
-    failed.status = FinalAnswerStatus::Failed;
-    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(failed)));
-    finish_turn(&rig, "a", "Broken").await;
-    advance(LEAD_FINISHED_MS + 50).await;
-    let shown = rig.shown();
-    assert_eq!(shown.len(), 1);
-    assert_eq!(shown[0].body, "The turn stopped with an error.");
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_session_that_resumes_before_the_answer_is_read_tells_nothing() {
-    let rig = rig();
-    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("Done."))));
-    finish_turn(&rig, "a", "Back again").await;
-    rig.sessions.send(vec![row("a", "Back again", true)]).unwrap();
-    advance(STABILIZE_MS).await;
-    assert!(rig.shown().is_empty());
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_lead_waiting_on_its_agents_has_not_answered() {
-    let rig = rig();
-    rig.answers.by_session.lock().unwrap().insert("lead".into(), Ok(Some(done("Done."))));
-    let agent = |status: &str| AgentRowLite {
-        tag: "t".into(),
-        session_id: "worker".into(),
-        owner_session_id: Some("lead".into()),
-        parent_session_id: None,
-        title: None,
-        status: status.into(),
-        stage: String::new(),
-        released: false,
-        row: json!({ "tag": "t", "sessionId": "worker", "ownerSessionId": "lead", "status": status }),
-    };
-    rig.agent_pool.send(vec![agent("running")]).unwrap();
-    settle().await;
-    rig.sessions.send(vec![row("lead", "Lead", true)]).unwrap();
-    settle().await;
-    rig.sessions.send(vec![row("lead", "Lead", false)]).unwrap();
-    advance(LEAD_FINISHED_MS + 50).await;
-    assert!(rig.shown().is_empty());
-    // The agent settles: the Lead's last answer was the final one.
-    rig.agent_pool.send(vec![agent("done")]).unwrap();
-    advance(STABILIZE_MS + 50).await;
-    assert_eq!(rig.shown().len(), 1);
-}
-
-#[tokio::test(start_paused = true)]
-async fn read_failures_back_off_and_end() {
-    let rig = rig();
-    rig.answers.by_session.lock().unwrap().insert("a".into(), Err(AnswerReadError::Failed("boom".into())));
-    finish_turn(&rig, "a", "Flaky").await;
-    advance(LEAD_FINISHED_MS + 50).await;
-    for step in 0..READ_FAILURE_LIMIT - 1 {
-        advance((STABILIZE_MS << step).min(READ_RETRY_MAX_MS) + 50).await;
-    }
-    assert_eq!(rig.answers.reads.lock().unwrap().len(), READ_FAILURE_LIMIT as usize);
-    advance(READ_RETRY_MAX_MS * 2).await;
-    assert_eq!(rig.answers.reads.lock().unwrap().len(), READ_FAILURE_LIMIT as usize);
-    assert!(rig.shown().is_empty());
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_missing_session_is_not_read_again() {
-    let rig = rig();
-    rig.answers.by_session.lock().unwrap().insert("a".into(), Err(AnswerReadError::SessionMissing));
-    finish_turn(&rig, "a", "Gone").await;
-    advance(LEAD_FINISHED_MS + 50).await;
-    advance(STABILIZE_MS * 4).await;
-    assert_eq!(rig.answers.reads.lock().unwrap().len(), 1);
 }
 
 #[tokio::test(start_paused = true)]
@@ -422,78 +276,12 @@ async fn an_approval_already_showing_at_attach_is_not_told() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn foreground_suppresses() {
-    let rig = rig();
-    rig.sessions.send(vec![row("a", "Deploy", true)]).unwrap();
-    settle().await;
-    // The window shows this very session: no approval toast, no final answer.
-    rig.focus.window.store(true, Ordering::SeqCst);
-    *rig.focus.session.lock().unwrap() = Some("a".into());
-    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
-    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("Done."))));
-    rig.sessions.send(vec![row("a", "Deploy", false)]).unwrap();
-    advance(LEAD_FINISHED_MS + 50).await;
-    assert!(rig.shown().is_empty());
-    // A focused window on another session does not hold it back.
-    *rig.focus.session.lock().unwrap() = Some("b".into());
-    rig.approvals.send(vec![approval("a", "ap2", ApprovalKind::Tool, 2)]).unwrap();
-    settle().await;
-    assert_eq!(rig.shown().len(), 1);
-    // The link notices are held back by a focused window of any session.
-    rig.view.send(link(lost(true))).unwrap();
-    settle().await;
-    assert_eq!(rig.shown().len(), 1);
-}
-
-#[tokio::test(start_paused = true)]
 async fn this_pcs_preferences_decide() {
     let rig = rig();
     rig.prefs.view.lock().unwrap().preferences.scope = Scope::Off;
     rig.sessions.send(vec![row("a", "Deploy", true)]).unwrap();
     settle().await;
     rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
-    settle().await;
-    assert!(rig.shown().is_empty());
-}
-
-#[tokio::test(start_paused = true)]
-async fn link_lost_after_5s() {
-    let rig = rig();
-    rig.view.send(link(reconnecting())).unwrap();
-    advance(LINK_LOST_NOTICE_DELAY_MS - 100).await;
-    assert!(rig.shown().is_empty());
-    advance(200).await;
-    let shown = rig.shown();
-    assert_eq!(shown.len(), 1);
-    assert_eq!(shown[0].title, "Build box disconnected");
-    assert_eq!(shown[0].body, "Reconnecting.");
-    assert_eq!(shown[0].connection_id.as_deref(), Some("srv"));
-    assert!(shown[0].thread_id.is_none());
-    // A loss already told is not told again, and its recovery is.
-    rig.view.send(link(lost(false))).unwrap();
-    advance(LINK_LOST_NOTICE_DELAY_MS * 2).await;
-    assert_eq!(rig.shown().len(), 1);
-    rig.view.send(link(LinkState::Connected)).unwrap();
-    settle().await;
-    let shown = rig.shown();
-    assert_eq!(shown.len(), 2);
-    assert_eq!(shown[1].title, "Build box is back");
-    assert_eq!(shown[1].body, "Connected again.");
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_short_drop_and_a_sleep_tell_nothing() {
-    let rig = rig();
-    rig.view.send(link(reconnecting())).unwrap();
-    advance(1_000).await;
-    rig.view.send(link(LinkState::Connected)).unwrap();
-    advance(LINK_LOST_NOTICE_DELAY_MS * 2).await;
-    assert!(rig.shown().is_empty());
-    rig.view.send(link(LinkState::Paused)).unwrap();
-    advance(100).await;
-    rig.view.send(link(reconnecting())).unwrap();
-    advance(LINK_LOST_NOTICE_DELAY_MS * 2).await;
-    rig.view.send(link(LinkState::Connected)).unwrap();
     settle().await;
     assert!(rig.shown().is_empty());
 }
@@ -506,24 +294,6 @@ async fn a_terminal_loss_is_told_at_once() {
     let shown = rig.shown();
     assert_eq!(shown.len(), 1);
     assert_eq!(shown[0].body, "Stopped.");
-}
-
-#[tokio::test(start_paused = true)]
-async fn labels_bounded() {
-    let long_name = "n".repeat(100);
-    let rig = rig_named(&long_name);
-    let title = format!("first line\n   second\tline {}", "t".repeat(300));
-    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done(&"w ".repeat(400)))));
-    finish_turn(&rig, "a", &title).await;
-    advance(LEAD_FINISHED_MS + 50).await;
-    let shown = rig.shown();
-    assert_eq!(shown.len(), 1);
-    assert_eq!(shown[0].title.chars().count(), NOTIFICATION_TITLE_CHARS);
-    assert!(shown[0].title.ends_with('…'));
-    assert!(!shown[0].title.contains('\n'));
-    assert!(shown[0].title.starts_with(&format!("{}… · first line second line", "n".repeat(SERVER_LABEL_CHARS - 1))));
-    assert!(shown[0].body.chars().count() <= NOTIFICATION_BODY_CHARS);
-    assert_eq!(shown[0].label.as_deref().map(|label| label.chars().count()), Some(SERVER_LABEL_CHARS));
 }
 
 #[test]
@@ -555,69 +325,12 @@ fn a_room_and_a_bot_home_shape_the_conversation() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn only_a_final_answer_carries_the_sound() {
-    let rig = rig();
-    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("Done."))));
-    rig.sessions.send(vec![row("a", "Deploy", true)]).unwrap();
-    settle().await;
-    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
-    settle().await;
-    rig.view.send(link(lost(true))).unwrap();
-    settle().await;
-    rig.view.send(link(LinkState::Connected)).unwrap();
-    settle().await;
-    rig.sessions.send(vec![row("a", "Deploy", false)]).unwrap();
-    advance(LEAD_FINISHED_MS + 50).await;
-    let shown = rig.shown();
-    // The approval, the loss and the recovery are silent; the answer sounds.
-    assert_eq!(shown.len(), 4);
-    assert!(shown[..3].iter().all(|toast| toast.sound.is_none()));
-    assert_eq!(shown[3].sound.as_deref(), Some(ToastStyle::SOUND));
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_failed_turn_sounds_too() {
-    let rig = rig();
-    rig.prefs.view.lock().unwrap().preferences.events.error = true;
-    let mut failed = done("");
-    failed.status = FinalAnswerStatus::Failed;
-    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(failed)));
-    finish_turn(&rig, "a", "Broken").await;
-    advance(LEAD_FINISHED_MS + 50).await;
-    assert_eq!(rig.shown()[0].sound.as_deref(), Some(ToastStyle::SOUND));
-}
-
-#[tokio::test(start_paused = true)]
 async fn ending_the_notifier_closes_the_toasts_of_its_server() {
     let rig = rig();
     let sink = rig.sink.clone();
     assert!(sink.closed.lock().unwrap().is_empty());
     drop(rig);
     assert_eq!(*sink.closed.lock().unwrap(), vec!["srv".to_owned()]);
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_final_answer_whose_preferences_cannot_be_read_is_offered_again_at_the_next_roster_event() {
-    let rig = rig();
-    rig.prefs.unreadable.store(true, Ordering::SeqCst);
-    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("Done."))));
-    finish_turn(&rig, "a", "Deploy").await;
-    advance(LEAD_FINISHED_MS + 50).await;
-    assert!(rig.shown().is_empty());
-    // Still unreadable at the next event: held again, not dropped, and the read is not repeated.
-    rig.sessions.send(vec![row("a", "Deploy", false), row("b", "Other", false)]).unwrap();
-    settle().await;
-    assert!(rig.shown().is_empty());
-    rig.prefs.unreadable.store(false, Ordering::SeqCst);
-    rig.sessions.send(vec![row("a", "Deploy", false), row("b", "Other", false), row("c", "More", false)]).unwrap();
-    settle().await;
-    let shown = rig.shown();
-    assert_eq!((shown.len(), shown[0].body.as_str()), (1, "Done."));
-    assert_eq!(rig.answers.reads.lock().unwrap().len(), 1);
-    // Delivered once.
-    rig.sessions.send(vec![row("a", "Deploy", false)]).unwrap();
-    settle().await;
-    assert_eq!(rig.shown().len(), 1);
 }
 
 #[tokio::test(start_paused = true)]
@@ -687,4 +400,276 @@ async fn an_approval_that_went_away_is_told_again_when_it_comes_back_new_and_not
     rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
     settle().await;
     assert_eq!(rig.shown().len(), 2);
+}
+
+
+async fn advance(ms: u64) {
+    settle().await;
+    tokio::time::advance(Duration::from_millis(ms)).await;
+    settle().await;
+}
+#[tokio::test(start_paused = true)]
+async fn final_answer_once() {
+    let rig = rig();
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("**Done** with the fix."))));
+    finish_turn(&rig, "a", "Fix the build").await;
+    advance(LEAD_FINISHED_MS + 50).await;
+    let shown = rig.shown();
+    assert_eq!(shown.len(), 1);
+    assert_eq!(shown[0].title, "Build box · Fix the build");
+    assert_eq!(shown[0].body, "Done with the fix.");
+    assert_eq!(shown[0].thread_id.as_ref().map(|id| id.as_str()), Some("a"));
+    assert_eq!(shown[0].connection_id.as_deref(), Some("srv"));
+    assert_eq!(shown[0].label.as_deref(), Some("Build box"));
+    // The same roster again, and a later idle one, tell nothing more.
+    rig.sessions.send(vec![row("a", "Fix the build", false)]).unwrap();
+    advance(STABILIZE_MS * 2).await;
+    assert_eq!(rig.shown().len(), 1);
+    assert_eq!(rig.answers.reads.lock().unwrap().len(), 1);
+}
+#[tokio::test(start_paused = true)]
+async fn the_first_roster_is_a_baseline() {
+    let rig = rig();
+    rig.sessions.send(vec![row("a", "Idle one", false)]).unwrap();
+    advance(STABILIZE_MS * 2).await;
+    assert!(rig.shown().is_empty());
+    assert!(rig.answers.reads.lock().unwrap().is_empty());
+}
+#[tokio::test(start_paused = true)]
+async fn a_pending_answer_is_polled_until_it_lands() {
+    let rig = rig();
+    finish_turn(&rig, "a", "Slow").await;
+    advance(LEAD_FINISHED_MS + 50).await;
+    assert!(rig.shown().is_empty());
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("Finished."))));
+    advance(ANSWER_POLL_MS + 50).await;
+    assert_eq!(rig.shown().len(), 1);
+}
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_turn_a_reaction_and_a_quiet_reply_tell_nothing() {
+    let rig = rig();
+    let mut cancelled = done("");
+    cancelled.status = FinalAnswerStatus::Cancelled;
+    let mut reacted = done("");
+    reacted.reacted = true;
+    rig.answers.by_session.lock().unwrap().insert("c".into(), Ok(Some(cancelled)));
+    rig.answers.by_session.lock().unwrap().insert("r".into(), Ok(Some(reacted)));
+    rig.answers.by_session.lock().unwrap().insert("q".into(), Ok(Some(done("  ROUTINE_QUIET "))));
+    let all = |working| vec![row("c", "C", working), row("r", "R", working), row("q", "Q", working)];
+    rig.sessions.send(all(true)).unwrap();
+    settle().await;
+    rig.sessions.send(all(false)).unwrap();
+    advance(LEAD_FINISHED_MS + 50).await;
+    advance(ANSWER_POLL_MS * 4).await;
+    assert!(rig.shown().is_empty());
+    assert_eq!(rig.answers.reads.lock().unwrap().len(), 3);
+}
+#[tokio::test(start_paused = true)]
+async fn a_failed_turn_is_an_error_notification_when_errors_are_on() {
+    let rig = rig();
+    {
+        let mut view = rig.prefs.view.lock().unwrap();
+        view.preferences.events.error = true;
+    }
+    let mut failed = done("");
+    failed.status = FinalAnswerStatus::Failed;
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(failed)));
+    finish_turn(&rig, "a", "Broken").await;
+    advance(LEAD_FINISHED_MS + 50).await;
+    let shown = rig.shown();
+    assert_eq!(shown.len(), 1);
+    assert_eq!(shown[0].body, "The turn stopped with an error.");
+}
+#[tokio::test(start_paused = true)]
+async fn a_session_that_resumes_before_the_answer_is_read_tells_nothing() {
+    let rig = rig();
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("Done."))));
+    finish_turn(&rig, "a", "Back again").await;
+    rig.sessions.send(vec![row("a", "Back again", true)]).unwrap();
+    advance(STABILIZE_MS).await;
+    assert!(rig.shown().is_empty());
+}
+#[tokio::test(start_paused = true)]
+async fn a_lead_waiting_on_its_agents_has_not_answered() {
+    let rig = rig();
+    rig.answers.by_session.lock().unwrap().insert("lead".into(), Ok(Some(done("Done."))));
+    let agent = |status: &str| AgentRowLite {
+        tag: "t".into(),
+        session_id: "worker".into(),
+        owner_session_id: Some("lead".into()),
+        parent_session_id: None,
+        title: None,
+        status: status.into(),
+        stage: String::new(),
+        released: false,
+        row: json!({ "tag": "t", "sessionId": "worker", "ownerSessionId": "lead", "status": status }),
+    };
+    rig.agent_pool.send(vec![agent("running")]).unwrap();
+    settle().await;
+    rig.sessions.send(vec![row("lead", "Lead", true)]).unwrap();
+    settle().await;
+    rig.sessions.send(vec![row("lead", "Lead", false)]).unwrap();
+    advance(LEAD_FINISHED_MS + 50).await;
+    assert!(rig.shown().is_empty());
+    // The agent settles: the Lead's last answer was the final one.
+    rig.agent_pool.send(vec![agent("done")]).unwrap();
+    advance(STABILIZE_MS + 50).await;
+    assert_eq!(rig.shown().len(), 1);
+}
+#[tokio::test(start_paused = true)]
+async fn read_failures_back_off_and_end() {
+    let rig = rig();
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Err(AnswerReadError::Failed("boom".into())));
+    finish_turn(&rig, "a", "Flaky").await;
+    advance(LEAD_FINISHED_MS + 50).await;
+    for step in 0..READ_FAILURE_LIMIT - 1 {
+        advance((STABILIZE_MS << step).min(READ_RETRY_MAX_MS) + 50).await;
+    }
+    assert_eq!(rig.answers.reads.lock().unwrap().len(), READ_FAILURE_LIMIT as usize);
+    advance(READ_RETRY_MAX_MS * 2).await;
+    assert_eq!(rig.answers.reads.lock().unwrap().len(), READ_FAILURE_LIMIT as usize);
+    assert!(rig.shown().is_empty());
+}
+#[tokio::test(start_paused = true)]
+async fn a_missing_session_is_not_read_again() {
+    let rig = rig();
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Err(AnswerReadError::SessionMissing));
+    finish_turn(&rig, "a", "Gone").await;
+    advance(LEAD_FINISHED_MS + 50).await;
+    advance(STABILIZE_MS * 4).await;
+    assert_eq!(rig.answers.reads.lock().unwrap().len(), 1);
+}
+#[tokio::test(start_paused = true)]
+async fn foreground_suppresses() {
+    let rig = rig();
+    rig.sessions.send(vec![row("a", "Deploy", true)]).unwrap();
+    settle().await;
+    // The window shows this very session: no approval toast, no final answer.
+    rig.focus.window.store(true, Ordering::SeqCst);
+    *rig.focus.session.lock().unwrap() = Some("a".into());
+    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("Done."))));
+    rig.sessions.send(vec![row("a", "Deploy", false)]).unwrap();
+    advance(LEAD_FINISHED_MS + 50).await;
+    assert!(rig.shown().is_empty());
+    // A focused window on another session does not hold it back.
+    *rig.focus.session.lock().unwrap() = Some("b".into());
+    rig.approvals.send(vec![approval("a", "ap2", ApprovalKind::Tool, 2)]).unwrap();
+    settle().await;
+    assert_eq!(rig.shown().len(), 1);
+    // The link notices are held back by a focused window of any session.
+    rig.view.send(link(lost(true))).unwrap();
+    settle().await;
+    assert_eq!(rig.shown().len(), 1);
+}
+#[tokio::test(start_paused = true)]
+async fn link_lost_after_5s() {
+    let rig = rig();
+    rig.view.send(link(reconnecting())).unwrap();
+    advance(LINK_LOST_NOTICE_DELAY_MS - 100).await;
+    assert!(rig.shown().is_empty());
+    advance(200).await;
+    let shown = rig.shown();
+    assert_eq!(shown.len(), 1);
+    assert_eq!(shown[0].title, "Build box disconnected");
+    assert_eq!(shown[0].body, "Reconnecting.");
+    assert_eq!(shown[0].connection_id.as_deref(), Some("srv"));
+    assert!(shown[0].thread_id.is_none());
+    // A loss already told is not told again, and its recovery is.
+    rig.view.send(link(lost(false))).unwrap();
+    advance(LINK_LOST_NOTICE_DELAY_MS * 2).await;
+    assert_eq!(rig.shown().len(), 1);
+    rig.view.send(link(LinkState::Connected)).unwrap();
+    settle().await;
+    let shown = rig.shown();
+    assert_eq!(shown.len(), 2);
+    assert_eq!(shown[1].title, "Build box is back");
+    assert_eq!(shown[1].body, "Connected again.");
+}
+#[tokio::test(start_paused = true)]
+async fn a_short_drop_and_a_sleep_tell_nothing() {
+    let rig = rig();
+    rig.view.send(link(reconnecting())).unwrap();
+    advance(1_000).await;
+    rig.view.send(link(LinkState::Connected)).unwrap();
+    advance(LINK_LOST_NOTICE_DELAY_MS * 2).await;
+    assert!(rig.shown().is_empty());
+    rig.view.send(link(LinkState::Paused)).unwrap();
+    advance(100).await;
+    rig.view.send(link(reconnecting())).unwrap();
+    advance(LINK_LOST_NOTICE_DELAY_MS * 2).await;
+    rig.view.send(link(LinkState::Connected)).unwrap();
+    settle().await;
+    assert!(rig.shown().is_empty());
+}
+#[tokio::test(start_paused = true)]
+async fn labels_bounded() {
+    let long_name = "n".repeat(100);
+    let rig = rig_named(&long_name);
+    let title = format!("first line\n   second\tline {}", "t".repeat(300));
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done(&"w ".repeat(400)))));
+    finish_turn(&rig, "a", &title).await;
+    advance(LEAD_FINISHED_MS + 50).await;
+    let shown = rig.shown();
+    assert_eq!(shown.len(), 1);
+    assert_eq!(shown[0].title.chars().count(), NOTIFICATION_TITLE_CHARS);
+    assert!(shown[0].title.ends_with('…'));
+    assert!(!shown[0].title.contains('\n'));
+    assert!(shown[0].title.starts_with(&format!("{}… · first line second line", "n".repeat(SERVER_LABEL_CHARS - 1))));
+    assert!(shown[0].body.chars().count() <= NOTIFICATION_BODY_CHARS);
+    assert_eq!(shown[0].label.as_deref().map(|label| label.chars().count()), Some(SERVER_LABEL_CHARS));
+}
+#[tokio::test(start_paused = true)]
+async fn only_a_final_answer_carries_the_sound() {
+    let rig = rig();
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("Done."))));
+    rig.sessions.send(vec![row("a", "Deploy", true)]).unwrap();
+    settle().await;
+    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
+    settle().await;
+    rig.view.send(link(lost(true))).unwrap();
+    settle().await;
+    rig.view.send(link(LinkState::Connected)).unwrap();
+    settle().await;
+    rig.sessions.send(vec![row("a", "Deploy", false)]).unwrap();
+    advance(LEAD_FINISHED_MS + 50).await;
+    let shown = rig.shown();
+    // The approval, the loss and the recovery are silent; the answer sounds.
+    assert_eq!(shown.len(), 4);
+    assert!(shown[..3].iter().all(|toast| toast.sound.is_none()));
+    assert_eq!(shown[3].sound.as_deref(), Some(ToastStyle::SOUND));
+}
+#[tokio::test(start_paused = true)]
+async fn a_failed_turn_sounds_too() {
+    let rig = rig();
+    rig.prefs.view.lock().unwrap().preferences.events.error = true;
+    let mut failed = done("");
+    failed.status = FinalAnswerStatus::Failed;
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(failed)));
+    finish_turn(&rig, "a", "Broken").await;
+    advance(LEAD_FINISHED_MS + 50).await;
+    assert_eq!(rig.shown()[0].sound.as_deref(), Some(ToastStyle::SOUND));
+}
+#[tokio::test(start_paused = true)]
+async fn a_final_answer_whose_preferences_cannot_be_read_is_offered_again_at_the_next_roster_event() {
+    let rig = rig();
+    rig.prefs.unreadable.store(true, Ordering::SeqCst);
+    rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("Done."))));
+    finish_turn(&rig, "a", "Deploy").await;
+    advance(LEAD_FINISHED_MS + 50).await;
+    assert!(rig.shown().is_empty());
+    // Still unreadable at the next event: held again, not dropped, and the read is not repeated.
+    rig.sessions.send(vec![row("a", "Deploy", false), row("b", "Other", false)]).unwrap();
+    settle().await;
+    assert!(rig.shown().is_empty());
+    rig.prefs.unreadable.store(false, Ordering::SeqCst);
+    rig.sessions.send(vec![row("a", "Deploy", false), row("b", "Other", false), row("c", "More", false)]).unwrap();
+    settle().await;
+    let shown = rig.shown();
+    assert_eq!((shown.len(), shown[0].body.as_str()), (1, "Done."));
+    assert_eq!(rig.answers.reads.lock().unwrap().len(), 1);
+    // Delivered once.
+    rig.sessions.send(vec![row("a", "Deploy", false)]).unwrap();
+    settle().await;
+    assert_eq!(rig.shown().len(), 1);
 }

@@ -63,6 +63,8 @@ try {
       MIXDOG_BROWSER_INTEGRATION_LOG: progressPath,
       MIXDOG_CORE_HARNESS_RUNTIME_ROOT: core.paths.runtimeRoot,
       MIXDOG_CORE_HARNESS_ENGINE: engine,
+      // Inside the staging folder, which is removed whatever becomes of the child (killed, timed out, crashed).
+      MIXDOG_CORE_HARNESS_PROFILE_DIR: join(staging, 'profile'),
       MIXDOG_CORE_HARNESS_VERSION: JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version,
     });
     const child = spawnElectron(output, { env });
@@ -80,7 +82,7 @@ try {
     if (exitCode !== 0 || !progress.includes('integration passed')) {
       throw new Error(`browser core integration failed before its success marker (exit ${exitCode})`);
     }
-  });
+  }, { maxRetries: 20, retryDelay: 100 });
 } finally {
   // The core's own stop (`POST /mgmt/stop`), else its tree ended by handle; a failed stop is reported, not thrown over the run's outcome.
   if (core) await core.stop().catch((error) => console.error(error.message));

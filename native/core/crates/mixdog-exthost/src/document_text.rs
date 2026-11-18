@@ -9,6 +9,7 @@ use mixdog_core_api::domain::ext::ExtError;
 use mixdog_core_api::domain::ext::ExtFrame;
 use mixdog_core_api::domain::ext::ExtPool;
 use mixdog_core_api::domain::ext::DocumentText;
+use mixdog_core_api::domain::ext::LegacyPackage;
 use mixdog_core_api::domain::ext::PdfCounts;
 use mixdog_core_api::domain::ext::PdfIntake;
 use mixdog_protocol::JsonValue;
@@ -51,56 +52,6 @@ fn malformed(method: &str) -> ExtError {
     ExtError::Failed {
         code: "bad_answer".to_owned(),
         message: format!("{method} answered without text"),
-    }
-}
-
-#[async_trait::async_trait]
-impl DocumentText for ExtDocumentText {
-    async fn office_text(&self, thread: &ThreadId, filename: &str, data_base64: &str) -> Result<Option<String>, ExtError> {
-        let answer = self
-            .ask(thread, "media.officeText", json!({ "data": data_base64, "filename": filename }))
-            .await?;
-        match answer.get("text") {
-            Some(JsonValue::Null) => Ok(None),
-            Some(JsonValue::String(text)) => Ok(Some(text.clone())),
-            _ => Err(malformed("media.officeText")),
-        }
-    }
-
-    async fn pdf_text(&self, thread: &ThreadId, data_base64: &str) -> Result<String, ExtError> {
-        // Node's text extraction has no deadline of its own (page and byte limits only, applied by the worker's
-        // `extractPdfText`) and this call has none either: the turn's attachments share one bound, which the caller
-        // sets (`MediaLowering`), so several PDFs do not each add their own. Dropping the call cancels it.
-        let answer = self.ask(thread, "media.pdfText", json!({ "data": data_base64 })).await?;
-        answer["text"].as_str().map(str::to_owned).ok_or_else(|| malformed("media.pdfText"))
-    }
-
-    async fn pdf_counts(&self, thread: &ThreadId, data_base64: &str) -> Result<PdfIntake, ExtError> {
-        // Node's intake deadline (`PDF_INTAKE_TIMEOUT_MS`, `attachments/store.mjs:809` -> `inspectPdfBuffer`): the worker
-        // applies it too, and this bound holds when the worker itself never answers. Dropping the call cancels it.
-        let asked = self.ask(thread, "media.pdfCounts", json!({ "data": data_base64 }));
-        let answer = match mixdog_rt::scoped::Scope::new().within(std::time::Duration::from_millis(PDF_INTAKE_TIMEOUT_MS)).run(asked).await {
-            mixdog_rt::scoped::Scoped::Done(answer) => answer?,
-            _ => {
-                return Err(ExtError::Failed {
-                    code: "PDF_INSPECTION_TIMEOUT".to_owned(),
-                    message: format!("PDF inspection timed out after {PDF_INTAKE_TIMEOUT_MS} ms"),
-                });
-            }
-        };
-        if let Some(message) = answer.get("rejected") {
-            return message.as_str().map(|m| PdfIntake::Rejected(m.to_owned())).ok_or_else(|| malformed("media.pdfCounts"));
-        }
-        let Some(counts) = answer.get("counts") else {
-            return Err(malformed("media.pdfCounts"));
-        };
-        let field = |name: &str| counts.get(name).and_then(JsonValue::as_u64);
-        match (field("pageCount"), field("textPages"), field("textChars")) {
-            (Some(page_count), Some(text_pages), Some(text_chars)) => {
-                Ok(PdfIntake::Counts(PdfCounts { page_count, text_pages, text_chars }))
-            }
-            _ => Err(malformed("media.pdfCounts")),
-        }
     }
 }
 
@@ -227,6 +178,7 @@ mod tests {
         }
     }
 
+
     /// A parser that never answers fails the intake at Node's deadline with Node's error (`timeoutError`,
     /// `pdf-extract.mjs:91`), not a moment before; the clock is the test's.
     #[tokio::test(start_paused = true)]
@@ -240,5 +192,66 @@ mod tests {
             failed,
             Err(ExtError::Failed { code: "PDF_INSPECTION_TIMEOUT".into(), message: "PDF inspection timed out after 60000 ms".into() })
         );
+    }
+}
+
+
+#[async_trait::async_trait]
+impl DocumentText for ExtDocumentText {
+    async fn office_text(&self, thread: &ThreadId, filename: &str, data_base64: &str) -> Result<Option<String>, ExtError> {
+        let answer = self
+            .ask(thread, "media.officeText", json!({ "data": data_base64, "filename": filename }))
+            .await?;
+        match answer.get("text") {
+            Some(JsonValue::Null) => Ok(None),
+            Some(JsonValue::String(text)) => Ok(Some(text.clone())),
+            _ => Err(malformed("media.officeText")),
+        }
+    }
+
+    async fn legacy_office(&self, thread: &ThreadId, filename: &str, kind: &str, data_base64: &str) -> Result<LegacyPackage, ExtError> {
+        // Dropping the call cancels the conversion; like every call it runs on a pool worker of the caller's own, so a
+        // conversion holds no other session's turn.
+        let answer = self.ask(thread, "media.legacyOffice", json!({ "data": data_base64, "filename": filename, "kind": kind })).await?;
+        match (answer.get("data").and_then(JsonValue::as_str), answer.get("filename").and_then(JsonValue::as_str)) {
+            (Some(data), Some(filename)) => Ok(LegacyPackage { data_base64: data.to_owned(), filename: filename.to_owned() }),
+            _ => Err(malformed("media.legacyOffice")),
+        }
+    }
+
+    async fn pdf_text(&self, thread: &ThreadId, data_base64: &str) -> Result<String, ExtError> {
+        // Node's text extraction has no deadline of its own (page and byte limits only, applied by the worker's
+        // `extractPdfText`) and this call has none either: the turn's attachments share one bound, which the caller
+        // sets (`MediaLowering`), so several PDFs do not each add their own. Dropping the call cancels it.
+        let answer = self.ask(thread, "media.pdfText", json!({ "data": data_base64 })).await?;
+        answer["text"].as_str().map(str::to_owned).ok_or_else(|| malformed("media.pdfText"))
+    }
+
+    async fn pdf_counts(&self, thread: &ThreadId, data_base64: &str) -> Result<PdfIntake, ExtError> {
+        // Node's intake deadline (`PDF_INTAKE_TIMEOUT_MS`, `attachments/store.mjs:809` -> `inspectPdfBuffer`): the worker
+        // applies it too, and this bound holds when the worker itself never answers. Dropping the call cancels it.
+        let asked = self.ask(thread, "media.pdfCounts", json!({ "data": data_base64 }));
+        let answer = match mixdog_rt::scoped::Scope::new().within(std::time::Duration::from_millis(PDF_INTAKE_TIMEOUT_MS)).run(asked).await {
+            mixdog_rt::scoped::Scoped::Done(answer) => answer?,
+            _ => {
+                return Err(ExtError::Failed {
+                    code: "PDF_INSPECTION_TIMEOUT".to_owned(),
+                    message: format!("PDF inspection timed out after {PDF_INTAKE_TIMEOUT_MS} ms"),
+                });
+            }
+        };
+        if let Some(message) = answer.get("rejected") {
+            return message.as_str().map(|m| PdfIntake::Rejected(m.to_owned())).ok_or_else(|| malformed("media.pdfCounts"));
+        }
+        let Some(counts) = answer.get("counts") else {
+            return Err(malformed("media.pdfCounts"));
+        };
+        let field = |name: &str| counts.get(name).and_then(JsonValue::as_u64);
+        match (field("pageCount"), field("textPages"), field("textChars")) {
+            (Some(page_count), Some(text_pages), Some(text_chars)) => {
+                Ok(PdfIntake::Counts(PdfCounts { page_count, text_pages, text_chars }))
+            }
+            _ => Err(malformed("media.pdfCounts")),
+        }
     }
 }

@@ -92,6 +92,10 @@ impl BodyStream for Tapped {
     fn hold_connection(&mut self) {
         self.body.hold_connection();
     }
+
+    fn connection(&self) -> Option<mixdog_core_api::domain::provider::ConnectionInfo> {
+        self.body.connection()
+    }
 }
 
 impl Drop for Tapped {
@@ -132,6 +136,10 @@ impl<L: HttpSend> HttpSend for Redirected<L> {
             response.body = Box::new(Tapped { body, index, tap: self.tap.clone() });
         }
         Ok(response)
+    }
+
+    fn reports_connection(&self) -> bool {
+        self.inner.reports_connection()
     }
 }
 

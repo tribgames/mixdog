@@ -12,7 +12,7 @@ import { protocol } from 'electron';
 
 import { mediaResponsePlan } from '../../../relay/lib/media-http.mjs';
 import type { DesktopService } from './desktop-service-contract';
-import { FILE_PREVIEW_SCHEME, filePreviewServable, resolveFilePreview } from './file-preview';
+import { FILE_PREVIEW_SCHEME, ensureFilePreviewFile, filePreviewServable, resolveFilePreview } from './file-preview';
 import { forgetMediaFileTarget, resolveMediaFileTarget } from './media-source';
 
 export const MEDIA_SCHEME = FILE_PREVIEW_SCHEME;
@@ -53,6 +53,7 @@ export function registerMediaProtocol(host: Pick<DesktopService, 'invokeCapabili
     const previewToken = url.hostname === 'preview' ? url.pathname.replace(/^\/+/, '').split('/', 1)[0] || '' : '';
     const preview = previewToken && /^[0-9a-f-]{36}$/i.test(previewToken) ? resolveFilePreview(previewToken) : null;
     if (url.hostname === 'preview' && !preview) return textResponse(404, 'Not found.');
+    if (preview) await ensureFilePreviewFile(preview);
     if (preview && !(await filePreviewServable(preview))) return textResponse(404, 'Not found.');
     const assetId = preview ? previewToken : url.pathname.replace(/^\/+/, '');
     const variant = url.searchParams.get('variant') || 'original';
@@ -85,10 +86,13 @@ export function registerMediaProtocol(host: Pick<DesktopService, 'invokeCapabili
     const plan = mediaResponsePlan({
       size,
       mime: target.mime,
-      assetId,
+      assetId: preview ? `${assetId}.${preview.generation}` : assetId,
       variant,
       rangeHeader: request.headers.get('range'),
       ifNoneMatch: request.headers.get('if-none-match'),
+      ifRange: request.headers.get('if-range'),
+      // A converted preview can be regenerated with other bytes: it is revalidated, never kept as immutable.
+      ...(preview?.regenerate ? { cacheControl: 'private, no-cache' } : {}),
     });
     const headers = {
       ...headerStrings(plan.headers),

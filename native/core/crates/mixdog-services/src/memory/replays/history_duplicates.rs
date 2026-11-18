@@ -204,38 +204,6 @@ mod pg {
         SearchOptions { project_scope: Some(scope.into()), limit, ts_to, ..SearchOptions::default() }
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn records_of_every_status_are_searchable_and_stored_aliases_stay_read_only() {
-        let g = golden(SET);
-        let name = "records of every status are searchable and stored aliases stay read-only (test line 76)";
-        let c = case(&g, 0, name);
-        within(name, async {
-            let pg = fixture(&g).await;
-            same_rows(&format!("{name}: before"), c.get("before"), &table(&pg.db).await);
-            let s = step(c, 0, "scope filter selects every status of the project");
-            let (clause, params) =
-                scope_filter(1, &ScopeOptions { project_scope: Some("project"), ..ScopeOptions::default() }, "");
-            same(
-                &format!("{name}: filter"),
-                s.get("filter"),
-                &object(vec![("clause", string(clause.clone())), ("params", Exact::Array(params.iter().map(param).collect()))]),
-            );
-            let matched: Vec<Row> = pg
-                .db
-                .query(&format!("SELECT id FROM entries WHERE 1=1 {clause} ORDER BY id"), &refs(&params))
-                .await
-                .unwrap_or_else(|e| panic!("{name}: filter query: {}", e.message()))
-                .iter()
-                .map(Row::from_pg)
-                .collect();
-            same_rows(&format!("{name}: filter rows"), s.get("rows"), &matched);
-            same(&format!("{name}: filter ids"), s.get("ids"), &ids(&matched));
-            retrieve(&pg.db, name, step(c, 1, "retrieveEntries project, sort date"), project_date()).await;
-            same_rows(&format!("{name}: after"), c.get("after"), &table(&pg.db).await);
-        })
-        .await;
-    }
-
     async fn reusable_summaries(index: usize, second_session: &str) {
         let g = golden(SET);
         let name = format!("stored aliases keep Cycle 1 summaries reusable ({second_session}) (test line 115)");
@@ -301,57 +269,6 @@ mod pg {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn duplicate_representatives_collapse_only_inside_the_requested_history_window_and_project() {
-        let g = golden(SET);
-        let name = "duplicate representatives collapse only inside the requested history window and project (test line 150)";
-        let c = case(&g, 3, name);
-        within(name, async {
-            let pg = fixture(&g).await;
-            retrieve(&pg.db, name, step(c, 0, "retrieveEntries common"), project_date()).await;
-            retrieve(&pg.db, name, step(c, 1, "retrieveEntries ts_to 150"), EntryFilters { ts_to: Some(150), ..project_date() }).await;
-            let rows = table(&pg.db).await;
-            same(&format!("{name}: content"), step(c, 2, "old row content unchanged").get("content"), &string(rows[0].content()));
-            let (old, current) = (rows[0].clone(), rows[1].clone());
-            let other = Row { project_id: Some("other".into()), ..current.clone() };
-            for (index, label, input) in [
-                (3, "collapse [old, current]", vec![old.clone(), current.clone()]),
-                (4, "collapse [old]", vec![old.clone()]),
-                (5, "collapse [old, current in another project]", vec![old.clone(), other]),
-            ] {
-                let s = step(c, index, label);
-                let out = collapse_history_duplicates(input);
-                same_rows(&format!("{name}: {label}"), s.get("rows"), &out);
-                same(&format!("{name}: {label} ids"), s.get("ids"), &ids(&out));
-            }
-            hybrid(&pg.db, name, step(c, 6, "searchRelevantHybrid \"request\""), "request", search("project", None, None)).await;
-            hybrid(&pg.db, name, step(c, 7, "searchRelevantHybrid \"request\" ts_to 150"), "request", search("project", None, Some(150)))
-                .await;
-        })
-        .await;
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn deleting_an_old_alias_representative_preserves_the_original_chunks() {
-        let g = golden(SET);
-        let name = "deleting an old alias representative preserves the original chunks (test line 164)";
-        let c = case(&g, 4, name);
-        within(name, async {
-            let pg = fixture(&g).await;
-            exec(&pg.db, "DELETE FROM entries WHERE id = 2", &[]).await;
-            let rows = table(&pg.db).await;
-            let s = step(c, 0, "after deleting the representative");
-            same(&format!("{name}: duplicate_of of row 1"), s.get("duplicateOfOfRow1"), &rows[0].duplicate_of.map_or(Exact::Null, int));
-            same(
-                &format!("{name}: chunkRoots"),
-                s.get("chunkRoots"),
-                &Exact::Array(rows.iter().map(|r| r.chunk_root.map_or(Exact::Null, int)).collect()),
-            );
-            retrieve(&pg.db, name, step(c, 1, "retrieveEntries project, sort date"), project_date()).await;
-        })
-        .await;
-    }
-
-    #[tokio::test(flavor = "current_thread")]
     async fn duplicates_do_not_consume_hybrid_output_slots_or_browse_page_offsets() {
         let g = golden(SET);
         let name = "duplicates do not consume hybrid output slots or browse-page offsets (test line 189)";
@@ -370,31 +287,6 @@ mod pg {
             let after = table(&pg.db).await;
             let unchanged = format!("{before:?}") == format!("{after:?}");
             same(&format!("{name}: rowsUnchanged"), c.get("rowsUnchanged"), &Exact::Bool(unchanged));
-        })
-        .await;
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn a_long_duplicate_prefix_cannot_starve_distinct_results_or_repeat_later_pages() {
-        let g = golden(SET);
-        let name = "a long duplicate prefix cannot starve distinct results or repeat later pages (test line 208)";
-        let c = case(&g, 6, name);
-        same(&format!("{name}: inserted"), c.get("insertedAliasIds"), &string("5..30 (duplicate_of 2, ts 50, score 100)"));
-        within(name, async {
-            let pg = fixture(&g).await;
-            exec(&pg.db, "UPDATE entries SET score = 5 - id", &[]).await;
-            for id in 5_i64..=30 {
-                exec(
-                    &pg.db,
-                    "INSERT INTO entries (id, ts, project_id, summary, content, is_root, chunk_root, duplicate_of, score)
-                     VALUES ($1, 50, 'project', 'Same account', 'Original duplicate source', 1, $1, 2, 100)",
-                    &[&id],
-                )
-                .await;
-            }
-            retrieve(&pg.db, name, step(c, 0, "retrieveEntries limit 2"), all(Some(2))).await;
-            retrieve(&pg.db, name, step(c, 1, "retrieveEntries limit 2 offset 2"), EntryFilters { offset: 2, ..all(Some(2)) }).await;
-            hybrid(&pg.db, name, step(c, 2, "hybrid limit 2"), "request", search("all", Some(2), None)).await;
         })
         .await;
     }
@@ -446,6 +338,112 @@ mod pg {
             let contents: Vec<Exact> =
                 rows[0].member_list().iter().map(|m| m.content.clone().map_or(Exact::Null, Exact::String)).collect();
             same(&format!("{name}: memberContents"), s.get("result").get("memberContents"), &Exact::Array(contents));
+        })
+        .await;
+    }
+
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn records_of_every_status_are_searchable_and_stored_aliases_stay_read_only() {
+        let g = golden(SET);
+        let name = "records of every status are searchable and stored aliases stay read-only (test line 76)";
+        let c = case(&g, 0, name);
+        within(name, async {
+            let pg = fixture(&g).await;
+            same_rows(&format!("{name}: before"), c.get("before"), &table(&pg.db).await);
+            let s = step(c, 0, "scope filter selects every status of the project");
+            let (clause, params) =
+                scope_filter(1, &ScopeOptions { project_scope: Some("project"), ..ScopeOptions::default() }, "");
+            same(
+                &format!("{name}: filter"),
+                s.get("filter"),
+                &object(vec![("clause", string(clause.clone())), ("params", Exact::Array(params.iter().map(param).collect()))]),
+            );
+            let matched: Vec<Row> = pg
+                .db
+                .query(&format!("SELECT id FROM entries WHERE 1=1 {clause} ORDER BY id"), &refs(&params))
+                .await
+                .unwrap_or_else(|e| panic!("{name}: filter query: {}", e.message()))
+                .iter()
+                .map(Row::from_pg)
+                .collect();
+            same_rows(&format!("{name}: filter rows"), s.get("rows"), &matched);
+            same(&format!("{name}: filter ids"), s.get("ids"), &ids(&matched));
+            retrieve(&pg.db, name, step(c, 1, "retrieveEntries project, sort date"), project_date()).await;
+            same_rows(&format!("{name}: after"), c.get("after"), &table(&pg.db).await);
+        })
+        .await;
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn duplicate_representatives_collapse_only_inside_the_requested_history_window_and_project() {
+        let g = golden(SET);
+        let name = "duplicate representatives collapse only inside the requested history window and project (test line 150)";
+        let c = case(&g, 3, name);
+        within(name, async {
+            let pg = fixture(&g).await;
+            retrieve(&pg.db, name, step(c, 0, "retrieveEntries common"), project_date()).await;
+            retrieve(&pg.db, name, step(c, 1, "retrieveEntries ts_to 150"), EntryFilters { ts_to: Some(150), ..project_date() }).await;
+            let rows = table(&pg.db).await;
+            same(&format!("{name}: content"), step(c, 2, "old row content unchanged").get("content"), &string(rows[0].content()));
+            let (old, current) = (rows[0].clone(), rows[1].clone());
+            let other = Row { project_id: Some("other".into()), ..current.clone() };
+            for (index, label, input) in [
+                (3, "collapse [old, current]", vec![old.clone(), current.clone()]),
+                (4, "collapse [old]", vec![old.clone()]),
+                (5, "collapse [old, current in another project]", vec![old.clone(), other]),
+            ] {
+                let s = step(c, index, label);
+                let out = collapse_history_duplicates(input);
+                same_rows(&format!("{name}: {label}"), s.get("rows"), &out);
+                same(&format!("{name}: {label} ids"), s.get("ids"), &ids(&out));
+            }
+            hybrid(&pg.db, name, step(c, 6, "searchRelevantHybrid \"request\""), "request", search("project", None, None)).await;
+            hybrid(&pg.db, name, step(c, 7, "searchRelevantHybrid \"request\" ts_to 150"), "request", search("project", None, Some(150)))
+                .await;
+        })
+        .await;
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn deleting_an_old_alias_representative_preserves_the_original_chunks() {
+        let g = golden(SET);
+        let name = "deleting an old alias representative preserves the original chunks (test line 164)";
+        let c = case(&g, 4, name);
+        within(name, async {
+            let pg = fixture(&g).await;
+            exec(&pg.db, "DELETE FROM entries WHERE id = 2", &[]).await;
+            let rows = table(&pg.db).await;
+            let s = step(c, 0, "after deleting the representative");
+            same(&format!("{name}: duplicate_of of row 1"), s.get("duplicateOfOfRow1"), &rows[0].duplicate_of.map_or(Exact::Null, int));
+            same(
+                &format!("{name}: chunkRoots"),
+                s.get("chunkRoots"),
+                &Exact::Array(rows.iter().map(|r| r.chunk_root.map_or(Exact::Null, int)).collect()),
+            );
+            retrieve(&pg.db, name, step(c, 1, "retrieveEntries project, sort date"), project_date()).await;
+        })
+        .await;
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_long_duplicate_prefix_cannot_starve_distinct_results_or_repeat_later_pages() {
+        let g = golden(SET);
+        let name = "a long duplicate prefix cannot starve distinct results or repeat later pages (test line 208)";
+        let c = case(&g, 6, name);
+        same(&format!("{name}: inserted"), c.get("insertedAliasIds"), &string("5..30 (duplicate_of 2, ts 50, score 100)"));
+        within(name, async {
+            let pg = fixture(&g).await;
+            exec(&pg.db, "UPDATE entries SET score = 5 - id", &[]).await;
+            for id in 5_i64..=30 {
+                exec(
+                    &pg.db,
+                    "INSERT INTO entries (id, ts, project_id, summary, content, is_root, chunk_root, duplicate_of, score)
+                     VALUES ($1, 50, 'project', 'Same account', 'Original duplicate source', 1, $1, 2, 100)",
+                    &[&id],
+                )
+                .await;
+            }
+            retrieve(&pg.db, name, step(c, 0, "retrieveEntries limit 2"), all(Some(2))).await;
+            retrieve(&pg.db, name, step(c, 1, "retrieveEntries limit 2 offset 2"), EntryFilters { offset: 2, ..all(Some(2)) }).await;
+            hybrid(&pg.db, name, step(c, 2, "hybrid limit 2"), "request", search("all", Some(2), None)).await;
         })
         .await;
     }

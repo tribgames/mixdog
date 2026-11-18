@@ -106,6 +106,7 @@ impl Uia {
                     automation: self.automation.clone(),
                     element: element.clone(),
                     window,
+                    port: self.port.clone(),
                 }),
                 role: role.to_string(),
                 name: text(element.CachedName()),

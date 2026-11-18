@@ -2,6 +2,8 @@
 // only). Credentials are re-resolved on every open, so a core restarted with a new discovery token is reached by the
 // ladder without the connection being rebuilt.
 import WebSocket from 'ws';
+import type { SentClaim, TransportSink, TransportWriter } from '../../../../../packages/protocol-client/src/api';
+import { observeSocketProgress } from './socket-progress';
 
 export interface WsEndpoint {
   /** `ws://127.0.0.1:<port>/rpc` of the core, or of an SSH tunnel to a server's core. */
@@ -14,15 +16,6 @@ export interface WsTarget {
   readonly id: string;
 }
 
-interface Sink {
-  frame(text: string): void;
-  closed(code: number, reason: string): void;
-}
-
-interface Writer {
-  send(text: string): void;
-  close(code: number, reason: string): void;
-}
 
 /** Large enough for a full app snapshot (`maxSnapshotBytes`); the core's own caps are the real limit. */
 const MAX_INBOUND_BYTES = 16 * 1024 * 1024;
@@ -35,7 +28,7 @@ export function createWsConnector(
 ) {
   let dials = 0;
   return {
-    async open(target: WsTarget, sink: Sink): Promise<Writer> {
+    async open(target: WsTarget, sink: TransportSink): Promise<TransportWriter> {
       const dial = ++dials;
       const endpoint = await resolve(target);
       const socket = new WebSocket(endpoint.url, {
@@ -57,6 +50,10 @@ export function createWsConnector(
       }
       const openedAt = Date.now();
       log('core-socket-open', { dial });
+      // Bytes of a message still arriving are the core's progress (a socket delivers a message only when it is whole).
+      observeSocketProgress(socket, () => {
+        if (!ended) sink.progress?.();
+      });
       socket.on('message', (data, isBinary) => {
         if (isBinary) return;
         sink.frame(data.toString('utf8'));
@@ -85,7 +82,16 @@ export function createWsConnector(
         socketError = (error instanceof Error ? error.message : String(error)).slice(0, 200);
       });
       return {
-        send: (text) => socket.send(text),
+        // The departure receipt is the `ws` send callback: the write of this frame completed locally. A failed write, or a socket that
+        // closed first, rejects it; it never resolves for a frame that did not leave.
+        send: (text, sent?: SentClaim) => {
+          if (!sent) return socket.send(text);
+          sent(
+            new Promise<void>((resolveSent, rejectSent) => {
+              socket.send(text, (error) => (error ? rejectSent(error) : resolveSent()));
+            })
+          );
+        },
         close: (code, reason) => {
           requested = true;
           socket.close(code, reason);

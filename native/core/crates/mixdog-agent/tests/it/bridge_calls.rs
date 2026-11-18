@@ -133,8 +133,6 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/call-tool/golden.json");
-
 /// Everything observable, in the order it happened (the recording's `timeline`).
 #[derive(Clone, Default)]
 struct Timeline(Arc<TimelineInner>);
@@ -734,32 +732,6 @@ struct Events(Mutex<Vec<RunEvent>>, Timeline, CancellationToken, Mutex<Vec<Agent
 /// The recording's `callbacks`, in the order raised: what the loop hands its host beyond the tool events.
 type Callbacks = Arc<Mutex<Vec<Value>>>;
 
-impl RunObserver for Events {
-    fn event(&self, event: RunEvent) {
-        if let Some(callback) = callback_of(&event, self.5.as_str()) {
-            self.4.lock().expect("callbacks").push(callback);
-        }
-        match &event {
-            RunEvent::ToolCalls { calls, .. } => self.1.note(json!({ "ev": "toolCall", "ids": calls.iter().map(|call| call.id.as_str()).collect::<Vec<_>>() })),
-            RunEvent::EarlyResult(message) => {
-                if !self.2.is_cancelled() {
-                    self.3.lock().expect("observed").push(message.clone());
-                }
-                self.1.note(json!({ "ev": "toolResult", "id": message.tool_call_id(), "early": true }));
-            }
-            RunEvent::ToolResult { call_id, .. } => self.1.note(json!({ "ev": "toolResult", "id": call_id, "early": false })),
-            _ => {}
-        }
-        self.0.lock().expect("events").push(event);
-    }
-    fn can_retract(&self) -> bool {
-        false
-    }
-    fn retract_text(&self, _: TextRetraction) -> Retracted {
-        Retracted::Refused
-    }
-}
-
 /// The transcript sink; an assistant message it commits is the recording's `onAssistantMessageCommitted`.
 struct Sink(AtomicU64, Callbacks);
 
@@ -823,6 +795,7 @@ fn role_name(role: Role) -> &'static str {
     }
 }
 
+#[cfg(node_twin)]
 /// A committed result's event carries the call's stored row (`onToolResult` with the message the batch flushes): the recording
 /// must show them to be the same, which is why the replay builds the core's from the row.
 fn result_events_are_the_rows(scenario: &Value) {
@@ -836,6 +809,7 @@ fn result_events_are_the_rows(scenario: &Value) {
     }
 }
 
+#[cfg(node_twin)]
 /// A request's tool message carries the row's `toolKind`, `toolTiming` and `createdAt` as the provider is handed them; the recording
 /// must show them to be the stored row's own, which is why the request side leaves them out.
 fn request_fields_are_the_rows(scenario: &Value) {
@@ -851,6 +825,7 @@ fn request_fields_are_the_rows(scenario: &Value) {
     }
 }
 
+#[cfg(node_twin)]
 /// Where two values first differ, as a path and the two leaves.
 fn first_difference(node: &Value, core: &Value, path: &str) -> String {
     match (node, core) {
@@ -879,6 +854,420 @@ fn first_difference(node: &Value, core: &Value, path: &str) -> String {
     }
 }
 
+/// A message the run is given, as the recording shows it.
+fn input_message(message: &Value) -> AgentMessage {
+    let text = message["content"].as_str().expect("input text").to_owned();
+    match message["role"].as_str().expect("role") {
+        "user" => AgentMessage::user(text),
+        "system" => {
+            let mut system = Message::new(Role::System, Content::Text(text));
+            system.cache_tier = match message["cacheTier"].as_str() {
+                None => None,
+                Some("tier3") => Some(CacheTier::Tier3),
+                Some("env") => Some(CacheTier::Env),
+                Some(other) => panic!("a cache tier the replay does not know: {other}"),
+            };
+            AgentMessage::new(system)
+        }
+        other => panic!("an input message of role {other}"),
+    }
+}
+
+fn tier_name(tier: Option<CacheTier>) -> Option<&'static str> {
+    tier.map(|tier| match tier {
+        CacheTier::Tier3 => "tier3",
+        CacheTier::Env => "env",
+    })
+}
+
+/// A message of a model request: the wire message.
+fn wire_view(message: &Message) -> Value {
+    let mut shown = view(role_name(message.role), text_of(&message.content), &message.tool_calls, message.tool_call_id.as_deref());
+    if let Some(tier) = tier_name(message.cache_tier) {
+        shown["cacheTier"] = json!(tier);
+    }
+    if let Some(source) = message.source {
+        let name = match source {
+            mixdog_core_api::domain::provider::MessageSource::Steering => "steering",
+            mixdog_core_api::domain::provider::MessageSource::StreamCutRecovery => "stream-cut-recovery",
+            other => panic!("a wire message source the recording never shows: {other:?}"),
+        };
+        shown["meta"] = json!({ "source": name });
+    }
+    shown
+}
+
+/// A message of the transcript: the wire message and the loop's own fields (`toolKind`, `toolTiming`). The timing's clock values are
+/// the recording's declared 0.
+fn stored_view(message: &AgentMessage) -> Value {
+    let mut shown = wire_view(&message.message);
+    if let Some(source) = message.source {
+        shown["meta"] = json!({ "source": source_name(source) });
+    }
+    if let Some(kind) = message.tool_kind {
+        shown["toolKind"] = json!(kind_of(kind));
+    }
+    if message.tool_timing.is_some() {
+        shown["toolTiming"] = json!({ "dispatchStartedAt": 0, "executionStartedAt": 0, "executionCompletedAt": 0, "postprocessStartedAt": 0, "resultCompletedAt": 0 });
+    }
+    shown
+}
+
+/// Node's names of a user message's `meta.source` (`message_row.rs` `SOURCES`).
+fn source_name(source: Source) -> &'static str {
+    match source {
+        Source::Steering => "steering",
+        Source::TaskNotification => "task-notification",
+        Source::TurnLimit => "turn-limit",
+        Source::MaxOutputRecovery => "max-output-recovery",
+        Source::StreamCutRecovery => "stream-cut-recovery",
+        Source::RefusalRecovery => "refusal-recovery",
+        Source::ContentFilterRecovery => "content-filter-recovery",
+        other => panic!("a message source the recording never shows: {other:?}"),
+    }
+}
+
+/// An assistant message the loop commits, as `onAssistantMessageCommitted` is handed it (its `createdAt` is the host's: see
+/// [`NOT_COMPARED`]).
+fn committed_view(message: &AgentMessage) -> Value {
+    view("assistant", text_of(&message.message.content), &message.message.tool_calls, None)
+}
+
+/// The loop's report to its host that has a recorded callback (`onUsageDelta`), in the recording's terms: every figure the event
+/// carries that the callback has a name for (`outgoing` and `sent_at_ms` are the host's inputs for the context baseline and the send
+/// clock, which the callback does not carry). `sessionId` is the run's thread, which the host's callback names.
+fn callback_of(event: &RunEvent, thread: &str) -> Option<Value> {
+    match event {
+        RunEvent::Usage { iteration, usage, delta } => Some(json!({ "ev": "onUsageDelta", "args": [{
+            "sessionId": thread,
+            "iterationIndex": iteration,
+            "requestedModel": delta.requested_model,
+            "model": delta.model,
+            "deltaInput": usage.input_tokens,
+            "deltaOutput": usage.output_tokens,
+            "deltaToolCalls": delta.delta_tool_calls,
+            "reasoningTokens": delta.reasoning_tokens,
+            "reasoningTokensComplete": delta.reasoning_tokens_complete,
+            "deltaPrompt": delta.delta_prompt,
+            "requestMs": delta.request_ms,
+            "deltaCachedRead": usage.cache_read_tokens,
+            "deltaCacheWrite": usage.cache_write_tokens,
+            "sendTools": delta.send_tools.iter().map(|tool| json!({ "name": tool.name, "description": tool.description, "inputSchema": tool.input_schema })).collect::<Vec<_>>(),
+        }] })),
+        RunEvent::ProviderSendStarted => Some(json!({ "ev": "onProviderSendStarted", "args": [] })),
+        RunEvent::ToolPhase(ToolPhase::Started) => Some(json!({ "ev": "onToolPhaseStarted", "args": [] })),
+        RunEvent::ToolPhase(ToolPhase::Completed { iteration, calls, elapsed_ms }) => {
+            Some(json!({ "ev": "onToolPhaseCompleted", "args": [{ "iteration": iteration, "calls": calls, "elapsedMs": elapsed_ms }] }))
+        }
+        _ => None,
+    }
+}
+
+/// Every event the loop raises is compared with the recording, or is one of these, which the recording has no counterpart of; any
+/// other event fails the replay.
+/// - `Stage(Streaming)`, `TextDelta`: the replay's adapter streams its final text (a core adapter always does) and the loop marks the
+///   stream; Node's scripted `send` returned the text whole and raised no stage (Node's adapters raise `onStageChange`, `onTextDelta`
+///   themselves). The text itself is compared as the answer and the stored transcript.
+/// - `Stage(ApprovalWait)`: the approval card's wait; Node's card is `onToolApproval`, compared whole as `cards` and on the timeline.
+/// - `Stage(Requesting)`: Node's admission scheduler and provider adapter raise it, and the recording's scripted `send` is neither.
+/// - `ToolCallObserved`: see `callbacks[ev=onAssistantToolCallObserved]` in [`NOT_COMPARED`].
+/// - `TurnEffort(None)`: the turn's effort the run publishes when it starts; Node's `runtime.turnEffort` is a getter a client reads,
+///   not a callback, and these routes carry no effort snapshot (any other value fails the replay).
+/// - `ExecutionCalls`: Node's `rememberSensitiveValues` is a store call, not a callback the recording saw; the calls are the batch's.
+/// - `Boundary`: the attempt clock's boundaries (an attempt's start, its head, payload and first output), which feed the run's
+///   watchdog; Node has no callback for them.
+/// - `ItemStart`: a content block's start in the stream (`onStreamItemStart`), which the replay's adapter may raise; Node's scripted
+///   `send` streamed no blocks.
+fn uncompared(event: &RunEvent) -> bool {
+    matches!(
+        event,
+        RunEvent::Stage(Stage::Streaming | Stage::ApprovalWait { .. } | Stage::Requesting)
+            | RunEvent::TextDelta(_)
+            | RunEvent::ItemStart(_)
+            | RunEvent::Boundary { .. }
+            | RunEvent::SubmissionStarted { .. }
+            | RunEvent::ToolCallObserved(_)
+            | RunEvent::ExecutionCalls(_)
+            | RunEvent::TurnEffort(None)
+    )
+}
+
+/// The early notification a settled call tells the host: its role, call id, text, error flag and the marks it carries (the first three
+/// of the timing's five). Node's notice states a thrown call by `isError` alone; the core's message states it twice, by `is_error` and
+/// by the kind `Error` (`batch.rs` `early_result`), and has no kind otherwise: the two must agree, and then the notice is Node's.
+fn early_view(message: &AgentMessage) -> Value {
+    let mut shown = view("tool", text_of(&message.message.content), &[], message.tool_call_id());
+    shown["__earlyNotify"] = json!(true);
+    shown["isError"] = json!(message.message.is_error);
+    let kind = if message.message.is_error { Some(ToolKind::Error) } else { None };
+    assert_eq!(message.tool_kind, kind, "an early notice's kind is its error flag's");
+    if message.tool_timing.is_some() {
+        shown["toolTiming"] = json!({ "dispatchStartedAt": 0, "executionStartedAt": 0, "executionCompletedAt": 0 });
+    }
+    shown
+}
+
+/// The approval card as the human is shown it (`onToolApproval`'s argument): the ask's payload whole, with the ask's own fields and
+/// the thread (the card's `sessionId`).
+fn card_view(ask: &ApprovalAsk, thread: &str) -> Value {
+    let mut card = ask.payload.clone();
+    let fields = card.as_object_mut().expect("an approval payload is an object");
+    fields.insert("name".into(), json!(ask.tool));
+    fields.insert("sessionId".into(), json!(thread));
+    fields.insert("toolCallId".into(), json!(ask.call_id.as_ref().map(|id| id.as_str())));
+    fields.insert("reason".into(), json!(ask.reason));
+    card
+}
+
+/// `recordToolBatch`'s payload of a batch: what the loop reports.
+fn batch_view(batch: &ToolBatch) -> Value {
+    json!({
+        "iteration": batch.iteration,
+        "tool_call_count": batch.calls.len(),
+        "calls": batch.calls.iter().map(|call| json!({
+            "tool_call_id": call.tool_call_id,
+            "tool_name": call.tool_name,
+            "array_lengths": call.array_lengths.as_ref().map(|lengths| Value::Object(lengths.iter().map(|(field, length)| (field.clone(), json!(length))).collect())),
+        })).collect::<Vec<_>>(),
+    })
+}
+
+// ---- the comparison: by subtraction ----------------------------------------------------------------------------------------------------
+
+#[cfg(node_twin)]
+/// The golden file's keys: the recorder's note, the tool definitions the scenarios register (an input: the catalog's documents) and
+/// the scenarios.
+const GOLDEN_KEYS: &[&str] = &["note", "tools", "scenarios"];
+
+#[cfg(node_twin)]
+/// A scenario's inputs: what the replay builds the run from. `live` routes a scenario to the live replay as well
+/// (`replay-call-tool-live.mjs`); here it is replayed like every other. `workdir` is the recorder's work folder, where the run's
+/// working directory stands (`sandboxed`).
+const INPUTS: &[&str] = &[
+    "name", "sessionId", "session", "mcp", "nonBridge", "live", "stream", "internal", "workdir", "ask", "answers", "hookRewrite", "hookDeny", "gates", "abortWhen",
+    "abortReason", "settled", "script", "surface",
+];
+
+#[cfg(node_twin)]
+/// A scenario's outputs: each is the recording's value whole, less the paths of [`NOT_COMPARED`], equal to the core's less the same.
+const OUTPUTS: &[&str] = &["answer", "turnError", "stored", "requests", "events", "callbacks", "cards", "hooks", "executed", "timeline", "audit", "trace"];
+
+#[cfg(node_twin)]
+/// One recorded field the replay does not compare.
+struct Uncompared {
+    /// Where it is: `.`-separated keys from the scenario; `[]` steps into every item of an array, `[f=v]` into the items whose `f` is
+    /// `v` (as the last step it removes those items whole).
+    path: &'static str,
+    /// Why the layer under test does not produce it.
+    why: &'static str,
+    /// Where it is compared instead, or that nothing compares it yet.
+    compared_in: &'static str,
+}
+
+#[cfg(node_twin)]
+const HOST_ROW: &str = "the host's record of a stored row (`run_host/factory.rs` stamps it when it stores the row); the loop's message has none";
+#[cfg(node_twin)]
+const NOT_YET: &str = "nothing yet";
+#[cfg(node_twin)]
+const HOST_TRACE: &str = "written by the host's agent-trace writer (`mixdog-core-run` `FailureWriter`) from the loop's reports (`ToolFailureLog`); not compared here";
+#[cfg(node_twin)]
+const HOST_USAGE: &str = "the host's usage report (`UsageReport::from_event` in the run host), derived from the loop's `Usage` event, which carries the request's own figures";
+
+#[cfg(node_twin)]
+/// Everything the recording holds that the replay does not compare: by construction the complete list, since every comparison is the
+/// recorded value less these paths.
+///
+/// An entry also stands for a parent object it leaves empty ([`subtract`]): a row whose `meta` held nothing but the host's stamps
+/// equals the loop's row with no `meta`. Only a removal empties a parent: an object that was empty before, or that one side has
+/// and the other lacks for any other reason, is still a difference (`an_emptied_parent_goes_and_an_empty_object_stays`).
+const NOT_COMPARED: &[Uncompared] = &[
+    Uncompared { path: "stored[].createdAt", why: HOST_ROW, compared_in: NOT_YET },
+    Uncompared { path: "stored[].meta.transcript.messageId", why: HOST_ROW, compared_in: NOT_YET },
+    Uncompared { path: "stored[].meta.transcript.at", why: HOST_ROW, compared_in: NOT_YET },
+    Uncompared {
+        path: "stored[].meta.transcript.completion",
+        why: "the host's completion of the turn's answer row (`status`, `verb`, `elapsedMs`)",
+        compared_in: "`verb`: replay-call-tool-live.mjs (the answer item's `completionVerb`); `status`, `elapsedMs`: nothing yet",
+    },
+    Uncompared { path: "requests[][].createdAt", why: "Node hands the provider its stored row; the core's request holds wire messages", compared_in: "here, as the stored row's own (`request_fields_are_the_rows`), itself uncompared" },
+    Uncompared { path: "requests[][].toolKind", why: "Node hands the provider its stored row; the core's request holds wire messages", compared_in: "here, as the stored row's own (`request_fields_are_the_rows`)" },
+    Uncompared { path: "requests[][].toolTiming", why: "Node hands the provider its stored row; the core's request holds wire messages", compared_in: "here, as the stored row's own (`request_fields_are_the_rows`)" },
+    Uncompared { path: "requests[][].meta.transcript.messageId", why: HOST_ROW, compared_in: NOT_YET },
+    Uncompared { path: "requests[][].meta.transcript.at", why: HOST_ROW, compared_in: NOT_YET },
+    Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].createdAt", why: HOST_ROW, compared_in: NOT_YET },
+    Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].meta.transcript.messageId", why: HOST_ROW, compared_in: NOT_YET },
+    Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].meta.transcript.at", why: HOST_ROW, compared_in: NOT_YET },
+    Uncompared {
+        path: "callbacks[ev=onAssistantToolCallObserved]",
+        why: "the loop's `ToolCallObserved` carries the call, not Node's second argument `{ eagerStarted }`",
+        compared_in: "the call itself: `requests` and `events` (the same call, committed)",
+    },
+    Uncompared {
+        path: "callbacks[ev=onContextPressure]",
+        why: "the pre-send compaction check runs through the compactor the host provides (`RunEnv.compactor`); this replay runs the loop without one, so the core raises no `ContextPressure`",
+        compared_in: NOT_YET,
+    },
+    Uncompared { path: "callbacks[ev=onUsageDelta].args[].usageMetricsTurnId", why: HOST_USAGE, compared_in: NOT_YET },
+    Uncompared { path: "callbacks[ev=onUsageDelta].args[].usageMetricsEpoch", why: HOST_USAGE, compared_in: NOT_YET },
+    Uncompared { path: "callbacks[ev=onUsageDelta].args[].source", why: HOST_USAGE, compared_in: NOT_YET },
+    Uncompared { path: "callbacks[ev=onUsageDelta].args[].promptKnown", why: HOST_USAGE, compared_in: NOT_YET },
+    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextInputTokens", why: HOST_USAGE, compared_in: NOT_YET },
+    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextOutputTokens", why: HOST_USAGE, compared_in: NOT_YET },
+    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextPromptTokens", why: HOST_USAGE, compared_in: NOT_YET },
+    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextCachedReadTokens", why: HOST_USAGE, compared_in: NOT_YET },
+    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextCacheWriteTokens", why: HOST_USAGE, compared_in: NOT_YET },
+    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextMeasuredTokens", why: HOST_USAGE, compared_in: NOT_YET },
+    Uncompared { path: "callbacks[ev=onUsageDelta].args[].ts", why: HOST_USAGE, compared_in: NOT_YET },
+    Uncompared {
+        path: "callbacks[ev=onUsageDelta].args[].sendTools[].title",
+        why: "a registry document's field; the request's tool definition carries none",
+        compared_in: NOT_YET,
+    },
+    Uncompared {
+        path: "callbacks[ev=onUsageDelta].args[].sendTools[].annotations",
+        why: "a registry document's field; the request's tool definition carries none",
+        compared_in: NOT_YET,
+    },
+    Uncompared {
+        path: "callbacks[ev=onUsageDelta].args[].sendTools[].trigger",
+        why: "a registry document's field; the request's tool definition carries none",
+        compared_in: NOT_YET,
+    },
+    Uncompared {
+        path: "callbacks[ev=onUsageDelta].args[].sendTools[].description",
+        why: "the session's tool definitions are the product's (Node's built-in tools); this replay's registry holds probes of the same names",
+        compared_in: "replay-call-tool-live.mjs, for its scenarios: the tools of each request the built core sends",
+    },
+    Uncompared {
+        path: "callbacks[ev=onUsageDelta].args[].sendTools[].inputSchema",
+        why: "the session's tool definitions are the product's (Node's built-in tools); this replay's registry holds probes of the same names",
+        compared_in: "replay-call-tool-live.mjs, for its scenarios: the tools of each request the built core sends",
+    },
+    Uncompared {
+        path: "audit[].at",
+        why: "stamped by the grant store when it writes the record (`mixdog-tools` `policy/file_store.rs`); the replay's `MemoryGrantStore` stands in for the store and stamps none",
+        compared_in: NOT_YET,
+    },
+    Uncompared { path: "trace[kind=context]", why: HOST_TRACE, compared_in: NOT_YET },
+    Uncompared { path: "trace[kind=tool]", why: HOST_TRACE, compared_in: NOT_YET },
+    Uncompared { path: "trace[kind=usage]", why: HOST_TRACE, compared_in: NOT_YET },
+    Uncompared { path: "trace[kind=batch].ts", why: HOST_TRACE, compared_in: "the row's builder: mixdog-trace tests/it/builders.rs (`batch`)" },
+    Uncompared { path: "trace[kind=batch].session_id", why: HOST_TRACE, compared_in: "the row's builder: mixdog-trace tests/it/builders.rs (`batch`)" },
+    Uncompared { path: "trace[kind=batch].payload.batch_id", why: HOST_TRACE, compared_in: "the row's builder: mixdog-trace tests/it/builders.rs (`batch`)" },
+    Uncompared { path: "trace[kind=batch].payload.batch_schema_version", why: HOST_TRACE, compared_in: "the row's builder: mixdog-trace tests/it/builders.rs (`batch`)" },
+    Uncompared { path: "trace[kind=partial_tool_recovery].ts", why: HOST_TRACE, compared_in: NOT_YET },
+    Uncompared { path: "trace[kind=partial_tool_recovery].session_id", why: HOST_TRACE, compared_in: NOT_YET },
+    Uncompared { path: "trace[kind=partial_tool_recovery].payload", why: HOST_TRACE, compared_in: NOT_YET },
+];
+
+enum Step<'a> {
+    Key(&'a str),
+    Every,
+    Where(&'a str, &'a str),
+}
+
+fn steps(path: &str) -> Vec<Step<'_>> {
+    let mut steps = Vec::new();
+    for part in path.split('.') {
+        let (key, mut rest) = part.split_once('[').map_or((part, ""), |(key, rest)| (key, rest));
+        steps.push(Step::Key(key));
+        while !rest.is_empty() {
+            let (inner, after) = rest.split_once(']').expect("a closed selector");
+            steps.push(match inner.split_once('=') {
+                None => Step::Every,
+                Some((field, value)) => Step::Where(field, value),
+            });
+            rest = after.strip_prefix('[').unwrap_or(after);
+        }
+    }
+    steps
+}
+
+/// Removes what `steps` names from `value`; an object the removal leaves empty goes with it. Returns how much it removed.
+fn subtract(value: &mut Value, steps: &[Step<'_>]) -> usize {
+    let Some((step, rest)) = steps.split_first() else { return 0 };
+    match step {
+        Step::Key(key) => {
+            let Some(fields) = value.as_object_mut() else { return 0 };
+            if rest.is_empty() {
+                return usize::from(fields.remove(*key).is_some());
+            }
+            let Some(child) = fields.get_mut(*key) else { return 0 };
+            let removed = subtract(child, rest);
+            if removed > 0 && child.as_object().is_some_and(serde_json::Map::is_empty) {
+                fields.remove(*key);
+            }
+            removed
+        }
+        Step::Every => value.as_array_mut().map_or(0, |items| items.iter_mut().map(|item| subtract(item, rest)).sum()),
+        Step::Where(field, wanted) => {
+            let Some(items) = value.as_array_mut() else { return 0 };
+            let matches = |item: &Value| item[*field].as_str() == Some(*wanted);
+            if rest.is_empty() {
+                let before = items.len();
+                items.retain(|item| !matches(item));
+                return before - items.len();
+            }
+            items.iter_mut().filter(|item| matches(item)).map(|item| subtract(item, rest)).sum()
+        }
+    }
+}
+
+#[test]
+fn an_emptied_parent_goes_and_an_empty_object_stays() {
+    let path = steps("rows[].meta.stamp.id");
+    let mut stamped = json!({ "rows": [{ "meta": { "stamp": { "id": 1 } } }, { "meta": { "stamp": { "id": 2 }, "kept": true } }] });
+    assert_eq!(subtract(&mut stamped, &path), 2);
+    assert_eq!(stamped, json!({ "rows": [{}, { "meta": { "kept": true } }] }));
+    // Nothing removed, nothing pruned: an object that is empty on its own is compared as it is.
+    let mut empty = json!({ "rows": [{ "meta": { "stamp": {} } }, { "meta": {} }] });
+    assert_eq!(subtract(&mut empty, &path), 0);
+    assert_eq!(empty, json!({ "rows": [{ "meta": { "stamp": {} } }, { "meta": {} }] }));
+}
+
+#[cfg(node_twin)]
+/// The manifest's clock rule applied to the core's values: a number under one of its keys is 0.
+fn clocked(value: &mut Value, keys: &[String]) {
+    match value {
+        Value::Array(items) => items.iter_mut().for_each(|item| clocked(item, keys)),
+        Value::Object(fields) => {
+            for (key, field) in fields.iter_mut() {
+                if field.is_number() && keys.contains(key) {
+                    *field = json!(0);
+                } else {
+                    clocked(field, keys);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+impl RunObserver for Events {
+    fn event(&self, event: RunEvent) {
+        if let Some(callback) = callback_of(&event, self.5.as_str()) {
+            self.4.lock().expect("callbacks").push(callback);
+        }
+        match &event {
+            RunEvent::ToolCalls { calls, .. } => self.1.note(json!({ "ev": "toolCall", "ids": calls.iter().map(|call| call.id.as_str()).collect::<Vec<_>>() })),
+            RunEvent::EarlyResult(message) => {
+                if !self.2.is_cancelled() {
+                    self.3.lock().expect("observed").push(message.clone());
+                }
+                self.1.note(json!({ "ev": "toolResult", "id": message.tool_call_id(), "early": true }));
+            }
+            RunEvent::ToolResult { call_id, .. } => self.1.note(json!({ "ev": "toolResult", "id": call_id, "early": false })),
+            _ => {}
+        }
+        self.0.lock().expect("events").push(event);
+    }
+    fn can_retract(&self) -> bool {
+        false
+    }
+    fn retract_text(&self, _: TextRetraction) -> Retracted {
+        Retracted::Refused
+    }
+}
 async fn observed(scenario: &Value, defined: &[Value]) -> Value {
     let non_bridge = scenario["nonBridge"].as_bool() == Some(true);
     let surface = &scenario["surface"];
@@ -1191,7 +1580,6 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
     sandboxed(&mut seen);
     seen
 }
-
 /// The recording's sandbox, in the core's terms: the run's working directory is the machine's temp directory, which stands where the
 /// recorder's work folder stood.
 fn sandboxed(value: &mut Value) {
@@ -1204,382 +1592,34 @@ fn sandboxed(value: &mut Value) {
     }
 }
 
-/// A message the run is given, as the recording shows it.
-fn input_message(message: &Value) -> AgentMessage {
-    let text = message["content"].as_str().expect("input text").to_owned();
-    match message["role"].as_str().expect("role") {
-        "user" => AgentMessage::user(text),
-        "system" => {
-            let mut system = Message::new(Role::System, Content::Text(text));
-            system.cache_tier = match message["cacheTier"].as_str() {
-                None => None,
-                Some("tier3") => Some(CacheTier::Tier3),
-                Some("env") => Some(CacheTier::Env),
-                Some(other) => panic!("a cache tier the replay does not know: {other}"),
-            };
-            AgentMessage::new(system)
-        }
-        other => panic!("an input message of role {other}"),
-    }
-}
 
-fn tier_name(tier: Option<CacheTier>) -> Option<&'static str> {
-    tier.map(|tier| match tier {
-        CacheTier::Tier3 => "tier3",
-        CacheTier::Env => "env",
-    })
-}
-
-/// A message of a model request: the wire message.
-fn wire_view(message: &Message) -> Value {
-    let mut shown = view(role_name(message.role), text_of(&message.content), &message.tool_calls, message.tool_call_id.as_deref());
-    if let Some(tier) = tier_name(message.cache_tier) {
-        shown["cacheTier"] = json!(tier);
-    }
-    if let Some(source) = message.source {
-        let name = match source {
-            mixdog_core_api::domain::provider::MessageSource::Steering => "steering",
-            mixdog_core_api::domain::provider::MessageSource::StreamCutRecovery => "stream-cut-recovery",
-            other => panic!("a wire message source the recording never shows: {other:?}"),
-        };
-        shown["meta"] = json!({ "source": name });
-    }
-    shown
-}
-
-/// A message of the transcript: the wire message and the loop's own fields (`toolKind`, `toolTiming`). The timing's clock values are
-/// the recording's declared 0.
-fn stored_view(message: &AgentMessage) -> Value {
-    let mut shown = wire_view(&message.message);
-    if let Some(source) = message.source {
-        shown["meta"] = json!({ "source": source_name(source) });
-    }
-    if let Some(kind) = message.tool_kind {
-        shown["toolKind"] = json!(kind_of(kind));
-    }
-    if message.tool_timing.is_some() {
-        shown["toolTiming"] = json!({ "dispatchStartedAt": 0, "executionStartedAt": 0, "executionCompletedAt": 0, "postprocessStartedAt": 0, "resultCompletedAt": 0 });
-    }
-    shown
-}
-
-/// Node's names of a user message's `meta.source` (`message_row.rs` `SOURCES`).
-fn source_name(source: Source) -> &'static str {
-    match source {
-        Source::Steering => "steering",
-        Source::TaskNotification => "task-notification",
-        Source::TurnLimit => "turn-limit",
-        Source::MaxOutputRecovery => "max-output-recovery",
-        Source::StreamCutRecovery => "stream-cut-recovery",
-        Source::RefusalRecovery => "refusal-recovery",
-        Source::ContentFilterRecovery => "content-filter-recovery",
-        other => panic!("a message source the recording never shows: {other:?}"),
-    }
-}
-
-/// An assistant message the loop commits, as `onAssistantMessageCommitted` is handed it (its `createdAt` is the host's: see
-/// [`NOT_COMPARED`]).
-fn committed_view(message: &AgentMessage) -> Value {
-    view("assistant", text_of(&message.message.content), &message.message.tool_calls, None)
-}
-
-/// The loop's report to its host that has a recorded callback (`onUsageDelta`), in the recording's terms: every figure the event
-/// carries that the callback has a name for (`outgoing` and `sent_at_ms` are the host's inputs for the context baseline and the send
-/// clock, which the callback does not carry). `sessionId` is the run's thread, which the host's callback names.
-fn callback_of(event: &RunEvent, thread: &str) -> Option<Value> {
-    match event {
-        RunEvent::Usage { iteration, usage, delta } => Some(json!({ "ev": "onUsageDelta", "args": [{
-            "sessionId": thread,
-            "iterationIndex": iteration,
-            "requestedModel": delta.requested_model,
-            "model": delta.model,
-            "deltaInput": usage.input_tokens,
-            "deltaOutput": usage.output_tokens,
-            "deltaToolCalls": delta.delta_tool_calls,
-            "reasoningTokens": delta.reasoning_tokens,
-            "reasoningTokensComplete": delta.reasoning_tokens_complete,
-            "deltaPrompt": delta.delta_prompt,
-            "requestMs": delta.request_ms,
-            "deltaCachedRead": usage.cache_read_tokens,
-            "deltaCacheWrite": usage.cache_write_tokens,
-            "sendTools": delta.send_tools.iter().map(|tool| json!({ "name": tool.name, "description": tool.description, "inputSchema": tool.input_schema })).collect::<Vec<_>>(),
-        }] })),
-        RunEvent::ProviderSendStarted => Some(json!({ "ev": "onProviderSendStarted", "args": [] })),
-        RunEvent::ToolPhase(ToolPhase::Started) => Some(json!({ "ev": "onToolPhaseStarted", "args": [] })),
-        RunEvent::ToolPhase(ToolPhase::Completed { iteration, calls, elapsed_ms }) => {
-            Some(json!({ "ev": "onToolPhaseCompleted", "args": [{ "iteration": iteration, "calls": calls, "elapsedMs": elapsed_ms }] }))
-        }
-        _ => None,
-    }
-}
-
-/// Every event the loop raises is compared with the recording, or is one of these, which the recording has no counterpart of; any
-/// other event fails the replay.
-/// - `Stage(Streaming)`, `TextDelta`: the replay's adapter streams its final text (a core adapter always does) and the loop marks the
-///   stream; Node's scripted `send` returned the text whole and raised no stage (Node's adapters raise `onStageChange`, `onTextDelta`
-///   themselves). The text itself is compared as the answer and the stored transcript.
-/// - `Stage(ApprovalWait)`: the approval card's wait; Node's card is `onToolApproval`, compared whole as `cards` and on the timeline.
-/// - `Stage(Requesting)`: Node's admission scheduler and provider adapter raise it, and the recording's scripted `send` is neither.
-/// - `ToolCallObserved`: see `callbacks[ev=onAssistantToolCallObserved]` in [`NOT_COMPARED`].
-/// - `TurnEffort(None)`: the turn's effort the run publishes when it starts; Node's `runtime.turnEffort` is a getter a client reads,
-///   not a callback, and these routes carry no effort snapshot (any other value fails the replay).
-/// - `ExecutionCalls`: Node's `rememberSensitiveValues` is a store call, not a callback the recording saw; the calls are the batch's.
-/// - `Stage(Authorized)`: the host's mark that a call passed its gate without an ask (its held step goes out); Node raises no callback
-///   for an unasked call, whose run is compared as `requests` and `events`.
-fn uncompared(event: &RunEvent) -> bool {
-    matches!(
-        event,
-        RunEvent::Stage(Stage::Streaming | Stage::ApprovalWait { .. } | Stage::Requesting | Stage::Authorized)
-            | RunEvent::TextDelta(_)
-            | RunEvent::ToolCallObserved(_)
-            | RunEvent::ExecutionCalls(_)
-            | RunEvent::TurnEffort(None)
-    )
-}
-
-/// The early notification a settled call tells the host: its role, call id, text, error flag and the marks it carries (the first three
-/// of the timing's five). Node's notice states a thrown call by `isError` alone; the core's message states it twice, by `is_error` and
-/// by the kind `Error` (`batch.rs` `early_result`), and has no kind otherwise: the two must agree, and then the notice is Node's.
-fn early_view(message: &AgentMessage) -> Value {
-    let mut shown = view("tool", text_of(&message.message.content), &[], message.tool_call_id());
-    shown["__earlyNotify"] = json!(true);
-    shown["isError"] = json!(message.message.is_error);
-    let kind = if message.message.is_error { Some(ToolKind::Error) } else { None };
-    assert_eq!(message.tool_kind, kind, "an early notice's kind is its error flag's");
-    if message.tool_timing.is_some() {
-        shown["toolTiming"] = json!({ "dispatchStartedAt": 0, "executionStartedAt": 0, "executionCompletedAt": 0 });
-    }
-    shown
-}
-
-/// The approval card as the human is shown it (`onToolApproval`'s argument): the ask's payload whole, with the ask's own fields and
-/// the thread (the card's `sessionId`).
-fn card_view(ask: &ApprovalAsk, thread: &str) -> Value {
-    let mut card = ask.payload.clone();
-    let fields = card.as_object_mut().expect("an approval payload is an object");
-    fields.insert("name".into(), json!(ask.tool));
-    fields.insert("sessionId".into(), json!(thread));
-    fields.insert("toolCallId".into(), json!(ask.call_id.as_ref().map(|id| id.as_str())));
-    fields.insert("reason".into(), json!(ask.reason));
-    card
-}
-
-/// `recordToolBatch`'s payload of a batch: what the loop reports.
-fn batch_view(batch: &ToolBatch) -> Value {
-    json!({
-        "iteration": batch.iteration,
-        "tool_call_count": batch.calls.len(),
-        "calls": batch.calls.iter().map(|call| json!({
-            "tool_call_id": call.tool_call_id,
-            "tool_name": call.tool_name,
-            "array_lengths": call.array_lengths.as_ref().map(|lengths| Value::Object(lengths.iter().map(|(field, length)| (field.clone(), json!(length))).collect())),
-        })).collect::<Vec<_>>(),
-    })
-}
-
-// ---- the comparison: by subtraction ----------------------------------------------------------------------------------------------------
-
-/// The golden file's keys: the recorder's note, the tool definitions the scenarios register (an input: the catalog's documents) and
-/// the scenarios.
-const GOLDEN_KEYS: &[&str] = &["note", "tools", "scenarios"];
-
-/// A scenario's inputs: what the replay builds the run from. `live` routes a scenario to the live replay as well
-/// (`replay-call-tool-live.mjs`); here it is replayed like every other. `workdir` is the recorder's work folder, where the run's
-/// working directory stands (`sandboxed`).
-const INPUTS: &[&str] = &[
-    "name", "sessionId", "session", "mcp", "nonBridge", "live", "stream", "internal", "workdir", "ask", "answers", "hookRewrite", "hookDeny", "gates", "abortWhen",
-    "abortReason", "settled", "script", "surface",
-];
-
-/// A scenario's outputs: each is the recording's value whole, less the paths of [`NOT_COMPARED`], equal to the core's less the same.
-const OUTPUTS: &[&str] = &["answer", "turnError", "stored", "requests", "events", "callbacks", "cards", "hooks", "executed", "timeline", "audit", "trace"];
-
-/// One recorded field the replay does not compare.
-struct Uncompared {
-    /// Where it is: `.`-separated keys from the scenario; `[]` steps into every item of an array, `[f=v]` into the items whose `f` is
-    /// `v` (as the last step it removes those items whole).
-    path: &'static str,
-    /// Why the layer under test does not produce it.
-    why: &'static str,
-    /// Where it is compared instead, or that nothing compares it yet.
-    compared_in: &'static str,
-}
-
-const HOST_ROW: &str = "the host's record of a stored row (`run_host/factory.rs` stamps it when it stores the row); the loop's message has none";
-const NOT_YET: &str = "nothing yet";
-const HOST_TRACE: &str = "written by the host's agent-trace writer (`mixdog-core-run` `FailureWriter`) from the loop's reports (`ToolFailureLog`); not compared here";
-const HOST_USAGE: &str = "the host's usage report (`UsageReport::from_event` in the run host), derived from the loop's `Usage` event, which carries the request's own figures";
-
-/// Everything the recording holds that the replay does not compare: by construction the complete list, since every comparison is the
-/// recorded value less these paths.
-///
-/// An entry also stands for a parent object it leaves empty ([`subtract`]): a row whose `meta` held nothing but the host's stamps
-/// equals the loop's row with no `meta`. Only a removal empties a parent: an object that was empty before, or that one side has
-/// and the other lacks for any other reason, is still a difference (`an_emptied_parent_goes_and_an_empty_object_stays`).
-const NOT_COMPARED: &[Uncompared] = &[
-    Uncompared { path: "stored[].createdAt", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "stored[].meta.transcript.messageId", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "stored[].meta.transcript.at", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared {
-        path: "stored[].meta.transcript.completion",
-        why: "the host's completion of the turn's answer row (`status`, `verb`, `elapsedMs`)",
-        compared_in: "`verb`: replay-call-tool-live.mjs (the answer item's `completionVerb`); `status`, `elapsedMs`: nothing yet",
-    },
-    Uncompared { path: "requests[][].createdAt", why: "Node hands the provider its stored row; the core's request holds wire messages", compared_in: "here, as the stored row's own (`request_fields_are_the_rows`), itself uncompared" },
-    Uncompared { path: "requests[][].toolKind", why: "Node hands the provider its stored row; the core's request holds wire messages", compared_in: "here, as the stored row's own (`request_fields_are_the_rows`)" },
-    Uncompared { path: "requests[][].toolTiming", why: "Node hands the provider its stored row; the core's request holds wire messages", compared_in: "here, as the stored row's own (`request_fields_are_the_rows`)" },
-    Uncompared { path: "requests[][].meta.transcript.messageId", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "requests[][].meta.transcript.at", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].createdAt", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].meta.transcript.messageId", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onAssistantMessageCommitted].args[].meta.transcript.at", why: HOST_ROW, compared_in: NOT_YET },
-    Uncompared {
-        path: "callbacks[ev=onAssistantToolCallObserved]",
-        why: "the loop's `ToolCallObserved` carries the call, not Node's second argument `{ eagerStarted }`",
-        compared_in: "the call itself: `requests` and `events` (the same call, committed)",
-    },
-    Uncompared {
-        path: "callbacks[ev=onContextPressure]",
-        why: "the pre-send compaction check runs through the compactor the host provides (`RunEnv.compactor`); this replay runs the loop without one, so the core raises no `ContextPressure`",
-        compared_in: NOT_YET,
-    },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].usageMetricsTurnId", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].usageMetricsEpoch", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].source", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].promptKnown", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextInputTokens", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextOutputTokens", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextPromptTokens", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextCachedReadTokens", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextCacheWriteTokens", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].contextMeasuredTokens", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared { path: "callbacks[ev=onUsageDelta].args[].ts", why: HOST_USAGE, compared_in: NOT_YET },
-    Uncompared {
-        path: "callbacks[ev=onUsageDelta].args[].sendTools[].title",
-        why: "a registry document's field; the request's tool definition carries none",
-        compared_in: NOT_YET,
-    },
-    Uncompared {
-        path: "callbacks[ev=onUsageDelta].args[].sendTools[].annotations",
-        why: "a registry document's field; the request's tool definition carries none",
-        compared_in: NOT_YET,
-    },
-    Uncompared {
-        path: "callbacks[ev=onUsageDelta].args[].sendTools[].trigger",
-        why: "a registry document's field; the request's tool definition carries none",
-        compared_in: NOT_YET,
-    },
-    Uncompared {
-        path: "callbacks[ev=onUsageDelta].args[].sendTools[].description",
-        why: "the session's tool definitions are the product's (Node's built-in tools); this replay's registry holds probes of the same names",
-        compared_in: "replay-call-tool-live.mjs, for its scenarios: the tools of each request the built core sends",
-    },
-    Uncompared {
-        path: "callbacks[ev=onUsageDelta].args[].sendTools[].inputSchema",
-        why: "the session's tool definitions are the product's (Node's built-in tools); this replay's registry holds probes of the same names",
-        compared_in: "replay-call-tool-live.mjs, for its scenarios: the tools of each request the built core sends",
-    },
-    Uncompared {
-        path: "audit[].at",
-        why: "stamped by the grant store when it writes the record (`mixdog-tools` `policy/file_store.rs`); the replay's `MemoryGrantStore` stands in for the store and stamps none",
-        compared_in: NOT_YET,
-    },
-    Uncompared { path: "trace[kind=context]", why: HOST_TRACE, compared_in: NOT_YET },
-    Uncompared { path: "trace[kind=tool]", why: HOST_TRACE, compared_in: NOT_YET },
-    Uncompared { path: "trace[kind=usage]", why: HOST_TRACE, compared_in: NOT_YET },
-    Uncompared { path: "trace[kind=batch].ts", why: HOST_TRACE, compared_in: "the row's builder: mixdog-trace tests/it/builders.rs (`batch`)" },
-    Uncompared { path: "trace[kind=batch].session_id", why: HOST_TRACE, compared_in: "the row's builder: mixdog-trace tests/it/builders.rs (`batch`)" },
-    Uncompared { path: "trace[kind=batch].payload.batch_id", why: HOST_TRACE, compared_in: "the row's builder: mixdog-trace tests/it/builders.rs (`batch`)" },
-    Uncompared { path: "trace[kind=batch].payload.batch_schema_version", why: HOST_TRACE, compared_in: "the row's builder: mixdog-trace tests/it/builders.rs (`batch`)" },
-    Uncompared { path: "trace[kind=partial_tool_recovery].ts", why: HOST_TRACE, compared_in: NOT_YET },
-    Uncompared { path: "trace[kind=partial_tool_recovery].session_id", why: HOST_TRACE, compared_in: NOT_YET },
-    Uncompared { path: "trace[kind=partial_tool_recovery].payload", why: HOST_TRACE, compared_in: NOT_YET },
-];
-
-enum Step<'a> {
-    Key(&'a str),
-    Every,
-    Where(&'a str, &'a str),
-}
-
-fn steps(path: &str) -> Vec<Step<'_>> {
-    let mut steps = Vec::new();
-    for part in path.split('.') {
-        let (key, mut rest) = part.split_once('[').map_or((part, ""), |(key, rest)| (key, rest));
-        steps.push(Step::Key(key));
-        while !rest.is_empty() {
-            let (inner, after) = rest.split_once(']').expect("a closed selector");
-            steps.push(match inner.split_once('=') {
-                None => Step::Every,
-                Some((field, value)) => Step::Where(field, value),
-            });
-            rest = after.strip_prefix('[').unwrap_or(after);
-        }
-    }
-    steps
-}
-
-/// Removes what `steps` names from `value`; an object the removal leaves empty goes with it. Returns how much it removed.
-fn subtract(value: &mut Value, steps: &[Step<'_>]) -> usize {
-    let Some((step, rest)) = steps.split_first() else { return 0 };
-    match step {
-        Step::Key(key) => {
-            let Some(fields) = value.as_object_mut() else { return 0 };
-            if rest.is_empty() {
-                return usize::from(fields.remove(*key).is_some());
-            }
-            let Some(child) = fields.get_mut(*key) else { return 0 };
-            let removed = subtract(child, rest);
-            if removed > 0 && child.as_object().is_some_and(serde_json::Map::is_empty) {
-                fields.remove(*key);
-            }
-            removed
-        }
-        Step::Every => value.as_array_mut().map_or(0, |items| items.iter_mut().map(|item| subtract(item, rest)).sum()),
-        Step::Where(field, wanted) => {
-            let Some(items) = value.as_array_mut() else { return 0 };
-            let matches = |item: &Value| item[*field].as_str() == Some(*wanted);
-            if rest.is_empty() {
-                let before = items.len();
-                items.retain(|item| !matches(item));
-                return before - items.len();
-            }
-            items.iter_mut().filter(|item| matches(item)).map(|item| subtract(item, rest)).sum()
-        }
-    }
-}
-
-#[test]
-fn an_emptied_parent_goes_and_an_empty_object_stays() {
-    let path = steps("rows[].meta.stamp.id");
-    let mut stamped = json!({ "rows": [{ "meta": { "stamp": { "id": 1 } } }, { "meta": { "stamp": { "id": 2 }, "kept": true } }] });
-    assert_eq!(subtract(&mut stamped, &path), 2);
-    assert_eq!(stamped, json!({ "rows": [{}, { "meta": { "kept": true } }] }));
-    // Nothing removed, nothing pruned: an object that is empty on its own is compared as it is.
-    let mut empty = json!({ "rows": [{ "meta": { "stamp": {} } }, { "meta": {} }] });
-    assert_eq!(subtract(&mut empty, &path), 0);
-    assert_eq!(empty, json!({ "rows": [{ "meta": { "stamp": {} } }, { "meta": {} }] }));
-}
-
-/// The manifest's clock rule applied to the core's values: a number under one of its keys is 0.
-fn clocked(value: &mut Value, keys: &[String]) {
-    match value {
-        Value::Array(items) => items.iter_mut().for_each(|item| clocked(item, keys)),
-        Value::Object(fields) => {
-            for (key, field) in fields.iter_mut() {
-                if field.is_number() && keys.contains(key) {
-                    *field = json!(0);
-                } else {
-                    clocked(field, keys);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
+#[cfg(node_twin)]
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/call-tool/golden.json");
+#[cfg(node_twin)]
 const MANIFEST: &str = include_str!("../../../../fixtures/call-tool/MANIFEST.json");
-
+#[cfg(node_twin)]
+/// Node keyed an outbound MCP tool's approval by its category (`email`); the core keys every approval by its tool and names the
+/// category beside it as `actionKind` (decided: approvals are keyed by tool, not category). Only the recorded values this changes
+/// are edited, each asserting the value Node recorded:
+///
+/// | scenario | output | Node's | the core's |
+/// |---|---|---|---|
+/// | an MCP target that needs approval, approved | `cards[0].grantAction` | `email` | `tool:mcp__mail__send`, with `actionKind: email` |
+/// | an MCP target that needs approval, approved | `audit[0].action` | `email` | `tool:mcp__mail__send` |
+fn decided(name: &Value, want: &mut Value) {
+    if name != "an MCP target that needs approval, approved" {
+        return;
+    }
+    let card = &mut want["cards"][0];
+    assert_eq!(card["grantAction"], "email", "{name}: Node recorded something else");
+    assert!(card.get("actionKind").is_none(), "{name}: Node recorded an action kind");
+    card["grantAction"] = json!("tool:mcp__mail__send");
+    card["actionKind"] = json!("email");
+    let audit = &mut want["audit"][0];
+    assert_eq!(audit["action"], "email", "{name}: Node recorded something else");
+    audit["action"] = json!("tool:mcp__mail__send");
+}
+#[cfg(node_twin)]
 /// Replays the recorded scenarios and returns the differences from Node's recording, and how much each [`NOT_COMPARED`] entry removed
 /// from the recording.
 async fn differences() -> (usize, Vec<String>, Vec<usize>) {
@@ -1609,6 +1649,7 @@ async fn differences() -> (usize, Vec<String>, Vec<usize>) {
         for key in OUTPUTS {
             want[*key] = scenario.get(*key).cloned().unwrap_or_else(|| panic!("{name}: the recording has no `{key}`"));
         }
+        decided(name, &mut want);
         for (index, entry) in NOT_COMPARED.iter().enumerate() {
             let path = steps(entry.path);
             removed[index] += subtract(&mut want, &path);
@@ -1624,7 +1665,7 @@ async fn differences() -> (usize, Vec<String>, Vec<usize>) {
     }
     (scenarios.len(), failures, removed)
 }
-
+#[cfg(node_twin)]
 /// Node's recording and the core's replay of every scenario: each output whole, less the paths `NOT_COMPARED` lists.
 #[tokio::test]
 async fn every_recorded_call_tool_scenario_is_the_same_in_the_core() {
@@ -1640,3 +1681,104 @@ async fn every_recorded_call_tool_scenario_is_the_same_in_the_core() {
     assert!(NOT_COMPARED.iter().all(|entry| !entry.why.is_empty() && !entry.compared_in.is_empty()));
 }
 
+// ---- what a bridge session's `call_tool` does, with the scenario written out ------------------------------------------------------
+
+/// A bridge session whose eager tools are `read`, `load_tool` and `call_tool` and whose deferred ones are `probe_read` and
+/// `probe_write`; the model's replies are `script`.
+fn bridge(session: Value, script: Value, ask: &[&str], deny: &[&str], answers: Value) -> Value {
+    json!({
+        "name": "a bridge session", "sessionId": "sess_bridge_1", "session": session, "mcp": false, "nonBridge": false, "live": false,
+        "stream": false, "internal": [], "workdir": "", "ask": ask, "answers": answers, "hookRewrite": {}, "hookDeny": deny, "gates": [],
+        "abortWhen": null, "abortReason": null, "settled": [], "script": script,
+        "surface": {
+            "exposure": "bridge-v1", "toolSpec": "full", "deferredSurfaceMode": "lead",
+            "tools": ["read", "load_tool", "call_tool"],
+            "catalog": ["read", "load_tool", "probe_read", "probe_write"],
+            "mcpNames": null,
+        },
+        "hooks": { "after": [] },
+        "requests": [[{ "role": "user", "content": "go" }]],
+    })
+}
+
+fn through_call_tool(calls: &[(&str, &str)]) -> Value {
+    let mut steps: Vec<Value> = calls
+        .iter()
+        .map(|(id, target)| json!({ "calls": [{ "id": id, "name": "call_tool", "arguments": { "name": target, "arguments": { "q": "x" } } }] }))
+        .collect();
+    steps.push(json!({ "text": "all done" }));
+    json!(steps)
+}
+
+fn read_only_probe() -> Value {
+    json!({ "name": "probe_read", "description": "reads", "inputSchema": { "type": "object" }, "annotations": { "readOnlyHint": true } })
+}
+
+fn ran(seen: &Value) -> Vec<String> {
+    seen["executed"].as_array().expect("executed").iter().map(|call| call["name"].as_str().expect("name").to_owned()).collect()
+}
+
+fn answer_to(seen: &Value, id: &str) -> String {
+    seen["stored"].as_array().expect("stored").iter().find(|row| row["role"] == "tool" && row["toolCallId"] == id).and_then(|row| row["content"].as_str()).unwrap_or_default().to_owned()
+}
+
+#[tokio::test]
+async fn a_deferred_tool_is_run_through_call_tool_with_or_without_load_tool_first() {
+    let described = json!([
+        { "calls": [{ "id": "c1", "name": "load_tool", "arguments": { "names": ["probe_write"] } }] },
+        { "calls": [{ "id": "c2", "name": "call_tool", "arguments": { "name": "probe_write", "arguments": { "q": "x", "n": 1 } } }] },
+        { "text": "all done" },
+    ]);
+    let direct = json!([
+        { "calls": [{ "id": "c1", "name": "call_tool", "arguments": { "name": "probe_write", "arguments": { "q": "x", "n": 1 } } }] },
+        { "text": "all done" },
+    ]);
+    for script in [described, direct] {
+        let seen = observed(&bridge(json!({}), script, &[], &[], json!([])), &[]).await;
+        assert_eq!(seen["answer"], "all done");
+        assert_eq!(seen["executed"], json!([{ "name": "probe_write", "args": { "n": 1, "q": "x" } }]));
+        assert!(seen["cards"].as_array().expect("cards").is_empty());
+    }
+}
+
+#[tokio::test]
+async fn a_tool_the_session_denies_is_refused_through_call_tool_and_never_runs() {
+    let session = json!({ "disallowedTools": ["probe_write"] });
+    let seen = observed(&bridge(session, through_call_tool(&[("c1", "probe_write")]), &[], &[], json!([])), &[]).await;
+    assert!(ran(&seen).is_empty());
+    assert_eq!(seen["answer"], "all done");
+    assert!(answer_to(&seen, "c1").contains("probe_write"), "{}", answer_to(&seen, "c1"));
+}
+
+#[tokio::test]
+async fn a_read_only_session_runs_a_read_only_deferred_tool_and_refuses_the_other() {
+    let script = through_call_tool(&[("c1", "probe_read"), ("c2", "probe_write")]);
+    let seen = observed(&bridge(json!({ "toolSpec": "readonly" }), script, &[], &[], json!([])), &[read_only_probe()]).await;
+    assert_eq!(ran(&seen), ["probe_read"]);
+    assert!(answer_to(&seen, "c2").contains("readonly"), "{}", answer_to(&seen, "c2"));
+}
+
+#[tokio::test]
+async fn a_target_that_needs_approval_runs_when_approved_and_is_answered_without_running_when_denied() {
+    let ask = ["probe_write"];
+    let approved = observed(&bridge(json!({}), through_call_tool(&[("c1", "probe_write")]), &ask, &[], json!([{ "approved": true }])), &[]).await;
+    assert_eq!(ran(&approved), ["probe_write"]);
+    assert_eq!(approved["cards"].as_array().expect("cards").len(), 1, "one card, for the target");
+
+    let denied = observed(&bridge(json!({}), through_call_tool(&[("c1", "probe_write")]), &ask, &[], json!([{ "approved": false, "reason": "Not now." }])), &[]).await;
+    assert!(ran(&denied).is_empty());
+    assert_eq!(denied["cards"].as_array().expect("cards").len(), 1);
+    let said = answer_to(&denied, "c1");
+    assert!(said.contains("was not approved") && said.contains("Not now."), "{said}");
+}
+
+#[tokio::test]
+async fn call_tool_itself_is_never_asked_about_and_a_hook_denial_of_the_target_stops_it() {
+    let seen = observed(&bridge(json!({}), through_call_tool(&[("c1", "probe_write")]), &["call_tool"], &[], json!([])), &[]).await;
+    assert_eq!(ran(&seen), ["probe_write"]);
+    assert!(seen["cards"].as_array().expect("cards").is_empty(), "the bridge is not the thing that needs approval");
+
+    let seen = observed(&bridge(json!({}), through_call_tool(&[("c1", "probe_write")]), &[], &["probe_write"], json!([])), &[]).await;
+    assert!(ran(&seen).is_empty());
+    assert!(answer_to(&seen, "c1").contains("hook says no"), "{}", answer_to(&seen, "c1"));
+}

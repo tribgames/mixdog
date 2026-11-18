@@ -1,13 +1,18 @@
 //! Statistical distribution wrappers from formulajs 4.6.1, including legacy
-//! aliases and its type/error-order quirks. No textbook domain checks are added.
+//! aliases and its type/error-order quirks. The inverse distributions add the
+//! spreadsheet domain checks (#NUM!) the library lacks; legacy names with their
+//! own signature (NORMSDIST, CHIDIST, FDIST, TINV...) follow the legacy function.
 //! Copyright (c) 2014 Sutoiku, Inc., MIT; notice in office-stats-distributions.
 // Preserve source-indexed/ragged matrix loops and NaN-sensitive comparisons.
 #![allow(clippy::needless_range_loop, clippy::manual_range_contains)]
-use super::jstat::{self as j, N, n};
-use crate::coerce::{flatten, is_truthy, parse_number, parse_number_array, to_js_number};
-use crate::registry::{Table, library};
+use super::certified::discrete as cd2;
+use super::certified::dist as cd;
+use super::certified::inverse as ci;
+use super::certified::rat::Rat;
+use super::jstat::{self as j, N};
+use crate::coerce::{flatten, parse_number};
+use crate::registry::Table;
 use crate::value::{ErrorValue as E, Failure, Value as V};
-use mixdog_js::{js_sort_by, number_to_string, parse_int_radix};
 fn arg(a: &[V], i: usize) -> V {
     a.get(i).cloned().unwrap_or(V::Undefined)
 }
@@ -27,48 +32,169 @@ fn numeric(v: &V) -> Result<f64, E> {
 fn nums(a: &[V], count: usize) -> Result<Vec<f64>, E> {
     (0..count).map(|i| numeric(&arg(a, i))).collect()
 }
-fn array(v: &V) -> Result<Vec<f64>, E> {
-    parse_number_array(&flatten(std::slice::from_ref(v)))
-        .map(|v| v.iter().map(to_js_number).collect())
+/// A range's cells in order, `Some` for a number and `None` for text, a logical or a blank (Excel ignores those,
+/// pairing them out in the paired T.TEST); an error cell is the result, the first in reading order.
+fn cells(v: &V) -> Result<Vec<Option<f64>>, E> {
+    flatten(std::slice::from_ref(v))
+        .into_iter()
+        .map(|x| match x {
+            V::Number(n) => Ok(Some(n)),
+            V::Error(e) => Err(e),
+            _ => Ok(None),
+        })
+        .collect()
 }
 fn error(e: E) -> Result<V, Failure> {
     Ok(V::Error(e))
 }
+/// The cumulative flag at `i`: required (an omitted one is `#VALUE!`, not FALSE), and a logical,
+/// a number or numeric text; anything else is `#VALUE!`, not JavaScript truthiness.
+fn flag(a: &[V], i: usize) -> Result<bool, E> {
+    match a.get(i) {
+        None | Some(V::Undefined) => Err(E::Value),
+        Some(V::Error(e)) => Err(*e),
+        Some(V::Bool(b)) => Ok(*b),
+        Some(V::Number(x)) => Ok(*x != 0.0),
+        Some(v @ V::Text(_)) => match parse_number(v) {
+            V::Number(x) => Ok(x != 0.0),
+            _ => Err(E::Value),
+        },
+        Some(_) => Err(E::Value),
+    }
+}
+macro_rules! flag {
+    ($a:expr, $i:expr) => {
+        match flag($a, $i) {
+            Ok(f) => f,
+            Err(e) => return error(e),
+        }
+    };
+}
+/// The numbers of an array or range. Excel's rule for the statistical functions that take ranges (Z.TEST, F.TEST,
+/// PROB, T.TEST, CHISQ.TEST): text, logicals and blanks in a range are ignored, but an error value in a range is the
+/// result of the function (the first one, scanning the first range before the second).
+fn numbers_only(v: &V) -> Result<Vec<f64>, E> {
+    let mut out = Vec::new();
+    for x in flatten(std::slice::from_ref(v)) {
+        match x {
+            V::Number(n) => out.push(n),
+            V::Error(e) => return Err(e),
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+macro_rules! numbers {
+    ($v:expr) => {
+        match numbers_only($v) {
+            Ok(v) => v,
+            Err(e) => return error(e),
+        }
+    };
+}
+/// Student's t arguments Excel accepts: 1 to 10^10 degrees of freedom, and an `x` whose square is finite (Excel
+/// answers `#NUM!` from 1.35E154 on, the square root of the largest double).
+fn t_arguments_valid(x: f64, d: f64) -> bool {
+    (1.0..=1e10).contains(&d) && (x * x).is_finite()
+}
+/// Excel 16.0 build 20527 answers an error for the quantile of a one-tail probability (`p` of T.INV, `p/2` of
+/// T.INV.2T and TINV) at the bottom of the double range: the smallest probability probed that answers is
+/// 2.22507385850721E-308, and the next double above DBL_MIN, 2.2250738585072019E-308, already fails (T.INV(2.226E-308,3)
+/// = -3.67E+102 but T.INV(2.2250738585072019E-308,3) is #NUM!); zero and the subnormals fail the same way. The error is
+/// #DIV/0! at one degree of freedom and #NUM! from two on (T.INV(0,1), T.INV(1E-308,1), T.INV.2T(4E-308,1) are #DIV/0!;
+/// the same arguments at 2, 3, 4, 5, 8, 10 and 30 degrees are #NUM!). The one exception seen, T.INV(1E-320,1) = 0, is not
+/// reproduced.
+const T_INV_MIN_TAIL: f64 = 2.22507385850721e-308;
+fn t_tiny_tail_error(d: f64) -> E {
+    if d == 1.0 { E::Div0 } else { E::Num }
+}
 fn value(x: impl Into<N>) -> Result<V, Failure> {
     Ok(x.into().value())
 }
-fn raw(v: &V) -> f64 {
-    to_js_number(v)
-}
-fn actual_number(v: &V) -> Option<f64> {
-    if let V::Number(n) = v { Some(*n) } else { None }
-}
-fn shared(name: &str, args: &[V]) -> Result<N, Failure> {
-    let call = library().resolve(name).ok_or_else(|| {
-        Failure::unsupported(format!("distribution dependency {name} is not registered"))
-    })?;
-    Ok(n(to_js_number(&call(args)?)))
-}
-fn call(name: &str, args: &[V]) -> Result<N, Failure> {
-    Ok(n(to_js_number(&run(name, args)?)))
-}
-fn list(values: &[f64]) -> V {
-    V::Array(values.iter().map(|x| V::Number(*x)).collect())
+/// A certified kernel's double, or its error (`#NUM!` beyond the double range).
+fn cert(r: Result<f64, E>) -> Result<V, Failure> {
+    Ok(match r {
+        Ok(x) => V::Number(x),
+        Err(e) => V::Error(e),
+    })
 }
 macro_rules! parsed {
     ($e:expr) => {
         match $e {
             Ok(v) => v,
-            Err(_) => return error(E::Value),
+            Err(e) => return error(e),
         }
     };
 }
+/// The argument kinds of each scalar-argument function, in order (`n` number, `f` the required cumulative flag, `o` an
+/// optional number). Excel (16.0 build 20527, probed with competing errors such as `BINOM.DIST(1/0,10,0.5,NA())`
+/// = #DIV/0!, `BINOM.DIST(-1,10,0.5,"abc")` = #VALUE!, `BINOM.DIST("x",10,0.5,NA())` = #VALUE!) reads the arguments
+/// left to right: the first one that is an error value or cannot be coerced decides, before any domain check.
+const ARGUMENT_KINDS: &[(&str, &str)] = &[
+    ("BETA.DIST", "nnnfoo"),
+    ("BETA.INV", "nnnoo"),
+    ("BINOM.DIST", "nnnf"),
+    ("BINOM.DIST.RANGE", "nnno"),
+    ("BINOM.INV", "nnn"),
+    ("CHISQ.DIST", "nnf"),
+    ("CHISQ.DIST.RT", "nn"),
+    ("CHISQ.INV", "nn"),
+    ("CHISQ.INV.RT", "nn"),
+    ("CONFIDENCE.NORM", "nnn"),
+    ("CONFIDENCE.T", "nnn"),
+    ("EXPON.DIST", "nnf"),
+    ("F.DIST", "nnnf"),
+    ("F.DIST.RT", "nnn"),
+    ("F.INV", "nnn"),
+    ("F.INV.RT", "nnn"),
+    ("GAMMA", "n"),
+    ("GAMMALN", "n"),
+    ("GAUSS", "n"),
+    ("GAMMALN.PRECISE", "n"),
+    ("GAMMA.DIST", "nnnf"),
+    ("GAMMA.INV", "nnn"),
+    ("HYPGEOM.DIST", "nnnnf"),
+    ("LOGNORM.DIST", "nnnf"),
+    ("LOGNORM.INV", "nnn"),
+    ("NEGBINOM.DIST", "nnnf"),
+    ("NORM.DIST", "nnnf"),
+    ("NORM.INV", "nnn"),
+    ("NORM.S.DIST", "nf"),
+    ("NORM.S.INV", "n"),
+    ("PHI", "n"),
+    ("POISSON.DIST", "nnf"),
+    ("T.DIST", "nnf"),
+    ("TDIST", "nnn"),
+    ("T.DIST.RT", "nn"),
+    ("T.DIST.2T", "nn"),
+    ("T.INV", "nn"),
+    ("T.INV.2T", "nn"),
+    ("WEIBULL.DIST", "nnnf"),
+];
+fn scan_arguments(name: &str, a: &[V]) -> Result<(), E> {
+    let Some((_, kinds)) = ARGUMENT_KINDS.iter().find(|(n, _)| *n == name) else {
+        return Ok(());
+    };
+    for (i, kind) in kinds.chars().enumerate().take(a.len()) {
+        match kind {
+            'f' => {
+                flag(a, i)?;
+            }
+            'o' if matches!(a[i], V::Undefined) => {}
+            _ => {
+                numeric(&a[i])?;
+            }
+        }
+    }
+    Ok(())
+}
 fn run(name: &str, a: &[V]) -> Result<V, Failure> {
+    if let Err(e) = scan_arguments(name, a) {
+        return error(e);
+    }
     match name {
         "BETA.DIST" => {
-            if a.len() < 4 {
-                return error(E::Value);
-            }
+            let cumulative = flag!(a, 3);
             let p = parsed!(nums(
                 &[
                     arg(a, 0),
@@ -79,11 +205,25 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 ],
                 5
             ));
-            let x = ((n(p[0]) - p[3]) / (n(p[4]) - p[3])).0;
-            value(if is_truthy(&arg(a, 3)) {
-                j::beta_cdf(x, p[1], p[2])
+            if p[1] <= 0.0 || p[2] <= 0.0 || p[0] < p[3] || p[0] > p[4] || p[3] == p[4] {
+                return error(E::Num);
+            }
+            if !cumulative {
+                // Excel 16.0 build 20527 judges the density at an end on the argument itself, not the scaled one:
+                // #NUM! when x = 0 and a <= 1 or x = 1 and b <= 1 (also strictly inside a scaled interval), and 0
+                // at the ends of the interval otherwise (BETA.DIST(5,1,1,FALSE,5,10) = 0, (0,1,1,FALSE,0,1) = #NUM!)
+                if (p[0] == 0.0 && p[1] <= 1.0) || (p[0] == 1.0 && p[2] <= 1.0) {
+                    return error(E::Num);
+                }
+                if p[0] == p[3] || p[0] == p[4] {
+                    return value(0.0);
+                }
+            }
+            // the kernels take the worksheet x and both ends: the two distances are exact
+            cert(if cumulative {
+                cd::beta_cdf(p[0], p[1], p[2], p[3], p[4])
             } else {
-                j::beta_pdf(x, p[1], p[2])
+                cd::beta_pdf(p[0], p[1], p[2], p[3], p[4])
             })
         }
         "BETA.INV" => {
@@ -97,134 +237,241 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 ],
                 5
             ));
-            value(j::beta_inv(p[0], p[1], p[2]) * (n(p[4]) - p[3]) + p[3])
+            let q = flush(p[0]);
+            if q <= 0.0 || q >= 1.0 || p[1] <= 0.0 || p[2] <= 0.0 || p[3] >= p[4] {
+                return error(E::Num);
+            }
+            // the search runs on the worksheet x in [A, B] itself, never a rescaled unit quantile
+            let guess = j::beta_inv(q, p[1], p[2]).ok().map(|u| p[3] * (1.0 - u) + p[4] * u);
+            let law = ci::Law::Beta { a: p[1], b: p[2], lo: p[3], hi: p[4] };
+            cert(ci::quantile(law, &ci::Target::lower(q), p[3], p[4], guess))
         }
         "BINOM.DIST" => {
-            let p = parsed!(nums(a, 4));
-            value(if is_truthy(&V::Number(p[3])) {
-                j::binomial_cdf(p[0], p[1], p[2])
-            } else {
-                j::binomial_pdf(p[0], p[1], p[2])
-            })
+            let cumulative = flag!(a, 3);
+            let p = parsed!(nums(a, 3));
+            let p = [p[0].trunc(), p[1].trunc(), p[2]];
+            // Excel: at most 10^10 trials (BINOM.DIST(5,10000000001,0.5,TRUE) is #NUM!).
+            if p[0] < 0.0 || p[0] > p[1] || p[1] > 1e10 || p[2] < 0.0 || p[2] > 1.0 {
+                return error(E::Num);
+            }
+            // Excel: the mass of no successes when every trial succeeds is #NUM! (BINOM.DIST(0,10,1,FALSE)), unlike
+            // BINOM.DIST(0,0,1,FALSE) = 1
+            if !cumulative && p[0] == 0.0 && p[1] > 0.0 && p[2] == 1.0 {
+                return error(E::Num);
+            }
+            cert(if cumulative { cd2::binom_cdf(p[0], p[1], p[2], false) } else { cd2::binom_pmf(p[0], p[1], p[2]) })
         }
         "BINOM.DIST.RANGE" => {
             let p = parsed!(nums(
                 &[arg(a, 0), arg(a, 1), arg(a, 2), default(a, 3, arg(a, 2))],
                 4
             ));
-            let mut result = n(0.0);
-            let mut i = p[2];
-            while i <= p[3] {
-                result += shared("COMBIN", &[V::Number(p[0]), V::Number(i)])?
-                    * j::pow(p[1], i)
-                    * j::pow(1.0 - n(p[1]), n(p[0]) - i);
-                i += 1.0;
+            let p = [p[0].trunc(), p[1], p[2].trunc(), p[3].trunc()];
+            if p[0] < 0.0
+                || p[1] < 0.0
+                || p[1] > 1.0
+                || p[2] < 0.0
+                || p[2] > p[0]
+                || p[3] < p[2]
+                || p[3] > p[0]
+            {
+                return error(E::Num);
             }
-            value(result)
+            // Excel: #NUM! from 2^31-1 trials upward (probed: 2147483646 answers, 2147483647 does not).
+            if p[0] >= 2_147_483_647.0 {
+                return error(E::Num);
+            }
+            cert(cd2::binom_range(p[0], p[1], p[2], p[3]))
         }
         "BINOM.INV" => {
             let p = parsed!(nums(a, 3));
-            let mut x = 0.0;
-            while x <= p[0] {
-                if j::binomial_cdf(x, p[0], p[1]) >= p[2] {
-                    return value(x);
-                }
-                x += 1.0;
-            }
-            Ok(V::Undefined)
-        }
-        "CHISQ.DIST" => {
-            let p = parsed!(nums(a, 2));
-            value(if is_truthy(&arg(a, 2)) {
-                j::chisquare_cdf(p[0], p[1])
-            } else {
-                j::chisquare_pdf(p[0], p[1])
-            })
-        }
-        "CHISQ.DIST.RT" => {
-            let (x, d) = (arg(a, 0), arg(a, 1));
-            if !is_truthy(&x) || !is_truthy(&d) {
-                return error(E::Na);
-            }
-            if raw(&x) < 1.0 || raw(&d) > 1e10 {
+            let trials = p[0].trunc();
+            // Excel: #NUM! from 2^31-1 trials upward, as for BINOM.DIST.RANGE.
+            if trials < 0.0
+                || trials >= 2_147_483_647.0
+                || p[1] <= 0.0
+                || p[1] >= 1.0
+                || p[2] <= 0.0
+                || p[2] >= 1.0
+            {
                 return error(E::Num);
             }
-            let (Some(x), Some(d)) = (actual_number(&x), actual_number(&d)) else {
-                return error(E::Value);
-            };
-            value(1.0 - j::chisquare_cdf(x, d))
+            // the smallest count with P(X <= x) >= alpha: a double-precision estimate (the earlier bisection on the
+            // double kernels) accepted only when the certified comparisons at it and below it agree, else a
+            // certified integer bisection
+            let alpha = flush(p[2]);
+            if alpha <= 0.0 {
+                return error(E::Num);
+            }
+            let (mut lo, mut hi) = (0.0_f64, trials);
+            let mut ok = true;
+            while lo < hi && ok {
+                let mid = lo + ((hi - lo) / 2.0).floor();
+                match j::binomial_tails(mid, trials, p[1]) {
+                    Ok(t) => {
+                        if if alpha > 0.5 { t.1 <= 1.0 - alpha } else { t.0 >= alpha } {
+                            hi = mid;
+                        } else {
+                            lo = mid + 1.0;
+                        }
+                    }
+                    Err(_) => ok = false,
+                }
+            }
+            value(cd2::binom_inv(trials, p[1], alpha, ok.then_some(lo)))
+        }
+        "CHISQ.DIST" => {
+            let cumulative = flag!(a, 2);
+            let p = parsed!(nums(a, 2));
+            let p = [p[0], p[1].trunc()];
+            if p[0] < 0.0 || p[1] < 1.0 || p[1] > 1e10 {
+                return error(E::Num);
+            }
+            if cumulative {
+                cert(cd::chisq_cdf(p[0], p[1], false))
+            } else if p[0] == 0.0 {
+                // Excel: CHISQ.DIST(0,1,FALSE) is #NUM!, (0,2,FALSE) = 0.5, 0 from three degrees on
+                if p[1] < 2.0 { error(E::Num) } else { value(if p[1] == 2.0 { 0.5 } else { 0.0 }) }
+            } else {
+                cert(cd::chisq_pdf(p[0], p[1]))
+            }
+        }
+        "CHISQ.DIST.RT" => {
+            if a.len() != 2 {
+                return error(E::Na);
+            }
+            let p = parsed!(nums(a, 2));
+            let (x, d) = (p[0], p[1].trunc());
+            if x < 0.0 || d < 1.0 || d > 1e10 {
+                return error(E::Num);
+            }
+            cert(cd::chisq_cdf(x, d, true))
         }
         "CHISQ.INV" => {
             let p = parsed!(nums(a, 2));
-            value(j::chisquare_inv(p[0], p[1]))
-        }
-        "CHISQ.INV.RT" => {
-            let (p, d) = (arg(a, 0), arg(a, 1));
-            if !is_truthy(&p) || !is_truthy(&d) {
-                return error(E::Na);
-            }
-            if raw(&p) < 0.0 || raw(&p) > 1.0 || raw(&d) < 1.0 || raw(&d) > 1e10 {
+            let (q, d) = (flush(p[0]), p[1].trunc());
+            // p = 1 is the singular endpoint (an infinite quantile).
+            if q < 0.0 || q >= 1.0 || d < 1.0 || d > 1e10 {
                 return error(E::Num);
             }
-            let (Some(p), Some(d)) = (actual_number(&p), actual_number(&d)) else {
-                return error(E::Value);
-            };
-            value(j::chisquare_inv(1.0 - p, d))
+            if q == 0.0 {
+                return value(0.0);
+            }
+            let law = ci::Law::Gamma { a: d / 2.0, scale: 2.0 };
+            let guess = j::chisquare_inv(q, d).ok().or_else(|| gamma_guess(q, d / 2.0, 2.0));
+            cert(ci::quantile(law, &ci::Target::lower(q), 0.0, f64::MAX, guess))
+        }
+        "CHISQ.INV.RT" => {
+            if a.len() != 2 {
+                return error(E::Na);
+            }
+            let p = parsed!(nums(a, 2));
+            let (q, d) = (flush(p[0]), p[1].trunc());
+            // Unlike the other chi-square functions, Excel has no upper limit here (CHIINV(0.5,1E15) answers).
+            if q <= 0.0 || q > 1.0 || d < 1.0 {
+                return error(E::Num);
+            }
+            if q == 1.0 {
+                return value(0.0);
+            }
+            let law = ci::Law::Gamma { a: d / 2.0, scale: 2.0 };
+            let guess = j::chisquare_inv_rt(q, d).ok().or_else(|| gamma_guess(1.0 - q, d / 2.0, 2.0));
+            cert(ci::quantile(law, &ci::Target::upper(q), 0.0, f64::MAX, guess))
         }
         "CHISQ.TEST" => chisq_test(a),
         "CONFIDENCE.NORM" | "CONFIDENCE.T" => {
             let p = parsed!(nums(a, 3));
-            let inverse = if name == "CONFIDENCE.NORM" {
-                j::normal_inv((n(p[0]) / 2.0).0, 0.0, 1.0)
+            let (alpha, size) = (flush(p[0]), p[2].trunc());
+            if alpha <= 0.0 || alpha >= 1.0 || p[1] <= 0.0 || size < 1.0 {
+                return error(E::Num);
+            }
+            if name == "CONFIDENCE.T" && size == 1.0 {
+                return error(E::Div0);
+            }
+            // the critical value of the two-sided level alpha (P(|Z| > z) = alpha), then scale z / sqrt(n) rounded
+            // once
+            let z = if name == "CONFIDENCE.NORM" {
+                let law = ci::Law::Normal { mean: 0.0, sd: 1.0 };
+                let guess = j::normal_inv(1.0 - alpha / 2.0, 0.0, 1.0).0;
+                ci::quantile(law, &ci::Target::upper(alpha / 2.0), 0.0, f64::MAX, Some(guess))
             } else {
-                j::student_inv((n(p[0]) / 2.0).0, (n(p[2]) - 1.0).0)
+                let law = ci::Law::T2 { d: size - 1.0 };
+                ci::quantile(law, &ci::Target::upper(alpha), 0.0, f64::MAX, j::student_inv_2t(alpha, size - 1.0).ok())
             };
-            let change = j::abs(inverse * p[1] / j::sqrt(p[2]));
-            value((1.0 + change) - 1.0)
+            cert(z.and_then(|z| cd::scaled_by_root(z, p[1], size)))
         }
         "EXPON.DIST" => {
+            let cumulative = flag!(a, 2);
             let p = parsed!(nums(a, 2));
-            value(if is_truthy(&arg(a, 2)) {
-                j::exponential_cdf(p[0], p[1])
-            } else {
-                j::exponential_pdf(p[0], p[1])
-            })
+            if p[0] < 0.0 || p[1] <= 0.0 {
+                return error(E::Num);
+            }
+            cert(if cumulative { cd::expon_cdf(p[0], p[1]) } else { cd::expon_pdf(p[0], p[1]) })
         }
         "F.DIST" => {
+            let cumulative = flag!(a, 3);
             let p = parsed!(nums(a, 3));
-            if is_truthy(&arg(a, 3)) {
-                Ok(j::central_f_cdf(p[0], p[1], p[2]))
+            let p = [p[0], p[1].trunc(), p[2].trunc()];
+            // Excel: degrees of freedom of at least one and at most 10^10 (11 digits is #NUM!).
+            if p[0] < 0.0 || p[1] < 1.0 || p[2] < 1.0 || p[1] > 1e10 || p[2] > 1e10 {
+                return error(E::Num);
+            }
+            if cumulative {
+                if p[0] == 0.0 {
+                    return value(0.0);
+                }
+                cert(cd::f_cdf(p[0], p[1], p[2], false))
+            } else if p[0] == 0.0 {
+                // Excel: #NUM! at one numerator degree, 1 at two, 0 from three on
+                if p[1] < 2.0 { error(E::Num) } else { value(if p[1] == 2.0 { 1.0 } else { 0.0 }) }
             } else {
-                value(j::central_f_pdf(p[0], p[1], p[2]))
+                cert(cd::f_pdf(p[0], p[1], p[2]))
             }
         }
         "F.DIST.RT" | "F.INV.RT" => {
             if a.len() != 3 {
                 return error(E::Na);
             }
-            let p = [raw(&arg(a, 0)), raw(&arg(a, 1)), raw(&arg(a, 2))];
-            if p[0] < 0.0
+            let p = parsed!(nums(a, 3));
+            let inverse = name == "F.INV.RT";
+            let p = [if inverse { flush(p[0]) } else { p[0] }, p[1].trunc(), p[2].trunc()];
+            // Excel: both degrees of freedom from 1 to 10^10 inclusive.
+            if (inverse && (p[0] <= 0.0 || p[0] > 1.0))
+                || (!inverse && p[0] < 0.0)
                 || p[1] < 1.0
                 || p[2] < 1.0
-                || (name == "F.INV.RT" && (p[0] > 1.0 || p[1] > 1e10 || p[2] > 1e10))
+                || p[1] > 1e10
+                || p[2] > 1e10
             {
                 return error(E::Num);
             }
-            if a.iter().any(|v| actual_number(v).is_none()) {
-                return error(E::Value);
-            }
-            if name == "F.DIST.RT" {
-                value(1.0 - n(to_js_number(&j::central_f_cdf(p[0], p[1], p[2]))))
+            if !inverse {
+                if p[0] == 0.0 {
+                    return value(1.0);
+                }
+                cert(cd::f_cdf(p[0], p[1], p[2], true))
             } else {
-                value(j::central_f_inv(1.0 - p[0], p[1], p[2]))
+                if p[0] == 1.0 {
+                    return value(0.0);
+                }
+                let law = ci::Law::F { d1: p[1], d2: p[2] };
+                let guess = j::central_f_inv_rt(p[0], p[1], p[2]).ok();
+                cert(ci::quantile(law, &ci::Target::upper(p[0]), 0.0, f64::MAX, guess))
             }
         }
         "F.INV" => {
             let p = parsed!(nums(a, 3));
-            if p[0] <= 0.0 || p[0] > 1.0 {
+            let p = [flush(p[0]), p[1].trunc(), p[2].trunc()];
+            // p = 1 is the singular endpoint (an infinite quantile).
+            if p[0] < 0.0 || p[0] >= 1.0 || p[1] < 1.0 || p[2] < 1.0 || p[1] > 1e10 || p[2] > 1e10 {
                 return error(E::Num);
             }
-            value(j::central_f_inv(p[0], p[1], p[2]))
+            if p[0] == 0.0 {
+                return value(0.0);
+            }
+            let law = ci::Law::F { d1: p[1], d2: p[2] };
+            let guess = j::central_f_inv(p[0], p[1], p[2]).ok();
+            cert(ci::quantile(law, &ci::Target::lower(p[0]), 0.0, f64::MAX, guess))
         }
         "F.TEST" => f_test(a),
         "GAMMA" | "GAMMALN" | "GAUSS" => {
@@ -233,325 +480,565 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 Err(e) => return error(e),
             };
             if name == "GAMMA" {
-                if x == 0.0 || (parse_int_radix(&number_to_string(x), 10.0) == x && x < 0.0) {
+                cert(cd::gamma(x))
+            } else if name == "GAMMALN" {
+                if x <= 0.0 {
                     return error(E::Num);
                 }
-                value(j::gammafn(x))
-            } else if name == "GAMMALN" {
-                value(j::gammaln(x))
+                cert(cd::gammaln(x))
             } else {
-                value(j::normal_cdf(x, 0.0, 1.0) - 0.5)
+                // Φ(x) - ½ = sign(x) P(½, x²/2) / 2, without forming the difference
+                cert(cd::gauss(x))
             }
         }
         "GAMMA.DIST" | "GAMMA.INV" => {
             if a.len() != if name == "GAMMA.DIST" { 4 } else { 3 } {
                 return error(E::Na);
             }
-            let p = [raw(&arg(a, 0)), raw(&arg(a, 1)), raw(&arg(a, 2))];
-            if p[0] < 0.0 || p[1] <= 0.0 || p[2] <= 0.0 || (name == "GAMMA.INV" && p[0] > 1.0) {
-                return error(if name == "GAMMA.INV" {
-                    E::Num
-                } else {
-                    E::Value
-                });
+            let p = parsed!(nums(a, 3));
+            let inverse = name == "GAMMA.INV";
+            let p = [if inverse { flush(p[0]) } else { p[0] }, p[1], p[2]];
+            let cumulative = if inverse { false } else { flag!(a, 3) };
+            // GAMMA.INV(1) is the singular endpoint (an infinite quantile).
+            if p[0] < 0.0 || p[1] <= 0.0 || p[2] <= 0.0 || (inverse && p[0] >= 1.0) {
+                return error(E::Num);
             }
-            if (0..3).any(|i| actual_number(&a[i]).is_none()) {
-                return error(E::Value);
-            }
-            value(if name == "GAMMA.INV" {
-                j::gamma_inv(p[0], p[1], p[2])
-            } else if is_truthy(&arg(a, 3)) {
-                j::gamma_cdf(p[0], p[1], p[2])
+            if inverse {
+                if p[0] == 0.0 {
+                    return value(0.0);
+                }
+                let law = ci::Law::Gamma { a: p[1], scale: p[2] };
+                // the estimate in unit scale, then scaled: at a scale of DBL_MIN the scaled estimate underflowed to
+                // 0 and the search bisected the whole range (GAMMA.INV(0.5,1,2.2250738585072014E-308), 2.7 s)
+                let guess = j::gamma_inv(p[0], p[1], 1.0)
+                    .ok()
+                    .map(|t| t * p[2])
+                    .filter(|g| *g > 0.0 && g.is_finite())
+                    .or_else(|| gamma_guess(p[0], p[1], p[2]));
+                cert(ci::quantile(law, &ci::Target::lower(p[0]), 0.0, f64::MAX, guess))
+            } else if cumulative {
+                cert(cd::gamma_cdf(p[0], p[1], p[2], false))
+            } else if p[0] == 0.0 {
+                // Excel: #NUM! at x = 0 for shapes up to 1 (GAMMA.DIST(0,1,2,FALSE) included), 0 above
+                if p[1] <= 1.0 { error(E::Num) } else { value(0.0) }
             } else {
-                j::gamma_pdf(p[0], p[1], p[2])
-            })
+                cert(cd::gamma_pdf(p[0], p[1], p[2]))
+            }
         }
         "GAMMALN.PRECISE" => {
             if a.len() != 1 {
                 return error(E::Na);
             }
-            if raw(&a[0]) <= 0.0 {
+            let x = parsed!(numeric(&a[0]));
+            if x <= 0.0 {
                 return error(E::Num);
             }
-            let Some(x) = actual_number(&a[0]) else {
-                return error(E::Value);
-            };
-            value(j::gammaln(x))
+            cert(cd::gammaln(x))
         }
         "HYPGEOM.DIST" => {
+            let cumulative = flag!(a, 4);
             let p = parsed!(nums(a, 4));
-            let pdf = |x: f64| -> Result<N, Failure> {
-                Ok(shared("COMBIN", &[V::Number(p[2]), V::Number(x)])?
-                    * shared("COMBIN", &[V::Number(p[3] - p[2]), V::Number(p[1] - x)])?
-                    / shared("COMBIN", &[V::Number(p[3]), V::Number(p[1])])?)
-            };
-            if is_truthy(&arg(a, 4)) {
-                let mut result = n(0.0);
-                let mut i = 0.0;
-                while i <= p[0] {
-                    result += pdf(i)?;
-                    i += 1.0;
-                }
-                value(result)
-            } else {
-                value(pdf(p[0])?)
+            let p = [p[0].trunc(), p[1].trunc(), p[2].trunc(), p[3].trunc()];
+            let (sample_s, sample, pop_s, pop) = (p[0], p[1], p[2], p[3]);
+            // Excel: only negative counts, a sample larger than the population and more successes than the
+            // population are #NUM!; a count outside the support is a mass of 0 (and a cumulative of 0 below, 1 above)
+            if sample_s < 0.0 || sample < 0.0 || pop_s < 0.0 || pop < 0.0 || sample > pop || pop_s > pop {
+                return error(E::Num);
             }
+            let lowest = (sample - pop + pop_s).max(0.0);
+            let highest = sample.min(pop_s);
+            if pop == 0.0 {
+                return value(1.0);
+            }
+            if sample_s < lowest {
+                return value(0.0);
+            }
+            if sample_s > highest {
+                return value(if cumulative { 1.0 } else { 0.0 });
+            }
+            if cumulative && sample_s == highest {
+                return value(1.0);
+            }
+            // exact counts: the kernels never step a floating index
+            cert(if cumulative {
+                cd2::hypgeom_cdf(p[0], p[1], p[2], p[3])
+            } else {
+                cd2::hypgeom_pmf(p[0], p[1], p[2], p[3])
+            })
         }
         "LOGNORM.DIST" => {
+            let cumulative = flag!(a, 3);
             let p = parsed!(nums(a, 3));
-            value(if is_truthy(&arg(a, 3)) {
-                j::lognormal_cdf(p[0], p[1], p[2])
-            } else {
-                j::lognormal_pdf(p[0], p[1], p[2])
-            })
+            if p[0] <= 0.0 || p[2] <= 0.0 {
+                return error(E::Num);
+            }
+            if cumulative {
+                return cert(cd::lognorm_cdf(p[0], p[1], p[2]));
+            }
+            // Excel 16.0: a variance below DBL_MIN is #DIV/0! (LOGNORM.DIST(2,0,1E-155,FALSE)), then the score
+            // square rule (LOGNORM.DIST(1E300,0,1E-152,FALSE) = #NUM!)
+            if p[2] * p[2] < f64::MIN_POSITIVE {
+                return error(E::Div0);
+            }
+            let z = (p[0].ln() - p[1]) / p[2];
+            if !(z * z).is_finite() {
+                return error(E::Num);
+            }
+            cert(cd::lognorm_pdf(p[0], p[1], p[2]))
         }
         "LOGNORM.INV" => {
             let p = parsed!(nums(a, 3));
-            value(j::lognormal_inv(p[0], p[1], p[2]))
+            let q = flush(p[0]);
+            if q <= 0.0 || q >= 1.0 || p[2] <= 0.0 {
+                return error(E::Num);
+            }
+            let law = ci::Law::LogNormal { mean: p[1], sd: p[2] };
+            let guess = j::lognormal_inv(q, p[1], p[2]).0;
+            cert(ci::quantile(law, &ci::Target::lower(q), 0.0, f64::MAX, Some(guess)))
         }
         "NEGBINOM.DIST" => {
+            let cumulative = flag!(a, 3);
             let p = parsed!(nums(a, 3));
-            if is_truthy(&arg(a, 3)) {
-                value(j::negbin_cdf(p[0], p[1], p[2]))
-            } else {
-                Ok(j::negbin_pdf(p[0], p[1], p[2]))
+            let p = [p[0].trunc(), p[1].trunc(), p[2]];
+            // Excel: the success probability is strictly between 0 and 1 (p = 0 and p = 1 are #NUM! in both forms)
+            if p[0] < 0.0 || p[1] < 1.0 || p[2] <= 0.0 || p[2] >= 1.0 {
+                return error(E::Num);
             }
+            cert(if cumulative { cd2::negbin_cdf(p[0], p[1], p[2]) } else { cd2::negbin_pmf(p[0], p[1], p[2]) })
         }
         "NORM.DIST" => {
+            let cumulative = flag!(a, 3);
             let p = parsed!(nums(a, 3));
             if p[2] <= 0.0 {
                 return error(E::Num);
             }
-            value(if is_truthy(&arg(a, 3)) {
-                j::normal_cdf(p[0], p[1], p[2])
-            } else {
-                j::normal_pdf(p[0], p[1], p[2])
-            })
+            normal_dist(p[0], p[1], p[2], cumulative)
         }
         "NORM.INV" => {
             let p = parsed!(nums(a, 3));
-            value(j::normal_inv(p[0], p[1], p[2]))
+            let q = flush(p[0]);
+            if q <= 0.0 || q >= 1.0 || p[2] <= 0.0 {
+                return error(E::Num);
+            }
+            normal_inv(q, p[1], p[2])
         }
         "NORM.S.DIST" => {
+            let cumulative = flag!(a, 1);
             let p = parsed!(nums(a, 1));
-            value(if is_truthy(&arg(a, 1)) {
-                j::normal_cdf(p[0], 0.0, 1.0)
-            } else {
-                j::normal_pdf(p[0], 0.0, 1.0)
-            })
+            normal_dist(p[0], 0.0, 1.0, cumulative)
         }
         "NORM.S.INV" => {
             let p = parsed!(nums(a, 1));
-            value(j::normal_inv(p[0], 0.0, 1.0))
+            let q = flush(p[0]);
+            if q <= 0.0 || q >= 1.0 {
+                return error(E::Num);
+            }
+            normal_inv(q, 0.0, 1.0)
         }
+        // Legacy names whose arguments differ from the modern function's: the
+        // cumulative flag does not exist and the answer is always cumulative.
+        "NORMSDIST" if a.len() != 1 => error(E::Na),
+        "NORMSDIST" => run("NORM.S.DIST", &[arg(a, 0), V::Bool(true)]),
+        "LOGNORMDIST" if a.len() != 3 => error(E::Na),
+        "LOGNORMDIST" => run(
+            "LOGNORM.DIST",
+            &[arg(a, 0), arg(a, 1), arg(a, 2), V::Bool(true)],
+        ),
+        "BETADIST" if !(3..=5).contains(&a.len()) => error(E::Na),
+        "BETADIST" => run(
+            "BETA.DIST",
+            &[
+                arg(a, 0),
+                arg(a, 1),
+                arg(a, 2),
+                V::Bool(true),
+                arg(a, 3),
+                arg(a, 4),
+            ],
+        ),
+        // Flagless legacy signatures: probability mass only.
+        "HYPGEOMDIST" if a.len() != 4 => error(E::Na),
+        "HYPGEOMDIST" => run(
+            "HYPGEOM.DIST",
+            &[arg(a, 0), arg(a, 1), arg(a, 2), arg(a, 3), V::Bool(false)],
+        ),
+        "NEGBINOMDIST" if a.len() != 3 => error(E::Na),
+        "NEGBINOMDIST" => run(
+            "NEGBINOM.DIST",
+            &[arg(a, 0), arg(a, 1), arg(a, 2), V::Bool(false)],
+        ),
+        // Right-tail and two-tail legacy names answer exactly like the modern function they stand for
+        // (checked in Excel 16.0 build 20527: the degrees-of-freedom ceilings are the same).
+        "CHIDIST" | "CHIINV" | "FDIST" | "FINV" | "TINV" => run(
+            match name {
+                "CHIDIST" => "CHISQ.DIST.RT",
+                "CHIINV" => "CHISQ.INV.RT",
+                "FDIST" => "F.DIST.RT",
+                "FINV" => "F.INV.RT",
+                _ => "T.INV.2T",
+            },
+            a,
+        ),
         "PHI" => {
             let p = parsed!(nums(a, 1));
-            value(j::exp(-0.5 * n(p[0]) * p[0]) / 2.5066282746310002)
+            normal_dist(p[0], 0.0, 1.0, false)
         }
         "POISSON.DIST" => {
+            let cumulative = flag!(a, 2);
             let p = parsed!(nums(a, 2));
-            value(if is_truthy(&arg(a, 2)) {
-                j::poisson_cdf(p[0], p[1])
-            } else {
-                j::poisson_pdf(p[0], p[1])
-            })
+            let p = [p[0].trunc(), p[1]];
+            if p[0] < 0.0 || p[1] < 0.0 {
+                return error(E::Num);
+            }
+            cert(if cumulative { cd2::poisson_cdf(p[0], p[1]) } else { cd2::poisson_pmf(p[0], p[1]) })
         }
         "PROB" => prob(a),
-        "T.DIST" => match arg(a, 2) {
-            V::Number(1.0) => run("T.DIST.RT", &[arg(a, 0), arg(a, 1)]),
-            V::Number(2.0) => run("T.DIST.2T", &[arg(a, 0), arg(a, 1)]),
-            _ => error(E::Num),
-        },
+        "T.DIST" => {
+            let cumulative = flag!(a, 2);
+            let p = parsed!(nums(a, 2));
+            let d = p[1].trunc();
+            // Excel: a density with fewer than one degree of freedom is #DIV/0! (a negative count #NUM!), the
+            // cumulative form #NUM!
+            if !cumulative && d == 0.0 && p[1] >= 0.0 {
+                return error(E::Div0);
+            }
+            if !t_arguments_valid(p[0], d) {
+                return error(E::Num);
+            }
+            cert(if cumulative { cd::t_cdf(p[0], d) } else { cd::t_pdf(p[0], d) })
+        }
+        // The legacy TDIST(x, df, tails): x is not negative and the third argument counts tails.
+        "TDIST" => {
+            if a.len() != 3 {
+                return error(E::Na);
+            }
+            let p = parsed!(nums(a, 3));
+            let (d, tails) = (p[1].trunc(), p[2].trunc());
+            if p[0] < 0.0 || !t_arguments_valid(p[0], d) || (tails != 1.0 && tails != 2.0) {
+                return error(E::Num);
+            }
+            cert(if tails == 2.0 { cd::t_2t(p[0], d) } else { cd::t_rt(p[0], d) })
+        }
         "T.DIST.RT" | "T.DIST.2T" => {
             if a.len() != 2 {
                 return error(E::Na);
             }
-            if raw(&a[0]) < 0.0 || raw(&a[1]) < 1.0 {
+            let p = parsed!(nums(a, 2));
+            let (x, d) = (p[0], p[1].trunc());
+            let two = name == "T.DIST.2T";
+            if (two && x < 0.0) || !t_arguments_valid(x, d) {
                 return error(E::Num);
             }
-            let (Some(x), Some(d)) = (actual_number(&a[0]), actual_number(&a[1])) else {
-                return error(E::Value);
-            };
-            let p = 1.0 - j::student_cdf(x, d);
-            value(if name == "T.DIST.2T" { p * 2.0 } else { p })
+            cert(if two { cd::t_2t(x, d) } else { cd::t_rt(x, d) })
         }
         "T.INV" => {
             let p = parsed!(nums(a, 2));
-            value(j::student_inv(p[0], p[1]))
-        }
-        "T.INV.2T" => {
-            let p = parse_number(&arg(a, 0));
-            let d = parse_number(&arg(a, 1));
-            let (pn, dn) = (raw(&p), raw(&d));
-            if pn <= 0.0 || pn > 1.0 || dn < 1.0 {
+            let d = p[1].trunc();
+            if p[0] < 0.0 || p[0] >= 1.0 || !t_arguments_valid(0.0, d) {
                 return error(E::Num);
             }
-            if matches!(p, V::Error(_)) || matches!(d, V::Error(_)) {
-                return error(E::Value);
+            if p[0] < T_INV_MIN_TAIL {
+                return error(t_tiny_tail_error(d));
             }
-            value(j::abs(j::student_inv(pn / 2.0, dn)))
+            let guess = j::student_inv(p[0], d).ok();
+            cert(ci::quantile(ci::Law::T { d }, &ci::Target::lower(p[0]), -f64::MAX, f64::MAX, guess))
+        }
+        "T.INV.2T" => {
+            if a.len() != 2 {
+                return error(E::Na);
+            }
+            let p = parsed!(nums(a, 2));
+            let d = p[1].trunc();
+            if p[0] < 0.0 || p[0] > 1.0 || !t_arguments_valid(0.0, d) {
+                return error(E::Num);
+            }
+            if p[0] / 2.0 < T_INV_MIN_TAIL {
+                return error(t_tiny_tail_error(d));
+            }
+            if p[0] == 1.0 {
+                return value(0.0);
+            }
+            // the two-tail quantile P(|T| > x) = p, compared on the tail that is the smaller probability
+            let guess = j::student_inv_2t(p[0], d).ok();
+            cert(ci::quantile(ci::Law::T2 { d }, &ci::Target::upper(p[0]), 0.0, f64::MAX, guess))
         }
         "T.TEST" => t_test(a),
         "WEIBULL.DIST" => {
+            let cumulative = flag!(a, 3);
             let p = parsed!(nums(a, 3));
-            let (x, alpha, beta) = (n(p[0]), n(p[1]), n(p[2]));
-            value(if is_truthy(&arg(a, 3)) {
-                1.0 - j::exp(-j::pow(x / beta, alpha))
-            } else {
-                j::pow(x, alpha - 1.0) * j::exp(-j::pow(x / beta, alpha)) * alpha
-                    / j::pow(beta, alpha)
-            })
+            if p[0] < 0.0 || p[1] <= 0.0 || p[2] <= 0.0 {
+                return error(E::Num);
+            }
+            cert(if cumulative { cd::weibull_cdf(p[0], p[1], p[2]) } else { cd::weibull_pdf(p[0], p[1], p[2]) })
         }
         "Z.TEST" => {
-            let a0 = parsed!(array(&arg(a, 0)));
+            // Text, logicals and blanks in the array are ignored; an empty array is #N/A.
+            // Excel reads left to right (the first error in the array, then x, then sigma) and only then tests the array
+            // for emptiness (Z.TEST(K1:K3,1/0) is #DIV/0!, Z.TEST(K1:K3,1,1) is #N/A).
+            let a0 = numbers!(&arg(a, 0));
             let x = parsed!(numeric(&arg(a, 1)));
-            let sigma = arg(a, 2);
-            let sigma = if is_truthy(&sigma) {
-                n(to_js_number(&sigma))
+            if !matches!(a.get(2), None | Some(V::Undefined)) {
+                parsed!(numeric(&arg(a, 2)));
+            }
+            if a0.is_empty() {
+                return error(E::Na);
+            }
+            // Only an omitted sigma means "use the sample deviation"; an explicit 0 or negative one is #NUM!
+            // (Excel: Z.TEST(A1:A4,1,0) and Z.TEST(A1:A4,1,-1)).
+            let count = a0.len() as i64;
+            let (mean, ss) = mean_and_squares(&a0);
+            let diff = mean.sub(&Rat::f(x));
+            // z = (mean - x) / (sigma / sqrt(n)) enters as its exact square and sign
+            let z2 = if matches!(a.get(2), None | Some(V::Undefined)) {
+                if count < 2 {
+                    return error(E::Div0);
+                }
+                if ss.is_zero() {
+                    return error(E::Div0);
+                }
+                diff.mul(&diff).mul(&Rat::int(count * (count - 1))).div(&ss)
             } else {
-                shared("STDEV.S", &[list(&a0)])?
+                let sigma = parsed!(numeric(&arg(a, 2)));
+                if sigma <= 0.0 {
+                    return error(E::Num);
+                }
+                diff.mul(&diff).mul(&Rat::int(count)).div(&Rat::f(sigma).mul(&Rat::f(sigma)))
             };
-            let z = (shared("AVERAGE", &[list(&a0)])? - x) / (sigma / j::sqrt(a0.len() as f64));
-            value(1.0 - call("NORM.S.DIST", &[V::Number(z.0), V::Bool(true)])?)
+            // the upper tail of the standard normal at z, taken from its own tail
+            cert(cd::norm_upper_sq(&z2, diff.sign()))
         }
         _ => unreachable!("registered distribution"),
     }
 }
-fn prob(a: &[V]) -> Result<V, Failure> {
-    if matches!(arg(a, 2), V::Undefined) {
-        return value(0.0);
+/// A probability argument as Excel reads it: a subnormal is zero (Excel flushes subnormals on entry, see
+/// `subnormal_probabilities_are_zero_in_excel_and_in_the_engine`).
+fn flush(p: f64) -> f64 {
+    if p.abs() < f64::MIN_POSITIVE { 0.0 } else { p }
+}
+/// A gamma quantile estimate where the double kernels give none (huge shapes): Wilson-Hilferty,
+/// `a (1 - 1/(9a) + z/(3 sqrt a))^3` times the scale, z the normal quantile of the lower tail `p`. Only a starting
+/// point: the certified search accepts it when the tails at its two probes bracket the target.
+fn gamma_guess(p: f64, a: f64, scale: f64) -> Option<f64> {
+    let z = super::special::norm_quantile(p);
+    let c = 1.0 - 1.0 / (9.0 * a) + z / (3.0 * a.sqrt());
+    let x = a * c * c * c * scale;
+    (x.is_finite() && x > 0.0).then_some(x)
+}
+/// The normal quantile in worksheet units, searched on the worksheet x itself (a quantile past the largest double
+/// is `#NUM!`).
+fn normal_inv(p: f64, mean: f64, sd: f64) -> Result<V, Failure> {
+    let law = ci::Law::Normal { mean, sd };
+    let guess = j::normal_inv(p, mean, sd).0;
+    cert(ci::quantile(law, &ci::Target::lower(p), -f64::MAX, f64::MAX, Some(guess)))
+}
+/// The normal cumulative or density in worksheet coordinates. Excel 16.0: the density is `#NUM!` when the square
+/// of the standard score is not a finite double (PHI(1.35E154), NORM.DIST(1E300,0,1,FALSE)); 0 below that.
+fn normal_dist(x: f64, mean: f64, sd: f64, cumulative: bool) -> Result<V, Failure> {
+    if cumulative {
+        return cert(cd::norm_cdf(x, mean, sd));
     }
-    let mut x = parsed!(array(&arg(a, 0)));
-    let p = parsed!(array(&arg(a, 1)));
+    if cd::score_square_overflows(x, mean, sd) {
+        return error(E::Num);
+    }
+    cert(cd::norm_pdf(x, mean, sd))
+}
+fn prob(a: &[V]) -> Result<V, Failure> {
+    if matches!(a.get(2), None | Some(V::Undefined)) {
+        return error(E::Value);
+    }
+    let x = numbers!(&arg(a, 0));
+    let p = numbers!(&arg(a, 1));
     let lo = parsed!(numeric(&arg(a, 2)));
     let hi = parsed!(numeric(&default(a, 3, arg(a, 2))));
-    if lo == hi {
-        return Ok(x.iter().position(|v| *v == lo).map_or(V::Number(0.0), |i| {
-            p.get(i).copied().map_or(V::Undefined, V::Number)
-        }));
-    }
-    js_sort_by(&mut x, |a, b| a - b);
-    let mut result = n(0.0);
-    for &v in &x {
-        if v >= lo && v <= hi {
-            let at = x.iter().position(|n| *n == v);
-            result += n(at.and_then(|i| p.get(i)).copied().unwrap_or(f64::NAN));
-        }
-    }
-    value(result)
-}
-fn f_test(a: &[V]) -> Result<V, Failure> {
-    let (x, y) = (arg(a, 0), arg(a, 1));
-    if !is_truthy(&x) || !is_truthy(&y) {
+    if x.len() != p.len() || x.is_empty() {
         return error(E::Na);
     }
-    let (V::Array(xa), V::Array(ya)) = (&x, &y) else {
-        return error(E::Na);
+    // Every probability is in (0, 1] and they sum to 1 (within floating-point rounding).
+    if p.iter().any(|v| *v <= 0.0 || *v > 1.0) || (p.iter().sum::<f64>() - 1.0).abs() > 1e-9 {
+        return error(E::Num);
+    }
+    // With no upper limit it is P(X = lower); otherwise P(lower <= X <= upper).
+    let (lo, hi) = if matches!(a.get(3), None | Some(V::Undefined)) {
+        (lo, lo)
+    } else {
+        (lo, hi)
     };
-    if xa.len() < 2 || ya.len() < 2 {
-        return error(E::Div0);
-    }
-    let xm = shared("SUM", std::slice::from_ref(&x))? / (xa.len() as f64);
-    let ym = shared("SUM", std::slice::from_ref(&y))? / (ya.len() as f64);
-    let squares = |v: &[V], mean: N| {
-        let mut result = n(0.0);
-        for x in v {
-            result += j::pow(n(raw(x)) - mean, 2.0);
-        }
-        result
-    };
-    value((squares(xa, xm) / (xa.len() as f64 - 1.0)) / (squares(ya, ym) / (ya.len() as f64 - 1.0)))
-}
-fn t_test(a: &[V]) -> Result<V, Failure> {
-    let x = parsed!(array(&arg(a, 0)));
-    let y = parsed!(array(&arg(a, 1)));
-    let xm = super::statistical::mean(&x);
-    let ym = super::statistical::mean(&y);
-    let (mut sx, mut sy) = (n(0.0), n(0.0));
-    for &v in &x {
-        sx += j::pow(n(v) - xm, 2.0);
-    }
-    for &v in &y {
-        sy += j::pow(n(v) - ym, 2.0);
-    }
-    sx /= x.len() as f64 - 1.0;
-    sy /= y.len() as f64 - 1.0;
-    let t = j::abs(n(xm) - ym) / j::sqrt(sx / (x.len() as f64) + sy / (y.len() as f64));
-    run(
-        "T.DIST.2T",
-        &[V::Number(t.0), V::Number((x.len() + y.len()) as f64 - 2.0)],
+    value(
+        x.iter()
+            .zip(&p)
+            .filter(|(v, _)| **v >= lo && **v <= hi)
+            .fold(0.0, |total, (_, q)| total + *q),
     )
 }
-fn row_length(v: &V) -> Option<usize> {
-    match v {
-        V::Array(v) => Some(v.len()),
-        V::Text(s) => Some(s.encode_utf16().count()),
-        V::Utf16(units) => Some(units.len()),
-        _ => None,
+fn f_test(a: &[V]) -> Result<V, Failure> {
+    // Text, logicals and blanks are ignored; fewer than two numbers or a zero variance is #DIV/0!.
+    let x = numbers!(&arg(a, 0));
+    let y = numbers!(&arg(a, 1));
+    if x.len() < 2 || y.len() < 2 {
+        return error(E::Div0);
     }
+    let (sx, sy) = (mean_and_squares(&x).1, mean_and_squares(&y).1);
+    if sx.is_zero() || sy.is_zero() {
+        return error(E::Div0);
+    }
+    // The two-tailed probability that the variances are not significantly different; the ratio is exact.
+    let (dx, dy) = (x.len() as i64 - 1, y.len() as i64 - 1);
+    let f = sx.div(&Rat::int(dx)).div(&sy.div(&Rat::int(dy)));
+    cert(cd::f_test_p(&f, dx as f64, dy as f64))
+}
+/// The exact mean and centred sum of squares of a list of doubles.
+fn mean_and_squares(v: &[f64]) -> (Rat, Rat) {
+    let count = Rat::int(v.len() as i64);
+    let sum = v.iter().fold(Rat::int(0), |s, e| s.add(&Rat::f(*e)));
+    let mean = sum.div(&count);
+    // sum (e - mean)^2 = sum (n e - sum)^2 / n^2, one common denominator
+    let ss = v.iter().fold(Rat::int(0), |s, e| {
+        let d = Rat::f(*e).mul(&count).sub(&sum);
+        s.add(&d.mul(&d))
+    });
+    (mean, ss.div(&count.mul(&count)))
+}
+fn t_test(a: &[V]) -> Result<V, Failure> {
+    let (raw_x, raw_y) = match (cells(&arg(a, 0)), cells(&arg(a, 1))) {
+        (Ok(x), Ok(y)) => (x, y),
+        (Err(e), _) | (_, Err(e)) => return error(e),
+    };
+    let tails = parsed!(numeric(&arg(a, 2))).trunc();
+    let kind = parsed!(numeric(&arg(a, 3))).trunc();
+    if (tails != 1.0 && tails != 2.0) || !(1.0..=3.0).contains(&kind) {
+        return error(E::Num);
+    }
+    if kind == 1.0 && raw_x.len() != raw_y.len() {
+        return error(E::Na);
+    }
+    let (x, y): (Vec<f64>, Vec<f64>) = if kind == 1.0 {
+        raw_x.iter().zip(&raw_y).filter_map(|(p, q)| Some(((*p)?, (*q)?))).unzip()
+    } else {
+        (raw_x.into_iter().flatten().collect(), raw_y.into_iter().flatten().collect())
+    };
+    // t^2 and the degrees of freedom are exact rationals (paired differences formed exactly, no double rounding)
+    let (n1, n2) = (x.len() as i64, y.len() as i64);
+    let one = Rat::int(1);
+    let (t2, df) = match kind as u8 {
+        1 => {
+            if n1 < 2 {
+                return error(E::Div0);
+            }
+            let (m, ss) = paired_mean_and_squares(&x, &y);
+            if ss.is_zero() {
+                return error(E::Div0);
+            }
+            (m.mul(&m).mul(&Rat::int(n1 * (n1 - 1))).div(&ss), Rat::int(n1 - 1))
+        }
+        2 => {
+            if n1 < 1 || n2 < 1 || n1 + n2 <= 2 {
+                return error(E::Div0);
+            }
+            let ((m1, s1), (m2, s2)) = (mean_and_squares(&x), mean_and_squares(&y));
+            let pooled = s1.add(&s2).div(&Rat::int(n1 + n2 - 2));
+            let scale = pooled.mul(&one.div(&Rat::int(n1)).add(&one.div(&Rat::int(n2))));
+            if scale.is_zero() {
+                return error(E::Div0);
+            }
+            let d = m1.sub(&m2);
+            (d.mul(&d).div(&scale), Rat::int(n1 + n2 - 2))
+        }
+        _ => {
+            if n1 < 2 || n2 < 2 {
+                return error(E::Div0);
+            }
+            let ((m1, s1), (m2, s2)) = (mean_and_squares(&x), mean_and_squares(&y));
+            let v1 = s1.div(&Rat::int((n1 - 1) * n1));
+            let v2 = s2.div(&Rat::int((n2 - 1) * n2));
+            let v = v1.add(&v2);
+            if v.is_zero() {
+                return error(E::Div0);
+            }
+            let d = m1.sub(&m2);
+            let den = v1.mul(&v1).div(&Rat::int(n1 - 1)).add(&v2.mul(&v2).div(&Rat::int(n2 - 1)));
+            (d.mul(&d).div(&v), v.mul(&v).div(&den))
+        }
+    };
+    cert(cd::t_tail_rat(&t2, &df, tails as i64))
+}
+/// The exact mean and centred sum of squares of the paired differences.
+fn paired_mean_and_squares(x: &[f64], y: &[f64]) -> (Rat, Rat) {
+    let count = Rat::int(x.len() as i64);
+    let d: Vec<Rat> = x.iter().zip(y).map(|(p, q)| Rat::f(*p).sub(&Rat::f(*q))).collect();
+    let sum = d.iter().fold(Rat::int(0), |s, e| s.add(e));
+    let ss = d.iter().fold(Rat::int(0), |s, e| {
+        let c = e.mul(&count).sub(&sum);
+        s.add(&c.mul(&c))
+    });
+    (sum.div(&count), ss.div(&count.mul(&count)))
+}
+/// A range as rows of cells; a single column arrives as a flat array of scalars.
+fn grid(v: &V) -> Option<Vec<Vec<V>>> {
+    // a single-cell reference arrives as the cell's value: a 1x1 range
+    let V::Array(rows) = v else { return Some(vec![vec![v.clone()]]) };
+    Some(
+        rows.iter()
+            .map(|r| match r {
+                V::Array(cells) => cells.clone(),
+                cell => vec![cell.clone()],
+            })
+            .collect(),
+    )
 }
 fn chisq_test(a: &[V]) -> Result<V, Failure> {
     if a.len() != 2 {
         return error(E::Na);
     }
-    let (V::Array(x), V::Array(y)) = (&a[0], &a[1]) else {
+    let (Some(observed), Some(expected)) = (grid(&a[0]), grid(&a[1])) else {
         return error(E::Value);
     };
-    if x.len() != y.len() {
-        return error(E::Value);
-    }
-    if let (Some(x), Some(y)) = (x.first(), y.first())
-        && is_truthy(x)
-        && is_truthy(y)
-        && row_length(x) != row_length(y)
+    // Ranges of different shapes (or an empty one) are #N/A.
+    let columns = observed.first().map_or(0, Vec::len);
+    if observed.is_empty()
+        || observed.len() != expected.len()
+        || observed.iter().chain(&expected).any(|r| r.len() != columns)
     {
-        return error(E::Value);
+        return error(E::Na);
     }
-    let wrap = |a: &[V]| {
-        a.iter()
-            .map(|v| match v {
-                V::Array(row) => row.clone(),
-                v => vec![v.clone()],
-            })
-            .collect::<Vec<_>>()
-    };
-    let (x, y) = (wrap(x), wrap(y));
-    let rows = x.len();
-    let Some(first) = x.first() else {
-        return Err(Failure::thrown(
-            "Cannot read properties of undefined (reading 'length')",
-        ));
-    };
-    let columns = first.len();
-    let dof = if columns == 1 {
+    let rows = observed.len();
+    // A single cell has no degrees of freedom: #N/A, as Excel gives.
+    if rows == 1 && columns == 1 {
+        return error(E::Na);
+    }
+    // An error cell is the result (the observed range is read before the expected one); a pair in which either cell
+    // is text, a logical or blank is left out of the statistic while the degrees of freedom keep the range's shape.
+    for cell in observed.iter().chain(&expected).flatten() {
+        if let V::Error(e) = cell {
+            return error(*e);
+        }
+    }
+    // the statistic sum (o - e)^2 / e is accumulated exactly
+    let mut statistic = Rat::int(0);
+    for (orow, erow) in observed.iter().zip(&expected) {
+        for (o, e) in orow.iter().zip(erow) {
+            let (V::Number(o), V::Number(e)) = (o, e) else { continue };
+            if *e == 0.0 {
+                return error(E::Div0);
+            }
+            let d = Rat::f(*o).sub(&Rat::f(*e));
+            statistic = statistic.add(&d.mul(&d).div(&Rat::f(*e)));
+        }
+    }
+    let df = if rows == 1 {
+        columns as f64 - 1.0
+    } else if columns == 1 {
         rows as f64 - 1.0
     } else {
         (rows as f64 - 1.0) * (columns as f64 - 1.0)
     };
-    let mut statistic = n(0.0);
-    for i in 0..rows {
-        for k in 0..columns {
-            let observed = n(raw(x[i].get(k).unwrap_or(&V::Undefined)));
-            let expected = n(raw(y[i].get(k).unwrap_or(&V::Undefined)));
-            statistic += j::pow(observed - expected, 2.0) / expected;
-        }
+    if df < 1.0 {
+        return error(E::Div0);
     }
-    let mut p = j::exp(-0.5 * statistic);
-    if dof % 2.0 == 1.0 {
-        p *= j::sqrt((2.0 * statistic) / std::f64::consts::PI);
+    // negative expected cells can make the statistic negative: #NUM! as before (outside the chi-square domain)
+    if statistic.sign() == std::cmp::Ordering::Less {
+        return error(E::Num);
     }
-    let mut k = n(dof);
-    while k >= 2.0 {
-        p = (p * statistic) / k;
-        k -= 2.0;
-    }
-    let (mut t, mut next) = (p, n(dof));
-    while t > 0.0000000001 * p {
-        next += 2.0;
-        t = (t * statistic) / next;
-        p += t;
-    }
-    value(n(mixdog_js::math::round(((1.0 - p) * 1000000.0).0)) / 1000000.0)
+    cert(cd::chisq_upper_rat(&statistic, df))
 }
 
 macro_rules! functions {($( $rust:ident => $name:literal ),+ $(,)?)=>{$(fn $rust(a:&[V])->Result<V,Failure>{run($name,a)})+};}
@@ -560,23 +1047,23 @@ functions! {
  chisq_dist=>"CHISQ.DIST",chisq_rt=>"CHISQ.DIST.RT",chisq_inv=>"CHISQ.INV",chisq_inv_rt=>"CHISQ.INV.RT",chisq_test_fn=>"CHISQ.TEST",
  confidence_norm=>"CONFIDENCE.NORM",confidence_t=>"CONFIDENCE.T",expon_dist=>"EXPON.DIST",f_dist=>"F.DIST",f_rt=>"F.DIST.RT",f_inv=>"F.INV",f_inv_rt=>"F.INV.RT",f_test_fn=>"F.TEST",
  gamma=>"GAMMA",gamma_dist=>"GAMMA.DIST",gamma_inv=>"GAMMA.INV",gammaln=>"GAMMALN",gammaln_precise=>"GAMMALN.PRECISE",gauss=>"GAUSS",hypgeom=>"HYPGEOM.DIST",lognorm_dist=>"LOGNORM.DIST",lognorm_inv=>"LOGNORM.INV",negbinom=>"NEGBINOM.DIST",
- norm_dist=>"NORM.DIST",norm_inv=>"NORM.INV",norm_s_dist=>"NORM.S.DIST",norm_s_inv=>"NORM.S.INV",phi=>"PHI",poisson=>"POISSON.DIST",prob_fn=>"PROB",t_dist=>"T.DIST",t_2t=>"T.DIST.2T",t_rt=>"T.DIST.RT",t_inv=>"T.INV",t_inv_2t=>"T.INV.2T",t_test_fn=>"T.TEST",weibull=>"WEIBULL.DIST",z_test=>"Z.TEST",
+ norm_dist=>"NORM.DIST",norm_inv=>"NORM.INV",norm_s_dist=>"NORM.S.DIST",norm_s_inv=>"NORM.S.INV",phi=>"PHI",poisson=>"POISSON.DIST",prob_fn=>"PROB",hypgeomdist=>"HYPGEOMDIST",negbinomdist=>"NEGBINOMDIST",chidist=>"CHIDIST",chiinv=>"CHIINV",fdist=>"FDIST",finv=>"FINV",tinv=>"TINV",normsdist=>"NORMSDIST",lognormdist=>"LOGNORMDIST",betadist=>"BETADIST",t_dist=>"T.DIST",tdist=>"TDIST",t_2t=>"T.DIST.2T",t_rt=>"T.DIST.RT",t_inv=>"T.INV",t_inv_2t=>"T.INV.2T",t_test_fn=>"T.TEST",weibull=>"WEIBULL.DIST",z_test=>"Z.TEST",
 }
 
 pub const FUNCTIONS: Table = &[
     ("BETA.DIST", beta_dist),
     ("BETA.INV", beta_inv),
-    ("BETADIST", beta_dist),
+    ("BETADIST", betadist),
     ("BETAINV", beta_inv),
     ("BINOM.DIST", binom_dist),
     ("BINOM.DIST.RANGE", binom_range),
     ("BINOM.INV", binom_inv),
     ("BINOMDIST", binom_dist),
     ("BINOMDIST.RANGE", binom_range),
-    ("CHIDIST", chisq_dist),
+    ("CHIDIST", chidist),
     ("CHIDIST.RT", chisq_rt),
     ("CHIDISTRT", chisq_rt),
-    ("CHIINV", chisq_inv),
+    ("CHIINV", chiinv),
     ("CHIINV.RT", chisq_inv_rt),
     ("CHIINVRT", chisq_inv_rt),
     ("CHISQ.DIST", chisq_dist),
@@ -595,10 +1082,10 @@ pub const FUNCTIONS: Table = &[
     ("F.INV", f_inv),
     ("F.INV.RT", f_inv_rt),
     ("F.TEST", f_test_fn),
-    ("FDIST", f_dist),
+    ("FDIST", fdist),
     ("FDIST.RT", f_rt),
     ("FDISTRT", f_rt),
-    ("FINV", f_inv),
+    ("FINV", finv),
     ("FINV.RT", f_inv_rt),
     ("FINVRT", f_inv_rt),
     ("FTEST", f_test_fn),
@@ -612,21 +1099,21 @@ pub const FUNCTIONS: Table = &[
     ("GAMMALNPRECISE", gammaln_precise),
     ("GAUSS", gauss),
     ("HYPGEOM.DIST", hypgeom),
-    ("HYPGEOMDIST", hypgeom),
+    ("HYPGEOMDIST", hypgeomdist),
     ("LOGINV", lognorm_inv),
     ("LOGNORM.DIST", lognorm_dist),
     ("LOGNORM.INV", lognorm_inv),
-    ("LOGNORMDIST", lognorm_dist),
+    ("LOGNORMDIST", lognormdist),
     ("LOGNORMINV", lognorm_inv),
     ("NEGBINOM.DIST", negbinom),
-    ("NEGBINOMDIST", negbinom),
+    ("NEGBINOMDIST", negbinomdist),
     ("NORM.DIST", norm_dist),
     ("NORM.INV", norm_inv),
     ("NORM.S.DIST", norm_s_dist),
     ("NORM.S.INV", norm_s_inv),
     ("NORMDIST", norm_dist),
     ("NORMINV", norm_inv),
-    ("NORMSDIST", norm_s_dist),
+    ("NORMSDIST", normsdist),
     ("NORMSINV", norm_s_inv),
     ("PHI", phi),
     ("POISSON.DIST", poisson),
@@ -638,11 +1125,11 @@ pub const FUNCTIONS: Table = &[
     ("T.INV", t_inv),
     ("T.INV.2T", t_inv_2t),
     ("T.TEST", t_test_fn),
-    ("TDIST", t_dist),
+    ("TDIST", tdist),
     ("TDIST.2T", t_2t),
     ("TDIST.RT", t_rt),
     ("TDISTRT", t_rt),
-    ("TINV", t_inv),
+    ("TINV", tinv),
     ("TINV.2T", t_inv_2t),
     ("TTEST", t_test_fn),
     ("WEIBULL.DIST", weibull),

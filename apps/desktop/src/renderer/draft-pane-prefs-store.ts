@@ -1,5 +1,11 @@
-import type { DesktopModelSelection, DesktopOrchestrationMode, DesktopWorkflowState } from '../shared/contract';
-import type { Snapshot } from './desktop-types';
+import type {
+  DesktopModelSelection,
+  DesktopOrchestrationMode,
+  DesktopWorkflowState,
+  SessionSnapshot,
+} from '../shared/contract';
+import type { RecordValue, Snapshot } from './desktop-types';
+import { record } from './record-utils';
 import { listPresetsShared } from './sidebar-reference-cache';
 import { asRecord } from './text-format';
 
@@ -45,11 +51,41 @@ export function submittedDraftRoute(prefs: ResolvedDraftPrefs | null | undefined
 
 type CapabilityReader = Parameters<typeof listPresetsShared>[0];
 
-/** The Main (Lead) route the host currently holds, read from the host's own
- *  control session. Null when the host has no Main model or cannot answer. */
+/** `{ fallbacks }` of the Lead preset (workflow-lead) in a presets list; nothing when it has none. */
+export function leadFallbacksOf(presets: unknown): { fallbacks?: RecordValue[] } {
+  const lead = (Array.isArray(presets) ? presets : []).find((entry) => record(entry).id === 'workflow-lead');
+  const fallbacks = record(lead).fallbacks;
+  return Array.isArray(fallbacks) && fallbacks.length ? { fallbacks: fallbacks as RecordValue[] } : {};
+}
+
+/** The Lead route the runtime uses for new sessions: the stored Lead preset
+ *  (workflow-lead) when there is one, else the host's current route. A New
+ *  task pick rewrites that preset, so this follows it. */
+export function leadRouteFrom(snapshotRoute: RecordValue, presets: unknown): RecordValue {
+  const lead = (Array.isArray(presets) ? presets : []).find((entry) => record(entry).id === 'workflow-lead');
+  const stored = record(lead);
+  if (!stored.provider || !stored.model) return snapshotRoute;
+  const { id: _id, name: _name, type: _type, tools: _tools, ...route } = stored;
+  // The preset stores no context window: the host's resolved one stands only
+  // for the same model, never another model's.
+  const sameModel = snapshotRoute.provider === stored.provider && snapshotRoute.model === stored.model;
+  const context = sameModel
+    ? {
+        ...(snapshotRoute.contextPercent === undefined ? {} : { contextPercent: snapshotRoute.contextPercent }),
+        ...(snapshotRoute.contextTokens === undefined ? {} : { contextTokens: snapshotRoute.contextTokens }),
+      }
+    : {};
+  return { ...context, ...route, ...leadFallbacksOf(presets) };
+}
+
+/** The Main (Lead) route a new task starts on, by the same rule the Workflows
+ *  Lead row reads (`leadRouteFrom`): the window's shell snapshot can predate a
+ *  Lead saved since. Null when the host has no Main model or cannot answer. */
 export async function readHostMainRoute(api: CapabilityReader | undefined): Promise<DesktopModelSelection | null> {
   const result = await listPresetsShared(api);
-  return result?.snapshot ? draftModelSelectionFromSnapshot(result.snapshot as Snapshot) : null;
+  if (!result) return null;
+  const route = leadRouteFrom({ ...draftModelSelectionFromSnapshot(result.snapshot ?? undefined) }, result.value);
+  return route.provider && route.model ? (route as unknown as DesktopModelSelection) : null;
 }
 
 /** A first-touch entry: every field inherits live until the user stages it. */
@@ -101,7 +137,9 @@ export function resolvedStoredProjectPath(stored: string, resolve: (candidate: s
   return resolve(stored) || null;
 }
 
-export const draftModelSelectionFromSnapshot = (snapshot: Snapshot): DesktopModelSelection | null => {
+export const draftModelSelectionFromSnapshot = (snapshot: Snapshot | SessionSnapshot | undefined): DesktopModelSelection | null => {
+  // The host holds no shell snapshot until a session start publishes one (`getSnapshot` is null then, in Node too).
+  if (!snapshot) return null;
   const provider = String(snapshot.provider || '');
   const model = String(snapshot.model || '');
   if (!provider || !model) return null;

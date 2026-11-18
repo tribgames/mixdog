@@ -48,6 +48,9 @@ const DAEMON_UNHEALTHY: &str = "daemon-unhealthy";
 pub struct RemoteDiscovery {
     /// The WebSocket listener; `None` while the core does not serve (no `rpc`).
     pub rpc_port: Option<u16>,
+    /// The listener an ssh forward targets (`core.sshRpc`): what it accepts is an ssh connection to the core. `None` for a core
+    /// that does not serve yet or is too old to have one.
+    pub ssh_rpc_port: Option<u16>,
     /// The control listener (`/mgmt/*`, `/health`).
     pub control_port: u16,
     /// The one token that opens both listeners.
@@ -125,6 +128,7 @@ fn discovery_of(value: &Value) -> Option<RemoteDiscovery> {
     let field = |name: &str| text_of(core.get(name)).unwrap_or_default().to_owned();
     Some(RemoteDiscovery {
         rpc_port: port_of(core.get("rpc").and_then(|rpc| rpc.get("port"))),
+        ssh_rpc_port: port_of(core.get("sshRpc").and_then(|rpc| rpc.get("port"))),
         control_port,
         token: token.to_owned(),
         pid,
@@ -222,7 +226,9 @@ fn parse_remote_output(stdout: &str) -> Result<ParsedOutput, RemoteBootstrapErro
         if let Some(rest) = line.strip_prefix("MIXDOG_ERROR ")
             && let Some((code, message)) = rest.split_once(' ').filter(|(code, _)| !code.is_empty() && !code.contains(char::is_whitespace))
         {
-            return Err(RemoteBootstrapError::from_wire(code, message, parse_drain_line(&lines)));
+            let mut error = RemoteBootstrapError::from_wire(code, message, parse_drain_line(&lines));
+            error.notice = parse_notice_line(&lines);
+            return Err(error);
         }
         let Some(result) = line.strip_prefix("MIXDOG_RESULT ") else { continue };
         // A torn result line is no result.
@@ -231,7 +237,14 @@ fn parse_remote_output(stdout: &str) -> Result<ParsedOutput, RemoteBootstrapErro
         }
         break;
     }
-    Err(RemoteBootstrapError::new(BootstrapCode::Protocol, "The server returned no bootstrap result."))
+    Err(RemoteBootstrapError::said(BootstrapCode::Protocol, crate::said::NO_BOOTSTRAP_RESULT.plain()))
+}
+
+/// The `MIXDOG_NOTICE <json>` line before an error line: the sentence the server program (or its shell) means, by code, with the
+/// parameters. An older server prints none, so the error's own English text is what shows.
+fn parse_notice_line(lines: &[&str]) -> Option<mixdog_app_protocol::v2::connections::SshMessage> {
+    let json = lines.iter().rev().find_map(|line| line.strip_prefix("MIXDOG_NOTICE "))?;
+    serde_json::from_str::<mixdog_app_protocol::v2::connections::SshMessage>(json).ok().filter(|message| !message.code.is_empty())
 }
 
 /// The report of a server run's stdout (tests and callers that ran the program themselves).
@@ -281,7 +294,7 @@ impl<'a, P: mixdog_fsio::ReadProof> StagedPayloads<'a, P> {
         let dir = env
             .server_cores_dir
             .clone()
-            .ok_or_else(|| RemoteBootstrapError::new(BootstrapCode::LocalPayload, "This desktop has no staged Mixdog server runtimes."))?;
+            .ok_or_else(|| RemoteBootstrapError::said(BootstrapCode::LocalPayload, crate::said::APP_LACKS_FILES.plain()))?;
         let manifest = ServerManifest::load(proof, &dir)?;
         let identity = ServerIdentity { version: manifest.version.clone(), build: manifest.build.clone() };
         Ok(Self { proof, dir, manifest, identity })
@@ -344,16 +357,18 @@ impl Remote<'_> {
             let lines: Vec<&str> = run.stderr.trim().lines().collect();
             let detail = lines[lines.len().saturating_sub(6)..].join("\n");
             let suffix = if detail.is_empty() { String::new() } else { format!("\n{detail}") };
-            return Err(RemoteBootstrapError::from_wire(
-                REMOTE_SHELL,
-                format!("Remote bootstrap exited with status {}.{suffix}", run.exit_code),
-                None,
-            )
-            .into());
+            let mut said = crate::said::BOOTSTRAP_EXITED.said([("status", run.exit_code)]);
+            said.english.push_str(&suffix);
+            if !detail.is_empty() {
+                said.message.params.insert("detail".to_owned(), detail);
+            }
+            let mut error = RemoteBootstrapError::from_wire(REMOTE_SHELL, said.english, None);
+            error.notice = Some(said.message);
+            return Err(error.into());
         }
         let ParsedOutput { value, platform } = parse_remote_output(&run.stdout)?;
         let platform =
-            platform.ok_or_else(|| RemoteBootstrapError::new(BootstrapCode::Protocol, "The server did not report its platform."))?;
+            platform.ok_or_else(|| RemoteBootstrapError::said(BootstrapCode::Protocol, crate::said::NO_PLATFORM.plain()))?;
         Ok((value, platform))
     }
 
@@ -420,16 +435,32 @@ pub enum BootstrapPhase {
 pub struct BootstrapOptions<'a> {
     /// Whose provider logins the core runs models on; `None` is this PC's.
     pub model_login: Option<ModelLogin>,
+    /// The host's own grace in ms (`RemoteSessionConfig.grace_ms`): the launched core's wait for a client to come back.
+    pub grace_ms: Option<u64>,
     /// Where the runtime to upload comes from.
     pub payloads: &'a dyn ServerPayloads,
     pub progress: &'a (dyn Fn(BootstrapPhase) + Sync),
 }
 
+#[cfg(test)]
+#[path = "bootstrap_ready_tests.rs"]
+mod bootstrap_ready_tests;
+
+/// Whether the core can be attached to over SSH: serving, healthy, the intended identity and mode, and an SSH listener published.
+/// The one check of both the fast path and the ensure result. A core that is not serving or not the intended one is the
+/// ensure run's to fix (it replaces or starts it); a serving core of the intended build without the SSH listener is final.
 fn ready(report: RemoteReport) -> Result<RemoteReport, ConnectError> {
     if report.healthy && report.core_current && report.serving().is_some() {
+        if report.discovery.as_ref().is_some_and(|discovery| discovery.ssh_rpc_port.is_none()) {
+            let name = report.discovery.as_ref().map_or_else(String::new, |discovery| format!("{} ({})", discovery.version, discovery.build));
+            return Err(RemoteBootstrapError::said(BootstrapCode::ServerUpgradeRequired, crate::said::SERVER_UPGRADE_REQUIRED.said([("server", name)])).into());
+        }
         return Ok(report);
     }
-    Err(RemoteBootstrapError::from_wire(DAEMON_UNHEALTHY, "The Mixdog core on the server is not serving.", None).into())
+    let said = crate::said::SERVER_NOT_READY_UNNAMED.plain();
+    let mut error = RemoteBootstrapError::from_wire(DAEMON_UNHEALTHY, said.english, None);
+    error.notice = Some(said.message);
+    Err(error.into())
 }
 
 /// Probes the server, uploads this desktop's runtime when its version directory is missing, and makes sure the core
@@ -448,6 +479,8 @@ pub async fn bootstrap(
     if options.model_login == Some(ModelLogin::Server) {
         base.model_login = Some(WireModelLogin::Server);
     }
+    // Probe and ensure both carry it (the ensure is cloned from this): the core is started with it, and a changed value applies from the next start.
+    base.grace_ms = options.grace_ms;
     let (probed, platform) = remote.run(&base, REMOTE_PROBE_TIMEOUT, None).await?;
     let probe = report_of(&probed);
     let core = probe.discovery.as_ref().map_or_else(|| "none".to_owned(), |found| format!("{}/{}", found.version, found.build));

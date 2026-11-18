@@ -81,12 +81,21 @@ pub fn plugins_announce(data_dir: PathBuf, durability: DurabilityIo) -> Arc<dyn 
 #[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]
 mod tests {
     use super::*;
-    use crate::domain_seams::golden;
+    use serde_json::json;
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_marker_bytes_match_nodes_for_each_prior_marker() {
-        let marker = &golden()["marker"];
-        let (pid, now, uuid) = (marker["pid"].as_u64().unwrap() as u32, marker["now"].as_u64().unwrap() as u128, marker["uuid"].as_str().unwrap());
+    async fn the_marker_file_keeps_the_other_entries_and_replaces_its_own() {
+        let uuid = "0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b";
+        let own = "4242:1700000000000:0b4f6a55-1c2d-4e3f-8a9b-0c1d2e3f4a5b";
+        let marker = json!({"cases": [
+            {"name": "none", "prior": null, "file": format!("{{\n  \"#plugins\": \"{own}\"\n}}\n")},
+            {"name": "keeps-others", "prior": r##"{"openai":"t0","#deleted":"d0"}"##,
+             "file": format!("{{\n  \"openai\": \"t0\",\n  \"#deleted\": \"d0\",\n  \"#plugins\": \"{own}\"\n}}\n")},
+            {"name": "replaces-own", "prior": r##"{"#plugins":"old","openai":"t0"}"##,
+             "file": format!("{{\n  \"#plugins\": \"{own}\",\n  \"openai\": \"t0\"\n}}\n")},
+            {"name": "array-starts-over", "prior": "[1]", "file": format!("{{\n  \"#plugins\": \"{own}\"\n}}\n")}
+        ]});
+        let (pid, now) = (4242_u32, 1_700_000_000_000_u128);
         let lane = mixdog_rt::testing::tokens().durability_io;
         for case in marker["cases"].as_array().unwrap() {
             let dir = tempfile::tempdir().unwrap();

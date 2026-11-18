@@ -29,12 +29,22 @@ mod service;
 pub mod store_migration;
 #[cfg(test)]
 mod api_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod lead_twin_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod home_api_tests;
 #[cfg(test)]
-mod lifecycle_twin_tests;
+mod lifecycle_tests;
+#[cfg(test)]
+mod definition_tests;
+#[cfg(test)]
+mod catalog_tests;
+#[cfg(test)]
+mod memory_tests;
+#[cfg(test)]
+mod lead_tests;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 pub(crate) mod tests;
@@ -70,10 +80,11 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-pub use self::connectors::ApprovedToolChange;
 pub use self::connectors::NO_WIDEN;
 pub use self::connectors::Parsed;
 pub use self::connectors::Stored;
+pub use self::connectors::TOOL_ALREADY;
+pub use self::connectors::TOOL_NARROWED;
 use mixdog_mcp::permissions::read_raw_policy;
 pub use self::files::AgentDefinition;
 pub use self::files::ArchivedIdentity;
@@ -140,8 +151,6 @@ pub struct OwnedRoutines {
 pub struct SaveOptions {
     /// For a remote client: the connector policy may not give any tool more authority.
     pub no_widen: bool,
-    /// Inside `withApprovedConnectorToolChange`: with `no_widen`, only this change may widen.
-    pub approved: Option<ApprovedToolChange>,
 }
 
 /// The write side: where it runs and what a change sets going.
@@ -333,7 +342,7 @@ impl AgentDefinitions {
         let plan = self.job(move |folders, lane| edit::plan_save(folders, lane, &planned, Some(&fixed))).await?.map_err(AgentsError::Refused)?;
         let (given, id) = (payload.clone(), plan.id.clone());
         let (done, _turn) = self
-            .write_job(writes, turn, move |folders, lane| edit::save_files(folders, lane, &plan, &given, options.no_widen.then_some(options.approved.as_ref()), &*now))
+            .write_job(writes, turn, move |folders, lane| edit::save_files(folders, lane, &plan, &given, options.no_widen.then_some(None), &*now))
             .await?;
         let done = done.map_err(AgentsError::Refused)?;
         if done.reclaimed {
@@ -554,19 +563,19 @@ impl AgentDefinitions {
 
     /// The facts the two migrations read before their lane job: which homes hold the creation greeting, Mixy's thread
     /// route and what she was told, the routes the config holds.
-    async fn store_facts(&self) -> Result<store_migration::Facts, AgentsError> {
+    async fn store_facts(&self, evidence: &dyn AgentEvidence) -> Result<store_migration::Facts, AgentsError> {
         let ids = self.job(move |folders, _| store_migration::evidence_candidates(&folders.data, &folders.shipped)).await?;
         let mut facts = store_migration::Facts { shipped: self.folders.shipped.clone(), hidden: (*self.folders.hidden).clone(), ..Default::default() };
         for id in &ids {
-            if self.evidence.home_greeted(id).await {
+            if evidence.home_greeted(id).await {
                 facts.greeted.insert(id.clone());
             }
             if let Some(route) = self.routes.config_route(id) {
                 facts.routes.insert(id.clone(), route);
             }
         }
-        facts.mixy_chatted = self.evidence.home_chatted(MIXY_AGENT_ID).await;
-        facts.mixy_thread_route = self.evidence.home_thread_route(MIXY_AGENT_ID).await;
+        facts.mixy_chatted = evidence.home_chatted(MIXY_AGENT_ID).await;
+        facts.mixy_thread_route = evidence.home_thread_route(MIXY_AGENT_ID).await;
         facts.lead_route = self.main();
         Ok(facts)
     }
@@ -574,9 +583,9 @@ impl AgentDefinitions {
     /// The one-time `kind: agent` stamp, then the bot split and its re-sync (`migrateAgentKindMarkers`, `migrateBotStore`):
     /// the stamp runs first so a workflow agent is never copied to `bots/`. `backup(lane, reason)` is the user-data backup of
     /// `agents/` and `bots/` that precedes the first write. Each step reports its own failure and is retried at the next start.
-    pub async fn migrate_agent_store(&self, backup: AgentStoreBackup) -> Result<(store_migration::KindReport, store_migration::SplitReport), AgentsError> {
+    pub async fn migrate_agent_store(&self, evidence: &dyn AgentEvidence, backup: AgentStoreBackup) -> Result<(store_migration::KindReport, store_migration::SplitReport), AgentsError> {
         let writes = self.writes()?;
-        let facts = Arc::new(self.store_facts().await?);
+        let facts = Arc::new(self.store_facts(evidence).await?);
         let data = self.folders.data.clone();
         let stage = {
             let (data, facts, backup) = (data.clone(), facts.clone(), backup.clone());
@@ -601,7 +610,10 @@ impl AgentDefinitions {
             report
         };
         // The routes the stamp restored are read again for the split.
-        let facts = if kinds.restored.is_empty() { facts } else { Arc::new(self.store_facts().await?) };
+        if kinds.failed {
+            return Ok((kinds, store_migration::SplitReport { skipped: true, ..Default::default() }));
+        }
+        let facts = if kinds.restored.is_empty() { facts } else { Arc::new(self.store_facts(evidence).await?) };
         let split = {
             let (data, backup, now) = (data.clone(), backup.clone(), (writes.now)());
             let (report, _) = self.write_job(&writes, None, move |_, lane| store_migration::migrate_bots_to_own_store(lane, &data, &facts, &now, &|lane| backup(lane, "bot-split"))).await?;
@@ -859,3 +871,5 @@ impl AgentCatalog for AgentDefinitions {
         AgentDefinitions::task_workspace(self).await.unwrap_or_else(|_| display_path(&self.task_workspace))
     }
 }
+#[cfg(test)]
+mod pool_list_rules_tests;

@@ -2137,6 +2137,23 @@
       ],
       "type": "object"
     },
+    "HostComputerRevokeScopesParams": {
+      "description": "Params of `host/computer/revokeScopes` (core -> host): automation scopes Computer Use switched off has revoked. Every other `host/computer/*` request of a session names its scope as `automationScope` (a whole number); the desktop keeps a revocable context per scope and connection, commits its effects under it, and answers this once its contexts of `scopes` refuse every effect. A revoked scope never holds again; one first named here is born revoked.",
+      "properties": {
+        "scopes": {
+          "items": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "scopes"
+      ],
+      "type": "object"
+    },
     "HostFileSnapshotParams": {
       "description": "Params of `host/capture/fileSnapshot` (core → host). The core has already confined the path.",
       "properties": {
@@ -2735,6 +2752,29 @@
           "type": "object"
         },
         {
+          "description": "A send whose transcript a session of the server owns: the PC posts each attempt only as that owner judges it, asking with [`ProxyEvent::TailAsk`] immediately before the POST and returning its usage with [`ProxyEvent::TailSettle`]; the owner answers each ask with `model/proxy/tail`. A PC that does not know this call never claims it.",
+          "properties": {
+            "method": {
+              "enum": [
+                "sessionSend"
+              ],
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/definitions/ProxyRequest"
+            }
+          },
+          "required": [
+            "method",
+            "provider",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
           "description": "`listModels`; `refresh` re-reads the provider first (`_refreshModelCache`).",
           "properties": {
             "method": {
@@ -3315,6 +3355,7 @@
       "oneOf": [
         {
           "properties": {
+            "cacheControl": true,
             "text": {
               "type": "string"
             },
@@ -4913,6 +4954,29 @@
         },
         "params": {
           "$ref": "#/definitions/HostComputerPermissionsParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Revokes automation scopes Computer Use switched off revoked; answered once the desktop refuses their effects.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/computer/revokeScopes"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostComputerRevokeScopesParams"
         }
       },
       "required": [

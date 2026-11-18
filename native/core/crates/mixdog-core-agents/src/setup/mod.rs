@@ -28,6 +28,7 @@ mod workflow_status;
 mod tests;
 
 pub use agent_settings::AgentSettingsSetup;
+pub(crate) use agent_settings::Approval;
 pub use agent_settings::ACTIONS as AGENT_SETTINGS_ACTIONS;
 pub use agent_settings::GateWidenCards;
 pub use agent_settings::CardAnswer;
@@ -266,6 +267,74 @@ pub struct SetupService {
     ui: Option<Arc<dyn SetupUiSurface>>,
     readers: HashMap<&'static str, Arc<dyn StatusReader>>,
 }
+
+/// The `appliesTo` of a saved `lead` permission row: the row is Mixy's own policy (the gate reads it for her sessions and
+/// unattended runs and never for a coding Lead), so the receipt says where it is enforced and where it is not.
+const LEAD_PERMISSION_APPLIES_TO: &str = "Mixy's next action of the kind, in her sessions and her unattended runs; coding Lead sessions have no outbound rule here (they pass unless a hook asks)";
+
+fn receipt(action: &str, result: Value) -> String {
+    let mut out = Map::new();
+    if !BACKGROUND.contains(&action) {
+        out.insert("saved".into(), Value::Bool(true));
+    }
+    out.insert("scope".into(), Value::String("installation".into()));
+    let applies = if action == "set_agent_permission" && result.get("agent").and_then(Value::as_str) == Some("lead") {
+        LEAD_PERMISSION_APPLIES_TO
+    } else {
+        applies_to(action)
+    };
+    out.insert("appliesTo".into(), Value::String(applies.into()));
+    match result {
+        Value::Object(fields) => out.extend(fields),
+        Value::Null => {}
+        other => {
+            out.insert("result".into(), other);
+        }
+    }
+    serde_json::to_string_pretty(&Value::Object(out)).expect("receipts serialize")
+}
+
+#[async_trait]
+impl ToolService for SetupService {
+    async fn call(&self, call: ServiceCall<'_>) -> Result<Vec<ToolPart>, PortError> {
+        let args: &Value = call.args;
+        let action = args
+            .get("action")
+            .and_then(Value::as_str)
+            .map(mixdog_js::js_trim)
+            .filter(|action| !action.is_empty())
+            .ok_or_else(|| invalid("action", "action must be one of the setup actions"))?;
+        // `validateSetupInput`, before the caller gate: GitHub is the signed-in CLI, not a
+        // catalog connector.
+        if action == "connect_connector"
+            && args.get("connector").map(mixdog_js::value_to_string).is_some_and(|name| mixdog_js::js_trim(&name).to_lowercase() == "github")
+        {
+            return Err(PortError::Failed {
+                capability: "setup".into(),
+                message: "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.".into(),
+            });
+        }
+        self.authorize(call.thread, action, args).await?;
+        let setup = SetupCall { action, args, thread: call.thread };
+        let result = if NATIVE.contains(&action) {
+            self.native(&setup).await?
+        } else if let Some(owner) = self.owners.get(action) {
+            owner.run(&setup).await?
+        } else {
+            return Err(PortError::Unavailable {
+                capability: format!("setup.{action}"),
+                message: format!("setup {action} has no owner registered"),
+            });
+        };
+        let text = if READ_ONLY.contains(&action) {
+            serde_json::to_string(&result).expect("results serialize")
+        } else {
+            receipt(action, result)
+        };
+        Ok(vec![ToolPart::Text(text)])
+    }
+}
+
 
 impl SetupService {
     /// Registers the `status` domains a reader answers (the state is its owner's).
@@ -560,71 +629,4 @@ impl SetupService {
         Ok(serde_json::json!({ "voice": voice, "appliesTo": VOICE_APPLIES_TO }))
     }
 
-}
-
-/// The `appliesTo` of a saved `lead` permission row: the row is Mixy's own policy (the gate reads it for her sessions and
-/// unattended runs and never for a coding Lead), so the receipt says where it is enforced and where it is not.
-const LEAD_PERMISSION_APPLIES_TO: &str = "Mixy's next action of the kind, in her sessions and her unattended runs; coding Lead sessions have no outbound rule here (they pass unless a hook asks)";
-
-fn receipt(action: &str, result: Value) -> String {
-    let mut out = Map::new();
-    if !BACKGROUND.contains(&action) {
-        out.insert("saved".into(), Value::Bool(true));
-    }
-    out.insert("scope".into(), Value::String("installation".into()));
-    let applies = if action == "set_agent_permission" && result.get("agent").and_then(Value::as_str) == Some("lead") {
-        LEAD_PERMISSION_APPLIES_TO
-    } else {
-        applies_to(action)
-    };
-    out.insert("appliesTo".into(), Value::String(applies.into()));
-    match result {
-        Value::Object(fields) => out.extend(fields),
-        Value::Null => {}
-        other => {
-            out.insert("result".into(), other);
-        }
-    }
-    serde_json::to_string_pretty(&Value::Object(out)).expect("receipts serialize")
-}
-
-#[async_trait]
-impl ToolService for SetupService {
-    async fn call(&self, call: ServiceCall<'_>) -> Result<Vec<ToolPart>, PortError> {
-        let args: &Value = call.args;
-        let action = args
-            .get("action")
-            .and_then(Value::as_str)
-            .map(mixdog_js::js_trim)
-            .filter(|action| !action.is_empty())
-            .ok_or_else(|| invalid("action", "action must be one of the setup actions"))?;
-        // `validateSetupInput`, before the caller gate: GitHub is the signed-in CLI, not a
-        // catalog connector.
-        if action == "connect_connector"
-            && args.get("connector").map(mixdog_js::value_to_string).is_some_and(|name| mixdog_js::js_trim(&name).to_lowercase() == "github")
-        {
-            return Err(PortError::Failed {
-                capability: "setup".into(),
-                message: "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.".into(),
-            });
-        }
-        self.authorize(call.thread, action, args).await?;
-        let setup = SetupCall { action, args, thread: call.thread };
-        let result = if NATIVE.contains(&action) {
-            self.native(&setup).await?
-        } else if let Some(owner) = self.owners.get(action) {
-            owner.run(&setup).await?
-        } else {
-            return Err(PortError::Unavailable {
-                capability: format!("setup.{action}"),
-                message: format!("setup {action} has no owner registered"),
-            });
-        };
-        let text = if READ_ONLY.contains(&action) {
-            serde_json::to_string(&result).expect("results serialize")
-        } else {
-            receipt(action, result)
-        };
-        Ok(vec![ToolPart::Text(text)])
-    }
 }

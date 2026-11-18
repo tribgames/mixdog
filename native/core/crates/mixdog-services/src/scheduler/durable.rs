@@ -16,7 +16,7 @@ use super::store::{Clock, ScheduleRecords, ScheduleStore, Ts};
 
 pub const KEY_PREFIX: &str = "schedule:";
 
-fn key(name: &str) -> String {
+pub(super) fn key(name: &str) -> String {
     format!("{KEY_PREFIX}{name}")
 }
 
@@ -32,7 +32,7 @@ fn read_row(tx: &StateTx<'_>, name: &str) -> Result<Option<Schedule>, DbError> {
     tx.meta(&key(name))?.map(|text| parse(name, &text)).transpose()
 }
 
-fn write_row(tx: &StateTx<'_>, row: &Schedule) -> Result<(), DbError> {
+pub(super) fn write_row(tx: &StateTx<'_>, row: &Schedule) -> Result<(), DbError> {
     let text = serde_json::to_string(row).map_err(|e| DbError::Write(e.to_string()))?;
     tx.put_meta(&key(&row.name), &text)
 }

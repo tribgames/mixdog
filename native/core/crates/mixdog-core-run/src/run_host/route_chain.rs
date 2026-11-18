@@ -46,8 +46,6 @@ impl std::fmt::Display for RouteReadUnavailable {
     }
 }
 
-impl std::error::Error for RouteReadUnavailable {}
-
 const LEAF_FIELDS: [&str; 6] = ["effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
 
 fn truthy(v: Option<&Value>) -> Option<&Value> {
@@ -303,8 +301,10 @@ pub async fn primary_route(session: &Value, config: &Obj, bots: &dyn BotRoutes) 
 mod tests {
     use super::*;
 
+    #[cfg(node_twin)]
     struct Bots;
     #[async_trait::async_trait]
+    #[cfg(node_twin)]
     impl BotRoutes for Bots {
         async fn bot_route(&self, id: &str) -> Result<Option<Option<Value>>, RouteReadUnavailable> {
             Ok(match id {
@@ -318,10 +318,6 @@ mod tests {
         }
     }
 
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("golden/route_chain.json")).expect("fixture")
-    }
-
     /// A session resolves from its reserved id and its owner fields; an agent-owned or agent-only one is coding; an invalid `ownerAgentId` is no agent.
     #[test]
     fn a_session_resolves_from_its_id_and_owner_fields() {
@@ -333,8 +329,29 @@ mod tests {
         assert_eq!(resolve_session_mode(&json!({ "id": "sess_x", "visibility": "agent-only", "ownerAgentId": "b" })), (CODING_MODE, String::new()));
     }
 
+    /// A store whose read never ran: every reader reports it, and none falls back to the config's
+    /// route (a different model) or to "no chain".
+    #[cfg(node_twin)]
+    struct Unreadable;
+    #[async_trait::async_trait]
+    #[cfg(node_twin)]
+    impl BotRoutes for Unreadable {
+        async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, RouteReadUnavailable> {
+            Err(RouteReadUnavailable)
+        }
+        async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, RouteReadUnavailable> {
+            Err(RouteReadUnavailable)
+        }
+    }
+
+
+    #[cfg(node_twin)]
+    fn golden() -> Value {
+        serde_json::from_str(include_str!("golden/route_chain.json")).expect("fixture")
+    }
     /// Every reader against Node's real `route-fallback-chain.mjs` on one config and 16 sessions.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn the_readers_follow_node() {
         let golden = golden();
         let config = golden["config"].as_object().unwrap();
@@ -353,8 +370,8 @@ mod tests {
             assert_eq!(Value::Object(route_leaf(Some(session))), row["leaf"], "{name} leaf");
         }
     }
-
     #[test]
+    #[cfg(node_twin)]
     fn same_route_model_follows_node() {
         for row in golden()["same"].as_array().unwrap() {
             let side = |v: &Value| (!v.is_null()).then(|| v.clone());
@@ -362,8 +379,8 @@ mod tests {
             assert_eq!(json!(same_route_model(a.as_ref(), b.as_ref())), row[2], "{row}");
         }
     }
-
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_session_on_the_owners_primary_takes_the_owners_chain() {
         let golden = golden();
         let config = golden["config"].as_object().unwrap();
@@ -372,21 +389,8 @@ mod tests {
         assert!(owner_route_fallbacks(CODING_MODE, "lead", "groq", "llama-3", config, &Bots).await.unwrap().is_empty());
         assert!(owner_route_fallbacks(AGENT_MODE, "nobot", "xai", "grok-4", config, &Bots).await.unwrap().is_empty());
     }
-
-    /// A store whose read never ran: every reader reports it, and none falls back to the config's
-    /// route (a different model) or to "no chain".
-    struct Unreadable;
-    #[async_trait::async_trait]
-    impl BotRoutes for Unreadable {
-        async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, RouteReadUnavailable> {
-            Err(RouteReadUnavailable)
-        }
-        async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, RouteReadUnavailable> {
-            Err(RouteReadUnavailable)
-        }
-    }
-
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_bot_route_read_that_never_ran_is_an_error_not_the_configs_route() {
         let golden = golden();
         let config = golden["config"].as_object().unwrap();
@@ -401,3 +405,6 @@ mod tests {
         assert_eq!(primary_route(&session, config, &Unreadable).await, Err(RouteReadUnavailable));
     }
 }
+
+
+impl std::error::Error for RouteReadUnavailable {}

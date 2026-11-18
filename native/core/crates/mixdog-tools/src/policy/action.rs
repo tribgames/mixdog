@@ -1,5 +1,6 @@
-//! What a remembered grant is keyed by: an outbound action kind, or a hook's
-//! own `ask` on a tool (`tool:<name>`).
+//! What a remembered grant is keyed by: a tool's identity (`tool:<name>`; for a
+//! connector tool its connector and tool name, whichever account serves it), or
+//! an action kind for a block rule and for the browser's own approvals.
 
 use mixdog_core_api::domain::approval::ActionKind;
 
@@ -68,6 +69,19 @@ impl GrantKey {
     pub fn rememberable(&self) -> bool {
         match self {
             Self::Kind(kind) => kind.rememberable(),
+            Self::Tool(_) => true,
+        }
+    }
+
+    /// Whether a stored `allow` for this key may exist: a tool's, or a browser
+    /// action's (the browser has no tool to name). A connector action category
+    /// is never allowed as a whole: an approval covers the one tool approved.
+    pub fn may_be_allowed(&self) -> bool {
+        match self {
+            Self::Kind(kind) => {
+                kind.rememberable()
+                    && matches!(kind, ActionKind::BrowserSubmit | ActionKind::BrowserPost | ActionKind::BrowserUpload)
+            }
             Self::Tool(_) => true,
         }
     }

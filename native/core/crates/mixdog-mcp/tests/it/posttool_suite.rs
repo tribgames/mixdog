@@ -1,7 +1,5 @@
-//! The session's post-tool hooks (`SessionPostTool` over the hook bus) replayed against what
-//! today's Node product sent to the handlers and decided (`tests/golden/posttool.mjs` →
-//! `posttool.json`): the payload every `mcp_tool` handler receives for `PostToolUse`,
-//! `PostToolUseFailure` and `PostToolBatch`, the replacement the loop uses, and the batch block.
+//! The session's post-tool hooks (SessionPostTool over the hook bus): the payload every mcp_tool handler receives for
+//! PostToolUse and PostToolBatch, and the transcript path a bound export puts in it.
 #![allow(clippy::disallowed_methods, reason = "test fixtures write the hooks file")]
 
 use std::sync::Arc;
@@ -57,75 +55,14 @@ impl ProcessManager for NoProcesses {
     }
 }
 
-/// The golden with its `<DIR>` placeholder replaced in every string.
+#[cfg(node_twin)]
+/// The recorded payloads with their `<DIR>` placeholder replaced in every string.
 fn unmask(value: &Value, dir: &str) -> Value {
     match value {
         Value::String(s) => Value::String(s.replace("<DIR>", dir)),
         Value::Array(items) => Value::Array(items.iter().map(|v| unmask(v, dir)).collect()),
         Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), unmask(v, dir))).collect()),
         other => other.clone(),
-    }
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn the_post_tool_hooks_send_and_decide_what_node_does() {
-    let golden: Value = serde_json::from_str(include_str!("../golden/posttool.json")).unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
-    let session_id = golden["common"]["session_id"].as_str().unwrap().to_owned();
-    for case in golden["cases"].as_array().unwrap() {
-        let label = case["name"].as_str().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let dir_text = dir.path().to_string_lossy().into_owned();
-        let case = unmask(case, &dir_text);
-        let common_json = unmask(&golden["common"], &dir_text);
-        let outputs = case["outputs"].as_array().unwrap();
-        let event = case["event"].as_str().unwrap();
-        let handlers: Vec<Value> = (0..outputs.len()).map(|n| json!({"type": "mcp_tool", "server": "mock", "tool": format!("fixture_{n}")})).collect();
-        let group = if event == "PostToolBatch" { json!({"hooks": handlers}) } else { json!({"matcher": case["matcher"], "hooks": handlers}) };
-        std::fs::write(dir.path().join("hooks.json"), json!({"hooks": {event: [group]}}).to_string()).unwrap();
-        let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
-        let entry = json!({"command": MOCK, "env": {"MOCK_FIXTURES": Value::Array(outputs.clone()).to_string()}});
-        hub.apply(vec![McpServerConfig::from_entry("mock", &entry, &std::env::vars().collect()).unwrap()]);
-        hub.server("mock").unwrap().connect().await.unwrap();
-        let bus = HookBus::new(dir.path().to_path_buf(), tokens.maintenance_io, Arc::new(NoProcesses), Some(Arc::clone(&hub)), None, None);
-        let common = HookCommon {
-            transcript_path: common_json["transcript_path"].as_str().map(str::to_owned),
-            permission_mode: common_json["permission_mode"].as_str().map(str::to_owned),
-            effort: common_json.get("effort").cloned(),
-        };
-        let post = SessionPostTool::new(bus, Arc::new(move |_: &str| common.clone()));
-        let cwd = dir.path().join("work").to_string_lossy().into_owned();
-        let args = case["args"].clone();
-        let call = PostCall { session_id: &session_id, call_id: "", name: case["tool"].as_str().unwrap(), args: &args, cwd: &cwd, result: case["result"].as_str().unwrap() };
-        let decision = &case["decision"];
-        match event {
-            "PostToolUse" => {
-                let got = post.tool(&call).await.updated_tool_output;
-                let expected = case["updated"].get("value").cloned();
-                assert_eq!(got, expected, "{label}: the replacement");
-            }
-            "PostToolUseFailure" => post.failure(&call).await,
-            _ => {
-                let got = post.batch(&session_id, &cwd, 2).await.expect("a batch with calls fires");
-                assert_eq!(got.blocked, decision["blocked"] == true, "{label}: blocked");
-                if got.blocked {
-                    assert_eq!(got.reason.as_deref(), decision["reason"].as_str(), "{label}: reason");
-                }
-            }
-        }
-        let seen = hub
-            .server("mock")
-            .unwrap()
-            .call_tool_unlisted("t", "fixture_args", json!({}), &tokio_util::sync::CancellationToken::new(), None)
-            .await
-            .unwrap();
-        let seen = match &seen.parts[0] {
-            mixdog_core_api::domain::tool::ToolPart::Text(t) => serde_json::from_str::<Value>(t).unwrap(),
-            other => panic!("{other:?}"),
-        };
-        assert_eq!(seen, case["payloads"], "{label}: what the handlers received");
-        hub.close_all().await;
     }
 }
 
@@ -207,4 +144,68 @@ async fn a_bound_transcript_export_names_the_path_the_handlers_receive() {
         json!({"session_id": "sess_t", "cwd": cwd, "hook_event_name": "PostToolBatch", "transcript_path": "/exports/sess_t.log.jsonl", "permission_mode": "plan"}).to_string()
     );
     hub.close_all().await;
+}
+
+
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread")]
+async fn the_post_tool_hooks_send_and_decide_what_node_does() {
+    let golden: Value = serde_json::from_str(include_str!("../golden/posttool.json")).unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
+    let session_id = golden["common"]["session_id"].as_str().unwrap().to_owned();
+    for case in golden["cases"].as_array().unwrap() {
+        let label = case["name"].as_str().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let dir_text = dir.path().to_string_lossy().into_owned();
+        let case = unmask(case, &dir_text);
+        let common_json = unmask(&golden["common"], &dir_text);
+        let outputs = case["outputs"].as_array().unwrap();
+        let event = case["event"].as_str().unwrap();
+        let handlers: Vec<Value> = (0..outputs.len()).map(|n| json!({"type": "mcp_tool", "server": "mock", "tool": format!("fixture_{n}")})).collect();
+        let group = if event == "PostToolBatch" { json!({"hooks": handlers}) } else { json!({"matcher": case["matcher"], "hooks": handlers}) };
+        std::fs::write(dir.path().join("hooks.json"), json!({"hooks": {event: [group]}}).to_string()).unwrap();
+        let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
+        let entry = json!({"command": MOCK, "env": {"MOCK_FIXTURES": Value::Array(outputs.clone()).to_string()}});
+        hub.apply(vec![McpServerConfig::from_entry("mock", &entry, &std::env::vars().collect()).unwrap()]);
+        hub.server("mock").unwrap().connect().await.unwrap();
+        let bus = HookBus::new(dir.path().to_path_buf(), tokens.maintenance_io, Arc::new(NoProcesses), Some(Arc::clone(&hub)), None, None);
+        let common = HookCommon {
+            transcript_path: common_json["transcript_path"].as_str().map(str::to_owned),
+            permission_mode: common_json["permission_mode"].as_str().map(str::to_owned),
+            effort: common_json.get("effort").cloned(),
+        };
+        let post = SessionPostTool::new(bus, Arc::new(move |_: &str| common.clone()));
+        let cwd = dir.path().join("work").to_string_lossy().into_owned();
+        let args = case["args"].clone();
+        let call = PostCall { session_id: &session_id, call_id: "", name: case["tool"].as_str().unwrap(), args: &args, cwd: &cwd, result: case["result"].as_str().unwrap() };
+        let decision = &case["decision"];
+        match event {
+            "PostToolUse" => {
+                let got = post.tool(&call).await.updated_tool_output;
+                let expected = case["updated"].get("value").cloned();
+                assert_eq!(got, expected, "{label}: the replacement");
+            }
+            "PostToolUseFailure" => post.failure(&call).await,
+            _ => {
+                let got = post.batch(&session_id, &cwd, 2).await.expect("a batch with calls fires");
+                assert_eq!(got.blocked, decision["blocked"] == true, "{label}: blocked");
+                if got.blocked {
+                    assert_eq!(got.reason.as_deref(), decision["reason"].as_str(), "{label}: reason");
+                }
+            }
+        }
+        let seen = hub
+            .server("mock")
+            .unwrap()
+            .call_tool_unlisted("t", "fixture_args", json!({}), &tokio_util::sync::CancellationToken::new(), None)
+            .await
+            .unwrap();
+        let seen = match &seen.parts[0] {
+            mixdog_core_api::domain::tool::ToolPart::Text(t) => serde_json::from_str::<Value>(t).unwrap(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(seen, case["payloads"], "{label}: what the handlers received");
+        hub.close_all().await;
+    }
 }

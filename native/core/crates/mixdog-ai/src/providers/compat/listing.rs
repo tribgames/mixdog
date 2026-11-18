@@ -136,16 +136,26 @@ pub(crate) fn compat_rows_of(lookup: &ListingLookup, provider: &str, infos: &[Co
     lookup.sanitize_listed(provider, keep_native(&native, enriched))
 }
 
+/// `res.json()` of a model list's answer: a body that is not JSON is a request error, worded as the `SyntaxError`
+/// Node throws, not an empty list.
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+pub(crate) fn json_answer(body: &[u8]) -> Result<Value, ProviderError> {
+    serde_json::from_slice(body).map_err(|error| {
+        let text = String::from_utf8_lossy(body);
+        let mut failure = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+        failure.message = mixdog_js::v8_json_parse_error(&text).unwrap_or_else(|| error.to_string());
+        failure
+    })
+}
+
 impl CompatAdapter {
-    /// `GET url` with the credential; the console config reloads a rejected
+    /// `GET url` with the credential, and the route identity it carried; the console config reloads a rejected
     /// token once, as a send does.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn get_json(&self, url: String, reload_on_401: bool) -> Result<Value, ProviderError> {
+    async fn get_json(&self, mut url: String, reload_on_401: bool) -> Result<(Value, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
         let profile = self.codec.profile();
-        let mut key = match &self.key {
-            Some(source) => Some(source.key().await?),
-            None => None,
-        };
+        let (mut key, base) = self.routed_key().await?;
+        self.route_url(&mut url, base.as_deref());
         let mut reloaded = false;
         loop {
             let result = fetch_json(self.http.as_ref(), profile, url.clone(), self.codec.extra_headers(), key.as_deref()).await;
@@ -159,22 +169,26 @@ impl CompatAdapter {
                 key = Some(source.reload().await?);
                 continue;
             }
-            return result;
+            // The key the answer was fetched with: the roster is that credential's.
+            return result.map(|body| (body, self.identity_of(key.as_deref(), base.as_deref())));
         }
     }
 
     /// The `data` array of `GET {base}/models`, or a bare array; anything else lists nothing.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn roster_items(&self) -> Result<Vec<Value>, ProviderError> {
-        let body = self.get_json(format!("{}/models", self.codec.base_url()), false).await?;
-        Ok(match body {
-            Value::Array(items) => items,
-            Value::Object(mut map) => match map.shift_remove("data") {
-                Some(Value::Array(items)) => items,
+    async fn roster_items(&self) -> Result<(Vec<Value>, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
+        let (body, key) = self.get_json(format!("{}/models", self.codec.base_url()), false).await?;
+        Ok((
+            match body {
+                Value::Array(items) => items,
+                Value::Object(mut map) => match map.shift_remove("data") {
+                    Some(Value::Array(items)) => items,
+                    _ => Vec::new(),
+                },
                 _ => Vec::new(),
             },
-            _ => Vec::new(),
-        })
+            key,
+        ))
     }
 
     /// Whether the profile lists a fetched row at all.
@@ -203,11 +217,11 @@ impl CompatAdapter {
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn compat_listing(&self, rules: &ListingRules, decorate: Option<(&[&str], bool)>) -> Result<Vec<ModelRecord>, ProviderError> {
-        let fetched = match self.roster_items().await {
-            Ok(items) => parse_models(&Value::Array(items)).into_iter().filter(|info| self.lists(rules, info)).collect(),
+    async fn compat_listing(&self, rules: &ListingRules, decorate: Option<(&[&str], bool)>) -> Result<(Vec<ModelRecord>, bool, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
+        let (fetched, key) = match self.roster_items().await {
+            Ok((items, key)) => (parse_models(&Value::Array(items)).into_iter().filter(|info| self.lists(rules, info)).collect(), key),
             // A rejected key is the caller's to hear; another failure shows the seed roster.
-            Err(error) if decorate.is_some() && error.status != Some(401) => Vec::new(),
+            Err(error) if decorate.is_some() && error.status != Some(401) => (Vec::new(), self.identity_of(None, None)),
             Err(error) => return Err(error),
         };
         let seeded = decorate.is_some_and(|(_, seed)| seed) && fetched.is_empty();
@@ -241,14 +255,14 @@ impl CompatAdapter {
                 row.raw = Some(json!({ "reasoningContentField": "reasoning_content" }));
             }
         }
-        Ok(rows)
+        Ok((rows, seeded, key))
     }
 
     /// Muse Code: the roster alone, enriched, named and given its default ladder.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn roster_listing(&self, rules: &ListingRules, default_levels: &[&str]) -> Result<Vec<ModelRecord>, ProviderError> {
+    async fn roster_listing(&self, rules: &ListingRules, default_levels: &[&str]) -> Result<(Vec<ModelRecord>, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
         let provider = self.codec.profile().id;
-        let items = self.roster_items().await?;
+        let (items, key) = self.roster_items().await?;
         let mut kept = Vec::new();
         let mut native = Vec::new();
         for item in &items {
@@ -295,14 +309,14 @@ impl CompatAdapter {
                 restate_row(row, "reasoningLevels", Some(json!(row.reasoning_levels)));
             }
         }
-        Ok(rows)
+        Ok((rows, key))
     }
 
     /// OpenCode Go: the organization's console config is the roster.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn console_listing(&self, url: &str, provider_key: &str) -> Result<Vec<ModelRecord>, ProviderError> {
+    async fn console_listing(&self, url: &str, provider_key: &str) -> Result<(Vec<ModelRecord>, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
         let provider = self.codec.profile().id;
-        let config = self.get_json(url.to_owned(), true).await?;
+        let (config, key) = self.get_json(url.to_owned(), true).await?;
         let entry = config.get("providers").and_then(|p| p.get(provider_key));
         let configured = entry
             .and_then(|e| e.get("models"))
@@ -310,6 +324,10 @@ impl CompatAdapter {
             .filter(|models| !models.is_empty());
         // A config that lists no models takes the models.dev catalog of the
         // same provider, which must be loaded.
+        // Awaited first (`loadModelsDevGoModels`, opencode-go-oauth.mjs:118): the resident read is empty on a cold cache.
+        if configured.is_none() {
+            self.lookup.load_models_dev().await;
+        }
         let fallback = match configured {
             Some(_) => None,
             None => match self.lookup.models_dev_models(provider_key).filter(|m| !m.is_empty()) {
@@ -351,7 +369,7 @@ impl CompatAdapter {
             row.display_name = None;
             restate_row(row, "display", None);
         }
-        Ok(rows)
+        Ok((rows, key))
     }
 }
 
@@ -475,25 +493,70 @@ fn console_record(id: &str, model: &Map<String, Value>, provider_package: &str) 
     (record, wire_of_package(Some(package)))
 }
 
-#[async_trait]
-impl ModelListing for CompatAdapter {
-    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+impl CompatAdapter {
+    /// One listing: its rows, whether they are the seed roster, and the route identity.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn list_keyed(&self) -> Result<(Vec<ModelRecord>, bool, mixdog_core_api::domain::provider::RosterIdentity), ProviderError> {
         let rules = self.codec.profile().listing;
-        let rows = match rules.shape {
-            ListingShape::Compat => self.compat_listing(&rules, None).await,
+        let (rows, seeded, key) = match rules.shape {
+            ListingShape::Compat => self.compat_listing(&rules, None).await?,
             ListingShape::Decorated { default_levels, seed_when_empty } => {
-                self.compat_listing(&rules, Some((default_levels, seed_when_empty))).await
+                self.compat_listing(&rules, Some((default_levels, seed_when_empty))).await?
             }
-            ListingShape::Roster { default_levels } => self.roster_listing(&rules, default_levels).await,
-            ListingShape::ConsoleConfig { url, provider_key } => self.console_listing(url, provider_key).await,
-        }?;
-        // `provider._enrichedModels = enriched`: the rows this listing returned are the ones the provider answers.
-        let provider = self.codec.profile().id.into();
-        self.rows.replace(rows.iter().map(|row| std::sync::Arc::new(crate::catalog::stored_row(&provider, row.clone()))).collect());
-        Ok(rows)
+            ListingShape::Roster { default_levels } => {
+                let (rows, key) = self.roster_listing(&rules, default_levels).await?;
+                (rows, false, key)
+            }
+            ListingShape::ConsoleConfig { url, provider_key } => {
+                let (rows, key) = self.console_listing(url, provider_key).await?;
+                (rows, false, key)
+            }
+        };
+        // `provider._enrichedModels = enriched`: the rows a listing the provider stated answers. The seed roster is the
+        // listing's own presentation, never a statement of the provider's: it does not replace the rows a discovery left (the
+        // catalog source says which roster is shown, `show_roster`).
+        if !seeded {
+            self.show_roster(&rows);
+        }
+        Ok((rows, seeded, key))
+    }
+
+    /// The roster of the account whose key is `key` listed from this base URL.
+    fn identity_of(&self, key: Option<&str>, base: Option<&str>) -> mixdog_core_api::domain::provider::RosterIdentity {
+        mixdog_core_api::domain::provider::RosterIdentity {
+            account: key.filter(|key| !key.is_empty()).map(|key| crate::catalog::account_fingerprint(&[key])),
+            endpoint: Some(base.unwrap_or_else(|| self.codec.base_url()).trim_end_matches('/').to_owned()),
+            client_version: None,
+        }
     }
 }
 
+#[async_trait]
+impl ModelListing for CompatAdapter {
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        Ok(self.list_keyed().await?.0)
+    }
+
+    async fn list_roster(&self) -> Result<mixdog_core_api::domain::provider::ListedRoster, ProviderError> {
+        let (rows, seeded, identity) = self.list_keyed().await?;
+        let provenance = if seeded { mixdog_core_api::domain::provider::Provenance::Seed } else { mixdog_core_api::domain::provider::Provenance::Fetched };
+        Ok(mixdog_core_api::domain::provider::ListedRoster { rows, provenance, identity })
+    }
+
+    async fn roster_identity(&self) -> mixdog_core_api::domain::provider::RosterIdentity {
+        if let Some(source) = &self.key
+            && let Ok((key, base)) = source.routed_key(false).await
+        {
+            return self.identity_of(Some(&key), base.as_deref());
+        }
+        self.identity_of(None, None)
+    }
+
+    fn show_roster(&self, rows: &[ModelRecord]) {
+        let provider = self.codec.profile().id.into();
+        self.rows.replace(rows.iter().map(|row| std::sync::Arc::new(crate::catalog::stored_row(&provider, row.clone()))).collect());
+    }
+}
 impl crate::catalog::CachedModelInfo for CompatAdapter {
     fn cached_row(&self, model: &str) -> Option<std::sync::Arc<Value>> {
         self.rows.find(model)

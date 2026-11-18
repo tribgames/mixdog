@@ -18,6 +18,7 @@ mod record;
 mod spool;
 mod text;
 mod tool;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod tool_node_cases;
 mod watchdog;
@@ -45,6 +46,18 @@ use spool::Spool;
 /// `trace_events` store (`/admin/trace-record`), whether or not the local file is written.
 pub trait RowSink: Send + Sync {
     fn row(&self, row: &Map<String, Value>, now_ms: i64);
+}
+
+static PROCESS_SINK: std::sync::RwLock<Option<std::sync::Arc<dyn RowSink>>> = std::sync::RwLock::new(None);
+
+/// Sets (or, with `None`, clears) the process's `trace_events` sink: the memory service installs its store once tracing is on, and every
+/// writer without a sink of its own feeds it (Node's `appendAgentTrace` reaches the memory service from any caller).
+pub fn install_process_sink(sink: Option<std::sync::Arc<dyn RowSink>>) {
+    *PROCESS_SINK.write().unwrap_or_else(std::sync::PoisonError::into_inner) = sink;
+}
+
+fn process_sink() -> Option<std::sync::Arc<dyn RowSink>> {
+    PROCESS_SINK.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
 }
 
 /// The agent trace writer: `agent-trace.jsonl` and `tool-failures.jsonl` under one config.
@@ -97,7 +110,7 @@ impl AgentTrace {
     /// rows (`append` keeps them). The caller checks it before it builds their rows (`loop_record`, `browser_timing_record`)
     /// or anything they are built from.
     pub fn timing_rows(&self) -> bool {
-        self.timing_rows && !self.disabled && (self.local.is_some() || self.sink.is_some())
+        self.timing_rows && !self.disabled && (self.local.is_some() || self.sink.is_some() || process_sink().is_some())
     }
 
     /// `appendAgentTrace(record)`. Returns true when the trace spool is due for `flush`.
@@ -105,11 +118,12 @@ impl AgentTrace {
         if self.disabled {
             return false;
         }
-        if self.local.is_none() && self.sink.is_none() {
+        let sink = self.sink.clone().or_else(process_sink);
+        if self.local.is_none() && sink.is_none() {
             return false;
         }
         let row = build_row(record, now_ms);
-        if let Some(sink) = &self.sink {
+        if let Some(sink) = &sink {
             sink.row(&row, now_ms);
         }
         self.local.as_ref().is_some_and(|local| local.push(&stringify(&Value::Object(row)), now_ms))

@@ -64,16 +64,6 @@ use crate::registry::HandlerResult;
 use crate::registry::Outcome;
 use crate::registry::Registry;
 
-pub(super) fn register(registry: &mut Registry) {
-    registry.register("office.run", office_run);
-    // The worker's end: `closeOfficeSessions`. A process that never ran an Office call has nothing to give back.
-    registry.on_exit(|| async {
-        if let Some(office) = OFFICE.get() {
-            office.engine.shutdown().await;
-        }
-    });
-}
-
 // ---- the platform of the engine -------------------------------------------------------------------------------------------
 
 /// The brief parser and readings of the authoring crate.
@@ -128,6 +118,116 @@ impl BatchHost for Machine {
     }
 }
 
+// ---- the call -------------------------------------------------------------------------------------------------------------
+
+/// Execution gets the exact path that was approved, not the text that was given: `args.path` and `args.output`, each a string with
+/// something in it, are replaced by what `approve` makes of them against `cwd`.
+fn substitute_approved(args: &mut Value, cwd: &str, approve: impl Fn(&str, &str) -> Result<PathBuf, CodedError>) -> Result<(), CodedError> {
+    let Some(map) = args.as_object_mut() else { return Ok(()) };
+    for key in ["path", "output"] {
+        let Some(Value::String(given)) = map.get(key) else { continue };
+        if js_trim(given).is_empty() {
+            continue;
+        }
+        let approved = approve(given, cwd)?;
+        map.insert(key.to_owned(), Value::String(approved.to_string_lossy().into_owned()));
+    }
+    Ok(())
+}
+
+/// The receipt of a side whose bytes were not captured.
+fn uncaptured_receipt(size: u64, reason: Option<&str>) -> Value {
+    let mut receipt = json!({"uncaptured": true, "size": size});
+    if let Some(reason) = reason {
+        receipt["reason"] = json!(reason);
+    }
+    receipt
+}
+
+/// `emitBlob`: one side of a change, its bytes sent as chunks.
+async fn emit_side(ctx: &CallCtx, side: &ChangeSide) -> Result<Value, CodedError> {
+    match side {
+        ChangeSide::Absent => Ok(Value::Null),
+        ChangeSide::Bytes(bytes) => {
+            ctx.emit(bytes).await?;
+            Ok(json!({"bytes": bytes.len()}))
+        }
+        ChangeSide::Uncaptured { size, reason } => Ok(uncaptured_receipt(*size, reason.as_deref())),
+    }
+}
+
+fn text_param<'a>(params: &'a Value, key: &str) -> &'a str {
+    params.get(key).and_then(Value::as_str).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pathguard;
+
+    fn refuse_all(_path: &str, _base: &str) -> Result<PathBuf, CodedError> {
+        Err(CodedError::new("path_not_approved", "no"))
+    }
+
+    #[test]
+    fn the_approved_path_replaces_the_given_text_of_path_and_output() {
+        let mut args = json!({"action": "create", "path": " a.docx ", "output": "b.pdf", "format": "docx"});
+        substitute_approved(&mut args, "/work", |path, base| Ok(PathBuf::from(format!("{base}/{}", path.trim())))).unwrap();
+        assert_eq!(args["path"], "/work/a.docx");
+        assert_eq!(args["output"], "/work/b.pdf");
+        assert_eq!(args["format"], "docx");
+    }
+
+    #[test]
+    fn a_blank_or_absent_or_non_text_path_is_left_alone_and_never_asked_about() {
+        for mut args in [json!({"path": "   "}), json!({"path": ""}), json!({"path": 3}), json!({"output": null}), json!({}), json!([1]), Value::Null] {
+            let before = args.clone();
+            substitute_approved(&mut args, "/work", refuse_all).unwrap();
+            assert_eq!(args, before);
+        }
+    }
+
+    #[test]
+    fn a_path_outside_the_approved_set_refuses_the_call() {
+        let mut args = json!({"path": "x.docx"});
+        let error = substitute_approved(&mut args, "/work", refuse_all).unwrap_err();
+        assert_eq!(error.code, "path_not_approved");
+    }
+
+    #[test]
+    fn an_uncaptured_side_carries_its_size_and_reason_when_there_is_one() {
+        assert_eq!(uncaptured_receipt(9, Some("binary")), json!({"uncaptured": true, "size": 9, "reason": "binary"}));
+        assert_eq!(uncaptured_receipt(9, None), json!({"uncaptured": true, "size": 9}));
+    }
+
+    #[test]
+    fn a_text_parameter_that_is_not_text_is_empty() {
+        let params = json!({"cwd": "/w", "dataDir": 3});
+        assert_eq!(text_param(&params, "cwd"), "/w");
+        assert_eq!(text_param(&params, "dataDir"), "");
+        assert_eq!(text_param(&params, "missing"), "");
+    }
+
+
+    #[test]
+    fn the_worker_guard_refuses_a_relative_path_without_a_folder() {
+        let approved = vec![std::env::temp_dir().to_string_lossy().into_owned()];
+        let mut args = json!({"path": "x.docx"});
+        let error = substitute_approved(&mut args, "", |path, base| pathguard::approved_path(&approved, path, base)).unwrap_err();
+        assert_eq!(error.code, "path_not_approved");
+    }
+}
+
+
+pub(super) fn register(registry: &mut Registry) {
+    registry.register("office.run", office_run);
+    // The worker's end: `closeOfficeSessions`. A process that never ran an Office call has nothing to give back.
+    registry.on_exit(|| async {
+        if let Some(office) = OFFICE.get() {
+            office.engine.shutdown().await;
+        }
+    });
+}
 /// What this process supplies to the engine.
 pub(super) struct WorkerPlatform {
     lanes: LaneTokens,
@@ -140,7 +240,6 @@ pub(super) struct WorkerPlatform {
     machine: Machine,
     browser: Arc<CallBrowser>,
 }
-
 impl Platform for WorkerPlatform {
     type Batch = Machine;
 
@@ -188,15 +287,12 @@ impl Platform for WorkerPlatform {
         &self.machine
     }
 }
-
 /// The engine of this process and the browser endpoint its platform leases through.
 pub(super) struct Office {
     pub(super) engine: Arc<Engine<WorkerPlatform>>,
     browser: Arc<CallBrowser>,
 }
-
 static OFFICE: OnceCell<Office> = OnceCell::const_new();
-
 /// The engine of this process, made on the first call (the system's fonts are scanned once, and the Office transport keeps its
 /// scripts under the Office data folder), so a worker that is only asked about a PDF starts as fast as before.
 pub(super) async fn office(cancel: &CancellationToken) -> Result<&'static Office, CodedError> {
@@ -232,50 +328,13 @@ pub(super) async fn office(cancel: &CancellationToken) -> Result<&'static Office
         })
         .await
 }
-
-// ---- the call -------------------------------------------------------------------------------------------------------------
-
-/// Execution gets the exact path that was approved, not the text that was given: `args.path` and `args.output`, each a string with
-/// something in it, are replaced by what `approve` makes of them against `cwd`.
-fn substitute_approved(args: &mut Value, cwd: &str, approve: impl Fn(&str, &str) -> Result<PathBuf, CodedError>) -> Result<(), CodedError> {
-    let Some(map) = args.as_object_mut() else { return Ok(()) };
-    for key in ["path", "output"] {
-        let Some(Value::String(given)) = map.get(key) else { continue };
-        if js_trim(given).is_empty() {
-            continue;
-        }
-        let approved = approve(given, cwd)?;
-        map.insert(key.to_owned(), Value::String(approved.to_string_lossy().into_owned()));
-    }
-    Ok(())
-}
-
-/// The receipt of a side whose bytes were not captured.
-fn uncaptured_receipt(size: u64, reason: Option<&str>) -> Value {
-    let mut receipt = json!({"uncaptured": true, "size": size});
-    if let Some(reason) = reason {
-        receipt["reason"] = json!(reason);
-    }
-    receipt
-}
-
-/// `emitBlob`: one side of a change, its bytes sent as chunks.
-async fn emit_side(ctx: &CallCtx, side: &ChangeSide) -> Result<Value, CodedError> {
-    match side {
-        ChangeSide::Absent => Ok(Value::Null),
-        ChangeSide::Bytes(bytes) => {
-            ctx.emit(bytes).await?;
-            Ok(json!({"bytes": bytes.len()}))
-        }
-        ChangeSide::Uncaptured { size, reason } => Ok(uncaptured_receipt(*size, reason.as_deref())),
-    }
-}
-
-fn text_param<'a>(params: &'a Value, key: &str) -> &'a str {
-    params.get(key).and_then(Value::as_str).unwrap_or_default()
-}
-
+/// The call, with the answer of a failed one still saying whether this worker holds a session of the thread: a refusal before the engine
+/// runs must not release the thread from the worker its session lives on.
 async fn office_run(ctx: CallCtx) -> HandlerResult {
+    let thread = ctx.thread.clone();
+    run_office_call(ctx).await.map_err(|error| error.pinning(OFFICE.get().is_some_and(|office| office.engine.is_pinned(&thread))))
+}
+async fn run_office_call(ctx: CallCtx) -> HandlerResult {
     let ctx = Arc::new(ctx);
     let cwd = text_param(&ctx.params, "cwd").to_owned();
     let data_dir = Some(PathBuf::from(text_param(&ctx.params, "dataDir"))).filter(|folder| !folder.as_os_str().is_empty());
@@ -299,61 +358,4 @@ async fn office_run(ctx: CallCtx) -> HandlerResult {
     }
     let value = json!({"result": result, "writes": writes});
     Ok(if pinned { Outcome::pinned(value) } else { Outcome::value(value) })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::pathguard;
-
-    fn refuse_all(_path: &str, _base: &str) -> Result<PathBuf, CodedError> {
-        Err(CodedError::new("path_not_approved", "no"))
-    }
-
-    #[test]
-    fn the_approved_path_replaces_the_given_text_of_path_and_output() {
-        let mut args = json!({"action": "create", "path": " a.docx ", "output": "b.pdf", "format": "docx"});
-        substitute_approved(&mut args, "/work", |path, base| Ok(PathBuf::from(format!("{base}/{}", path.trim())))).unwrap();
-        assert_eq!(args["path"], "/work/a.docx");
-        assert_eq!(args["output"], "/work/b.pdf");
-        assert_eq!(args["format"], "docx");
-    }
-
-    #[test]
-    fn a_blank_or_absent_or_non_text_path_is_left_alone_and_never_asked_about() {
-        for mut args in [json!({"path": "   "}), json!({"path": ""}), json!({"path": 3}), json!({"output": null}), json!({}), json!([1]), Value::Null] {
-            let before = args.clone();
-            substitute_approved(&mut args, "/work", refuse_all).unwrap();
-            assert_eq!(args, before);
-        }
-    }
-
-    #[test]
-    fn a_path_outside_the_approved_set_refuses_the_call() {
-        let mut args = json!({"path": "x.docx"});
-        let error = substitute_approved(&mut args, "/work", refuse_all).unwrap_err();
-        assert_eq!(error.code, "path_not_approved");
-    }
-
-    #[test]
-    fn the_worker_guard_refuses_a_relative_path_without_a_folder() {
-        let approved = vec![std::env::temp_dir().to_string_lossy().into_owned()];
-        let mut args = json!({"path": "x.docx"});
-        let error = substitute_approved(&mut args, "", |path, base| pathguard::approved_path(&approved, path, base)).unwrap_err();
-        assert_eq!(error.code, "path_not_approved");
-    }
-
-    #[test]
-    fn an_uncaptured_side_carries_its_size_and_reason_when_there_is_one() {
-        assert_eq!(uncaptured_receipt(9, Some("binary")), json!({"uncaptured": true, "size": 9, "reason": "binary"}));
-        assert_eq!(uncaptured_receipt(9, None), json!({"uncaptured": true, "size": 9}));
-    }
-
-    #[test]
-    fn a_text_parameter_that_is_not_text_is_empty() {
-        let params = json!({"cwd": "/w", "dataDir": 3});
-        assert_eq!(text_param(&params, "cwd"), "/w");
-        assert_eq!(text_param(&params, "dataDir"), "");
-        assert_eq!(text_param(&params, "missing"), "");
-    }
 }

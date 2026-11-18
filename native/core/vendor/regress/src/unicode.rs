@@ -144,7 +144,9 @@ pub(crate) fn fold_code_point(cu: u32, unicode: bool) -> u32 {
     if unicode {
         return fold(cu);
     }
-    uppercase(cu)
+    // Canonicalize, step 4: a character at or above 128 whose uppercase is ASCII stays as it is (`ſ` does not match `s`).
+    let upper = uppercase(cu);
+    if cu >= 128 && upper < 128 { cu } else { upper }
 }
 
 pub fn fold(cu: u32) -> u32 {
@@ -194,7 +196,11 @@ fn uppercase(cu: u32) -> u32 {
 // Add all folded characters in the given interval to the given code point set.
 // This skips characters which fold to themselves.
 fn fold_interval(iv: Interval, recv: &mut CodePointSet) {
-    let overlaps = FOLDS.equal_range_by(|tr| {
+    fold_interval_in(&FOLDS, iv, recv)
+}
+
+fn fold_interval_in(table: &[FoldRange], iv: Interval, recv: &mut CodePointSet) {
+    let overlaps = table.equal_range_by(|tr| {
         if tr.first() > iv.last {
             Ordering::Greater
         } else if tr.last() < iv.first {
@@ -203,7 +209,7 @@ fn fold_interval(iv: Interval, recv: &mut CodePointSet) {
             Ordering::Equal
         }
     });
-    for fr in &FOLDS[overlaps] {
+    for fr in &table[overlaps] {
         debug_assert!(
             fr.transformed_from().overlaps(iv),
             "Interval does not overlap transform"
@@ -239,9 +245,13 @@ fn fold_interval(iv: Interval, recv: &mut CodePointSet) {
 /// Find all characters that fold into the given interval and add them to the given code point set.
 /// This skips characters which fold to themselves.
 fn unfold_interval(iv: Interval, recv: &mut CodePointSet) {
+    unfold_interval_in(&FOLDS, iv, recv)
+}
+
+fn unfold_interval_in(table: &[FoldRange], iv: Interval, recv: &mut CodePointSet) {
     // Note: We still need to check all ranges because the relationship between
     // transformed_from and transformed_to intervals can be complex
-    for tr in FOLDS.iter() {
+    for tr in table.iter() {
         if !iv.overlaps(tr.transformed_to()) {
             continue;
         }
@@ -303,6 +313,11 @@ pub fn unfold_char(c: u32) -> Vec<u32> {
 pub(crate) fn unfold_uppercase_char(c: u32) -> Vec<u32> {
     let mut res = vec![c];
     let fcp = uppercase(c);
+    // Canonicalize, step 4: a character at or above 128 whose uppercase is ASCII stays as it is, so it matches only
+    // itself, and no such character matches an ASCII one (`ſ` is not `s`).
+    if c >= 128 && fcp < 128 {
+        return res;
+    }
     if fcp != c {
         res.push(fcp);
     }
@@ -312,7 +327,7 @@ pub(crate) fn unfold_uppercase_char(c: u32) -> Vec<u32> {
         }
         for cp in tr.transformed_from().codepoints() {
             let tcp = tr.apply(cp);
-            if tcp == fcp {
+            if tcp == fcp && !(cp >= 128 && fcp < 128) {
                 res.push(cp);
             }
         }
@@ -335,6 +350,46 @@ pub fn add_icase_code_points(mut input: CodePointSet) -> CodePointSet {
         unfold_interval(*iv, &mut input);
     }
     input
+}
+
+/// The characters at or above 128 whose uppercase is ASCII (`ſ` U+017F, `ı` U+0131), as sorted single-point intervals.
+fn uppercase_to_ascii() -> Vec<Interval> {
+    let mut found = Vec::new();
+    for tr in TO_UPPERCASE.iter() {
+        for cp in tr.transformed_from().codepoints() {
+            if cp >= 128 && tr.apply(cp) < 128 {
+                found.push(Interval { first: cp, last: cp });
+            }
+        }
+    }
+    found.sort_unstable_by_key(|iv| iv.first);
+    found.dedup();
+    found
+}
+
+/// [`add_icase_code_points`] for a pattern without the `u` flag: its class is closed under `Canonicalize`
+/// (the character's `toUpperCase`, ECMAScript 22.2.2.7.3), not under Unicode simple case folding, and step 4 keeps
+/// a character at or above 128 whose uppercase is ASCII as it is (`ſ` is not `s`, the Kelvin sign is not `k`:
+/// it uppercases to itself, so it joins nothing).
+pub fn add_icase_code_points_canonicalized(input: CodePointSet) -> CodePointSet {
+    let kept = uppercase_to_ascii();
+    // Those characters neither bring their ASCII uppercase in nor are brought in by it.
+    let own: Vec<Interval> = kept.iter().copied().filter(|iv| input.intervals().iter().any(|have| have.contains(iv.first))).collect();
+    let mut rest = input;
+    rest.remove(&kept);
+    let mut folded = rest.clone();
+    for iv in rest.intervals() {
+        fold_interval_in(&TO_UPPERCASE, *iv, &mut folded)
+    }
+    let mut closed = folded.clone();
+    for iv in folded.intervals() {
+        unfold_interval_in(&TO_UPPERCASE, *iv, &mut closed);
+    }
+    closed.remove(&kept);
+    for iv in own {
+        closed.add(iv);
+    }
+    closed
 }
 
 pub(crate) enum PropertyEscapeKind {

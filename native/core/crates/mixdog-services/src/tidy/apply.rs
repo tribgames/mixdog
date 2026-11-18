@@ -242,6 +242,7 @@ pub(crate) mod tests {
         assert_eq!(full_path_for(Path::new("/r"), "a/b.ts"), Path::new("/r").join("a/b.ts"));
     }
 
+
     #[tokio::test]
     async fn structural_fixes_write_once_per_file_and_report_rejections() {
         let dir = tempfile::tempdir().unwrap();
@@ -269,7 +270,6 @@ pub(crate) mod tests {
         let none = apply_structural_fixes(lane, &Recording::default(), dir.path(), &[], None, None).await;
         assert!(none.applied.is_empty());
     }
-
     /// A session aborted before the write refuses it: the file is left as it was and the
     /// rejection carries the write's own text.
     #[tokio::test]

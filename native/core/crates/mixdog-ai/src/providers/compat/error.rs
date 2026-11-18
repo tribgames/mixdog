@@ -99,6 +99,24 @@ fn typed_status(detail: Option<&JsonValue>) -> Option<u16> {
     })
 }
 
+fn openrouter_budget(body: &JsonValue) -> bool {
+    let marker = |value: Option<&JsonValue>| {
+        value.and_then(JsonValue::as_str).is_some_and(|value| value.trim().eq_ignore_ascii_case(OPENROUTER_IN_FLIGHT_BUDGET))
+    };
+    let mut current = Some(body);
+    while let Some(detail) = current {
+        if ["code", "type"].iter().any(|name| marker(detail.get(*name)))
+            || detail.get("metadata").is_some_and(|metadata| {
+                ["code", "type", "reason", "limit_source"].iter().any(|name| marker(metadata.get(*name)))
+            })
+        {
+            return true;
+        }
+        current = detail.get("error").filter(|value| value.is_object());
+    }
+    false
+}
+
 /// Classifies a failed response or in-band error payload. The delivery state
 /// is `Accepted`: a status or an event arrived.
 pub fn classify_parts(
@@ -127,14 +145,15 @@ pub fn classify_parts(
                 .find(|(k, _)| *k == key)
                 .map(|(_, mapped)| *mapped)
         });
-    let retry_after = advice::from_headers(headers, now);
-    // The in-flight budget refusal is the one code outside the vocabulary
-    // that the classifier reads.
-    let facts_code = if code.as_deref() == Some(OPENROUTER_IN_FLIGHT_BUDGET) {
-        code.as_deref()
-    } else {
-        typed
-    };
+    let budget = profile.id == "openrouter" && status == Some(402) && openrouter_budget(body);
+    let retry_after = advice::from_headers(headers, now).or_else(|| {
+        // Zero is explicit advice for this refusal, not an absent header.
+        (budget && ["retry-after-ms", "retry-after"].into_iter().any(|name| {
+            advice::header(headers, name).is_some_and(|value| !value.is_empty() && mixdog_js::string_to_number(value) == 0.0)
+        }))
+        .then_some(Duration::ZERO)
+    });
+    let facts_code = if budget { Some(OPENROUTER_IN_FLIGHT_BUDGET) } else { typed };
     let message = detail
         .and_then(|d| d.get("message"))
         .and_then(JsonValue::as_str)
@@ -162,7 +181,8 @@ pub fn classify_parts(
                 reauth_on_401: true
             }
         );
-    let signed_out = status == Some(401) && profile.chat.reauth == ReauthText::SignInExpired;
+    let signed_out = status == Some(401) && profile.chat.reauth == ReauthText::SignInExpired
+        && !super::login::opencode_go::gateway_owns_auth_recovery();
     err.reauth_required = rejected_key || signed_out;
     let mut text = friendly_message(profile, detail, message);
     // The OpenAI SDK words an HTTP refusal `<status> <message>`.
@@ -176,6 +196,16 @@ pub fn classify_parts(
 }
 
 const SIGN_IN_HINT: &str = "open /providers in mixdog to sign in again";
+
+pub(crate) fn opencode_inference_reauth(mut error: ProviderError) -> ProviderError {
+    if error.status == Some(401) && error.kind == mixdog_core_api::domain::provider::ErrorKind::Auth && !error.reauth_required {
+        error.kind = mixdog_core_api::domain::provider::ErrorKind::Auth;
+        error.code = Some("invalid_grant".into());
+        error.reauth_required = true;
+        error.message = reauth_message(&CompatProfile::opencode_go(), "");
+    }
+    error
+}
 
 /// A refusal that needs a new sign-in, worded as the provider words it.
 fn reauth_message(profile: &CompatProfile, refusal: &str) -> String {
@@ -285,7 +315,13 @@ mod tests {
         let waited = run(&p, 402, &[("retry-after", "5")], body.clone());
         assert_eq!(waited.kind, ErrorKind::Transient);
         assert_eq!(waited.retry_after, Some(Duration::from_secs(5)));
+        assert_eq!(run(&p, 402, &[], body.clone()).kind, ErrorKind::Billing);
         assert_eq!(run(&p, 402, &[("retry-after", "61")], body).kind, ErrorKind::Billing);
+        let nested = json!({"error":{"code":402,"metadata":{"limit_source":"openrouter_in_flight_budget"}}});
+        for seconds in ["0", "60"] {
+            assert_eq!(run(&p, 402, &[("retry-after", seconds)], nested.clone()).kind, ErrorKind::Transient);
+        }
+        assert_eq!(run(&p, 429, &[("retry-after", "5")], JsonValue::Null).kind, ErrorKind::RateLimited);
     }
 
     #[test]

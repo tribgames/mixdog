@@ -166,13 +166,34 @@ fn intent_to_add_paths(raw: &str) -> Vec<String> {
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_v2_rows_know_untracked_unmerged_and_submodules() {
+        let rows = parse_status_v2(
+            "1 .M N... 100644 100644 100644 a b src/a b.txt\02 R. N... 100644 100644 100644 a b R100 new.txt\0old.txt\0u UU N... 100644 100644 100644 100644 a b c conflict.txt\01 .M S.M. 160000 160000 160000 a b sub\0? new.bin\0",
+        );
+        let paths: Vec<_> = rows.iter().map(|r| r.path.as_str()).collect();
+        assert_eq!(paths, ["src/a b.txt", "new.txt", "conflict.txt", "sub", "new.bin"]);
+        assert!(rows[2].unmerged && rows[3].submodule && rows[4].untracked);
+    }
+
+    #[test]
+    fn intent_to_add_is_read_from_the_index_entry_flags() {
+        let debug = "a.txt\0  ctime: 0:0\n  flags: 0\nb.txt\0  ctime: 0:0\n  flags: 20000000\n";
+        assert_eq!(intent_to_add_paths(debug), ["b.txt"]);
+    }
+}
+
+
 fn temp_suffix() -> String {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     format!("mixdog-carry-{}-{nanos}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
 }
-
 impl Worktrees {
     async fn gtext(&self, cwd: &Path, args: &[&str], options: &RunOptions, cancel: &CancellationToken) -> Result<String, ScmFailure> {
         self.scm().git.text(cancel, cwd, args, options).await
@@ -603,26 +624,5 @@ impl Worktrees {
         Self::assert_recovery_ref(reference)?;
         self.scm().git.outcome(cancel, top, &["update-ref", "-d", reference], &RunOptions::default()).await?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn status_v2_rows_know_untracked_unmerged_and_submodules() {
-        let rows = parse_status_v2(
-            "1 .M N... 100644 100644 100644 a b src/a b.txt\02 R. N... 100644 100644 100644 a b R100 new.txt\0old.txt\0u UU N... 100644 100644 100644 100644 a b c conflict.txt\01 .M S.M. 160000 160000 160000 a b sub\0? new.bin\0",
-        );
-        let paths: Vec<_> = rows.iter().map(|r| r.path.as_str()).collect();
-        assert_eq!(paths, ["src/a b.txt", "new.txt", "conflict.txt", "sub", "new.bin"]);
-        assert!(rows[2].unmerged && rows[3].submodule && rows[4].untracked);
-    }
-
-    #[test]
-    fn intent_to_add_is_read_from_the_index_entry_flags() {
-        let debug = "a.txt\0  ctime: 0:0\n  flags: 0\nb.txt\0  ctime: 0:0\n  flags: 20000000\n";
-        assert_eq!(intent_to_add_paths(debug), ["b.txt"]);
     }
 }

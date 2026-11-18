@@ -211,6 +211,7 @@ async function session({ confirm = true } = {}) {
   const view = { visible: true };
   const delivered = [];
   const fatal = [];
+  const progress = [];
   const peer = createRemoteTransportPeer({
     channel: client.channel,
     sessionId: challenge.challenge,
@@ -222,6 +223,7 @@ async function session({ confirm = true } = {}) {
       }
       delivered.push(payload);
     },
+    progress: () => progress.push(delivered.length),
     fatal: (error) => fatal.push(error),
     createPeer: (config) => new FakePeer(config),
     visible: () => view.visible,
@@ -251,7 +253,7 @@ async function session({ confirm = true } = {}) {
       'barrier'
     );
   };
-  const s = { peer, desk, relay, clock, timers, view, delivered, fatal, feed, barrier, server, client };
+  const s = { peer, desk, relay, clock, timers, view, delivered, fatal, progress, feed, barrier, server, client };
   if (confirm) {
     await feed(
       await desk.records({ type: 'e2ee-ready', version: 1, ...server.handshakeConfirmation() }),
@@ -809,4 +811,218 @@ test('an authenticated ack releases the window', async () => {
     () => s.peer.diagnostics().outstandingBytes === 0
   );
   assert.equal(s.peer.diagnostics().outstandingBytes, 0);
+});
+
+test('progress: a record of a message still arriving is reported once authenticated, before the message is whole', async () => {
+  const s = await session();
+  const base = s.progress.length;
+  const wire = (await s.desk.records({ id: 21, data: 'p'.repeat(3_000_000) })).flat();
+  assert.ok(wire.length > 4, 'the message spans many relay frames');
+  let reportedBeforeWhole = 0;
+  for (let i = 0; i < wire.length - 1; i++) {
+    s.peer.receiveRelay(wire[i]);
+    await s.barrier();
+    reportedBeforeWhole = s.progress.length - base;
+    assert.equal(s.delivered.length, 1, 'the message is not whole yet');
+  }
+  assert.ok(reportedBeforeWhole >= 1, 'progress was reported while the message was still arriving');
+  s.peer.receiveRelay(wire.at(-1));
+  await until(() => s.delivered.length === 2, 'the message is delivered');
+  assert.equal(s.delivered[1].id, 21);
+  assert.ok(s.progress.length - base >= reportedBeforeWhole);
+});
+
+test('progress: a held fragment that is retried is not reported again, and a record seen again is not progress', async () => {
+  const message = { id: 22, data: 'q'.repeat(1_200_000) };
+  const plain = await session();
+  const baseline = plain.progress.length;
+  await plain.feed((await plain.desk.records(message)).flat());
+  await plain.barrier();
+  const records = plain.progress.length - baseline;
+  assert.ok(records >= 1);
+
+  const s = await session();
+  const free = remoteTransportAssemblyPool.capacity - remoteTransportAssemblyPool.usedBytes();
+  assert.ok(remoteTransportAssemblyPool.tryReserve(free));
+  const wire = (await s.desk.records(message)).flat();
+  const base = s.progress.length;
+  await s.feed(wire);
+  await s.barrier();
+  remoteTransportAssemblyPool.release(free);
+  s.timers.run();
+  await until(() => s.delivered.length === 2, 'delivered once room exists');
+  assert.equal(s.progress.length - base, records, 'every record once: the held one is not counted again when it is retried');
+  await s.feed(wire);
+  await s.barrier();
+  assert.equal(s.progress.length - base, records, 'a replayed record is not progress');
+});
+
+test('progress: the relay pong, an acknowledgement, a ping and a forged record are not progress', async () => {
+  const s = await session();
+  await s.peer.send({ id: 23 });
+  const base = s.progress.length;
+  await s.feed([await s.desk.control(remoteTransportAck(1))], undefined, () => s.peer.diagnostics().outstandingBytes === 0);
+  s.peer.receiveRelay(await s.desk.control(remoteTransportPing(7)));
+  const forged = (await s.desk.records({ id: 24, data: 'x' })).flat().map((raw) => {
+    const copy = new Uint8Array(raw);
+    copy[copy.length - 1] ^= 0xff;
+    return copy;
+  });
+  await s.feed(forged);
+  await s.barrier();
+  assert.equal(s.progress.length, base, 'only authenticated records of the application count');
+});
+
+test('settled: resolves once the receive work already accepted has been processed', async () => {
+  const s = await session();
+  const wire = (await s.desk.records({ id: 25, data: 'z'.repeat(200_000) })).flat();
+  for (const raw of wire) s.peer.receiveRelay(raw);
+  await s.peer.settled();
+  assert.equal(s.delivered.at(-1).id, 25, 'everything accepted before the call has been delivered when it resolves');
+});
+
+test('departure: admission is not departure — the receipt waits for the carrier to be handed the records and to report nothing buffered', async () => {
+  const s = await session();
+  const state = async (promise) => Promise.race([promise.then(() => 'left', () => 'failed'), new Promise((r) => setImmediate(() => r('pending')))]);
+  s.relay.bufferedAmount = 10_000_000; // the carrier is full: the message is admitted but cannot be handed
+  const { departed } = await s.peer.sendDeparting({ id: 30 });
+  assert.equal(await state(departed), 'pending', 'admitted (sealed and queued) is not left');
+  const before = s.relay.sent.length;
+  s.relay.bufferedAmount = 4_096; // room for the records, and the carrier still holds bytes once they are handed
+  s.timers.run();
+  await until(() => s.relay.sent.length > before, 'the records are handed to the carrier');
+  s.timers.run();
+  assert.equal(await state(departed), 'pending', 'handed to a carrier that still holds it is not left');
+  s.relay.bufferedAmount = 0;
+  s.timers.run();
+  assert.equal(await state(departed), 'left', 'the carrier reports nothing buffered: the write left');
+});
+
+test('departure: a session that ends first never reports the message as left', async () => {
+  const s = await session();
+  const state = async (promise) => Promise.race([promise.then(() => 'left', () => 'failed'), new Promise((r) => setImmediate(() => r('pending')))]);
+  s.relay.bufferedAmount = 10_000_000;
+  const { departed } = await s.peer.sendDeparting({ id: 31 });
+  await s.peer.suspend();
+  assert.equal(await state(departed), 'failed');
+});
+
+/** The relay socket as a first-in first-out buffer: `ahead` bytes of earlier traffic sit in it already, everything the peer hands it
+ *  queues behind, and `leave(n)` lets n bytes go out of the front. */
+function fifo(s, ahead = 0) {
+  const total = () => s.relay.sent.reduce((sum, bytes) => sum + bytes.byteLength, 0);
+  const base = total();
+  const model = { left: 0, total: () => total() - base };
+  Object.defineProperty(s.relay, 'bufferedAmount', { configurable: true, get: () => ahead + total() - base - model.left });
+  model.leave = (bytes) => {
+    model.left += bytes;
+  };
+  model.ahead = ahead;
+  return model;
+}
+const settledState = (promise) => Promise.race([promise.then(() => 'left', () => 'failed'), new Promise((r) => setImmediate(() => r('pending')))]);
+
+test('departure: later traffic never postpones it — the probe has left once the buffer holds no more than what was sent after it', async () => {
+  const s = await session();
+  const buffer = fifo(s);
+  const { departed } = await s.peer.sendDeparting({ id: 40 });
+  const probeEnd = buffer.total();
+  assert.ok(probeEnd > 0, 'the probe was handed to the carrier');
+  s.timers.run();
+  assert.equal(await settledState(departed), 'pending', 'it is still in the buffer');
+  await s.peer.send({ id: 41, data: 'later'.repeat(100) }); // steady traffic behind it
+  s.timers.run();
+  assert.equal(await settledState(departed), 'pending');
+  buffer.leave(probeEnd); // the probe leaves; what was sent after it is still queued, and the buffer is not empty
+  assert.ok(s.relay.bufferedAmount > 0);
+  s.timers.run();
+  assert.equal(await settledState(departed), 'left', 'a buffer that stays above zero with later traffic does not hold the probe');
+});
+
+test('departure: a probe still behind earlier unsent bytes has not left, however much is sent after it', async () => {
+  const s = await session();
+  const buffer = fifo(s, 20_000);
+  const { departed } = await s.peer.sendDeparting({ id: 42 });
+  const probeEnd = buffer.ahead + buffer.total();
+  await s.peer.send({ id: 43, data: 'x'.repeat(500) });
+  s.timers.run();
+  assert.equal(await settledState(departed), 'pending');
+  buffer.leave(10_000); // the earlier bytes are draining; the probe is still among them
+  s.timers.run();
+  assert.equal(await settledState(departed), 'pending', 'more bytes in the buffer than were sent after the probe');
+  buffer.leave(probeEnd - 10_000);
+  s.timers.run();
+  assert.equal(await settledState(departed), 'left');
+});
+
+test('departure: several probes with traffic between them resolve in order, each when its own bytes have left', async () => {
+  const s = await session();
+  const buffer = fifo(s);
+  const order = [];
+  const probe = async (id) => {
+    const { departed } = await s.peer.sendDeparting({ id });
+    const end = buffer.total();
+    departed.then(() => order.push(id), () => order.push('failed ' + id));
+    return end;
+  };
+  const first = await probe(50);
+  await s.peer.send({ id: 51, data: 'y'.repeat(300) });
+  const second = await probe(52);
+  await s.peer.send({ id: 53, data: 'z'.repeat(300) });
+  const flush = async () => {
+    s.timers.run();
+    await new Promise((r) => setImmediate(r));
+  };
+  buffer.leave(first - 1);
+  await flush();
+  assert.deepEqual(order, []);
+  buffer.leave(1);
+  await flush();
+  assert.deepEqual(order, [50]);
+  buffer.leave(second - first);
+  await flush();
+  assert.deepEqual(order, [50, 52]);
+});
+
+test('departure: a carrier switch mid-request — the request has not left while an earlier fragment is still buffered on the relay', async () => {
+  const s = await session();
+  const link = await connectDirect(s);
+  const buffer = fifo(s);
+  // The second fragment is held in sealing until the direct path is promoted, so the first goes out on the relay.
+  const channel = s.client.channel;
+  const seal = channel.encryptBinary.bind(channel);
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  let calls = 0;
+  channel.encryptBinary = async (payload) => {
+    calls += 1;
+    if (calls === 2) await gate;
+    return seal(payload);
+  };
+  const sending = s.peer.sendDeparting({ id: 60, method: 'upload', data: 'x'.repeat(1_500_000) });
+  await until(() => buffer.total() > 0, 'the first fragment is handed to the relay');
+  await pongDirect(s, link);
+  assert.equal(s.peer.diagnostics().path, 'direct');
+  release();
+  const { departed } = await sending;
+  assert.ok(link.app.bufferedAmount > 0, 'the last fragment went on the direct carrier');
+  link.app.bufferedAmount = 0;
+  link.app.onbufferedamountlow?.();
+  s.timers.run();
+  assert.equal(await settledState(departed), 'pending', 'the direct carrier is empty but the first fragment is still in the relay buffer');
+  buffer.leave(buffer.total());
+  s.timers.run();
+  assert.equal(await settledState(departed), 'left');
+});
+
+test('departure: closing the direct carrier fails the claims on it at once', async () => {
+  const s = await session();
+  const link = await connectDirect(s);
+  await pongDirect(s, link);
+  const { departed } = await s.peer.sendDeparting({ id: 61, method: 'x' });
+  assert.ok(link.app.bufferedAmount > 0);
+  assert.equal(await settledState(departed), 'pending');
+  await s.feed([await s.desk.control({ ...s.desk.ref(), t: 'close', reason: 'stall' })]);
+  await s.barrier();
+  assert.equal(await settledState(departed), 'failed', 'its bytes did not leave, and no timer has run to find out');
 });

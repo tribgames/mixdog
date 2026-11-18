@@ -36,6 +36,18 @@ async fn one_vault_lookup_through_the_key_store_is_one_credential_read() {
     }
 }
 
+/// The settings view's probe of a custom provider's key variable reads the process environment through the counted function.
+#[test]
+fn the_admin_key_variable_probe_is_one_credential_read() {
+    for read in 1..=2 {
+        let before = mixdog_ai::work::credential_reads();
+        let found = ProviderAdmin::check_custom_provider_key_env("MIXDOG_NO_SUCH_KEY_VARIABLE").unwrap();
+        assert_eq!(found["found"], false);
+        assert_eq!(mixdog_ai::work::credential_reads() - before, 1, "check_custom_provider_key_env, probe {read}");
+    }
+}
+
+
 /// The Windows store (DPAPI files) over a directory the test owns: a lookup is exactly one read, and `is_fallback` is a
 /// constant that reads nothing. Only Windows has a platform store the test can own: macOS ignores the directory and reads
 /// the user's real keychain, Linux the real keyring (two reads on a keyring miss: keyring, then the fallback file), so
@@ -52,15 +64,4 @@ async fn the_windows_store_counts_one_read_per_lookup_and_a_constant_fallback_ch
     let before = mixdog_ai::work::credential_reads();
     vault.is_fallback("agent.test-owned.apiKey").await.unwrap();
     assert_eq!(mixdog_ai::work::credential_reads() - before, 0, "is_fallback reads nothing on this platform");
-}
-
-/// The settings view's probe of a custom provider's key variable reads the process environment through the counted function.
-#[test]
-fn the_admin_key_variable_probe_is_one_credential_read() {
-    for read in 1..=2 {
-        let before = mixdog_ai::work::credential_reads();
-        let found = ProviderAdmin::check_custom_provider_key_env("MIXDOG_NO_SUCH_KEY_VARIABLE").unwrap();
-        assert_eq!(found["found"], false);
-        assert_eq!(mixdog_ai::work::credential_reads() - before, 1, "check_custom_provider_key_env, probe {read}");
-    }
 }

@@ -158,10 +158,17 @@ impl JobStarter {
         let job = handle.get().cloned().ok_or_else(|| "agent job did not start".to_owned())?;
         // Success, failure or cancellation: the report names what the agent's own todo list
         // leaves undone. The owner never receives the list otherwise.
-        if let Some(session) = session {
-            let turns = self.turns.clone();
-            self.board.set_report_appendix(&id, Arc::new(move || turns.not_done_report(&session)));
-        }
+        // A spawn gets its session while it runs (`mergeJobMeta`), so the session is read when the report is built:
+        // `task.meta?.sessionId || jobMeta?.sessionId`.
+        let turns = self.turns.clone();
+        self.board.set_report_appendix(
+            &id,
+            Arc::new(move |current: Option<&str>| match current.filter(|s| !s.is_empty()).map(str::to_owned).or_else(|| session.clone()) {
+                Some(session) => turns.not_done_report(&session),
+                None => String::new(),
+            }),
+        );
+        self.board.set_hop(&id, context.hop.as_ref().and_then(|h| h.as_u64()).map_or(0, |h| u32::try_from(h).unwrap_or(u32::MAX)));
         if let Some(call) = non_empty(&context.tool_call_id) {
             self.starts.record(&call, &id);
         }

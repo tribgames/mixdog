@@ -6,39 +6,55 @@
 //! are compared with Node's. `admission.run` (Node's ambient lease context) has no counterpart:
 //! the lease's yielder goes to the ask instead.
 
-use std::sync::{Arc, Mutex, PoisonError};
+#[cfg(node_twin)]
+use std::sync::Arc;
+#[cfg(node_twin)]
+use std::sync::Mutex;
+#[cfg(node_twin)]
+use std::sync::PoisonError;
+#[cfg(node_twin)]
 use std::time::Duration;
 
+#[cfg(node_twin)]
 use futures::future::BoxFuture;
+#[cfg(node_twin)]
 use mixdog_agent::agent_tool::flow::seams::Lease;
+#[cfg(node_twin)]
 use mixdog_agent::cancel::session_closed;
+#[cfg(node_twin)]
 use serde_json::json;
 
+#[cfg(node_twin)]
 use super::*;
 
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/agent-dispatch/golden.json");
-
+#[cfg(node_twin)]
 #[path = "inline_node_cases.rs"]
 mod inline_node_cases;
 
 /// The runs the dispatch reports, counted while they are in its table.
 #[derive(Default)]
+#[cfg(node_twin)]
 struct Watch(Arc<std::sync::atomic::AtomicUsize>, tokio::sync::Notify);
 
+#[cfg(node_twin)]
 struct Held(Arc<std::sync::atomic::AtomicUsize>);
 
+#[cfg(node_twin)]
 impl Drop for Held {
     fn drop(&mut self) {
         self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
+#[cfg(node_twin)]
 impl Watch {
+    #[cfg(node_twin)]
     fn live(&self) -> usize {
         self.0.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
+#[cfg(node_twin)]
 impl RunWatch for Watch {
     fn started(&self) -> RunHold {
         self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -48,19 +64,14 @@ impl RunWatch for Watch {
 }
 
 /// Epoch milliseconds that follow the paused tokio clock.
+#[cfg(node_twin)]
 const T0: i64 = 1_000_000;
 
-struct Virtual(tokio::time::Instant);
-
-impl Clock for Virtual {
-    fn now_ms(&self) -> i64 {
-        T0 + self.0.elapsed().as_millis() as i64
-    }
-}
-
+#[cfg(node_twin)]
 struct Slot;
 
 #[async_trait]
+#[cfg(node_twin)]
 impl Yielder for Slot {
     async fn run_yielded(&self, task: BoxFuture<'_, bool>, _cancel: Option<&Cancel>) -> Result<(), String> {
         task.await;
@@ -69,6 +80,7 @@ impl Yielder for Slot {
 }
 
 #[derive(Default)]
+#[cfg(node_twin)]
 struct Log {
     events: Vec<Value>,
     lines: Vec<String>,
@@ -78,28 +90,11 @@ struct Log {
     streaming_since: Option<i64>,
 }
 
-/// The session manager, admission and config of one recorded scenario.
-struct Fake {
-    log: Arc<Mutex<Log>>,
-    input: Value,
-    hidden: Value,
-    tools: Vec<String>,
-    clock: Arc<Virtual>,
-}
-
-impl Fake {
-    fn log(&self) -> std::sync::MutexGuard<'_, Log> {
-        self.log.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn push(&self, event: Value) {
-        self.log().events.push(event);
-    }
-}
-
+#[cfg(node_twin)]
 struct FakeLease(Arc<Mutex<Log>>);
 
 #[async_trait]
+#[cfg(node_twin)]
 impl Lease for FakeLease {
     async fn release(self: Box<Self>) {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).events.push(json!(["admission.release"]));
@@ -110,18 +105,8 @@ impl Lease for FakeLease {
     }
 }
 
-#[async_trait]
-impl Admission for Fake {
-    async fn acquire(&self, label: &str, owner_key: Option<&str>, cancel: &Cancel) -> Result<Box<dyn Lease>, String> {
-        self.push(json!(["admission.acquire", "agent", { "label": label, "ownerKey": owner_key, "aborted": cancel.is_aborted() }]));
-        match self.input["admissionFails"].as_str() {
-            Some(message) => Err(message.to_owned()),
-            None => Ok(Box::new(FakeLease(self.log.clone()))),
-        }
-    }
-}
-
 /// The spec as Node's `prepareAgentSession` was recorded receiving it: unset fields are absent.
+#[cfg(node_twin)]
 fn spec_json(spec: &PrepareSpec) -> Value {
     let mut out = Map::new();
     out.insert("agent".into(), spec.agent.clone().into());
@@ -145,11 +130,252 @@ fn spec_json(spec: &PrepareSpec) -> Value {
     Value::Object(out)
 }
 
+/// `sess_...` ids are the dispatch's own; Node's were masked the same way.
+#[cfg(node_twin)]
+fn mask(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("sess_") {
+        out.push_str(&rest[..at]);
+        out.push_str("<session>");
+        let tail = &rest[at + 5..];
+        let used = tail.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(tail.len());
+        rest = &tail[used..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A measured time is not a fact.
+#[cfg(node_twin)]
+fn without_elapsed(line: &str) -> String {
+    match line.find("elapsed=") {
+        Some(at) => format!("{}elapsed=<ms>", &line[..at]),
+        None => line.to_owned(),
+    }
+}
+
+#[cfg(node_twin)]
+fn masked(value: &Value) -> Value {
+    match value {
+        Value::String(text) => Value::String(mask(text)),
+        Value::Array(items) => Value::Array(items.iter().map(masked).collect()),
+        Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (key.clone(), masked(item))).collect()),
+        other => other.clone(),
+    }
+}
+
+/// Node's events in the vocabulary the fakes log: no ambient-lease event, no signal flag (every
+/// Rust dispatch has a cancel), and the ask without its callback plumbing.
+#[cfg(node_twin)]
+fn node_events(events: &Value) -> Vec<Value> {
+    events
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event[0] != "admission.run")
+        .map(|event| match event[0].as_str().unwrap() {
+            "admission.acquire" => {
+                let mut detail = event[2].as_object().unwrap().clone();
+                detail.shift_remove("signal");
+                json!(["admission.acquire", event[1], detail])
+            }
+            "ask" => json!(["ask", { "prompt": event[1]["prompt"], "cwd": event[1]["cwd"], "liveProjection": event[1]["liveProjection"] }]),
+            _ => event.clone(),
+        })
+        .collect()
+}
+
+#[cfg(node_twin)]
+fn text(value: &Value) -> Option<String> {
+    value.as_str().filter(|text| !text.is_empty()).map(str::to_owned)
+}
+
+/// The factory options and the call arguments, merged the way `dispatchAdmitted` reads them.
+#[cfg(node_twin)]
+fn request_of(input: &Value) -> DispatchRequest {
+    let (options, call) = (&input["options"], &input["call"]);
+    DispatchRequest {
+        agent: options["agent"].as_str().unwrap().to_owned(),
+        // The recorder's own default (`{ prompt: 'summarise the rows', ...scenario.call }`).
+        prompt: call["prompt"].as_str().unwrap_or("summarise the rows").to_owned(),
+        brief: options["brief"] != false,
+        salvage_partial: input["salvage"] == true,
+        preset: Some(call["preset"].clone()).filter(|preset| !preset.is_null()),
+        default_preset: Some(options["preset"].clone()).filter(|preset| !preset.is_null()),
+        cwd: Some(call["cwd"].as_str().unwrap_or_default().to_owned()).filter(|_| call.get("cwd").is_some()),
+        default_cwd: Some(options["cwd"].as_str().unwrap_or_default().to_owned()).filter(|_| options.get("cwd").is_some()),
+        idle_timeout_ms: call["idleTimeoutMs"].as_f64(),
+        default_idle_timeout_ms: options["idleTimeoutMs"].as_f64(),
+        task_type: text(&options["taskType"]),
+        source_type: text(&options["sourceType"]),
+        source_name: call.get("sourceName").and_then(Value::as_str).map(str::to_owned),
+        default_source_name: options.get("sourceName").and_then(Value::as_str).map(str::to_owned),
+        parent_session_id: text(&options["parentSessionId"]),
+        owner_session_id: options.get("ownerSessionId").map(text),
+        ..DispatchRequest::default()
+    }
+}
+
+/// The tool names Node's own diagnostic line listed for the scenario.
+#[cfg(node_twin)]
+fn listed_tools(stderr: &Value) -> Vec<String> {
+    let Some(line) = stderr.as_array().unwrap().iter().filter_map(Value::as_str).find(|line| line.contains(" tool-list (")) else { return Vec::new() };
+    let names = line.split("): ").nth(1).unwrap().trim();
+    names.split(',').filter(|name| !name.is_empty()).map(str::to_owned).collect()
+}
+
+/// The inline host: its run table and the payload it hands the dispatcher.
+#[cfg(node_twin)]
+struct HostFake {
+    closed: bool,
+    calls: Mutex<Vec<Value>>,
+}
+
 #[async_trait]
+#[cfg(node_twin)]
+impl HostWorld for HostFake {
+    fn assert_open(&self, cancel: Option<&Cancel>) -> Result<(), String> {
+        if self.closed {
+            return Err("session runtime host is closed".to_owned());
+        }
+        match cancel.filter(|cancel| cancel.is_aborted()) {
+            Some(cancel) => Err(cancel.reason()),
+            None => Ok(()),
+        }
+    }
+
+    async fn prepare_providers(&self, _cancel: &Cancel) -> Result<(), String> {
+        self.calls.lock().unwrap().push(json!({ "prepared": true }));
+        Ok(())
+    }
+}
+
+/// The dispatcher: answers `answer:<prompt>`, or waits for its abort when the prompt is `hang`.
+#[cfg(node_twin)]
+struct Echo(Arc<HostFake>);
+
+#[async_trait]
+#[cfg(node_twin)]
+impl ChildRunner for Echo {
+    async fn run_child(&self, request: &DispatchRequest, cancel: Cancel) -> ChildResult {
+        let mut args = Map::new();
+        args.insert("prompt".into(), request.prompt.clone().into());
+        if let Some(preset) = &request.preset {
+            args.insert("preset".into(), preset.clone());
+        }
+        if let Some(cwd) = &request.cwd {
+            args.insert("cwd".into(), cwd.clone().into());
+        }
+        args.insert("parentSignal".into(), true.into());
+        if let Some(idle) = request.idle_timeout_ms {
+            args.insert("idleTimeoutMs".into(), number(idle));
+        }
+        let options = json!({ "agent": request.agent, "taskType": request.task_type, "sourceType": request.source_type, "brief": request.brief });
+        self.0.calls.lock().unwrap().push(json!({ "options": options, "args": args }));
+        if request.prompt == "hang" {
+            cancel.cancelled().await;
+            return ChildResult { outcome: Err(cancel.reason()) };
+        }
+        ChildResult { outcome: Ok(format!("answer:{}", request.prompt)) }
+    }
+}
+
+#[cfg(node_twin)]
+fn payload_of(input: &Value) -> AgentDispatchPayload {
+    let (payload, params) = (&input["payload"], &input["payload"]["params"]);
+    let option = |key: &str| match payload["options"][key].as_str() {
+        Some("memory-cycle") => "memory-cycle",
+        Some("maintenance") => "maintenance",
+        _ => "",
+    };
+    AgentDispatchPayload {
+        dispatch_id: payload["dispatchId"].as_str().unwrap_or_default().to_owned(),
+        agent: "cycle1-agent",
+        task_type: option("taskType"),
+        source_type: option("sourceType"),
+        brief: payload["options"]["brief"] != false,
+        permission: payload["options"]["permission"].as_str().map(str::to_owned),
+        prompt: mixdog_js::value_to_string(&params["prompt"]),
+        preset: Some(params["preset"].clone()).filter(|preset| !preset.is_null()),
+        cwd: params["cwd"].as_str().map(str::to_owned),
+        idle_timeout_ms: params["idleTimeoutMs"].as_f64(),
+    }
+}
+
+/// One recorded call to the host, as a `Result` in the recorded `ok` / `error` shape.
+#[cfg(node_twin)]
+async fn go(host: &InlineAgentDispatch, input: &Value) -> Value {
+    let parent = Cancel::new();
+    if input["signalAborted"] == true {
+        parent.abort("caller gone");
+    }
+    match host.run(payload_of(input), &parent).await {
+        Ok(answer) => json!({ "ok": answer }),
+        Err(error) => json!({ "error": error }),
+    }
+}
+
+/// `session-prep.mjs:75-78`: `opts.permission ?? (isPoolC ? hidden.permission || 'read' : null)`, resolved
+/// like `prepareAgentSession`: the factory's permission wins for a public agent, a hidden role asks for its
+/// own (`read` when it declares none) and an empty option is as good as none.
+#[test]
+fn the_dispatch_permission_is_the_options_else_the_hidden_roles() {
+    let hidden = serde_json::json!({ "permission": "full" });
+    assert_eq!(super::session_permission("my-agent", None, Some("mcp")), Some("mcp".to_owned()));
+    assert_eq!(super::session_permission("my-agent", None, None), None);
+    assert_eq!(super::session_permission("my-agent", Some(&hidden), None), Some("full".to_owned()));
+    assert_eq!(super::session_permission("my-agent", Some(&serde_json::json!({})), None), Some("read".to_owned()));
+    // `??` keeps an empty string, which `resolveAgentSessionPermission` then ignores: only the
+    // internal agent's own declaration (none for `my-agent`) is left.
+    assert_eq!(super::session_permission("my-agent", Some(&hidden), Some("")), None);
+}
+
+#[cfg(node_twin)]
+struct Virtual(tokio::time::Instant);
+#[cfg(node_twin)]
+impl Clock for Virtual {
+    fn now_ms(&self) -> i64 {
+        T0 + self.0.elapsed().as_millis() as i64
+    }
+}
+/// The session manager, admission and config of one recorded scenario.
+#[cfg(node_twin)]
+struct Fake {
+    log: Arc<Mutex<Log>>,
+    input: Value,
+    hidden: Value,
+    tools: Vec<String>,
+    clock: Arc<Virtual>,
+}
+#[cfg(node_twin)]
+impl Fake {
+    #[cfg(node_twin)]
+    fn log(&self) -> std::sync::MutexGuard<'_, Log> {
+        self.log.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn push(&self, event: Value) {
+        self.log().events.push(event);
+    }
+}
+#[async_trait]
+#[cfg(node_twin)]
+impl Admission for Fake {
+    async fn acquire(&self, label: &str, owner_key: Option<&str>, cancel: &Cancel) -> Result<Box<dyn Lease>, String> {
+        self.push(json!(["admission.acquire", "agent", { "label": label, "ownerKey": owner_key, "aborted": cancel.is_aborted() }]));
+        match self.input["admissionFails"].as_str() {
+            Some(message) => Err(message.to_owned()),
+            None => Ok(Box::new(FakeLease(self.log.clone()))),
+        }
+    }
+}
+#[async_trait]
+#[cfg(node_twin)]
 impl DispatchSessions for Fake {
     async fn prepare(&self, spec: PrepareSpec) -> Result<Prepared, String> {
         self.push(json!(["prepare", spec_json(&spec), { "lane": spec.runtime_spec["lane"] }]));
-        Ok(Prepared { id: "sess_fake1".into(), tools: self.tools.clone() })
+        Ok(Prepared { id: "sess_fake1".into(), tools: self.tools.clone(), first_response_budget: None })
     }
 
     async fn set_status(&self, _id: &str, status: &str) {
@@ -209,7 +435,7 @@ impl DispatchSessions for Fake {
         self.push(json!(["close", reason]));
     }
 }
-
+#[cfg(node_twin)]
 impl DispatchWorld for Fake {
     fn config(&self) -> Map<String, Value> {
         mixdog_core_config::config::agent_routes::stored_file_of(&self.input["options"]["config"])["agent"].as_object().cloned().unwrap_or_default()
@@ -247,95 +473,11 @@ impl DispatchWorld for Fake {
     fn record_stall_abort(&self, _ctx: Map<String, Value>) {}
 }
 
-/// `sess_...` ids are the dispatch's own; Node's were masked the same way.
-fn mask(text: &str) -> String {
-    let mut out = String::new();
-    let mut rest = text;
-    while let Some(at) = rest.find("sess_") {
-        out.push_str(&rest[..at]);
-        out.push_str("<session>");
-        let tail = &rest[at + 5..];
-        let used = tail.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(tail.len());
-        rest = &tail[used..];
-    }
-    out.push_str(rest);
-    out
-}
 
-/// A measured time is not a fact.
-fn without_elapsed(line: &str) -> String {
-    match line.find("elapsed=") {
-        Some(at) => format!("{}elapsed=<ms>", &line[..at]),
-        None => line.to_owned(),
-    }
-}
-
-fn masked(value: &Value) -> Value {
-    match value {
-        Value::String(text) => Value::String(mask(text)),
-        Value::Array(items) => Value::Array(items.iter().map(masked).collect()),
-        Value::Object(map) => Value::Object(map.iter().map(|(key, item)| (key.clone(), masked(item))).collect()),
-        other => other.clone(),
-    }
-}
-
-/// Node's events in the vocabulary the fakes log: no ambient-lease event, no signal flag (every
-/// Rust dispatch has a cancel), and the ask without its callback plumbing.
-fn node_events(events: &Value) -> Vec<Value> {
-    events
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|event| event[0] != "admission.run")
-        .map(|event| match event[0].as_str().unwrap() {
-            "admission.acquire" => {
-                let mut detail = event[2].as_object().unwrap().clone();
-                detail.shift_remove("signal");
-                json!(["admission.acquire", event[1], detail])
-            }
-            "ask" => json!(["ask", { "prompt": event[1]["prompt"], "cwd": event[1]["cwd"], "liveProjection": event[1]["liveProjection"] }]),
-            _ => event.clone(),
-        })
-        .collect()
-}
-
-fn text(value: &Value) -> Option<String> {
-    value.as_str().filter(|text| !text.is_empty()).map(str::to_owned)
-}
-
-/// The factory options and the call arguments, merged the way `dispatchAdmitted` reads them.
-fn request_of(input: &Value) -> DispatchRequest {
-    let (options, call) = (&input["options"], &input["call"]);
-    DispatchRequest {
-        agent: options["agent"].as_str().unwrap().to_owned(),
-        // The recorder's own default (`{ prompt: 'summarise the rows', ...scenario.call }`).
-        prompt: call["prompt"].as_str().unwrap_or("summarise the rows").to_owned(),
-        brief: options["brief"] != false,
-        salvage_partial: input["salvage"] == true,
-        preset: Some(call["preset"].clone()).filter(|preset| !preset.is_null()),
-        default_preset: Some(options["preset"].clone()).filter(|preset| !preset.is_null()),
-        cwd: Some(call["cwd"].as_str().unwrap_or_default().to_owned()).filter(|_| call.get("cwd").is_some()),
-        default_cwd: Some(options["cwd"].as_str().unwrap_or_default().to_owned()).filter(|_| options.get("cwd").is_some()),
-        idle_timeout_ms: call["idleTimeoutMs"].as_f64(),
-        default_idle_timeout_ms: options["idleTimeoutMs"].as_f64(),
-        task_type: text(&options["taskType"]),
-        source_type: text(&options["sourceType"]),
-        source_name: call.get("sourceName").and_then(Value::as_str).map(str::to_owned),
-        default_source_name: options.get("sourceName").and_then(Value::as_str).map(str::to_owned),
-        parent_session_id: text(&options["parentSessionId"]),
-        owner_session_id: options.get("ownerSessionId").map(text),
-        ..DispatchRequest::default()
-    }
-}
-
-/// The tool names Node's own diagnostic line listed for the scenario.
-fn listed_tools(stderr: &Value) -> Vec<String> {
-    let Some(line) = stderr.as_array().unwrap().iter().filter_map(Value::as_str).find(|line| line.contains(" tool-list (")) else { return Vec::new() };
-    let names = line.split("): ").nth(1).unwrap().trim();
-    names.split(',').filter(|name| !name.is_empty()).map(str::to_owned).collect()
-}
-
+#[cfg(node_twin)]
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/agent-dispatch/golden.json");
 #[tokio::test(start_paused = true)]
+#[cfg(node_twin)]
 async fn every_recorded_dispatch_converses_with_its_collaborators_as_nodes_did() {
     mixdog_rt::testing::tokens();
     let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
@@ -370,93 +512,8 @@ async fn every_recorded_dispatch_converses_with_its_collaborators_as_nodes_did()
         assert_eq!(lines, want, "{id}: diagnostics");
     }
 }
-
-/// The inline host: its run table and the payload it hands the dispatcher.
-struct HostFake {
-    closed: bool,
-    calls: Mutex<Vec<Value>>,
-}
-
-#[async_trait]
-impl HostWorld for HostFake {
-    fn assert_open(&self, cancel: Option<&Cancel>) -> Result<(), String> {
-        if self.closed {
-            return Err("session runtime host is closed".to_owned());
-        }
-        match cancel.filter(|cancel| cancel.is_aborted()) {
-            Some(cancel) => Err(cancel.reason()),
-            None => Ok(()),
-        }
-    }
-
-    async fn prepare_providers(&self, _cancel: &Cancel) -> Result<(), String> {
-        self.calls.lock().unwrap().push(json!({ "prepared": true }));
-        Ok(())
-    }
-}
-
-/// The dispatcher: answers `answer:<prompt>`, or waits for its abort when the prompt is `hang`.
-struct Echo(Arc<HostFake>);
-
-#[async_trait]
-impl ChildRunner for Echo {
-    async fn run_child(&self, request: &DispatchRequest, cancel: Cancel) -> ChildResult {
-        let mut args = Map::new();
-        args.insert("prompt".into(), request.prompt.clone().into());
-        if let Some(preset) = &request.preset {
-            args.insert("preset".into(), preset.clone());
-        }
-        if let Some(cwd) = &request.cwd {
-            args.insert("cwd".into(), cwd.clone().into());
-        }
-        args.insert("parentSignal".into(), true.into());
-        if let Some(idle) = request.idle_timeout_ms {
-            args.insert("idleTimeoutMs".into(), number(idle));
-        }
-        let options = json!({ "agent": request.agent, "taskType": request.task_type, "sourceType": request.source_type, "brief": request.brief });
-        self.0.calls.lock().unwrap().push(json!({ "options": options, "args": args }));
-        if request.prompt == "hang" {
-            cancel.cancelled().await;
-            return ChildResult { outcome: Err(cancel.reason()) };
-        }
-        ChildResult { outcome: Ok(format!("answer:{}", request.prompt)) }
-    }
-}
-
-fn payload_of(input: &Value) -> AgentDispatchPayload {
-    let (payload, params) = (&input["payload"], &input["payload"]["params"]);
-    let option = |key: &str| match payload["options"][key].as_str() {
-        Some("memory-cycle") => "memory-cycle",
-        Some("maintenance") => "maintenance",
-        _ => "",
-    };
-    AgentDispatchPayload {
-        dispatch_id: payload["dispatchId"].as_str().unwrap_or_default().to_owned(),
-        agent: "cycle1-agent",
-        task_type: option("taskType"),
-        source_type: option("sourceType"),
-        brief: payload["options"]["brief"] != false,
-        permission: payload["options"]["permission"].as_str().map(str::to_owned),
-        prompt: mixdog_js::value_to_string(&params["prompt"]),
-        preset: Some(params["preset"].clone()).filter(|preset| !preset.is_null()),
-        cwd: params["cwd"].as_str().map(str::to_owned),
-        idle_timeout_ms: params["idleTimeoutMs"].as_f64(),
-    }
-}
-
-/// One recorded call to the host, as a `Result` in the recorded `ok` / `error` shape.
-async fn go(host: &InlineAgentDispatch, input: &Value) -> Value {
-    let parent = Cancel::new();
-    if input["signalAborted"] == true {
-        parent.abort("caller gone");
-    }
-    match host.run(payload_of(input), &parent).await {
-        Ok(answer) => json!({ "ok": answer }),
-        Err(error) => json!({ "error": error }),
-    }
-}
-
 #[tokio::test]
+#[cfg(node_twin)]
 async fn the_inline_host_hands_the_dispatcher_what_nodes_host_handed_it() {
     mixdog_rt::testing::tokens();
     let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
@@ -508,19 +565,4 @@ async fn the_inline_host_hands_the_dispatcher_what_nodes_host_handed_it() {
     verify("run-table-cleared", go(&host, &case("run-table-cleared")["outcome"]["input"]).await);
     let closed = go(&closed_host, &case("host-closed")["outcome"]["input"]).await;
     assert_eq!(closed.get("error"), case("host-closed")["outcome"].get("error"), "host-closed");
-}
-
-/// `session-prep.mjs:75-78`: `opts.permission ?? (isPoolC ? hidden.permission || 'read' : null)`, resolved
-/// like `prepareAgentSession`: the factory's permission wins for a public agent, a hidden role asks for its
-/// own (`read` when it declares none) and an empty option is as good as none.
-#[test]
-fn the_dispatch_permission_is_the_options_else_the_hidden_roles() {
-    let hidden = serde_json::json!({ "permission": "full" });
-    assert_eq!(super::session_permission("my-agent", None, Some("mcp")), Some("mcp".to_owned()));
-    assert_eq!(super::session_permission("my-agent", None, None), None);
-    assert_eq!(super::session_permission("my-agent", Some(&hidden), None), Some("full".to_owned()));
-    assert_eq!(super::session_permission("my-agent", Some(&serde_json::json!({})), None), Some("read".to_owned()));
-    // `??` keeps an empty string, which `resolveAgentSessionPermission` then ignores: only the
-    // internal agent's own declaration (none for `my-agent`) is left.
-    assert_eq!(super::session_permission("my-agent", Some(&hidden), Some("")), None);
 }

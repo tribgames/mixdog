@@ -75,9 +75,17 @@ impl Report {
     pub fn with_core(mut self, core: &ServerCore, args: &super::args::ProgramArgs) -> Self {
         self.daemon_json = Some(core.raw.clone());
         self.healthy = core.state == DiscoveryPhase::Serving;
-        self.core_current = core.version == args.version && core.build == args.build && core.model_proxy == args.wants_model_proxy();
+        // The model proxy endpoint is published once serving, so only a serving core's mode can be judged.
+        self.core_current = self.healthy && is_intended(core, args);
         self
     }
+}
+
+/// Whether `core` is the core this run is for: the requested version, the requested build and the requested model-login
+/// mode. The one predicate of the attach decision and of the current report, so a core one accepts is a core the other calls
+/// current.
+pub(super) fn is_intended(core: &ServerCore, args: &super::args::ProgramArgs) -> bool {
+    core.version == args.version && core.build == args.build && core.model_proxy == args.wants_model_proxy()
 }
 
 /// The lines the desktop parses from stdout: the result, or the error preceded by the drain
@@ -96,7 +104,10 @@ pub fn result_line(result: &Result<Report, EnsureError>) -> String {
                 _ => String::new(),
             };
             let message = error.to_string().split_whitespace().collect::<Vec<_>>().join(" ");
-            format!("{drain}MIXDOG_ERROR {} {message}\n", error.code())
+            // The sentence by code, with its parameters, for the desktop to word in the user's language; the error line keeps the
+            // English for older desktops and logs.
+            let notice = serde_json::to_string(&error.said().message).expect("messages serialize");
+            format!("{drain}MIXDOG_ERROR {} {message}\nMIXDOG_NOTICE {notice}\n", error.code())
         }
     }
 }

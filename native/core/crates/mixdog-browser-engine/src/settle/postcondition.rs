@@ -26,8 +26,6 @@ impl fmt::Display for ExpectError {
     }
 }
 
-impl std::error::Error for ExpectError {}
-
 /// A normalised `expect`: empty strings mean "not asked", and at least one of the three is not empty.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Postcondition {
@@ -226,3 +224,6 @@ mod tests {
         assert!(matches(only("a\nb", "", ""), sample(Some("a  \r\n  b"), "")));
     }
 }
+
+
+impl std::error::Error for ExpectError {}

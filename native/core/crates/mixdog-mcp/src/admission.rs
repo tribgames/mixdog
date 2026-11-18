@@ -60,6 +60,122 @@ impl Drop for Permit {
     }
 }
 
+struct Waiting<'a> {
+    gate: &'a Arc<AdmissionGate>,
+    owner: &'a str,
+    ticket: u64,
+    granted: &'a mut oneshot::Receiver<()>,
+    done: bool,
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        if self.done {
+            return;
+        }
+        // Closing first makes a concurrent grant fail (the dispatcher undoes it); a grant that
+        // already landed is returned here.
+        self.granted.close();
+        let was_granted = self.granted.try_recv().is_ok();
+        let mut state = self.gate.lock();
+        if let Some(queue) = state.queues.get_mut(self.owner)
+            && let Some(position) = queue.iter().position(|w| w.ticket == self.ticket)
+        {
+            queue.remove(position);
+            state.queued -= 1;
+            if state.queues.get(self.owner).is_some_and(VecDeque::is_empty) {
+                state.queues.remove(self.owner);
+                state.rotation.retain(|o| o != self.owner);
+            }
+        }
+        if was_granted {
+            state.active = state.active.saturating_sub(1);
+            self.gate.dispatch(&mut state);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn unbounded_gate_admits_everything() {
+        let gate = AdmissionGate::new(None, 4, 1);
+        let cancel = CancellationToken::new();
+        let mut permits = Vec::new();
+        for _ in 0..50 {
+            permits.push(gate.acquire("a", &cancel, Duration::from_secs(1)).await.unwrap());
+        }
+        assert_eq!(gate.active(), 50);
+    }
+
+    #[tokio::test]
+    async fn waiters_rotate_between_owners() {
+        let gate = AdmissionGate::new(Some(1), 16, 2);
+        let cancel = CancellationToken::new();
+        let first = gate.acquire("a", &cancel, Duration::from_secs(5)).await.unwrap();
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let mut tasks = Vec::new();
+        for owner in ["a", "a", "b"] {
+            let (g, cancel, order) = (Arc::clone(&gate), cancel.clone(), Arc::clone(&order));
+            tasks.push(tokio::spawn(async move {
+                let permit = g.acquire(owner, &cancel, Duration::from_secs(5)).await.unwrap();
+                order.lock().unwrap().push(owner);
+                drop(permit);
+            }));
+            while gate.queued() < tasks.len() {
+                tokio::task::yield_now().await;
+            }
+        }
+        drop(first);
+        for task in tasks {
+            task.await.unwrap();
+        }
+        // "b" is served second even though both "a" calls queued before it.
+        assert_eq!(*order.lock().unwrap(), vec!["a", "b", "a"]);
+    }
+
+    #[tokio::test]
+    async fn full_queue_rejects_but_keeps_room_for_a_new_owner() {
+        let gate = AdmissionGate::new(Some(1), 1, 1);
+        let cancel = CancellationToken::new();
+        let _held = gate.acquire("a", &cancel, Duration::from_secs(5)).await.unwrap();
+        let g = Arc::clone(&gate);
+        let c = cancel.clone();
+        let waiting = tokio::spawn(async move { g.acquire("a", &c, Duration::from_secs(5)).await.map(|_| ()) });
+        while gate.queued() < 1 {
+            tokio::task::yield_now().await;
+        }
+        let rejected = gate.acquire("a", &cancel, Duration::from_secs(5)).await;
+        assert!(matches!(rejected, Err(AdmissionError::QueueFull { .. })));
+        let g = Arc::clone(&gate);
+        let c = cancel.clone();
+        let other = tokio::spawn(async move { g.acquire("b", &c, Duration::from_millis(30)).await.map(|_| ()) });
+        assert_eq!(other.await.unwrap(), Err(AdmissionError::WaitTimeout(Duration::from_millis(30))));
+        waiting.abort();
+    }
+
+    #[tokio::test]
+    async fn cancelled_waiter_leaves_the_queue_and_frees_nothing_twice() {
+        let gate = AdmissionGate::new(Some(1), 4, 1);
+        let held = gate.acquire("a", &CancellationToken::new(), Duration::from_secs(5)).await.unwrap();
+        let cancel = CancellationToken::new();
+        let g = Arc::clone(&gate);
+        let c = cancel.clone();
+        let waiting = tokio::spawn(async move { g.acquire("b", &c, Duration::from_secs(5)).await.map(|_| ()) });
+        while gate.queued() < 1 {
+            tokio::task::yield_now().await;
+        }
+        cancel.cancel();
+        assert_eq!(waiting.await.unwrap(), Err(AdmissionError::Cancelled));
+        assert_eq!(gate.queued(), 0);
+        drop(held);
+        assert_eq!(gate.active(), 0);
+    }
+}
+
+
 impl AdmissionGate {
     pub fn new(active_max: Option<usize>, queue_max: usize, min_owner_queue: usize) -> Arc<Self> {
         Arc::new(Self {
@@ -177,120 +293,5 @@ impl AdmissionGate {
             }
             None => Err(AdmissionError::Cancelled),
         }
-    }
-}
-
-struct Waiting<'a> {
-    gate: &'a Arc<AdmissionGate>,
-    owner: &'a str,
-    ticket: u64,
-    granted: &'a mut oneshot::Receiver<()>,
-    done: bool,
-}
-
-impl Drop for Waiting<'_> {
-    fn drop(&mut self) {
-        if self.done {
-            return;
-        }
-        // Closing first makes a concurrent grant fail (the dispatcher undoes it); a grant that
-        // already landed is returned here.
-        self.granted.close();
-        let was_granted = self.granted.try_recv().is_ok();
-        let mut state = self.gate.lock();
-        if let Some(queue) = state.queues.get_mut(self.owner)
-            && let Some(position) = queue.iter().position(|w| w.ticket == self.ticket)
-        {
-            queue.remove(position);
-            state.queued -= 1;
-            if state.queues.get(self.owner).is_some_and(VecDeque::is_empty) {
-                state.queues.remove(self.owner);
-                state.rotation.retain(|o| o != self.owner);
-            }
-        }
-        if was_granted {
-            state.active = state.active.saturating_sub(1);
-            self.gate.dispatch(&mut state);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn unbounded_gate_admits_everything() {
-        let gate = AdmissionGate::new(None, 4, 1);
-        let cancel = CancellationToken::new();
-        let mut permits = Vec::new();
-        for _ in 0..50 {
-            permits.push(gate.acquire("a", &cancel, Duration::from_secs(1)).await.unwrap());
-        }
-        assert_eq!(gate.active(), 50);
-    }
-
-    #[tokio::test]
-    async fn waiters_rotate_between_owners() {
-        let gate = AdmissionGate::new(Some(1), 16, 2);
-        let cancel = CancellationToken::new();
-        let first = gate.acquire("a", &cancel, Duration::from_secs(5)).await.unwrap();
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let mut tasks = Vec::new();
-        for owner in ["a", "a", "b"] {
-            let (g, cancel, order) = (Arc::clone(&gate), cancel.clone(), Arc::clone(&order));
-            tasks.push(tokio::spawn(async move {
-                let permit = g.acquire(owner, &cancel, Duration::from_secs(5)).await.unwrap();
-                order.lock().unwrap().push(owner);
-                drop(permit);
-            }));
-            while gate.queued() < tasks.len() {
-                tokio::task::yield_now().await;
-            }
-        }
-        drop(first);
-        for task in tasks {
-            task.await.unwrap();
-        }
-        // "b" is served second even though both "a" calls queued before it.
-        assert_eq!(*order.lock().unwrap(), vec!["a", "b", "a"]);
-    }
-
-    #[tokio::test]
-    async fn full_queue_rejects_but_keeps_room_for_a_new_owner() {
-        let gate = AdmissionGate::new(Some(1), 1, 1);
-        let cancel = CancellationToken::new();
-        let _held = gate.acquire("a", &cancel, Duration::from_secs(5)).await.unwrap();
-        let g = Arc::clone(&gate);
-        let c = cancel.clone();
-        let waiting = tokio::spawn(async move { g.acquire("a", &c, Duration::from_secs(5)).await.map(|_| ()) });
-        while gate.queued() < 1 {
-            tokio::task::yield_now().await;
-        }
-        let rejected = gate.acquire("a", &cancel, Duration::from_secs(5)).await;
-        assert!(matches!(rejected, Err(AdmissionError::QueueFull { .. })));
-        let g = Arc::clone(&gate);
-        let c = cancel.clone();
-        let other = tokio::spawn(async move { g.acquire("b", &c, Duration::from_millis(30)).await.map(|_| ()) });
-        assert_eq!(other.await.unwrap(), Err(AdmissionError::WaitTimeout(Duration::from_millis(30))));
-        waiting.abort();
-    }
-
-    #[tokio::test]
-    async fn cancelled_waiter_leaves_the_queue_and_frees_nothing_twice() {
-        let gate = AdmissionGate::new(Some(1), 4, 1);
-        let held = gate.acquire("a", &CancellationToken::new(), Duration::from_secs(5)).await.unwrap();
-        let cancel = CancellationToken::new();
-        let g = Arc::clone(&gate);
-        let c = cancel.clone();
-        let waiting = tokio::spawn(async move { g.acquire("b", &c, Duration::from_secs(5)).await.map(|_| ()) });
-        while gate.queued() < 1 {
-            tokio::task::yield_now().await;
-        }
-        cancel.cancel();
-        assert_eq!(waiting.await.unwrap(), Err(AdmissionError::Cancelled));
-        assert_eq!(gate.queued(), 0);
-        drop(held);
-        assert_eq!(gate.active(), 0);
     }
 }

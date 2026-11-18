@@ -1,5 +1,8 @@
 import type { DesktopConnectionIdentity } from '../shared/contract';
 
+/** A server link recovered: its workspace port and terminals can reattach. */
+export const CONNECTION_REATTACHED_EVENT = 'mixdog:connection-reattached';
+
 /** The daemon connection this Electron window drives (preload-provided);
  *  null on remote surfaces (phone, browser, another PC's window). */
 export function desktopConnection(): DesktopConnectionIdentity | null {

@@ -123,10 +123,69 @@ mod tests {
         assert_eq!(js_words(" a\u{3000}\u{3000}b  c ").collect::<Vec<_>>(), ["a", "b", "c"]);
     }
 
-    /// Every code point `js_trim` removes is one `String.prototype.trim()` removes, and no other, against the set recorded from
-    /// Node (testdata/js_trim.mjs).
     #[test]
-    fn trim_removes_what_javascripts_trim_removes() {
+    fn slice_counts_utf16_units() {
+        let emoji = "😀".repeat(201);
+        assert_eq!(slice_utf16(&emoji, 200), "😀".repeat(100));
+        let cut = cut_utf16(&emoji, 201);
+        assert_eq!(cut.head, "😀".repeat(100));
+        assert_eq!(cut.dangling_high, Some(0xD83D));
+        assert_eq!(slice_utf16(&emoji, 201), format!("{}\u{fffd}", "😀".repeat(100)));
+        assert_eq!(slice_utf16(&"é".repeat(250), 200), "é".repeat(200));
+        assert_eq!(cut_utf16("ab😀", 4).dangling_high, None);
+        assert_eq!(utf16_len("a😀"), 3);
+    }
+
+
+    #[test]
+    fn trim_removes_exactly_the_white_space_and_line_terminators_of_the_specification() {
+        // WhiteSpace (TAB, VT, FF, SP, NBSP, ZWNBSP, any Zs) and LineTerminator (LF, CR, LS, PS).
+        let spec: Vec<u32> = [0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, 0xa0, 0x1680, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff]
+            .into_iter()
+            .chain(0x2000..=0x200a)
+            .collect();
+        let ours: Vec<u32> = (0..=0x10ffff_u32)
+            .filter_map(char::from_u32)
+            .filter(|c| {
+                let inner = format!("a{c}b");
+                js_trim(&format!("{c}{inner}{c}")) == inner
+            })
+            .map(u32::from)
+            .collect();
+        let mut spec = spec;
+        spec.sort_unstable();
+        assert_eq!(ours, spec);
+    }
+
+    #[test]
+    fn lowercasing_follows_the_unicode_default_case_mapping() {
+        for (input, want) in [
+            ("ABC xyz 123", "abc xyz 123"),
+            ("ÀÉÎÕÜ", "àéîõü"),
+            ("ΑΒΓ", "αβγ"),
+            ("Привет", "привет"),
+            // U+0130 lowers to `i` + U+0307.
+            ("İ", "i\u{307}"),
+            // Final_Sigma: a sigma that ends a word after a cased letter is the final form.
+            ("ΟΔΥΣΣΕΥΣ", "οδυσσευς"),
+            ("ΑΣ", "ας"),
+            ("ΑΣ ΑΣ", "ας ας"),
+            ("ΑΣΑ", "ασα"),
+            ("Σ", "σ"),
+            ("1Σ", "1σ"),
+            ("😀", "😀"),
+        ] {
+            assert_eq!(js_to_lowercase(input), want, "{input:?}");
+        }
+    }
+}
+/// The recorded string tables of the reference runtime; compiled only on the machine that holds them.
+#[cfg(all(test, node_twin))]
+mod node_twin {
+    use super::*;
+
+    #[test]
+    fn trim_removes_what_the_recorded_set_removes() {
         let golden = crate::json_parse(include_str!("../testdata/js_trim.json")).unwrap();
         let recorded: Vec<u32> = golden["trimmed"].as_array().unwrap().iter().map(|cp| cp.as_u64().unwrap() as u32).collect();
         let ours: Vec<u32> = (0..=0x10ffff_u32)
@@ -141,22 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn slice_counts_utf16_units() {
-        let emoji = "😀".repeat(201);
-        assert_eq!(slice_utf16(&emoji, 200), "😀".repeat(100));
-        let cut = cut_utf16(&emoji, 201);
-        assert_eq!(cut.head, "😀".repeat(100));
-        assert_eq!(cut.dangling_high, Some(0xD83D));
-        assert_eq!(slice_utf16(&emoji, 201), format!("{}\u{fffd}", "😀".repeat(100)));
-        assert_eq!(slice_utf16(&"é".repeat(250), 200), "é".repeat(200));
-        assert_eq!(cut_utf16("ab😀", 4).dangling_high, None);
-        assert_eq!(utf16_len("a😀"), 3);
-    }
-
-    /// Every code point and the context cases, against `toLowerCase()` recorded from Node
-    /// (testdata/js_lowercase.mjs).
-    #[test]
-    fn lowercasing_is_javascripts() {
+    fn lowercasing_is_the_recorded_one() {
         let golden = crate::json_parse(include_str!("../testdata/js_lowercase.json")).unwrap();
         let mut changed = std::collections::HashMap::new();
         for row in golden["rows"].as_array().unwrap() {

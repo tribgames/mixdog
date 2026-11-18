@@ -455,7 +455,18 @@ impl Worktrees {
     pub(crate) async fn finish_deletion(&self, record: &mut WorktreeRecord, cancel: &CancellationToken) -> Result<Deletion, ScmFailure> {
         self.assert_recovery_stores_clear(record, cancel).await?;
         let mut remaining = Vec::new();
-        match self.remove_folder(record, &mut remaining, cancel).await {
+        // A snapshot is deleted under the cross-process write lock the git tool takes on the worktree it writes in,
+        // so no git write of another process runs while the folder goes (Node `withAdvisoryLocks([record.path])`).
+        let folder = async {
+            let _held = if is_snapshot(record) {
+                Some(crate::worktree::path_lock::PathLock::acquire(self.scm().lane, Path::new(&record.path), cancel).await?)
+            } else {
+                None
+            };
+            self.remove_folder(record, &mut remaining, cancel).await
+        }
+        .await;
+        match folder {
             Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
             Err(error) => remaining.push(remnant("error", None, Some(&crate::worktree::reconcile::describe(&error)))),
             Ok(()) => {}

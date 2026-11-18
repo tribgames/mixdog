@@ -163,10 +163,11 @@ test('off names what it ignores, and leaving manual hides its rows', async () =>
   });
 });
 
-test('routeDescription covers a proxy variable, NO_PROXY=*, and no proxy at all', () => {
+test('routeDescription distinguishes a proxy variable, a direct route, and a manual exception', () => {
   assert.match(routeDescription('system', route({ via: 'env', proxy: 'p:1', envVar: 'ALL_PROXY' })), /p:1.*ALL_PROXY/);
   assert.match(routeDescription('system', route({ noProxyAll: true })), /NO_PROXY.*\*/);
-  assert.match(routeDescription('system', route()), /No system proxy or proxy variable/);
+  assert.match(routeDescription('system', route()), /current destination connects directly/i);
+  assert.match(routeDescription('manual', route({ via: 'direct' })), /matches an exception.*without the proxy/);
   assert.match(routeDescription('manual', route({ error: 'no-address' })), /Enter a proxy address/);
 });
 
@@ -195,7 +196,7 @@ test('the connection check shows its result and latency in the row, and a failur
     };
     await act(async () => button.click());
     await settle();
-    assert.match(desc('Check connection'), /Could not connect\. The proxy proxy\.corp\.local:8080 is not responding\./);
+    assert.match(desc('Check connection'), /api\.openai\.com through proxy\.corp\.local:8080 \(ECONNREFUSED\)/);
     assert.equal(button.textContent, 'Check again');
     assert.deepEqual(calls.at(-1), ['testNetworkProxy', []]);
   });

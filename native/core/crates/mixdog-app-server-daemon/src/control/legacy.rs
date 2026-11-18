@@ -59,6 +59,8 @@ impl Legacy {
                 version: &self.version,
                 instance_id: &self.instance_id,
                 build: &self.build,
+                // Deliberate: the 1.4.5 ssh installer prints `health.packageVersion || version` ("a Mixdog daemon the desktop did not
+                // install (pid N, mixdog <this>)"), the only field it shows, so the update text rides here.
                 package_version: format!("{} \u{2014} {}", self.version, self.update_text),
                 clients: 0,
                 busy: 0,

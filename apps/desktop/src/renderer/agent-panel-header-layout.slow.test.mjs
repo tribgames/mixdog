@@ -1,9 +1,9 @@
 // The composer island's Agents popover in a real Chrome, built from the real
 // ComposerDock and the app's whole stylesheet: at phone widths (360–430dp) and
-// in a long-label locale its header (title pill, state counts, "Clear
-// finished", close) never overlaps or clips, the counts and both buttons stay
-// readable with a 44px tap area, the rows ellipsize with their right column
-// clear of the text, and the usage footer wraps inside the panel.
+// in a long-label locale its header (title pill, state counts, close) never
+// overlaps or clips, the counts stay readable and close keeps a 44px tap
+// area, the rows ellipsize with their right column clear of the text, and the
+// usage footer fits inside the panel with "Clean up" at its row's end.
 // AGENT_PANEL_SHOT_TAG=before|after names the screenshots written under
 // %TEMP%/agent-panel-header/.
 import assert from 'node:assert/strict';
@@ -80,7 +80,12 @@ const PAGE = `
   window.__lead = (n) => { LEAD = 'lead-' + n; };
   // __usageGate holds getSessionUsage so the loading footer can be measured.
   window.mixdogDesktop = new Proxy({
-    listAgentPool: async () => rows,
+    // The island reads the pool from the core's agentPool section.
+    sections: {
+      core: async () => false,
+      snapshot: async () => ({ status: 'ready', entries: [{ section: 'agentPool', key: null, revision: 1, value: rows }] }),
+      subscribe: () => () => {},
+    },
     invokeCapability: async () => { if (window.__usageGate) await window.__usageGate; return { value: usage }; },
   }, {
     get: (target, name) => name in target ? target[name]
@@ -97,7 +102,7 @@ const PAGE = `
       await frame();
     }
   };
-  const loaded = () => (document.querySelector('.composer-island-summary b')?.textContent ?? '-') !== '-';
+  const loaded = () => /\\d/.test(document.querySelector('.composer-island-summary')?.textContent ?? '');
   // Resting: no animation running, no island easing, and the panel, its first
   // row and the footer on the same boxes for three frames in a row.
   const calm = async () => {
@@ -127,8 +132,7 @@ const PAGE = `
     return {
       panel: rect(panel),
       firstRow: rect(panel.querySelector('.composer-island-agent-item')),
-      summary: rect(summary),
-      stats: [...summary.children].map(rect),
+      foot: rect(panel.querySelector('.composer-island-panel-foot')),
       text: summary.textContent,
       overflow: summary.scrollWidth - summary.clientWidth,
     };
@@ -176,7 +180,6 @@ const PAGE = `
     const leaves = [
       head.querySelector('.composer-island-tab'),
       ...(meta ? [...meta.children] : []),
-      head.querySelector('.composer-island-phead-action'),
       head.querySelector('.composer-island-close'),
     ].filter(Boolean);
     const overlaps = [];
@@ -202,7 +205,8 @@ const PAGE = `
       const r = box(node);
       return r.width > 0 && (r.left < p.left - 0.5 || r.right > p.right + 0.5);
     }).map(name);
-    const action = head.querySelector('.composer-island-phead-action');
+    const foot = panel.querySelector('.composer-island-panel-foot');
+    const action = foot.querySelector('.composer-island-panel-foot-end [data-kind="clear-finished"]');
     const close = head.querySelector('.composer-island-close');
     const size = (node) => node ? { w: box(node).width, h: box(node).height } : null;
     const items = [...panel.querySelectorAll('.composer-island-agent-item')];
@@ -231,11 +235,20 @@ const PAGE = `
     }
     const names = [...panel.querySelectorAll('.agent-pool-name')];
     const summary = panel.querySelector('.composer-island-summary');
-    const parts = [...summary.children];
+    const parts = summary.hidden ? [] : [...summary.children];
     const summaryOverlaps = [];
     for (let i = 0; i < parts.length; i++) for (let j = i + 1; j < parts.length; j++) {
       if (overlap(box(parts[i]), box(parts[j]))) summaryOverlaps.push(name(parts[i]) + ' × ' + name(parts[j]));
     }
+    // "Clean up" keeps the footer row's right end beside the usage line.
+    const a = action && box(action);
+    const f = box(foot);
+    const footAction = action && {
+      visible: a.width > 0 && a.height > 0,
+      inside: a.left >= f.left - 0.5 && a.right <= f.right + 0.5 && a.top >= f.top - 0.5 && a.bottom <= f.bottom + 0.5,
+      overSummary: !summary.hidden && overlap(a, box(summary)),
+      sameRow: summary.hidden || Math.abs((a.top + a.bottom) / 2 - (box(summary).top + box(summary).bottom) / 2) <= 4,
+    };
     return {
       viewport: innerWidth,
       pageOverflow: document.documentElement.scrollWidth - innerWidth,
@@ -244,11 +257,7 @@ const PAGE = `
       metaTexts: meta ? [...meta.children].map((n) => n.textContent) : [],
       actionLabel: action?.textContent ?? null,
       overlaps, clipped, metaClipped, outside,
-      // The tap area: the box, or the invisible pad (::after) it carries.
-      action: action && {
-        w: box(action).width,
-        h: Math.max(box(action).height, parseFloat(getComputedStyle(action, '::after').height) || 0),
-      },
+      footAction,
       close: size(close),
       rows: items.length,
       rowOverlaps,
@@ -274,11 +283,12 @@ function problems(label, m, phone) {
   expect(m.rowOverlaps.length === 0, `row text under the right column: ${m.rowOverlaps}`);
   expect(m.namesEllipsize, 'row titles ellipsize');
   expect(m.summary.overflow <= 0 && m.summary.overlaps.length === 0, `footer overflow/overlap ${m.summary.overlaps}`);
+  const a = m.footAction;
+  expect(
+    a && a.visible && a.inside && !a.overSummary && a.sameRow,
+    `Clean up is not at the footer row's end beside the usage line: ${JSON.stringify(a)}`
+  );
   if (phone) {
-    expect(
-      m.action && m.action.w >= 44 && m.action.h >= 44,
-      `Clear finished is ${JSON.stringify(m.action)}, not a 44px target`
-    );
     expect(m.close && m.close.w >= 44 && m.close.h >= 44, `Close is ${JSON.stringify(m.close)}, not a 44px target`);
   }
   return found;
@@ -293,16 +303,13 @@ function stabilityProblems(label, { loading, data }) {
   const expect = (ok, what) => {
     if (!ok) found.push(`${label}: ${what}`);
   };
-  expect(loading.stats.length === 3, `the three stats exist while loading (${loading.stats.length})`);
+  // The usage line fits like the composer's readout (it may drop items as
+  // the figures widen), but the footer row keeps its place and height.
   expect(/-/.test(loading.text) && !/\d/.test(loading.text), `loading footer is "-" placeholders: ${loading.text}`);
   expect(!/\d/.test(loading.text) && /\d/.test(data.text), `data footer carries the figures: ${data.text}`);
   expect(same(loading.panel, data.panel), `panel moved ${loading.panel} -> ${data.panel}`);
   expect(same(loading.firstRow, data.firstRow), `rows moved ${loading.firstRow} -> ${data.firstRow}`);
-  expect(same(loading.summary, data.summary), `footer moved ${loading.summary} -> ${data.summary}`);
-  expect(
-    loading.stats.length === data.stats.length && loading.stats.every((box, i) => same(box, data.stats[i])),
-    `stat boxes moved ${JSON.stringify(loading.stats)} -> ${JSON.stringify(data.stats)}`
-  );
+  expect(same(loading.foot, data.foot), `footer moved ${loading.foot} -> ${data.foot}`);
   expect(loading.overflow <= 0 && data.overflow <= 0, `footer overflows ${loading.overflow}/${data.overflow}`);
   return found;
 }

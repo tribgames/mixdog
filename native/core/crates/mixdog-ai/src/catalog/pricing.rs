@@ -53,12 +53,6 @@ impl CatalogService {
 /// priceUsage for a send whose catalog may still be cold: a model no table names is unpriced
 /// (model-not-found), as in Node. Ledger rows are written whether or not the tables are loaded.
 pub struct CatalogPricing(pub Arc<CatalogService>);
-
-impl crate::registry::accounting::UsagePricing for CatalogPricing {
-    fn price_usage(&self, args: &UsageArgs) -> PricedUsage {
-        PricingCatalog { service: self.0.clone() }.price_usage(args)
-    }
-}
 /// One route of the price audit (`pricingAuditRows`): a model, or a wire id of one, and the rates the catalog lacks for it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AuditRow {
@@ -277,6 +271,22 @@ impl PricingCatalog {
     /// `pricingCatalogRevisionSync()`: changes whenever any price may.
     pub fn revision(&self) -> String {
         let (litellm_at, models_dev_at) = self.service.warm_stamps().unwrap_or_default();
+        self.revision_of(litellm_at, models_dev_at)
+    }
+
+    /// [`Self::revision`] from what the documents hold instead of when they were fetched: a refetch of the same documents
+    /// (every catalog refresh, and the disk copy replaced by the network one at each start) keeps it.
+    pub fn content_revision(&self) -> String {
+        let (litellm, models_dev) = self.service.warm_digests().unwrap_or_default();
+        self.revision_of(litellm, models_dev)
+    }
+
+    /// Both price documents are resident: before that nothing can be priced from them.
+    pub fn is_warm(&self) -> bool {
+        self.service.warm_digests().is_some()
+    }
+
+    fn revision_of(&self, litellm_at: u64, models_dev_at: u64) -> String {
         let aliases: Vec<Value> = self
             .service
             .rosters
@@ -434,17 +444,26 @@ impl PricingCatalog {
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "fixture files")]
 mod tests {
+    #[cfg(node_twin)]
     use super::*;
+    #[cfg(node_twin)]
     use crate::catalog::CatalogSnapshot;
+    #[cfg(node_twin)]
     use crate::catalog::ModelsDevSource;
+    #[cfg(node_twin)]
     use crate::catalog::facts::tests::Offline;
+    #[cfg(node_twin)]
     use crate::catalog::facts::tests::io;
+    #[cfg(node_twin)]
     use crate::catalog::lookup::fixtures;
+    #[cfg(node_twin)]
     use crate::catalog::modelsdev_source::LITELLM_CACHE_FILE;
+    #[cfg(node_twin)]
     use crate::catalog::modelsdev_source::MODELS_DEV_CACHE_FILE;
 
     /// A catalog warmed from cache files stamped `fetchedAt: 1`, as the Node
     /// recorder warms it, with the recorded roster files.
+    #[cfg(node_twin)]
     async fn warm(dir: &std::path::Path) -> Arc<CatalogService> {
         let mut litellm = fixtures::json(fixtures::LITELLM);
         litellm.as_object_mut().unwrap().extend(fixtures::json(fixtures::PRICING_EXTRA).as_object().unwrap().clone());
@@ -457,31 +476,10 @@ mod tests {
         Arc::new(service)
     }
 
-    #[tokio::test]
-    async fn a_cold_catalog_cannot_be_priced() {
-        let dir = tempfile::tempdir().unwrap();
-        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io());
-        let cold = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
-        assert!(cold.pricing().is_err());
-        // One resident table is not enough.
-        let litellm = ModelsDevSource::litellm(Arc::new(Offline), dir.path().to_path_buf(), io());
-        litellm.set_layer(crate::catalog::ModelsDev::from_litellm(fixtures::json(fixtures::LITELLM)));
-        let half = Arc::new(
-            CatalogService::cold_start(
-                CatalogSnapshot::default(),
-                Vec::new(),
-                ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io()),
-            )
-            .await
-            .with_litellm(litellm)
-            .await,
-        );
-        assert!(half.pricing().is_err());
-    }
-
     /// Every recorded `priceUsage` case and the revision equal Node's: cost,
     /// counted input, and the rate snapshot byte for byte (its field order is
     /// part of the route signature).
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn priced_usage_and_revision_equal_node() {
         let dir = tempfile::tempdir().unwrap();
@@ -506,6 +504,30 @@ mod tests {
         assert!(priced > 1000 && unpriced > 1000, "the golden reaches both outcomes ({priced}/{unpriced})");
     }
 
+
+    #[cfg(node_twin)]
+    #[tokio::test]
+    async fn a_cold_catalog_cannot_be_priced() {
+        let dir = tempfile::tempdir().unwrap();
+        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io());
+        let cold = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
+        assert!(cold.pricing().is_err());
+        // One resident table is not enough.
+        let litellm = ModelsDevSource::litellm(Arc::new(Offline), dir.path().to_path_buf(), io());
+        litellm.set_layer(crate::catalog::ModelsDev::from_litellm(fixtures::json(fixtures::LITELLM)));
+        let half = Arc::new(
+            CatalogService::cold_start(
+                CatalogSnapshot::default(),
+                Vec::new(),
+                ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io()),
+            )
+            .await
+            .with_litellm(litellm)
+            .await,
+        );
+        assert!(half.pricing().is_err());
+    }
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn the_revision_follows_the_table_stamps() {
         let dir = tempfile::tempdir().unwrap();
@@ -514,5 +536,12 @@ mod tests {
         service.rosters.store(Arc::new(crate::catalog::Rosters::default()));
         // The antigravity aliases are part of the revision.
         assert_ne!(service.pricing().unwrap().revision(), before);
+    }
+}
+
+
+impl crate::registry::accounting::UsagePricing for CatalogPricing {
+    fn price_usage(&self, args: &UsageArgs) -> PricedUsage {
+        PricingCatalog { service: self.0.clone() }.price_usage(args)
     }
 }

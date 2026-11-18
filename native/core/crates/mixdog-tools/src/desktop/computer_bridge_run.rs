@@ -615,7 +615,7 @@ impl ComputerBridgeRun {
                     };
                     image = Some((mime, base64::engine::general_purpose::STANDARD.encode(bytes)));
                 }
-                ToolPart::Image { .. } | ToolPart::Document { .. } => {}
+                ToolPart::Image { .. } | ToolPart::Document { .. } | ToolPart::File { .. } => {}
             }
         }
         Ok(Answer { text: texts.join("\n"), image })

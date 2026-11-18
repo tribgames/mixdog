@@ -12,13 +12,14 @@ mod betas;
 mod body;
 mod caps;
 pub mod catalog_caps;
+mod client_version;
 mod codec;
 mod decoder;
 mod effort_updates;
 pub(crate) mod errors;
 pub mod fast_mode;
 pub mod images;
-mod lowering;
+pub(crate) mod lowering;
 mod max_tokens;
 mod models;
 mod nonstream;
@@ -33,20 +34,26 @@ mod threads;
 mod effort_tests;
 #[cfg(test)]
 mod fallback_wire_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod fast_mode_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod leak_tests;
 #[cfg(test)]
 mod models_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod schema_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod native_search_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod shared_prefix_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 pub(crate) mod wire_tests;
 
@@ -63,6 +70,7 @@ pub use body::anthropic_tool_exclusion;
 pub use body::CacheTtl;
 pub use caps::CapsLookup;
 pub use caps::ModelCaps;
+pub use client_version::ClaudeClientVersion;
 pub use codec::ANTHROPIC_VERSION;
 pub use codec::AnthropicCodec;
 pub use codec::AnthropicConfig;
@@ -77,6 +85,7 @@ pub use models::Tier;
 pub use oauth::AnthropicLogin;
 pub use oauth::OAuthSession;
 pub use oauth::StoredOAuth;
+
 
 /// The Anthropic module state a send leaves in the process (the gzip latch, the message threads, the fast-mode cooldown
 /// and disabled reason), as a new process has it.

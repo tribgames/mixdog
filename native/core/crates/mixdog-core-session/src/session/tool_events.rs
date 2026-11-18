@@ -204,31 +204,6 @@ mod tests {
         ToolEventsLog::new(dir, mixdog_rt::testing::tokens().maintenance_io, Arc::new(At(now)))
     }
 
-    /// `lifecycle-barriers.mjs:_logSessionCloseMetric` as Node wrote it for each close of the
-    /// recording (`record-shell-job-actions.mjs`): the `owner`/`agent` `-` when the record has
-    /// none, `lifeMs` 0 without a creation time. Re-closing a tombstone writes no line, so no
-    /// close reaches the log then.
-    #[tokio::test]
-    async fn a_close_appends_the_session_close_line_as_node_wrote_it() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/shell-job-actions/shell-job-actions.json")).expect("golden");
-        let temp = tempfile::tempdir().unwrap();
-        // The recorder froze Node's clock at this instant.
-        let log = log_at(temp.path(), 1_767_323_045_678);
-        let mut want = String::new();
-        for close in golden["closes"].as_array().unwrap() {
-            let line = close["line"].as_str().unwrap();
-            if line.is_empty() {
-                continue;
-            }
-            let Value::Object(header) = close["record"].clone() else { unreachable!() };
-            log.session_closed(close["record"]["id"].as_str().unwrap(), &header, close["reason"].as_str().unwrap(), 1_767_323_045_678);
-            want.push_str(line);
-        }
-        assert_eq!(want.lines().count(), 4);
-        log.flush().await;
-        assert_eq!(text_of(&temp.path().join("tool-events.log")), want);
-    }
-
     /// `markSessionClosed` reads `closeTime` when the close lands and logs after the tombstone
     /// write is acknowledged: the line carries the time of the log, and `lifeMs` runs to the close.
     #[tokio::test]
@@ -260,5 +235,32 @@ mod tests {
         assert!(text.len() as u64 <= KEEP_BYTES + 200, "{}", text.len());
         assert!(text.starts_with(&"x".repeat(99)), "starts on a whole line");
         assert!(text.ends_with("lifeMs=0 id=sess_a\n"));
+    }
+
+
+    #[cfg(node_twin)]
+    /// `lifecycle-barriers.mjs:_logSessionCloseMetric` as Node wrote it for each close of the
+    /// recording (`record-shell-job-actions.mjs`): the `owner`/`agent` `-` when the record has
+    /// none, `lifeMs` 0 without a creation time. Re-closing a tombstone writes no line, so no
+    /// close reaches the log then.
+    #[tokio::test]
+    async fn a_close_appends_the_session_close_line_as_node_wrote_it() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/shell-job-actions/shell-job-actions.json")).expect("golden");
+        let temp = tempfile::tempdir().unwrap();
+        // The recorder froze Node's clock at this instant.
+        let log = log_at(temp.path(), 1_767_323_045_678);
+        let mut want = String::new();
+        for close in golden["closes"].as_array().unwrap() {
+            let line = close["line"].as_str().unwrap();
+            if line.is_empty() {
+                continue;
+            }
+            let Value::Object(header) = close["record"].clone() else { unreachable!() };
+            log.session_closed(close["record"]["id"].as_str().unwrap(), &header, close["reason"].as_str().unwrap(), 1_767_323_045_678);
+            want.push_str(line);
+        }
+        assert_eq!(want.lines().count(), 4);
+        log.flush().await;
+        assert_eq!(text_of(&temp.path().join("tool-events.log")), want);
     }
 }

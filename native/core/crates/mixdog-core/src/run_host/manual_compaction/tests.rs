@@ -3,22 +3,37 @@
 //! `compaction` record, the invalidated baseline, the post-compaction usage snapshot and the
 //! cache-break intent, the fallback title, with the answer: the whole header is compared, every key.
 
+#[cfg(node_twin)]
 use std::collections::HashMap;
 
-use mixdog_agent::compact::estimate::{MediaMeter, PartMeter};
-use mixdog_agent::compact::pressure::{ImageDescriptor, ImageIdentities};
-use mixdog_core_api::domain::provider::{ContentPart, ToolDefinition};
+#[cfg(node_twin)]
+use mixdog_agent::compact::estimate::MediaMeter;
+#[cfg(node_twin)]
+use mixdog_agent::compact::estimate::PartMeter;
+#[cfg(node_twin)]
+use mixdog_agent::compact::pressure::ImageDescriptor;
+#[cfg(node_twin)]
+use mixdog_agent::compact::pressure::ImageIdentities;
+#[cfg(node_twin)]
+use mixdog_core_api::domain::provider::ContentPart;
+#[cfg(node_twin)]
+use mixdog_core_api::domain::provider::ToolDefinition;
+#[cfg(node_twin)]
 use mixdog_protocol::ProviderId;
 
+#[cfg(node_twin)]
 use super::super::context_world::StoredBodies;
 use super::*;
 
+#[cfg(node_twin)]
 struct TextOnly;
+#[cfg(node_twin)]
 impl MediaMeter for TextOnly {
     fn part(&self, part: &ContentPart) -> PartMeter {
         panic!("media part in a text-only golden: {part:?}")
     }
 }
+#[cfg(node_twin)]
 impl ImageIdentities for TextOnly {
     fn images(&self, _: &AgentMessage) -> Vec<ImageDescriptor> {
         Vec::new()
@@ -42,6 +57,7 @@ fn a_manual_pass_archives_each_message_as_its_stored_row() {
     }
 }
 
+#[cfg(node_twin)]
 fn definitions(tools: &[Value]) -> Vec<ToolDefinition> {
     tools
         .iter()
@@ -55,19 +71,23 @@ fn definitions(tools: &[Value]) -> Vec<ToolDefinition> {
         .collect()
 }
 
+#[cfg(node_twin)]
 fn header_of(session: &Value) -> Header {
     session.as_object().expect("session").iter().filter(|(key, _)| key.as_str() != "messages").map(|(k, v)| (k.clone(), v.clone())).collect()
 }
 
+#[cfg(node_twin)]
 fn text(value: &Value) -> Option<String> {
     value.as_str().map(str::to_owned)
 }
 
 /// The whole header, every key: `header_of` leaves out `messages` only because a header is the session without its transcript.
+#[cfg(node_twin)]
 fn comparable(header: &Header) -> Value {
     Value::Object(header.clone())
 }
 
+#[cfg(node_twin)]
 fn snapshot_of(case: &Value, header: &Header, messages: &[AgentMessage]) -> Arc<ContextSnapshot> {
     let wire = case["beforeRequestTools"].as_array().expect("tools");
     let prefix = case["beforeNativePrefix"].as_u64().expect("prefix") as usize;
@@ -93,11 +113,71 @@ fn snapshot_of(case: &Value, header: &Header, messages: &[AgentMessage]) -> Arc<
     })
 }
 
+#[test]
+fn a_header_change_names_what_was_set_and_what_went() {
+    let before = json!({ "a": 1, "b": 2, "c": 3 }).as_object().cloned().unwrap();
+    let after = json!({ "a": 1, "b": 5, "d": 4 }).as_object().cloned().unwrap();
+    let change = header_change(&before, &after);
+    assert_eq!(Value::Object(change.set), json!({ "b": 5, "d": 4 }));
+    assert_eq!(change.unset, ["c"]);
+}
+
+/// Holds `path` open with no sharing, as another process holding the file does, until dropped.
+#[cfg(windows)]
+#[cfg(node_twin)]
+fn hold_open(path: &std::path::Path) -> std::fs::File {
+    use std::os::windows::fs::OpenOptionsExt as _;
+    std::fs::OpenOptions::new().read(true).share_mode(0).open(path).unwrap()
+}
+
+/// Takes every permission off `path` (EACCES, transient in Node too) until the guard is dropped.
+#[cfg(unix)]
+fn hold_open(path: &std::path::Path) -> impl Drop {
+    use std::os::unix::fs::PermissionsExt as _;
+    struct Restore(std::path::PathBuf);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o644));
+        }
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0)).unwrap();
+    Restore(path.to_path_buf())
+}
+
+/// The configuration seams over an empty saved configuration and environment (the recorder ran with neither).
+#[cfg(node_twin)]
+async fn run_seams() -> (tempfile::TempDir, super::super::run_seams::ConfigRunSeams) {
+    use mixdog_core_agents::agents::{AgentDefinitions, AgentEvidence};
+    use mixdog_core_config::config::{AgentRoutes, Config, ConfigLanes};
+    struct NoEvidence;
+    #[async_trait]
+    impl AgentEvidence for NoEvidence {
+        async fn home_greeted(&self, _: &str) -> bool {
+            false
+        }
+        async fn home_chatted(&self, _: &str) -> bool {
+            false
+        }
+        async fn mixy_owns_routines(&self) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap();
+    let agents = AgentDefinitions::new(dir.path(), dir.path(), tokens.interactive_io, AgentRoutes::new(config.clone(), dir.path()), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.path().join("workspace"));
+    let seams = super::super::run_seams::ConfigRunSeams::new(config, Arc::new(agents), dir.path().to_path_buf(), dir.path().to_path_buf(), Arc::new(|_| None));
+    (dir, seams)
+}
+
+
 /// A session whose `messages` lead with four system blocks plans and commits over them as Node does
 /// (fixtures/compaction-system-blocks/golden.json, `record-compaction-system-blocks.mjs`, recorded from
 /// b6f10295a): the whole result object and the record equal Node's, counts and tokens included. The
 /// blocks come from the header; the compactor and the stored rows keep the transcript alone.
 #[test]
+#[cfg(node_twin)]
 fn a_plan_and_its_commit_count_the_system_blocks_of_the_request() {
     let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/compaction-system-blocks/golden.json")).expect("golden json");
     let now = golden["now"].as_f64().expect("now");
@@ -163,8 +243,8 @@ fn a_plan_and_its_commit_count_the_system_blocks_of_the_request() {
     }
     assert_eq!(compared, 2);
 }
-
 #[test]
+#[cfg(node_twin)]
 fn a_committed_header_equals_nodes_session() {
     let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/compaction-commit/golden.json")).expect("golden json");
     let now = golden["now"].as_f64().expect("now");
@@ -232,16 +312,6 @@ fn a_committed_header_equals_nodes_session() {
     assert_eq!(sampled.load(std::sync::atomic::Ordering::SeqCst), compared, "`recordCompactionTiming` samples the clock once per commit");
     assert!(differ.is_empty(), "{} differ: {}", differ.len(), differ.iter().take(3).cloned().collect::<Vec<_>>().join(" ; "));
 }
-
-#[test]
-fn a_header_change_names_what_was_set_and_what_went() {
-    let before = json!({ "a": 1, "b": 2, "c": 3 }).as_object().cloned().unwrap();
-    let after = json!({ "a": 1, "b": 5, "d": 4 }).as_object().cloned().unwrap();
-    let change = header_change(&before, &after);
-    assert_eq!(Value::Object(change.set), json!({ "b": 5, "d": 4 }));
-    assert_eq!(change.unset, ["c"]);
-}
-
 /// Node's `runSessionCompaction` by hand over a conversation that opens with a pasted text
 /// (`fixtures/session-gaps/compaction-pasted-text.json`, `record-session-gaps.mjs`): the text stored
 /// by the intake, a blob the store no longer has, and a blob another process holds open with no
@@ -250,10 +320,10 @@ fn a_header_change_names_what_was_set_and_what_went() {
 /// the registered provider is sent equals what Node's provider was sent, and a blob that cannot be
 /// read for now fails the compaction before any summary is asked.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
     use base64::Engine as _;
     use mixdog_ai::registry::providers::{ProviderBuilder, ProviderRegistry};
-    use mixdog_ai::registry::warm::WarmLedger;
     use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
     use mixdog_core_api::domain::mock::{MockAttempt, MockProvider};
     use mixdog_core_api::domain::provider::{Content, ModelRequest, ModelStream, ProviderAdapter, ProviderError, Role, WireCodec};
@@ -504,7 +574,7 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         let saved = json!({ "providers": { "openai": { "enabled": true } } }).as_object().cloned().unwrap();
         // A session's own route is ready by the time it runs a turn or a compaction: the providers were initialised at its start.
         registry.init_providers(saved["providers"].as_object().unwrap()).await.expect("the providers initialise");
-        let mut services = services_over(dir.path(), json!({}), Arc::default(), WarmLedger::new(), Arc::new(SideQuestionStore::new()), registry.clone(), saved.clone()).await;
+        let mut services = services_over(dir.path(), json!({}), Arc::default(), Arc::new(SideQuestionStore::new()), registry.clone(), saved.clone()).await;
         let reader: Arc<dyn mixdog_ai::service::model_proxy_inline::AttachmentReader> = Arc::new(StoreAttachments { store: blobs.clone(), interactive: tokens.interactive_io });
         let facts: Arc<dyn super::super::media::AttachmentFacts> = Arc::new(StoreFacts::new(blobs.clone(), &tokens));
         services.reader = reader.clone();
@@ -640,9 +710,12 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             Err(CoreError::DomainError { message, .. }) => {
                 let text = message.as_deref().unwrap_or_default().replace(&dir.path().display().to_string(), "<data>");
                 let error = &case["result"]["error"];
+                // Decided: the core keeps attachments in its own directory, so a path Node recorded under its store is the
+                // same file under the core's.
+                let recorded = error["message"].as_str().unwrap_or_default().replace("prompt-attachments", "blobs");
                 (
                     Exact::plain(&json!({ "error": { "name": "Error", "message": text } })),
-                    Exact::plain(&json!({ "error": { "name": error["name"], "message": error["message"] } })),
+                    Exact::plain(&json!({ "error": { "name": error["name"], "message": recorded } })),
                 )
             }
             Err(other) => panic!("{name}: not a domain failure: {other:?}"),
@@ -694,58 +767,11 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
     }
     assert_eq!(compared, 9);
 }
-
-/// The configuration seams over an empty saved configuration and environment (the recorder ran with neither).
-async fn run_seams() -> (tempfile::TempDir, super::super::run_seams::ConfigRunSeams) {
-    use mixdog_core_agents::agents::{AgentDefinitions, AgentEvidence};
-    use mixdog_core_config::config::{AgentRoutes, Config, ConfigLanes};
-    struct NoEvidence;
-    #[async_trait]
-    impl AgentEvidence for NoEvidence {
-        async fn home_greeted(&self, _: &str) -> bool {
-            false
-        }
-        async fn home_chatted(&self, _: &str) -> bool {
-            false
-        }
-        async fn mixy_owns_routines(&self) -> Result<bool, String> {
-            Ok(false)
-        }
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap();
-    let agents = AgentDefinitions::new(dir.path(), dir.path(), tokens.interactive_io, AgentRoutes::new(config.clone(), dir.path()), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.path().join("workspace"));
-    let seams = super::super::run_seams::ConfigRunSeams::new(config, Arc::new(agents), dir.path().to_path_buf(), dir.path().to_path_buf(), Arc::new(|_| None));
-    (dir, seams)
-}
-
-/// Holds `path` open with no sharing, as another process holding the file does, until dropped.
-#[cfg(windows)]
-fn hold_open(path: &std::path::Path) -> std::fs::File {
-    use std::os::windows::fs::OpenOptionsExt as _;
-    std::fs::OpenOptions::new().read(true).share_mode(0).open(path).unwrap()
-}
-
-/// Takes every permission off `path` (EACCES, transient in Node too) until the guard is dropped.
-#[cfg(unix)]
-fn hold_open(path: &std::path::Path) -> impl Drop {
-    use std::os::unix::fs::PermissionsExt as _;
-    struct Restore(std::path::PathBuf);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o644));
-        }
-    }
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0)).unwrap();
-    Restore(path.to_path_buf())
-}
-
 /// `compactConversationForHeir` hands the compactor the source's whole transcript: the system blocks its requests lead with
 /// (`source.messages` holds them), then the conversation. Each case is what Node's `compactConversation` received
 /// (fixtures/inheritance-carry/golden.json, `record-inheritance-carry.mjs`).
 #[test]
+#[cfg(node_twin)]
 fn the_compactor_of_an_heir_sees_the_source_transcript_with_its_system_blocks() {
     let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/inheritance-carry/golden.json")).expect("golden json");
     let wire = |message: &AgentMessage| {

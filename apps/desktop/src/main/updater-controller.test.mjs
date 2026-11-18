@@ -12,7 +12,14 @@ const coreOf = ({
   stop = async () => {},
 } = {}) => ({ running, hold, release, stop });
 
-function setup({ currentVersion = '1.0.0', enabled = true, ready: initialReady, latestVersion = '2.0.0', busy } = {}) {
+function setup({
+  currentVersion = '1.0.0',
+  enabled = true,
+  ready: initialReady,
+  latestVersion = '2.0.0',
+  busy,
+  automaticAllowed,
+} = {}) {
   const calls = [];
   const scheduledInstalls = [];
   let ready = initialReady;
@@ -34,6 +41,7 @@ function setup({ currentVersion = '1.0.0', enabled = true, ready: initialReady, 
     controller: createUpdaterController({
       enabled,
       currentVersion,
+      automaticAllowed,
       service,
       persistence: {
         get: () => ready,
@@ -84,6 +92,47 @@ test('updater revalidates a persisted target through the updater cache on launch
 
   assert.deepEqual(updater.calls, ['check', 'download']);
   assert.deepEqual(updater.controller.getState(), { status: 'ready', version: '2.0.0' });
+});
+
+test('an unavailable automatic preference only revalidates a recorded update', async () => {
+  let preference;
+  const automaticAllowed = async () => preference;
+  const fresh = setup({ automaticAllowed });
+  const recorded = setup({ automaticAllowed, ready: { version: '2.0.0' } });
+  const different = setup({ automaticAllowed, ready: { version: '1.5.0' } });
+
+  preference = false;
+  await recorded.controller.start();
+  assert.deepEqual(recorded.calls, []);
+
+  preference = undefined;
+  await fresh.controller.start();
+  await different.controller.start();
+  await recorded.controller.check(true);
+  assert.deepEqual(fresh.calls, []);
+  assert.deepEqual(different.calls, ['check']);
+  assert.deepEqual(different.getReady(), { version: '1.5.0' });
+  assert.deepEqual(recorded.calls, ['check', 'download']);
+  assert.deepEqual(recorded.controller.getState(), { status: 'ready', version: '2.0.0' });
+});
+
+test('turning off automatic updates leaves explicit checks and downloads available', async () => {
+  let autoUpdate = false;
+  const updater = setup({ automaticAllowed: async () => autoUpdate });
+
+  await updater.controller.start();
+  await updater.controller.check(true);
+  assert.deepEqual(updater.calls, []);
+
+  await updater.controller.check();
+  assert.deepEqual(updater.calls, ['check', 'download']);
+  assert.deepEqual(updater.controller.getState(), { status: 'ready', version: '2.0.0' });
+
+  autoUpdate = true;
+  updater.setLatestVersion('3.0.0');
+  await updater.controller.check(true);
+  assert.deepEqual(updater.calls, ['check', 'download', 'check', 'download']);
+  assert.deepEqual(updater.getReady(), { version: '3.0.0' });
 });
 
 test('updater supersedes a ready intermediate release with the newest feed target', async () => {

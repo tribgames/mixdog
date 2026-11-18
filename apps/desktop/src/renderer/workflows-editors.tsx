@@ -4,13 +4,15 @@
 import { useRef, useState } from 'react';
 import { WORKFLOW_AGENT_KIND } from '../shared/core-src/runtime/shared/agent-route-config.mjs';
 import type { DesktopApi, DesktopModelOption, DesktopModelSelection } from '../shared/contract';
-import type { RecordValue, Snapshot } from './desktop-types';
-import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';
+import type { RecordValue } from './desktop-types';
+import { modelRouteWrite } from '../shared/model-route-write';
+import { leadRouteFrom } from './draft-pane-prefs-store';
 import { t } from './i18n';
 import { showDesktopToast } from './notifications';
 import { record } from './record-utils';
 import { announceSetupChange } from './setup-change-refresh';
 import { SidebarLoadingDialog } from './sidebar-dialog';
+import { acknowledgeLeadRoute } from './sidebar-reference-cache';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { routeWithEditedFallbacks } from './RouteChainEditor';
 import { useEditorModelCatalog } from './use-editor-model-catalog';
@@ -128,12 +130,23 @@ export function useWorkflowEditors({
     if (routeEditor.capability === 'setModelRoute') {
       try {
         const submitted = routeWithEditedFallbacks(route, routeEditor.route);
-        const snapshot = await api?.setModelRoute?.(submitted as unknown as DesktopModelSelection);
-        if (snapshot) {
-          setMainRoute({
-            ...draftModelSelectionFromSnapshot(snapshot as unknown as Snapshot),
-            ...(Array.isArray(route.fallbacks) && route.fallbacks.length ? { fallbacks: route.fallbacks } : {}),
-          });
+        // Omitting parameters asks resolveRoute for the model's remembered tier.
+        // An unchanged Fast primary in a chain edit already has a speed.
+        const selection = submitted.fast === true && submitted.modelParameters == null && Array.isArray(submitted.fallbacks)
+          ? { ...submitted, modelParameters: {} }
+          : submitted;
+        // setModelRoute discards route/set's value. Read the preset from the
+        // write itself, including the chain retained when fallbacks were omitted.
+        const result = await api!.invokeCapability!<RecordValue>({
+          capability: 'setRoute',
+          args: [modelRouteWrite(selection as unknown as DesktopModelSelection)],
+        });
+        const preset = record(result.value?.preset);
+        const saved = leadRouteFrom(record(result.value), [preset]);
+        if (preset.id === 'workflow-lead' && saved.provider && saved.model) {
+          const confirmed = { ...saved, fallbacks: preset.fallbacks ?? [] };
+          acknowledgeLeadRoute(api, confirmed);
+          setMainRoute(confirmed);
         }
         announceSetupChange('set_route');
         setError('');

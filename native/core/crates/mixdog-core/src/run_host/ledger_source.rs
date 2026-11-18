@@ -161,11 +161,10 @@ mod tests {
 
     use mixdog_ledger::refresh::Pricer;
     use mixdog_ledger::repair::{PriceRequest, Priced};
+    #[cfg(node_twin)]
     use serde_json::Value;
 
     use super::*;
-
-    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/ai-admin/usage-ledger-source-twin.json");
 
     struct NoPrices;
 
@@ -220,15 +219,49 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn shown(path: &Path, root: &Path) -> String {
         let text = path.to_string_lossy().replace('\\', "/");
         text.replacen(&root.to_string_lossy().replace('\\', "/"), "<root>", 1)
     }
 
     /// Node's recorder runs with `MIXDOG_DATA_DIR` = `<root>/mixdog_data_dir`.
+    #[cfg(node_twin)]
     const FLOW_SLICES: usize = 6;
 
+    #[tokio::test]
+    async fn a_sends_row_reaches_the_ledger_the_source_opened_and_a_failed_open_fails_the_row() {
+        let root = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let source = LedgerSource::new(Arc::new(Vars::default()), root.path().join("data"), tokens, Arc::new(NoPrices), usage_stats_feed::recording_push());
+        let sink = source.sink()().unwrap();
+        assert!(source.if_open().is_none(), "the ledger opens when the first row is recorded");
+        sink.record_queued(row()).await.unwrap();
+        assert!(source.if_open().is_some(), "the first send opens the ledger");
+        assert!(root.path().join("data").join("usage").join("ledger.sqlite").exists());
+        assert!(Arc::ptr_eq(&source.get().await.unwrap(), &source.if_open().unwrap()), "one ledger for the accounting and the reads");
+        drop(sink);
+        // A path whose parent is a file cannot be opened: every row fails with that error.
+        let file = root.path().join("file");
+        std::fs::write(&file, "x").unwrap();
+        let vars = Arc::new(Vars::default());
+        vars.0.lock().unwrap().insert(LEDGER_PATH_ENV.into(), file.join("ledger.sqlite").to_string_lossy().into_owned());
+        let broken = LedgerSource::new(vars, root.path().join("data2"), tokens, Arc::new(NoPrices), usage_stats_feed::recording_push());
+        let sink = broken.sink()().unwrap();
+        assert!(sink.record_queued(row()).await.is_err());
+        assert!(broken.if_open().is_none(), "a failed open stores nothing");
+        // Node's test-only in-memory ledger is refused, not half-supported.
+        let memory = Arc::new(Vars::default());
+        memory.0.lock().unwrap().insert(LEDGER_PATH_ENV.into(), IN_MEMORY.into());
+        let memory = LedgerSource::new(memory, root.path().join("data3"), tokens, Arc::new(NoPrices), usage_stats_feed::recording_push());
+        assert!(memory.get().await.is_err() && memory.if_open().is_none());
+    }
+
+
+    #[cfg(node_twin)]
+    const TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/ai-admin/usage-ledger-source-twin.json");
     /// Replays the recorded flows whose index is `slice` modulo `FLOW_SLICES` (each flow has its own root and source).
+    #[cfg(node_twin)]
     async fn flow_slice(slice: usize) {
         let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let tokens = mixdog_rt::testing::tokens();
@@ -284,7 +317,7 @@ mod tests {
         println!("slice {slice}: {replayed} flows, {opened} ledger opens");
         assert_eq!(twin["defaultPath"], "<root>/mixdog_data_dir/usage/ledger.sqlite");
     }
-
+    #[cfg(node_twin)]
     macro_rules! flow_slices {
         ($($name:ident => $slice:expr),* $(,)?) => {
             const REGISTERED_FLOW_SLICES: &[usize] = &[$($slice),*];
@@ -294,17 +327,8 @@ mod tests {
             })*
         };
     }
-
-    flow_slices! {
-        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_0 => 0,
-        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_1 => 1,
-        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_2 => 2,
-        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_3 => 3,
-        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_4 => 4,
-        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_5 => 5,
-    }
-
     #[test]
+    #[cfg(node_twin)]
     fn the_flow_slices_cover_every_recorded_flow_once_and_the_recording_opens_ledgers() {
         let twin: Value = serde_json::from_str(&TWIN).unwrap();
         let flows = twin["flows"].as_array().unwrap();
@@ -320,31 +344,13 @@ mod tests {
         assert!(opened >= 200, "the recording opens ledgers: {opened}");
     }
 
-    #[tokio::test]
-    async fn a_sends_row_reaches_the_ledger_the_source_opened_and_a_failed_open_fails_the_row() {
-        let root = tempfile::tempdir().unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        let source = LedgerSource::new(Arc::new(Vars::default()), root.path().join("data"), tokens, Arc::new(NoPrices), usage_stats_feed::recording_push());
-        let sink = source.sink()().unwrap();
-        assert!(source.if_open().is_none(), "the ledger opens when the first row is recorded");
-        sink.record_queued(row()).await.unwrap();
-        assert!(source.if_open().is_some(), "the first send opens the ledger");
-        assert!(root.path().join("data").join("usage").join("ledger.sqlite").exists());
-        assert!(Arc::ptr_eq(&source.get().await.unwrap(), &source.if_open().unwrap()), "one ledger for the accounting and the reads");
-        drop(sink);
-        // A path whose parent is a file cannot be opened: every row fails with that error.
-        let file = root.path().join("file");
-        std::fs::write(&file, "x").unwrap();
-        let vars = Arc::new(Vars::default());
-        vars.0.lock().unwrap().insert(LEDGER_PATH_ENV.into(), file.join("ledger.sqlite").to_string_lossy().into_owned());
-        let broken = LedgerSource::new(vars, root.path().join("data2"), tokens, Arc::new(NoPrices), usage_stats_feed::recording_push());
-        let sink = broken.sink()().unwrap();
-        assert!(sink.record_queued(row()).await.is_err());
-        assert!(broken.if_open().is_none(), "a failed open stores nothing");
-        // Node's test-only in-memory ledger is refused, not half-supported.
-        let memory = Arc::new(Vars::default());
-        memory.0.lock().unwrap().insert(LEDGER_PATH_ENV.into(), IN_MEMORY.into());
-        let memory = LedgerSource::new(memory, root.path().join("data3"), tokens, Arc::new(NoPrices), usage_stats_feed::recording_push());
-        assert!(memory.get().await.is_err() && memory.if_open().is_none());
+    #[cfg(node_twin)]
+    flow_slices! {
+        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_0 => 0,
+        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_1 => 1,
+        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_2 => 2,
+        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_3 => 3,
+        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_4 => 4,
+        the_ledger_source_acts_as_nodes_get_usage_ledger_slice_5 => 5,
     }
 }

@@ -46,11 +46,301 @@ pub struct RenderBrowserConfig {
     pub no_sandbox: bool,
 }
 
+/// `Math.max(5_000, Number(env) || 60_000)` handed to `setTimeout` (`web-tools.mjs:55`, `:112`):
+/// an unset, empty, zero or non-numeric value is 60 s, and a delay outside 1..=2^31-1 ms (only
+/// reachable above it) becomes 1 ms, as Node's timers do; a fraction is truncated.
+fn idle_period_from(env: Option<&str>) -> Duration {
+    let number = env.map_or(f64::NAN, mixdog_js::string_to_number);
+    let requested = if number.is_nan() || number == 0.0 { 60_000.0 } else { number };
+    let millis = mixdog_js::math::max(5_000.0, requested);
+    let millis = if (1.0..=2_147_483_647.0).contains(&millis) { millis.trunc() } else { 1.0 };
+    Duration::from_millis(millis as u64)
+}
+
+struct Running {
+    ws: String,
+    alive: Arc<AtomicBool>,
+    /// Asks the browser's owner task to end it; only that task signals or reaps.
+    kill: Kill,
+    /// Resolves (its sender is dropped) once the owner has signalled and reaped the browser.
+    gone: oneshot::Receiver<()>,
+}
+
+impl Running {
+    /// Ends the browser and waits until its owner has signalled the group and reaped it.
+    async fn stop(mut self) {
+        self.kill.kill();
+        let _ = (&mut self.gone).await;
+    }
+}
+
+/// Dropping the service (every worker is gone) ends the browser and its helpers.
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.kill.kill();
+    }
+}
+
+#[derive(Clone)]
+struct Launcher {
+    config: RenderBrowserConfig,
+    spawn_io: SpawnIo,
+    rt: Handle,
+    launches: Arc<AtomicU64>,
+    exits: ChildExits,
+}
+
+/// Drains stderr to EOF, handing the first DevTools endpoint line to `ws_tx`.
+async fn watch_stderr(stderr: ChildStderr, ws_tx: oneshot::Sender<String>) {
+    let mut lines = BufReader::new(stderr);
+    let mut ws_tx = Some(ws_tx);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match lines.read_until(b'\n', &mut line).await {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {
+                let text = String::from_utf8_lossy(&line);
+                if let Some(rest) = text.trim_end().strip_prefix(ENDPOINT_PREFIX)
+                    && let Some(tx) = ws_tx.take()
+                {
+                    let _ = tx.send(rest.to_owned());
+                }
+            }
+        }
+    }
+}
+
+type Spawned = (Proc, PathBuf);
+
+fn browser_args(profile: &std::path::Path, no_sandbox: bool) -> Vec<OsString> {
+    let mut args: Vec<OsString> = [
+        "--headless=new",
+        "--remote-debugging-port=0",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-dev-shm-usage",
+        "--disable-background-networking",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+        "--disable-extensions",
+        "--disable-sync",
+        "--force-color-profile=srgb",
+        "--font-render-hinting=none",
+        "--hide-scrollbars",
+        "--mute-audio",
+    ]
+    .iter()
+    .map(OsString::from)
+    .collect();
+    let mut user_data = OsString::from("--user-data-dir=");
+    user_data.push(profile);
+    args.push(user_data);
+    if no_sandbox {
+        args.push("--no-sandbox".into());
+    }
+    args
+}
+
+#[cfg(target_os = "macos")]
+fn install_locations() -> Vec<PathBuf> {
+    [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    ]
+    .map(PathBuf::from)
+    .to_vec()
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn install_locations() -> Vec<PathBuf> {
+    [
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/snap/bin/chromium",
+        "/usr/bin/microsoft-edge",
+    ]
+    .map(PathBuf::from)
+    .to_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const IDLE: Duration = Duration::from_millis(300);
+
+    #[test]
+    fn the_idle_period_is_nodes_math_max_of_the_environment_value() {
+        let ms = |env| idle_period_from(env).as_millis();
+        assert_eq!(ms(None), 60_000);
+        assert_eq!(ms(Some("")), 60_000);
+        assert_eq!(ms(Some("0")), 60_000);
+        assert_eq!(ms(Some("abc")), 60_000);
+        assert_eq!(ms(Some("100")), 5_000, "at least 5 s");
+        assert_eq!(ms(Some("-3")), 5_000, "a negative number is a number: the floor applies");
+        assert_eq!(ms(Some(" 7500.9 ")), 7_500);
+        assert_eq!(ms(Some("1e4")), 10_000);
+        assert_eq!(ms(Some("0x1F40")), 8_000);
+        assert_eq!(ms(Some("2147483647")), 2_147_483_647);
+        assert_eq!(ms(Some("2147483648")), 1, "setTimeout overflow becomes 1 ms");
+        assert_eq!(ms(Some("Infinity")), 1);
+    }
+
+
+    fn service(launches: &Arc<AtomicU64>) -> BrowserHandle {
+        let config = RenderBrowserConfig {
+            command: Some((crate::pool::tests::fake_binary("ext_fake_browser"), vec!["endpoint".into()])),
+            profile_root: std::env::temp_dir().join("mixdog-exthost-idle-tests"),
+            no_sandbox: false,
+        };
+        start_with_idle(
+            config,
+            mixdog_rt::testing::tokens().spawn_io,
+            Handle::current(),
+            launches.clone(),
+            ChildExits::watch().unwrap(),
+            IDLE,
+        )
+    }
+    /// A browser that starts and never publishes an endpoint is given up on at Puppeteer's 30 s, with its text, and is ended;
+    /// the next request launches again.
+    #[tokio::test(start_paused = true)]
+    async fn a_browser_that_never_publishes_its_endpoint_fails_the_launch_at_thirty_seconds() {
+        let config = RenderBrowserConfig {
+            command: Some((
+                crate::pool::tests::fake_binary("ext_fake_browser"),
+                vec![
+                    "silent".into(),
+                    std::env::temp_dir().join("mixdog-exthost-silent-browser.pid").into_os_string(),
+                ],
+            )),
+            profile_root: std::env::temp_dir().join("mixdog-exthost-idle-tests"),
+            no_sandbox: false,
+        };
+        let launches = Arc::new(AtomicU64::new(0));
+        let browser = start_with_idle(
+            config,
+            mixdog_rt::testing::tokens().spawn_io,
+            Handle::current(),
+            launches.clone(),
+            ChildExits::watch().unwrap(),
+            IDLE,
+        );
+        let asking = browser.clone();
+        let asked = tokio::spawn(async move { asking.endpoint().await });
+        // The launch counts itself, with its deadline taken, before it spawns anything: on this one-thread runtime
+        // each yield lets every ready task run, so the request reaches the launch before the clock moves.
+        while launches.load(Ordering::Relaxed) == 0 {
+            tokio::task::yield_now().await;
+        }
+        tokio::time::advance(LAUNCH_TIMEOUT - Duration::from_millis(1)).await;
+        assert!(!asked.is_finished(), "still waiting just short of the bound");
+        tokio::time::advance(Duration::from_millis(1)).await;
+        let error = asked.await.unwrap().unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Timed out after 30000 ms while waiting for the WS endpoint URL to appear in stdout!"
+        );
+        browser.shutdown().await;
+    }
+    // The idle timer runs on the paused tokio clock: time moves only through `advance`, so no
+    // assertion depends on how fast the machine is. The service takes an expired idle timer before
+    // any request already queued (its `select!` is biased), so a request sent after an `advance`
+    // past the period always meets the closed browser.
+
+    /// Moves the clock past the idle period and lets the service take its expired timer.
+    async fn pass_idle_period() {
+        tokio::time::advance(IDLE + Duration::from_millis(1)).await;
+    }
+    #[tokio::test(start_paused = true)]
+    async fn an_unused_browser_closes_after_the_idle_period_and_the_next_request_launches_again() {
+        let launches = Arc::new(AtomicU64::new(0));
+        let browser = service(&launches);
+        let first = browser.endpoint().await.unwrap();
+        assert_eq!(browser.endpoint().await.unwrap(), first, "in use: one browser");
+        assert_eq!(launches.load(Ordering::Relaxed), 1);
+
+        // Just short of the period since the launch: still the same browser.
+        tokio::time::advance(IDLE - Duration::from_millis(1)).await;
+        assert_eq!(browser.endpoint().await.unwrap(), first, "not yet idle");
+        assert_eq!(launches.load(Ordering::Relaxed), 1);
+
+        pass_idle_period().await;
+        let second = browser.endpoint().await.unwrap();
+        assert_ne!(second, first, "the idle browser was closed and a new one launched");
+        assert_eq!(launches.load(Ordering::Relaxed), 2);
+        browser.shutdown().await;
+    }
+    #[tokio::test(start_paused = true)]
+    async fn an_endpoint_request_does_not_restart_the_idle_clock_without_a_lease() {
+        let launches = Arc::new(AtomicU64::new(0));
+        let browser = service(&launches);
+        let first = browser.endpoint().await.unwrap();
+
+        // A request just short of the period is served by the same browser ...
+        tokio::time::advance(IDLE - Duration::from_millis(100)).await;
+        assert_eq!(browser.endpoint().await.unwrap(), first);
+        // ... and did not push the expiry: the period counted from the launch ends here.
+        tokio::time::advance(Duration::from_millis(101)).await;
+        assert_ne!(browser.endpoint().await.unwrap(), first, "closed on the launch's clock");
+        assert_eq!(launches.load(Ordering::Relaxed), 2);
+        browser.shutdown().await;
+    }
+    /// The trait the web renderer holds gives the browser only together with its hold.
+    #[tokio::test(start_paused = true)]
+    async fn the_endpoint_trait_keeps_the_browser_open_until_its_hold_is_dropped() {
+        use mixdog_core_api::domain::ext::BrowserEndpoint;
+
+        let launches = Arc::new(AtomicU64::new(0));
+        let render = RenderBrowser(service(&launches));
+        let (first, hold) = BrowserEndpoint::lease(&render).await.unwrap();
+        for _ in 0..4 {
+            pass_idle_period().await;
+        }
+        assert_eq!(render.endpoint().await.unwrap(), first, "held for a long render: still open");
+        assert_eq!(launches.load(Ordering::Relaxed), 1);
+
+        drop(hold);
+        assert_eq!(render.endpoint().await.unwrap(), first, "released, not yet idle");
+        pass_idle_period().await;
+        assert_ne!(render.endpoint().await.unwrap(), first, "closed after the period from the release");
+        render.0.shutdown().await;
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_lease_keeps_the_browser_open_and_its_release_starts_the_idle_clock() {
+        let launches = Arc::new(AtomicU64::new(0));
+        let browser = service(&launches);
+        let (first, lease) = browser.lease().await.unwrap();
+
+        for _ in 0..4 {
+            pass_idle_period().await;
+        }
+        // The answer to this request also proves the service saw no idle expiry while held.
+        assert_eq!(browser.endpoint().await.unwrap(), first, "held: never closed for idleness");
+        assert_eq!(launches.load(Ordering::Relaxed), 1);
+
+        // The release is queued before this request, so the service has processed it (and armed
+        // the idle clock) by the time the request is answered.
+        drop(lease);
+        assert_eq!(browser.endpoint().await.unwrap(), first, "released but not yet idle");
+        pass_idle_period().await;
+        assert_ne!(browser.endpoint().await.unwrap(), first, "released: closed after the idle period");
+        assert_eq!(launches.load(Ordering::Relaxed), 2);
+        browser.shutdown().await;
+    }
+}
+
+
 #[derive(Clone)]
 pub(crate) struct BrowserHandle {
     requests: mpsc::UnboundedSender<Request>,
 }
-
 impl BrowserHandle {
     /// Ends the render browser, if one runs, and returns once its owner has signalled and reaped
     /// it. Later endpoint requests are refused.
@@ -86,12 +376,10 @@ impl BrowserHandle {
         Ok((ws, lease))
     }
 }
-
 /// The shared render browser as other crates see it. Cloneable; every clone asks the one service.
 /// Launch, idle close and the guarding of the browser's process tree stay in this crate.
 #[derive(Clone)]
 pub struct RenderBrowser(pub(crate) BrowserHandle);
-
 impl RenderBrowser {
     /// The DevTools WebSocket URL of the running browser, launching it when none is. A call
     /// does not restart the browser's idle clock (60 s by default, `PUPPETEER_POOL_IDLE_MS`), as
@@ -104,7 +392,6 @@ impl RenderBrowser {
         self.0.endpoint().await.map_err(|error| error.to_string())
     }
 }
-
 #[async_trait::async_trait]
 impl mixdog_core_api::domain::ext::BrowserEndpoint for RenderBrowser {
     async fn lease(&self) -> Result<(String, mixdog_core_api::domain::ext::BrowserHold), String> {
@@ -112,35 +399,20 @@ impl mixdog_core_api::domain::ext::BrowserEndpoint for RenderBrowser {
         Ok((ws, Box::new(lease)))
     }
 }
-
 /// Keeps the render browser from closing for idleness while it lives.
 pub(crate) struct BrowserLease {
     requests: mpsc::UnboundedSender<Request>,
 }
-
 impl Drop for BrowserLease {
     fn drop(&mut self) {
         let _ = self.requests.send(Request::Release);
     }
 }
-
 /// The idle period after which an unused browser is closed: `PUPPETEER_POOL_IDLE_MS` through
 /// `idle_period_from`, as the web renderer's pool does (`web-tools.mjs:55`).
 fn idle_period() -> Duration {
     idle_period_from(std::env::var("PUPPETEER_POOL_IDLE_MS").ok().as_deref())
 }
-
-/// `Math.max(5_000, Number(env) || 60_000)` handed to `setTimeout` (`web-tools.mjs:55`, `:112`):
-/// an unset, empty, zero or non-numeric value is 60 s, and a delay outside 1..=2^31-1 ms (only
-/// reachable above it) becomes 1 ms, as Node's timers do; a fraction is truncated.
-fn idle_period_from(env: Option<&str>) -> Duration {
-    let number = env.map_or(f64::NAN, mixdog_js::string_to_number);
-    let requested = if number.is_nan() || number == 0.0 { 60_000.0 } else { number };
-    let millis = mixdog_js::math::max(5_000.0, requested);
-    let millis = if (1.0..=2_147_483_647.0).contains(&millis) { millis.trunc() } else { 1.0 };
-    Duration::from_millis(millis as u64)
-}
-
 /// `launches` counts every browser launch, so the owner can observe reuse.
 pub(crate) fn start(
     config: RenderBrowserConfig,
@@ -151,7 +423,6 @@ pub(crate) fn start(
 ) -> BrowserHandle {
     start_with_idle(config, spawn_io, rt, launches, exits, idle_period())
 }
-
 pub(crate) fn start_with_idle(
     config: RenderBrowserConfig,
     spawn_io: SpawnIo,
@@ -171,7 +442,6 @@ pub(crate) fn start_with_idle(
     mixdog_rt::spawn("exthost.browser", TaskClass::Work, serve(launcher, inbox, idle));
     BrowserHandle { requests }
 }
-
 /// Why no endpoint could be given.
 #[derive(Clone, Debug)]
 pub(crate) enum BrowserError {
@@ -180,7 +450,6 @@ pub(crate) enum BrowserError {
     /// The browser could not be started or exited before it published its endpoint.
     Launch(String),
 }
-
 impl std::fmt::Display for BrowserError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -189,13 +458,11 @@ impl std::fmt::Display for BrowserError {
         }
     }
 }
-
 /// Someone waiting for the endpoint; `lease` says the browser must be kept while they hold one.
 struct Waiter {
     reply: oneshot::Sender<Result<String, BrowserError>>,
     lease: bool,
 }
-
 impl Waiter {
     /// Answers; a granted lease is counted, and not counted when the asker is already gone.
     fn answer(self, result: Result<String, BrowserError>, leases: &mut usize) {
@@ -205,14 +472,12 @@ impl Waiter {
         }
     }
 }
-
 enum Request {
     Endpoint(Waiter),
     /// A [`BrowserLease`] was dropped.
     Release,
     Shutdown(oneshot::Sender<()>),
 }
-
 /// A launch in progress, as its own task: the service loop never awaits it inline, so a shutdown
 /// is always seen. `cancel` ends it (killing a browser that lives but has not published its
 /// endpoint) and the task answers only after that browser's owner has signalled and reaped it.
@@ -221,7 +486,6 @@ struct Launching {
     cancel: CancellationToken,
     waiters: Vec<Waiter>,
 }
-
 impl Launching {
     /// Cancels the launch, waits until its browser (if any) is gone, and tells the waiters.
     async fn cancel_and_wait(mut self) {
@@ -236,7 +500,6 @@ impl Launching {
         }
     }
 }
-
 /// The service: answers endpoint requests from the running browser, runs at most one launch at a
 /// time (concurrent requests share it), and on shutdown ends whatever exists, launching or running.
 ///
@@ -331,40 +594,6 @@ async fn serve(launcher: Launcher, mut inbox: mpsc::UnboundedReceiver<Request>, 
         launch.cancel.cancel();
     }
 }
-
-struct Running {
-    ws: String,
-    alive: Arc<AtomicBool>,
-    /// Asks the browser's owner task to end it; only that task signals or reaps.
-    kill: Kill,
-    /// Resolves (its sender is dropped) once the owner has signalled and reaped the browser.
-    gone: oneshot::Receiver<()>,
-}
-
-impl Running {
-    /// Ends the browser and waits until its owner has signalled the group and reaped it.
-    async fn stop(mut self) {
-        self.kill.kill();
-        let _ = (&mut self.gone).await;
-    }
-}
-
-/// Dropping the service (every worker is gone) ends the browser and its helpers.
-impl Drop for Running {
-    fn drop(&mut self) {
-        self.kill.kill();
-    }
-}
-
-#[derive(Clone)]
-struct Launcher {
-    config: RenderBrowserConfig,
-    spawn_io: SpawnIo,
-    rt: Handle,
-    launches: Arc<AtomicU64>,
-    exits: ChildExits,
-}
-
 impl Launcher {
     /// Starts a launch as its own task; `first` waits for its endpoint.
     fn begin(&self, first: Waiter) -> Launching {
@@ -471,30 +700,6 @@ impl Launcher {
         }
     }
 }
-
-/// Drains stderr to EOF, handing the first DevTools endpoint line to `ws_tx`.
-async fn watch_stderr(stderr: ChildStderr, ws_tx: oneshot::Sender<String>) {
-    let mut lines = BufReader::new(stderr);
-    let mut ws_tx = Some(ws_tx);
-    let mut line = Vec::new();
-    loop {
-        line.clear();
-        match lines.read_until(b'\n', &mut line).await {
-            Ok(0) | Err(_) => return,
-            Ok(_) => {
-                let text = String::from_utf8_lossy(&line);
-                if let Some(rest) = text.trim_end().strip_prefix(ENDPOINT_PREFIX)
-                    && let Some(tx) = ws_tx.take()
-                {
-                    let _ = tx.send(rest.to_owned());
-                }
-            }
-        }
-    }
-}
-
-type Spawned = (Proc, PathBuf);
-
 #[allow(clippy::disallowed_methods, reason = "called only from a spawn-io lane job")]
 fn spawn_browser(config: &RenderBrowserConfig, launch: u64, rt: &Handle) -> Result<Spawned, String> {
     let (program, mut args) = match &config.command {
@@ -512,37 +717,6 @@ fn spawn_browser(config: &RenderBrowserConfig, launch: u64, rt: &Handle) -> Resu
     })?;
     Ok((proc, profile))
 }
-
-fn browser_args(profile: &std::path::Path, no_sandbox: bool) -> Vec<OsString> {
-    let mut args: Vec<OsString> = [
-        "--headless=new",
-        "--remote-debugging-port=0",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-dev-shm-usage",
-        "--disable-background-networking",
-        "--disable-background-timer-throttling",
-        "--disable-backgrounding-occluded-windows",
-        "--disable-renderer-backgrounding",
-        "--disable-extensions",
-        "--disable-sync",
-        "--force-color-profile=srgb",
-        "--font-render-hinting=none",
-        "--hide-scrollbars",
-        "--mute-audio",
-    ]
-    .iter()
-    .map(OsString::from)
-    .collect();
-    let mut user_data = OsString::from("--user-data-dir=");
-    user_data.push(profile);
-    args.push(user_data);
-    if no_sandbox {
-        args.push("--no-sandbox".into());
-    }
-    args
-}
-
 #[allow(clippy::disallowed_methods, reason = "called only from a spawn-io lane job")]
 fn find_browser() ->Option<PathBuf> {
     if let Some(explicit) = std::env::var_os("PUPPETEER_EXECUTABLE_PATH") {
@@ -553,7 +727,6 @@ fn find_browser() ->Option<PathBuf> {
     }
     install_locations().into_iter().find(|path| path.exists())
 }
-
 #[cfg(windows)]
 fn install_locations() -> Vec<PathBuf> {
     let env = |name: &str, default: &str| PathBuf::from(std::env::var_os(name).unwrap_or_else(|| default.into()));
@@ -569,202 +742,4 @@ fn install_locations() -> Vec<PathBuf> {
     found.push(program_files_x86.join("Microsoft/Edge/Application/msedge.exe"));
     found.extend(local.iter().map(|d| d.join("Microsoft/Edge/Application/msedge.exe")));
     found
-}
-
-#[cfg(target_os = "macos")]
-fn install_locations() -> Vec<PathBuf> {
-    [
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
-        "/Applications/Chromium.app/Contents/MacOS/Chromium",
-        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    ]
-    .map(PathBuf::from)
-    .to_vec()
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn install_locations() -> Vec<PathBuf> {
-    [
-        "/usr/bin/google-chrome",
-        "/usr/bin/google-chrome-stable",
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-        "/snap/bin/chromium",
-        "/usr/bin/microsoft-edge",
-    ]
-    .map(PathBuf::from)
-    .to_vec()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const IDLE: Duration = Duration::from_millis(300);
-
-    fn service(launches: &Arc<AtomicU64>) -> BrowserHandle {
-        let config = RenderBrowserConfig {
-            command: Some((crate::pool::tests::fake_binary("ext_fake_browser"), vec!["endpoint".into()])),
-            profile_root: std::env::temp_dir().join("mixdog-exthost-idle-tests"),
-            no_sandbox: false,
-        };
-        start_with_idle(
-            config,
-            mixdog_rt::testing::tokens().spawn_io,
-            Handle::current(),
-            launches.clone(),
-            ChildExits::watch().unwrap(),
-            IDLE,
-        )
-    }
-
-    /// A browser that starts and never publishes an endpoint is given up on at Puppeteer's 30 s, with its text, and is ended;
-    /// the next request launches again.
-    #[tokio::test(start_paused = true)]
-    async fn a_browser_that_never_publishes_its_endpoint_fails_the_launch_at_thirty_seconds() {
-        let config = RenderBrowserConfig {
-            command: Some((
-                crate::pool::tests::fake_binary("ext_fake_browser"),
-                vec![
-                    "silent".into(),
-                    std::env::temp_dir().join("mixdog-exthost-silent-browser.pid").into_os_string(),
-                ],
-            )),
-            profile_root: std::env::temp_dir().join("mixdog-exthost-idle-tests"),
-            no_sandbox: false,
-        };
-        let launches = Arc::new(AtomicU64::new(0));
-        let browser = start_with_idle(
-            config,
-            mixdog_rt::testing::tokens().spawn_io,
-            Handle::current(),
-            launches.clone(),
-            ChildExits::watch().unwrap(),
-            IDLE,
-        );
-        let asking = browser.clone();
-        let asked = tokio::spawn(async move { asking.endpoint().await });
-        // The launch counts itself, with its deadline taken, before it spawns anything: on this one-thread runtime
-        // each yield lets every ready task run, so the request reaches the launch before the clock moves.
-        while launches.load(Ordering::Relaxed) == 0 {
-            tokio::task::yield_now().await;
-        }
-        tokio::time::advance(LAUNCH_TIMEOUT - Duration::from_millis(1)).await;
-        assert!(!asked.is_finished(), "still waiting just short of the bound");
-        tokio::time::advance(Duration::from_millis(1)).await;
-        let error = asked.await.unwrap().unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            "Timed out after 30000 ms while waiting for the WS endpoint URL to appear in stdout!"
-        );
-        browser.shutdown().await;
-    }
-
-    #[test]
-    fn the_idle_period_is_nodes_math_max_of_the_environment_value() {
-        let ms = |env| idle_period_from(env).as_millis();
-        assert_eq!(ms(None), 60_000);
-        assert_eq!(ms(Some("")), 60_000);
-        assert_eq!(ms(Some("0")), 60_000);
-        assert_eq!(ms(Some("abc")), 60_000);
-        assert_eq!(ms(Some("100")), 5_000, "at least 5 s");
-        assert_eq!(ms(Some("-3")), 5_000, "a negative number is a number: the floor applies");
-        assert_eq!(ms(Some(" 7500.9 ")), 7_500);
-        assert_eq!(ms(Some("1e4")), 10_000);
-        assert_eq!(ms(Some("0x1F40")), 8_000);
-        assert_eq!(ms(Some("2147483647")), 2_147_483_647);
-        assert_eq!(ms(Some("2147483648")), 1, "setTimeout overflow becomes 1 ms");
-        assert_eq!(ms(Some("Infinity")), 1);
-    }
-
-    // The idle timer runs on the paused tokio clock: time moves only through `advance`, so no
-    // assertion depends on how fast the machine is. The service takes an expired idle timer before
-    // any request already queued (its `select!` is biased), so a request sent after an `advance`
-    // past the period always meets the closed browser.
-
-    /// Moves the clock past the idle period and lets the service take its expired timer.
-    async fn pass_idle_period() {
-        tokio::time::advance(IDLE + Duration::from_millis(1)).await;
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn an_unused_browser_closes_after_the_idle_period_and_the_next_request_launches_again() {
-        let launches = Arc::new(AtomicU64::new(0));
-        let browser = service(&launches);
-        let first = browser.endpoint().await.unwrap();
-        assert_eq!(browser.endpoint().await.unwrap(), first, "in use: one browser");
-        assert_eq!(launches.load(Ordering::Relaxed), 1);
-
-        // Just short of the period since the launch: still the same browser.
-        tokio::time::advance(IDLE - Duration::from_millis(1)).await;
-        assert_eq!(browser.endpoint().await.unwrap(), first, "not yet idle");
-        assert_eq!(launches.load(Ordering::Relaxed), 1);
-
-        pass_idle_period().await;
-        let second = browser.endpoint().await.unwrap();
-        assert_ne!(second, first, "the idle browser was closed and a new one launched");
-        assert_eq!(launches.load(Ordering::Relaxed), 2);
-        browser.shutdown().await;
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn an_endpoint_request_does_not_restart_the_idle_clock_without_a_lease() {
-        let launches = Arc::new(AtomicU64::new(0));
-        let browser = service(&launches);
-        let first = browser.endpoint().await.unwrap();
-
-        // A request just short of the period is served by the same browser ...
-        tokio::time::advance(IDLE - Duration::from_millis(100)).await;
-        assert_eq!(browser.endpoint().await.unwrap(), first);
-        // ... and did not push the expiry: the period counted from the launch ends here.
-        tokio::time::advance(Duration::from_millis(101)).await;
-        assert_ne!(browser.endpoint().await.unwrap(), first, "closed on the launch's clock");
-        assert_eq!(launches.load(Ordering::Relaxed), 2);
-        browser.shutdown().await;
-    }
-
-    /// The trait the web renderer holds gives the browser only together with its hold.
-    #[tokio::test(start_paused = true)]
-    async fn the_endpoint_trait_keeps_the_browser_open_until_its_hold_is_dropped() {
-        use mixdog_core_api::domain::ext::BrowserEndpoint;
-
-        let launches = Arc::new(AtomicU64::new(0));
-        let render = RenderBrowser(service(&launches));
-        let (first, hold) = BrowserEndpoint::lease(&render).await.unwrap();
-        for _ in 0..4 {
-            pass_idle_period().await;
-        }
-        assert_eq!(render.endpoint().await.unwrap(), first, "held for a long render: still open");
-        assert_eq!(launches.load(Ordering::Relaxed), 1);
-
-        drop(hold);
-        assert_eq!(render.endpoint().await.unwrap(), first, "released, not yet idle");
-        pass_idle_period().await;
-        assert_ne!(render.endpoint().await.unwrap(), first, "closed after the period from the release");
-        render.0.shutdown().await;
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_lease_keeps_the_browser_open_and_its_release_starts_the_idle_clock() {
-        let launches = Arc::new(AtomicU64::new(0));
-        let browser = service(&launches);
-        let (first, lease) = browser.lease().await.unwrap();
-
-        for _ in 0..4 {
-            pass_idle_period().await;
-        }
-        // The answer to this request also proves the service saw no idle expiry while held.
-        assert_eq!(browser.endpoint().await.unwrap(), first, "held: never closed for idleness");
-        assert_eq!(launches.load(Ordering::Relaxed), 1);
-
-        // The release is queued before this request, so the service has processed it (and armed
-        // the idle clock) by the time the request is answered.
-        drop(lease);
-        assert_eq!(browser.endpoint().await.unwrap(), first, "released but not yet idle");
-        pass_idle_period().await;
-        assert_ne!(browser.endpoint().await.unwrap(), first, "released: closed after the idle period");
-        assert_eq!(launches.load(Ordering::Relaxed), 2);
-        browser.shutdown().await;
-    }
 }

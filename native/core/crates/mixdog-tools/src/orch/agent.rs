@@ -103,6 +103,18 @@ pub enum TaskResult {
     Json(Value),
 }
 
+impl TaskResult {
+    /// The authored report of a finished task, possibly empty: a string result itself, an object
+    /// result's `content` string. `None` when the result carries no such string. Each reader
+    /// applies its own fallback for an empty or absent report.
+    pub fn content(&self) -> Option<&str> {
+        match self {
+            Self::Content(content) => Some(content.as_str()),
+            Self::Json(value) => value.get("content").and_then(Value::as_str),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct QueuedView {
     pub reused: bool,
@@ -356,20 +368,16 @@ pub fn render_task(v: &TaskView, include_diagnostics: bool) -> String {
     if v.status.as_deref() == Some("running") {
         lines.push("notification: completion will be delivered; end the turn.".to_owned());
     }
-    match &v.result {
-        Some(TaskResult::Content(content)) if !content.is_empty() => {
-            lines.push(String::new());
-            lines.push(strip_final_answer_wrapper(content));
+    if let Some(result) = &v.result {
+        lines.push(String::new());
+        // `renderTask`: a truthy `content` is the report; an empty one prints the result as JSON.
+        match result.content().filter(|content| !content.is_empty()) {
+            Some(content) => lines.push(strip_final_answer_wrapper(content)),
+            None => lines.push(pretty(&match result {
+                TaskResult::Content(_) => Value::String(String::new()),
+                TaskResult::Json(value) => value.clone(),
+            })),
         }
-        Some(TaskResult::Content(_)) => {
-            lines.push(String::new());
-            lines.push(pretty(&Value::String(String::new())));
-        }
-        Some(TaskResult::Json(value)) => {
-            lines.push(String::new());
-            lines.push(pretty(value));
-        }
-        None => {}
     }
     lines.join("\n")
 }
@@ -465,11 +473,11 @@ impl Tool for AgentTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let kind = {
-            let t = clean(args.get("type"));
-            if t.is_empty() { "spawn".to_owned() } else { t.to_lowercase() }
-        };
-        if matches!(kind.as_str(), "spawn" | "send") && self.facts.is_heartbeat(&ctx.thread_id).await {
+        let kind = args.get("type").and_then(Value::as_str).unwrap_or_default();
+        if !matches!(kind, "spawn" | "send" | "list" | "close" | "cancel" | "status" | "read" | "cleanup") {
+            return Err(super::util::invalid("type", "agent: type must be spawn, send, list, close, cancel, status, read or cleanup"));
+        }
+        if matches!(kind, "spawn" | "send") && self.facts.is_heartbeat(&ctx.thread_id).await {
             return Err(refused("heartbeat", format!("agent: {HEARTBEAT_NO_HANDOFF}")));
         }
         // `attachmentParts` and `skillSelection` are never the model's to set: only the resolved
@@ -481,6 +489,9 @@ impl Tool for AgentTool {
             o.shift_remove("attachments")
         });
         let attachment_parts = match &attachments {
+            Some(_) if !matches!(kind, "spawn" | "send") => {
+                return Err(super::util::invalid("attachments", "agent: attachments apply to spawn and send only"));
+            }
             Some(names) => self.sessions.resolve_attachments(&ctx.thread_id, names, &ctx.cwd, "agent").await?,
             None => Vec::new(),
         };
@@ -554,46 +565,27 @@ mod tests {
         assert_eq!(render_task(&done, false), "agent task: t9\nstatus: completed\n\ndone");
     }
 
-    /// Golden twin: `golden/agent_render.json` is `renderResult` of today's Node product run on
-    /// the same facts (recorded with the node render module, no live turn needed).
+    /// A finished task read by `task_id` carries its result as an object: the report is its
+    /// `content`, never the object; without content the object prints as JSON.
     #[test]
-    fn renders_equal_the_recorded_node_output() {
-        let golden: Value = serde_json::from_str(include_str!("golden/agent_render.json")).expect("golden");
-        let g = |k: &str| golden[k].as_str().expect(k).to_owned();
-        let mut busy = worker("alpha", "running", true, "");
-        busy.stage = Some("tool_running".into());
-        busy.last_progress = Some("reading   files".into());
-        let workers = vec![busy, worker("beta", "idle", false, "1"), worker("gamma", "closed", false, "3")];
-        let jobs = vec![
-            JobRow { task_id: "t1".into(), kind: "spawn".into(), status: "running".into(), tag: Some("alpha".into()), ..JobRow::default() },
-            JobRow { task_id: "t2".into(), kind: "spawn".into(), status: "failed".into(), error: Some("bad\nthing".into()), finished: true, ..JobRow::default() },
-        ];
-        assert_eq!(render(&AgentReply::Roster { workers, jobs }, ""), g("roster"));
-        assert_eq!(render(&AgentReply::Roster { workers: vec![], jobs: vec![] }, ""), g("empty"));
-        let ack = TaskView {
-            task_id: "t9".into(),
-            status: Some("running".into()),
-            kind: Some("spawn".into()),
-            tag: Some("w".into()),
-            session_id: Some("s1".into()),
-            agent: Some("coder".into()),
-            ..TaskView::default()
-        };
-        assert_eq!(render(&AgentReply::Task { view: ack.clone(), diagnostics: false }, ""), g("start_ack"));
-        assert_eq!(render(&AgentReply::Task { view: ack, diagnostics: true }, ""), g("start_ack_status"));
-        let done = TaskView {
-            task_id: "t9".into(),
-            status: Some("completed".into()),
-            result: Some(TaskResult::Content("<final-answer id=1>\n done \n</final-answer>".into())),
-            ..TaskView::default()
-        };
-        assert_eq!(render(&AgentReply::Task { view: done, diagnostics: false }, ""), g("done"));
-        let queued = QueuedView { tag: Some("w".into()), session_id: Some("s".into()), ..QueuedView::default() };
-        assert_eq!(render(&AgentReply::Queued(queued), ""), g("queued"));
-        let closed = ClosedView { closed: true, tag: Some("w".into()), task_id: Some("t1".into()), forgotten: true, ..ClosedView::default() };
-        assert_eq!(render(&AgentReply::Closed(closed), ""), g("closed"));
-        let content = ContentView { tag: Some("w".into()), provider: Some("p".into()), model: Some("m".into()), content: "hi".into(), ..ContentView::default() };
-        assert_eq!(render(&AgentReply::Content(content), ""), g("content"));
+    fn finished_task_object_result_prints_its_content() {
+        let finished = |result| TaskView { task_id: "t9".into(), status: Some("completed".into()), result: Some(result), ..TaskView::default() };
+        let report = json!({ "agent": "worker", "tag": "w", "content": "<final-answer id=1>\n done \n</final-answer>" });
+        for diagnostics in [false, true] {
+            let text = render_task(&finished(TaskResult::Json(report.clone())), diagnostics);
+            assert!(text.ends_with("\n\ndone"), "{text}");
+            assert!(!text.contains("\"agent\""), "{text}");
+        }
+        assert_eq!(
+            render_task(&finished(TaskResult::Json(json!({ "agent": "worker" }))), false),
+            "agent task: t9\nstatus: completed\n\n{\n  \"agent\": \"worker\"\n}"
+        );
+        assert_eq!(render_task(&finished(TaskResult::Content(String::new())), false), "agent task: t9\nstatus: completed\n\n\"\"");
+        // An empty authored report is not a report: the object prints, as `renderTask` does.
+        assert_eq!(
+            render_task(&finished(TaskResult::Json(json!({ "content": "" }))), false),
+            "agent task: t9\nstatus: completed\n\n{\n  \"content\": \"\"\n}"
+        );
     }
 
     #[test]
@@ -621,5 +613,54 @@ mod tests {
         assert_eq!(render_content(&content), "agent result tag=w p/m\nhi");
         assert_eq!(render(&AgentReply::Json(json!({"a":1})), ""), "{\n  \"a\": 1\n}");
         assert_eq!(compact_iso("2026-11-06T01:38:16.222Z"), "2026-11-06 01:38:16Z");
+    }
+
+
+    /// The agent tool's text for a roster, a task start and finish, a queued message, a close and a result.
+    #[test]
+    fn each_reply_of_the_agent_tool_renders_as_its_text() {
+        let mut busy = worker("alpha", "running", true, "");
+        busy.stage = Some("tool_running".into());
+        busy.last_progress = Some("reading   files".into());
+        let workers = vec![busy, worker("beta", "idle", false, "1"), worker("gamma", "closed", false, "3")];
+        let jobs = vec![
+            JobRow { task_id: "t1".into(), kind: "spawn".into(), status: "running".into(), tag: Some("alpha".into()), ..JobRow::default() },
+            JobRow { task_id: "t2".into(), kind: "spawn".into(), status: "failed".into(), error: Some("bad\nthing".into()), finished: true, ..JobRow::default() },
+        ];
+        assert_eq!(
+            render(&AgentReply::Roster { workers, jobs }, ""),
+            "agents: 3 · tasks: 2\n- alpha  running/tool_running  reading files\n- t1  spawn  running  alpha\n- idle/closed agents: 2 (latest 2; pass tag=<text> to find one)\n- gamma  closed\n- beta  idle\n- finished tasks: 1 (latest 1; pass tag=<text> to find one)\n- t2  spawn  failed  - error=bad thing"
+        );
+        assert_eq!(render(&AgentReply::Roster { workers: vec![], jobs: vec![] }, ""), "agents: 0 · tasks: 0\n(no agents or tasks)");
+        let ack = TaskView {
+            task_id: "t9".into(),
+            status: Some("running".into()),
+            kind: Some("spawn".into()),
+            tag: Some("w".into()),
+            session_id: Some("s1".into()),
+            agent: Some("coder".into()),
+            ..TaskView::default()
+        };
+        assert_eq!(
+            render(&AgentReply::Task { view: ack.clone(), diagnostics: false }, ""),
+            "agent task: t9\nstatus: running\ntype: spawn\ntarget: w s1\nnotification: completion will be delivered; end the turn."
+        );
+        assert_eq!(
+            render(&AgentReply::Task { view: ack, diagnostics: true }, ""),
+            "agent task: t9\nstatus: running\ntype: spawn\ntarget: w s1\nagent: coder\nnotification: completion will be delivered; end the turn."
+        );
+        let done = TaskView {
+            task_id: "t9".into(),
+            status: Some("completed".into()),
+            result: Some(TaskResult::Content("<final-answer id=1>\n done \n</final-answer>".into())),
+            ..TaskView::default()
+        };
+        assert_eq!(render(&AgentReply::Task { view: done, diagnostics: false }, ""), "agent task: t9\nstatus: completed\n\ndone");
+        let queued = QueuedView { tag: Some("w".into()), session_id: Some("s".into()), ..QueuedView::default() };
+        assert_eq!(render(&AgentReply::Queued(queued), ""), "agent message queued\ntarget: w s\nqueueDepth: 1");
+        let closed = ClosedView { closed: true, tag: Some("w".into()), task_id: Some("t1".into()), forgotten: true, ..ClosedView::default() };
+        assert_eq!(render(&AgentReply::Closed(closed), ""), "agent close: ok\ntag: w\ntask_id: t1\nforgotten: true");
+        let content = ContentView { tag: Some("w".into()), provider: Some("p".into()), model: Some("m".into()), content: "hi".into(), ..ContentView::default() };
+        assert_eq!(render(&AgentReply::Content(content), ""), "agent result tag=w p/m\nhi");
     }
 }

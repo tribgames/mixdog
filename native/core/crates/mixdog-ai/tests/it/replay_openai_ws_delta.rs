@@ -183,8 +183,10 @@ fn canonical_delta_frame_key_order(case: &Case) -> Exact {
     ])
 }
 
+#[cfg(node_twin)]
 pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "openai-ws-delta", run: every_pure_case_replays_as_node_recorded_it }];
 
+#[cfg(node_twin)]
 #[test]
 fn every_pure_case_replays_as_node_recorded_it() {
     let replays: [(&str, fn(&Case) -> Exact); 4] = [

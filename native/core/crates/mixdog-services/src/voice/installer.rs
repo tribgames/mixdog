@@ -13,6 +13,20 @@
 //! 1200 s), the lock is polled every 250 ms and reclaimed when its holder is dead, or older
 //! than 30 minutes, and a failed install removes its staging directory.
 
+
+/// A body on the durability lane that publishes (it gets the proof `mixdog-statefile` asks for):
+/// `with_proof!(self, move |proof| ...)` is a `Result<R, String>`. A macro, so the closure is
+/// written at the `submit_wait` call (a closure handed on through a generic `async fn` makes the
+/// future's `Send` unprovable for the proof's reference parameter).
+macro_rules! with_proof {
+    ($installer:expr, $work:expr) => {{
+        match $installer.parts.durability.submit_wait(&mixdog_rt::CancellationToken::new(), $work).await {
+            Ok(job) => job.await.map_err(|_| "lane job was dropped".to_owned()),
+            Err(e) => Err(format!("lane job was not queued: {e:?}")),
+        }
+    }};
+}
+
 use std::collections::BTreeSet;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -478,19 +492,6 @@ impl Drop for Lock {
 fn release_held_locks_of(path: &Path) {
     held().retain(|held| held != path);
     let _ = std::fs::remove_file(path);
-}
-
-/// A body on the durability lane that publishes (it gets the proof `mixdog-statefile` asks for):
-/// `with_proof!(self, move |proof| ...)` is a `Result<R, String>`. A macro, so the closure is
-/// written at the `submit_wait` call (a closure handed on through a generic `async fn` makes the
-/// future's `Send` unprovable for the proof's reference parameter).
-macro_rules! with_proof {
-    ($installer:expr, $work:expr) => {{
-        match $installer.parts.durability.submit_wait(&mixdog_rt::CancellationToken::new(), $work).await {
-            Ok(job) => job.await.map_err(|_| "lane job was dropped".to_owned()),
-            Err(e) => Err(format!("lane job was not queued: {e:?}")),
-        }
-    }};
 }
 
 // ── the installer ─────────────────────────────────────────────────────────

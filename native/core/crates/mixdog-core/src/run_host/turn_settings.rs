@@ -15,6 +15,70 @@ use mixdog_store::schema::record::Header;
 
 use super::late::Bound;
 
+/// The MCP catalog of one thread, refreshed through the turn settings.
+pub struct SettingsMcp {
+    pub settings: Arc<dyn TurnSettings>,
+    pub thread: ThreadId,
+}
+
+/// [`TurnSettings`] bound after the directory exists.
+#[derive(Default)]
+pub struct LateTurnSettings(OnceLock<Arc<dyn TurnSettings>>);
+
+impl LateTurnSettings {
+    /// Binds the host; a second bind is refused.
+    pub fn bind(&self, host: Arc<dyn TurnSettings>) -> Result<(), Arc<dyn TurnSettings>> {
+        self.0.set(host)
+    }
+}
+
+impl Bound for LateTurnSettings {
+    fn cell(&self) -> &'static str {
+        "turn settings"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.get().is_some()
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Fixed;
+
+    #[async_trait]
+    impl TurnSettings for Fixed {
+        async fn reconcile(&self, _: &ThreadId, _: bool) -> Result<Header, String> {
+            Ok(Header::from_iter([("fold".to_owned(), serde_json::Value::Bool(true))]))
+        }
+    }
+
+    /// A turn before the bind fails with a text; after it the host's header is the turn's.
+    #[tokio::test]
+    async fn an_unbound_cell_refuses_the_turn_and_a_bound_one_answers() {
+        let cell = LateTurnSettings::default();
+        let thread = ThreadId::from("t1");
+        assert!(!cell.is_bound());
+        assert!(cell.reconcile(&thread, false).await.is_err());
+        assert!(cell.bind(Arc::new(Fixed)).is_ok());
+        assert!(cell.is_bound());
+        assert_eq!(cell.reconcile(&thread, false).await.unwrap()["fold"], true);
+        assert!(cell.bind(Arc::new(Fixed)).is_err(), "a second bind is refused");
+    }
+}
+
+#[async_trait]
+impl mixdog_agent::env::McpCatalog for SettingsMcp {
+    /// A refresh that fails is logged; like Node's (`catch` around the reconcile) it never breaks the call.
+    async fn refresh(&self) {
+        if let Err(error) = self.settings.refresh_mcp(&self.thread).await {
+            tracing::warn!("[mcp] catalog refresh failed: {error}");
+        }
+    }
+}
+
+
 /// What a turn start does to the thread's settings.
 #[async_trait]
 pub trait TurnSettings: Send + Sync + 'static {
@@ -22,6 +86,10 @@ pub trait TurnSettings: Send + Sync + 'static {
     /// that has a prompt identity is rebuilt whole, any other takes the moved tool gates and connectors
     /// without touching its prefix (`reconcileSession`).
     async fn reconcile(&self, thread: &ThreadId, conversation: bool) -> Result<Header, String>;
+
+    async fn reconcile_admitted(&self, thread: &ThreadId, conversation: bool, _pick: Option<&serde_json::Value>) -> Result<Header, String> {
+        self.reconcile(thread, conversation).await
+    }
 
     /// `refreshDeferredMcpToolCatalog(session)`: the thread's MCP catalog follows the live registry. A host
     /// with no MCP catalog has nothing to refresh.
@@ -51,36 +119,15 @@ pub trait TurnSettings: Send + Sync + 'static {
         Err("this host has no orchestration instructions".to_owned())
     }
 }
-
-/// The MCP catalog of one thread, refreshed through the turn settings.
-pub struct SettingsMcp {
-    pub settings: Arc<dyn TurnSettings>,
-    pub thread: ThreadId,
-}
-
-#[async_trait]
-impl mixdog_agent::env::McpCatalog for SettingsMcp {
-    /// A refresh that fails is logged; like Node's (`catch` around the reconcile) it never breaks the call.
-    async fn refresh(&self) {
-        if let Err(error) = self.settings.refresh_mcp(&self.thread).await {
-            tracing::warn!("[mcp] catalog refresh failed: {error}");
-        }
-    }
-}
-
-/// [`TurnSettings`] bound after the directory exists.
-#[derive(Default)]
-pub struct LateTurnSettings(OnceLock<Arc<dyn TurnSettings>>);
-
-impl LateTurnSettings {
-    /// Binds the host; a second bind is refused.
-    pub fn bind(&self, host: Arc<dyn TurnSettings>) -> Result<(), Arc<dyn TurnSettings>> {
-        self.0.set(host)
-    }
-}
-
 #[async_trait]
 impl TurnSettings for LateTurnSettings {
+    async fn reconcile_admitted(&self, thread: &ThreadId, conversation: bool, pick: Option<&serde_json::Value>) -> Result<Header, String> {
+        match self.0.get() {
+            Some(host) => host.reconcile_admitted(thread, conversation, pick).await,
+            None => Err("the turn settings are not bound yet".to_owned()),
+        }
+    }
+
     async fn reconcile(&self, thread: &ThreadId, conversation: bool) -> Result<Header, String> {
         match self.0.get() {
             Some(host) => host.reconcile(thread, conversation).await,
@@ -120,41 +167,5 @@ impl TurnSettings for LateTurnSettings {
             Some(host) => host.orchestration_instructions(mode).await,
             None => Err("the turn settings are not bound yet".to_owned()),
         }
-    }
-}
-
-impl Bound for LateTurnSettings {
-    fn cell(&self) -> &'static str {
-        "turn settings"
-    }
-
-    fn is_bound(&self) -> bool {
-        self.0.get().is_some()
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct Fixed;
-
-    #[async_trait]
-    impl TurnSettings for Fixed {
-        async fn reconcile(&self, _: &ThreadId, _: bool) -> Result<Header, String> {
-            Ok(Header::from_iter([("fold".to_owned(), serde_json::Value::Bool(true))]))
-        }
-    }
-
-    /// A turn before the bind fails with a text; after it the host's header is the turn's.
-    #[tokio::test]
-    async fn an_unbound_cell_refuses_the_turn_and_a_bound_one_answers() {
-        let cell = LateTurnSettings::default();
-        let thread = ThreadId::from("t1");
-        assert!(!cell.is_bound());
-        assert!(cell.reconcile(&thread, false).await.is_err());
-        assert!(cell.bind(Arc::new(Fixed)).is_ok());
-        assert!(cell.is_bound());
-        assert_eq!(cell.reconcile(&thread, false).await.unwrap()["fold"], true);
-        assert!(cell.bind(Arc::new(Fixed)).is_err(), "a second bind is refused");
     }
 }

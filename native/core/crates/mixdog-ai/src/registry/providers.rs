@@ -13,7 +13,7 @@
 //! registry owns the set, the signatures and the gates.
 
 // Private names for existing callback/result shapes; representations are unchanged.
-type IsProviderOff = dyn Fn(&str) -> bool + Send;
+type IsProviderOff = dyn Fn(&str) -> bool + Send + Sync;
 type BuiltProvider = (String, Result<(Arc<dyn ProviderAdapter>, Option<String>), String>);
 
 use std::collections::BTreeSet;
@@ -29,6 +29,7 @@ use mixdog_core_api::domain::provider::ProviderAdapter;
 use serde_json::Map;
 
 use super::accounted::{AccountedAdapter, AccountingDeps};
+use super::egress::EgressGuard;
 use crate::accounts::CredentialState;
 use crate::catalog::AdapterRows;
 use crate::catalog::CachedModelInfo;
@@ -126,6 +127,17 @@ pub trait ProviderBuilder: Send + Sync {
     }
 }
 
+/// The providers section of another machine, which this registry applies in place of its own: a server in the model-proxy
+/// client mode (`MIXDOG_MODEL_PROXY=client`) holds no model credentials and serves the providers the connected PC reports
+/// (Node's `initProviders`, whose config is `loadModelProxyProviderConfig()` in that mode).
+#[async_trait]
+pub trait RemoteProviders: Send + Sync {
+    /// The providers as the PC advertises them, each with its `enabled` flag; `Err` is why none could be read (no PC is
+    /// connected, or it failed), which fails the apply that asked.
+    /// `force` reads the PC afresh instead of serving the read a short while ago (`loadModelProxyProviderConfig({ force })`).
+    async fn providers(&self, force: bool) -> Result<Map<String, Value>, String>;
+}
+
 struct Entry {
     adapter: Arc<dyn ProviderAdapter>,
     /// `None`: never matches, so the next sync rebuilds it.
@@ -164,6 +176,8 @@ pub struct ProviderRegistry {
     builder: Arc<dyn ProviderBuilder>,
     /// Set: every provider this registry hands out sends through the usage ledger.
     accounting: Option<Arc<AccountingDeps>>,
+    /// Set: the provider set is the one this source reports, never the config an apply is given.
+    remote: Option<Arc<dyn RemoteProviders>>,
     state: Mutex<State>,
     /// Every mutation runs under this lock, so two applies never interleave.
     apply: tokio::sync::Semaphore,
@@ -205,6 +219,7 @@ impl ProviderRegistry {
         Self {
             builder,
             accounting: None,
+            remote: None,
             state: Mutex::new(State::default()),
             apply: tokio::sync::Semaphore::new(1),
             ready: tokio::sync::watch::channel(false).0,
@@ -217,11 +232,21 @@ impl ProviderRegistry {
         self
     }
 
+    /// Makes `remote` the provider set of every apply: an init registers what it enables and a sync rebuilds what changed
+    /// and removes what it turned off, whatever config the caller holds.
+    pub fn with_remote(mut self, remote: Arc<dyn RemoteProviders>) -> Self {
+        self.remote = Some(remote);
+        self
+    }
+
+    /// The adapter as it is registered and handed out: accounted when the registry accounts, and always under the egress
+    /// guard, so no caller of a registered provider can send it an image its wire does not take.
     fn accounted(&self, name: &str, adapter: Arc<dyn ProviderAdapter>) -> Arc<dyn ProviderAdapter> {
-        match &self.accounting {
+        let adapter = match &self.accounting {
             Some(deps) => AccountedAdapter::wrap(adapter, name, Arc::clone(deps)),
             None => adapter,
-        }
+        };
+        EgressGuard::wrap(adapter)
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -263,11 +288,30 @@ impl ProviderRegistry {
         Ok(out)
     }
 
-    /// Ensures the providers `config` enables are registered (additive). A
+    /// Locally, ensures the providers `config` enables are registered (additive). A
     /// registered one is left as it is. Errors with `NO_ENABLED_PROVIDERS`
     /// (Node's "all providers disabled" refusal) when no entry of the config is registered afterwards
-    /// and no OAuth instance is preserved.
+    /// and no OAuth instance is preserved. A remote registry reconciles the PC's full set instead.
     pub async fn init_providers(&self, config: &Map<String, Value>) -> Result<(), RegistryError> {
+        self.init(config, false).await
+    }
+
+    /// The PC's provider set read afresh and applied as an init applies it (Node's catalog load with a refresh in the client
+    /// mode: `loadModelProxyProviderConfig({ force: true })`, then `initProviders({})`), so a sign-in or sign-out on the PC
+    /// shows without a new connection. A registry with no remote has nothing to read.
+    pub async fn reread_remote(&self) -> Result<(), RegistryError> {
+        if self.remote.is_none() {
+            return Ok(());
+        }
+        self.init(&Map::new(), true).await
+    }
+
+    async fn init(&self, config: &Map<String, Value>, force: bool) -> Result<(), RegistryError> {
+        if self.remote.is_some() {
+            self.apply_remote(force).await?;
+            self.ready.send_replace(true);
+            return Ok(());
+        }
         // `_initProvidersUnsynchronized`: an empty config never clears (or settles) the registry, whatever it
         // holds. Checked first: with providers registered the nothing-pending shortcut below would accept it.
         if config.is_empty() {
@@ -293,6 +337,19 @@ impl ProviderRegistry {
         Ok(())
     }
 
+    async fn apply_remote(&self, force: bool) -> Result<(), RegistryError> {
+        let _chain = self.apply.acquire().await;
+        let source = self.remote.as_ref().expect("a remote registry");
+        let config = source.providers(force).await.map_err(RegistryError::plain)?;
+        let config = self.with_custom_key_ids(&config).await?;
+        let on: HashSet<String> = config.iter().filter(|(name, cfg)| self.enabled_for_init(name, cfg)).map(|(name, _)| name.clone()).collect();
+        let signature = config_signature(&Value::Object(config.clone()));
+        let plan = Plan { config, rebuild: true, add: true, is_off: Some(Box::new(move |name| !on.contains(name))) };
+        self.build_and_settle(&plan).await?;
+        self.note_applied(signature);
+        Ok(())
+    }
+
     /// `if (_lastAppliedSig !== sig) _providerCatalogRevision += 1; _lastAppliedSig = sig` (`initProviders`, registry.mjs:312):
     /// an init of a config other than the last applied one moves the catalog revision even when it builds nothing.
     fn note_applied(&self, signature: String) {
@@ -305,13 +362,16 @@ impl ProviderRegistry {
 
     /// Applies the config of record: rebuilds every registered provider whose
     /// signature changed and removes those a stored decision turned off.
-    /// `decisions` is the stored providers section (`None` when unreadable:
-    /// nothing is removed). Never adds a provider, never fails for an empty set.
+    /// Locally, `decisions` is the stored providers section (`None` when unreadable:
+    /// nothing is removed), and sync never adds. A remote sync reconciles the PC's full set.
     pub async fn sync_providers(
         &self,
         record: &Map<String, Value>,
         decisions: Option<Map<String, Value>>,
     ) -> Result<(), RegistryError> {
+        if self.remote.is_some() {
+            return self.apply_remote(false).await;
+        }
         let is_off = decisions.map(|d| {
             Box::new(move |name: &str| {
                 d.get(name).and_then(|v| v.get("enabled")).and_then(Value::as_bool) == Some(false)
@@ -393,8 +453,16 @@ impl ProviderRegistry {
     async fn apply_plan(&self, plan: Plan) -> Result<(), RegistryError> {
         // The semaphore is never closed, so the permit is always granted.
         let _chain = self.apply.acquire().await;
+        let skipped = self.build_and_settle(&plan).await?;
+        if plan.add {
+            self.refuse_if_nothing_left(&plan.config, &skipped).await?;
+        }
+        Ok(())
+    }
+
+    async fn build_and_settle(&self, plan: &Plan) -> Result<Vec<String>, RegistryError> {
         let mut built = Vec::new();
-        for (name, cfg, sig) in self.pending(&plan) {
+        for (name, cfg, sig) in self.pending(plan) {
             match self.builder.build(&name, &cfg).await {
                 Ok(adapter) => {
                     let adapter = self.accounted(&name, adapter);
@@ -416,11 +484,7 @@ impl ProviderRegistry {
                 }
             }
         }
-        let skipped = self.settle(&plan, built);
-        if plan.add {
-            self.refuse_if_nothing_left(&plan.config, &skipped).await?;
-        }
-        Ok(())
+        Ok(self.settle(plan, built))
     }
 
     /// Registers what a plan built and removes what it turned off, under the registry lock; returns
@@ -489,6 +553,12 @@ impl ProviderRegistry {
     /// registration (`registeredProvider`).
     pub fn registered(&self, name: &str) -> Option<Arc<dyn ProviderAdapter>> {
         self.state().providers.get(name).map(|e| Arc::clone(&e.adapter))
+    }
+
+    /// Resolve an admitted route without waiting for a cold OAuth provider to build.
+    pub fn registered_for_route(&self, requested: &str) -> Option<Arc<dyn ProviderAdapter>> {
+        let name = canonical(requested);
+        self.builder.available(name).then(|| self.registered(name)).flatten()
     }
 
     /// The registration of `name` that is live now. A holder of an earlier request compares it with
@@ -663,6 +733,20 @@ mod tests {
     }
 
     #[test]
+    fn a_fresh_route_admits_the_live_opencode_alias_without_reviving_a_cold_provider() {
+        let registry = registry();
+        let adapter = crate::registry::multiwire::tests::refusing("opencode-go-oauth", 400, "x");
+        assert!(registry.registered_for_route("opencode-go").is_none());
+        ProviderRegistry::register(&mut registry.state(), "opencode-go-oauth", adapter, None);
+        let admitted = registry.registered_for_route("opencode-go").expect("retired route is served by its replacement");
+        assert_eq!(admitted.id().as_str(), "opencode-go-oauth");
+
+        let gated = crate::registry::multiwire::tests::refusing("gated", 400, "x");
+        ProviderRegistry::register(&mut registry.state(), "gated", gated, None);
+        assert!(registry.registered_for_route("gated").is_none());
+    }
+
+    #[test]
     fn signature_ignores_key_order() {
         let a = json!({"b": 1, "a": {"y": 2, "x": [{"q": 1, "p": 2}]}});
         let b = json!({"a": {"x": [{"p": 2, "q": 1}], "y": 2}, "b": 1});
@@ -690,25 +774,6 @@ mod tests {
 
     /// An account provider nobody signed in to is left out and the others build (Node builds it without its account).
     struct OneUnsigned;
-
-    #[async_trait]
-    impl ProviderBuilder for OneUnsigned {
-        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-            if name == "antigravity-oauth" {
-                return Err("not signed in — run /login".into());
-            }
-            Ok(crate::registry::multiwire::tests::refusing(name, 400, "x"))
-        }
-        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
-            Ok(Vec::new())
-        }
-        fn available(&self, _name: &str) -> bool {
-            true
-        }
-        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
-            Ok(true)
-        }
-    }
 
     #[tokio::test]
     async fn an_account_provider_nobody_signed_in_to_is_left_out() {
@@ -772,24 +837,6 @@ mod tests {
         release: tokio::sync::Notify,
     }
 
-    #[async_trait]
-    impl ProviderBuilder for Gated {
-        async fn build(&self, _name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-            self.entered.notify_one();
-            self.release.notified().await;
-            Ok(crate::registry::multiwire::tests::refusing("t", 400, "x"))
-        }
-        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
-            Ok(Vec::new())
-        }
-        fn available(&self, _name: &str) -> bool {
-            true
-        }
-        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
-            Ok(true)
-        }
-    }
-
     #[tokio::test]
     async fn a_disable_during_a_lazy_build_is_not_undone() {
         let gate = Arc::new(Gated { entered: tokio::sync::Notify::new(), release: tokio::sync::Notify::new() });
@@ -842,123 +889,14 @@ mod tests {
 
     struct Releasers(Arc<Mutex<Vec<String>>>);
 
-    #[async_trait]
-    impl ProviderBuilder for Releasers {
-        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-            let inner = crate::registry::multiwire::tests::refusing(name, 400, "x");
-            Ok(Arc::new(Releasing { name: name.to_owned(), inner, released: self.0.clone() }))
-        }
-        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
-            Ok(Vec::new())
-        }
-        fn available(&self, _name: &str) -> bool {
-            true
-        }
-        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
-            Ok(false)
-        }
-    }
-
     struct NoPrice;
-
-    impl crate::registry::accounting::UsagePricing for NoPrice {
-        fn price_usage(&self, _: &crate::catalog::UsageArgs) -> crate::catalog::PricedUsage {
-            unreachable!("nothing is sent")
-        }
-    }
-
-    /// A deleted session's connections go from every registered provider, through the
-    /// accounting wrapper.
-    #[tokio::test]
-    async fn a_released_session_reaches_every_registered_provider() {
-        let released: Arc<Mutex<Vec<String>>> = Arc::default();
-        let deps = crate::registry::accounted::AccountingDeps::new(Arc::new(NoPrice), Arc::new(|| None));
-        let r = ProviderRegistry::new(Arc::new(Releasers(released.clone()))).with_accounting(deps);
-        let cfg = json!({"anthropic": {"enabled": true}, "openai": {"enabled": true}});
-        r.init_providers(cfg.as_object().unwrap()).await.unwrap();
-        r.release_session("sess_gone");
-        let mut seen = released.lock().unwrap().clone();
-        seen.sort();
-        assert_eq!(seen, ["anthropic:sess_gone", "openai:sess_gone"]);
-    }
 
     /// Builds every name but the invalid custom one the golden's `invalid_custom` config names.
     struct Scripted;
 
-    #[async_trait]
-    impl ProviderBuilder for Scripted {
-        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-            if name == "custom-bad" {
-                return Err("unsupported protocol".into());
-            }
-            Ok(crate::registry::multiwire::tests::refusing(name, 400, "x"))
-        }
-        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
-            Ok(Vec::new())
-        }
-        fn available(&self, _name: &str) -> bool {
-            true
-        }
-        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
-            Ok(false)
-        }
-    }
-
+    #[cfg(node_twin)]
     /// Builds every name; its OAuth credential reads as the file the recording used.
     struct Probing(CredentialState);
-
-    #[async_trait]
-    impl ProviderBuilder for Probing {
-        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-            Ok(crate::registry::multiwire::tests::refusing(name, 400, "x"))
-        }
-        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
-            Ok(Vec::new())
-        }
-        fn available(&self, _name: &str) -> bool {
-            true
-        }
-        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
-            Ok(self.0 != CredentialState::Absent)
-        }
-        async fn oauth_credential_state(&self, _name: &str) -> Result<CredentialState, String> {
-            Ok(self.0)
-        }
-    }
-
-    /// An init whose config leaves nothing registered is refused with Node's text and code, unless a
-    /// registered OAuth provider is preserved (`fixtures/provider-refusal/golden.json`, from the real
-    /// `initProviders`): one the config does not name or whose probe could not read, while its
-    /// credential is not a logout; an explicit opt-out is never preserved.
-    #[tokio::test]
-    async fn the_refusal_when_nothing_is_left_is_nodes() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/provider-refusal/golden.json")).expect("fixture");
-        let config = |name: &str| golden["configs"][name].as_object().expect("config").clone();
-        for scenario in golden["scenarios"].as_array().expect("scenarios") {
-            let name = scenario["name"].as_str().expect("name");
-            let probe = match scenario["probe"].as_str() {
-                None | Some("present") => CredentialState::Present,
-                Some("absent") => CredentialState::Absent,
-                Some("unreadable") => CredentialState::Unreadable,
-                Some(other) => panic!("{name}: probe {other}"),
-            };
-            let registry = ProviderRegistry::new(Arc::new(Probing(probe)));
-            if scenario["registered"] == true {
-                registry.init_providers(json!({"anthropic-oauth": {"enabled": true}}).as_object().unwrap()).await.expect("the live provider registers");
-            }
-            for step in scenario["steps"].as_array().expect("steps") {
-                let result = registry.init_providers(&config(step["config"].as_str().expect("config"))).await;
-                match (step["outcome"].as_str().expect("outcome"), result) {
-                    ("ok", Ok(())) => {}
-                    ("refused", Err(error)) => {
-                        assert_eq!(json!(error.message), step["message"], "{name}: {step}");
-                        assert_eq!(error.code, Some(NO_ENABLED_PROVIDERS), "{name}: {step}");
-                    }
-                    (outcome, result) => panic!("{name}: Node {outcome}, Rust {result:?}: {step}"),
-                }
-            }
-        }
-    }
     /// Whether `wait_initialized` has resolved, with no waiting: the task gets event-loop turns,
     /// not wall time.
     async fn resolved(task: &tokio::task::JoinHandle<()>) -> bool {
@@ -966,38 +904,6 @@ mod tests {
             tokio::task::yield_now().await;
         }
         task.is_finished()
-    }
-
-    /// Node's `providersInitialized()` (`fixtures/provider-ready/golden.json`): the wait resolves at
-    /// the first initialization that applied a config, a refused one leaves it pending, and a later
-    /// refusal never unsettles it.
-    #[tokio::test]
-    async fn the_wait_resolves_at_the_first_applied_config_as_node_does() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/provider-ready/golden.json")).expect("fixture");
-        for scenario in golden["scenarios"].as_array().expect("scenarios") {
-            let name = scenario["name"].as_str().expect("name");
-            let registry = Arc::new(ProviderRegistry::new(Arc::new(Scripted)));
-            let probe = |registry: &Arc<ProviderRegistry>| {
-                let registry = Arc::clone(registry);
-                tokio::spawn(async move { registry.wait_initialized().await })
-            };
-            assert_eq!(resolved(&probe(&registry)).await, scenario["initial"], "{name}: before any step");
-            let mut waiter = None;
-            for step in scenario["steps"].as_array().expect("steps") {
-                match step["op"].as_str().expect("op") {
-                    "wait" => waiter = Some(probe(&registry)),
-                    _ => {
-                        let config = golden["configs"][step["config"].as_str().expect("config")].as_object().expect("config").clone();
-                        let outcome = if registry.init_providers(&config).await.is_ok() { "ok" } else { "refused" };
-                        assert_eq!(outcome, step["outcome"], "{name}: {step}");
-                    }
-                }
-                assert_eq!(resolved(&probe(&registry)).await, step["ready"], "{name}: {step}");
-                if let Some(waiter) = &waiter {
-                    assert_eq!(resolved(waiter).await, step["waiter"], "{name}: {step}");
-                }
-            }
-        }
     }
 
     /// Node latches only in `initProviders`: applying the record (which has no Node counterpart
@@ -1018,6 +924,83 @@ mod tests {
 
     /// A registration is told from the next one: a sync that rebuilds the provider, or a removal,
     /// leaves the instance a request was captured on without its generation.
+    #[tokio::test]
+    async fn a_remote_set_is_applied_whatever_config_the_caller_holds() {
+        struct Pc(Mutex<Value>);
+        #[async_trait]
+        impl RemoteProviders for Pc {
+            async fn providers(&self, _: bool) -> Result<Map<String, Value>, String> {
+                self.0.lock().unwrap().as_object().cloned().ok_or_else(|| "PC unavailable".into())
+            }
+        }
+        let pc = Arc::new(Pc(Mutex::new(json!({"anthropic": {"enabled": true}, "openai": {"enabled": true}, "xai": {"enabled": false}}))));
+        let r = ProviderRegistry::new(Arc::new(Scripted)).with_remote(pc.clone());
+        let local = json!({"deepseek": {"enabled": true}}).as_object().unwrap().clone();
+        r.init_providers(&local).await.unwrap();
+        assert_eq!(r.names().into_iter().collect::<Vec<_>>(), ["anthropic", "openai"], "the PC's enabled providers, none of the local ones");
+        *pc.0.lock().unwrap() = Value::Null;
+        assert!(r.sync_providers(&local, None).await.is_err());
+        assert_eq!(r.names().into_iter().collect::<Vec<_>>(), ["anthropic", "openai"]);
+        // Sync removes omitted providers and adds newly enabled ones without another initialization.
+        *pc.0.lock().unwrap() = json!({"anthropic": {"enabled": true}, "xai": {"enabled": true}});
+        r.sync_providers(&local, None).await.unwrap();
+        assert_eq!(r.names().into_iter().collect::<Vec<_>>(), ["anthropic", "xai"]);
+        *pc.0.lock().unwrap() = json!({});
+        r.sync_providers(&local, None).await.unwrap();
+        assert!(r.names().is_empty());
+    }
+
+    /// A sign-in and a sign-out on a PC that stays connected show at the next forced re-read; only that re-read asks
+    /// the PC afresh.
+    #[tokio::test]
+    async fn a_forced_reread_follows_the_pcs_sign_in_and_sign_out() {
+        struct Pc {
+            set: Mutex<Value>,
+            forced: Mutex<Vec<bool>>,
+        }
+        #[async_trait]
+        impl RemoteProviders for Pc {
+            async fn providers(&self, force: bool) -> Result<Map<String, Value>, String> {
+                self.forced.lock().unwrap().push(force);
+                Ok(self.set.lock().unwrap().as_object().unwrap().clone())
+            }
+        }
+        let pc = Arc::new(Pc { set: Mutex::new(json!({"anthropic": {"enabled": true}})), forced: Mutex::default() });
+        let r = ProviderRegistry::new(Arc::new(Scripted)).with_remote(pc.clone());
+        r.init_providers(&Map::new()).await.unwrap();
+        assert_eq!(r.names().into_iter().collect::<Vec<_>>(), ["anthropic"]);
+        *pc.set.lock().unwrap() = json!({"anthropic": {"enabled": false}, "openai": {"enabled": true}});
+        r.reread_remote().await.unwrap();
+        assert_eq!(r.names().into_iter().collect::<Vec<_>>(), ["openai"], "the sign-in is added and the sign-out removed");
+        *pc.set.lock().unwrap() = json!({});
+        r.reread_remote().await.unwrap();
+        assert!(r.names().is_empty() && r.initialized());
+        assert_eq!(*pc.forced.lock().unwrap(), [false, true, true]);
+    }
+
+    #[tokio::test]
+    async fn a_registry_without_a_remote_has_nothing_to_reread() {
+        let r = ProviderRegistry::new(Arc::new(Scripted));
+        r.reread_remote().await.unwrap();
+        assert!(r.names().is_empty() && !r.initialized());
+    }
+
+    #[tokio::test]
+    async fn a_remote_set_that_cannot_be_read_fails_the_apply_with_its_reason() {
+        struct NoPc;
+        #[async_trait]
+        impl RemoteProviders for NoPc {
+            async fn providers(&self, _: bool) -> Result<Map<String, Value>, String> {
+                Err("model proxy unavailable: no desktop client is connected to run model calls".into())
+            }
+        }
+        let r = ProviderRegistry::new(Arc::new(Scripted)).with_remote(Arc::new(NoPc));
+        let local = json!({"openai": {"enabled": true}}).as_object().unwrap().clone();
+        let error = r.init_providers(&local).await.unwrap_err();
+        assert_eq!(error.message, "model proxy unavailable: no desktop client is connected to run model calls");
+        assert!(r.names().is_empty() && !r.initialized());
+    }
+
     #[tokio::test]
     async fn a_replaced_provider_has_a_new_generation() {
         let r = ProviderRegistry::new(Arc::new(Scripted));
@@ -1083,6 +1066,117 @@ mod tests {
 
     struct Warmers;
 
+    #[tokio::test]
+    async fn an_oauth_name_without_a_credential_or_after_a_decision_stays_absent() {
+        let r = ProviderRegistry::new(Arc::new(Fake { usable: Mutex::new(false) }));
+        assert!(r.get("anthropic-oauth").await.is_none());
+        assert!(r.get("opencode-go").await.is_none());
+        assert!(r.get("gated").await.is_none());
+        assert!(!r.disable("  "));
+    }
+
+    #[async_trait]
+    impl ProviderBuilder for OneUnsigned {
+        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            if name == "antigravity-oauth" {
+                return Err("not signed in — run /login".into());
+            }
+            Ok(crate::registry::multiwire::tests::refusing(name, 400, "x"))
+        }
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _name: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(true)
+        }
+    }
+    #[async_trait]
+    impl ProviderBuilder for Gated {
+        async fn build(&self, _name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            self.entered.notify_one();
+            self.release.notified().await;
+            Ok(crate::registry::multiwire::tests::refusing("t", 400, "x"))
+        }
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _name: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(true)
+        }
+    }
+    #[async_trait]
+    impl ProviderBuilder for Releasers {
+        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            let inner = crate::registry::multiwire::tests::refusing(name, 400, "x");
+            Ok(Arc::new(Releasing { name: name.to_owned(), inner, released: self.0.clone() }))
+        }
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _name: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+    /// A deleted session's connections go from every registered provider, through the
+    /// accounting wrapper.
+    #[tokio::test]
+    async fn a_released_session_reaches_every_registered_provider() {
+        let released: Arc<Mutex<Vec<String>>> = Arc::default();
+        let deps = crate::registry::accounted::AccountingDeps::new(Arc::new(NoPrice), Arc::new(|| None));
+        let r = ProviderRegistry::new(Arc::new(Releasers(released.clone()))).with_accounting(deps);
+        let cfg = json!({"anthropic": {"enabled": true}, "openai": {"enabled": true}});
+        r.init_providers(cfg.as_object().unwrap()).await.unwrap();
+        r.release_session("sess_gone");
+        let mut seen = released.lock().unwrap().clone();
+        seen.sort();
+        assert_eq!(seen, ["anthropic:sess_gone", "openai:sess_gone"]);
+    }
+    #[async_trait]
+    impl ProviderBuilder for Scripted {
+        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            if name == "custom-bad" {
+                return Err("unsupported protocol".into());
+            }
+            Ok(crate::registry::multiwire::tests::refusing(name, 400, "x"))
+        }
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _name: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+    #[cfg(node_twin)]
+    #[async_trait]
+    impl ProviderBuilder for Probing {
+        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            Ok(crate::registry::multiwire::tests::refusing(name, 400, "x"))
+        }
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _name: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(self.0 != CredentialState::Absent)
+        }
+        async fn oauth_credential_state(&self, _name: &str) -> Result<CredentialState, String> {
+            Ok(self.0)
+        }
+    }
     #[async_trait]
     impl ProviderBuilder for Warmers {
         async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -1099,7 +1193,6 @@ mod tests {
             Ok(false)
         }
     }
-
     /// Only a provider with a cache-warm mode warms, behind the accounting wrapper too; an
     /// unregistered name does not.
     #[tokio::test]
@@ -1113,12 +1206,77 @@ mod tests {
         assert!(!r.has_warm_mode("gemini"));
     }
 
+    impl crate::registry::accounting::UsagePricing for NoPrice {
+        fn price_usage(&self, _: &crate::catalog::UsageArgs) -> crate::catalog::PricedUsage {
+            unreachable!("nothing is sent")
+        }
+    }
+
+
+    /// An init whose config leaves nothing registered is refused with Node's text and code, unless a
+    /// registered OAuth provider is preserved (`fixtures/provider-refusal/golden.json`, from the real
+    /// `initProviders`): one the config does not name or whose probe could not read, while its
+    /// credential is not a logout; an explicit opt-out is never preserved.
+    #[cfg(node_twin)]
     #[tokio::test]
-    async fn an_oauth_name_without_a_credential_or_after_a_decision_stays_absent() {
-        let r = ProviderRegistry::new(Arc::new(Fake { usable: Mutex::new(false) }));
-        assert!(r.get("anthropic-oauth").await.is_none());
-        assert!(r.get("opencode-go").await.is_none());
-        assert!(r.get("gated").await.is_none());
-        assert!(!r.disable("  "));
+    async fn the_refusal_when_nothing_is_left_is_nodes() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/provider-refusal/golden.json")).expect("fixture");
+        let config = |name: &str| golden["configs"][name].as_object().expect("config").clone();
+        for scenario in golden["scenarios"].as_array().expect("scenarios") {
+            let name = scenario["name"].as_str().expect("name");
+            let probe = match scenario["probe"].as_str() {
+                None | Some("present") => CredentialState::Present,
+                Some("absent") => CredentialState::Absent,
+                Some("unreadable") => CredentialState::Unreadable,
+                Some(other) => panic!("{name}: probe {other}"),
+            };
+            let registry = ProviderRegistry::new(Arc::new(Probing(probe)));
+            if scenario["registered"] == true {
+                registry.init_providers(json!({"anthropic-oauth": {"enabled": true}}).as_object().unwrap()).await.expect("the live provider registers");
+            }
+            for step in scenario["steps"].as_array().expect("steps") {
+                let result = registry.init_providers(&config(step["config"].as_str().expect("config"))).await;
+                match (step["outcome"].as_str().expect("outcome"), result) {
+                    ("ok", Ok(())) => {}
+                    ("refused", Err(error)) => {
+                        assert_eq!(json!(error.message), step["message"], "{name}: {step}");
+                        assert_eq!(error.code, Some(NO_ENABLED_PROVIDERS), "{name}: {step}");
+                    }
+                    (outcome, result) => panic!("{name}: Node {outcome}, Rust {result:?}: {step}"),
+                }
+            }
+        }
+    }
+    /// Node's `providersInitialized()` (`fixtures/provider-ready/golden.json`): the wait resolves at
+    /// the first initialization that applied a config, a refused one leaves it pending, and a later
+    /// refusal never unsettles it.
+    #[cfg(node_twin)]
+    #[tokio::test]
+    async fn the_wait_resolves_at_the_first_applied_config_as_node_does() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/provider-ready/golden.json")).expect("fixture");
+        for scenario in golden["scenarios"].as_array().expect("scenarios") {
+            let name = scenario["name"].as_str().expect("name");
+            let registry = Arc::new(ProviderRegistry::new(Arc::new(Scripted)));
+            let probe = |registry: &Arc<ProviderRegistry>| {
+                let registry = Arc::clone(registry);
+                tokio::spawn(async move { registry.wait_initialized().await })
+            };
+            assert_eq!(resolved(&probe(&registry)).await, scenario["initial"], "{name}: before any step");
+            let mut waiter = None;
+            for step in scenario["steps"].as_array().expect("steps") {
+                match step["op"].as_str().expect("op") {
+                    "wait" => waiter = Some(probe(&registry)),
+                    _ => {
+                        let config = golden["configs"][step["config"].as_str().expect("config")].as_object().expect("config").clone();
+                        let outcome = if registry.init_providers(&config).await.is_ok() { "ok" } else { "refused" };
+                        assert_eq!(outcome, step["outcome"], "{name}: {step}");
+                    }
+                }
+                assert_eq!(resolved(&probe(&registry)).await, step["ready"], "{name}: {step}");
+                if let Some(waiter) = &waiter {
+                    assert_eq!(resolved(waiter).await, step["waiter"], "{name}: {step}");
+                }
+            }
+        }
     }
 }

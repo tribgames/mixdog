@@ -21,7 +21,6 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::io::BufRead;
 use std::io::BufReader;
-use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
@@ -42,7 +41,6 @@ use mixdog_office_com::com::live::Sta;
 use mixdog_office_com::com::live::create_object;
 use mixdog_office_com::platform::Platform;
 use mixdog_office_com::platform::WindowsPlatform;
-use regex::Regex;
 use serde_json::Value as Json;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -261,19 +259,6 @@ async fn run_scenario(office: &OfficeCom, scenario: &Json, work: PathBuf) -> Run
     Run { request_time, work }
 }
 
-/// The names of the workbooks (`.xlsx`) directly in `dir`.
-fn workbooks_in(dir: &Path) -> Vec<String> {
-    mixdog_fsio::read_dir(&mixdog_fsio::Unlaned, dir)
-        .map(|entries| {
-            entries
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| entry.path().extension().and_then(|extension| extension.to_str()).is_some_and(|extension| extension.eq_ignore_ascii_case("xlsx")))
-                .filter_map(|entry| entry.file_name().into_string().ok())
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 #[test]
 #[ignore = "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1"]
 fn every_excel_scenario_through_the_transport_meets_what_it_expects_and_leaves_no_process() {
@@ -355,7 +340,6 @@ fn an_attach_session_leaves_the_users_excel_and_workbook_open() {
     let work = scratch("attach");
     let data = scratch("attach-data");
     let users = UsersExcel::start(&platform, &work, "held.xlsx");
-    let work_text = work.to_string_lossy().into_owned();
     for kind in ["rust"] {
         mixdog_fsio::create_dir_all(&mixdog_fsio::Unlaned, &data.join(kind)).expect("a data directory");
         let office = transport(data.join(kind));
@@ -391,7 +375,6 @@ fn a_busy_excel_is_retried_and_then_answered_with_the_busy_text() {
     let work = scratch("busy");
     let data = scratch("busy-data");
     let users = UsersExcel::start(&platform, &work, "held.xlsx");
-    let work_text = work.to_string_lossy().into_owned();
     let request = json!({"action": "snapshot", "mode": "live", "format": "xlsx", "path": work.join("held.xlsx")});
     let options = || CallOptions { timeout: Duration::from_secs(120), cancel: CancellationToken::new() };
     // Excel is idle: the read answers.

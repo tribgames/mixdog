@@ -47,15 +47,23 @@ fn is_anthropic(provider: &str) -> bool {
 
 /// `snapshot(messages, { tools, nativeTools }, options)`: each message's digest, and the request prefix's. An Anthropic
 /// request leaves its deferred tools out of the prefix (they load later without moving the cache).
-/// The digests cover the values whole (their `Debug` form): the core's wire values are not Node's JSON, so a digest is
-/// compared with the core's own digests only.
+/// The digests cover what a provider is sent (the values' `Debug` form): the core's wire values are not Node's JSON, so a
+/// digest is compared with the core's own digests only. A message's id and the stored places of its parts are no part of
+/// any wire body and are left out, as Node's `messageDigest` leaves `meta.transcript.messageId` out: a message the run
+/// made has no id until its row is stored, so the same message read back from its row would look rewritten.
 pub fn snapshot<N: std::fmt::Debug>(messages: &[Message], tools: &[ToolDefinition], native: &[N], provider: &str, model: &str) -> Snapshot {
     let anthropic = is_anthropic(provider);
     let relevant: Vec<&ToolDefinition> = tools.iter().filter(|tool| !anthropic || !tool.defer_loading).collect();
     let tools_text = format!("{relevant:?}");
     let native_text = format!("{native:?}");
+    let sent = |m: &Message| {
+        let mut m = m.clone();
+        m.message_id = None;
+        m.stored_parts = Vec::new();
+        digest(&format!("{m:?}"))
+    };
     Snapshot {
-        message_hashes: messages.iter().map(|m| digest(&format!("{m:?}"))).collect(),
+        message_hashes: messages.iter().map(sent).collect(),
         request_prefix_hash: digest(&format!("{provider}\u{0}{model}\u{0}{tools_text}\u{0}{native_text}")),
         provider: provider.to_owned(),
         model: model.to_owned(),
@@ -145,4 +153,27 @@ pub fn trace_key(details: &Map<String, Value>) -> String {
         Some(other) => other.to_string(),
     };
     ["classification", "reason", "index", "previousHash", "nextHash", "previousRequestPrefixHash", "nextRequestPrefixHash"].map(part).join("|")
+}
+
+#[cfg(test)]
+mod tests {
+    use mixdog_core_api::domain::provider::Content;
+    use mixdog_core_api::domain::provider::Role;
+
+    use super::*;
+
+    /// The turn that sent a message it had just made knows it by its place (`#2`); the next turn reads it back from its
+    /// stored row under the id the row was given. The provider is sent the same message both times.
+    #[test]
+    fn a_message_read_back_under_its_stored_id_is_the_message_that_was_sent() {
+        let sent_as = |id: &str, text: &str| {
+            let mut message = Message::new(Role::Assistant, Content::Text(text.into()));
+            message.message_id = Some(id.into());
+            snapshot::<()>(&[message], &[], &[], "anthropic", "m")
+        };
+        let options = GuardOptions { provider: "anthropic", model: "m", intent: None, mutation_source: None };
+        assert_eq!(compare(Some(&sent_as("#2", "looking")), &sent_as("msg_1", "looking"), &options), None);
+        let rewritten = compare(Some(&sent_as("#2", "looking")), &sent_as("#2", "looked"), &options).expect("another text is another message");
+        assert_eq!(rewritten["reason"], "message_prefix");
+    }
 }

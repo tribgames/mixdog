@@ -49,7 +49,7 @@ pub struct Still {
 
 /// Turns `raster` upright for an EXIF `orientation` (1 to 8; anything else leaves it as it is): what sharp's `rotate()`
 /// with no argument does.
-fn orient(raster: Raster, orientation: u8) -> Raster {
+pub(crate) fn orient(raster: Raster, orientation: u8) -> Raster {
     if !(2..=8).contains(&orientation) {
         return raster;
     }

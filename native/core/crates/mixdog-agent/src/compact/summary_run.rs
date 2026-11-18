@@ -19,7 +19,11 @@ use super::fresh::effective_budget;
 use super::fresh::split_fresh_source;
 use super::summary::COMPACTION_SYSTEM_PROMPT;
 use super::summary::HandoffMeta;
+use super::summary::EnforcedSummary;
 use super::summary::enforce_compact_summary_schema;
+use crate::response::is_output_limit;
+use crate::response::stop_text;
+use mixdog_core_api::domain::provider::StopReason;
 use super::summary::fit_complete_compaction_prompt;
 use super::summary::fit_generated_handoff_message;
 use super::summary::extract_response_text;
@@ -29,7 +33,8 @@ use crate::one_shot::CallShape;
 use crate::message::AgentMessage;
 use mixdog_core_api::domain::provider::Role;
 
-/// Output ceiling of one summary call.
+/// The output room the window budget keeps for a summary, and the cap an isolated summary request carries on the
+/// providers Node's reached (every one but Anthropic's, see `summarize_on_route`).
 pub const SUMMARY_OUTPUT_TOKENS: u64 = 4_096;
 const COMPACTION_PROMPT_HEADROOM: f64 = 0.85;
 /// `HANDOFF_TIMEOUT_MAX_MS` (`session/compact/constants.mjs`): the summary's deadline when the session states none.
@@ -76,7 +81,8 @@ impl From<SummaryFailure> for CompactError {
 #[derive(Clone, Debug)]
 pub struct SummaryCall {
     pub model: String,
-    pub max_output_tokens: u64,
+    /// `None`: the model's own output limit.
+    pub max_output_tokens: Option<u64>,
     pub fast: bool,
     /// Request kind, effort, 529 retry and cache choice of the step making the call.
     pub shape: CallShape,
@@ -86,6 +92,8 @@ pub struct SummaryResponse {
     pub text: String,
     /// The model answered with a tool call instead of text.
     pub tool_call: bool,
+    /// Why the model stopped; `None` when the provider did not say.
+    pub stop: Option<StopReason>,
     pub usage: Option<Usage>,
     /// The usage convention of the adapter that sent this request.
     pub input_excludes_cache: bool,
@@ -174,7 +182,10 @@ pub fn plan_steps(mode: SummaryMode, warm: bool) -> Vec<RouteStep> {
 #[derive(Default, Clone, Debug)]
 pub struct Generated {
     pub summary: String,
+    /// A section was completed by the schema repair, as Node's `enforceCompactSummarySchema` does.
     pub repaired: bool,
+    /// The stop of the call that wrote it (the last one of a batched run).
+    pub stop: Option<StopReason>,
     pub usage: Option<Usage>,
     /// The usage convention of the adapter that sent the summary requests the usage sums.
     pub input_excludes_cache: bool,
@@ -192,6 +203,33 @@ pub struct Generated {
 /// Whole milliseconds since `started` (a `Date.now()` difference).
 pub(crate) fn elapsed_ms(started: tokio::time::Instant) -> f64 {
     started.elapsed().as_millis() as f64
+}
+
+/// A length-limited answer can still supply a handoff; repair its missing sections just like a naturally ended one.
+fn usable_summary_stop(stop: Option<&StopReason>) -> bool {
+    matches!(stop, None | Some(StopReason::EndTurn | StopReason::StopSequence)) || is_output_limit(stop)
+}
+
+fn accept_summary(response: &SummaryResponse, source: &[AgentMessage]) -> Result<EnforcedSummary, SummaryFailure> {
+    let stop = response.stop.as_ref().map_or_else(|| "unreported".to_owned(), stop_text);
+    let output_tokens = response.usage.as_ref().map_or(0, |u| u.output_tokens);
+    let reject = |why: &str| {
+        SummaryFailure::Failed(format!(
+            "compact summary rejected: {why} (stop={stop}, output_tokens={output_tokens}); the conversation and the previous summary are kept"
+        ))
+    };
+    if response.tool_call {
+        return Err(reject("the model answered with a tool call"));
+    }
+    if !usable_summary_stop(response.stop.as_ref()) {
+        return Err(reject("the answer did not end naturally"));
+    }
+    let raw = extract_response_text(&response.text);
+    if raw.is_empty() {
+        // Node's own text for it (`generateFreshHandoffSummary`): recorded as the compaction's error.
+        return Err(SummaryFailure::Failed("generateFreshHandoffSummary: summary provider returned empty output".into()));
+    }
+    Ok(enforce_compact_summary_schema(&raw, source, &[]))
 }
 
 fn add_usage(total: Option<Usage>, add: Option<&Usage>) -> Option<Usage> {
@@ -229,7 +267,8 @@ pub struct HandoffInput<'a> {
     /// The summary model's own input budget, split into batches when the
     /// conversation is larger.
     pub input_budget_tokens: u64,
-    pub max_output_tokens: u64,
+    /// `None`: the model's own output limit.
+    pub max_output_tokens: Option<u64>,
     pub fast: bool,
 }
 
@@ -297,7 +336,7 @@ pub async fn generate_fresh_handoff_summary(
     }
     let call = SummaryCall { model: input.model.to_owned(), max_output_tokens: input.max_output_tokens, fast: input.fast, shape: CallShape::compaction() };
     let mut run = Generated { mode: "isolated", ..Generated::default() };
-    let mut offset = 0;
+    let mut offset: usize = 0;
     loop {
         let (prompt, end) = fit_next_batch(&fit, &head, offset, previous.as_deref());
         let Some(prompt) = prompt.filter(|_| !(end == offset && offset < head.len())) else {
@@ -306,13 +345,10 @@ pub async fn generate_fresh_handoff_summary(
             )));
         };
         let response = input.sender.send(COMPACTION_SYSTEM_PROMPT, &prompt, &call).await?;
-        let raw = extract_response_text(&response.text);
-        if raw.is_empty() {
-            return Err(SummaryFailure::Failed("generateFreshHandoffSummary: summary provider returned empty output".into()));
-        }
-        let enforced = enforce_compact_summary_schema(&raw, &head[offset..end], &[]);
-        run.summary = enforced.summary;
-        run.repaired |= enforced.repaired;
+        let accepted = accept_summary(&response, &head[offset..end])?;
+        run.summary = accepted.summary;
+        run.repaired |= accepted.repaired;
+        run.stop = response.stop.clone();
         run.usage = add_usage(run.usage, response.usage.as_ref());
         run.input_excludes_cache = response.input_excludes_cache;
         run.calls += 1;
@@ -364,38 +400,38 @@ pub enum Forked {
 }
 
 /// Summarizes through a fork of the session's cached request. A fork that
-/// cannot run, errors, answers with a tool call or returns no text falls back.
+/// cannot run, errors, answers with a tool call or yields no summary text falls back. A terminal refusal does not.
 pub async fn summarize_on_shared_prefix(
     fork: &dyn ForkSource,
     route: &SummaryRoute,
     conversation_input: &[AgentMessage],
-) -> Forked {
+) -> Result<Forked, SummaryFailure> {
     let Some(request) = fork.request() else {
-        return Forked::Fallback { reason: "no_settled_request", usage: None };
+        return Ok(Forked::Fallback { reason: "no_settled_request", usage: None });
     };
     if request.provider_name != route.provider_name || request.model != route.model {
-        return Forked::Fallback { reason: "different_route", usage: None };
+        return Ok(Forked::Fallback { reason: "different_route", usage: None });
     }
     let started = tokio::time::Instant::now();
     let window = (route.context_window as f64 / route.calibration).floor() as u64;
     if request.prompt_tokens + SUMMARY_OUTPUT_TOKENS > window {
-        return Forked::Fallback { reason: "window", usage: None };
+        return Ok(Forked::Fallback { reason: "window", usage: None });
     }
     let response = match fork.send(route).await {
         Ok(response) => response,
-        Err(_) => return Forked::Fallback { reason: "error", usage: None },
+        Err(_) => return Ok(Forked::Fallback { reason: "error", usage: None }),
     };
     if response.tool_call {
-        return Forked::Fallback { reason: "tool_call", usage: response.usage };
+        return Ok(Forked::Fallback { reason: "tool_call", usage: response.usage });
     }
-    let raw = extract_response_text(&response.text);
-    if raw.is_empty() {
-        return Forked::Fallback { reason: "empty", usage: response.usage };
+    if usable_summary_stop(response.stop.as_ref()) && extract_response_text(&response.text).is_empty() {
+        return Ok(Forked::Fallback { reason: "empty", usage: response.usage });
     }
-    let enforced = enforce_compact_summary_schema(&raw, conversation_input, &[]);
-    Forked::Generated(Generated {
-        summary: enforced.summary,
-        repaired: enforced.repaired,
+    let accepted = accept_summary(&response, conversation_input)?;
+    Ok(Forked::Generated(Generated {
+        summary: accepted.summary,
+        repaired: accepted.repaired,
+        stop: response.stop,
         usage: response.usage,
         input_excludes_cache: response.input_excludes_cache,
         calls: 1,
@@ -403,7 +439,7 @@ pub async fn summarize_on_shared_prefix(
         shared_prefix_fallback: None,
         duration_ms: elapsed_ms(started),
         ..Generated::default()
-    })
+    }))
 }
 
 pub struct SummarizeContext<'a> {
@@ -439,7 +475,7 @@ async fn summarize_on_route(
 ) -> Result<Generated, SummaryFailure> {
     let limit = std::time::Duration::from_millis(cx.timeout_ms.filter(|ms| *ms > 0).unwrap_or(HANDOFF_TIMEOUT_MAX_MS));
     let (fallback, fork_usage) = if warm {
-        match before_deadline(limit, summarize_on_shared_prefix(cx.fork, route, cx.conversation_input)).await? {
+        match before_deadline(limit, summarize_on_shared_prefix(cx.fork, route, cx.conversation_input)).await?? {
             Forked::Generated(done) => return Ok(done),
             Forked::Fallback { reason, usage } => (reason, usage),
         }
@@ -447,8 +483,14 @@ async fn summarize_on_route(
         ("cold_cache", None)
     };
     let window = if route.context_window > 0 { route.context_window } else { cx.context_window };
-    let output_tokens = SUMMARY_OUTPUT_TOKENS.min(256.max((window as f64 * 0.15).floor() as u64));
-    let input_budget = 1.max(((window.saturating_sub(output_tokens)) as f64 / route.calibration).floor() as u64);
+    let output_reserve = SUMMARY_OUTPUT_TOKENS.min(256.max((window as f64 * 0.15).floor() as u64));
+    // What Node sent on the wire: its `maxOutputTokens` reached every provider that reads that key (OpenAI,
+    // compat, Gemini, Devin) but never the Anthropic providers, which read only `maxOutputTokensOverride`; there the
+    // summary had the model's own output limit, and a cap of the reserve's size would cut a summary that re-emits
+    // the previous one.
+    let anthropic = route.provider_name.eq_ignore_ascii_case("anthropic") || route.provider_name.eq_ignore_ascii_case("anthropic-oauth");
+    let output_cap = (!anthropic).then_some(output_reserve);
+    let input_budget = 1.max(((window.saturating_sub(output_reserve)) as f64 / route.calibration).floor() as u64);
     let generated = before_deadline(
         limit,
         generate_fresh_handoff_summary(
@@ -461,7 +503,7 @@ async fn summarize_on_route(
                 budget_tokens: cx.compact_budget_tokens.max(cx.hard_budget_tokens),
                 reserve_tokens: cx.reserve_tokens,
                 input_budget_tokens: input_budget,
-                max_output_tokens: output_tokens,
+                max_output_tokens: output_cap,
                 fast: route.fast,
             },
         ),

@@ -93,8 +93,6 @@ impl fmt::Display for ParseArgsError {
     }
 }
 
-impl std::error::Error for ParseArgsError {}
-
 struct Token {
     name: String,
     raw_name: String,
@@ -344,3 +342,6 @@ mod tests {
         assert_eq!(positional.message, "Unexpected argument 'a'. This command does not take positional arguments");
     }
 }
+
+
+impl std::error::Error for ParseArgsError {}

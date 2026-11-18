@@ -30,34 +30,6 @@ pub const STATUS_MAX_BYTES: u64 = 64 * 1024 * 1024;
 /// Output of ordinary reads and writes.
 const RUN_MAX_BYTES: u64 = 32_000_000;
 
-#[derive(Clone, Default)]
-pub struct RunOptions {
-    /// The scratch index a command writes; unset commands use the repository's own, whatever
-    /// the inherited environment says.
-    pub index_file: Option<PathBuf>,
-    /// Hooks are project-controlled code: they never see provider or cloud credentials.
-    pub protect_hook: bool,
-    /// Variables set on top of the pinned environment (a commit identity).
-    pub extra_env: Vec<(String, String)>,
-    pub read_limit: bool,
-    /// The child is tree-killed and the run answers `TimedOut` after this long; it wins over
-    /// `read_limit`'s.
-    pub time_limit: Option<Duration>,
-    pub input: Option<Vec<u8>>,
-    pub max_output: Option<u64>,
-    /// A dependency probe (Node's `cli-run.ts` `run`): the scrubbed child environment and nothing git-specific on top of it.
-    pub bare_env: bool,
-}
-
-impl RunOptions {
-    pub fn read() -> Self {
-        Self {
-            read_limit: true,
-            ..Self::default()
-        }
-    }
-}
-
 /// The environment a git child would have: this process's, less what `spec` removes, with what
 /// `spec` sets applied (`gitChildEnv(env)` takes exactly this as `env`).
 pub(crate) fn child_base(spec: &ExecSpec, process: git_launch::Env) -> git_launch::Env {
@@ -83,6 +55,91 @@ pub(crate) fn apply_launch(spec: &mut ExecSpec, launch: git_launch::Launch) {
     }
 }
 
+#[derive(Clone)]
+pub struct Git {
+    exec: Arc<Exec>,
+    lane: MaintenanceIo,
+}
+
+pub const CODE_AUTH_REQUIRED: &str = "GIT_AUTH_REQUIRED";
+pub const AUTH_REQUIRED_TEXT: &str =
+    "Git authentication is required. Sign in with your Git credential helper and retry.";
+
+/// NUL-terminated records of `text`.
+pub fn nul_records(text: &str) -> impl Iterator<Item = &str> {
+    text.split('\0').filter(|record| !record.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::TestProcesses;
+
+    #[tokio::test]
+    async fn missing_program_is_unavailable_by_spawn_kind() {
+        let dir = tempfile::tempdir().unwrap();
+        let error = Exec::new(TestProcesses::shared())
+            .run(ExecSpec::new("mixdog-no-such-program", dir.path()), &CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ScmFailure::Unavailable { .. }));
+    }
+
+
+    fn git() -> Git {
+        Git::new(Arc::new(Exec::new(TestProcesses::shared())), mixdog_rt::testing::tokens().maintenance_io)
+    }
+    #[tokio::test]
+    async fn exit_code_is_kept_and_stderr_is_scrubbed() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = git();
+        let cancel = CancellationToken::new();
+        let outcome = git
+            .outcome(
+                &cancel,
+                dir.path(),
+                &["config", "--get", "mixdog.unset"],
+                &RunOptions::default(),
+            )
+            .await
+            .unwrap();
+        // `config --get` answers 1 for "not set": a meaning, not a failure.
+        assert_eq!(outcome.code, Some(1));
+        let failed = git
+            .run(&cancel, dir.path(), &["rev-parse", "--verify", "nope"])
+            .await
+            .unwrap_err();
+        assert!(matches!(failed, ScmFailure::Command { .. }));
+    }
+}
+
+
+#[derive(Clone, Default)]
+pub struct RunOptions {
+    /// The scratch index a command writes; unset commands use the repository's own, whatever
+    /// the inherited environment says.
+    pub index_file: Option<PathBuf>,
+    /// Hooks are project-controlled code: they never see provider or cloud credentials.
+    pub protect_hook: bool,
+    /// Variables set on top of the pinned environment (a commit identity).
+    pub extra_env: Vec<(String, String)>,
+    pub read_limit: bool,
+    /// The child is tree-killed and the run answers `TimedOut` after this long; it wins over
+    /// `read_limit`'s.
+    pub time_limit: Option<Duration>,
+    pub input: Option<Vec<u8>>,
+    pub max_output: Option<u64>,
+    /// A dependency probe (Node's `cli-run.ts` `run`): the scrubbed child environment and nothing git-specific on top of it.
+    pub bare_env: bool,
+}
+impl RunOptions {
+    pub fn read() -> Self {
+        Self {
+            read_limit: true,
+            ..Self::default()
+        }
+    }
+}
 /// Runs `spec` as git: with the program PATH's `git` resolves to and the environment its launcher
 /// would have built (`git-launch.mjs` `startGit`), and once more with a fresh resolution when the
 /// resolved binary is gone (an uninstalled or moved Git, where bare `git` would find whatever PATH
@@ -96,7 +153,6 @@ pub async fn start_git(exec: &Exec, lane: MaintenanceIo, spec: ExecSpec, cancel:
     }
     outcome
 }
-
 /// The outcome of one start, and the program it started.
 async fn launch_once(exec: &Exec, lane: MaintenanceIo, spec: ExecSpec, cancel: &CancellationToken) -> (Result<ExecOutput, ScmFailure>, String) {
     match launch_spec(lane, spec, cancel).await {
@@ -107,7 +163,6 @@ async fn launch_once(exec: &Exec, lane: MaintenanceIo, spec: ExecSpec, cancel: &
         Err(failure) => (Err(failure), "git".to_owned()),
     }
 }
-
 async fn launch_spec(lane: MaintenanceIo, mut spec: ExecSpec, cancel: &CancellationToken) -> Result<ExecSpec, ScmFailure> {
     if cfg!(windows) {
         let base = child_base(&spec, git_launch::process_env());
@@ -131,13 +186,6 @@ async fn launch_spec(lane: MaintenanceIo, mut spec: ExecSpec, cancel: &Cancellat
     }
     Ok(spec)
 }
-
-#[derive(Clone)]
-pub struct Git {
-    exec: Arc<Exec>,
-    lane: MaintenanceIo,
-}
-
 impl Git {
     pub fn new(exec: Arc<Exec>, lane: MaintenanceIo) -> Self {
         Self { exec, lane }
@@ -245,10 +293,6 @@ impl Git {
             .success())
     }
 }
-
-pub const CODE_AUTH_REQUIRED: &str = "GIT_AUTH_REQUIRED";
-pub const AUTH_REQUIRED_TEXT: &str =
-    "Git authentication is required. Sign in with your Git credential helper and retry.";
 /// Node's `readableRemoteError`: a failure whose text says authentication failed reads as one sentence, anything else keeps its text.
 pub fn readable_remote_error(failure: ScmFailure) -> ScmFailure {
     // `new Error(message)` keeps the text and drops the system code the spawn failure carried.
@@ -274,12 +318,6 @@ fn failure_text(output: &ExecOutput, args: &[&str]) -> String {
         text.to_owned()
     }
 }
-
-/// NUL-terminated records of `text`.
-pub fn nul_records(text: &str) -> impl Iterator<Item = &str> {
-    text.split('\0').filter(|record| !record.is_empty())
-}
-
 /// Names of the inherited variables that hold provider or cloud credentials.
 fn provider_secret_names() -> Vec<String> {
     const EXACT: &[&str] = &[
@@ -333,47 +371,4 @@ fn provider_secret_names() -> Vec<String> {
                     && !PUBLIC_PREFIXES.iter().any(|prefix| name.starts_with(prefix)))
         })
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::testing::TestProcesses;
-
-    fn git() -> Git {
-        Git::new(Arc::new(Exec::new(TestProcesses::shared())), mixdog_rt::testing::tokens().maintenance_io)
-    }
-
-    #[tokio::test]
-    async fn exit_code_is_kept_and_stderr_is_scrubbed() {
-        let dir = tempfile::tempdir().unwrap();
-        let git = git();
-        let cancel = CancellationToken::new();
-        let outcome = git
-            .outcome(
-                &cancel,
-                dir.path(),
-                &["config", "--get", "mixdog.unset"],
-                &RunOptions::default(),
-            )
-            .await
-            .unwrap();
-        // `config --get` answers 1 for "not set": a meaning, not a failure.
-        assert_eq!(outcome.code, Some(1));
-        let failed = git
-            .run(&cancel, dir.path(), &["rev-parse", "--verify", "nope"])
-            .await
-            .unwrap_err();
-        assert!(matches!(failed, ScmFailure::Command { .. }));
-    }
-
-    #[tokio::test]
-    async fn missing_program_is_unavailable_by_spawn_kind() {
-        let dir = tempfile::tempdir().unwrap();
-        let error = Exec::new(TestProcesses::shared())
-            .run(ExecSpec::new("mixdog-no-such-program", dir.path()), &CancellationToken::new())
-            .await
-            .unwrap_err();
-        assert!(matches!(error, ScmFailure::Unavailable { .. }));
-    }
 }

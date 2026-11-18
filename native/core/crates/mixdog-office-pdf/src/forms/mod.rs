@@ -61,8 +61,6 @@ impl fmt::Display for FormError {
     }
 }
 
-impl std::error::Error for FormError {}
-
 impl From<EmbedError> for FormError {
     fn from(error: EmbedError) -> Self {
         Self(error.to_string())
@@ -1137,3 +1135,6 @@ mod tests {
         }
     }
 }
+
+
+impl std::error::Error for FormError {}

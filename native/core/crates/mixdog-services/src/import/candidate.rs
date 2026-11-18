@@ -26,18 +26,6 @@ pub struct Env {
     pub appdata: Option<String>,
 }
 
-impl Env {
-    pub fn from_process() -> Self {
-        let var = |key: &str| std::env::var(key).ok();
-        Self {
-            home: std::env::home_dir().unwrap_or_default(),
-            codex_home: var("CODEX_HOME"),
-            claude_config_dir: var("CLAUDE_CONFIG_DIR"),
-            appdata: var("APPDATA"),
-        }
-    }
-}
-
 /// A blank override is unset.
 fn env_dir(value: &Option<String>) -> Option<PathBuf> {
     let trimmed = mixdog_js::js_trim(value.as_deref()?);
@@ -51,39 +39,6 @@ pub fn source_root(source: Source, env: &Env) -> Option<PathBuf> {
         Source::Codex => Some(env_dir(&env.codex_home).unwrap_or_else(|| env.home.join(".codex")).join("sessions")),
         Source::Claude => Some(env_dir(&env.claude_config_dir).unwrap_or_else(|| env.home.join(".claude")).join("projects")),
         Source::Cowork => env_dir(&env.appdata).map(|a| a.join("Claude").join("local-agent-mode-sessions")),
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Candidate {
-    pub id: String,
-    pub source: Source,
-    /// The canonical source root of an enumerated candidate; `None` for a picked file.
-    pub root: Option<PathBuf>,
-    pub path: PathBuf,
-    pub size: u64,
-    pub mtime_ms: f64,
-    pub starred: bool,
-    /// Cowork manifest title.
-    pub title: Option<String>,
-}
-
-impl Candidate {
-    pub fn for_file(source: Source, root: Option<PathBuf>, path: PathBuf, size: u64) -> Self {
-        Self {
-            id: candidate_id(source, &path),
-            source,
-            root,
-            path,
-            size,
-            mtime_ms: 0.0,
-            starred: false,
-            title: None,
-        }
-    }
-
-    pub fn stamp_key(&self) -> String {
-        format!("{}:{}", self.size, self.mtime_ms)
     }
 }
 
@@ -102,13 +57,6 @@ pub fn import_origin_key(source: Source, foreign_session_id: Option<&str>, canon
         Some(id) => format!("{namespace}:{id}"),
         None => format!("{namespace}:path:{}", canonical_path.display()),
     }
-}
-
-pub fn mtime_ms(meta: &std::fs::Metadata) -> f64 {
-    meta.modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
 }
 
 /// Canonical path of a directory entry, or `None` when it escapes the root.
@@ -253,6 +201,149 @@ fn cowork_transcript(root: &Path, manifest_path: &Path) -> Option<CoworkEntry> {
     None
 }
 
+pub fn require_source(value: &str) -> Result<Source, ImportError> {
+    Source::parse(value).ok_or_else(|| ImportError::new("unsupported"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn put(path: &Path, body: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    }
+
+    fn env_for(dir: &Path) -> Env {
+        Env {
+            home: dir.join("home"),
+            codex_home: Some(dir.join("codex").to_string_lossy().into_owned()),
+            claude_config_dir: Some(dir.join("claude").to_string_lossy().into_owned()),
+            appdata: Some(dir.join("appdata").to_string_lossy().into_owned()),
+        }
+    }
+
+    #[test]
+    fn roots_follow_the_overrides_and_blank_means_unset() {
+        let env = Env { home: PathBuf::from("/h"), codex_home: Some("  ".into()), ..Env::default() };
+        assert_eq!(source_root(Source::Codex, &env), Some(PathBuf::from("/h/.codex/sessions")));
+        assert_eq!(source_root(Source::Claude, &env), Some(PathBuf::from("/h/.claude/projects")));
+        assert_eq!(source_root(Source::Cowork, &env), None);
+    }
+
+    #[test]
+    fn origin_key_and_candidate_id_are_stable() {
+        assert_eq!(import_origin_key(Source::Cowork, Some("s"), Path::new("/p")), "claude:s");
+        assert_eq!(import_origin_key(Source::Codex, None, Path::new("/p")), "codex:path:/p");
+        let id = candidate_id(Source::Codex, Path::new("/some/path"));
+        assert_eq!(id.len(), 32);
+        assert_eq!(id, candidate_id(Source::Codex, Path::new("/some/path")));
+        assert_ne!(id, candidate_id(Source::Claude, Path::new("/some/path")));
+    }
+
+
+    #[test]
+    fn codex_walk_lists_rollouts_and_skips_a_compressed_twin() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = env_for(dir.path());
+        let s = dir.path().join("codex/sessions/2025/01");
+        put(&s.join("rollout-a-1.jsonl"), "{}");
+        put(&s.join("rollout-a-1.jsonl.zst"), "x");
+        put(&s.join("rollout-b-2.jsonl.zst"), "x");
+        put(&s.join("notes.jsonl"), "{}");
+        let found = enumerate_candidates(Source::Codex, &env);
+        let mut names: Vec<_> = found.candidates.iter().map(|c| c.path.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        names.sort();
+        assert_eq!(names, ["rollout-a-1.jsonl", "rollout-b-2.jsonl.zst"]);
+    }
+    #[test]
+    fn claude_walk_is_one_level_deep_and_sorted_newest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = env_for(dir.path());
+        let p = dir.path().join("claude/projects");
+        put(&p.join("proj-a/old.jsonl"), "{}");
+        // An explicit time, a minute older, instead of sleeping until the clock ticks over.
+        let old = std::fs::OpenOptions::new().write(true).open(p.join("proj-a/old.jsonl")).unwrap();
+        old.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(60)).unwrap();
+        put(&p.join("proj-b/new.JSONL"), "{}");
+        put(&p.join("proj-b/deeper/skip.jsonl"), "{}");
+        put(&p.join("loose.jsonl"), "{}");
+        let names: Vec<_> = enumerate_candidates(Source::Claude, &env)
+            .candidates
+            .iter()
+            .map(|c| c.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["new.JSONL", "old.jsonl"]);
+    }
+    #[test]
+    fn cowork_manifest_names_the_transcript_title_and_star() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = env_for(dir.path());
+        let org = dir.path().join("appdata/Claude/local-agent-mode-sessions/acct/org");
+        put(&org.join("local_abc.json"), r#"{"cliSessionId":"cli-1","title":"  My chat ","isStarred":true}"#);
+        put(&org.join("local_abc/.claude/projects/p1/cli-1.jsonl"), "{}");
+        put(&org.join("local_nope.json"), r#"{"cliSessionId":"../x"}"#);
+        let found = enumerate_candidates(Source::Cowork, &env).candidates;
+        assert_eq!(found.len(), 1);
+        assert_eq!((found[0].title.as_deref(), found[0].starred), (Some("My chat"), true));
+    }
+    #[test]
+    fn a_missing_root_is_an_empty_listing() {
+        let dir = tempfile::tempdir().unwrap();
+        let found = enumerate_candidates(Source::Codex, &env_for(dir.path()));
+        assert!(found.candidates.is_empty() && found.root.ends_with("sessions"));
+    }
+}
+
+
+impl Env {
+    pub fn from_process() -> Self {
+        let var = |key: &str| std::env::var(key).ok();
+        Self {
+            home: std::env::home_dir().unwrap_or_default(),
+            codex_home: var("CODEX_HOME"),
+            claude_config_dir: var("CLAUDE_CONFIG_DIR"),
+            appdata: var("APPDATA"),
+        }
+    }
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct Candidate {
+    pub id: String,
+    pub source: Source,
+    /// The canonical source root of an enumerated candidate; `None` for a picked file.
+    pub root: Option<PathBuf>,
+    pub path: PathBuf,
+    pub size: u64,
+    pub mtime_ms: f64,
+    pub starred: bool,
+    /// Cowork manifest title.
+    pub title: Option<String>,
+}
+impl Candidate {
+    pub fn for_file(source: Source, root: Option<PathBuf>, path: PathBuf, size: u64) -> Self {
+        Self {
+            id: candidate_id(source, &path),
+            source,
+            root,
+            path,
+            size,
+            mtime_ms: 0.0,
+            starred: false,
+            title: None,
+        }
+    }
+
+    pub fn stamp_key(&self) -> String {
+        format!("{}:{}", self.size, self.mtime_ms)
+    }
+}
+pub fn mtime_ms(meta: &std::fs::Metadata) -> f64 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+}
 /// Starred conversations (Cowork) come first, then newest first.
 pub fn by_modified_then_id(left: &Candidate, right: &Candidate) -> std::cmp::Ordering {
     right
@@ -261,13 +352,11 @@ pub fn by_modified_then_id(left: &Candidate, right: &Candidate) -> std::cmp::Ord
         .then_with(|| right.mtime_ms.partial_cmp(&left.mtime_ms).unwrap_or(std::cmp::Ordering::Equal))
         .then_with(|| super::fsutil::compare_code_units(&left.id, &right.id))
 }
-
 pub struct Enumeration {
     /// The configured root as a string (empty when the source has none), even when absent.
     pub root: String,
     pub candidates: Vec<Candidate>,
 }
-
 /// Regular files under the source root, canonical and contained, as candidates.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job")]
 pub fn enumerate_candidates(source: Source, env: &Env) -> Enumeration {
@@ -319,100 +408,4 @@ pub fn enumerate_candidates(source: Source, env: &Env) -> Enumeration {
     let mut candidates: Vec<Candidate> = unique.into_values().collect();
     candidates.sort_by(by_modified_then_id);
     Enumeration { root: root_text, candidates }
-}
-
-pub fn require_source(value: &str) -> Result<Source, ImportError> {
-    Source::parse(value).ok_or_else(|| ImportError::new("unsupported"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn put(path: &Path, body: &str) {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, body).unwrap();
-    }
-
-    fn env_for(dir: &Path) -> Env {
-        Env {
-            home: dir.join("home"),
-            codex_home: Some(dir.join("codex").to_string_lossy().into_owned()),
-            claude_config_dir: Some(dir.join("claude").to_string_lossy().into_owned()),
-            appdata: Some(dir.join("appdata").to_string_lossy().into_owned()),
-        }
-    }
-
-    #[test]
-    fn roots_follow_the_overrides_and_blank_means_unset() {
-        let env = Env { home: PathBuf::from("/h"), codex_home: Some("  ".into()), ..Env::default() };
-        assert_eq!(source_root(Source::Codex, &env), Some(PathBuf::from("/h/.codex/sessions")));
-        assert_eq!(source_root(Source::Claude, &env), Some(PathBuf::from("/h/.claude/projects")));
-        assert_eq!(source_root(Source::Cowork, &env), None);
-    }
-
-    #[test]
-    fn origin_key_and_candidate_id_are_stable() {
-        assert_eq!(import_origin_key(Source::Cowork, Some("s"), Path::new("/p")), "claude:s");
-        assert_eq!(import_origin_key(Source::Codex, None, Path::new("/p")), "codex:path:/p");
-        let id = candidate_id(Source::Codex, Path::new("/some/path"));
-        assert_eq!(id.len(), 32);
-        assert_eq!(id, candidate_id(Source::Codex, Path::new("/some/path")));
-        assert_ne!(id, candidate_id(Source::Claude, Path::new("/some/path")));
-    }
-
-    #[test]
-    fn codex_walk_lists_rollouts_and_skips_a_compressed_twin() {
-        let dir = tempfile::tempdir().unwrap();
-        let env = env_for(dir.path());
-        let s = dir.path().join("codex/sessions/2025/01");
-        put(&s.join("rollout-a-1.jsonl"), "{}");
-        put(&s.join("rollout-a-1.jsonl.zst"), "x");
-        put(&s.join("rollout-b-2.jsonl.zst"), "x");
-        put(&s.join("notes.jsonl"), "{}");
-        let found = enumerate_candidates(Source::Codex, &env);
-        let mut names: Vec<_> = found.candidates.iter().map(|c| c.path.file_name().unwrap().to_string_lossy().into_owned()).collect();
-        names.sort();
-        assert_eq!(names, ["rollout-a-1.jsonl", "rollout-b-2.jsonl.zst"]);
-    }
-
-    #[test]
-    fn claude_walk_is_one_level_deep_and_sorted_newest_first() {
-        let dir = tempfile::tempdir().unwrap();
-        let env = env_for(dir.path());
-        let p = dir.path().join("claude/projects");
-        put(&p.join("proj-a/old.jsonl"), "{}");
-        // An explicit time, a minute older, instead of sleeping until the clock ticks over.
-        let old = std::fs::OpenOptions::new().write(true).open(p.join("proj-a/old.jsonl")).unwrap();
-        old.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(60)).unwrap();
-        put(&p.join("proj-b/new.JSONL"), "{}");
-        put(&p.join("proj-b/deeper/skip.jsonl"), "{}");
-        put(&p.join("loose.jsonl"), "{}");
-        let names: Vec<_> = enumerate_candidates(Source::Claude, &env)
-            .candidates
-            .iter()
-            .map(|c| c.path.file_name().unwrap().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(names, ["new.JSONL", "old.jsonl"]);
-    }
-
-    #[test]
-    fn cowork_manifest_names_the_transcript_title_and_star() {
-        let dir = tempfile::tempdir().unwrap();
-        let env = env_for(dir.path());
-        let org = dir.path().join("appdata/Claude/local-agent-mode-sessions/acct/org");
-        put(&org.join("local_abc.json"), r#"{"cliSessionId":"cli-1","title":"  My chat ","isStarred":true}"#);
-        put(&org.join("local_abc/.claude/projects/p1/cli-1.jsonl"), "{}");
-        put(&org.join("local_nope.json"), r#"{"cliSessionId":"../x"}"#);
-        let found = enumerate_candidates(Source::Cowork, &env).candidates;
-        assert_eq!(found.len(), 1);
-        assert_eq!((found[0].title.as_deref(), found[0].starred), (Some("My chat"), true));
-    }
-
-    #[test]
-    fn a_missing_root_is_an_empty_listing() {
-        let dir = tempfile::tempdir().unwrap();
-        let found = enumerate_candidates(Source::Codex, &env_for(dir.path()));
-        assert!(found.candidates.is_empty() && found.root.ends_with("sessions"));
-    }
 }

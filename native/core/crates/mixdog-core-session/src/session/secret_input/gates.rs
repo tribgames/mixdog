@@ -39,7 +39,8 @@ pub struct TakeoverHold {
     pub names_screen: bool,
     /// What the held takeover waits on (`takeoverStep`), of either surface: the Browser Use refusal names it.
     pub step: Option<String>,
-    /// The id of the held takeover's request (`takeover/ready` names the takeover it asks about by it).
+    /// The id the held takeover's card shows (`room_approval::card_id` of its request): `takeover/ready` names the takeover it
+    /// asks about by the card's id, never by the server request's.
     pub id: Option<String>,
 }
 
@@ -60,7 +61,7 @@ pub(crate) fn takeover_hold<'a>(asks: impl Iterator<Item = (ApprovalId, &'a Appr
         let surface = takeover.and_then(|takeover| takeover.get("surface")).and_then(|surface| surface.as_str());
         if hold.step.is_none() {
             hold.step = Some(takeover_step(takeover));
-            hold.id = Some(id.0.to_string());
+            hold.id = Some(crate::session::room_approval::card_id(&id.0.to_string()));
             hold.names_screen = surface == Some("computer");
         }
         if surface == Some("computer") && hold.screen.is_none() {
@@ -147,12 +148,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-
-    /// Recorded from the real `createTakeoverGate` over `withHumanOnlyApproval`
-    /// (`benchmarks/rust-core/recorders/record-secret-gates.mjs`).
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../../fixtures/secret-gates/gates.json")).unwrap()
-    }
+    use crate::session::room_approval::card_id;
 
     fn ask(payload: Value) -> ApprovalAsk {
         ApprovalAsk {
@@ -186,6 +182,70 @@ mod tests {
         }
     }
 
+    #[test]
+    fn only_a_takeover_request_holds_and_only_a_screen_takeover_holds_the_screen() {
+        let secret = ask(json!({ "kind": "secret", "secret": { "surface": "computer" } }));
+        let command = ask(json!({ "command": "ls" }));
+        assert_eq!(takeover_hold([(ApprovalId(1), &secret), (ApprovalId(2), &command)].into_iter()), TakeoverHold::default());
+        let step = Some("a step only the user can do".to_owned());
+        assert_eq!(
+            takeover_hold([(ApprovalId(1), &secret), (ApprovalId(7), &takeover("browser"))].into_iter()),
+            TakeoverHold { held: true, screen: None, names_screen: false, step: step.clone(), id: Some(card_id("7")) }
+        );
+        // The oldest takeover names the hold, whatever order the book lists them in.
+        assert_eq!(
+            takeover_hold([(ApprovalId(9), &takeover("computer")), (ApprovalId(4), &takeover("browser"))].into_iter()),
+            TakeoverHold { held: true, screen: step.clone(), names_screen: false, step, id: Some(card_id("4")) }
+        );
+        // The same takeovers with the screen one oldest: the hold is named by it.
+        let oldest = takeover_hold([(ApprovalId(2), &takeover("computer")), (ApprovalId(5), &takeover("browser"))].into_iter());
+        assert!(oldest.names_screen && oldest.screen.is_some());
+        assert_eq!(takeover_hold(std::iter::empty()), TakeoverHold::default());
+    }
+
+    /// A browser takeover is named by its step too: the Browser Use refusal says what the person was asked to do.
+    #[test]
+    fn a_browser_takeover_is_named_by_its_step() {
+        let card = ask(json!({ "kind": "takeover", "takeover": { "surface": "browser", "target": "the captcha" } }));
+        let hold = takeover_hold(std::iter::once((ApprovalId(3), &card)));
+        assert_eq!((hold.screen, hold.step.as_deref(), hold.id), (None, Some("step \"the captcha\""), Some(card_id("3"))));
+    }
+
+    /// The hold is named by the id the takeover card shows (the card's `takeover/ready` asks with it), not by the server
+    /// request's id: a hold named by the request id is never the one the card asks about, so its "Done" never becomes choosable.
+    #[test]
+    fn a_takeover_hold_is_named_by_the_id_its_card_shows() {
+        let card = ask(json!({ "kind": "takeover", "takeover": { "surface": "browser", "target": "x" } }));
+        let hold = takeover_hold(std::iter::once((ApprovalId(12), &card)));
+        // The card a client shows carries `card_id` of the request (actor.rs `params["card"]["id"]`).
+        assert_eq!(hold.id, Some(card_id(&ApprovalId(12).0.to_string())));
+        assert_ne!(hold.id.as_deref(), Some("12"));
+    }
+
+    /// A screen takeover is named as `takeoverStep` names it: a sign-in's site, else its target, else its
+    /// instructions, on one line and cut to 160 characters.
+    #[test]
+    fn a_screen_takeover_is_named_by_its_step() {
+        let step = |takeover: Value| takeover_hold(std::iter::once((ApprovalId(1), &ask(json!({ "kind": "takeover", "takeover": takeover }))))).screen;
+        let named = |text: &str| Some(format!("step \"{text}\""));
+        assert_eq!(step(json!({ "surface": "computer", "target": " \n ", "instructions": "  Confirm\n the\tdialog " })), named("Confirm the dialog"));
+        assert_eq!(step(json!({ "surface": "computer", "target": "the dialog", "instructions": "x" })), named("the dialog"));
+        assert_eq!(step(json!({ "surface": "computer", "target": "a".repeat(200) })), named(&format!("{}...", "a".repeat(157))));
+        assert_eq!(step(json!({ "surface": "computer", "target": "a".repeat(160) })), named(&"a".repeat(160)));
+        assert_eq!(step(json!({ "surface": "computer", "target": 7 })), Some("a step only the user can do".to_owned()));
+        assert_eq!(step(json!({ "surface": "browser", "target": "x" })), None);
+        assert_eq!(step(json!({ "surface": "computer", "purpose": "login", "url": "https://Accounts.Example.com:8443/x", "target": "t" })), Some("sign-in on accounts.example.com".to_owned()));
+        assert_eq!(step(json!({ "surface": "computer", "purpose": "login", "url": "not a url", "target": "t" })), named("t"));
+    }
+
+
+    #[cfg(node_twin)]
+    /// Recorded from the real `createTakeoverGate` over `withHumanOnlyApproval`
+    /// (`benchmarks/rust-core/recorders/record-secret-gates.mjs`).
+    fn golden() -> Value {
+        serde_json::from_str(include_str!("../../../../../fixtures/secret-gates/gates.json")).unwrap()
+    }
+    #[cfg(node_twin)]
     /// Every recorded scenario; a browser approval is the desktop's hold on the human-only lock
     /// (`host/humanOnly/begin` and `end`), which has no expiry.
     #[test]
@@ -242,55 +302,30 @@ mod tests {
         }
         assert_eq!(replayed, 10);
     }
-
-    #[test]
-    fn only_a_takeover_request_holds_and_only_a_screen_takeover_holds_the_screen() {
-        let secret = ask(json!({ "kind": "secret", "secret": { "surface": "computer" } }));
-        let command = ask(json!({ "command": "ls" }));
-        assert_eq!(takeover_hold([(ApprovalId(1), &secret), (ApprovalId(2), &command)].into_iter()), TakeoverHold::default());
-        let step = Some("a step only the user can do".to_owned());
-        assert_eq!(
-            takeover_hold([(ApprovalId(1), &secret), (ApprovalId(7), &takeover("browser"))].into_iter()),
-            TakeoverHold { held: true, screen: None, names_screen: false, step: step.clone(), id: Some("7".to_owned()) }
-        );
-        // The oldest takeover names the hold, whatever order the book lists them in.
-        assert_eq!(
-            takeover_hold([(ApprovalId(9), &takeover("computer")), (ApprovalId(4), &takeover("browser"))].into_iter()),
-            TakeoverHold { held: true, screen: step.clone(), names_screen: false, step, id: Some("4".to_owned()) }
-        );
-        // The same takeovers with the screen one oldest: the hold is named by it.
-        let oldest = takeover_hold([(ApprovalId(2), &takeover("computer")), (ApprovalId(5), &takeover("browser"))].into_iter());
-        assert!(oldest.names_screen && oldest.screen.is_some());
-        assert_eq!(takeover_hold(std::iter::empty()), TakeoverHold::default());
+    /// What the two locks say with the given takeover holds open and the desktop's holds on the human-only lock.
+    fn locks(holds: &[(&str, TakeoverHold)], desktop_holds: usize, sessions: &[&str]) -> (Vec<bool>, bool) {
+        let table = Arc::new(Holds(Mutex::new(holds.iter().map(|(session, hold)| ((*session).to_owned(), hold.clone())).collect())));
+        let lock = Arc::new(HumanOnlyLock::new(table.clone()));
+        let desktop = CallContext::internal("desktop");
+        let _held: Vec<_> = (0..desktop_holds).map(|_| lock.hold("", &desktop)).collect();
+        let gates = TakeoverGates::new(table, lock);
+        (sessions.iter().map(|session| gates.browser_free(&ThreadId::from(*session))).collect(), gates.computer_free())
     }
 
-    /// A browser takeover is named by its step too: the Browser Use refusal says what the person was asked to do.
+    /// A session with an open takeover (either surface) refuses its own Browser Use and no other session's; only a screen takeover
+    /// (or a desktop dialog's hold on the human-only lock) refuses Computer Use, for every session.
     #[test]
-    fn a_browser_takeover_is_named_by_its_step() {
-        let card = ask(json!({ "kind": "takeover", "takeover": { "surface": "browser", "target": "the captcha" } }));
-        let hold = takeover_hold(std::iter::once((ApprovalId(3), &card)));
-        assert_eq!((hold.screen, hold.step.as_deref(), hold.id.as_deref()), (None, Some("step \"the captcha\""), Some("3")));
+    fn a_takeover_holds_its_own_browser_and_only_a_screen_or_dialog_hold_holds_the_screen() {
+        let browser = takeover_hold(std::iter::once((ApprovalId(1), &takeover("browser"))));
+        let screen = takeover_hold(std::iter::once((ApprovalId(1), &takeover("computer"))));
+        assert_eq!(locks(&[], 0, &["A", "B"]), (vec![true, true], true), "nothing open: both are free");
+        assert_eq!(locks(&[("A", browser)], 0, &["A", "B"]), (vec![false, true], true), "a browser takeover pauses its own session's browser only");
+        assert_eq!(locks(&[("A", screen)], 0, &["A", "B"]), (vec![false, true], false), "a screen takeover also holds the screen for everyone");
+        assert_eq!(locks(&[], 1, &["A", "B"]), (vec![true, true], false), "a desktop dialog holds the screen, not a browser");
+        assert_eq!(locks(&[], 0, &["A", "B"]).1, true, "released: the screen is free again");
     }
 
-    /// A screen takeover is named as `takeoverStep` names it: a sign-in's site, else its target, else its
-    /// instructions, on one line and cut to 160 characters.
-    #[test]
-    fn a_screen_takeover_is_named_by_its_step() {
-        let step = |takeover: Value| takeover_hold(std::iter::once((ApprovalId(1), &ask(json!({ "kind": "takeover", "takeover": takeover }))))).screen;
-        let named = |text: &str| Some(format!("step \"{text}\""));
-        assert_eq!(step(json!({ "surface": "computer", "target": " \n ", "instructions": "  Confirm\n the\tdialog " })), named("Confirm the dialog"));
-        assert_eq!(step(json!({ "surface": "computer", "target": "the dialog", "instructions": "x" })), named("the dialog"));
-        assert_eq!(step(json!({ "surface": "computer", "target": "a".repeat(200) })), named(&format!("{}...", "a".repeat(157))));
-        assert_eq!(step(json!({ "surface": "computer", "target": "a".repeat(160) })), named(&"a".repeat(160)));
-        assert_eq!(step(json!({ "surface": "computer", "target": 7 })), Some("a step only the user can do".to_owned()));
-        assert_eq!(step(json!({ "surface": "browser", "target": "x" })), None);
-        assert_eq!(step(json!({ "surface": "computer", "purpose": "login", "url": "https://Accounts.Example.com:8443/x", "target": "t" })), Some("sign-in on accounts.example.com".to_owned()));
-        assert_eq!(step(json!({ "surface": "computer", "purpose": "login", "url": "not a url", "target": "t" })), named("t"));
-    }
-
-    /// The recorded expiry scenario ("a takeover nobody finishes frees the session and the screen at
-    /// its expiry"): the takeover card carries the recorded expiry as its `expires_after`, the
-    /// approval book resolves it when that passes, and both locks open once the resolution is durable.
+    /// A takeover nobody finishes ends with its request's own expiry: held until the resolution is durable, then both locks open.
     #[test]
     fn a_takeover_nobody_finishes_frees_the_session_and_the_screen_at_its_expiry() {
         use mixdog_core_api::domain::approval::ApprovalId;
@@ -301,31 +336,25 @@ mod tests {
         use std::time::Duration;
         use tokio::time::Instant;
 
-        let doc = golden();
-        let case = doc["cases"].as_array().unwrap().iter().find(|c| c["name"] == "a takeover nobody finishes frees the session and the screen at its expiry").unwrap();
-        let expiry = Duration::from_millis(case["expiryMs"].as_u64().unwrap());
-        let wait = Duration::from_millis(case["steps"].as_array().unwrap().iter().find(|s| s["do"] == "wait").unwrap()["ms"].as_u64().unwrap());
-        assert!(wait > expiry);
+        let expiry = Duration::from_secs(15 * 60);
+        let wait = Duration::from_secs(16 * 60);
         let thread = ThreadId::from("T");
         let mut card = takeover("computer");
         card.expires_after = Some(expiry);
         let aid = ApprovalId(1);
         let mut book = ApprovalBook::default();
         book.insert(ApprovalBook::request(aid, &thread, &Lineage::top_level(&thread), card, 0), TurnId::from("r1".to_owned()), None);
-        let observed = case["observed"].as_array().unwrap();
         let state = |book: &ApprovalBook| {
             let holds = Arc::new(Holds(Mutex::new(HashMap::from([("T".to_owned(), takeover_hold(book.open_requests()))]))));
             let gates = TakeoverGates::new(holds.clone(), Arc::new(HumanOnlyLock::new(holds)));
             (gates.browser_free(&thread), gates.computer_free())
         };
-        let want = |at: usize| (observed[at]["browserFree"]["T"] == json!(true), observed[at]["computerFree"] == json!(true));
-        assert_eq!(state(&book), want(0));
+        assert_eq!(state(&book), (false, false));
         assert!(book.expired(Instant::now()).is_empty(), "not before its deadline");
         let due = book.expired(Instant::now() + wait);
         assert_eq!(due.len(), 1);
-        // Held until the resolution is durable, as the book keeps the request until then.
-        assert_eq!(state(&book), want(0));
+        assert_eq!(state(&book), (false, false), "held until the resolution is durable");
         book.resolved(aid, &ApprovalResolution::TimedOut { at: 1 });
-        assert_eq!(state(&book), want(1));
+        assert_eq!(state(&book), (true, true));
     }
 }

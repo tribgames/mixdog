@@ -13,11 +13,14 @@ use tokio_util::sync::CancellationToken;
 use super::adapter_http::{JsonPost, PostReply};
 use super::catalog_fetch::Auth;
 use super::download::{AdapterError, Limits, PublicFetch, download_public_media, parse_json_body};
-use super::image_api::{GeneratedImage, ImageReference, reference_url, truthy};
+use super::image_api::{GeneratedImage, truthy};
 use super::lanes::LaneError;
+use super::references::{References, Target, account_of};
 use super::upstream::{decode_base64_media, upstream_error};
 use super::usage::{reported_usage, xai_usage};
 
+/// The most reference images one video request takes.
+const MAX_VIDEO_REFERENCES: usize = 7;
 const POLL_INTERVAL_MS: u64 = 4_000;
 const START_TIMEOUT: Duration = Duration::from_secs(60);
 const TOTAL_TIMEOUT_MS: i64 = 900_000;
@@ -95,8 +98,12 @@ fn size_params(options: &Value, body: &mut Map<String, Value>) {
 /// `generateImage({ lane, model, prompt, options, references, signal })`.
 #[allow(clippy::too_many_arguments, reason = "the adapter's own parameters, one per field of Node's call")]
 #[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
-pub async fn generate_image(http: &dyn JsonPost, auth: &Auth, model: &str, prompt: &str, options: &Value, references: &[ImageReference], cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
-    let refs: Vec<Value> = references.iter().map(|r| json!({ "type": "image_url", "url": reference_url(r) })).collect();
+pub async fn generate_image(http: &dyn JsonPost, auth: &Auth, model: &str, prompt: &str, options: &Value, references: &References, cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
+    let route = if references.is_empty() { "images/generations" } else { "images/edits" };
+    let url = format!("{}/{route}", auth.base_url);
+    let account = account_of(auth);
+    let references = references.prepare(&Target { endpoint: &url, account: &account, model, operation: "image-edit" }).await?;
+    let refs: Vec<Value> = references.iter().map(|r| json!({ "type": "image_url", "url": r.data_url() })).collect();
     let mut body = Map::new();
     body.insert("model".into(), json!(model));
     body.insert("prompt".into(), json!(prompt));
@@ -104,8 +111,6 @@ pub async fn generate_image(http: &dyn JsonPost, auth: &Auth, model: &str, promp
     body.insert("response_format".into(), json!("b64_json"));
     reference_params(&refs, &mut body);
     size_params(options, &mut body);
-    let route = if refs.is_empty() { "images/generations" } else { "images/edits" };
-    let url = format!("{}/{route}", auth.base_url);
     let reply = http.post(&url, &headers(auth), &Value::Object(body), IMAGE_TIMEOUT, cancel).await.map_err(plain)?;
     if !is_ok(&reply) {
         return Err(upstream_error("xAI image", reply.status, &read_error(&reply)).into());
@@ -135,10 +140,22 @@ pub async fn generate_video(
     model: &str,
     prompt: &str,
     options: &Value,
-    references: &[ImageReference],
+    references: &References,
     cancel: &CancellationToken,
     on_progress: &(dyn Fn(f64) + Send + Sync),
 ) -> Result<GeneratedVideo, AdapterError> {
+    // The count is refused before any picture is read: which pictures are valid does not change that some must go.
+    if references.len() > MAX_VIDEO_REFERENCES {
+        return Err(LaneError {
+            message: format!("xAI video takes at most {MAX_VIDEO_REFERENCES} reference images; {} were given. Remove {} and try again.", references.len(), references.len() - MAX_VIDEO_REFERENCES),
+            code: "MEDIA_TOO_MANY_REFERENCES",
+            status: 400,
+        }
+        .into());
+    }
+    let endpoint = format!("{}/videos/generations", auth.base_url);
+    let account = account_of(auth);
+    let references = references.prepare(&Target { endpoint: &endpoint, account: &account, model, operation: "video-reference" }).await?;
     let headers = headers(auth);
     let wanted = to_number_of(options.get("duration"));
     let wanted = if wanted.is_nan() || wanted == 0.0 { 5.0 } else { wanted };
@@ -154,8 +171,8 @@ pub async fn generate_video(
         body.insert("aspect_ratio".into(), json!(aspect));
     }
     // Mode is inferred from the reference count: 1 = image-to-video, 2+ = reference-to-video
-    // (capped at the documented 7).
-    let refs: Vec<String> = references.iter().take(7).map(reference_url).collect();
+    // (the documented most is 7, checked above; more is refused, never cut).
+    let refs: Vec<String> = references.iter().map(|r| r.data_url()).collect();
     match refs.len() {
         0 => {}
         1 => {

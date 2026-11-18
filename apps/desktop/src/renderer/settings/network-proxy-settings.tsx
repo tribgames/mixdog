@@ -51,7 +51,9 @@ function systemName(route: NetworkProxyRoute): string {
 /** The one line under "Proxy": the route in effect, or what `off` ignores. */
 export function routeDescription(mode: NetworkProxyMode, route: NetworkProxyRoute): string {
   if (mode === 'manual') {
-    return route.error ? t('Enter a proxy address below to use it.') : t('Connecting only through the proxy below.');
+    if (route.error) return t('Enter a proxy address below to use it.');
+    if (route.via === 'direct') return t('The current destination matches an exception and connects without the proxy.');
+    return t('Using the proxy below for destinations that do not match an exception.');
   }
   if (mode === 'off') {
     const ignored = [
@@ -79,7 +81,7 @@ export function routeDescription(mode: NetworkProxyMode, route: NetworkProxyRout
       proxy: route.proxy ?? '',
     });
   }
-  return t('Connecting directly, without a proxy. No system proxy or proxy variable is set.');
+  return t('The current destination connects directly, without a proxy.');
 }
 
 /** The outcome line of "Check connection". */
@@ -98,8 +100,9 @@ function CheckOutcome({ check }: { check: DesktopNetworkProxyCheck }) {
   }
   let reason: string;
   if (check.route.error) reason = t('No proxy address is set.');
-  else if (proxy) reason = t('The proxy {{proxy}} is not responding.', { proxy });
-  else reason = t('{{host}} did not answer ({{code}}).', { host, code: check.code ?? '' });
+  else if (proxy) {
+    reason = t('Could not reach {{host}} through {{proxy}} ({{code}}).', { host, proxy, code: check.code ?? '' });
+  } else reason = t('{{host}} did not answer ({{code}}).', { host, code: check.code ?? '' });
   return (
     <span className="network-proxy-bad">
       <b>{t('Could not connect.')}</b> {reason}
@@ -137,12 +140,14 @@ function ProxyInput({
   value,
   placeholder,
   invalid,
+  disabled,
   onSave,
 }: {
   label: string;
   value: string;
   placeholder: string;
   invalid: boolean;
+  disabled: boolean;
   onSave(value: string): void;
 }) {
   const [text, setText] = useState(value);
@@ -152,6 +157,7 @@ function ProxyInput({
       className="network-proxy-input"
       aria-label={label}
       aria-invalid={invalid || undefined}
+      disabled={disabled}
       value={text}
       placeholder={placeholder}
       spellCheck={false}
@@ -179,7 +185,7 @@ function saveError(reason: unknown, field: 'url' | 'exceptions'): string {
   const message = errorMessageText(reason);
   if (field === 'url') {
     if (/user name or password/.test(message)) {
-      return t('The address cannot contain a user name or password. Put it in the HTTPS_PROXY variable instead.');
+      return t('Manual addresses cannot contain credentials. To use HTTPS_PROXY with credentials, select Use system settings.');
     }
     if (/networkProxy\.url/.test(message)) {
       return t('The address is not valid. Example: http://proxy.company.com:8080');
@@ -197,21 +203,39 @@ export function NetworkProxyGroup({ active }: Pick<PanelContext, 'active'>) {
   const provider = typeof mainRoute.provider === 'string' && mainRoute.provider ? mainRoute.provider : undefined;
   const options = provider ? [{ provider }] : [];
   const [settings, setSettings] = useState<DesktopNetworkProxySettings | null>(null);
-  // "Manual" picked while no address is stored: its rows show, nothing is saved until the address is valid.
+  // Picking "Manual" without an address reveals the fields without changing the saved mode.
   const [draftManual, setDraftManual] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
-  const [check, setCheck] = useState<DesktopNetworkProxyCheck | 'running' | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [modeError, setModeError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [check, setCheck] = useState<DesktopNetworkProxyCheck | 'running' | 'failed' | null>(null);
   const groupRef = useRef<HTMLDivElement>(null);
   const newest = useRef(0);
+  const newestCheck = useRef(0);
+  const savingRef = useRef(false);
+
+  const clearCheck = useCallback(() => {
+    newestCheck.current += 1;
+    setCheck(null);
+  }, []);
 
   const load = useCallback(() => {
     const mine = ++newest.current;
+    clearCheck();
+    setLoadFailed(false);
     invoke<DesktopNetworkProxySettings>('getNetworkProxy', provider ? [{ provider }] : [])
       .then((value) => {
-        if (newest.current === mine) setSettings(value);
+        if (newest.current !== mine) return;
+        if (value) setSettings(value);
+        else setLoadFailed(true);
       })
-      .catch(() => {});
-  }, [provider]);
+      .catch(() => {
+        if (newest.current === mine) setLoadFailed(true);
+      });
+  }, [clearCheck, provider]);
+  const latestLoad = useRef(load);
+  latestLoad.current = load;
 
   useEffect(() => {
     if (!active) return;
@@ -220,7 +244,7 @@ export function NetworkProxyGroup({ active }: Pick<PanelContext, 'active'>) {
   }, [active, load]);
 
   // A link from a failed provider check lands here once the System page shows.
-  const loaded = settings !== null;
+  const loaded = settings !== null || loadFailed;
   useEffect(() => {
     if (!active || !loaded) return;
     const reveal = () => {
@@ -232,35 +256,67 @@ export function NetworkProxyGroup({ active }: Pick<PanelContext, 'active'>) {
   }, [active, loaded]);
 
   const save = async (patch: DesktopNetworkProxyPatch, field?: 'url' | 'exceptions') => {
-    setCheck(null);
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    clearCheck();
+    setModeError('');
+    const mine = ++newest.current;
     try {
       const next = await invoke<DesktopNetworkProxySettings>('setNetworkProxy', [patch, ...options]);
-      newest.current += 1;
-      setSettings(next);
+      if (!next) throw new Error('Proxy save returned no settings.');
+      if (newest.current === mine) {
+        setSettings(next);
+        setLoadFailed(false);
+      } else {
+        latestLoad.current();
+      }
       setErrors({});
       if (next.mode !== 'manual') setDraftManual(false);
       else if (patch.url !== undefined) setDraftManual(false);
     } catch (reason) {
       if (field) setErrors({ [field]: saveError(reason, field) });
-      else setErrors({ url: saveError(reason, 'url') });
+      else setModeError(t('Could not save the proxy mode.'));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
-  if (!settings) return null;
+  if (!settings) {
+    return loadFailed ? (
+      <div ref={groupRef}>
+        <Group title={t('Network proxy')}>
+          <ProxyRow title={t('Proxy')} description={t('Could not read the proxy settings.')} error>
+            <button type="button" className="network-proxy-button" onClick={load}>
+              {t('Try again')}
+            </button>
+          </ProxyRow>
+        </Group>
+      </div>
+    ) : null;
+  }
   const mode: NetworkProxyMode = draftManual ? 'manual' : settings.mode;
   const host = new URL(settings.origin).host;
   const checking = check === 'running';
   const runCheck = () => {
+    if (savingRef.current) return;
+    const mine = ++newestCheck.current;
     setCheck('running');
     invoke<DesktopNetworkProxyCheck>('testNetworkProxy', options.length ? [options[0]] : [])
-      .then(setCheck)
-      .catch(() => setCheck(null));
+      .then((result) => {
+        if (newestCheck.current === mine) setCheck(result ?? 'failed');
+      })
+      .catch(() => {
+        if (newestCheck.current === mine) setCheck('failed');
+      });
   };
   const choose = (value: NetworkProxyMode) => {
     setErrors({});
+    setModeError('');
     if (value === 'manual' && !settings.url) {
       setDraftManual(true);
-      setCheck(null);
+      clearCheck();
       return;
     }
     setDraftManual(false);
@@ -276,14 +332,19 @@ export function NetworkProxyGroup({ active }: Pick<PanelContext, 'active'>) {
       >
         <ProxyRow
           title={t('Proxy')}
-          description={withCode(
-            routeDescription(mode, draftManual ? { ...settings.route, error: 'no-address' } : settings.route)
-          )}
+          description={
+            modeError ||
+            (loadFailed
+              ? t('Could not refresh the proxy settings.')
+              : withCode(routeDescription(mode, draftManual ? { ...settings.route, error: 'no-address' } : settings.route)))
+          }
+          error={Boolean(modeError) || loadFailed}
         >
           <select
             className="network-proxy-select"
             aria-label={t('How the proxy is used')}
             value={mode}
+            disabled={saving}
             onChange={(event) => choose(event.currentTarget.value as NetworkProxyMode)}
           >
             <option value="system">{t('Use system settings')}</option>
@@ -301,6 +362,7 @@ export function NetworkProxyGroup({ active }: Pick<PanelContext, 'active'>) {
               <ProxyInput
                 label={t('Proxy address')}
                 value={settings.url}
+                disabled={saving}
                 placeholder="http://proxy.company.com:8080"
                 invalid={Boolean(errors.url)}
                 onSave={(url) => {
@@ -320,6 +382,7 @@ export function NetworkProxyGroup({ active }: Pick<PanelContext, 'active'>) {
               <ProxyInput
                 label={t('Exceptions')}
                 value={settings.exceptions}
+                disabled={saving}
                 placeholder={EXCEPTIONS_PLACEHOLDER}
                 invalid={Boolean(errors.exceptions)}
                 onSave={(exceptions) => void save({ exceptions }, 'exceptions')}
@@ -329,16 +392,24 @@ export function NetworkProxyGroup({ active }: Pick<PanelContext, 'active'>) {
         )}
         <ProxyRow
           title={t('Check connection')}
+          error={check === 'failed'}
           description={
-            check === null || check === 'running' ? (
+            check === 'failed' ? (
+              t('Could not run the connection check. Try again.')
+            ) : check === null || check === 'running' ? (
               t('Tries to connect to {{host}} with the current settings.', { host })
             ) : (
               <CheckOutcome check={check} />
             )
           }
         >
-          <button type="button" className="network-proxy-button" disabled={checking || draftManual} onClick={runCheck}>
-            {checking ? t('Checking…') : check && !check.ok ? t('Check again') : t('Check')}
+          <button
+            type="button"
+            className="network-proxy-button"
+            disabled={checking || draftManual || saving}
+            onClick={runCheck}
+          >
+            {checking ? t('Checking…') : check === 'failed' || (check && !check.ok) ? t('Check again') : t('Check')}
           </button>
         </ProxyRow>
       </Group>

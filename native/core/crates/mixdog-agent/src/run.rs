@@ -8,6 +8,7 @@
 use std::sync::Arc;
 
 use mixdog_core_api::domain::provider::Content;
+use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::ProviderState;
@@ -106,7 +107,17 @@ pub struct RunConfig {
     /// The session's folder as it stands now: each tool call starts in it, so a Project switch inside the turn moves the
     /// calls after it (`resolveLiveToolCwd`). Without one the calls use the folder the turn began in.
     pub live_cwd: Option<crate::tools::LiveCwd>,
+    /// Where the run reloads the session's history when a rewrite it did not make retired its transcript. Without one such a
+    /// request ends the turn.
+    pub history: Option<std::sync::Arc<dyn crate::env::StoredHistory>>,
+    /// The session's image choices ("continue without", "replace", "new branch without prior context"), read afresh for every
+    /// request so a choice made after a refusal applies to the very next send. They are a projection of the history that
+    /// goes on the wire: the transcript itself is never rewritten by them.
+    pub image_overlay: Option<ImageOverlayLoad>,
 }
+
+/// Reads the session's image overlay; the text is why it could not be read.
+pub type ImageOverlayLoad = std::sync::Arc<dyn Fn() -> Result<mixdog_core_api::domain::image_overlay::ImageOverlay, String> + Send + Sync>;
 
 impl RunConfig {
     pub fn new(thread_id: ThreadId, turn_id: TurnId, model: impl Into<String>) -> Self {
@@ -137,6 +148,8 @@ impl RunConfig {
             request_begin: None,
             cache_break_intent: None,
             live_cwd: None,
+            history: None,
+            image_overlay: None,
         }
     }
 }
@@ -155,31 +168,33 @@ pub struct RunCarry {
     pub cache: CacheReadings,
 }
 
-/// The record fields `traceActualCacheMiss` reads (`send-phase.mjs`): the previous request's cache read plus write
-/// (`lastProviderCachedPrefixTokens`), when it was sent (`lastProviderSendAt`), the messages cache tier
-/// (`providerCacheOpts.cacheStrategy.messages`) and the last request's prefix fingerprint (`providerPrefixBaseline`).
+/// The cache diagnostic's measured observation is separate from request timing and from the
+/// provider wire fingerprint used to explain a break.
 #[derive(Clone, Default, Debug)]
 pub struct CacheReadings {
     pub cached_prefix_tokens: Option<f64>,
-    pub last_send_at: Option<f64>,
     pub messages_ttl_ms: Option<i64>,
     pub prefix_baseline: Option<serde_json::Value>,
-    /// Set once a send of the run changed `cached_prefix_tokens` / `prefix_baseline`: they are saved with the carry.
+    pub(crate) observation: Option<crate::cache_observation::Observation>,
     pub changed: bool,
 }
 
 impl CacheReadings {
-    fn from_saved(saved: &serde_json::Map<String, serde_json::Value>) -> Self {
+    pub(crate) fn messages_ttl(saved: &serde_json::Map<String, serde_json::Value>) -> Option<i64> {
         let ttl = saved.get("providerCacheOpts").and_then(|opts| opts.get("cacheStrategy")).and_then(|strategy| strategy.get("messages")).and_then(serde_json::Value::as_str);
+        match ttl {
+            Some("5m") => Some(5 * 60 * 1000),
+            Some("1h") => Some(60 * 60 * 1000),
+            _ => None,
+        }
+    }
+
+    fn from_saved(saved: &serde_json::Map<String, serde_json::Value>) -> Self {
         Self {
-            cached_prefix_tokens: saved.get("lastProviderCachedPrefixTokens").map(|v| mixdog_js::to_number_of(Some(v))),
-            last_send_at: saved.get("lastProviderSendAt").map(|v| mixdog_js::to_number_of(Some(v))),
-            messages_ttl_ms: match ttl {
-                Some("5m") => Some(5 * 60 * 1000),
-                Some("1h") => Some(60 * 60 * 1000),
-                _ => None,
-            },
+            cached_prefix_tokens: saved.get("lastProviderCachedPrefixTokens").and_then(serde_json::Value::as_f64),
+            messages_ttl_ms: Self::messages_ttl(saved),
             prefix_baseline: saved.get("providerPrefixBaseline").filter(|v| v.is_object()).cloned(),
+            observation: saved.get("lastProviderCacheObservation").and_then(crate::cache_observation::Observation::read),
             changed: false,
         }
     }
@@ -198,6 +213,7 @@ impl RunCarry {
             saved.insert("wireRoute".into(), route.clone());
         }
         if self.cache.changed {
+            saved.insert("lastProviderCacheObservation".into(), self.cache.observation.as_ref().map_or(serde_json::Value::Null, crate::cache_observation::Observation::saved));
             if let Some(tokens) = self.cache.cached_prefix_tokens {
                 saved.insert("lastProviderCachedPrefixTokens".into(), mixdog_js::json_number(tokens));
             }
@@ -239,12 +255,6 @@ impl RetryStates {
         }
     }
 
-    /// The request and stream rows of a new send.
-    pub(crate) fn restart_provider_rows(&mut self, model: &str) {
-        self.request = RetryState::new(RetryClass::Request, model);
-        self.midstream = RetryState::new(RetryClass::Midstream, model);
-    }
-
     pub(crate) fn store(&mut self, state: RetryState) {
         match state.class() {
             RetryClass::Request => self.request = state,
@@ -253,6 +263,21 @@ impl RetryStates {
             RetryClass::Connection => self.connection = state,
             RetryClass::Recovery => self.recovery = state,
         }
+        self.share_overloads();
+    }
+
+    /// One counter of consecutive overloads per logical send, whether the overload refused the request or ended a
+    /// stream (`createAnthropicOverloadTracker`: both paths increment the same object). The count only grows within a
+    /// send, so the row that lags takes the other's.
+    fn share_overloads(&mut self) {
+        let behind = |state: &mut RetryState, to: u32| {
+            while state.consecutive_overloads() < to {
+                *state = state.after_failure(ErrorKind::Overloaded);
+            }
+        };
+        let target = self.request.consecutive_overloads().max(self.midstream.consecutive_overloads());
+        behind(&mut self.request, target);
+        behind(&mut self.midstream, target);
     }
 }
 
@@ -322,7 +347,8 @@ impl std::fmt::Display for AgentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Aborted => f.write_str("agent loop aborted"),
-            Self::Provider(error) => f.write_str(&error.message),
+            // A transport error has no message of its own: its text is what its kind, delivery and fault say.
+            Self::Provider(error) => f.write_str(&mixdog_ai::service::error_text::provider_error_text(error, "agent")),
             Self::RouteFailed(message) | Self::RequestTools(message) | Self::Admission(message) | Self::PrefixMutation(message) => f.write_str(message),
             Self::Commit(error) => write!(f, "{error}"),
             Self::ContextOverflow(o) => write!(
@@ -412,6 +438,13 @@ pub struct Run {
     pub(crate) context_overflow_retry_used: bool,
     pub(crate) reactive_overflow_retry_pending: bool,
     pub(crate) retry: RetryStates,
+    /// The logical sends of this run so far, and the exchanges of the current one: the `send` and `attempt` of each line of
+    /// the turn's trace.
+    pub(crate) sends: u64,
+    pub(crate) exchanges: u32,
+    /// When the current logical send first failed: one outage clock over every retry ladder (the provider's request and
+    /// stream rows, the loop's transport, connection and recovery rows), ended by the send's success.
+    pub(crate) outage_since_ms: Option<i64>,
     pub(crate) max_output_override: Option<u32>,
     pub(crate) tool_batch_just_completed: bool,
     pub(crate) last_batch_later: bool,
@@ -429,7 +462,13 @@ pub struct Run {
     pub(crate) reanchored: bool,
     /// The request the latest send settled on, and when its send began (`requestStartedAt`).
     pub(crate) last_request: Option<Arc<mixdog_core_api::domain::provider::ModelRequest>>,
+    /// The transcript the latest pre-send check reported (`ContextPressure.messages`): the round's usage report shares it
+    /// when the transcript it sent is still equal to it, instead of copying the transcript a second time.
+    pub(crate) checked_transcript: Option<Arc<[AgentMessage]>>,
     pub(crate) request_started_ms: i64,
+    /// Start of the attempt whose usage may be used by the cache diagnostic.
+    pub(crate) cache_attempt_started_ms: i64,
+    pub(crate) cache_dispatches: crate::cache_observation::Dispatches,
     /// When the iteration in progress began (`round.iterT0`), and when its send began (`sent.sendStartedAt`), as the `loop`
     /// row measures them: a replay Node's loop runs as a new round restarts both (`Recovery::LoopReplay`, `Rebuilt`).
     pub(crate) iteration_started_ms: i64,
@@ -453,7 +492,6 @@ pub struct Run {
     pub(crate) no_tool: NoToolState,
     pub(crate) carry: RunCarry,
     pub(crate) quiet_compact_retry_used: bool,
-    pub(crate) cross_turn: crate::batch::CrossTurn,
     pub(crate) eager: std::collections::HashMap<String, tokio::task::JoinHandle<crate::tools::Executed>>,
     /// What each streamed call and the batch tell each other about the call's group retry and its place at the file lock.
     pub(crate) eager_settles: std::collections::HashMap<String, crate::batch::SettleSlot>,
@@ -472,16 +510,17 @@ pub struct Run {
     pub(crate) last_reminder: Option<String>,
     /// Tools the provider rejected the schema of: name → why a call is refused.
     pub(crate) dropped_tools: std::collections::HashMap<String, String>,
+    /// Why the request just built cannot be sent because of the session's image choices (see `with_image_choices`).
+    pub(crate) image_choices_refusal: Option<String>,
     /// The tool surface frozen for the requests of this run (`fixedProviderToolSurface`): the first request
     /// takes the session's tools, later ones keep its eager prefix and adopt changed MCP definitions.
     pub(crate) fixed_surface: Option<Vec<mixdog_core_api::domain::provider::ToolDefinition>>,
-    /// The images an image-strip retry leaves out of every request until a
-    /// send succeeds (`state.imageStrip`).
-    pub(crate) image_strip: Option<crate::recovery::ImageStrip>,
-    pub(crate) image_strip_used: bool,
     /// The provider's own re-issue of this send ([`crate::send::Reissue`]), from the failure that asked for it until
     /// the send completes or its ladder starts over.
     pub(crate) reissue: Option<crate::send::Reissue>,
+    /// The cache owner refused this send's attempt before anything was requested: the attempt that follows is that same
+    /// first attempt, admitted, and announces nothing again.
+    pub(crate) readmitting: bool,
     pub(crate) replay_repair_used: bool,
     pub(crate) tool_schema_drop_used: bool,
     pub(crate) step_effort: Option<crate::step_effort::PendingStep>,
@@ -579,6 +618,9 @@ impl Run {
             context_overflow_retry_used: false,
             reactive_overflow_retry_pending: false,
             retry,
+            sends: 0,
+            exchanges: 0,
+            outage_since_ms: None,
             max_output_override: None,
             tool_batch_just_completed: false,
             last_batch_later: false,
@@ -589,7 +631,10 @@ impl Run {
             baseline: None,
             reanchored: false,
             last_request: None,
+            checked_transcript: None,
             request_started_ms: 0,
+            cache_attempt_started_ms: 0,
+            cache_dispatches: Default::default(),
             iteration_started_ms: 0,
             send_started_ms: 0,
             last_tool_batch_ended_ms: None,
@@ -602,7 +647,6 @@ impl Run {
             no_tool: NoToolState::default(),
             carry,
             quiet_compact_retry_used: false,
-            cross_turn: crate::batch::CrossTurn::default(),
             eager: std::collections::HashMap::new(),
             eager_settles: std::collections::HashMap::new(),
             settle_gate: tokio::sync::watch::Sender::new(true),
@@ -613,10 +657,10 @@ impl Run {
             streamed_ids: std::collections::HashSet::new(),
             last_reminder: None,
             dropped_tools: std::collections::HashMap::new(),
+            image_choices_refusal: None,
             fixed_surface: None,
-            image_strip: None,
-            image_strip_used: false,
             reissue: None,
+            readmitting: false,
             replay_repair_used: false,
             tool_schema_drop_used: false,
             step_effort: None,
@@ -648,7 +692,13 @@ impl Run {
     }
 
     /// Appends to the model context and queues the message for durability.
-    pub(crate) async fn push(&mut self, message: AgentMessage) -> Result<Ticket, AgentError> {
+    pub(crate) async fn push(&mut self, mut message: AgentMessage) -> Result<Ticket, AgentError> {
+        // An assistant message is stored under an id; the message the run keeps is the one stored, so it has that id from
+        // here on. Given only to the row, the same message was addressed by its place while its run lasted and by the id
+        // once read back, and an image choice saved under the first no longer found it.
+        if message.role() == mixdog_core_api::domain::provider::Role::Assistant && message.message_id.is_none() {
+            message.message_id = Some(self.env.sink.message_id()).filter(|id| !id.is_empty());
+        }
         let ticket = self.env.sink.commit(&message).await.map_err(AgentError::Commit)?;
         self.messages.push(message);
         self.unsaved = Some(ticket);
@@ -825,6 +875,8 @@ impl Run {
         } else {
             self.pending_skill_prompts.clear();
         }
+        // Before the boundary: a reconsidered route's window and compaction sizing are the ones it checks.
+        self.reconsider_route().await?;
         self.prepare_request_boundary().await?;
         self.apply_step_effort().await?;
         self.options_for_next_request();
@@ -878,8 +930,15 @@ impl Run {
             self.first_turn_usage = self.last_usage.clone();
         }
         let input_excludes_cache = self.input_excludes_cache();
-        self.record_baseline(&response.usage, input_excludes_cache);
-        self.context.measure(&response.usage, input_excludes_cache);
+        if crate::cache_observation::is_anthropic(self.provider.id().as_str())
+            && !crate::cache_observation::has_prompt(&response.usage)
+        {
+            self.baseline = None;
+            self.context = crate::boundary::ContextReading { tokens: None, stale_after_compact: true };
+        } else {
+            self.record_baseline(&response.usage, input_excludes_cache);
+            self.context.measure(&response.usage, input_excludes_cache);
+        }
         // A provider that returned despite an abort must not have its output
         // processed.
         self.throw_if_aborted()?;
@@ -895,8 +954,9 @@ impl Run {
             send_tools: self.last_request.as_ref().map(|r| r.tools.clone()).unwrap_or_default(),
             reasoning_tokens,
             reasoning_tokens_complete,
-            outgoing: self.messages.clone(),
+            outgoing: self.outgoing_transcript(),
             sent_at_ms: self.request_started_ms,
+            tail_book: self.config.options.tail_gate.as_ref().and_then(|gate| gate.0.snapshot()),
         };
         self.emit(RunEvent::Usage {
             iteration: self.iterations,
@@ -990,5 +1050,16 @@ impl Run {
 
     pub(crate) async fn until_durable(&self, ticket: Ticket) -> Result<(), AgentError> {
         or_cancelled(&self.cancel, self.env.sink.durable(ticket)).await.ok_or(AgentError::Aborted)
+    }
+}
+
+impl Run {
+    /// The transcript the round's request carried, for its usage report: the pre-send check's copy when it still equals
+    /// the transcript (comparing allocates nothing), else a copy of it.
+    fn outgoing_transcript(&mut self) -> Arc<[AgentMessage]> {
+        match self.checked_transcript.take() {
+            Some(checked) if *checked == *self.messages => checked,
+            _ => Arc::from(self.messages.as_slice()),
+        }
     }
 }

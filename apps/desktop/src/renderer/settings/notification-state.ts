@@ -63,12 +63,14 @@ export function useNotificationPreferences(api: NotificationApi | undefined) {
   useEffect(() => {
     if (!api?.getNotificationPreferences) return undefined;
     let live = true;
+    let latestRead = 0;
     const read = () => {
       const epoch = writeEpoch.current;
+      const sequence = ++latestRead;
       void api
         .getNotificationPreferences?.()
         .then((next) => {
-          if (!live) return;
+          if (!live || sequence !== latestRead) return;
           if (epoch !== writeEpoch.current || pending.current.length > 0) {
             if (pending.current.length === 0) read();
             else discardedRead.current = true;
@@ -79,7 +81,7 @@ export function useNotificationPreferences(api: NotificationApi | undefined) {
           show();
         })
         .catch((error: unknown) => {
-          if (live) setReadError(error);
+          if (live && sequence === latestRead && epoch === writeEpoch.current) setReadError(error);
         });
     };
     rereadRef.current = read;
@@ -87,6 +89,7 @@ export function useNotificationPreferences(api: NotificationApi | undefined) {
     const unsubscribe = subscribeSetupChanges(read);
     return () => {
       live = false;
+      rereadRef.current = () => {};
       unsubscribe();
     };
   }, [api, show]);

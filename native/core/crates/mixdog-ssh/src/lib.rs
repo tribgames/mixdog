@@ -13,6 +13,8 @@ pub mod askpass;
 pub mod mixdog_config;
 pub mod host_key;
 pub mod resolved_config;
+pub mod pins;
+pub mod said;
 pub mod tunnel;
 pub mod callback_forward;
 pub mod install_wire;

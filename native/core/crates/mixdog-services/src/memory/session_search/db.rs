@@ -14,7 +14,7 @@ use crate::memory::error::Result;
 use crate::memory::ingest_shape::{
     normalize_ingest_role, session_message_content_for_ingest, should_exclude_ingest_message, stable_session_source_ref,
 };
-use crate::memory::pg::db::Db;
+use crate::memory::pg::db::{Db, transaction};
 use crate::memory::query_terms::build_fts_prefix_query;
 
 const DDL: &str = "
@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS session_search.scrub (
 /// `to_tsvector` rejects a document over 1 MB; a single message never needs
 /// more searchable text than this (in UTF-16 code units).
 const MAX_CONTENT_UNITS: usize = 100_000;
+
+const RECORD_STAMP: &str = "INSERT INTO session_search.backfill (session_id, stamp) VALUES ($1, $2)
+    ON CONFLICT (session_id) DO UPDATE SET stamp = EXCLUDED.stamp";
 const SNIPPET_START: char = '\u{2}';
 const SNIPPET_STOP: char = '\u{3}';
 
@@ -91,11 +94,18 @@ fn strip_system_reminders(text: &str) -> String {
 /// (synthetic, tool and runtime rows excluded), minus system reminders.
 /// `ordinal` is the message's index in `messages`.
 pub fn search_rows(session_id: &str, messages: &[Value]) -> Vec<SearchRow> {
+    search_rows_from(session_id, messages, 0)
+}
+
+/// [`search_rows`] of the messages that follow the first `start` of a transcript: each row keeps the ordinal (and so the
+/// identity) it has in the whole transcript, so the rows of a tail are the rows the whole transcript would give for it.
+pub fn search_rows_from(session_id: &str, messages: &[Value], start: usize) -> Vec<SearchRow> {
     let mut rows = Vec::new();
     if session_id.is_empty() {
         return rows;
     }
     for (index, message) in messages.iter().enumerate() {
+        let index = start + index;
         if !message.is_object() {
             continue;
         }
@@ -207,12 +217,11 @@ impl SessionSearchDb {
     /// seconds on a large table) instead of failing at the cluster's 5 s `lock_timeout`, as Node's session-search
     /// connection, which sets no lock timeout, waits.
     async fn waiting(&self, sql: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<tokio_postgres::Row>> {
-        let mut client = self.db.client().await?;
-        let tx = client.transaction().await?;
-        tx.batch_execute("SET LOCAL lock_timeout = 0").await?;
-        let rows = tx.query(sql, params).await?;
-        tx.commit().await?;
-        Ok(rows)
+        transaction(&self.db, async |tx| {
+            tx.batch_execute("SET LOCAL lock_timeout = 0").await?;
+            Ok(tx.query(sql, params).await?)
+        })
+        .await
     }
 
     /// Over a handle whose schema was created by whoever opened it (a deferred handle creates it when it opens).
@@ -220,19 +229,33 @@ impl SessionSearchDb {
         Self { db }
     }
 
+    /// The handle underneath (an owned operation's own).
+    pub(crate) fn db(&self) -> &Db {
+        &self.db
+    }
+
+    /// The owner of the work done through this handle.
+    pub fn scope(&self) -> &crate::memory::lifecycle::Scope {
+        self.db.scope()
+    }
+
     /// Idempotent append of a transcript's searchable messages; returns the
     /// count of newly stored rows. Re-sending a stored message is a no-op.
     pub async fn append(&self, session_id: &str, messages: &[Value]) -> Result<u64> {
-        let rows = search_rows(session_id, messages);
+        self.append_from(session_id, messages, 0).await
+    }
+
+    /// [`Self::append`] of the messages that follow the first `start` of the transcript ([`search_rows_from`]).
+    pub async fn append_from(&self, session_id: &str, messages: &[Value], start: usize) -> Result<u64> {
+        let rows = search_rows_from(session_id, messages, start);
         if rows.is_empty() {
             return Ok(0);
         }
-        let mut client = self.db.client().await?;
-        let tx = client.transaction().await?;
-        tx.batch_execute("SET LOCAL lock_timeout = 0").await?;
-        let stored = insert_rows(&*tx, &rows).await?;
-        tx.commit().await?;
-        Ok(stored)
+        transaction(&self.db, async |tx| {
+            tx.batch_execute("SET LOCAL lock_timeout = 0").await?;
+            insert_rows(&***tx, &rows).await
+        })
+        .await
     }
 
     /// In one transaction: every stored row of `session_id` whose content
@@ -276,8 +299,7 @@ impl SessionSearchDb {
         let rows = search_rows(session_id, redacted_messages);
         let previous: HashSet<String> =
             search_rows(session_id, plain_messages).into_iter().map(|row| row.source_ref).collect();
-        let mut client = self.db.client().await?;
-        let tx = client.transaction().await?;
+        transaction(&self.db, async |tx| {
         // The cluster commits asynchronously (`synchronous_commit = off`): a kill could lose this
         // commit, and with it the record of the owed scrub, while the plain rows stay.
         // Another mark's scrub may hold the table (`waiting`).
@@ -317,13 +339,14 @@ impl SessionSearchDb {
                 content: content.clone(),
             });
         }
-        insert_rows(&*tx, &all).await?;
+        insert_rows(&***tx, &all).await?;
         let deleted = changed.len();
         if deleted > 0 {
             tx.execute("INSERT INTO session_search.scrub (id) VALUES (1) ON CONFLICT DO NOTHING", &[]).await?;
         }
-        tx.commit().await?;
         Ok(deleted)
+        })
+        .await
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<()> {
@@ -350,15 +373,19 @@ impl SessionSearchDb {
         Ok(rows.iter().map(|row| (row.get(0), row.get(1))).collect())
     }
 
-    pub async fn record_backfill_stamp(&self, session_id: &str, stamp: &str) -> Result<()> {
-        self.db
-            .execute(
-                "INSERT INTO session_search.backfill (session_id, stamp) VALUES ($1, $2)
-                 ON CONFLICT (session_id) DO UPDATE SET stamp = EXCLUDED.stamp",
-                &[&session_id, &stamp],
-            )
-            .await?;
-        Ok(())
+    pub(crate) async fn store_backfill(&self, session_id: &str, messages: &[Value], stamp: &str) -> Result<()> {
+        let rows = search_rows(session_id, messages);
+        transaction(&self.db, async |tx| {
+            tx.batch_execute("SET LOCAL lock_timeout = 0").await?;
+            insert_rows(&***tx, &rows).await?;
+            tx.execute(RECORD_STAMP, &[&session_id, &stamp]).await?;
+            Ok(())
+        }).await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn record_backfill_stamp(&self, session_id: &str, stamp: &str) -> Result<()> {
+        self.store_backfill(session_id, &[], stamp).await
     }
 
     /// The best-matching message of each session, strongest sessions first.

@@ -106,46 +106,6 @@ pub(super) struct Pointer {
     inbox: Option<mpsc::UnboundedSender<Value>>,
 }
 
-impl Pointer {
-    /// The relay of `session`'s helper to `desktop`'s overlay.
-    pub(super) fn new(desktop: Option<Arc<dyn HostChannel>>, session: &str) -> Self {
-        let inbox = desktop.clone().zip(tokio::runtime::Handle::try_current().ok()).map(|(desktop, runtime)| {
-            let (send, receive) = mpsc::unbounded_channel();
-            runtime.spawn(serve(receive, desktop, session.to_owned()));
-            send
-        });
-        Self { desktop, session: session.to_owned(), inbox }
-    }
-
-    /// One pointer line, without its prefix. A line that is not a pointer event, or one nobody can draw, is dropped without a word:
-    /// the overlay is never a failure of the request.
-    pub(super) fn on_line(&self, body: &str) {
-        if !wants_feedback(self.desktop.as_ref()) {
-            return;
-        }
-        if let (Some(event), Some(inbox)) = (event(body), &self.inbox) {
-            // The overlay draws the arrow for an event it is sent: the next pointer action needs no prepare round trip.
-            super::computer_pointer::mark_ready(&self.session);
-            let _ = inbox.send(event);
-        }
-    }
-}
-
-/// Carries the events to the desktop, those that queued up while one request was out together.
-async fn serve(mut inbox: mpsc::UnboundedReceiver<Value>, desktop: Arc<dyn HostChannel>, session: String) {
-    while let Some(first) = inbox.recv().await {
-        let mut events = vec![first];
-        while events.len() < BATCH && let Ok(next) = inbox.try_recv() {
-            events.push(next);
-        }
-        let params = json!({"sessionId": session, "events": events});
-        // A relay the desktop could not carry means the overlay surface that draws the arrow is gone: the next pointer action asks for the arrow again.
-        if !matches!(mixdog_rt::time::timeout(SEND_TIMEOUT, desktop.request(HostCapability::Computer, Method(METHOD), params)).await, Ok(Ok(_))) {
-            super::computer_pointer::forget_ready(&session);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
@@ -180,10 +140,6 @@ mod tests {
         let (asked, receive) = mpsc::unbounded_channel();
         let desktop: Arc<dyn HostChannel> = Arc::new(Desktop { serving, asked });
         (desktop, receive)
-    }
-
-    async fn next(channel: &mut mpsc::UnboundedReceiver<Value>) -> Value {
-        mixdog_rt::time::timeout(Duration::from_secs(5), channel.recv()).await.expect("in time").expect("sent")
     }
 
     fn command(action: &str) -> Map<String, Value> {
@@ -264,6 +220,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_relayed_event_marks_the_sessions_arrow_live_and_a_dropped_line_does_not() {
+        let (serving, _asked) = desktop(true);
+        let pointer = Pointer::new(Some(serving), "feedback-live");
+        pointer.on_line("garbage");
+        assert!(!super::super::computer_pointer::is_ready("feedback-live"));
+        pointer.on_line(r#"{"id":1,"x":1,"y":2,"held":false,"phase":"move"}"#);
+        assert!(super::super::computer_pointer::is_ready("feedback-live"));
+    }
+
+
+    async fn next(channel: &mut mpsc::UnboundedReceiver<Value>) -> Value {
+        mixdog_rt::time::timeout(Duration::from_secs(5), channel.recv()).await.expect("in time").expect("sent")
+    }
+    #[tokio::test]
     async fn events_reach_the_desktop_in_order_under_the_session() {
         let (serving, mut asked) = desktop(true);
         let pointer = Pointer::new(Some(serving), "thr_1");
@@ -278,17 +248,6 @@ mod tests {
         }
         assert_eq!(seen, [(json!(1), json!("move")), (json!(3), json!("press"))]);
     }
-
-    #[tokio::test]
-    async fn a_relayed_event_marks_the_sessions_arrow_live_and_a_dropped_line_does_not() {
-        let (serving, _asked) = desktop(true);
-        let pointer = Pointer::new(Some(serving), "feedback-live");
-        pointer.on_line("garbage");
-        assert!(!super::super::computer_pointer::is_ready("feedback-live"));
-        pointer.on_line(r#"{"id":1,"x":1,"y":2,"held":false,"phase":"move"}"#);
-        assert!(super::super::computer_pointer::is_ready("feedback-live"));
-    }
-
     #[tokio::test]
     async fn nothing_is_relayed_when_no_desktop_serves_computer() {
         let (absent, mut asked) = desktop(false);
@@ -298,5 +257,45 @@ mod tests {
         assert!(mixdog_rt::time::timeout(Duration::from_millis(200), asked.recv()).await.map_or(true, |sent| sent.is_none()));
         // With no desktop at all there is no relay to run, and a line is dropped.
         Pointer::new(None, "thr_1").on_line(r#"{"id":1,"x":1,"y":2,"held":false,"phase":"move"}"#);
+    }
+}
+
+
+impl Pointer {
+    /// The relay of `session`'s helper to `desktop`'s overlay.
+    pub(super) fn new(desktop: Option<Arc<dyn HostChannel>>, session: &str) -> Self {
+        let inbox = desktop.clone().zip(tokio::runtime::Handle::try_current().ok()).map(|(desktop, runtime)| {
+            let (send, receive) = mpsc::unbounded_channel();
+            runtime.spawn(serve(receive, desktop, session.to_owned()));
+            send
+        });
+        Self { desktop, session: session.to_owned(), inbox }
+    }
+
+    /// One pointer line, without its prefix. A line that is not a pointer event, or one nobody can draw, is dropped without a word:
+    /// the overlay is never a failure of the request.
+    pub(super) fn on_line(&self, body: &str) {
+        if !wants_feedback(self.desktop.as_ref()) {
+            return;
+        }
+        if let (Some(event), Some(inbox)) = (event(body), &self.inbox) {
+            // The overlay draws the arrow for an event it is sent: the next pointer action needs no prepare round trip.
+            super::computer_pointer::mark_ready(&self.session);
+            let _ = inbox.send(event);
+        }
+    }
+}
+/// Carries the events to the desktop, those that queued up while one request was out together.
+async fn serve(mut inbox: mpsc::UnboundedReceiver<Value>, desktop: Arc<dyn HostChannel>, session: String) {
+    while let Some(first) = inbox.recv().await {
+        let mut events = vec![first];
+        while events.len() < BATCH && let Ok(next) = inbox.try_recv() {
+            events.push(next);
+        }
+        let params = json!({"sessionId": session, "events": events});
+        // A relay the desktop could not carry means the overlay surface that draws the arrow is gone: the next pointer action asks for the arrow again.
+        if !matches!(mixdog_rt::time::timeout(SEND_TIMEOUT, desktop.request(HostCapability::Computer, Method(METHOD), params)).await, Ok(Ok(_))) {
+            super::computer_pointer::forget_ready(&session);
+        }
     }
 }

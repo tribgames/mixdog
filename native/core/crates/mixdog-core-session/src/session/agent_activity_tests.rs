@@ -47,34 +47,6 @@ fn reads(rig: &Rig) -> usize {
     rig.agents.reads.lock().unwrap().len()
 }
 
-/// A loaded thread shows its agent scope at once: it needs only the header (statusFor's scope), so no state shows the
-/// thread without it. The load's first status pass reads the rows one settle beat (16 ms) after the thread starts: empty
-/// lists change nothing, rows are published.
-#[tokio::test(start_paused = true)]
-async fn a_loaded_thread_shows_its_scope_at_once_and_its_rows_after_one_settle_beat() {
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
-    let quiet = start_thread(&directory).await;
-    assert_eq!(
-        serde_json::to_value(&quiet.cell.view.load_full().state).unwrap()["agents"],
-        scoped(ThreadAgents::default()),
-        "the scope before the settle beat"
-    );
-    // The settle beat passes only by this advance.
-    tokio::time::advance(super::actor::STATUS_SETTLE).await;
-    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
-    tokio::time::advance(Duration::from_millis(10)).await;
-    assert_eq!(published(&rig, &quiet.id), vec![scoped(ThreadAgents::default())], "empty lists change nothing more");
-
-    set_status(&rig, agents("review"));
-    let started = tokio::time::Instant::now();
-    let busy = start_thread(&directory).await;
-    tokio::time::advance(super::actor::STATUS_SETTLE).await;
-    eventually_on!(&[&rig.feeds.published], || (published(&rig, &busy.id).len() == 2).then_some(())).await;
-    assert!(tokio::time::Instant::now() - started >= super::actor::STATUS_SETTLE, "not before the settle beat");
-    assert_eq!(published(&rig, &busy.id), vec![scoped(ThreadAgents::default()), scoped(agents("review"))]);
-}
-
 /// A thread opened from the store shows its agent scope in the view its handle holds from the start, before its actor publishes
 /// anything: a `thread/read` answered at once (a phone's first snapshot of the control session) never finds it without.
 #[tokio::test(start_paused = true)]
@@ -84,98 +56,6 @@ async fn an_opened_thread_reads_with_its_scope_before_its_actor_runs() {
     let reopened = SessionDirectory::new(rig.deps());
     let handle = reopened.open_handle(&id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("reopened");
     assert_eq!(serde_json::to_value(&handle.cell.view.load_full().state).unwrap()["agents"], scoped(ThreadAgents::default()));
-}
-
-/// Each signal reads the owner's status again; an answer equal to the published one publishes
-/// nothing (`publishChanged`), a changed one is published.
-#[tokio::test(start_paused = true)]
-async fn a_job_change_republishes_the_owners_agent_status_only_when_it_changed() {
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    tokio::time::advance(super::actor::STATUS_SETTLE).await;
-    // The load's own pass (empty lists, nothing published past the load's scope).
-    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
-
-    set_status(&rig, agents("review"));
-    directory.agent_activity(handle.id.as_str());
-    eventually_on!(&[&rig.feeds.published], || (published(&rig, &handle.id).len() == 2).then_some(())).await;
-
-    // The same answer: read again, published no second time.
-    directory.agent_activity(handle.id.as_str());
-    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 3).then_some(())).await;
-
-    set_status(&rig, agents("plan"));
-    directory.agent_activity(handle.id.as_str());
-    eventually_on!(&[&rig.feeds.published], || (published(&rig, &handle.id).len() == 3).then_some(())).await;
-    assert_eq!(
-        published(&rig, &handle.id),
-        vec![scoped(ThreadAgents::default()), scoped(agents("review")), scoped(agents("plan"))],
-        "the repeated answer between them published nothing"
-    );
-    assert!(rig.agents.reads.lock().unwrap().iter().all(|thread| thread == &handle.id), "only the owner's status is read");
-}
-
-/// A session with no runtime here hears nothing: no status is read for it.
-#[tokio::test(start_paused = true)]
-async fn a_thread_that_is_not_loaded_hears_nothing() {
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    tokio::time::advance(super::actor::STATUS_SETTLE).await;
-    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
-    directory.agent_activity("never-loaded");
-    directory.agent_activity("");
-    tokio::time::advance(Duration::from_millis(50)).await;
-    assert_eq!(*rig.agents.reads.lock().unwrap(), vec![handle.id.clone()], "only the loaded thread's own load pass");
-    assert_eq!(published(&rig, &handle.id), vec![scoped(ThreadAgents::default())], "only the load's scope");
-}
-
-/// `idle-clock.mjs`: a deadline that finds the thread's background work running waits its whole
-/// delay again; the job ending (the signal) starts the clock over, and the thread unloads one
-/// full delay later.
-#[tokio::test(start_paused = true)]
-async fn a_thread_nobody_watched_stays_while_its_background_work_runs() {
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    turn(&handle, "start the job", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    rig.work.0.store(true, Ordering::SeqCst);
-
-    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
-    tokio::time::advance(Duration::from_millis(10)).await;
-    assert!(directory.handle(&handle.id).is_some(), "background work keeps the thread");
-
-    rig.work.0.store(false, Ordering::SeqCst);
-    directory.agent_activity(handle.id.as_str());
-    tokio::time::advance(Duration::from_millis(10)).await;
-    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
-    tokio::time::advance(Duration::from_millis(10)).await;
-    assert!(directory.handle(&handle.id).is_some(), "the clock started over at the signal");
-    tokio::time::advance(Duration::from_secs(2)).await;
-    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
-}
-
-/// A source that names no session (`statusMayHaveChanged()` of an approval wait, a stored record, a worker-index write) has
-/// a loaded thread read its status again and leaves its idle clock as it is: Node's clock hears only the session
-/// `emitSessionActivityChange` names, and the Goal decision the read schedules is no busy change.
-#[tokio::test(start_paused = true)]
-async fn a_status_signal_that_names_no_session_leaves_the_idle_clock() {
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
-    let handle = start_thread(&directory).await;
-    tokio::time::advance(super::actor::STATUS_SETTLE).await;
-    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
-
-    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(2)).await;
-    directory.status_may_have_changed(handle.id.as_str());
-    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 2).then_some(())).await;
-    tokio::time::advance(Duration::from_millis(10)).await;
-    super::tests::caught_up(&handle).await;
-    // Past the deadline the open armed, well before a whole delay after the signal.
-    tokio::time::advance(Duration::from_secs(3)).await;
-    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
 }
 
 /// How often the actors emitted `signal` (`approval`, `record`) for `thread`.
@@ -242,4 +122,121 @@ async fn an_approval_wait_signals_the_approval_change() {
     turn(&handle, "long job", "op-1").await;
     eventually_on!(&[&handle.cell.stepped], || (!handle.cell.approvals.load().is_empty()).then_some(())).await;
     eventually_on!(&[&rig.signals.1], || (signals(&rig, "approval", &handle.id) == 1).then_some(())).await;
+}
+
+
+/// A loaded thread shows its agent scope at once: it needs only the header (statusFor's scope), so no state shows the
+/// thread without it. The load's first status pass reads the rows one settle beat (16 ms) after the thread starts: empty
+/// lists change nothing, rows are published.
+#[tokio::test(start_paused = true)]
+async fn a_loaded_thread_shows_its_scope_at_once_and_its_rows_after_one_settle_beat() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let quiet = start_thread(&directory).await;
+    assert_eq!(
+        serde_json::to_value(&quiet.cell.view.load_full().state).unwrap()["agents"],
+        scoped(ThreadAgents::default()),
+        "the scope before the settle beat"
+    );
+    // The settle beat passes only by this advance.
+    tokio::time::advance(super::actor::STATUS_SETTLE).await;
+    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
+    tokio::time::advance(Duration::from_millis(10)).await;
+    assert_eq!(published(&rig, &quiet.id), vec![scoped(ThreadAgents::default())], "empty lists change nothing more");
+
+    set_status(&rig, agents("review"));
+    let started = tokio::time::Instant::now();
+    let busy = start_thread(&directory).await;
+    tokio::time::advance(super::actor::STATUS_SETTLE).await;
+    eventually_on!(&[&rig.feeds.published], || (published(&rig, &busy.id).len() == 2).then_some(())).await;
+    assert!(tokio::time::Instant::now() - started >= super::actor::STATUS_SETTLE, "not before the settle beat");
+    assert_eq!(published(&rig, &busy.id), vec![scoped(ThreadAgents::default()), scoped(agents("review"))]);
+}
+/// Each signal reads the owner's status again; an answer equal to the published one publishes
+/// nothing (`publishChanged`), a changed one is published.
+#[tokio::test(start_paused = true)]
+async fn a_job_change_republishes_the_owners_agent_status_only_when_it_changed() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    tokio::time::advance(super::actor::STATUS_SETTLE).await;
+    // The load's own pass (empty lists, nothing published past the load's scope).
+    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
+
+    set_status(&rig, agents("review"));
+    directory.agent_activity(handle.id.as_str());
+    eventually_on!(&[&rig.feeds.published], || (published(&rig, &handle.id).len() == 2).then_some(())).await;
+
+    // The same answer: read again, published no second time.
+    directory.agent_activity(handle.id.as_str());
+    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 3).then_some(())).await;
+
+    set_status(&rig, agents("plan"));
+    directory.agent_activity(handle.id.as_str());
+    eventually_on!(&[&rig.feeds.published], || (published(&rig, &handle.id).len() == 3).then_some(())).await;
+    assert_eq!(
+        published(&rig, &handle.id),
+        vec![scoped(ThreadAgents::default()), scoped(agents("review")), scoped(agents("plan"))],
+        "the repeated answer between them published nothing"
+    );
+    assert!(rig.agents.reads.lock().unwrap().iter().all(|thread| thread == &handle.id), "only the owner's status is read");
+}
+/// A session with no runtime here hears nothing: no status is read for it.
+#[tokio::test(start_paused = true)]
+async fn a_thread_that_is_not_loaded_hears_nothing() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    tokio::time::advance(super::actor::STATUS_SETTLE).await;
+    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
+    directory.agent_activity("never-loaded");
+    directory.agent_activity("");
+    tokio::time::advance(Duration::from_millis(50)).await;
+    assert_eq!(*rig.agents.reads.lock().unwrap(), vec![handle.id.clone()], "only the loaded thread's own load pass");
+    assert_eq!(published(&rig, &handle.id), vec![scoped(ThreadAgents::default())], "only the load's scope");
+}
+/// `idle-clock.mjs`: a deadline that finds the thread's background work running waits its whole
+/// delay again; the job ending (the signal) starts the clock over, and the thread unloads one
+/// full delay later.
+#[tokio::test(start_paused = true)]
+async fn a_thread_nobody_watched_stays_while_its_background_work_runs() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "start the job", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    rig.work.0.store(true, Ordering::SeqCst);
+
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    tokio::time::advance(Duration::from_millis(10)).await;
+    assert!(directory.handle(&handle.id).is_some(), "background work keeps the thread");
+
+    rig.work.0.store(false, Ordering::SeqCst);
+    directory.agent_activity(handle.id.as_str());
+    tokio::time::advance(Duration::from_millis(10)).await;
+    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
+    tokio::time::advance(Duration::from_millis(10)).await;
+    assert!(directory.handle(&handle.id).is_some(), "the clock started over at the signal");
+    tokio::time::advance(Duration::from_secs(2)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+}
+/// A source that names no session (`statusMayHaveChanged()` of an approval wait, a stored record, a worker-index write) has
+/// a loaded thread read its status again and leaves its idle clock as it is: Node's clock hears only the session
+/// `emitSessionActivityChange` names, and the Goal decision the read schedules is no busy change.
+#[tokio::test(start_paused = true)]
+async fn a_status_signal_that_names_no_session_leaves_the_idle_clock() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    tokio::time::advance(super::actor::STATUS_SETTLE).await;
+    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
+
+    tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(2)).await;
+    directory.status_may_have_changed(handle.id.as_str());
+    eventually_on!(&[&rig.agents.read], || (reads(&rig) == 2).then_some(())).await;
+    tokio::time::advance(Duration::from_millis(10)).await;
+    super::tests::caught_up(&handle).await;
+    // Past the deadline the open armed, well before a whole delay after the signal.
+    tokio::time::advance(Duration::from_secs(3)).await;
+    eventually_on!(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
 }

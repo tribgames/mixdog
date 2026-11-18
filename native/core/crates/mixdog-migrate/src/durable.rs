@@ -175,6 +175,21 @@ pub fn write_synced(path: &Path, bytes: &[u8]) -> Result<()> {
     fsio::flush(&file).map_err(|e| Blocked::io("sync", path, e))
 }
 
+/// Restages a private copy after a cut; the caller checks its digest before publishing it.
+pub fn stage_copy(from: &Path, to: &Path, secret: bool, may_disappear: bool) -> Result<bool> {
+    remove_file(to)?;
+    let mut source = match File::open(from) {
+        Ok(source) => source,
+        Err(error) if may_disappear && error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(Blocked::io("open", from, error)),
+    };
+    let access = if secret { fsio::Access::OwnerOnly } else { fsio::Access::Inherit };
+    let mut target = fsio::create_new_file(to, access).map_err(Blocked::fsio)?;
+    std::io::copy(&mut source, &mut target).map_err(|error| Blocked::io("copy", to, error))?;
+    fsio::sync_file(&target, to).map_err(Blocked::fsio)?;
+    Ok(true)
+}
+
 /// Removes a file that may already be gone; syncs its parent when it removed one.
 pub fn remove_file(path: &Path) -> Result<bool> {
     step(Step::Remove, path, &[]);
@@ -321,8 +336,9 @@ pub fn read_optional(path: &Path) -> Result<Option<Vec<u8>>> {
 /// that name at any moment (a core that serves behind the migration keeps some caches under the names 1.4.5 used). A check
 /// followed by an unlink of the name would delete what that writer published in between, so the file is first taken
 /// aside under a name nothing else writes, in one rename, and judged there: the planned file is deleted; any other is that
-/// writer's, and is given back unless a newer one already stands in its place. An aside a run left when it ended in
-/// between is judged first.
+/// writer's, and is given back unless a newer one already stands in its place.
+/// In that case keep the displaced replacement under its aside name. An aside
+/// a run left when it ended in between is judged first.
 pub fn remove_if_planned(path: &Path, size: u64, sha256: &str) -> Result<()> {
     let mut aside = path.as_os_str().to_owned();
     aside.push(".mixdog-migrated");
@@ -338,7 +354,9 @@ pub fn remove_if_planned(path: &Path, size: u64, sha256: &str) -> Result<()> {
     if found_size != size || found_sha256 != sha256 {
         match fs::hard_link(aside, path) {
             Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                return path.parent().map_or(Ok(()), sync_dir);
+            }
             Err(e) => return Err(Blocked::io("link", path, e)),
         }
     }

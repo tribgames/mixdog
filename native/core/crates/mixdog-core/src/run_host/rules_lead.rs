@@ -372,10 +372,13 @@ pub fn build_lead_language(paths: &LeadPaths, system_locale: &str) -> Option<(St
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds fixture trees")]
 mod tests {
+    #[cfg(node_twin)]
     use std::path::PathBuf;
 
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     fn write_tree(root: &Path, files: &Value) {
         for (rel, body) in files.as_object().unwrap() {
             let path = root.join(rel);
@@ -388,6 +391,7 @@ mod tests {
     /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): the Lead reads the document Node's
     /// `JSON.parse` reads (the half emoji as U+FFFD), not an empty config.
     #[test]
+    #[cfg(node_twin)]
     fn a_config_node_wrote_with_half_an_emoji_is_read_whole() {
         let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
         let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
@@ -401,6 +405,7 @@ mod tests {
     /// Node's lead meta, language and language-id builders over 234 cases: configs by object and
     /// by file, a user override of the shared format, unusable and partial style files.
     #[test]
+    #[cfg(node_twin)]
     fn the_lead_parts_follow_node() {
         let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/rules_lead.json")).expect("fixture");
         let root = PathBuf::from(std::env::var("TEMP").unwrap_or_else(|_| ".".into())).join(format!("lead-golden-{}", std::process::id()));
@@ -433,3 +438,5 @@ mod tests {
         }
     }
 }
+
+

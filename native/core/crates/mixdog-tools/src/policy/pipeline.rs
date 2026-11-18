@@ -29,6 +29,7 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use super::action::GrantKey;
+use super::action::kind_name;
 use super::card::CardEnricher;
 use super::card::apply_edited_args;
 use super::gate::AskPlan;
@@ -43,6 +44,10 @@ use super::gate::SessionFacts;
 use super::gate::decide;
 use super::grants::GrantStore;
 use super::grants::SESSION_GRANTED_DECISION;
+use super::offer::Caller;
+use super::offer::Card;
+use super::offer::offered_scopes;
+use super::offer::row_fields;
 use super::run_policy::RUN_FORBIDDEN_REASON;
 use super::run_policy::forbidden_in_run;
 use super::session_grants::SessionGrants;
@@ -50,7 +55,7 @@ use super::surface::SessionSurface;
 
 /// `ask_user` and `handoff_user` are themselves the user prompt; they never
 /// go through the ordinary approval gate.
-pub const USER_PROMPT_TOOLS: [&str; 2] = ["ask_user", "handoff_user"];
+const USER_PROMPT_TOOLS: [&str; 2] = ["ask_user", "handoff_user"];
 
 pub const CONNECTOR_APPROVAL_REASON: &str =
     "This connector tool is set to ask before it runs for this agent.";
@@ -87,7 +92,18 @@ pub trait PreToolHook: Send + Sync {
 /// resolves no MCP tool, and no other session's server is ever consulted.
 pub trait ToolResolver: Send + Sync {
     fn resolve(&self, scope: Option<&str>, name: &str) -> Option<Arc<dyn Tool>>;
+
+    /// One reading of the servers' published catalogs, as a judgement `(name, owner)`: whether `owner` (the server recorded with the
+    /// stored definition of the MCP tool `name`) has withdrawn it (published a catalog without it). A server that is down or a scope
+    /// that moved withdraws nothing. Every judgement of the result is made against the same reading, whatever a server publishes
+    /// after it.
+    fn withdrawal(&self) -> Withdrawal {
+        Arc::new(|_, _| false)
+    }
 }
+
+/// A judgement `(name, owner)` of whether an MCP tool's recorded owner has withdrawn it ([`ToolResolver::withdrawal`]).
+pub type Withdrawal = Arc<dyn Fn(&str, &str) -> bool + Send + Sync>;
 
 pub struct CallAccount {
     pub binding: mixdog_core_api::domain::tool::ConnectorAccountBinding,
@@ -109,6 +125,13 @@ pub trait ConnectorPermissions: Send + Sync {
     fn disabled(&self, connector_agent_id: &str, tool: &str) -> bool;
     /// Whether the project the thread runs in switched the connector tool off.
     fn project_disabled(&self, thread: &ThreadId, tool: &str) -> bool;
+    /// The stable identity of a tool: for a connector tool its connector and
+    /// tool name, whichever of the connector's accounts serves the call, so it
+    /// survives a reconnect and reads the same on every surface; any other
+    /// tool is its own name. What a remembered approval is keyed by.
+    fn tool_identity(&self, tool: &str) -> String {
+        tool.to_owned()
+    }
     /// Saves "always allow" for the bot's own entry of the tool; false when it
     /// could not be saved.
     async fn allow_always(&self, bot_id: &str, tool: &str) -> bool;
@@ -354,10 +377,12 @@ impl ToolPolicy {
             enricher: self.enricher.as_deref(),
             mcp_scope: rq.surface.mcp_scope.as_deref(),
         };
+        let identity = self.connectors.tool_identity(&call_name);
         let verdict = decide(
             &cx,
             &GateCall {
                 name: &call_name,
+                identity: &identity,
                 args: &call_args,
                 kind,
                 hook: decision.action,
@@ -466,17 +491,16 @@ impl ToolPolicy {
         {
             return Ok(false);
         }
-        // "Always allow" is offered only to the contact bot that is acting, for
-        // its own policy entry of this one tool: never another bot or Mixy.
+        // "Allow for this agent" is offered only to the contact bot that is acting,
+        // for its own policy entry of this one tool: never another bot or Mixy.
         let bot = facts
             .contact_bot
             .as_deref()
             .filter(|bot| *bot == facts.connector_agent_id);
-        let request = bot.map(|bot| AskRequest::Approval {
+        let offered = offered_scopes(Card::ConnectorPolicy, None, None, facts.caller());
+        let request = bot.map(|bot| AskRequest::Connector {
             agent_id: bot.to_owned(),
-            remember: vec![ApprovalRemember::Once, ApprovalRemember::Agent],
-            grant_action: None,
-            action_kind: None,
+            remember: offered.clone(),
         });
         let answer = self
             .ask(
@@ -492,7 +516,7 @@ impl ToolPolicy {
             )
             .await?;
         match bot {
-            Some(bot) if answer.remember == Some(ApprovalRemember::Agent) => {
+            Some(bot) if answer.remember == Some(ApprovalRemember::Agent) && offered.contains(&ApprovalRemember::Agent) => {
                 Ok(!self.connectors.allow_always(bot, name).await)
             }
             _ => Ok(false),
@@ -622,20 +646,33 @@ impl ToolPolicy {
                 grant_action,
                 action_kind,
             }) => {
-                fields.insert("kind".into(), "approval".into());
+                fields.insert("kind".into(), Card::HookAsk.kind().into());
                 fields.insert("agentId".into(), agent_id.clone().into());
                 if let Some(action) = grant_action {
                     fields.insert("grantAction".into(), action.render().into());
                 }
+                if let Some(kind) = action_kind {
+                    fields.insert(row_fields::ACTION_KIND.into(), kind_name(*kind).into());
+                }
                 (remember.clone(), *action_kind)
+            }
+            Some(AskRequest::Connector { agent_id, remember }) => {
+                fields.insert("kind".into(), Card::ConnectorPolicy.kind().into());
+                fields.insert(row_fields::CONNECTOR_POLICY.into(), true.into());
+                fields.insert("agentId".into(), agent_id.clone().into());
+                (remember.clone(), None)
             }
             Some(AskRequest::Outbound {
                 agent_id,
                 card,
                 remember,
             }) => {
-                fields.insert("kind".into(), "outbound".into());
+                fields.insert("kind".into(), Card::Outbound.kind().into());
                 fields.insert("agentId".into(), agent_id.clone().into());
+                // What every remembered choice on the card covers: this tool.
+                if let Some(grant) = spec.audit.and_then(|audit| audit.grant.as_ref()) {
+                    fields.insert("grantAction".into(), grant.render().into());
+                }
                 fields.insert("outbound".into(), card.to_json());
                 (remember.clone(), Some(card.category))
             }
@@ -646,6 +683,9 @@ impl ToolPolicy {
                 "remember".into(),
                 remember.iter().map(|s| remember_name(*s)).collect::<Vec<_>>().into(),
             );
+            if rq.facts.caller() == Caller::Unattended {
+                fields.insert(row_fields::UNATTENDED.into(), true.into());
+            }
         }
         if let Some(account) = spec.account.filter(|account| !mixdog_js::js_trim(account).is_empty()) {
             fields.insert("account".into(), mixdog_js::js_trim(account).into());
@@ -672,10 +712,10 @@ impl ToolPolicy {
             .map_err(|error| error.0)
     }
 
-    /// Audits one answered request and stores its remembered grant: "always"
-    /// (`agent`/`always`) in the store, "this session" in the session's own
-    /// grants. A denial, a timeout and a scope the request did not offer store
-    /// nothing.
+    /// Audits one answered request and stores its remembered grant: "this
+    /// agent" and "always" in the store, "this conversation" in the session's
+    /// own grants. A denial, a timeout and a scope the rule does not offer this
+    /// caller ([`GateAudit::offered`]) store nothing.
     async fn record_decision(
         &self,
         rq: &AuthorizeRequest<'_>,
@@ -686,8 +726,8 @@ impl ToolPolicy {
         device: &str,
     ) -> Result<(), String> {
         let mut granted = false;
-        if let (true, Some(action), Some(scope)) = (approved, &audit.action, remember)
-            && audit.remember.contains(&scope)
+        if let (true, Some(action), Some(scope)) = (approved, &audit.grant, remember)
+            && audit.offered(rq.facts.caller()).contains(&scope)
         {
             granted = self.store_grant(rq, audit, action, scope, device).await?;
         }
@@ -712,12 +752,11 @@ impl ToolPolicy {
     ) -> Result<bool, String> {
         match scope {
             ApprovalRemember::Once => Ok(false),
-            ApprovalRemember::Session => Ok(rq.facts.attended()
-                && rq
-                    .facts
-                    .life
-                    .as_deref()
-                    .is_some_and(|life| rq.session_grants.grant(&audit.agent_id, action, life))),
+            ApprovalRemember::Session => Ok(rq
+                .facts
+                .life
+                .as_deref()
+                .is_some_and(|life| rq.session_grants.grant(&audit.agent_id, action, life))),
             ApprovalRemember::Agent | ApprovalRemember::Always => self
                 .store
                 .grant(&audit.agent_id, action, scope, device)
@@ -814,6 +853,11 @@ mod tests {
 
         fn project_disabled(&self, _thread: &ThreadId, tool: &str) -> bool {
             self.project_off.iter().any(|n| n == tool)
+        }
+
+        /// A connector's second account is the same connector.
+        fn tool_identity(&self, tool: &str) -> String {
+            tool.replace("gmail-2", "gmail")
         }
 
         async fn allow_always(&self, bot_id: &str, tool: &str) -> bool {
@@ -1018,6 +1062,7 @@ mod tests {
         assert_eq!(asks[0].action_kind, Some(ActionKind::Comment));
         assert_eq!(asks[0].payload["kind"], "outbound");
         assert_eq!(asks[0].payload["outbound"]["payload"], "draft");
+        assert_eq!(asks[0].payload["grantAction"], "tool:github", "the card says which tool a remembered choice covers");
         assert_eq!(asks[0].payload["account"], "work@example.com");
         assert_eq!(
             asks[0].remember,
@@ -1084,7 +1129,7 @@ mod tests {
         assert_eq!(err.code, ToolErrorCode::PermissionDenied);
         assert_eq!(
             err.message_for_model,
-            "Error: tool \"github\" was not approved: This sends or posts outside Mixdog; it needs your approval. Do not retry it or reach the same result another way; report it."
+            "Error: tool \"github\" was not approved: This sends or posts on your behalf; it needs your approval. Do not retry it or reach the same result another way; report it."
         );
         assert_eq!(
             h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Comment), false).await,
@@ -1099,13 +1144,105 @@ mod tests {
         let policy = h.policy(None);
         h.run(&policy, &bot(), "github", comment_args()).await.expect("first");
         assert_eq!(
-            h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Comment), false).await,
+            h.store.mode_for("mailer", &GrantKey::tool("github").expect("key"), false).await,
             Ok(PermissionMode::Allow)
+        );
+        assert_eq!(
+            h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Comment), false).await,
+            Ok(PermissionMode::Ask),
+            "the category is not allowed"
         );
         h.run(&policy, &bot(), "github", comment_args()).await.expect("second");
         assert_eq!(h.asks().len(), 1);
         let decisions: Vec<_> = h.store.audit().into_iter().map(|e| e.decision).collect();
         assert_eq!(decisions, ["approve", "granted", "remembered"]);
+    }
+
+    /// Finding 1: approving one outbound tool for good, or for the conversation, does not
+    /// approve a different tool of the same category, even one its connector is set to ask for;
+    /// another account of the same connector is the same tool.
+    #[tokio::test]
+    async fn an_approval_is_for_the_tool_and_never_skips_another_tools_ask() {
+        // The outbound card offers once / this conversation / this agent (`offer::offered_scopes`);
+        // "always" is offered only on a hook's own ask of a call no outbound rule covers.
+        for scope in [ApprovalRemember::Agent, ApprovalRemember::Session] {
+            let tools = Tools::default()
+                .with("mcp__slack__post", Some(ActionKind::Message))
+                .with("mcp__chat__post", Some(ActionKind::Message))
+                .with("mcp__gmail__send", Some(ActionKind::Email))
+                .with("mcp__gmail-2__send", Some(ActionKind::Email));
+            let mut h = Harness::new(tools);
+            h.connectors = Arc::new(Connectors { needs: vec!["mcp__chat__post".into()], save_works: true, ..Connectors::default() });
+            let policy = h.policy(None);
+            h.answer(decided(true, Some(scope)));
+            h.run(&policy, &bot(), "mcp__slack__post", json!({})).await.expect("approved");
+            h.run(&policy, &bot(), "mcp__slack__post", json!({})).await.expect("remembered");
+            assert_eq!(h.asks().len(), 1, "{scope:?}: the approved tool is not asked again");
+            h.answer(decided(true, None));
+            h.run(&policy, &bot(), "mcp__chat__post", json!({})).await.expect("asked");
+            assert_eq!(h.asks().len(), 2, "{scope:?}: the other tool of the category is asked on its own card");
+            h.answer(decided(true, Some(scope)));
+            h.run(&policy, &bot(), "mcp__gmail__send", json!({})).await.expect("first account");
+            let before = h.asks().len();
+            h.run(&policy, &bot(), "mcp__gmail-2__send", json!({})).await.expect("second account");
+            assert_eq!(h.asks().len(), before, "{scope:?}: approvals are not separated by account");
+        }
+    }
+
+    /// "Always allow" is not a button of an outbound card, so an answer carrying it stores nothing.
+    #[tokio::test]
+    async fn an_outbound_card_does_not_offer_always_and_an_answer_of_it_stores_nothing() {
+        let h = Harness::new(Tools::default().with("mcp__slack__post", Some(ActionKind::Message)));
+        let policy = h.policy(None);
+        h.answer(decided(true, Some(ApprovalRemember::Always)));
+        h.run(&policy, &bot(), "mcp__slack__post", json!({})).await.expect("approved");
+        assert_eq!(h.asks()[0].remember, [ApprovalRemember::Session, ApprovalRemember::Agent]);
+        h.answer(decided(true, None));
+        h.run(&policy, &bot(), "mcp__slack__post", json!({})).await.expect("asked again");
+        assert_eq!(h.asks().len(), 2);
+    }
+
+    /// Regression: a hook's own `ask` on a bot's outbound call put the hook's scopes, "always"
+    /// included, on the outbound card, and the writer stored "always" because it was offered.
+    #[tokio::test]
+    async fn a_hook_ask_on_an_outbound_call_never_offers_or_stores_always() {
+        let h = Harness::new(Tools::default().with("mcp__slack__post", Some(ActionKind::Message)));
+        let hook: Arc<dyn PreToolHook> = Arc::new(FixedHook(Ok(Some(HookDecision {
+            action: HookAction::Ask,
+            reason: Some("hook rule".into()),
+            ..HookDecision::default()
+        }))));
+        let policy = h.policy(Some(hook));
+        h.answer(decided(true, Some(ApprovalRemember::Always)));
+        h.run(&policy, &bot(), "mcp__slack__post", json!({})).await.expect("approved once");
+        let asks = h.asks();
+        assert_eq!(asks[0].payload["kind"], "outbound");
+        assert_eq!(asks[0].payload["remember"], json!(["once", "session", "agent"]));
+        assert_eq!(asks[0].remember, [ApprovalRemember::Session, ApprovalRemember::Agent]);
+        let slack = GrantKey::tool("mcp__slack__post").expect("key");
+        for agent in ["mailer", "someone-else"] {
+            assert_eq!(h.store.mode_for(agent, &slack, false).await, Ok(PermissionMode::Ask), "{agent}");
+        }
+        let decisions: Vec<_> = h.store.audit().into_iter().map(|e| e.decision).collect();
+        assert_eq!(decisions, ["approve"], "nothing was granted");
+        h.answer(decided(true, None));
+        h.run(&policy, &bot(), "mcp__slack__post", json!({})).await.expect("asked again");
+        assert_eq!(h.asks().len(), 2);
+    }
+
+    /// An unattended session's card says so, so the row it is shown as offers what this caller can store.
+    #[tokio::test]
+    async fn an_unattended_card_offers_no_conversation_scope_and_says_it_is_unattended() {
+        let h = Harness::new(github());
+        let room = SessionFacts { run: Some(RunKind::Room), ..bot() };
+        h.answer(decided(true, Some(ApprovalRemember::Session)));
+        h.run(&h.policy(None), &room, "github", comment_args()).await.expect("approved once");
+        let asks = h.asks();
+        assert_eq!(asks[0].payload["remember"], json!(["once", "agent"]));
+        assert_eq!(asks[0].payload["unattended"], true);
+        h.answer(decided(true, None));
+        h.run(&h.policy(None), &room, "github", comment_args()).await.expect("asked again");
+        assert_eq!(h.asks().len(), 2, "no session grant was stored");
     }
 
     #[tokio::test]
@@ -1132,6 +1269,10 @@ mod tests {
         h.run(&h.policy(None), &bot(), "mcp__shop__buy", json!({"amount": 5})).await.expect("ok");
         assert_eq!(
             h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Payment), false).await,
+            Ok(PermissionMode::Ask)
+        );
+        assert_eq!(
+            h.store.mode_for("mailer", &GrantKey::Tool("mcp__shop__buy".into()), false).await,
             Ok(PermissionMode::Ask)
         );
         assert_eq!(h.asks()[0].action_kind, Some(ActionKind::Payment));
@@ -1225,6 +1366,7 @@ mod tests {
         let asks = h.asks();
         assert_eq!(asks[0].reason.as_deref(), Some(CONNECTOR_APPROVAL_REASON));
         assert_eq!(asks[0].remember, [ApprovalRemember::Agent]);
+        assert_eq!((asks[0].payload["kind"].as_str(), &asks[0].payload["connectorPolicy"]), (Some("approval"), &json!(true)));
         // The outbound card approved this very call: the connector ask is not repeated.
         h.answer(decided(true, None));
         h.run(&policy, &bot(), "github", comment_args()).await.expect("outbound");
@@ -1264,7 +1406,7 @@ mod tests {
         assert_eq!(err.code, ToolErrorCode::DeniedByHook);
         assert_eq!(
             err.message_for_model,
-            "Error: tool \"github\" denied by hook: approval required but no approval UI is available (This sends or posts outside Mixdog; it needs your approval.)"
+            "Error: tool \"github\" denied by hook: approval required but no approval UI is available (This sends or posts on your behalf; it needs your approval.)"
         );
         assert_eq!(h.store.audit().iter().map(|e| e.decision.as_str()).collect::<Vec<_>>(), ["deny"]);
         assert_eq!(

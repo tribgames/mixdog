@@ -212,12 +212,19 @@ impl GroupUsageTokens {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use mixdog_ledger::append::UsageRecord;
+    #[cfg(node_twin)]
     use mixdog_ledger::reader::UsageReader;
+    #[cfg(node_twin)]
     use mixdog_ledger::refresh::Pricer;
+    #[cfg(node_twin)]
     use mixdog_ledger::refresh::UsageRefresher;
+    #[cfg(node_twin)]
     use mixdog_ledger::repair::PriceRequest;
+    #[cfg(node_twin)]
     use mixdog_ledger::repair::Priced;
+    #[cfg(node_twin)]
     use mixdog_ledger::writer::UsageWriter;
 
     use super::*;
@@ -294,8 +301,10 @@ mod tests {
 
     /// `getUsageLedger()` / `usageLedgerIfOpen()` over the one ledger a test opens: closed until the
     /// golden step that opens it.
+    #[cfg(node_twin)]
     struct Gate(Mutex<Option<Arc<UsageLedger>>>);
 
+    #[cfg(node_twin)]
     impl LedgerIfOpen for Gate {
         fn if_open(&self) -> Option<Arc<dyn TokenLedger>> {
             self.0.lock().unwrap().clone().map(|ledger| ledger as Arc<dyn TokenLedger>)
@@ -303,8 +312,10 @@ mod tests {
     }
 
     /// The prices are never read: the golden rows arrive priced.
+    #[cfg(node_twin)]
     struct NoPrices;
 
+    #[cfg(node_twin)]
     impl Pricer for NoPrices {
         fn revision(&self) -> String {
             "none".into()
@@ -315,12 +326,24 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn without_an_open_ledger_or_a_group_nothing_is_kept() {
+        let (_ledger, open, _wakes, tokens) = rig();
+        tokens.tokens(&groups());
+        tokens.idle().await;
+        assert!(tokens.tokens(&[]).is_empty(), "nothing listed: nothing kept");
+        *open.0.lock().unwrap() = None;
+        assert!(tokens.tokens(&groups()).is_empty(), "asking never opens a ledger");
+    }
+
+
     /// Node's `groupUsageTokens` over its real ledger singleton, opened under a seeded temp
     /// `MIXDOG_DATA_DIR` (`fixtures/group-usage-tokens/golden.json`, `record-group-usage-tokens.mjs`).
     /// The same rows are written to a real Rust ledger step by step; what the first listing answers,
     /// the pool wake-ups the background read causes, what the next listing answers, and the ledger's
     /// own token of each group are the ones Node gave.
     #[tokio::test(flavor = "multi_thread")]
+    #[cfg(node_twin)]
     async fn the_listings_and_wakes_are_the_ones_node_gives_over_a_real_ledger() {
         let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/group-usage-tokens/golden.json")).unwrap();
         let tokens = mixdog_rt::testing::tokens();
@@ -368,15 +391,5 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[tokio::test]
-    async fn without_an_open_ledger_or_a_group_nothing_is_kept() {
-        let (_ledger, open, _wakes, tokens) = rig();
-        tokens.tokens(&groups());
-        tokens.idle().await;
-        assert!(tokens.tokens(&[]).is_empty(), "nothing listed: nothing kept");
-        *open.0.lock().unwrap() = None;
-        assert!(tokens.tokens(&groups()).is_empty(), "asking never opens a ledger");
     }
 }

@@ -1,26 +1,44 @@
 //! The recorded `.mixdog` data directories a test migrates and opens through the real store, as the core does at its first start.
 
+#[cfg(node_twin)]
 use std::path::Path;
+#[cfg(node_twin)]
 use std::sync::Arc;
 
+#[cfg(node_twin)]
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::ext::DocumentText;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::ext::ExtError;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::ext::PdfIntake;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::mock::MockOwnership;
+#[cfg(node_twin)]
 use mixdog_core_session::session::StoreThreads;
+#[cfg(node_twin)]
 use mixdog_migrate::durable;
+#[cfg(node_twin)]
 use mixdog_migrate::framework::MigrationRoots;
+#[cfg(node_twin)]
 use mixdog_migrate::index::IndexProjector;
+#[cfg(node_twin)]
 use mixdog_migrate::run::MigrateOptions;
+#[cfg(node_twin)]
 use mixdog_migrate::run::Migrator;
+#[cfg(node_twin)]
 use mixdog_migrate::run::product_drivers;
+#[cfg(node_twin)]
 use mixdog_migrate::session::context_blobs::OfficeExtractor;
+#[cfg(node_twin)]
 use mixdog_protocol::ThreadId;
 
+#[cfg(node_twin)]
 struct NoDocuments;
 
 #[async_trait]
+#[cfg(node_twin)]
 impl DocumentText for NoDocuments {
     async fn office_text(&self, _: &ThreadId, filename: &str, _: &str) -> Result<Option<String>, ExtError> {
         panic!("the recorded data has no office part, yet {filename} was extracted")
@@ -33,14 +51,17 @@ impl DocumentText for NoDocuments {
     }
 }
 
+#[cfg(node_twin)]
 struct StoreProjector;
 
+#[cfg(node_twin)]
 impl IndexProjector for StoreProjector {
     fn project(&self, data: &Path, db: &Path, sessions: &[String]) -> Result<(), String> {
         mixdog_store::sqlite::project_index(data, db, sessions)
     }
 }
 
+#[cfg(node_twin)]
 fn copy_tree(from: &Path, to: &Path) {
     for rel in durable::walk_files(from).expect("walk the recording") {
         let target = to.join(&rel);
@@ -51,6 +72,7 @@ fn copy_tree(from: &Path, to: &Path) {
 
 /// A recorded `.mixdog` (and its desktop `profile`, when the recording has one) copied to a scratch directory and migrated, as
 /// the core does at its first start.
+#[cfg(node_twin)]
 pub(super) async fn migrated_from(recording: &Path) -> (tempfile::TempDir, MigrationRoots) {
     let dir = tempfile::tempdir().expect("scratch dir");
     let home = dir.path().join(".mixdog");
@@ -69,6 +91,7 @@ pub(super) async fn migrated_from(recording: &Path) -> (tempfile::TempDir, Migra
 }
 
 /// The migrated directory's index and thread store, as the core opens them.
+#[cfg(node_twin)]
 pub(super) async fn opened(roots: &MigrationRoots) -> (mixdog_store::sqlite::SqliteStore, Arc<StoreThreads>) {
     let tokens = mixdog_rt::testing::tokens();
     let root = roots.data.clone();

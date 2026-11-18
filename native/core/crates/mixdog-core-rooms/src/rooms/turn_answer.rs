@@ -9,6 +9,12 @@ use serde_json::{Value, json};
 use super::config::{is_pass_reply, without_pass_marker};
 
 #[cfg(test)]
+mod feature_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(test)]
 mod tests;
 
 const TOOL_SUMMARY: usize = 400;

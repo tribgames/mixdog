@@ -1,3 +1,4 @@
+mod client_guards;
 mod common;
 mod connected_listing;
 mod delivery;
@@ -5,21 +6,33 @@ mod ds_rem1;
 mod e2ee_fixture;
 mod foreground;
 mod legacy_push;
-mod live_view_relay;
-mod live_view_signals;
+#[cfg(node_twin)]
 mod live_view_host;
+#[cfg(node_twin)]
+mod live_view_relay;
+#[cfg(node_twin)]
+mod live_view_signals;
+#[cfg(node_twin)]
 mod live_view_viewer;
 mod live_view_writes;
 mod lr9_origin;
 mod native_push_kat;
 mod relay_closed;
 mod relay_interop;
+#[cfg(node_twin)]
 mod relay_redial;
 mod remote_modules;
 mod terminal_output_droppable;
 mod transport_coordinator;
 mod transport_media;
 mod transport_session;
+#[cfg(node_twin)]
 mod transport_signals;
+#[cfg(node_twin)]
 mod transport_vectors;
 mod web_push_kat;
+mod wire_contracts;
+mod live_view_service;
+mod capture_ownership;
+mod transport_recovery;
+mod signal_tables;

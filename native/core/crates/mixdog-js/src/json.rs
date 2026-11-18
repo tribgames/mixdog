@@ -214,21 +214,6 @@ fn write(value: &Value, indent: Option<usize>, depth: usize, keys: Keys, parsed:
 mod tests {
     use super::*;
 
-    /// `[input, JSON.stringify(JSON.parse(input)), JSON.stringify(JSON.parse(input), null, 2)]`
-    /// rows written by Node.
-    const ROWS: &str = include_str!("../testdata/json_stringify.json");
-
-    #[test]
-    fn stringify_matches_node() {
-        let rows: Vec<(String, String, String)> = serde_json::from_str(ROWS).expect("fixture");
-        assert!(rows.len() > 50);
-        for (input, compact, pretty) in rows {
-            let value: Value = serde_json::from_str(&input).expect("input");
-            assert_eq!(stringify(&value), compact, "{input}");
-            assert_eq!(stringify_indent(&value, 2), pretty, "{input} (indent 2)");
-        }
-    }
-
     #[test]
     fn sorting_outside_arrays_leaves_arrays_as_written() {
         // Node: _stableStringify (openai-ws-delta.mjs) and stableTraceStringify (trace-utils.mjs)
@@ -255,5 +240,64 @@ mod tests {
     fn integer_like_keys_come_first_in_ascending_order() {
         let value: Value = serde_json::from_str(r#"{"b":1,"10":2,"a":3,"2":4,"01":5,"4294967295":6,"4294967294":7}"#).expect("json");
         assert_eq!(stringify(&value), r#"{"2":4,"10":2,"4294967294":7,"b":1,"a":3,"01":5,"4294967295":6}"#);
+    }
+
+
+    fn both(input: &str) -> (String, String) {
+        let value: Value = serde_json::from_str(input).expect("input");
+        (stringify(&value), stringify_indent(&value, 2))
+    }
+
+    #[test]
+    fn numbers_are_written_as_javascript_writes_them() {
+        // Number::toString: no exponent below 1e21 and above 1e-7, a signed exponent beyond, no `.0` on whole numbers.
+        for (input, text) in [
+            ("1.0", "1"),
+            ("1e21", "1e+21"),
+            ("1e-7", "1e-7"),
+            ("0.000001", "0.000001"),
+            ("123456789012345680000", "123456789012345680000"),
+            ("-0.0", "0"),
+            ("0.1", "0.1"),
+            ("[1.5,-2]", "[1.5,-2]"),
+        ] {
+            assert_eq!(both(input).0, text, "{input}");
+        }
+    }
+
+    #[test]
+    fn strings_escape_quotes_backslashes_and_control_characters_only() {
+        // JSON.stringify escapes `"`, `\`, U+0000..U+001F (short forms for \b \t \n \f \r) and leaves everything else, U+007F and
+        // non-ASCII included, as it is.
+        assert_eq!(both(r#""a\"b\\c\n\t\b\f\r\u0001\u001f\u007f é 😀""#).0, "\"a\\\"b\\\\c\\n\\t\\b\\f\\r\\u0001\\u001f\u{7f} é 😀\"");
+    }
+
+    #[test]
+    fn indent_two_puts_each_member_on_its_own_line_and_keeps_empty_containers_closed() {
+        let (compact, pretty) = both(r#"{"a":[1,{"b":null}],"c":{},"d":[]}"#);
+        assert_eq!(compact, r#"{"a":[1,{"b":null}],"c":{},"d":[]}"#);
+        assert_eq!(pretty, "{\n  \"a\": [\n    1,\n    {\n      \"b\": null\n    }\n  ],\n  \"c\": {},\n  \"d\": []\n}");
+        assert_eq!(both("[]"), ("[]".into(), "[]".into()));
+        assert_eq!(both("true").1, "true");
+    }
+}
+
+/// The rows of the recorded JSON answers of the reference runtime; compiled only on the machine that holds them.
+#[cfg(all(test, node_twin))]
+mod node_twin {
+    use super::*;
+
+    /// `[input, JSON.stringify(JSON.parse(input)), JSON.stringify(JSON.parse(input), null, 2)]` rows.
+    const ROWS: &str = include_str!("../testdata/json_stringify.json");
+
+    #[test]
+    fn stringify_matches_the_recorded_rows() {
+        let rows: Vec<(String, String, String)> = serde_json::from_str(ROWS).expect("fixture");
+        assert!(rows.len() > 50);
+        for (input, compact, pretty) in rows {
+            let value: Value = serde_json::from_str(&input).expect("input");
+            assert_eq!(stringify(&value), compact, "{input}");
+            assert_eq!(stringify_indent(&value, 2), pretty, "{input} (indent 2)");
+        }
     }
 }

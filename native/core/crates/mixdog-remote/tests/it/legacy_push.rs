@@ -1,6 +1,6 @@
-//! The PC-signed Web Push path (push-subscription-store.ts, web-push.ts): the VAPID header
+//! The PC-signed Web Push path: the VAPID header
 //! verifies against the stored public key, and a send reaches the poster with the headers
-//! `sendWebPush` sets and a body the subscription can open.
+//! the headers a send sets and a body the subscription can open.
 
 use std::sync::Mutex;
 

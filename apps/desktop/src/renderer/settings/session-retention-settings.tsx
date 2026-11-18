@@ -1,5 +1,6 @@
 // Settings → General → Sessions: auto-archive of unused sessions and
-// auto-delete of archived ones (main/session-auto-retention.ts runs the pass).
+// auto-delete of archived ones (the core's session auto-retention cycle runs the pass:
+// native/core/crates/mixdog-core-session/src/session/auto_retention.rs).
 import { useEffect, useState } from 'react';
 
 import {
@@ -14,7 +15,7 @@ import { OpenSelect } from '../OpenSelect';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import { Group, SelectRow } from './capability-controls';
 import type { PanelContext } from './capability-data';
-import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from './desktop-status-cache';
+import { getCachedDesktopStatus, readDesktopStatus, writeDesktopStatus } from './desktop-status-cache';
 
 type RetentionApi = Partial<Pick<DesktopApi, 'readSettings' | 'setSessionRetention'>>;
 
@@ -56,11 +57,11 @@ export function SessionRetentionSettings({ pending }: Pick<PanelContext, 'pendin
     const days = Number(value);
     if (days === settings[key]) return;
     setError('');
-    void api
-      .setSessionRetention?.(key, days)
+    void writeDesktopStatus(api, 'settings', () => api.setSessionRetention?.(key, days))
       .then((saved) => {
-        storeDesktopStatus(api, 'settings', saved);
-        setSettings(saved);
+        // The newest value held: an answer overtaken by a newer read is not shown.
+        const current = getCachedDesktopStatus(api, 'settings') ?? saved;
+        if (current) setSettings(current);
       })
       .catch(() => setError(t('The setting could not be saved.')));
   };

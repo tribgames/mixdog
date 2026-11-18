@@ -105,8 +105,3 @@ pub(crate) fn list(value: Option<&Value>) -> &[Value] {
 pub(crate) fn path_or(value: &Value, fallback: &str) -> String {
     text_or(field(value, "path"), fallback)
 }
-
-/// `a || b` where both may be absent: the first truthy text, else none.
-pub(crate) fn first_text(candidates: &[Option<&Value>]) -> Option<String> {
-    candidates.iter().find(|candidate| crate::is_truthy(**candidate)).map(|candidate| text(*candidate))
-}

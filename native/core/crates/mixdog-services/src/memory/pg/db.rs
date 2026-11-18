@@ -11,6 +11,7 @@ use deadpool_postgres::{Manager, ManagerConfig, Object, Pool, RecyclingMethod, R
 use tokio_postgres::{Config, NoTls, Row, ToStatement, types::ToSql};
 
 use crate::memory::error::{MemoryError, Result};
+use crate::memory::lifecycle::Scope;
 use crate::memory::pg::cluster::PgCluster;
 
 pub const DATABASE: &str = "mixdog";
@@ -84,10 +85,87 @@ pub(super) fn config(port: u16, database: &str, search_path: Option<&str>) -> Co
     config
 }
 
-fn build_pool(config: Config, size: usize) -> Result<Pool> {
-    let manager = Manager::from_config(
+/// Opens a pooled connection whose driver is a slot of the owner's transport group: registered before its pump starts and outstanding until the pump
+/// destroyed it, so the owner's local revocation is acknowledged only once no driver of this process can write to the socket any more. The handle
+/// deadpool keeps (aborted when the pooled client is dropped or discarded) cuts that one slot when it goes.
+struct OwnedConnect {
+    transport: Scope,
+}
+
+/// Held by the next driver a test arms it for: its drop (the driver's destruction) tells `entered` and blocks until `gate` opens.
+#[cfg(test)]
+pub(crate) struct DriverDropFence {
+    pub entered: std::sync::mpsc::Sender<()>,
+    pub gate: std::sync::mpsc::Receiver<()>,
+}
+
+#[cfg(test)]
+impl Drop for DriverDropFence {
+    fn drop(&mut self) {
+        let _ = self.entered.send(());
+        let _ = self.gate.recv();
+    }
+}
+
+#[cfg(test)]
+pub(crate) static DRIVER_DROP_FENCE: std::sync::Mutex<Option<DriverDropFence>> = std::sync::Mutex::new(None);
+
+/// Cuts its driver slot when deadpool aborts or drops the connection task.
+struct CutOnDrop(crate::memory::lifecycle::Owned<()>);
+
+impl Drop for CutOnDrop {
+    fn drop(&mut self) {
+        self.0.cut();
+    }
+}
+
+impl deadpool_postgres::Connect for OwnedConnect {
+    fn connect(
+        &self,
+        pg_config: &Config,
+    ) -> BoxFuture<'_, std::result::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>), tokio_postgres::Error>> {
+        let pg_config = pg_config.clone();
+        Box::pin(async move {
+            // The connect itself is the slot's work: the slot is registered before the socket is opened, the connection is established inside it,
+            // and the same slot then drives it. A caller that stops waiting (or a revocation) destroys the attempt with the slot, so no connect runs
+            // unowned and none outlives the owner's acknowledgement.
+            #[cfg(test)]
+            let fence = DRIVER_DROP_FENCE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+            let (handed, client) = tokio::sync::oneshot::channel();
+            let driver = self.transport.spawn("services.memory.pg-connection", async move {
+                #[cfg(test)]
+                let _fence = fence;
+                #[cfg(test)]
+                crate::memory::lifecycle::fences::pass("pg-connect").await;
+                match pg_config.connect(NoTls).await {
+                    Ok((client, connection)) => {
+                        if handed.send(Ok(client)).is_ok() {
+                            let _ = connection.await;
+                        }
+                    }
+                    Err(error) => drop(handed.send(Err(error))),
+                }
+            });
+            // Refused (the owner is revoking) or destroyed mid-connect: the pool sees a failed create. `tokio_postgres` has no public constructor
+            // for another error kind.
+            let Some(driver) = driver else { return Err(tokio_postgres::Error::__private_api_timeout()) };
+            let mut held = CutOnDrop(driver);
+            let client = match client.await {
+                Ok(connected) => connected?,
+                Err(_) => return Err(tokio_postgres::Error::__private_api_timeout()),
+            };
+            let task = mixdog_rt::spawn("services.memory.pg-driver-handle", mixdog_rt::TaskClass::Work, async move {
+                let _ = (&mut held.0).await;
+            });
+            Ok((client, task))
+        })
+    }
+}
+
+fn build_pool(config: Config, size: usize, scope: &Scope) -> Result<Pool> {
+    let manager = Manager::from_connect(
         config,
-        NoTls,
+        OwnedConnect { transport: scope.transport() },
         ManagerConfig {
             recycling_method: RecyclingMethod::Fast,
         },
@@ -102,63 +180,119 @@ fn build_pool(config: Config, size: usize) -> Result<Pool> {
         .map_err(|error| MemoryError::Pool(error.to_string()))
 }
 
+/// A pooled connection held for state-changing SQL: a transaction, a session setting or a session-level advisory lock. It is taken before the first
+/// such statement and goes back to the pool only through [`Lease::release`], when no transaction it began is still open and its reset statement (if
+/// any) succeeded. Dropped any other way (a failed `COMMIT`/`ROLLBACK`/reset, an error path, the future that held it cancelled or revoked by its
+/// scope), the connection is discarded: the client is closed, so the abandoned work can issue no further SQL, PostgreSQL ends the open transaction
+/// and releases the session's locks with the backend, and nothing open returns to the pool. No rollback is ever spawned on its behalf.
+pub struct Lease {
+    client: Option<Object>,
+    /// A `BEGIN` was sent and no `COMMIT`/`ROLLBACK` has succeeded since.
+    open: std::sync::atomic::AtomicBool,
+}
+
+impl Lease {
+    pub async fn take(db: &Db) -> Result<Self> {
+        Ok(Self::over(db.client().await?))
+    }
+
+    fn over(client: Object) -> Self {
+        Self { client: Some(client), open: std::sync::atomic::AtomicBool::new(false) }
+    }
+
+    /// `BEGIN`: from here the lease returns to the pool only after a `COMMIT` or `ROLLBACK` succeeded.
+    pub async fn begin(&self) -> std::result::Result<(), tokio_postgres::Error> {
+        self.open.store(true, std::sync::atomic::Ordering::Release);
+        self.batch_execute("BEGIN").await
+    }
+
+    pub async fn commit(&self) -> std::result::Result<(), tokio_postgres::Error> {
+        self.end("COMMIT").await
+    }
+
+    pub async fn rollback(&self) -> std::result::Result<(), tokio_postgres::Error> {
+        self.end("ROLLBACK").await
+    }
+
+    async fn end(&self, sql: &str) -> std::result::Result<(), tokio_postgres::Error> {
+        self.batch_execute(sql).await?;
+        self.open.store(false, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
+    /// Ends the lease: `reset` undoes the session state it set, then the connection goes back to the pool. A transaction still open or a reset that
+    /// failed discards it instead.
+    pub async fn release(mut self, reset: Option<&str>) {
+        if self.open.load(std::sync::atomic::Ordering::Acquire) {
+            return;
+        }
+        if let Some(sql) = reset
+            && self.batch_execute(sql).await.is_err()
+        {
+            return;
+        }
+        drop(self.client.take());
+    }
+}
+
+impl std::ops::Deref for Lease {
+    type Target = Object;
+
+    fn deref(&self) -> &Object {
+        self.client.as_ref().expect("a lease holds its connection until it ends")
+    }
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        if let Some(client) = self.client.take() {
+            drop(Object::take(client));
+        }
+    }
+}
+
 /// A session-scoped advisory lock on a dedicated connection; released by
-/// `unlock`. A connection whose unlock failed is dropped, never pooled.
+/// `unlock`. A connection whose unlock failed, or whose holder was cancelled, is discarded, never pooled
+/// (PostgreSQL releases the lock with the backend).
 async fn with_cluster_lock<T, F>(pool: &Pool, object: i32, body: F) -> Result<T>
 where
     F: AsyncFnOnce(&Object) -> Result<T>,
 {
-    let client = pool.get().await?;
+    let lease = Lease::over(pool.get().await?);
     // The wait for another process's first-boot DDL is longer than a row-lock wait; the
     // session returns to the pool budget when the lock is released.
-    client
+    lease
         .batch_execute(&format!(
             "SET lock_timeout = {}",
             BUDGET.cluster_lock.as_millis()
         ))
         .await?;
-    client
+    lease
         .execute("SELECT pg_advisory_lock($1, $2)", &[&LOCK_CLASS, &object])
         .await?;
-    let result = body(&client).await;
-    let released = async {
-        client
-            .execute("SELECT pg_advisory_unlock($1, $2)", &[&LOCK_CLASS, &object])
-            .await?;
-        client.batch_execute("RESET lock_timeout").await
-    };
-    if released.await.is_err() {
-        let _ = Object::take(client);
+    let result = body(&lease).await;
+    if lease.execute("SELECT pg_advisory_unlock($1, $2)", &[&LOCK_CLASS, &object]).await.is_ok() {
+        lease.release(Some("RESET lock_timeout")).await;
     }
     result
 }
 
-/// Runs `work` inside the stores' transaction on one pooled connection, with their statement text (`BEGIN`, then
+/// Runs `work` inside the stores' transaction on one leased connection, with their statement text (`BEGIN`, then
 /// `COMMIT`, or `ROLLBACK` when `work` fails: core-memory-store.mjs:154-185). A connection whose transaction did not
-/// end (a failed `COMMIT` or `ROLLBACK`, or a call dropped part-way) is closed, never pooled.
+/// end (a failed `COMMIT` or `ROLLBACK`, or a call dropped part-way) is discarded, never pooled ([`Lease`]).
 pub async fn transaction<T>(db: &Db, work: impl AsyncFnOnce(&Object) -> Result<T>) -> Result<T> {
-    struct Open(Option<Object>);
-    impl Drop for Open {
-        fn drop(&mut self) {
-            if let Some(client) = self.0.take() {
-                drop(Object::take(client));
-            }
-        }
-    }
-    let mut open = Open(Some(db.client().await?));
-    let client = open.0.as_ref().expect("the connection");
-    client.batch_execute("BEGIN").await?;
-    match work(client).await {
+    let lease = Lease::take(db).await?;
+    lease.begin().await?;
+    match work(&lease).await {
         Ok(value) => {
-            client.batch_execute("COMMIT").await?;
-            // Ended: the connection goes back to the pool.
-            drop(open.0.take());
+            lease.commit().await?;
+            lease.release(None).await;
             Ok(value)
         }
         // The failure is the call's, never the rollback's (Node ignores a failed `ROLLBACK`).
         Err(error) => {
-            if client.batch_execute("ROLLBACK").await.is_ok() {
-                drop(open.0.take());
+            if lease.rollback().await.is_ok() {
+                lease.release(None).await;
             }
             Err(error)
         }
@@ -167,8 +301,8 @@ pub async fn transaction<T>(db: &Db, work: impl AsyncFnOnce(&Object) -> Result<T
 
 /// Creates the database and the cluster-wide extension once per call; both
 /// statements are idempotent and serialised by cluster advisory locks.
-async fn bootstrap(cluster: &PgCluster) -> Result<()> {
-    let admin = build_pool(config(cluster.port(), "postgres", None), 1)?;
+async fn bootstrap(cluster: &PgCluster, scope: &Scope) -> Result<()> {
+    let admin = build_pool(config(cluster.port(), "postgres", None), 1, scope)?;
     with_cluster_lock(&admin, LOCK_CREATE_DB, async |client| {
         let exists = client.query_opt("SELECT 1 FROM pg_database WHERE datname = $1", &[&DATABASE]).await?;
         if exists.is_none() {
@@ -178,12 +312,12 @@ async fn bootstrap(cluster: &PgCluster) -> Result<()> {
     })
     .await?;
     admin.close();
-    bootstrap_schemas(cluster.port(), DATABASE).await
+    bootstrap_schemas(cluster.port(), DATABASE, scope).await
 }
 
 /// The extension and the schemas of `database` (idempotent, serialised by the cluster advisory lock of first-boot DDL).
-async fn bootstrap_schemas(port: u16, database: &str) -> Result<()> {
-    let setup = build_pool(config(port, database, None), 1)?;
+async fn bootstrap_schemas(port: u16, database: &str, scope: &Scope) -> Result<()> {
+    let setup = build_pool(config(port, database, None), 1, scope)?;
     with_cluster_lock(&setup, LOCK_SCHEMA_BOOTSTRAP, async |client| {
         client
             .batch_execute(
@@ -214,20 +348,35 @@ enum PoolSource {
     Deferred(PoolOpener, OpeningSince),
 }
 
-/// A bounded pool of connections with the schema's `search_path`.
+/// A bounded pool of connections with the schema's `search_path`, and the lifecycle owner every task working through it registers in
+/// ([`Db::scope`]): the memory stack gives all its handles its one scope, so its stop seals, waits for and revokes that work.
 #[derive(Clone)]
 pub struct Db {
     pool: PoolSource,
     schema: Schema,
+    scope: Scope,
 }
 
 impl Db {
-    /// Opens the schema's pool, creating the database and extension first.
-    pub async fn open(cluster: &PgCluster, schema: Schema) -> Result<Self> {
-        bootstrap(cluster).await?;
+    /// Opens the schema's pool, creating the database and extension first. The bootstrap connections and every pooled connection's driver are
+    /// `scope`'s transport, and the handle's work is `scope`'s.
+    pub async fn open(cluster: &PgCluster, schema: Schema, scope: Scope) -> Result<Self> {
+        bootstrap(cluster, &scope).await?;
         let path = format!("{}, public", schema.name());
-        let pool = build_pool(config(cluster.port(), DATABASE, Some(&path)), POOL_SIZE)?;
-        Ok(Self { pool: PoolSource::Open(pool), schema })
+        let pool = build_pool(config(cluster.port(), DATABASE, Some(&path)), POOL_SIZE, &scope)?;
+        Ok(Self { pool: PoolSource::Open(pool), schema, scope })
+    }
+
+    /// A deferred handle with its work owned by `scope` (an open handle's pool belongs to the scope it was opened with).
+    pub fn with_scope(mut self, scope: Scope) -> Self {
+        debug_assert!(matches!(self.pool, PoolSource::Deferred(..)), "an open pool's drivers belong to the scope it was opened with");
+        self.scope = scope;
+        self
+    }
+
+    /// The owner of the work done through this handle.
+    pub fn scope(&self) -> &Scope {
+        &self.scope
     }
 
     /// A handle over `database` of the cluster on `port`, which already holds the extension and the schemas of a bootstrap
@@ -235,24 +384,25 @@ impl Db {
     #[cfg(test)]
     pub(crate) fn open_in(port: u16, database: &str, schema: Schema) -> Result<Self> {
         let path = format!("{}, public", schema.name());
-        Ok(Self { pool: PoolSource::Open(build_pool(config(port, database, Some(&path)), POOL_SIZE)?), schema })
+        let scope = Scope::new();
+        Ok(Self { pool: PoolSource::Open(build_pool(config(port, database, Some(&path)), POOL_SIZE, &scope)?), schema, scope })
     }
 
     /// What `open` makes of a new cluster's `database`: the extension and the schemas.
     #[cfg(test)]
     pub(crate) async fn bootstrap_database(port: u16, database: &str) -> Result<()> {
-        bootstrap_schemas(port, database).await
+        bootstrap_schemas(port, database, &Scope::new()).await
     }
 
-    /// An open handle whose pool has not connected (a pool connects at its first use).
+    /// An open handle of `scope` whose pool has not connected (a pool connects at its first use).
     #[cfg(test)]
-    pub(crate) fn unconnected(port: u16, schema: Schema) -> Self {
-        Self { pool: PoolSource::Open(build_pool(config(port, DATABASE, None), POOL_SIZE).expect("pool")), schema }
+    pub(crate) fn unconnected(port: u16, schema: Schema, scope: Scope) -> Self {
+        Self { pool: PoolSource::Open(build_pool(config(port, DATABASE, None), POOL_SIZE, &scope).expect("pool")), schema, scope }
     }
 
     /// A handle whose pool `opener` hands over at each use; `since` tells when the opening a use waits on was launched.
     pub fn deferred(schema: Schema, opener: PoolOpener, since: OpeningSince) -> Self {
-        Self { pool: PoolSource::Deferred(opener, since), schema }
+        Self { pool: PoolSource::Deferred(opener, since), schema, scope: Scope::new() }
     }
 
     /// The pool of a handle that is already open (what a deferred handle's opener hands over).
@@ -347,6 +497,7 @@ mod tests {
     /// A postmaster that accepts the TCP connection and never answers the startup packet.
     #[tokio::test(start_paused = true)]
     async fn a_silent_postgres_fails_the_checkout_instead_of_holding_it() {
+        mixdog_rt::testing::tokens();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let silent = tokio::spawn(async move {
@@ -355,7 +506,7 @@ mod tests {
                 held.push(socket);
             }
         });
-        let pool = build_pool(config(port, DATABASE, Some("memory, public")), 1).unwrap();
+        let pool = build_pool(config(port, DATABASE, Some("memory, public")), 1, &Scope::new()).unwrap();
         let outcome = mixdog_rt::time::timeout(BUDGET.connect * 3, pool.get()).await;
         assert!(
             matches!(outcome, Ok(Err(_))),
@@ -379,7 +530,7 @@ mod tests {
             let mut opened = waiting.lock().unwrap().clone().expect("the gate");
             Box::pin(async move {
                 let _ = opened.wait_for(|open| *open).await;
-                build_pool(config(1, DATABASE, None), 1)
+                build_pool(config(1, DATABASE, None), 1, &Scope::new())
             })
         });
         let db = Db::deferred(Schema::Memory, opener, Arc::new(move || Some(launched)));

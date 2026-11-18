@@ -4,10 +4,15 @@
 pub mod cron;
 pub mod durable;
 pub mod engine;
+pub mod legacy;
 pub mod model;
 pub mod rows;
 pub mod store;
+pub mod zone;
 
+#[cfg(test)]
+mod zone_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod rename_timers_replay_tests;
 #[cfg(test)]

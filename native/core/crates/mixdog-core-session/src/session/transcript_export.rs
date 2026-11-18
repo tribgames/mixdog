@@ -128,27 +128,16 @@ impl TranscriptExport for TranscriptFiles {
 mod tests {
     use super::*;
 
-    /// The log a real 1.4.5 `saveSessionDurably` wrote for a conversation
-    /// (`fixtures/session-log-export/session_log.json`, recorded by
-    /// `benchmarks/rust-core/recorders/record-session-log-export.mjs`): the same id, header,
-    /// messages and log id must give the same bytes.
     #[test]
-    fn the_export_is_the_log_node_wrote_for_the_conversation() {
-        let (golden, record, header) = recorded();
-        let messages = record["messages"].as_array().expect("messages");
-        let made = render(golden["logId"].as_str().expect("logId"), record["id"].as_str().expect("id"), &header, messages);
-        assert_eq!(made, golden["log"].as_str().expect("log"));
+    fn a_session_without_messages_renders_an_empty_base() {
+        let header: Header = [("id".to_owned(), json!("sess_a"))].into_iter().collect();
+        assert_eq!(
+            render("0123456789abcdef01234567", "sess_a", &header, &[]),
+            "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"0123456789abcdef01234567\",\"id\":\"sess_a\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_a\"}}\n{\"t\":\"compacted\",\"s\":1,\"len\":0,\"messages\":[]}\n"
+        );
     }
 
-    /// The golden, the record Node saved (in the key order Node had it: the log's key order is the
-    /// record's), and its header: the record without its messages.
-    fn recorded() -> (Value, serde_json::Map<String, Value>, Header) {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/session-log-export/session_log.json")).expect("golden");
-        let record = golden["record"].as_object().expect("record").clone();
-        let header: Header = record.iter().filter(|(key, _)| key.as_str() != "messages").map(|(key, value)| (key.clone(), value.clone())).collect();
-        (golden, record, header)
-    }
-
+    #[cfg(node_twin)]
     /// A session in the real thread store with the given log id, header and message bodies, made
     /// through the store's own creation (`create_log`) and append (`commit`) path. The log id and
     /// bodies are injected here because a live session generates its own and a turn writes
@@ -219,6 +208,29 @@ mod tests {
         .expect("seeded");
     }
 
+
+    #[cfg(node_twin)]
+    /// The log a real 1.4.5 `saveSessionDurably` wrote for a conversation
+    /// (`fixtures/session-log-export/session_log.json`, recorded by
+    /// `benchmarks/rust-core/recorders/record-session-log-export.mjs`): the same id, header,
+    /// messages and log id must give the same bytes.
+    #[test]
+    fn the_export_is_the_log_node_wrote_for_the_conversation() {
+        let (golden, record, header) = recorded();
+        let messages = record["messages"].as_array().expect("messages");
+        let made = render(golden["logId"].as_str().expect("logId"), record["id"].as_str().expect("id"), &header, messages);
+        assert_eq!(made, golden["log"].as_str().expect("log"));
+    }
+    #[cfg(node_twin)]
+    /// The golden, the record Node saved (in the key order Node had it: the log's key order is the
+    /// record's), and its header: the record without its messages.
+    fn recorded() -> (Value, serde_json::Map<String, Value>, Header) {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/session-log-export/session_log.json")).expect("golden");
+        let record = golden["record"].as_object().expect("record").clone();
+        let header: Header = record.iter().filter(|(key, _)| key.as_str() != "messages").map(|(key, value)| (key.clone(), value.clone())).collect();
+        (golden, record, header)
+    }
+    #[cfg(node_twin)]
     /// The conversation Node's recorded log holds, rebuilt in the real thread store with Node's
     /// log id, header and message bodies: the export is Node's log byte for byte.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -241,14 +253,5 @@ mod tests {
             .expect("readable")
             .expect("the export exists");
         assert_eq!(String::from_utf8(bytes).expect("UTF-8"), golden["log"].as_str().expect("log"));
-    }
-
-    #[test]
-    fn a_session_without_messages_renders_an_empty_base() {
-        let header: Header = [("id".to_owned(), json!("sess_a"))].into_iter().collect();
-        assert_eq!(
-            render("0123456789abcdef01234567", "sess_a", &header, &[]),
-            "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"0123456789abcdef01234567\",\"id\":\"sess_a\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_a\"}}\n{\"t\":\"compacted\",\"s\":1,\"len\":0,\"messages\":[]}\n"
-        );
     }
 }

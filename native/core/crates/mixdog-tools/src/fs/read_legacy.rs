@@ -650,28 +650,55 @@ impl LineReader {
 }
 
 /// `readLargeTailWindowSync` after its read: the last `target` lines of the tail window `buf` (the
-/// last `buf.len()` bytes of a file of `size`), and whether the window is approximate / capped.
-pub(super) fn large_tail_lines(buf: &[u8], size: u64, target: usize, window_cap: u64) -> (Vec<String>, bool, bool) {
+/// last `buf.len()` bytes of a file of `size`), and whether it started inside the file.
+pub(super) fn large_tail_lines(buf: &[u8], size: u64, target: usize) -> (Vec<String>, bool) {
     let approximate = (buf.len() as u64) < size;
     let skip = if approximate { buf.iter().take(4).take_while(|b| (**b & 0xc0) == 0x80).count() } else { 0 };
     let text = String::from_utf8_lossy(&buf[skip..]).into_owned();
     let mut lines: Vec<String> = text.split('\n').map(str::to_owned).collect();
-    if approximate && lines.len() > 1 {
+    if approximate && !lines.is_empty() {
         lines.remove(0);
     }
     if lines.last().is_some_and(String::is_empty) {
         lines.pop();
     }
     let from = lines.len().saturating_sub(target);
-    let capped = approximate && (buf.len() as u64) >= window_cap;
-    (lines.split_off(from), approximate, capped)
+    (lines.split_off(from), approximate)
 }
 
 /// `renderTailWindowSync` without exact line numbers: a header, the rows, the cap note.
-pub(super) fn large_tail_text(lines: &[String], capped: bool, window_cap: u64, clip: &dyn Fn(&str) -> String) -> String {
-    let rendered = lines.iter().enumerate().map(|(i, l)| clip(display_line(l, i))).collect::<Vec<_>>().join("\n");
-    let marker = if capped { format!("\n... [tail window capped at {} KB]", window_cap / 1024) } else { String::new() };
-    cap_shell_output(&format!("... [tail of {} lines from end of file; line numbers omitted]\n{rendered}{marker}", lines.len()))
+pub(super) fn large_tail_text(lines: &[String], line_cap: Option<usize>, window_cap: Option<u64>, max_output: usize, clip: &dyn Fn(&str) -> String) -> String {
+    let mut clipped = false;
+    let rendered = lines.iter().enumerate().map(|(i, l)| {
+        let line = display_line(l, i);
+        let out = clip(line);
+        clipped |= out != line;
+        out
+    }).collect::<Vec<_>>().join("\n");
+    let body = format!("... [tail of {} lines from end of file; line numbers omitted]\n{rendered}", lines.len());
+    let shell = cap_shell_output(&body);
+    let mut out = if shell.len() > max_output {
+        let header = body.split_once('\n').map_or(body.as_str(), |(header, _)| header);
+        let at = rendered.ceil_char_boundary(rendered.len().saturating_sub(max_output.saturating_sub(header.len() + 1)));
+        let last_rows = &rendered[at..];
+        let last_rows = if at > 0 && rendered.as_bytes()[at - 1] != b'\n' {
+            last_rows.split_once('\n').map_or("", |(_, rows)| rows)
+        } else {
+            last_rows
+        };
+        format!("{header}\n{last_rows}")
+    } else {
+        shell
+    };
+    let mut reasons = Vec::new();
+    if let Some(cap) = line_cap { reasons.push(format!("request capped at {cap} lines")); }
+    if let Some(cap) = window_cap { reasons.push(format!("tail window capped at {} KB", cap / 1024)); }
+    if clipped { reasons.push("overlong lines clipped".into()); }
+    if out != body { reasons.push("output budget omitted text".into()); }
+    if !reasons.is_empty() {
+        out.push_str(&format!("\n[tail incomplete: {}]", reasons.join("; ")));
+    }
+    out
 }
 /// `executeHexTool`'s text: `bytes` is the window read from `offset` of a file of `size` bytes.
 pub(super) fn hex_text(shown: &str, bytes: &[u8], offset: u64, size: u64) -> String {
@@ -692,35 +719,88 @@ pub(super) fn hex_text(shown: &str, bytes: &[u8], offset: u64, size: u64) -> Str
 mod tests {
     use super::*;
 
-    /// What Node's `guardRead` made of every recorded call (`legacy_read_cases.json`): the refusal,
-    /// or the args it left for the executor and whether the limit is the injected default.
+    /// What the read guard makes of a call: its refusal, or the arguments it leaves for the executor and whether the
+    /// limit is the injected default.
+    fn guarded(input: JsonValue) -> Result<(JsonValue, bool), String> {
+        let JsonValue::Object(mut args) = input else { panic!("an object") };
+        prepare(&mut args);
+        guard_read(&mut args).map(|defaulted| (JsonValue::Object(args), defaulted))
+    }
+
     #[test]
-    fn the_guard_refuses_and_rewrites_as_node_does() {
-        let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("src/fs/golden/legacy_read_cases.json")).unwrap();
-        let mut failures = Vec::new();
-        let mut ran = 0;
-        for case in doc["cases"].as_array().unwrap() {
-            let JsonValue::Object(input) = &case["input"] else { continue };
-            // The public `file_path` form is `normalizePublicReadTargets`, which `parse_public` answers.
-            if input.contains_key("file_path") {
-                continue;
-            }
-            ran += 1;
-            let mut args = input.clone();
-            prepare(&mut args);
-            let outcome = guard_read(&mut args);
-            let want = &case["guard"];
-            let same = match (&outcome, want.get("error")) {
-                (Err(text), Some(error)) => error.as_str() == Some(text.as_str()),
-                (Ok(defaulted), None) => {
-                    JsonValue::Object(args.clone()) == want["args"] && *defaulted == want["limitDefaulted"].as_bool().unwrap_or(false)
-                }
-                _ => false,
-            };
-            if !same {
-                failures.push(format!("{}\n  want {want}\n  got  {outcome:?} {args:?}", case["name"]));
-            }
+    fn a_plain_read_gets_the_default_limit_and_a_window_or_a_mode_keeps_its_own() {
+        use serde_json::json;
+        assert_eq!(guarded(json!({"path": "hello.txt"})), Ok((json!({"path": "hello.txt", "limit": 500}), true)));
+        assert_eq!(guarded(json!({"path": ["a.txt", "nope.txt"], "reject_partial": true})), Ok((json!({"path": ["a.txt", "nope.txt"], "reject_partial": true, "limit": 500}), true)));
+        for input in [
+            json!({"path": "lines.txt", "offset": 10, "limit": 5}),
+            json!({"path": "lines.txt", "offset": 115}),
+            json!({"path": "lines.txt", "limit": 4}),
+            json!({"path": "a.txt", "full": true}),
+            json!({"path": "a.txt", "mode": "full"}),
+            json!({"path": "sym.mjs", "mode": "summary", "limit": 1}),
+            json!({"path": "a.txt", "mode": "hex", "n": 16, "offset": 3}),
+            json!({"path": "lines.txt", "mode": "head", "offset": 2, "limit": 2}),
+            json!({"path": [{"path": "a.txt"}, {"path": "nope.txt"}], "reject_partial": true}),
+        ] {
+            assert_eq!(guarded(input.clone()), Ok((input, false)));
         }
-        assert!(failures.is_empty(), "{} of {ran} differ:\n{}", failures.len(), failures.join("\n"));
+    }
+
+    #[test]
+    fn a_negative_offset_reads_the_tail() {
+        use serde_json::json;
+        assert_eq!(guarded(json!({"path": "lines.txt", "offset": -5})), Ok((json!({"path": "lines.txt", "mode": "tail", "n": 5}), false)));
+    }
+
+    #[test]
+    fn a_window_argument_that_is_not_one_integer_is_refused_with_the_form_to_use() {
+        use serde_json::json;
+        for (input, want) in [
+            (json!({"path": "lines.txt", "offset": "5 usepath?other.txt", "limit": 2}), "Error: \"offset\" must be an integer (got string) — e.g. offset:40"),
+            (json!({"path": "lines.txt", "offset": "1,40"}), "Error: \"offset\" takes one integer, not a range \"1,40\" — use offset+limit (e.g. offset:0, limit:40)"),
+            (json!({"path": "lines.txt", "limit": "1-40"}), "Error: \"limit\" takes one integer, not a range \"1-40\" — use offset+limit (e.g. offset:0, limit:40)"),
+            (json!({"path": "lines.txt", "offset": 1.5}), "Error: \"offset\" must be an integer (got number) — e.g. offset:40"),
+            (json!({"path": "lines.txt", "offset": true}), "Error: \"offset\" must be an integer (got boolean) — e.g. offset:40"),
+            (json!({"path": "lines.txt", "limit": -1}), "Error: builtin arg \"limit\" must be >= 0 (got -1)"),
+            (json!({"path": "lines.txt", "mode": "head", "n": -1}), "Error: builtin arg \"n\" must be >= 0 (got -1)"),
+            (json!({"path": "lines.txt", "mode": "head", "n": "x"}), "Error: \"n\" must be an integer (got string) — e.g. n:40"),
+            (json!({"path": "lines.txt", "mode": "head", "n": 2.5}), "Error: \"n\" must be an integer (got number) — e.g. n:40"),
+        ] {
+            assert_eq!(guarded(input.clone()), Err(want.to_owned()), "{input}");
+        }
+    }
+
+    #[test]
+    fn a_line_window_needs_a_positive_integer_line_and_a_context_needs_a_line() {
+        use serde_json::json;
+        for (input, want) in [
+            (json!({"path": "lines.txt", "context": 3}), "Error: read arg \"context\" requires \"line\" to compute a window"),
+            (json!({"path": "lines.txt", "line": "3-5"}), "Error: \"line\" takes one integer, not a range \"3-5\" — use offset+limit (e.g. offset:0, limit:40)"),
+            (json!({"path": "lines.txt", "line": 0}), "Error: \"line\" must be an integer >= 1 (got number) — e.g. line:40"),
+            (json!({"path": "lines.txt", "line": "x"}), "Error: \"line\" must be an integer >= 1 (got string) — e.g. line:40"),
+            (json!({"path": "lines.txt", "line": 5, "context": "1,2"}), "Error: \"context\" takes one integer, not a range \"1,2\" — e.g. context:5"),
+            (json!({"path": "lines.txt", "line": 5, "context": -1}), "Error: \"context\" must be an integer >= 0 (got number) — e.g. context:5"),
+        ] {
+            assert_eq!(guarded(input.clone()), Err(want.to_owned()), "{input}");
+        }
+    }
+
+    #[test]
+    fn a_path_that_is_not_a_string_or_a_list_of_regions_is_refused_naming_the_element() {
+        use serde_json::json;
+        for (input, want) in [
+            (json!({"path": 5}), "Error: read arg \"path\" must be string, string[], or object[] (got number)"),
+            (json!({"path": ["", "  "]}), "Error: read requires \"path\" (or alias file_path)."),
+            (json!({"path": [["a.txt", "b.txt"]]}), "Error: read arg \"path[0]\" must be string or {path,offset,limit} object (got array)"),
+            (json!({"path": [{"path": "a.txt"}, ["b.txt"]]}), "Error: read arg \"path[1]\" must be string or {path,offset,limit} object (got array)"),
+            (json!({"path": [{"path": "lines.txt", "context": 1}]}), "Error: read arg \"path[0].context\" requires \"path[0].line\" to compute a window"),
+            (json!({"path": [{"path": "lines.txt", "line": 0}]}), "Error: \"path[0].line\" must be an integer >= 1 (got number) — e.g. line:40"),
+            (json!({"path": [{"path": "lines.txt", "offset": "x"}]}), "Error: \"path[0].offset\" must be an integer (got string) — e.g. offset:40"),
+            (json!({"path": [{"path": "lines.txt", "offset": "1-3"}]}), "Error: \"path[0].offset\" takes one integer, not a range \"1-3\" — use offset+limit (e.g. offset:0, limit:40)"),
+            (json!({"path": [{"path": "lines.txt", "limit": -2}]}), "Error: builtin arg \"path[0].limit\" must be >= 0 (got -2)"),
+        ] {
+            assert_eq!(guarded(input.clone()), Err(want.to_owned()), "{input}");
+        }
     }
 }

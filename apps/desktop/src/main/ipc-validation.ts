@@ -1,4 +1,6 @@
-import { isAbsolute as pathIsAbsolute, resolve as resolvePath } from 'node:path';
+// The phone's page also loads this module for the capability request rules (remote-protocol-capabilities.ts), so it imports nothing of
+// Node's: what depends on the host's platform (whether a project path is absolute) is the caller's isAbsolutePath. The desktop's callers
+// get the host's own check from ipc-capability-request.ts; the phone passes one that accepts either syntax.
 import {
   optionalGithubLoginOptions,
   requiredGitBranchName,
@@ -51,11 +53,11 @@ import {
   type DesktopSubmitOptions,
   type DesktopTextFileEncoding,
   type DesktopTranscriptHistoryRequest,
-  type DesktopWorkspaceFolder,
   type DesktopWorkspaceTextWrite,
   DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS,
   type ToolApprovalDecision,
 } from '../shared/contract';
+import { validTranscriptHistoryPosition } from '../shared/contract-session';
 import {
   canonicalPromptFileMimeType,
   MAX_PROMPT_FILE_BASE64_LENGTH,
@@ -106,6 +108,7 @@ import {
   validateStructuredValue,
   validateTurnCapabilityArgs,
 } from '../shared/capability-request';
+import { IMAGE_TYPES } from '../shared/image-types.generated';
 import { requiredSessionId, requiredSessionIds } from './desktop-state';
 import { hasControlCharacter } from './ipc-control-chars';
 import { isWorktreeCapability, validateWorktreeCapabilityArgs, WORKTREE_CAPABILITY_ARITY } from './worktree-validation';
@@ -419,7 +422,7 @@ const TOGGLEABLE_BUILTIN_TOOLS = new Set([
 ]);
 const INSTALLABLE_BUILTIN_FEATURES = new Set(['git', 'memory', 'office', 'localProvider', 'tidy', 'autoEffort']);
 
-const CAPABILITY_ARITY = {
+export const CAPABILITY_ARITY = {
   prioritizeQueued: [1, 1],
   restoreQueued: [0, 2],
   rewindToItem: [1, 1],
@@ -477,7 +480,7 @@ const CAPABILITY_ARITY = {
   claimSetupRequest: [2, 2],
   isSetupRequestActive: [2, 2],
   completeSetupRequest: [3, 3],
-  agentControl: [0, 2],
+  agentControl: [0, 1],
   listStoppableShellJobs: [0, 0],
   stopShellJobs: [0, 0],
   listShellJobs: [0, 0],
@@ -518,7 +521,7 @@ const CAPABILITY_ARITY = {
   enablePluginMcp: [1, 1],
   contextStatus: [0, 1],
   inheritancePreflight: [0, 2],
-  memoryControl: [0, 2],
+  memoryControl: [0, 1],
   recall: [1, 2],
   runDoctor: [0, 0],
   compact: [0, 0],
@@ -629,6 +632,7 @@ const CAPABILITY_ARITY = {
   prepareTranscription: [0, 0],
   resizeImage: [1, 1],
   stageAttachmentOriginal: [1, 1],
+  imageRecovery: [1, 1],
   listMediaLanes: [0, 1],
   listMediaAssets: [0, 1],
   readMediaAsset: [1, 2],
@@ -1052,8 +1056,6 @@ export function requiredTranscriptItemLimit(value: unknown): number | undefined 
 }
 
 const TRANSCRIPT_ROW_ID_MAX_CHARS = 512;
-/** A row position the daemon named (spilled `s:` or archived `a:`). */
-const TRANSCRIPT_HISTORY_POSITION = /^(?:s:\d{1,15}:\d{1,15}|a:\d{1,15}:\d{1,15}:\d{1,15})$/;
 
 /** A historical-position read: exactly one boundary row id (`before` or
  *  `after`), at most DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS rows, and an
@@ -1074,8 +1076,7 @@ export function requiredTranscriptHistoryRequest(value: unknown): DesktopTranscr
     (limit as number) < 1 ||
     (limit as number) > DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS ||
     (budget !== undefined && budget !== null && (!Number.isSafeInteger(budget) || (budget as number) < 1)) ||
-    (input.position != null &&
-      (typeof input.position !== 'string' || !TRANSCRIPT_HISTORY_POSITION.test(input.position)))
+    (input.position != null && !validTranscriptHistoryPosition(input.position))
   ) {
     throw new TypeError('transcript history request is invalid.');
   }
@@ -1303,16 +1304,19 @@ function requiredStarterGuideState(value: unknown): void {
   }
 }
 
-export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabilityRequest {
+/** Whether a path is absolute on the host: the host's own check on the desktop, either syntax on the phone. */
+export type AbsolutePathCheck = (path: string) => boolean;
+
+export function requiredCapabilityRequestUsing(value: unknown, isAbsolutePath: AbsolutePathCheck): DesktopCapabilityRequest {
   return requiredCapabilityRequest(value, {
     known: (name): name is DesktopCapability => CAPABILITY_SET.has(name),
     arity: (capability) => CAPABILITY_ARITY[capability],
-    validate: validateCapabilityArgs,
+    validate: (capability, args, input) => validateCapabilityArgs(capability, args, input, isAbsolutePath),
     sessionId: requiredSessionId,
   });
 }
 
-function validateCapabilityArgs(capability: DesktopCapability, args: unknown[], input: Record<string, unknown>): void {
+function validateCapabilityArgs(capability: DesktopCapability, args: unknown[], input: Record<string, unknown>, isAbsolutePath: AbsolutePathCheck): void {
   if (capability === 'retryFailedTurn') {
     const target = requiredSessionId(args[0]);
     requiredString(args[1], 'turn key', 512);
@@ -1347,7 +1351,7 @@ function validateCapabilityArgs(capability: DesktopCapability, args: unknown[], 
     if (!options) throw new TypeError('skills status options are invalid.');
     requireAllowedKeys(options, SKILLS_STATUS_OPTION_KEYS, 'skills status options');
     const projectPath = requiredString(options.projectPath, 'projectPath', 4_096);
-    if (!pathIsAbsolute(projectPath) || projectPath.includes('\0')) throw new TypeError('projectPath is invalid.');
+    if (!isAbsolutePath(projectPath) || projectPath.includes('\0')) throw new TypeError('projectPath is invalid.');
   }
 }
 
@@ -1625,12 +1629,12 @@ function validateCredentialCapabilityArgs(capability: DesktopCapability, args: r
   }
 }
 
-export function requiredDesktopCapabilityReadRequests(value: unknown): DesktopCapabilityReadRequest[] {
+export function requiredCapabilityReadRequestsUsing(value: unknown, isAbsolutePath: AbsolutePathCheck): DesktopCapabilityReadRequest[] {
   if (!Array.isArray(value) || value.length > 32) {
     throw new TypeError('capability read batch is invalid.');
   }
   return value.map((entry) => {
-    const request = requiredDesktopCapabilityRequest(entry);
+    const request = requiredCapabilityRequestUsing(entry, isAbsolutePath);
     if (!READ_CAPABILITY_SET.has(request.capability)) {
       throw new TypeError(`capability ${request.capability} is not read-only.`);
     }
@@ -1816,13 +1820,11 @@ export function requiredExternalUrl(value: unknown): string {
   return url.toString();
 }
 
-const ATTACHMENT_IMAGE_EXTENSIONS = new Map<string, string>([
-  ['image/png', 'png'],
-  ['image/jpeg', 'jpg'],
-  ['image/webp', 'webp'],
-  ['image/gif', 'gif'],
-  ['image/bmp', 'bmp'],
-]);
+// The images a transcript can hold are the ones every model provider takes: the generated table's `providerTakes`
+// types, each by the extension a file of it is written with.
+const ATTACHMENT_IMAGE_EXTENSIONS = new Map<string, string>(
+  IMAGE_TYPES.filter((type) => type.providerTakes && type.primary).map((type) => [type.mime, type.extension]),
+);
 const ATTACHMENT_IMAGE_DATA_URL_RE = /^data:([a-z]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i;
 const MAX_ATTACHMENT_IMAGE_BYTES = 64 * 1024 * 1024;
 
@@ -1868,11 +1870,10 @@ const MIME_EXTENSIONS = new Map<string, string>([
   ['text/plain', 'txt'],
   ['text/markdown', 'md'],
   ['text/csv', 'csv'],
-  ['image/png', 'png'],
-  ['image/jpeg', 'jpg'],
-  ['image/webp', 'webp'],
-  ['image/gif', 'gif'],
-  ['image/bmp', 'bmp'],
+  // The raster types a provider takes and BMP, each by its written extension.
+  ...IMAGE_TYPES.filter((type) => (type.providerTakes || type.extension === 'bmp') && type.primary).map(
+    (type): [string, string] => [type.mime, type.extension],
+  ),
   ['audio/mpeg', 'mp3'],
   ['video/mp4', 'mp4'],
 ]);
@@ -1880,7 +1881,8 @@ const MIME_EXTENSIONS = new Map<string, string>([
 // (scripts, installers, control-panel items, markup a browser would run) is
 // never handed to the OS from a file this process just wrote.
 const OPENABLE_ATTACHMENT_EXTENSIONS = new Set([
-  ...['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif', 'tif', 'tiff', 'heic', 'ico'],
+  // Every image the table knows but markup (SVG), which an OS handler could run.
+  ...IMAGE_TYPES.filter((type) => !type.markup).map((type) => type.extension),
   ...['pdf', 'doc', 'docx', 'dot', 'dotx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', 'rtf'],
   ...['txt', 'md', 'csv', 'tsv', 'json', 'log', 'yaml', 'yml', 'toml', 'ini'],
   ...['mp3', 'wav', 'ogg', 'flac', 'm4a', 'mp4', 'webm', 'mov', 'mkv'],
@@ -2100,27 +2102,6 @@ export function requiredWorkspaceSearchOptions(value: unknown): DesktopWorkspace
   };
 }
 
-export function requiredWorkspaceFolders(value: unknown): DesktopWorkspaceFolder[] {
-  if (!Array.isArray(value) || value.length > 64) {
-    throw new TypeError('Workspace folders are invalid.');
-  }
-  const seen = new Set<string>();
-  return value.map((row) => {
-    if (!row || typeof row !== 'object' || Array.isArray(row)) {
-      throw new TypeError('Workspace folder is invalid.');
-    }
-    const record = row as Record<string, unknown>;
-    const path = resolvePath(requiredString(record.path, 'workspace folder path', 16_384));
-    if (!pathIsAbsolute(path)) throw new TypeError('Workspace folder path must be absolute.');
-    const key = process.platform === 'win32' ? path.toLocaleLowerCase() : path;
-    if (seen.has(key)) throw new TypeError('Workspace folders must be unique.');
-    seen.add(key);
-    return {
-      path,
-      ...(typeof record.name === 'string' && record.name.trim() ? { name: record.name.trim().slice(0, 200) } : {}),
-    };
-  });
-}
 
 // ---- Desktop pet (main/desktop-pet-window.ts) --------------------------------
 

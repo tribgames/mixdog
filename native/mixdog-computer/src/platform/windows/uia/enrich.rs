@@ -9,7 +9,9 @@ use super::snapshot::CHROMIUM_PREFIX;
 use super::{any_of, property_condition, root_from, Uia};
 use crate::a11y::{truncation_warning, Node, NodeExtra, CANDIDATE_LIMIT};
 use crate::platform::{Wid, WindowInfo};
+use crate::port::windows::WinPort;
 use std::rc::Rc;
+use std::sync::Arc;
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::*;
 use windows::Win32::UI::WindowsAndMessaging::OBJID_CLIENT;
@@ -66,7 +68,7 @@ fn room(prior: usize) -> usize {
 
 /// A snapshot node for what MSAA read. The capabilities, and a list item's
 /// value, come from the merge (Get-MsaaObservation).
-fn node_of(node: MsaaNode) -> Node {
+fn node_of(node: MsaaNode, port: &Arc<WinPort>) -> Node {
     let extra = NodeExtra {
         source: "msaa",
         native_role: role_text(node.role),
@@ -96,7 +98,7 @@ fn node_of(node: MsaaNode) -> Node {
         width: node.w as f64,
         height: node.h as f64,
         extra,
-        element: Rc::new(MsaaElement::new(node)),
+        element: Rc::new(MsaaElement::new(node, port.clone())),
     }
 }
 
@@ -159,7 +161,7 @@ impl Uia {
         let nodes = nodes.get();
         let candidates = nodes.len();
         let cut = !complete && room <= wanted;
-        Ok((nodes.into_iter().map(node_of).collect(), candidates, cut.then(truncation_warning)))
+        Ok((nodes.into_iter().map(|node| node_of(node, &self.port)).collect(), candidates, cut.then(truncation_warning)))
     }
 }
 

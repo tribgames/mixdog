@@ -159,6 +159,49 @@ fn drive<F: Future>(future: F) -> F::Output {
     }
 }
 
+/// What a call answers when its signal was aborted before it started.
+fn cancelled_result() -> Value {
+    tool_result(&json!({ "ok": false, "code": "cancelled", "message": "Office Use operation was cancelled", "detail": "Office Use operation was cancelled" }), true, &[])
+}
+
+/// The engine of a process.
+pub struct Engine<P: Platform> {
+    platform: P,
+    registry: Registry,
+    reviews: ReviewSnapshots,
+    /// What each session was last sent of its render receipt.
+    deliveries: Mutex<HashMap<String, DeliveredReceipt>>,
+    pins: Mutex<ThreadPins>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pending once, after waking its own task.
+    struct Yield(bool);
+
+    impl Future for Yield {
+        type Output = u32;
+
+        fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<u32> {
+            if self.0 {
+                return Poll::Ready(7);
+            }
+            self.0 = true;
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    }
+
+    #[test]
+    fn a_call_waits_for_the_wake_of_what_it_awaits() {
+        assert_eq!(drive(Yield(false)), 7);
+        assert_eq!(drive(async { Yield(false).await + 1 }), 8);
+    }
+}
+
+
 /// `MIXDOG_OFFICE_TRACE`: one line per call (`<action>\t<ms>\t<path or session>`) so a slow run maps itself. `1` writes to stderr, any
 /// other value names a file.
 fn trace(proof: &impl WriteProof, args: &Value, started: Instant) {
@@ -176,22 +219,6 @@ fn trace(proof: &impl WriteProof, args: &Value, started: Instant) {
         let _ = file.write_all(line.as_bytes());
     }
 }
-
-/// What a call answers when its signal was aborted before it started.
-fn cancelled_result() -> Value {
-    tool_result(&json!({ "ok": false, "code": "cancelled", "message": "Office Use operation was cancelled", "detail": "Office Use operation was cancelled" }), true, &[])
-}
-
-/// The engine of a process.
-pub struct Engine<P: Platform> {
-    platform: P,
-    registry: Registry,
-    reviews: ReviewSnapshots,
-    /// What each session was last sent of its render receipt.
-    deliveries: Mutex<HashMap<String, DeliveredReceipt>>,
-    pins: Mutex<ThreadPins>,
-}
-
 impl<P: Platform> Engine<P> {
     pub fn new(platform: P) -> Arc<Self> {
         Arc::new(Self { platform, registry: Registry::new(), reviews: ReviewSnapshots::new(), deliveries: Mutex::default(), pins: Mutex::default() })
@@ -321,32 +348,5 @@ impl<P: Platform> Engine<P> {
         watcher.abort();
         trace(lane, args, started);
         result
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Pending once, after waking its own task.
-    struct Yield(bool);
-
-    impl Future for Yield {
-        type Output = u32;
-
-        fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<u32> {
-            if self.0 {
-                return Poll::Ready(7);
-            }
-            self.0 = true;
-            cx.waker().wake_by_ref();
-            Poll::Pending
-        }
-    }
-
-    #[test]
-    fn a_call_waits_for_the_wake_of_what_it_awaits() {
-        assert_eq!(drive(Yield(false)), 7);
-        assert_eq!(drive(async { Yield(false).await + 1 }), 8);
     }
 }

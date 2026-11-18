@@ -86,6 +86,8 @@ fn process_failure(error: ProcessError) -> CoreError {
         ProcessError::UnknownHandle => domain_error("process", "UNKNOWN_HANDLE"),
         ProcessError::HandleInUse => domain_error("process", "HANDLE_IN_USE"),
         ProcessError::PermissionDenied => domain_error("process", "PERMISSION_DENIED"),
+        // A wire owner never names a scope, so only an in-process computer helper is refused this way; it is a refusal to start.
+        ProcessError::Revoked => domain_error("process", "PERMISSION_DENIED"),
         ProcessError::LimitReached { .. } => domain_error("process", "LIMIT_REACHED"),
         ProcessError::NotPty => domain_error("process", "NOT_PTY"),
         ProcessError::StdinClosed => domain_error("process", "STDIN_CLOSED"),

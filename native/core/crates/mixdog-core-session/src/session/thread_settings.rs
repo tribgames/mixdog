@@ -19,7 +19,6 @@ use async_trait::async_trait;
 use mixdog_app_protocol::v2::params::ThreadSetCwdParams;
 use mixdog_app_protocol::v2::params::ThreadSetEffortParams;
 use mixdog_app_protocol::v2::params::ThreadSetToolModeParams;
-use mixdog_app_protocol::v2::thread::ThreadIdParams;
 use mixdog_app_protocol::v2::thread::ThreadMetadataUpdateParams;
 use mixdog_app_protocol::v2::thread::ThreadOpParams;
 use mixdog_app_protocol::v2::thread::ThreadReadStateUpdateParams;
@@ -32,7 +31,6 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::service::Admit;
-use mixdog_core_base::state::SectionFeedState;
 use mixdog_core_base::support::FsFailure;
 use mixdog_core_base::support::FsStep;
 use mixdog_core_base::support::OpScopes;
@@ -54,10 +52,10 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::SessionDirectory;
+use super::archive_trees::Adjacency;
+use super::archive_trees::ArchiveTrees;
 use super::delete::is_session_id;
 use super::delete::sidebar_flag;
-use super::sub_agent_retention::AgentOnlyIndex;
-use super::sub_agent_retention::parent_ids;
 use super::thread_state::SessionThreads;
 use super::worktree::SessionWorkspaces;
 use super::worktree::WorktreeMaintenance;
@@ -132,12 +130,11 @@ impl EffortTuning for RouteService {
     }
 }
 
-/// The desktop's auto-retention record (`sessionRetention.noteArchived`): an archive clears a
-/// session's restore, a restore records it, which exempts it from auto-archive until it is used
-/// again.
+/// The desktop's auto-retention record as Node kept it. A restore's exemption from auto-archive is recorded in the archive authority
+/// now, in the restore's own transaction ([`mixdog_store::archive_state::ArchiveEntry::Restored`]); the record keeps `enabledAt` and the
+/// restores an earlier version recorded, which a delete drops.
 #[async_trait]
 pub trait ArchiveRetention: Send + Sync {
-    async fn note_archived(&self, session_id: &str, archived: bool) -> Result<(), String>;
     /// `sessionRetention.forget(id)`: a deleted session's restore is dropped.
     async fn forget(&self, session_id: &str) -> Result<(), String>;
 }
@@ -200,23 +197,42 @@ impl ConfigArchiveRetention {
     }
 }
 
+/// The pass state of `session-auto-retention.ts` (`SessionRetentionRecord`): when the feature first ran here, and the sessions
+/// the user brought back from the archive, with when.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RetentionRecord {
+    pub enabled_at: f64,
+    pub restored: HashMap<String, f64>,
+}
+
+impl ConfigArchiveRetention {
+    /// `sessionRetention.load()`: the record, creating it (`enabledAt` = now) when it has none; read through the same
+    /// normalization as every note.
+    pub async fn load(&self) -> Result<RetentionRecord, String> {
+        let now = (self.now)();
+        // The record is written only when it has no `enabledAt` yet: a pass reads it for each session it acts on.
+        let has_enabled = |config: &mixdog_core_config::config::Config| {
+            positive(config.get("desktop.retentionState").as_ref().and_then(|record| record.get("enabledAt"))).is_some()
+        };
+        if !has_enabled(&self.config) {
+            self.update(|_, _| false).await?;
+        }
+        let stored = self.config.get("desktop.retentionState");
+        let restored = stored
+            .as_ref()
+            .and_then(|record| record.get("restored"))
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter_map(|(id, at)| positive(Some(at)).map(|at| (id.clone(), at)))
+            .collect();
+        let enabled_at = stored.as_ref().and_then(|record| positive(record.get("enabledAt"))).unwrap_or(now as f64);
+        Ok(RetentionRecord { enabled_at, restored })
+    }
+}
+
 #[async_trait]
 impl ArchiveRetention for ConfigArchiveRetention {
-    async fn note_archived(&self, session_id: &str, archived: bool) -> Result<(), String> {
-        let id = session_id.to_owned();
-        // An archive clears a restore; a restore records it, which exempts the session from
-        // auto-archive until it is used again.
-        self.update(move |restored, now| {
-            if archived {
-                restored.shift_remove(&id).is_some()
-            } else {
-                restored.insert(id, json!(now));
-                true
-            }
-        })
-        .await
-    }
-
     async fn forget(&self, session_id: &str) -> Result<(), String> {
         let id = session_id.to_owned();
         self.update(move |restored, _| restored.shift_remove(&id).is_some()).await
@@ -442,33 +458,7 @@ pub fn session_project_key(row: &Value, project_keys: &[String]) -> String {
 /// `agentDescendantIds(rows, rootId)`: the agent-only sessions under `root` at any depth,
 /// following every owner and parent link a row names. `rows`: id and header.
 pub fn agent_descendant_ids(rows: &[(String, Header)], root: &str) -> Vec<String> {
-    let root = mixdog_js::js_trim(root);
-    let mut children: HashMap<String, Vec<String>> = HashMap::new();
-    for (id, header) in rows {
-        let id = mixdog_js::js_trim(id);
-        let mut doc = header.clone();
-        doc.insert("id".into(), json!(id));
-        if id.is_empty() || mixdog_store::summary::session_visibility(&doc) != "agent-only" {
-            continue;
-        }
-        for parent in parent_ids(&doc, id) {
-            children.entry(parent).or_default().push(id.to_owned());
-        }
-    }
-    let mut found: Vec<String> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut queue = vec![root.to_owned()];
-    while let Some(next) = queue.pop() {
-        for child in children.get(&next).into_iter().flatten() {
-            if child == root || seen.contains(child) {
-                continue;
-            }
-            seen.insert(child.clone());
-            found.push(child.clone());
-            queue.push(child.clone());
-        }
-    }
-    found
+    Adjacency::of(rows).descendants(root)
 }
 
 // ---- the service -------------------------------------------------------------------------------
@@ -479,17 +469,11 @@ pub struct ThreadSettingsParts {
     pub workspaces: SessionWorkspaces,
     pub effort: Arc<dyn EffortTuning>,
     pub projects: Arc<dyn ProjectFolders>,
-    /// The stored agent-only sessions: an archive takes a session's sub-agent sessions along.
-    pub agent_only: Arc<dyn AgentOnlyIndex>,
-    pub worktrees: Arc<dyn ArchivedWorktrees>,
-    pub retention: Arc<dyn ArchiveRetention>,
-    /// The app feed: `thread/archived`, `thread/unarchived`.
-    pub app: Arc<SectionFeedState>,
+    /// The archive and restore of a session with its sub-agent sessions (shared with the session auto-retention).
+    pub trees: Arc<ArchiveTrees>,
     pub ops: OpScopes,
     /// The surface generation (`invalidatePreSessionToolSurface`): a tool mode change and a workspace switch move it.
     pub surface: mixdog_core_base::surface::SurfaceGeneration,
-    /// The core's one archive stamp counter, shared with the rooms' archive (`DirectorySessions`).
-    pub archive_stamps: Arc<ArchiveStamps>,
     /// When a changed session row is on the app feed: a favorite change answers after it.
     pub rows: Arc<dyn super::thread_edges::RowsPublished>,
 }
@@ -538,10 +522,6 @@ fn thread_of(id: Option<ThreadId>) -> Result<ThreadId, CoreError> {
 
 fn port(error: mixdog_tools::orch::util::PortError) -> CoreError {
     failed(DOMAIN, format!("{error:?}"))
-}
-
-fn not_found(error: &CoreError) -> bool {
-    matches!(error, CoreError::ThreadNotFound { .. })
 }
 
 impl ThreadSettings {
@@ -663,76 +643,10 @@ impl ThreadSettings {
         self.set_cwd(thread, &cwd, cancel).await.map(drop)
     }
 
-    /// The agent-only sessions under `root`, from the stored records.
-    async fn descendants(&self, root: &ThreadId) -> Result<Vec<String>, CoreError> {
-        let mut rows = Vec::new();
-        for id in self.parts.agent_only.agent_only_ids().await? {
-            if let Some(header) = self.parts.directory.try_stored_header(&ThreadId::from(id.as_str())).await? {
-                rows.push((id, header));
-            }
-        }
-        Ok(agent_descendant_ids(&rows, root.as_str()))
-    }
-
-    /// `setSessionArchived(id, archived)`: the session with its sub-agent sessions. An archive
-    /// stamps the ones not archived yet with the session's own stamp; a restore brings back
-    /// exactly the ones carrying it. Whether the session's own state changed.
+    /// `setSessionArchived(id, archived)`: the session with its sub-agent sessions, one change of the archive authority
+    /// ([`ArchiveTrees::set_manual`]). Whether the session's own state changed.
     async fn set_archived(&self, thread: &ThreadId, archived: bool) -> Result<bool, CoreError> {
-        self.open(thread).await?;
-        let descendants = self.descendants(thread).await?;
-        let now = self.now();
-        // Taken only when the session is really archived now (Node returns before its stamp for one already archived), and once:
-        // a patch that lost its race and is decided again keeps the stamp it took.
-        let mut taken = None;
-        let stamp = self
-            .update_header(thread, &["archivedAt"], |header| {
-                if archived == sidebar_flag(header, "archivedAt") {
-                    return (None, None);
-                }
-                if archived {
-                    let stamp = json!(*taken.get_or_insert_with(|| self.parts.archive_stamps.take(now)));
-                    (Some(stamp.clone()), Some((Map::from_iter([("archivedAt".to_owned(), stamp)]), Vec::new())))
-                } else {
-                    (header.get("archivedAt").cloned(), Some((Map::new(), vec!["archivedAt".to_owned()])))
-                }
-            })
-            .await?;
-        let Some(stamp) = stamp else { return Ok(false) };
-        for id in &descendants {
-            let child = ThreadId::from(id.as_str());
-            let moved = self
-                .update_header(&child, &["archivedAt"], |header| {
-                    let patch = if archived {
-                        (!sidebar_flag(header, "archivedAt")).then(|| (Map::from_iter([("archivedAt".to_owned(), stamp.clone())]), Vec::new()))
-                    } else {
-                        (header.get("archivedAt") == Some(&stamp)).then(|| (Map::new(), vec!["archivedAt".to_owned()]))
-                    };
-                    ((), patch)
-                })
-                .await;
-            // A sub-agent session deleted meanwhile has nothing left to mark.
-            if let Err(error) = moved
-                && !not_found(&error)
-            {
-                return Err(error);
-            }
-        }
-        if let Err(error) = self.parts.retention.note_archived(thread.as_str(), archived).await {
-            tracing::warn!("[mixdog-session] Could not record the archive change of {thread}: {error}");
-        }
-        // Their managed worktrees follow (autoCleanup decides): off the reply path, never failing
-        // the archive itself.
-        let worktrees = self.parts.worktrees.clone();
-        let ids: Vec<String> = std::iter::once(thread.as_str().to_owned()).chain(descendants).collect();
-        let shown = thread.clone();
-        tokio::spawn(async move {
-            if let Err(error) = worktrees.set_archived(&ids, archived).await {
-                tracing::warn!("[mixdog-session] Could not update the worktrees of {shown}: {error}");
-            }
-        });
-        let method = if archived { "thread/archived" } else { "thread/unarchived" };
-        self.parts.app.notify(method, &ThreadIdParams { thread_id: thread.clone() });
-        Ok(true)
+        self.parts.trees.set_manual(thread, archived).await
     }
 
     /// `setCwd(path)`: `resolveCwdPath` from the session's folder, then the Project switch with
@@ -876,8 +790,7 @@ impl DomainService for ThreadSettings {
             ARCHIVE | UNARCHIVE => {
                 let params: ThreadOpParams = decode(&req)?;
                 let archived = req.method.as_str() == ARCHIVE;
-                let run = || async { self.set_archived(&params.thread_id, archived).await.map(|_| json!({})) };
-                ops.run(&req, None, run, done).await
+                ops.run(&req, None, || async { self.set_archived(&params.thread_id, archived).await.map(|_| json!({})) }, done).await
             }
             SET_CWD => {
                 let params: ThreadSetCwdParams = decode(&req)?;
@@ -909,6 +822,7 @@ impl DomainService for ThreadSettings {
     }
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "thread_settings_tests.rs"]
 mod tests;

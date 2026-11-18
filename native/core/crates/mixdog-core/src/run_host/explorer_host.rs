@@ -131,13 +131,16 @@ impl ExplorerHost for ConfigExplorerHost {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use serde_json::json;
 
+    #[cfg(node_twin)]
     use super::*;
 
     /// `resolveMaintenanceRoute({ agent: 'explore-agent', config, includeDefault: false })`, run
     /// in Node on these configs (`fixtures/tool-pool/explore-route.json`).
     #[test]
+    #[cfg(node_twin)]
     fn the_route_is_the_saved_explore_route_as_node_resolves_it() {
         let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/tool-pool/explore-route.json")).expect("fixture");
         for case in golden["routes"].as_array().expect("routes") {
@@ -159,3 +162,5 @@ mod tests {
         }
     }
 }
+
+

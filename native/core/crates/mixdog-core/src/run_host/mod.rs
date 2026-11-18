@@ -16,21 +16,36 @@ pub mod ladder_sources;
 pub mod hop_bindings;
 pub mod quota_usage;
 pub mod home_directory;
+#[cfg(test)]
+mod mixy_readers_tests;
 pub mod quota_history;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixture_fs;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod mixy_presence_replay_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod media_wire_table;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod named_attachment_replay_tests;
 #[cfg(test)]
 mod process_tests;
 #[cfg(test)]
 mod migrated_fixture;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod wire_parity_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod native_request_bytes_node_cases;
 pub mod tool_exposure;
@@ -49,11 +64,28 @@ pub mod quota_channel;
 pub mod proxy_providers;
 pub mod model_proxy_pc;
 #[cfg(test)]
+mod model_proxy_behaviour_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(test)]
 mod model_proxy_trust_replay_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod model_proxy_host_config_replay_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod model_proxy_host_run_replay_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod model_proxy_host_server_replay_tests;
 pub mod agent_dispatch;
@@ -68,12 +100,13 @@ pub mod deferred_manifest;
 pub mod tool_migration;
 pub mod attachment_reference;
 pub mod attachment_store;
-pub mod cache;
+pub mod image_supply;
 pub mod compaction_redactor;
 pub mod compaction_world;
 pub mod compactors;
 pub mod context_world;
 pub mod live_gauge;
+#[cfg(test)]
 mod grep_args;
 pub mod hooks;
 pub mod handoff_env;
@@ -126,16 +159,24 @@ pub mod run_seams;
 pub mod compaction_follow;
 pub mod settings_changes;
 pub mod prompt_session;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod compaction_node_harness;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod execution_tail_node_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod summary_mode_node_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod presend_goal_reminder_node_tests;
 #[cfg(test)]
-mod offload_prune_tests;
+mod offload_prune_behaviour_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod fork_compact_node_tests;
 pub mod session_reactions;
@@ -183,11 +224,30 @@ pub mod workflow_surface;
 pub mod member_names;
 pub mod room_daemon;
 pub mod room_files;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod room_rows_replay;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod room_send_replay;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod pool_list_replay;
 pub mod task_report_store;
 pub mod room_labels;
+#[cfg(test)]
+mod named_attachment_tests;
+#[cfg(test)]
+mod native_request_tools_tests;
+#[cfg(test)]
+mod summary_mode_tests;
+#[cfg(test)]
+mod usage_stats_entries_tests;
+#[cfg(test)]
+mod presend_goal_reminder_tests;
+#[cfg(test)]
+mod tool_surface_rules_tests;
+#[cfg(test)]
+mod result_reuse_session_tests;
+#[cfg(test)]
+mod pool_store_tests;

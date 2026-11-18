@@ -9,6 +9,7 @@ pub mod checkpoint;
 pub mod frame;
 pub mod migration;
 pub mod record;
+pub mod shared_header;
 pub mod sql;
 
 #[cfg(test)]

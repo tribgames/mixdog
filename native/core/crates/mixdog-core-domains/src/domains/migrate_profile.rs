@@ -3,7 +3,7 @@
 //!
 //! - `migrate/profile/status` reports the generation the profile move is at and the profile the core has recorded.
 //! - `migrate/profile/adopt` names the profile directory and runs the supplement pass of the profile move
-//!   ([`supplement::run`]: the saved SSH hosts, port forwards, paired PCs and server windows move to `<D>/desktop/`).
+//!   ([`supplement::run`]), then adopts the moved user editor file's Markdown preference into live config.
 //!   It never runs the first pass's late profile pass.
 //!
 //! Both methods are Local-only, and `adopt` is refused to a Window (the core reads and moves files from the directory
@@ -38,6 +38,7 @@ use mixdog_core_base::support::on_lane;
 use mixdog_core_base::support::on_lane_wait;
 use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::wrong_method;
+use mixdog_core_config::config::Config;
 use mixdog_migrate::desktop_profile::desktop_profile_dir_with;
 use mixdog_migrate::desktop_profile::supplement;
 use mixdog_migrate::framework::MigrationRoots;
@@ -66,6 +67,8 @@ struct Marker {
 pub struct MigrateProfileService {
     data: PathBuf,
     home: PathBuf,
+    user_data: PathBuf,
+    config: Config,
     interactive: InteractiveIo,
     durability: DurabilityIo,
     /// One adopt at a time: the journal is republished after every step.
@@ -147,8 +150,8 @@ fn adopt(mut roots: MigrationRoots, adopting: &Mutex<()>) -> Result<MigrateProfi
 
 impl MigrateProfileService {
     /// `data` is `<D>` and `home` `<H>` of the migration; the file work runs on the lanes of `tokens`.
-    pub fn new(data: PathBuf, home: PathBuf, tokens: &LaneTokens) -> Self {
-        Self { data, home, interactive: tokens.interactive_io, durability: tokens.durability_io, adopting: Arc::new(Mutex::new(())) }
+    pub fn new(data: PathBuf, home: PathBuf, user_data: PathBuf, config: Config, tokens: &LaneTokens) -> Self {
+        Self { data, home, user_data, config, interactive: tokens.interactive_io, durability: tokens.durability_io, adopting: Arc::new(Mutex::new(())) }
     }
 }
 
@@ -169,7 +172,10 @@ impl DomainService for MigrateProfileService {
                 let params: MigrateProfileAdoptParams = decode(&req)?;
                 let roots = MigrationRoots { data: self.data.clone(), home: self.home.clone(), profile: Some(PathBuf::from(params.user_data)) };
                 let adopting = self.adopting.clone();
-                reply(&on_lane_wait(self.durability, &req.ctx.cancel, move |_| adopt(roots, &adopting)).await??)
+                let outcome = on_lane_wait(self.durability, &req.ctx.cancel, move |_| adopt(roots, &adopting)).await??;
+                self.config.adopt_legacy_markdown_view(self.user_data.clone()).await
+                    .map_err(|error| failed(DOMAIN, error.to_string()))?;
+                reply(&outcome)
             }
             other => Err(wrong_method(DOMAIN, other)),
         }

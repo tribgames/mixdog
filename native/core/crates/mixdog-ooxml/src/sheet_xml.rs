@@ -376,18 +376,94 @@ pub fn append_differential_format(styles_xml: &str, color: &str, fill_color: &st
     DifferentialFormat { xml: styles_xml.replacen("</styleSheet>", &format!("{element}</styleSheet>"), 1), id }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many times a test's thread read a sheet's merged areas, to show a run of writes reads them once.
+    pub(crate) static MERGED_AREA_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The merged areas of a sheet, read once (`mergedRanges` of each, parsed).
+pub fn merged_areas(xml: &str) -> Result<Vec<Area>, String> {
+    #[cfg(test)]
+    MERGED_AREA_READS.with(|reads| reads.set(reads.get() + 1));
+    merged_ranges(xml).iter().map(|entry| parse_area_range(entry)).collect()
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many merged areas a test's thread looked at, to show a run of writes does not look at every merge for every cell.
+    pub(crate) static MERGE_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The merged areas of a sheet filed under the rows a run of writes touches. A row is kept as stretches of columns, each with the area
+/// the full scan of the sheet's merges would answer there (the first in reading order among those covering it), so a cell asks one
+/// binary search, however many merges the row holds and however they overlap or nest.
+pub struct MergeIndex {
+    rows: std::collections::HashMap<u64, Vec<(f64, Option<Area>)>>,
+}
+
+impl MergeIndex {
+    /// `areas` filed under each of `targets` (row numbers) they cross.
+    pub fn new(areas: &[Area], targets: &std::collections::BTreeSet<u64>) -> Self {
+        let mut crossing: std::collections::HashMap<u64, Vec<usize>> = std::collections::HashMap::new();
+        for (at, area) in areas.iter().enumerate() {
+            #[cfg(test)]
+            MERGE_PROBES.with(|probes| probes.set(probes.get() + 1));
+            let (first, last) = (area.start_row.max(0.0).ceil() as u64, area.end_row.max(0.0).floor() as u64);
+            if first > last {
+                continue;
+            }
+            for row in targets.range(first..=last) {
+                #[cfg(test)]
+                MERGE_PROBES.with(|probes| probes.set(probes.get() + 1));
+                crossing.entry(*row).or_default().push(at);
+            }
+        }
+        let rows = crossing.into_iter().map(|(row, held)| (row, Self::stretches(areas, &held))).collect();
+        Self { rows }
+    }
+
+    /// The columns of a row cut where an area starts or stops, each stretch with the lowest-numbered area covering it: a sweep over the
+    /// starts and the columns after the ends, keeping the areas open at that column.
+    fn stretches(areas: &[Area], held: &[usize]) -> Vec<(f64, Option<Area>)> {
+        let mut events: Vec<(f64, bool, usize)> = Vec::with_capacity(held.len() * 2);
+        for &at in held {
+            events.push((areas[at].start_col, true, at));
+            events.push((areas[at].end_col + 1.0, false, at));
+        }
+        events.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let (mut open, mut stretches, mut next) = (std::collections::BTreeSet::new(), Vec::new(), 0);
+        while next < events.len() {
+            let column = events[next].0;
+            while next < events.len() && events[next].0 == column {
+                let (_, starts, at) = events[next];
+                if starts {
+                    open.insert(at);
+                } else {
+                    open.remove(&at);
+                }
+                next += 1;
+            }
+            stretches.push((column, open.iter().next().map(|&at| areas[at])));
+        }
+        stretches
+    }
+
+    /// `mergedCellAnchor` for a cell on one of the indexed rows: false for a cell covered by a merged area that is not its top-left cell.
+    pub fn anchored(&self, reference: &str) -> Result<bool, String> {
+        let parsed = parse_cell_ref(reference)?;
+        let column = column_number(&parsed.col);
+        let stretches = self.rows.get(&parsed.row).map(Vec::as_slice).unwrap_or_default();
+        #[cfg(test)]
+        MERGE_PROBES.with(|probes| probes.set(probes.get() + 1));
+        let Some((_, Some(area))) = stretches.partition_point(|(from, _)| *from <= column).checked_sub(1).map(|at| &stretches[at]) else { return Ok(true) };
+        Ok(area.start_col == column && area.start_row == parsed.row as f64)
+    }
+}
+
 /// `mergedCellAnchor(xml, reference)`: false for a cell covered by a merged area that is not its top-left cell.
 pub fn merged_cell_anchor(xml: &str, reference: &str) -> Result<bool, String> {
-    let parsed = parse_cell_ref(reference)?;
-    let column = column_number(&parsed.col);
-    let row = parsed.row as f64;
-    for entry in merged_ranges(xml) {
-        let area = parse_area_range(&entry)?;
-        if area.start_col <= column && column <= area.end_col && area.start_row <= row && row <= area.end_row {
-            return Ok(area.start_col == column && area.start_row == row);
-        }
-    }
-    Ok(true)
+    MergeIndex::new(&merged_areas(xml)?, &std::collections::BTreeSet::from([parse_cell_ref(reference)?.row])).anchored(reference)
 }
 
 static SHEET_VIEW_OPEN: LazyLock<JsRegex> = regex!(r"^<sheetView\b([^>]*?)(\/>|>)", "");
@@ -1011,6 +1087,51 @@ pub fn upsert_defined_name(xml: &str, entry: Option<&str>, matches: impl Fn(&str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `mergedCellAnchor` as it was: the first area, in reading order, that holds the cell decides.
+    fn scanned(areas: &[Area], reference: &str) -> bool {
+        let parsed = parse_cell_ref(reference).expect("a cell");
+        let (column, row) = (column_number(&parsed.col), parsed.row as f64);
+        areas
+            .iter()
+            .find(|area| area.start_col <= column && column <= area.end_col && area.start_row <= row && row <= area.end_row)
+            .is_none_or(|area| area.start_col == column && area.start_row == row)
+    }
+
+    fn areas(ranges: &[&str]) -> Vec<Area> {
+        ranges.iter().map(|range| parse_area_range(range).expect("an area")).collect()
+    }
+
+    #[test]
+    fn a_range_inside_another_does_not_hide_the_one_that_covers_the_cell() {
+        let merged = areas(&["A1:D1", "B1:C1"]);
+        let index = MergeIndex::new(&merged, &std::collections::BTreeSet::from([1]));
+        let answers: Vec<bool> = ["A1", "B1", "C1", "D1", "E1"].iter().map(|cell| index.anchored(cell).expect("anchored")).collect();
+        // A1:D1 is read first and holds A1..D1: only A1 is its top-left cell; E1 is in no merge.
+        assert_eq!(answers, [true, false, false, false, true]);
+    }
+
+    #[test]
+    fn the_index_answers_as_the_full_scan_for_overlapping_nested_and_disjoint_merges() {
+        let layouts: [&[&str]; 5] = [
+            &["A1:D1", "B1:C1"],
+            &["B1:C1", "A1:D1"],
+            &["A1:C2", "B1:E1", "D1:F3", "C2:C3"],
+            &["B2:C2", "E2:F2", "H1:H3", "A3:B3"],
+            &["A1:H3", "C1:D2", "E2:E2", "B3:G3"],
+        ];
+        let rows = std::collections::BTreeSet::from([1, 2, 3, 4]);
+        for ranges in layouts {
+            let merged = areas(ranges);
+            let index = MergeIndex::new(&merged, &rows);
+            for row in 1..=4 {
+                for column in 'A'..='I' {
+                    let cell = format!("{column}{row}");
+                    assert_eq!(index.anchored(&cell).expect("anchored"), scanned(&merged, &cell), "{cell} with merges {ranges:?}");
+                }
+            }
+        }
+    }
     use serde_json::json;
 
     #[test]

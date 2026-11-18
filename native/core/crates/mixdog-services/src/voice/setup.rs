@@ -162,6 +162,10 @@ impl VoiceSetup {
         })
     }
 
+    pub(super) fn off_generation(&self) -> u64 {
+        self.off_generation.load(Ordering::SeqCst)
+    }
+
     /// `enabled: None` flips the current state. Shows no install progress (the setup path).
     pub async fn toggle(&self, enabled: Option<bool>) -> ToggleResult {
         self.run_toggle(enabled, None).await

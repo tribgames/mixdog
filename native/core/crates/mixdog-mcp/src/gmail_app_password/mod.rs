@@ -584,6 +584,59 @@ async fn thread_of(ctx: &Ctx<'_>, value: &str) -> Result<Thread, Fail> {
     out
 }
 
+// ── The tools and the MCP server ────────────────────────────────────────────
+
+fn ids_schema() -> Value {
+    json!({
+        "type": "array",
+        "items": { "type": "string" },
+        "minItems": 1,
+        "maxItems": MANAGE_MAX,
+        "description": format!("Email ids from search_emails (at most {MANAGE_MAX})."),
+    })
+}
+
+fn redact(value: &str, password: &str) -> String {
+    if password.is_empty() { value.to_owned() } else { value.replace(password, "[redacted]") }
+}
+
+fn tool_result(value: String, is_error: bool) -> Value {
+    let mut result = json!({ "content": [{ "type": "text", "text": value }] });
+    if is_error {
+        result["isError"] = Value::Bool(true);
+    }
+    result
+}
+
+/// What one request knows: the account of its header and the password, read from the keychain at most once.
+struct Request<'a> {
+    email: String,
+    store: &'a dyn SecretStore,
+    password: OnceCell<Result<String, String>>,
+}
+
+impl Request<'_> {
+    async fn password(&self) -> Result<&str, String> {
+        let stored = self
+            .password
+            .get_or_init(|| async {
+                if self.email.is_empty() {
+                    return Ok(String::new());
+                }
+                self.store.get(&gmail_app_password_secret_account(&self.email)).await.map(Option::unwrap_or_default).map_err(|e| e.to_string())
+            })
+            .await;
+        stored.as_deref().map_err(Clone::clone)
+    }
+}
+
+/// The Gmail app-password MCP server: answers the requests of an HTTP MCP client addressed to the reserved address.
+pub struct GmailMcp {
+    mail: Arc<GmailAppPassword>,
+    store: Arc<dyn SecretStore>,
+}
+
+
 async fn send_email(ctx: &Ctx<'_>, args: &Value) -> Result<String, Fail> {
     let to = require_text(args, "to")?;
     let cc = text_arg(args.get("cc"));
@@ -621,19 +674,6 @@ async fn send_email(ctx: &Ctx<'_>, args: &Value) -> Result<String, Fail> {
     smtp::send(&ctx.mail.smtp_leg(), ctx.mail.hello_name(), ctx.email, ctx.password, &envelope, &built.data).await?;
     Ok(format!("Sent (message {}).", built.message_id))
 }
-
-// ── The tools and the MCP server ────────────────────────────────────────────
-
-fn ids_schema() -> Value {
-    json!({
-        "type": "array",
-        "items": { "type": "string" },
-        "minItems": 1,
-        "maxItems": MANAGE_MAX,
-        "description": format!("Email ids from search_emails (at most {MANAGE_MAX})."),
-    })
-}
-
 /// The tool definitions the server lists: never the one only the approval gate calls (`describe_emails`).
 fn tool_list() -> Vec<Value> {
     let mut tools = vec![
@@ -693,12 +733,10 @@ fn tool_list() -> Vec<Value> {
     }
     tools
 }
-
 /// Whether the server has a tool called `name` (listed or not).
 fn is_tool(name: &str) -> bool {
     matches!(name, "send_email" | "search_emails" | "read_email" | "describe_emails") || MANAGE_TOOLS.iter().any(|tool| tool.name == name)
 }
-
 async fn run_tool(ctx: &Ctx<'_>, name: &str, args: &Value) -> Result<String, Fail> {
     match name {
         "send_email" => send_email(ctx, args).await,
@@ -711,47 +749,6 @@ async fn run_tool(ctx: &Ctx<'_>, name: &str, args: &Value) -> Result<String, Fai
         },
     }
 }
-
-fn redact(value: &str, password: &str) -> String {
-    if password.is_empty() { value.to_owned() } else { value.replace(password, "[redacted]") }
-}
-
-fn tool_result(value: String, is_error: bool) -> Value {
-    let mut result = json!({ "content": [{ "type": "text", "text": value }] });
-    if is_error {
-        result["isError"] = Value::Bool(true);
-    }
-    result
-}
-
-/// What one request knows: the account of its header and the password, read from the keychain at most once.
-struct Request<'a> {
-    email: String,
-    store: &'a dyn SecretStore,
-    password: OnceCell<Result<String, String>>,
-}
-
-impl Request<'_> {
-    async fn password(&self) -> Result<&str, String> {
-        let stored = self
-            .password
-            .get_or_init(|| async {
-                if self.email.is_empty() {
-                    return Ok(String::new());
-                }
-                self.store.get(&gmail_app_password_secret_account(&self.email)).await.map(Option::unwrap_or_default).map_err(|e| e.to_string())
-            })
-            .await;
-        stored.as_deref().map_err(Clone::clone)
-    }
-}
-
-/// The Gmail app-password MCP server: answers the requests of an HTTP MCP client addressed to the reserved address.
-pub struct GmailMcp {
-    mail: Arc<GmailAppPassword>,
-    store: Arc<dyn SecretStore>,
-}
-
 impl GmailMcp {
     pub fn new(mail: Arc<GmailAppPassword>, store: Arc<dyn SecretStore>) -> Self {
         Self { mail, store }

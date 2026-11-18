@@ -45,3 +45,4 @@ pub use pkce::Pkce;
 pub use pkce::random_state;
 pub use refresh::RefreshFailure;
 pub use refresh::classify_refresh_failure;
+pub use refresh::is_definitive_oauth_failure;

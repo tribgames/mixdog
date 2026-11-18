@@ -217,7 +217,7 @@ test('PANE active sessions follow focused pane order', () => {
       id: 'right',
       tabs: [
         session('right-active'),
-        { kind: 'file', project: 'C:/Project/mixdog', rel: 'README.md' },
+        { kind: 'file', project: 'C:/Project/sample', rel: 'README.md' },
         session('left-inactive'),
       ],
       activeKey: 'session:right-active',

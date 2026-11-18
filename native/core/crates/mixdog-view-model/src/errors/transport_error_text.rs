@@ -81,7 +81,7 @@ fn verdict(kind: &'static str, code: impl Into<String>, status: u32) -> Option<T
     Some(TransportVerdict { kind, code: code.into(), status })
 }
 
-fn cause_chain(error: Js) -> Vec<&Value> {
+fn cause_chain(error: Js<'_>) -> Vec<&Value> {
     let mut chain = Vec::new();
     let mut cursor = error;
     while let Some(item) = cursor.filter(|item| is_object(Some(*item))) {

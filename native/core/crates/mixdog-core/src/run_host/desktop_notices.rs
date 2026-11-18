@@ -20,8 +20,12 @@ impl SessionNotices for SessionDesktopNotices {
         self.0.turn_failed(provider, kind);
     }
 
-    fn save_failed(&self) {
-        self.0.conversation_save_failed();
+    fn save_failed(&self, session: &str) {
+        self.0.conversation_save_failed(session);
+    }
+
+    fn save_resolved(&self, session: &str) {
+        self.0.conversation_save_resolved(session);
     }
 
     fn offload_prune_blocked(&self, session: &str) {
@@ -44,21 +48,34 @@ impl SignInNotices for ConnectorDesktopNotices {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use async_trait::async_trait;
+    #[cfg(node_twin)]
     use mixdog_core_api::mock::MockStatePublisher;
+    #[cfg(node_twin)]
     use mixdog_core_api::state::SectionChange;
+    #[cfg(node_twin)]
     use mixdog_mcp::sign_in_notice::NoticingAuthorizer;
-    use mixdog_mcp::transport::{Authorizer, TransportError};
-    use serde_json::{Value, json};
+    #[cfg(node_twin)]
+    use mixdog_mcp::transport::Authorizer;
+    #[cfg(node_twin)]
+    use mixdog_mcp::transport::TransportError;
+    #[cfg(node_twin)]
+    use serde_json::Value;
+    #[cfg(node_twin)]
+    use serde_json::json;
 
+    #[cfg(node_twin)]
     use super::*;
 
     /// A sign-in whose renewal ends as the scripted login does.
+    #[cfg(node_twin)]
     struct Renewal {
         needs_user: bool,
     }
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl Authorizer for Renewal {
         async fn token(&self) -> Result<Option<String>, TransportError> {
             Ok(None)
@@ -72,6 +89,7 @@ mod tests {
     /// One request as the transports make it (`http.rs` `post_message`): send with the stored
     /// token, on a refusal renew and send once more, a second refusal needs the user, a success
     /// is reported with the token it carried.
+    #[cfg(node_twin)]
     async fn request(auth: &dyn Authorizer, stored: bool, statuses: &[u64], login_needs_user: bool) {
         let attempted = stored.then(|| "old".to_owned());
         let mut sent = attempted.clone();
@@ -93,6 +111,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn standing(publisher: &MockStatePublisher) -> Vec<String> {
         let mut keys = std::collections::BTreeSet::new();
         for (_, key, change) in publisher.published() {
@@ -105,6 +124,7 @@ mod tests {
         keys.into_iter().collect()
     }
 
+    #[cfg(node_twin)]
     fn sets(publisher: &MockStatePublisher, seen: usize) -> Vec<Value> {
         publisher
             .published()
@@ -121,6 +141,7 @@ mod tests {
     /// (`fixtures/desktop-notice-raisers/golden.json`): which notices a request raises, and which
     /// it withdraws, from the events the transports report.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_connectors_sign_in_notice_is_raised_and_withdrawn_as_node_does() {
         let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/desktop-notice-raisers/golden.json")).expect("fixture");
         for step in golden["connectorSteps"].as_array().expect("steps") {
@@ -139,3 +160,4 @@ mod tests {
         }
     }
 }
+

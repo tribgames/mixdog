@@ -145,6 +145,14 @@ impl ProviderAdapter for MultiWireAdapter {
         result
     }
 
+    /// The images of a send travel the wire its model is routed on: that engine's branch, not the provider's name.
+    async fn image_route(&self, request: &ModelRequest) -> mixdog_image_egress::route::RouteFacts {
+        match self.route(request.model.as_str()) {
+            Some(wire) => self.engine(wire).image_route(request).await,
+            None => mixdog_image_egress::route::RouteFacts::undeclared(self.id.as_str(), &request.model),
+        }
+    }
+
     /// The convention of a custom provider is its default wire's engine's (its protocol's class, `custom-provider.mjs`).
     fn input_excludes_cache(&self) -> Option<bool> {
         self.default_engine().input_excludes_cache()

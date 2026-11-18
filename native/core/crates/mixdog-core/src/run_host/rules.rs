@@ -375,14 +375,57 @@ fn lowered_keep(value: &Value) -> String {
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds fixture trees")]
 mod tests {
+    #[cfg(node_twin)]
     use std::path::PathBuf;
 
     use serde_json::json;
 
     use super::*;
 
+    #[cfg(node_twin)]
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
+    #[cfg(node_twin)]
+    fn names(value: &Value) -> Vec<String> {
+        value.as_array().map_or_else(Vec::new, |a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect())
+    }
+
+    #[cfg(node_twin)]
+    struct Policy;
+    #[cfg(node_twin)]
+    impl RulesPolicy for Policy {
+        fn hidden_agent(&self, _: Option<&str>) -> bool {
+            false
+        }
+        fn delegation_disabled(&self, _: &Value, _: bool) -> bool {
+            false
+        }
+    }
+
+    /// `delegationDisabled`: a lead whose workflow names no agent has no `agent` tool; an agent-owned session is never asked, and a session with no workflow keeps it.
+    #[test]
+    fn delegation_is_disabled_by_the_workflow_the_session_holds() {
+        let none = json!({ "workflow": { "agentsConfigured": true, "agents": [] } });
+        assert!(ConfigRulesPolicy.delegation_disabled(&none, false));
+        assert!(!ConfigRulesPolicy.delegation_disabled(&none, true));
+        assert!(!ConfigRulesPolicy.delegation_disabled(&json!({ "workflow": { "agentsConfigured": true, "agents": ["a"] } }), false));
+        assert!(!ConfigRulesPolicy.delegation_disabled(&json!({}), false));
+        // Agent mode with a workflow that delegates to no one.
+        let solo = json!({ "sessionMode": "agent", "workflow": { "delegatesAgents": false } });
+        assert!(ConfigRulesPolicy.delegation_disabled(&solo, false));
+        assert!(!ConfigRulesPolicy.delegation_disabled(&json!({ "sessionMode": "coding", "workflow": { "delegatesAgents": false } }), false));
+    }
+
+    #[test]
+    fn a_hidden_agent_is_one_the_table_lists() {
+        let listed = hidden_agents().into_iter().next().expect("the table lists hidden agents");
+        assert!(ConfigRulesPolicy.hidden_agent(Some(&listed)));
+        assert!(!ConfigRulesPolicy.hidden_agent(Some("no-such-agent")));
+        assert!(!ConfigRulesPolicy.hidden_agent(None));
+    }
+
+
+    #[cfg(node_twin)]
     fn fixture() -> (PathBuf, Vec<Value>) {
         let golden: Value = serde_json::from_str(include_str!("golden/rules_builder.json")).expect("fixture");
         let root = PathBuf::from(std::env::var("TEMP").unwrap_or_else(|_| ".".into())).join(format!("rules-golden-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
@@ -394,14 +437,10 @@ mod tests {
         }
         (root, golden["cases"].as_array().unwrap().clone())
     }
-
-    fn names(value: &Value) -> Vec<String> {
-        value.as_array().map_or_else(Vec::new, |a| a.iter().map(|v| v.as_str().unwrap().to_owned()).collect())
-    }
-
     /// Node's builders over a synthetic rules tree: markers, allow/deny sets, CRLF files,
     /// frontmatter routes with quoted and globbed models, and the LEAD.md split.
     #[test]
+    #[cfg(node_twin)]
     fn the_builders_follow_node() {
         let (root, cases) = fixture();
         for case in &cases {
@@ -429,18 +468,8 @@ mod tests {
             assert_eq!(got, case["out"].as_str().unwrap(), "{case}");
         }
     }
-
-    struct Policy;
-    impl RulesPolicy for Policy {
-        fn hidden_agent(&self, _: Option<&str>) -> bool {
-            false
-        }
-        fn delegation_disabled(&self, _: &Value, _: bool) -> bool {
-            false
-        }
-    }
-
     #[test]
+    #[cfg(node_twin)]
     fn a_route_switch_rerenders_only_the_exact_base_block() {
         let (root, _) = fixture();
         let base = |provider: &str, model: &str| {
@@ -459,27 +488,5 @@ mod tests {
         assert_eq!(session["messages"][0]["content"], base("openai", "gpt-5"));
         assert_eq!(session["messages"][1]["content"], base("anthropic", "claude-3-5-sonnet"));
         assert!(!refresh_rule_variants(&mut session, &root, "claude-3-5-sonnet", Some("anthropic"), &Policy));
-    }
-
-    /// `delegationDisabled`: a lead whose workflow names no agent has no `agent` tool; an agent-owned session is never asked, and a session with no workflow keeps it.
-    #[test]
-    fn delegation_is_disabled_by_the_workflow_the_session_holds() {
-        let none = json!({ "workflow": { "agentsConfigured": true, "agents": [] } });
-        assert!(ConfigRulesPolicy.delegation_disabled(&none, false));
-        assert!(!ConfigRulesPolicy.delegation_disabled(&none, true));
-        assert!(!ConfigRulesPolicy.delegation_disabled(&json!({ "workflow": { "agentsConfigured": true, "agents": ["a"] } }), false));
-        assert!(!ConfigRulesPolicy.delegation_disabled(&json!({}), false));
-        // Agent mode with a workflow that delegates to no one.
-        let solo = json!({ "sessionMode": "agent", "workflow": { "delegatesAgents": false } });
-        assert!(ConfigRulesPolicy.delegation_disabled(&solo, false));
-        assert!(!ConfigRulesPolicy.delegation_disabled(&json!({ "sessionMode": "coding", "workflow": { "delegatesAgents": false } }), false));
-    }
-
-    #[test]
-    fn a_hidden_agent_is_one_the_table_lists() {
-        let listed = hidden_agents().into_iter().next().expect("the table lists hidden agents");
-        assert!(ConfigRulesPolicy.hidden_agent(Some(&listed)));
-        assert!(!ConfigRulesPolicy.hidden_agent(Some("no-such-agent")));
-        assert!(!ConfigRulesPolicy.hidden_agent(None));
     }
 }

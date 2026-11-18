@@ -73,6 +73,17 @@ impl LiveRoute for SessionRoutes {
             self.set_route_state(thread, route);
         }
     }
+
+    fn adopt_held_if(&self, thread: &ThreadId, expected: &Route, held: &Route) {
+        if let Ok(route) = self.resolve.resolve(held) {
+            self.with(thread, |cell| {
+                if &cell.route == expected {
+                    cell.route = route;
+                    cell.generation += 1;
+                }
+            });
+        }
+    }
 }
 
 impl RouteCell for SessionRoutes {

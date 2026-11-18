@@ -504,6 +504,68 @@ impl<T: Clone, F: FnMut(&T, &T) -> f64> Sorter<'_, T, F> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, node_twin))]
 #[path = "array_sort_tests.rs"]
-mod tests;
+mod node_twin;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A fixed pseudo-random sequence (xorshift), long enough for the runs, merges and galloping of a TimSort.
+    fn sequence(len: usize, modulus: u64) -> Vec<u64> {
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        (0..len)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state % modulus
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_consistent_comparator_sorts_ascending_and_descending_at_every_length() {
+        for len in [0, 1, 2, 3, 31, 32, 33, 64, 65, 300, 1000] {
+            let values = sequence(len, 1_000_000);
+            let mut ascending = values.clone();
+            js_sort_by(&mut ascending, |a, b| *a as f64 - *b as f64);
+            let mut expected = values.clone();
+            expected.sort_unstable();
+            assert_eq!(ascending, expected, "ascending, {len} items");
+            let mut descending = values;
+            js_sort_by(&mut descending, |a, b| *b as f64 - *a as f64);
+            expected.reverse();
+            assert_eq!(descending, expected, "descending, {len} items");
+        }
+    }
+
+    // ECMA-262 `Array.prototype.sort`: the sort is stable, items the comparator calls equal keep their order.
+    #[test]
+    fn items_the_comparator_calls_equal_keep_their_order() {
+        for len in [10, 40, 200, 1000] {
+            let mut items: Vec<(u64, usize)> = sequence(len, 7).into_iter().enumerate().map(|(at, key)| (key, at)).collect();
+            js_sort_by(&mut items, |a, b| a.0 as f64 - b.0 as f64);
+            assert!(items.windows(2).all(|w| w[0].0 < w[1].0 || (w[0].0 == w[1].0 && w[0].1 < w[1].1)), "{len} items");
+        }
+    }
+
+    // ECMA-262 SortCompare: a comparator answering NaN is read as +0, so nothing moves.
+    #[test]
+    fn a_comparator_answering_nan_or_zero_moves_nothing() {
+        let original: Vec<u64> = sequence(100, 50);
+        for answer in [f64::NAN, 0.0, -0.0] {
+            let mut items = original.clone();
+            js_sort_by(&mut items, |_, _| answer);
+            assert_eq!(items, original);
+        }
+    }
+
+    #[test]
+    fn a_sign_alone_decides_so_infinities_and_fractions_order_like_any_other_answer() {
+        let mut items = vec![3, 1, 2];
+        js_sort_by(&mut items, |a, b| if a < b { f64::NEG_INFINITY } else if a > b { 0.25 } else { 0.0 });
+        assert_eq!(items, [1, 2, 3]);
+    }
+}

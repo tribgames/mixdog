@@ -63,8 +63,8 @@ impl ServerLinks for FakeLinks {
         locked(&self.open).contains(id)
     }
 
-    async fn open(&self, _spec: LinkSpec, _context: AttemptContext, _progress: Option<Progress>) -> Result<(), ConnectError> {
-        Ok(())
+    async fn open(&self, _spec: LinkSpec, _context: AttemptContext, _progress: Option<Progress>, _cancel: Option<&tokio_util::sync::CancellationToken>) -> Result<crate::link::LinkOpen, ConnectError> {
+        Ok(crate::link::LinkOpen::Reused)
     }
 
     async fn close(&self, id: &str) {
@@ -174,8 +174,8 @@ impl ServerCleaner for FakeCleaner {
         progress(CleanupProgress::Connect);
         let outcome = locked(&self.outcomes).pop_front().unwrap_or_else(|| Ok(CleanupReport::default()));
         if outcome.is_ok() {
-            progress(CleanupProgress::Stop { detail: "no core running".into() });
-            progress(CleanupProgress::Remove { detail: "removed nothing".into() });
+            progress(CleanupProgress::Stop { detail: mixdog_ssh::said::CLEANUP_NOTHING_RUNNING.plain() });
+            progress(CleanupProgress::Remove { detail: mixdog_ssh::said::CLEANUP_REMOVED_NOTHING.plain() });
             progress(CleanupProgress::Done);
         }
         outcome
@@ -263,6 +263,9 @@ async fn cleanup_closes_the_window_first_then_removes_and_forgets_the_server() {
     assert!(done.hosts.is_empty());
     assert_eq!(done.detail, None);
     assert!(rig.hosts.get(&record.id).is_none());
+    // The local half is reported on its own.
+    let local = done.forget.expect("the local outcome");
+    assert!(local.ok && local.error.is_none());
     // The window was gone before ssh ran, and the saved settings' diagnostics ring is the one the run writes to.
     assert_eq!(*locked(&rig.links.closed), vec![record.id.clone()]);
     let runs = locked(&rig.cleaner.runs);
@@ -274,8 +277,8 @@ async fn cleanup_closes_the_window_first_then_removes_and_forgets_the_server() {
         phases,
         vec![
             ("op-1".to_owned(), SshCleanupPhase::Connect, None),
-            ("op-1".to_owned(), SshCleanupPhase::Stop, Some("no core running".to_owned())),
-            ("op-1".to_owned(), SshCleanupPhase::Remove, Some("removed nothing".to_owned())),
+            ("op-1".to_owned(), SshCleanupPhase::Stop, Some("Nothing was running on the server.".to_owned())),
+            ("op-1".to_owned(), SshCleanupPhase::Remove, Some("Removed nothing.".to_owned())),
             ("op-1".to_owned(), SshCleanupPhase::Done, None),
         ]
     );
@@ -290,7 +293,20 @@ async fn cleanup_keeps_the_saved_server_unless_asked_and_answers_with_the_list()
     assert_eq!(done.hosts.len(), 1);
     assert_eq!((done.hosts[0].id.as_str(), done.hosts[0].open), (record.id.as_str(), false));
     assert!(rig.hosts.get(&record.id).is_some());
+    assert_eq!(done.forget, None, "nothing was asked of this PC's ssh state");
     assert!(!locked(&rig.cleaner.runs)[0].remove_user_data);
+}
+
+#[tokio::test]
+async fn a_server_that_was_never_saved_is_cleaned_by_its_target_without_being_saved_or_forgotten() {
+    let rig = cleanup_rig(vec![Ok(CleanupReport::default())]).await;
+    let result = within(rig.cleanup.cleanup_target(ONE, TARGET, cleanup_request(false, true), rig.sink.clone())).await.expect("answered");
+    let SshCleanupResult::Done(done) = result else { panic!("expected done") };
+    assert_eq!(done.forget, None, "there is no saved entry to forget");
+    assert!(rig.hosts.list().is_empty());
+    assert_eq!(locked(&rig.cleaner.runs).len(), 1);
+    let refused = rig.cleanup.cleanup_target(ONE, "-oProxyCommand=x", cleanup_request(false, false), rig.sink.clone()).await.unwrap_err();
+    assert!(!refused.to_string().is_empty());
 }
 
 #[tokio::test]
@@ -510,7 +526,9 @@ async fn an_empty_server_log_and_an_unreachable_server_are_answers_not_errors() 
 async fn list_rig() -> (HostList, Arc<SshHostStore>, Arc<FakeLinks>, tempfile::TempDir) {
     let (hosts, dir) = store().await;
     let links = Arc::new(FakeLinks::default());
-    (HostList::new(hosts.clone(), links.clone()), hosts, links, dir)
+    let (askpass, _questions) = mpsc::unbounded_channel();
+    let attempts = Attempts::new(links.clone(), Arc::new(FakePush { askpass }));
+    (HostList::new(hosts.clone(), links.clone(), attempts), hosts, links, dir)
 }
 
 #[tokio::test]
@@ -557,11 +575,14 @@ async fn a_setting_that_cannot_be_used_is_refused_and_applies_nothing() {
 }
 
 #[tokio::test]
-async fn forget_removes_only_the_saved_entry() {
-    let (list, hosts, _links, _dir) = list_rig().await;
+async fn forget_closes_the_link_and_removes_only_the_saved_entry() {
+    let (list, hosts, links, _dir) = list_rig().await;
     let build = saved(&hosts, TARGET, "Build").await;
     let other = saved(&hosts, "ops@other.example", "Other").await;
-    list.forget(&build.id).await.expect("forgotten");
+    locked(&links.open).insert(build.id.clone());
+    let answer = list.forget(&build.id).await.expect("forgotten");
+    assert_eq!(answer, mixdog_app_protocol::v2::connections::SshForgetResult::Done(mixdog_app_protocol::v2::connections::SshForgetDone { ok: true }));
+    assert_eq!(*locked(&links.closed), vec![build.id.clone()]);
     assert_eq!(list.list().iter().map(|host| host.id.as_str()).collect::<Vec<_>>(), vec![other.id.as_str()]);
     assert!(list.forget("").await.is_err());
 }

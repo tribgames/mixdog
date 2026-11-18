@@ -25,13 +25,13 @@ type TranscriptVirtualizerOptions = VirtualizerOptions<HTMLDivElement, HTMLDivEl
 export function useActiveRowIndexes(rows: readonly TranscriptRowModel[]) {
   const activeIndexesRef = useRef<number[]>([]);
   const activeIndexes = useMemo(() => {
-    let live = -1;
     const held: number[] = [];
     rows.forEach((row, index) => {
-      if ('active' in row && row.active) live = index;
-      if (row._tag === 'ToolActivity' && row.items.some(holdsWaitingAskUser)) held.push(index);
+      if (('active' in row && row.active) || (row._tag === 'ToolActivity' && row.items.some(holdsWaitingAskUser))) {
+        held.push(index);
+      }
     });
-    return live < 0 || held.includes(live) ? held : [...held, live].sort((a, b) => a - b);
+    return held;
   }, [rows]);
   activeIndexesRef.current = activeIndexes;
   return activeIndexesRef;

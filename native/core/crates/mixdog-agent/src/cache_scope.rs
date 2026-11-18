@@ -21,9 +21,25 @@ pub fn one_shot_scope(kind: Option<&str>, tool_schema_profile: Option<&str>) -> 
     is_one_shot_maintenance(kind, tool_schema_profile).then(|| SHARED.to_owned())
 }
 
+/// `sharedPrefixProviderCacheOpts(provider).cacheStrategy`: the breakpoints of a session-less loop whose system prompt and
+/// tool schemas are the same bytes on every call (the explorers). Its readers are the parallel explorers of a fan-out and the
+/// next calls minutes later, so the prefix is written once on the 5m tier and no 1h write is paid; only an explicit-breakpoint
+/// provider has a strategy to state. Node's rule, kept for this loop (the product's `autoClear`-linked tail is for sessions).
+pub fn shared_prefix_strategy(provider: &str) -> Option<serde_json::Value> {
+    matches!(provider, "anthropic" | "anthropic-oauth").then(|| serde_json::json!({ "tools": "none", "system": "5m", "tier3": "none", "messages": "5m" }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_shared_prefix_strategy_is_stated_for_explicit_breakpoint_providers_only() {
+        let strategy = serde_json::json!({ "tools": "none", "system": "5m", "tier3": "none", "messages": "5m" });
+        assert_eq!(shared_prefix_strategy("anthropic-oauth"), Some(strategy.clone()));
+        assert_eq!(shared_prefix_strategy("anthropic"), Some(strategy));
+        assert_eq!(shared_prefix_strategy("openai-oauth"), None);
+    }
 
     #[test]
     fn only_the_maintenance_none_pair_is_shared() {

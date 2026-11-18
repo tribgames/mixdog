@@ -201,8 +201,8 @@ pub trait McpScopes: Send + Sync {
     async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased>;
     /// `awaitInitialMcpConnect()` for `scope`: returns once its first connect settled or the startup budget passed.
     async fn await_initial(&self, _scope: &str) {}
-    /// [`await_initial`](Self::await_initial) bounded by `cap` as well (`awaitInitialConnect(maxWaitMs)`): a spawned
-    /// agent's first turn waits no longer than the agent grace for servers still connecting.
+    /// A spawned agent's first turn follows current connection work, including a replacement,
+    /// within the startup budget and a single agent grace `cap`.
     async fn await_initial_within(&self, _scope: &str, _cap: Duration) {}
     /// `onCwdChanged` (`boot/infrastructure.mjs:299`): the session that holds `scope` moved to `cwd`. Plugin
     /// servers without a declared cwd follow the session's folder, so the scope reconciles for it in place
@@ -343,27 +343,90 @@ impl McpGlue {
 pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> crate::skill_catalog::SkillRoots {
     use crate::skills::SkillRoot;
     use crate::skills::SkillSource;
-    fn present(lane: &mixdog_rt::InLane<MaintenanceIo>, path: &std::path::Path) -> bool {
-        mixdog_statefile::metadata(lane, path).is_ok()
-    }
-    fn existing(lane: &mixdog_rt::InLane<MaintenanceIo>, root: &std::path::Path) -> Vec<PathBuf> {
-        crate::plugins::skills_roots(lane, root).into_iter().filter(|dir| present(lane, dir)).collect()
-    }
     Arc::new(move |lane| {
         let mut roots = vec![SkillRoot { dir: admin.data_dir().join("skills"), source: SkillSource::Global, plugin: None }];
-        for plugin in admin.list_registered_plugins(lane).unwrap_or_default() {
-            if plugin.get("enabled") == Some(&Value::Bool(false)) {
+        for (id, root) in McpGlue::enabled_plugin_roots(&admin, lane) {
+            if !McpGlue::path_present(lane, &root) {
                 continue;
             }
-            let root = PathBuf::from(clean(&plugin["root"]));
-            if root.as_os_str().is_empty() || !present(lane, &root) {
-                continue;
-            }
-            let id = [clean(&plugin["id"]), clean(&plugin["name"])].into_iter().find(|s| !s.is_empty());
-            roots.extend(existing(lane, &root).into_iter().map(|dir| SkillRoot { dir, source: SkillSource::Plugin, plugin: id.clone() }));
+            roots.extend(McpGlue::existing_skills_roots(lane, &root).into_iter().map(|dir| SkillRoot { dir, source: SkillSource::Plugin, plugin: id.clone() }));
         }
-        roots.extend(existing(lane, &builtin_plugin_root).into_iter().map(|dir| SkillRoot { dir, source: SkillSource::Builtin, plugin: None }));
+        roots.extend(McpGlue::existing_skills_roots(lane, &builtin_plugin_root).into_iter().map(|dir| SkillRoot { dir, source: SkillSource::Builtin, plugin: None }));
         roots
+    })
+}
+
+fn path_present(lane: &mixdog_rt::InLane<MaintenanceIo>, path: &std::path::Path) -> bool {
+    mixdog_statefile::metadata(lane, path).is_ok()
+}
+
+fn existing_skills_roots(lane: &mixdog_rt::InLane<MaintenanceIo>, root: &std::path::Path) -> Vec<PathBuf> {
+    crate::plugins::skills_roots(lane, root).into_iter().filter(|dir| McpGlue::path_present(lane, dir)).collect()
+}
+
+/// The enabled registered plugins, including roots that might be created later.
+fn enabled_plugin_roots(admin: &PluginAdmin, lane: &mixdog_rt::InLane<MaintenanceIo>) -> Vec<(Option<String>, PathBuf)> {
+    let mut out = Vec::new();
+    for plugin in admin.list_registered_plugins(lane).unwrap_or_default() {
+        if plugin.get("enabled") == Some(&Value::Bool(false)) {
+            continue;
+        }
+        let root = PathBuf::from(clean(&plugin["root"]));
+        if root.as_os_str().is_empty() {
+            continue;
+        }
+        let id = [clean(&plugin["id"]), clean(&plugin["name"])].into_iter().find(|s| !s.is_empty());
+        out.push((id, root));
+    }
+    out
+}
+
+/// What the skill list depends on, as watch targets (Node's `skillRootsSignature` +
+/// `pluginShallowWatchPaths`): every skills root watched deep, or, while it does not exist yet, its
+/// nearest existing ancestor watched shallow; each plugin root (its manifests) and the registry's folder
+/// shallow, so a plugin installed, removed or edited is seen.
+pub fn skill_watch_targets(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> crate::skill_catalog::SkillWatchTargets {
+    use crate::skills_watch::WatchTargets;
+    fn add(lane: &mixdog_rt::InLane<MaintenanceIo>, targets: &mut WatchTargets, dir: PathBuf, deep: bool) {
+        let mut at = dir.as_path();
+        while !McpGlue::path_present(lane, at) {
+            let Some(parent) = at.parent() else { return };
+            at = parent;
+        }
+        let deep = deep && at == dir;
+        if deep
+            && let Some(parent) = at.parent()
+            && !targets.shallow.iter().any(|p| p == parent)
+        {
+            // The parent still reports removal or replacement if the deep watch loses its directory.
+            targets.shallow.push(parent.to_path_buf());
+        }
+        let list = if deep { &mut targets.deep } else { &mut targets.shallow };
+        if !list.iter().any(|p| p == at) {
+            list.push(at.to_path_buf());
+        }
+    }
+    Arc::new(move |lane| {
+        let mut targets = WatchTargets::default();
+        add(lane, &mut targets, admin.data_dir().join("skills"), true);
+        add(lane, &mut targets, crate::skill_deps::dependencies_root(admin.data_dir()), true);
+        add(lane, &mut targets, admin.data_dir().join("plugins"), false);
+        for (_, root) in McpGlue::enabled_plugin_roots(&admin, lane) {
+            // Node watches every manifest path; a file is seen through its folder (the nearest existing one while it is missing).
+            add(lane, &mut targets, root.clone(), false);
+            for file in crate::plugins::MANIFEST_FILES {
+                if let Some(folder) = root.join(file).parent() {
+                    add(lane, &mut targets, folder.to_path_buf(), false);
+                }
+            }
+            for dir in crate::plugins::skills_roots(lane, &root) {
+                add(lane, &mut targets, dir, true);
+            }
+        }
+        for dir in crate::plugins::skills_roots(lane, &builtin_plugin_root) {
+            add(lane, &mut targets, dir, true);
+        }
+        targets
     })
 }
 
@@ -614,7 +677,8 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
                 }
                 continue;
             }
-            let mut merged = self.live_server(name).and_then(|server| one(&server).0);
+            let (parent_live, parent_failure) = self.live_server(name).map(|server| one(&server)).unwrap_or((None, None));
+            let mut merged = parent_live;
             let mut failed = Vec::new();
             for account in &accounts {
                 let account_name = clean(&account["name"]);
@@ -640,6 +704,9 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
             } else if let Some(first) = failed.first() {
                 let all_auth = failed.iter().all(|f| f.auth_required);
                 failures.insert(name.clone(), Failure { msg: first.msg.clone(), auth_required: all_auth });
+            } else if let Some(own) = parent_failure {
+                // No account failed on its own: the connector's own failed connect is the cause shown.
+                failures.insert(name.clone(), own);
             }
         }
         for (name, msg) in self.configs_of(catalog).1.iter() {
@@ -1311,6 +1378,12 @@ impl McpRuntime for McpGlue {
 /// `probeMcpServerAuth`: what authentication an HTTP/SSE server needs, decided without
 /// credentials and without a browser (one anonymous request, then OAuth discovery on a 401).
 async fn probe_auth(probe: &Value, env: &Env) -> Result<Value, String> {
+    probe_auth_within(probe, env, PROBE_TIMEOUT).await
+}
+
+/// One `within` deadline covers the request and the discovery after it (Node's single
+/// `AbortSignal.timeout`): a probe that ran out of time is `unreachable`, never "no OAuth sign-in".
+async fn probe_auth_within(probe: &Value, env: &Env, within: Duration) -> Result<Value, String> {
     let kind = probe.get("type").and_then(Value::as_str).unwrap_or_default();
     let raw = probe.get("url").filter(|u| !u.is_null()).map(mixdog_js::value_to_string).unwrap_or_default();
     let url = normalize_url(&expand_env(&raw, env, &mut Vec::new()), false).map_err(|e| e.to_string())?;
@@ -1319,9 +1392,15 @@ async fn probe_auth(probe: &Value, env: &Env) -> Result<Value, String> {
     }
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(PROBE_TIMEOUT)
         .build()
         .map_err(|e| e.without_url().to_string())?;
+    match mixdog_rt::time::timeout(within, probe_server(&client, kind, &url)).await {
+        Ok(answer) => answer,
+        Err(_) => Ok(json!({"auth": "unreachable", "error": format!("no answer within {}ms", within.as_millis())})),
+    }
+}
+
+async fn probe_server(client: &reqwest::Client, kind: &str, url: &reqwest::Url) -> Result<Value, String> {
     let request = if kind == "http" {
         client
             .post(url.clone())
@@ -1333,7 +1412,6 @@ async fn probe_auth(probe: &Value, env: &Env) -> Result<Value, String> {
     };
     let response = match request.send().await {
         Ok(response) => response,
-        Err(error) if error.is_timeout() => return Ok(json!({"auth": "unreachable", "error": format!("no answer within {}ms", PROBE_TIMEOUT.as_millis())})),
         Err(error) => return Ok(json!({"auth": "unreachable", "error": error.without_url().to_string()})),
     };
     let status = response.status().as_u16();
@@ -1345,7 +1423,7 @@ async fn probe_auth(probe: &Value, env: &Env) -> Result<Value, String> {
     }
     let header = response.headers().get("www-authenticate").and_then(|h| h.to_str().ok()).map(str::to_owned);
     let challenge = parse_challenge(header.as_deref());
-    let discovery = Protocol::new()?.discover(&url, challenge.resource_metadata_url.as_deref()).await;
+    let discovery = Protocol::new()?.discover(url, challenge.resource_metadata_url.as_deref()).await;
     if discovery.authorization_server_metadata.is_some() {
         return Ok(json!({"auth": "oauth"}));
     }
@@ -1549,5 +1627,37 @@ impl SecretOps for GlueSecretOps {
             servers.entry(name.clone()).or_insert_with(|| cfg.clone());
         }
         servers
+    }
+}
+
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+    use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncWriteExt;
+
+    /// The server answers the first request with a 401 and then never answers: the discovery that
+    /// follows runs out of the one deadline, which is "no answer", not "offers no OAuth sign-in".
+    #[tokio::test]
+    async fn a_discovery_that_times_out_is_unreachable_not_no_oauth() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            let mut first = true;
+            while let Ok((mut stream, _)) = listener.accept().await {
+                if first {
+                    first = false;
+                    let mut buffer = [0u8; 4096];
+                    let _ = stream.read(&mut buffer).await;
+                    let _ = stream.write_all(b"HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Bearer\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+                } else {
+                    held.push(stream);
+                }
+            }
+        });
+        let probe = json!({"type": "http", "url": format!("http://127.0.0.1:{port}/mcp")});
+        let answer = probe_auth_within(&probe, &Env::new(), Duration::from_millis(500)).await.unwrap();
+        assert_eq!(answer, json!({"auth": "unreachable", "error": "no answer within 500ms"}));
     }
 }

@@ -1,5 +1,5 @@
 import { ExternalLink, Monitor, Plus, Server, Terminal, Wifi } from 'lucide-react';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import type {
   DesktopApi,
   DesktopRemoteAccessInfo,
@@ -7,6 +7,9 @@ import type {
   DesktopRemoteHost,
   DesktopSshHost,
 } from '../../shared/contract';
+import { remoteAccessInfoFromDescriptor } from '../../main/remote-access-window';
+import { remoteDescriptor } from '../../shared/core-lanes/remote-reads';
+import type { DesktopRemoteConnectionState } from '../../shared/contract-workspace';
 import { nativeAppInfo } from '../../shared/native-app';
 import { remoteClientKind } from '../../shared/remote-trust';
 import { ErrorNotice } from '../ErrorNotice';
@@ -17,12 +20,7 @@ import { sectionStoreFor } from '../section-store';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import { ActionButton, CompactSwitch, Group, ResourceRow } from './capability-controls';
 import type { CapabilityApi } from './capability-data';
-import {
-  connectionInfoReady,
-  getCachedConnectionInfo,
-  preloadConnectionInfo,
-  setCachedConnectionInfo,
-} from './connection-info';
+import { connectionInfoReady, getCachedConnectionInfo, setCachedConnectionInfo } from './connection-info';
 import { ConfirmDialog, ConnectDeviceDialog, RenameDialog } from './connection-dialogs';
 import {
   type ConnectionDialogRequest,
@@ -34,15 +32,16 @@ import {
 import { ConnRow, KindIcon } from './connection-ui';
 import { useRemoteAccessSettings } from './remote-access-settings';
 import { OpenPcDialog, savedHostOnline, useRemoteHosts } from './remote-hosts-panel';
+import { followSettingsReadConnection, startSettingsReadRecovery } from './read-recovery';
 import { relativeWhen } from './relative-when';
 import { SshConnectDialog } from './ssh-connect-dialog';
+import { sshMessageText } from './ssh-message-text';
 import { SshCleanupDialog, SshHostSettingsDialog } from './ssh-host-dialogs';
 import { openSshHost, useSshHosts } from './ssh-hosts';
 import { ReopenServerWindowsToggle } from './reopen-server-windows-toggle';
 import { errorMessage } from '../editor-pane-session-errors';
 
-const CONNECTION_RETRY_MS = 2_000;
-const CONNECTION_STALLED_ATTEMPTS = 5;
+const CONNECTION_STALL_MS = 10_000;
 const RELAY_CONNECTING_MESSAGE =
   'Connecting… This refreshes automatically. If it takes long, check this PC’s internet connection.';
 
@@ -51,77 +50,121 @@ function disconnectLabel(busy: boolean, confirming: boolean): string {
   return confirming ? t('Confirm disconnect') : t('Disconnect');
 }
 
-/** Keeps the device list current: a ready page follows the pushed `remote` section, and
- *  one still waiting on the relay retries until it answers. */
-function useConnectionInfoUpdates({
-  api,
-  ready,
-  applyInfo,
-  setInfo,
-  setStalledAttempts,
-}: {
-  api: CapabilityApi;
-  ready: boolean;
-  applyInfo(next: DesktopRemoteAccessInfo | null): void;
-  setInfo(next: DesktopRemoteAccessInfo | null): void;
-  setStalledAttempts(update: (count: number) => number): void;
-}): void {
-  // biome-ignore lint/correctness/useExhaustiveDependencies: applyInfo is a per-render callback; the poll restarts only when ready or api change.
+function connectionSection() {
+  return sectionStoreFor(window.mixdogDesktop)?.get('remote');
+}
+
+function inlineConnection(entry: ReturnType<typeof connectionSection>): DesktopRemoteConnectionState | undefined {
+  const value = entry?.value as DesktopRemoteConnectionState | null | undefined;
+  return value && value.info !== undefined && Array.isArray(value.clients) && typeof value.disabled === 'boolean'
+    ? value
+    : undefined;
+}
+
+/** The roster and switch come from the section independently of the rendered QR. */
+function useConnectionInfo(api: CapabilityApi) {
+  const [info, setInfo] = useState<DesktopRemoteAccessInfo | null | undefined>(() => getCachedConnectionInfo(api));
+  const [remote, setRemote] = useState(() => inlineConnection(connectionSection()));
+  const reread = useRef<(() => void) | null>(null);
+  const applyInfo = useCallback(
+    (next: DesktopRemoteAccessInfo | null) => {
+      setCachedConnectionInfo(api, next);
+      setInfo(next);
+    },
+    [api]
+  );
+
   useEffect(() => {
-    if (!ready || !api.getRemoteAccessInfo) return undefined;
+    const read = api.getRemoteAccessInfo;
+    if (!read) return undefined;
     let live = true;
-    const refresh = () => {
-      void api
-        .getRemoteAccessInfo?.()
-        .then((value) => {
-          if (!live) return;
-          applyInfo(value ?? null);
-        })
-        .catch(() => {
-          /* retain the current list */
-        });
-    };
-    refresh();
-    // Device changes are pushed: the core's `remote` section carries the access info (desktop-services.md §7.2, §15 P11).
     const sections = sectionStoreFor(window.mixdogDesktop);
-    const takeRemote = () => {
-      const info = (sections?.get('remote')?.value as { info?: DesktopRemoteAccessInfo | null } | undefined)?.info;
-      if (live && info !== undefined) applyInfo(info);
+    const readState = api.getRemoteConnectionState;
+    let generation = 0;
+    let activated = false;
+    let activation: Promise<void> | null = null;
+    const acceptState = async (next: DesktopRemoteConnectionState, request: number, signal?: AbortSignal): Promise<void> => {
+      if (!live || signal?.aborted || generation !== request) return;
+      setRemote(next);
+      const value = await remoteAccessInfoFromDescriptor(remoteDescriptor({ ...next }));
+      if (live && !signal?.aborted && generation === request) applyInfo(value);
+    };
+    const activate = (): Promise<void> => {
+      if (activated) return Promise.resolve();
+      if (activation) return activation;
+      // Opening the page may activate once. Recovery after that is strictly read-only.
+      if (inlineConnection(sections?.get('remote'))?.disabled === true) {
+        activated = true;
+        return Promise.resolve();
+      }
+      const request = generation;
+      activation = read({ activate: true })
+        .then((value) => {
+          activated = true;
+          if (live && !readState && request === generation) applyInfo(value ?? null);
+        })
+        .finally(() => {
+          activation = null;
+        });
+      return activation;
+    };
+    const readFresh = async (signal: AbortSignal): Promise<void> => {
+      if (signal.aborted || !live) return;
+      void activate().catch(() => undefined);
+      const request = ++generation;
+      if (readState) {
+        const state = await readState();
+        await acceptState(state, request, signal);
+      } else {
+        const value = await read({ activate: false });
+        if (!signal.aborted && live && request === generation) applyInfo(value ?? null);
+      }
+    };
+    // Activation is independent of the roster. A held inline roster needs no
+    // page on entry, but a missed push still needs a direct read on the clock.
+    const recovery = startSettingsReadRecovery(readFresh, CONNECTION_STALL_MS, false, true);
+    const stopLink = followSettingsReadConnection(window.mixdogDesktop, recovery);
+    const refresh = (): void => {
+      generation += 1;
+      recovery.replace();
+    };
+    reread.current = refresh;
+    const takeRemote = (): void => {
+      const next = inlineConnection(sections?.get('remote'));
+      if (next) {
+        void acceptState(next, ++generation).catch(() => undefined);
+      } else {
+        // A new stub supersedes an outstanding page, not the other way around.
+        refresh();
+      }
     };
     const unfollow = sections?.subscribe('remote', takeRemote);
+    void activate().catch(() => undefined);
+    if (sections) {
+      // Prefer the initial snapshot, but do not wait for activation to page
+      // the roster: a relay that cannot start can still have paired devices.
+      void sections.ready().then(() => {
+        if (live && generation === 0 && (sections.get('remote') || readState)) takeRemote();
+      });
+    } else if (readState) takeRemote();
     const unsubscribe = subscribeSetupChanges(refresh);
+    window.addEventListener('focus', refresh);
     return () => {
       live = false;
+      reread.current = null;
+      recovery.stop();
+      stopLink?.();
       unfollow?.();
       unsubscribe();
+      window.removeEventListener('focus', refresh);
     };
-  }, [ready, api]);
+  }, [api, applyInfo]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: setInfo/setStalledAttempts are per-render callbacks; the retry loop restarts only when api or ready change.
-  useEffect(() => {
-    if (ready || !api.getRemoteAccessInfo) return undefined;
-    let live = true;
-    const sections = sectionStoreFor(window.mixdogDesktop);
-    // The relay answers by pushing the `remote` section; there is no retry loop. A page still waiting after the
-    // time five retries used to take says so.
-    const take = (): void => {
-      const info = (sections?.get('remote')?.value as { info?: DesktopRemoteAccessInfo | null } | undefined)?.info;
-      if (live && info !== undefined) setInfo(info);
-    };
-    const unfollow = sections?.subscribe('remote', take);
-    void preloadConnectionInfo(api, CONNECTION_RETRY_MS).then((value) => {
-      if (live) setInfo(value);
-    });
-    const stalled = window.setTimeout(
-      () => live && setStalledAttempts(() => CONNECTION_STALLED_ATTEMPTS),
-      CONNECTION_RETRY_MS * CONNECTION_STALLED_ATTEMPTS
-    );
-    return () => {
-      live = false;
-      unfollow?.();
-      window.clearTimeout(stalled);
-    };
-  }, [api, ready]);
+  const applyResult = (next: DesktopRemoteAccessInfo | null): void => {
+    if (next && !api.getRemoteConnectionState) applyInfo(next);
+    reread.current?.();
+  };
+  return { info, remote, applyResult, refresh: () => reread.current?.() };
 }
 
 // Both unpair flows answer with the refreshed list; a failed call keeps the
@@ -129,19 +172,18 @@ function useConnectionInfoUpdates({
 function applyConnectionResult(
   pending: Promise<DesktopRemoteAccessInfo | null | undefined>,
   applyInfo: (next: DesktopRemoteAccessInfo | null) => void,
-  done: () => void
+  done: () => void,
+  onError: (reason: unknown) => void
 ): void {
   void pending
     .then((value) => applyInfo(value ?? null))
-    .catch(() => {
-      /* retain the current list */
-    })
+    .catch(onError)
     .finally(done);
 }
 
 function renderConnectionNote(message: string) {
   return (
-    <Group title={nativeAppInfo() ? t('Mixdog app') : t('Web app')}>
+    <Group title={nativeAppInfo() ? t('App') : t('Web app')}>
       <p className="settings-connection-note">{message}</p>
     </Group>
   );
@@ -380,7 +422,7 @@ function SshHostsGroup({
                   {t('Settings')}
                 </SmallButton>
                 <SmallButton disabled={busy} onClick={() => setDialog({ kind: 'cleanup-ssh', host })}>
-                  {t('Clean up Mixdog on the server…')}
+                  {t('Clean up the server…')}
                 </SmallButton>
                 <SmallButton disabled={busy} onClick={() => setDialog({ kind: 'forget-ssh', host })}>
                   {t('Forget')}
@@ -404,11 +446,13 @@ function ConnectionDialogs({
   settings,
   clients,
   setSettings,
+  refreshConnection,
   applyInfo,
   runHost,
   refreshHosts,
   refreshSshHosts,
   setRotating,
+  setRemoteError,
   closeDialog,
 }: {
   api: CapabilityApi;
@@ -417,11 +461,13 @@ function ConnectionDialogs({
   settings: ReturnType<typeof useRemoteAccessSettings>[0];
   clients: DesktopRemoteClientInfo[];
   setSettings: ReturnType<typeof useRemoteAccessSettings>[1];
+  refreshConnection(): void;
   applyInfo(next: DesktopRemoteAccessInfo | null): void;
   runHost(key: string, action: () => Promise<unknown> | undefined): void;
   refreshHosts: ReturnType<typeof useRemoteHosts>['refresh'];
   refreshSshHosts: ReturnType<typeof useSshHosts>['refresh'];
   setRotating(rotating: boolean): void;
+  setRemoteError(error: string): void;
   closeDialog(): void;
 }) {
   return (
@@ -454,7 +500,15 @@ function ConnectionDialogs({
           })}
           confirmLabel={t('Forget')}
           onConfirm={() =>
-            runHost(`forget-ssh:${dialog.host.id}`, () => sshForgetHost(dialog.host.id).then(refreshSshHosts))
+            runHost(`forget-ssh:${dialog.host.id}`, () =>
+              sshForgetHost(dialog.host.id).then((result) => {
+                if (!result.ok) {
+                  // The server stays saved: the reason by code, then what to do.
+                  throw new Error(`${sshMessageText(result.notice, result.message)} ${t('The server is still in the list. Click Forget to try again.')}`);
+                }
+                refreshSshHosts();
+              })
+            )
           }
           onClose={closeDialog}
         />
@@ -469,7 +523,11 @@ function ConnectionDialogs({
           })}
           initial={settings.name}
           allowEmpty
-          onSave={(name) => Promise.resolve(api.setRemotePcName?.(name)).then((value) => value && setSettings(value))}
+          onSave={async (name) => {
+            const value = await api.setRemotePcName?.(name);
+            if (value) setSettings(value);
+            refreshConnection();
+          }}
           onClose={closeDialog}
         />
       )}
@@ -490,11 +548,10 @@ function ConnectionDialogs({
           helper={t('Leave empty to go back to the device’s own name.')}
           initial={dialog.client.alias || deviceTitle(dialog.client, remoteClientKind(dialog.client.browser))}
           allowEmpty
-          onSave={(name) =>
-            Promise.resolve(api.setRemoteClientAlias?.(dialog.client.id, name))
-              .then(() => api.getRemoteAccessInfo?.())
-              .then((value) => value !== undefined && applyInfo(value ?? null))
-          }
+          onSave={async (name) => {
+            await api.setRemoteClientAlias?.(dialog.client.id, name);
+            refreshConnection();
+          }}
           onClose={closeDialog}
         />
       )}
@@ -509,7 +566,11 @@ function ConnectionDialogs({
           onConfirm={() => {
             if (!api.rotateRemoteAccess) return;
             setRotating(true);
-            applyConnectionResult(api.rotateRemoteAccess(), applyInfo, () => setRotating(false));
+            setRemoteError('');
+            applyConnectionResult(api.rotateRemoteAccess(), applyInfo, () => setRotating(false), (reason) => {
+              setRemoteError(errorMessage(reason));
+              refreshConnection();
+            });
           }}
           onClose={closeDialog}
         />
@@ -529,23 +590,34 @@ function ConnectionDialogs({
   );
 }
 
-export function ConnectionPanel({ api }: { api: CapabilityApi & Partial<Pick<DesktopApi, 'sshConnect'>> }) {
-  const [info, setInfo] = useState<DesktopRemoteAccessInfo | null | undefined>(() => getCachedConnectionInfo(api));
+type ConnectionPanelApi = CapabilityApi & Partial<Pick<DesktopApi, 'sshConnect'>>;
+
+export function ConnectionPanel({ api, active = true }: { api: ConnectionPanelApi; active?: boolean }) {
+  // The settings shell stays mounted on close, but Connection owns live reads
+  // and nested dialogs only while open.
+  return active ? <ActiveConnectionPanel api={api} /> : null;
+}
+
+function ActiveConnectionPanel({ api }: { api: ConnectionPanelApi }) {
+  const { info, remote, applyResult: applyInfo, refresh: refreshConnection } = useConnectionInfo(api);
   const [rotating, setRotating] = useState(false);
   const [revokingClient, setRevokingClient] = useState('');
   const [confirmClient, setConfirmClient] = useState('');
-  const [stalledAttempts, setStalledAttempts] = useState(0);
+  const [stalled, setStalled] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [hostBusy, setHostBusy] = useState('');
   const [hostError, setHostError] = useState('');
+  const [remoteError, setRemoteError] = useState('');
   const [dialog, setDialog] = useState<Dialog | null>(() => {
     const requested = takeConnectionDialogRequest();
     return requested ? dialogForRequest(requested) : null;
   });
-  const [settings, setSettings, settingsSettled] = useRemoteAccessSettings(api);
+  const [readSettings, setSettings, settingsSettled] = useRemoteAccessSettings(api);
   const { hosts, refresh: refreshHosts } = useRemoteHosts(api);
-  const { hosts: sshHosts, refresh: refreshSshHosts } = useSshHosts();
-  const enabled = settings ? settings.enabled : info?.enabled !== false;
+  const { hosts: sshHosts, refresh: refreshSshHosts } = useSshHosts(Boolean(api.sshConnect));
+  const settings = remote?.settings ?? readSettings;
+  const explicitlyOff = remote?.disabled ?? (info?.enabled === false);
+  const enabled = !explicitlyOff && (settings?.enabled ?? true);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
   useEffect(
@@ -556,14 +628,16 @@ export function ConnectionPanel({ api }: { api: CapabilityApi & Partial<Pick<Des
       }),
     []
   );
-  // A switched-off page has no relay QR, but its device list is still real.
-  const ready = Boolean(info) && (info?.enabled === false || connectionInfoReady(info));
-  const applyInfo = (next: DesktopRemoteAccessInfo | null): void => {
-    setCachedConnectionInfo(api, next);
-    setInfo(next);
-  };
-
-  useConnectionInfoUpdates({ api, ready, applyInfo, setInfo, setStalledAttempts });
+  useEffect(() => {
+    if (explicitlyOff) setDialog((current) => (current?.kind === 'connect' ? null : current));
+  }, [explicitlyOff]);
+  const qrReady = connectionInfoReady(info);
+  useEffect(() => {
+    setStalled(false);
+    if (!api.getRemoteAccessInfo || !enabled || qrReady) return undefined;
+    const timer = window.setTimeout(() => setStalled(true), CONNECTION_STALL_MS);
+    return () => window.clearTimeout(timer);
+  }, [api, enabled, qrReady]);
 
   if (!api.getRemoteAccessInfo) {
     const remoteServer = (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer;
@@ -598,14 +672,16 @@ export function ConnectionPanel({ api }: { api: CapabilityApi & Partial<Pick<Des
   const closeDialog = () => setDialog(null);
   const toggle = (next: boolean): void => {
     setToggling(true);
+    setRemoteError('');
     void Promise.resolve(api.setRemoteAccessEnabled?.(next))
       .then((value) => {
         if (value) setSettings(value);
-        return api.getRemoteAccessInfo?.();
       })
-      .then((value) => value !== undefined && applyInfo(value ?? null))
-      .catch(() => undefined)
-      .finally(() => setToggling(false));
+      .catch((reason) => setRemoteError(errorMessage(reason)))
+      .finally(() => {
+        refreshConnection();
+        setToggling(false);
+      });
   };
   const runHost = (key: string, action: () => Promise<unknown> | undefined): void => {
     setHostBusy(key);
@@ -617,12 +693,16 @@ export function ConnectionPanel({ api }: { api: CapabilityApi & Partial<Pick<Des
       .finally(() => setHostBusy(''));
   };
 
-  const clients = ready && info ? info.clients : [];
+  const clients = remote?.clients ?? info?.clients;
   const revokeClient = (id: string): void => {
     if (!api.revokeRemoteAccessClient) return;
     setConfirmClient('');
     setRevokingClient(id);
-    applyConnectionResult(api.revokeRemoteAccessClient(id), applyInfo, () => setRevokingClient(''));
+    setRemoteError('');
+    applyConnectionResult(api.revokeRemoteAccessClient(id), applyInfo, () => setRevokingClient(''), (reason) => {
+      setRemoteError(errorMessage(reason));
+      refreshConnection();
+    });
   };
 
   // Until the host answers, the card's two 56px rows are held empty so the
@@ -679,28 +759,10 @@ export function ConnectionPanel({ api }: { api: CapabilityApi & Partial<Pick<Des
     );
   }
 
-  let devices: ReactNode = null;
-  if (ready) {
-    devices = (
-      <ConnectedDevicesGroup
-        clients={clients}
-        enabled={enabled}
-        rotating={rotating}
-        revokingClient={revokingClient}
-        confirmClient={confirmClient}
-        canRename={Boolean(api.setRemoteClientAlias)}
-        setConfirmClient={setConfirmClient}
-        revokeClient={revokeClient}
-        setDialog={setDialog}
-      />
-    );
-  } else if (enabled && stalledAttempts >= CONNECTION_STALLED_ATTEMPTS) {
-    devices = renderConnectionNote(t(RELAY_CONNECTING_MESSAGE));
-  }
-
   return (
     <div className="conn-page">
       {identity}
+      {remoteError && <ErrorNotice error={remoteError} />}
       <div className="conn-toolbar">
         {api.connectRemoteHostByCode && (
           <button type="button" className="conn-btn" onClick={() => setDialog({ kind: 'open-pc' })}>
@@ -724,7 +786,20 @@ export function ConnectionPanel({ api }: { api: CapabilityApi & Partial<Pick<Des
           {t('Connect a device')}
         </button>
       </div>
-      {devices}
+      {enabled && !qrReady && stalled && renderConnectionNote(t(RELAY_CONNECTING_MESSAGE))}
+      {clients && (
+        <ConnectedDevicesGroup
+          clients={clients}
+          enabled={enabled}
+          rotating={rotating}
+          revokingClient={revokingClient}
+          confirmClient={confirmClient}
+          canRename={Boolean(api.setRemoteClientAlias)}
+          setConfirmClient={setConfirmClient}
+          revokeClient={revokeClient}
+          setDialog={setDialog}
+        />
+      )}
       {hosts.length > 0 && (
         <SavedHostsGroup
           hosts={hosts}
@@ -744,16 +819,18 @@ export function ConnectionPanel({ api }: { api: CapabilityApi & Partial<Pick<Des
       )}
       <ConnectionDialogs
         api={api}
-        dialog={dialog}
+        dialog={dialog?.kind === 'connect' && !enabled ? null : dialog}
         info={info}
         settings={settings}
-        clients={clients}
+        clients={clients ?? []}
         setSettings={setSettings}
+        refreshConnection={refreshConnection}
         applyInfo={applyInfo}
         runHost={runHost}
         refreshHosts={refreshHosts}
         refreshSshHosts={refreshSshHosts}
         setRotating={setRotating}
+        setRemoteError={setRemoteError}
         closeDialog={closeDialog}
       />
     </div>

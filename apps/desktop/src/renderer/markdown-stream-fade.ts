@@ -1,43 +1,49 @@
 /**
  * Phrase fade-in of a streamed reply.
  *
- * Text is revealed in steps (use-transcript-text-reveal); new words fade in
- * over STREAM_FADE_DURATION_MS, linear, a phrase at a time:
- * - Every word revealed while a phrase is open joins it: one start, no delay
- *   and no stagger. A phrase closes once it stood STREAM_FADE_CHUNK_OPEN_MS
- *   and the text grew (StreamFadeTimeline.sync, once per render pass); the
- *   next new word opens the next one.
- * - Neighbouring words of one phrase share one wrapper element.
+ * The reveal (use-transcript-text-reveal) shows a growing prefix of the
+ * reply. The timeline records, by offset in that revealed text, the phrase
+ * each character belongs to and when it came on screen; it fades in over
+ * STREAM_FADE_DURATION_MS from then, linear (22-markdown.css
+ * `[data-stream-fade]`, `[data-stream-fade-box]`):
+ * - Text revealed within STREAM_FADE_PHRASE_OPEN_MS of a phrase opening joins
+ *   it: one start, no delay, no stagger. Later text opens the next phrase.
+ * - A phrase fades from when a body first shows it (appearing / appear): a
+ *   parse that lands after the reveal (a streaming tail parsed off the main
+ *   thread) brings its text in with its whole fade. What has been on screen
+ *   is kept as ranges, since each chunk's body shows its text on its own;
+ *   until all revealed text has, the row stays live (owes).
+ * - Identity is the offset: a character keeps the phrase it showed in, in
+ *   whatever word, segment or element a later character or a re-parse puts
+ *   it, so text already shown never fades again, and the letters that
+ *   continue a word fade from their own start.
  * - Arrivals faster than STREAM_FADE_FAST_CHARS_PER_MS show unfaded.
- * - Settle: the render showing the reply stopped streaming fades the rest
- *   shown at once as one phrase of STREAM_FADE_SETTLE_FADE_MS (sync's
- *   `settled`); once that render commits (StreamFadeTimeline.settle), every
- *   running fade ends within that long, keeping its progress
- *   (settleStreamFades for elements already on screen, settledStreamFade for
- *   elements created later).
- * - A word whose phrase ended fading by the latest close shows unwrapped, as
- *   does every word once the reply settled for STREAM_FADE_SETTLE_MS (until
- *   then what it shows still fades) or was rewritten.
- * Opacity animations live in 22-markdown.css (`[data-stream-fade]`,
- * `[data-stream-fade-box]`).
+ * - A revision of the reveal (a rewrite, or text shown while the document was
+ *   hidden) and a primed first text show unfaded.
+ * - The part ending: what had not shown yet shows at once as one last
+ *   phrase starting then (also after fast arrivals).
+ * - Nothing outlives its fade: a phrase is dropped once all of it came on
+ *   screen, a stretch once it ended, and a body renders again then to unwrap
+ *   it (MarkdownAstBody), so neither history nor wrapper elements stay. Past
+ *   what it owes, the row is live exactly while a body shows a fade
+ *   (visibleUntil): a phrase of text nothing fades in holds nothing.
+ * - Render purity: read() and appearing() work out a render's pass and what
+ *   a body brings on screen from what was committed, changing none of it;
+ *   commit() and appear() (layout effects) record them: a render React
+ *   discards changes nothing.
  *
- * - Structure fades with its words: a list item's marker, a table row, a
- *   blockquote and a rule start fading with the first word inside them, and
- *   an inline code chip fades as one word, so no chrome paints at full ink
- *   while its text is still transparent. A word fading together with the box
+ * Wrapping: markdown nodes carry their offset in the parsed chunk, and a
+ * text node where each of its decoded characters sits (markdown-ast: escapes,
+ * references, dropped container markers; markdown-plugins places the text
+ * nodes it makes). Each stretch of one phrase within a
+ * text node is one inline wrapper, its tag named by its first offset, so the
+ * renderer's tag-and-count keys never hand one stretch's element to another.
+ * A freshly created element resumes mid-fade (negative delay).
+ * - Structure fades with its text: a list item's marker, a table row, a
+ *   blockquote and a rule start fading with the first character inside them,
+ *   and an inline code chip fades as one, so no chrome paints at full ink
+ *   while its text is still transparent. Text fading together with the box
  *   around it is left to the box's fade (never faded twice).
- *
- * - Identity: a word is a word-like segment plus the spaces and punctuation
- *   after it. Words are matched by position within their markdown chunk; a
- *   word that grew in place ("hel" → "hello") keeps its reveal. When a chunk
- *   freezes and the next block starts a new chunk, the words cut off its end
- *   hand their reveals to the new chunk's first words.
- * - No replays: the timeline lives per reply (keyed by row), so re-renders,
- *   re-parses and remounts find a word's reveal again. A word keeps its start
- *   time, and a freshly created element for it resumes mid-fade, or shows
- *   inked once its fade is over (negative delay).
- * - Stable elements: each wrapper's tag carries its first word's id, so the
- *   renderer's tag-and-count keys never hand one word's element to another.
  * - No layout: wrappers are unstyled inline elements; only opacity (and a
  *   marker's color) animates. Whitespace-only text is never wrapped; math,
  *   SVG and code blocks are left whole.
@@ -46,28 +52,19 @@ import type { MarkdownAstRoot } from './markdown-ast';
 
 /** How long a phrase fades in (the default duration in 22-markdown.css). */
 export const STREAM_FADE_DURATION_MS = 400;
-/** A phrase stays open at least this long; it closes when the text grows. */
-const STREAM_FADE_CHUNK_OPEN_MS = 100;
-/** At settle every running fade ends within this long, and the rest shown at
- *  once fades over it. */
-export const STREAM_FADE_SETTLE_FADE_MS = 120;
+/** Text revealed this long after a phrase opened still joins it. */
+const STREAM_FADE_PHRASE_OPEN_MS = 100;
 /** Arrivals faster than this (characters per ms, over windows of at least
  *  STREAM_FADE_SPEED_WINDOW_MS) show unfaded. */
 export const STREAM_FADE_FAST_CHARS_PER_MS = 1.6;
 const STREAM_FADE_SPEED_WINDOW_MS = 100;
 /** Arrivals stay unfaded this long after the last fast window. */
 const FAST_HOLD_MS = 400;
-/** A reply keeps its wrappers this long after it stops streaming: the rest it
- *  then shows at once still fades in, and every fade has ended. */
-export const STREAM_FADE_SETTLE_MS = 700;
-/** CSS animations of the fade (22-markdown.css). */
-const FADE_ANIMATION = /^markdown-stream-fade/;
-/** sync compares this much of the end of the text it last showed. */
+/** read compares this much of the end of the text the last pass showed. */
 const SYNC_TAIL_CHARS = 16;
-/** Wrapper tags are `${STREAM_FADE_TAG}${id}`. */
+/** Wrapper tags are `${STREAM_FADE_TAG}${first offset in base 36}`. */
 const STREAM_FADE_TAG = 'mx-fade-';
 const TIMELINE_LIMIT = 64;
-const SEGMENT_CACHE_LIMIT = 512;
 /** Rendered as-is: wrapping inside typeset math or SVG would break it. */
 const OPAQUE_CLASS = /\bkatex\b/;
 
@@ -75,159 +72,392 @@ interface FadeNode {
   type: 'root' | 'element' | 'text';
   tagName?: string;
   value?: string;
+  offset?: number;
+  jumps?: number[];
   properties?: Record<string, unknown>;
   children?: FadeNode[];
 }
 
-interface FadeWord {
-  content: string;
-  id: string;
+/** Characters [from, to) of a text node's value, sitting at consecutive
+ *  offsets of the revealed text from `at`. */
+interface FadeStretch {
+  from: number;
+  to: number;
+  at: number;
 }
 
-interface StreamFadeStart {
+/** Where the characters of text `node` sit, its first at `own`: markdown-ast
+ *  records where decoding or dropped syntax breaks their run (`jumps`, offsets
+ *  in the chunk at `base`). A text node with no offset has no place in the
+ *  revealed text (none of this renderer's: its parser and plugins place every
+ *  text node): it is never wrapped. */
+function stretchesOf(node: FadeNode, own: number, base: number): FadeStretch[] {
+  if (node.offset === undefined) return [];
+  const length = node.value?.length ?? 0;
+  const jumps = node.jumps ?? [];
+  const found: FadeStretch[] = [];
+  let from = 0;
+  let at = own;
+  for (let index = 0; index < jumps.length; index += 2) {
+    if (jumps[index] > from) found.push({ from, to: jumps[index], at });
+    from = jumps[index];
+    at = base + jumps[index + 1];
+  }
+  if (length > from) found.push({ from, to: length, at });
+  return found;
+}
+
+/** A text node holding [from, to) of text node `node`'s value, keeping where
+ *  its characters sit (`offset`, `jumps`; unplaced if `node` was). */
+export function placedTextSlice<Node extends FadeNode>(node: Node, from: number, to: number): Node {
+  const value = (node.value ?? '').slice(from, to);
+  if (node.offset === undefined) return { type: 'text', value } as Node;
+  const jumps = node.jumps ?? [];
+  const offsetAt = (index: number) => {
+    let offset = node.offset! + index;
+    for (let at = 0; at < jumps.length && jumps[at] <= index; at += 2) offset = jumps[at + 1] + index - jumps[at];
+    return offset;
+  };
+  const inner: number[] = [];
+  for (let at = 0; at < jumps.length; at += 2) {
+    if (jumps[at] > from && jumps[at] < to) inner.push(jumps[at] - from, jumps[at + 1]);
+  }
+  return { type: 'text', value, offset: offsetAt(from), ...(inner.length > 0 ? { jumps: inner } : {}) } as Node;
+}
+
+/** When a stretch of revealed text starts fading, and for how long. */
+export interface StreamFadeStart {
   at: number;
   ms: number;
-  /** When its reply settled while it still had more than
-   *  STREAM_FADE_SETTLE_FADE_MS to run (settledStreamFade). */
-  settle?: number;
 }
 
-/** A phrase: words fading together, from one start (`at`) over one duration. */
-interface FadeChunk extends StreamFadeStart {
-  /** When its fade ends. */
-  endsAt: number;
-  /** Shown unfaded from now on. */
-  done: boolean;
+/** A phrase: revealed text [from, to) that fades together, over `ms`. */
+interface FadePhrase {
+  from: number;
+  to: number;
+  ms: number;
+}
+
+/** A stretch of a phrase as it came on screen: from `at`. `phrase` names it
+ *  (its `from`). */
+interface FadeShown extends StreamFadeStart {
+  from: number;
+  to: number;
+  phrase: number;
+}
+
+/** What a body's render brings on screen: the revealed text [from, to) has
+ *  shown, `stretches` of it for the first time (StreamFadeTimeline.appear). */
+export interface StreamFadeAppearance {
+  readonly from: number;
+  readonly to: number;
+  readonly stretches: readonly FadeShown[];
+}
+
+/** The parts of [from, to) outside `ranges` (sorted, disjoint [from, to)
+ *  pairs), as [from, to) pairs. */
+function offScreen(ranges: readonly number[], from: number, to: number): Array<[number, number]> {
+  const gaps: Array<[number, number]> = [];
+  let at = from;
+  for (let index = 0; index < ranges.length && at < to; index += 2) {
+    if (ranges[index + 1] <= at) continue;
+    if (ranges[index] >= to) break;
+    if (ranges[index] > at) gaps.push([at, ranges[index]]);
+    at = Math.max(at, ranges[index + 1]);
+  }
+  if (at < to) gaps.push([at, to]);
+  return gaps;
+}
+
+function shownAt(ranges: readonly number[], offset: number): boolean {
+  for (let index = 0; index < ranges.length; index += 2) {
+    if (offset < ranges[index]) return false;
+    if (offset < ranges[index + 1]) return true;
+  }
+  return false;
+}
+
+/** `ranges` with [from, to) added (`ranges` itself when it held it). */
+function withRange(ranges: number[], from: number, to: number): number[] {
+  if (from >= to || offScreen(ranges, from, to).length === 0) return ranges;
+  const merged: number[] = [];
+  let start = from;
+  let end = to;
+  for (let index = 0; index < ranges.length; index += 2) {
+    if (ranges[index + 1] < start || ranges[index] > end) {
+      merged.push(ranges[index], ranges[index + 1]);
+      continue;
+    }
+    start = Math.min(start, ranges[index]);
+    end = Math.max(end, ranges[index + 1]);
+  }
+  merged.push(start, end);
+  const pairs: Array<[number, number]> = [];
+  for (let index = 0; index < merged.length; index += 2) pairs.push([merged[index], merged[index + 1]]);
+  return pairs.sort((left, right) => left[0] - right[0]).flat();
+}
+
+/** `ranges` cut to [0, length). */
+function withinLength(ranges: readonly number[], length: number): number[] {
+  const kept: number[] = [];
+  for (let index = 0; index < ranges.length && ranges[index] < length; index += 2) {
+    kept.push(ranges[index], Math.min(ranges[index + 1], length));
+  }
+  return kept;
+}
+
+/** The timeline after one render pass (StreamFadeTimeline.read). */
+export interface StreamFadePass {
+  /** Phrases with text not on screen yet (and the last one while it is
+   *  open), in text order. */
+  readonly phrases: readonly FadePhrase[];
+  /** Length and end of the text the pass showed. */
+  readonly length: number;
+  readonly tail: string;
+  /** The latest reveal revision seen. */
+  readonly revision: number;
+  /** When the last phrase opened while it may still take text; null: none. */
+  readonly openedAt: number | null;
+  readonly fast: boolean;
+  readonly speed: { readonly since: number; readonly length: number; readonly fastAt: number };
+}
+
+/** A stretch of revealed text with how it fades (undefined: unfaded). */
+interface FadeRun {
+  from: number;
+  to: number;
+  start: StreamFadeStart | undefined;
 }
 
 export class StreamFadeTimeline {
-  /** The chunk of each word revealed here. */
-  private readonly starts = new Map<string, FadeChunk>();
-  /** Words of each chunk, in document order, from its latest render. */
-  private readonly chunks = new Map<string, FadeWord[]>();
-  /** Words cut off the end of a chunk by its latest render. */
-  private orphans: FadeWord[] = [];
-  private nextId = 0;
-  /** How long a phrase revealed from now on fades while streaming (0: not
-   *  at all). */
+  /** How long a phrase revealed from now on fades (0: not at all). */
   durationMs = STREAM_FADE_DURATION_MS;
+  /** What the last committed pass left. */
+  private state: StreamFadePass;
+  /** The latest pass read, until it commits. */
+  private pending: StreamFadePass | null = null;
+  /** What each body shows fading, until when (show). */
+  private readonly shown = new Map<object, number>();
+  /** The revealed text that has been on screen (appear), as sorted, disjoint
+   *  [from, to) pairs: bodies render their chunks independently, so an
+   *  earlier chunk may still be parsing while a later one shows. */
+  private onScreen: number[];
+  /** Stretches on screen still fading, in text order. */
+  private stretches: FadeShown[] = [];
+  private readonly listeners = new Set<() => void>();
+  /** Changes when what is on screen or fading does (subscribe). */
+  version = 0;
 
-  private open: FadeChunk | null = null;
-  private openedAt = 0;
-  /** Phrases whose fades ended by this time show unwrapped. */
-  private horizon = 0;
-  /** The latest render pass showed the reply settled. */
-  private settling = false;
-  private fast = false;
-  private speed: { since: number; length: number; fastAt: number };
-  /** Length and end of the text the last pass showed. */
-  private lastLength = 0;
-  private lastTail = '';
-  /** The latest rewrite revision seen. */
-  private revision = 0;
-
-  constructor(now = performance.now()) {
-    this.speed = { since: now, length: 0, fastAt: Number.NEGATIVE_INFINITY };
+  /** `primed`: the first text, shown at once: it shows unfaded. */
+  constructor(now = performance.now(), primed = '') {
+    this.state = {
+      phrases: [],
+      length: primed.length,
+      tail: primed.slice(-SYNC_TAIL_CHARS),
+      revision: 0,
+      openedAt: null,
+      fast: false,
+      speed: { since: now, length: primed.length, fastAt: Number.NEGATIVE_INFINITY },
+    };
+    this.onScreen = primed.length > 0 ? [0, primed.length] : [];
   }
 
-  /** A render pass shows `text` at `now`: it measures the arrival rate and
-   *  closes the open phrase once it stood its time and the text grew. A
-   *  rewrite shows every word unfaded: a `revision` above any seen (the
-   *  reveal names its rewrites), else text that shrank or whose last
-   *  SYNC_TAIL_CHARS moved. The rest of the prefix is never rescanned.
-   *  `settled`: the pass shows the reply stopped streaming, so a phrase it
-   *  opens fades over STREAM_FADE_SETTLE_FADE_MS. Every pass says so anew (a
-   *  pass React discards leaves no lasting state), and a change of mode
-   *  closes the open phrase. */
-  sync(text: string, now: number, revision = 0, settled = false): void {
-    if (settled !== this.settling && this.open) this.close(now);
-    this.settling = settled;
-    const { since, length, fastAt } = this.speed;
+  /** Calls `listener` when what is on screen or fading changes. */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private changed(): void {
+    this.version += 1;
+    for (const listener of [...this.listeners]) listener();
+  }
+
+  /** The pass of a render that shows `text` at `now` (`ended`: the part
+   *  ended, `text` is all of it). It measures the arrival rate and gives the
+   *  text revealed since the last pass its phrase. A rewrite shows unfaded: a
+   *  `revision` above any seen, else text that shrank or whose last
+   *  SYNC_TAIL_CHARS moved (the rest of the prefix is never rescanned). Ended
+   *  phrases are left out. Nothing recorded changes until commit(). */
+  read(text: string, now: number, revision = 0, ended = false): StreamFadePass {
+    const prior = this.state;
+    let { since, length: measured, fastAt } = prior.speed;
+    let { fast } = prior;
     if (now - since >= STREAM_FADE_SPEED_WINDOW_MS) {
-      const limit = STREAM_FADE_FAST_CHARS_PER_MS * (this.fast ? 0.75 : 1);
-      const fast = (text.length - length) / (now - since) > limit;
+      const limit = STREAM_FADE_FAST_CHARS_PER_MS * (fast ? 0.75 : 1);
+      const quick = (text.length - measured) / (now - since) > limit;
       // Two fast windows in a row turn fading off; it stays off while
       // windows are fast, and FAST_HOLD_MS after the last one.
-      this.fast = fast ? this.fast || fastAt === since : this.fast && now - fastAt < FAST_HOLD_MS;
-      this.speed = { since: now, length: text.length, fastAt: fast ? now : fastAt };
+      fast = quick ? fast || fastAt === since : fast && now - fastAt < FAST_HOLD_MS;
+      if (quick) fastAt = now;
+      since = now;
+      measured = text.length;
     }
+    let openedAt = prior.openedAt;
+    const open = openedAt !== null && now - openedAt < STREAM_FADE_PHRASE_OPEN_MS;
+    // A phrase all on screen lives on in its stretches; the open one still
+    // takes text.
+    let phrases = prior.phrases.filter(
+      (phrase, index) =>
+        offScreen(this.onScreen, phrase.from, phrase.to).length > 0 || (open && index === prior.phrases.length - 1)
+    );
     const rewritten =
-      revision > this.revision ||
-      text.length < this.lastLength ||
-      !text.startsWith(this.lastTail, this.lastLength - this.lastTail.length);
-    if (revision > this.revision) this.revision = revision;
+      revision > prior.revision ||
+      text.length < prior.length ||
+      !text.startsWith(prior.tail, prior.length - prior.tail.length);
+    const added = text.slice(prior.length);
     if (rewritten) {
-      for (const chunk of this.starts.values()) chunk.done = true;
-      this.close(now);
-    } else if (text.length > this.lastLength && this.open && now - this.openedAt >= STREAM_FADE_CHUNK_OPEN_MS) {
-      this.close(now);
+      phrases = [];
+      openedAt = null;
+    } else if (added) {
+      const last = phrases[phrases.length - 1];
+      if (!ended && open && last?.to === prior.length) {
+        phrases = [...phrases.slice(0, -1), { ...last, to: text.length }];
+      } else if (!/\S/.test(added)) {
+        // Only spaces: nothing to fade.
+      } else if (this.durationMs > 0 && (ended || !fast)) {
+        phrases = [...phrases, { from: prior.length, to: text.length, ms: this.durationMs }];
+        openedAt = now;
+      } else {
+        openedAt = null;
+      }
     }
-    this.lastLength = text.length;
-    this.lastTail = text.slice(-SYNC_TAIL_CHARS);
+    const pass: StreamFadePass = {
+      phrases,
+      length: text.length,
+      tail: text.slice(-SYNC_TAIL_CHARS),
+      revision: Math.max(revision, prior.revision),
+      openedAt: ended ? null : openedAt,
+      fast,
+      speed: { since, length: measured, fastAt },
+    };
+    this.pending = pass;
+    return pass;
   }
 
-  private close(now: number): void {
-    this.open = null;
-    this.horizon = now;
+  /** Whether revealed text of `length` characters has text not on screen
+   *  yet (a body still parsing it): the row stays live until it shows. */
+  owes(length: number): boolean {
+    return offScreen(this.onScreen, 0, length).length > 0;
   }
 
-  /** The settled reply committed at `now` (call from the commit, not from
-   *  render): every phrase with more than STREAM_FADE_SETTLE_FADE_MS left
-   *  ends that long from now, for elements created from now on; the ones on
-   *  screen are sped up by settleStreamFades. */
-  settle(now: number): void {
-    for (const chunk of this.starts.values()) {
-      if (chunk.done || chunk.endsAt - now <= STREAM_FADE_SETTLE_FADE_MS) continue;
-      chunk.settle = now;
-      chunk.endsAt = now + STREAM_FADE_SETTLE_FADE_MS;
+  /** What a body's render that shows revealed text [from, to) brings on
+   *  screen at `now` (nothing recorded; the body commits it with appear).
+   *  Text that has been on screen keeps its stretches. A phrase's text that
+   *  comes on screen now starts fading now: when it shows, not when it was
+   *  revealed (a parse may land later). It joins a stretch of its phrase
+   *  that came on screen less than STREAM_FADE_PHRASE_OPEN_MS before. */
+  appearing(from: number, to: number, now: number): StreamFadeAppearance {
+    const stretches: FadeShown[] = [];
+    for (const [gapFrom, gapTo] of offScreen(this.onScreen, from, to)) {
+      for (const phrase of (this.pending ?? this.state).phrases) {
+        const head = Math.max(gapFrom, phrase.from);
+        const end = Math.min(gapTo, phrase.to);
+        if (head >= end) continue;
+        const joined = this.stretches.findLast(
+          (stretch) => stretch.phrase === phrase.from && now - stretch.at < STREAM_FADE_PHRASE_OPEN_MS
+        );
+        stretches.push({ from: head, to: end, at: joined?.at ?? now, ms: phrase.ms, phrase: phrase.from });
+      }
     }
-    this.close(now);
+    return { from, to, stretches };
   }
 
-  /** A new word revealed at `now`: it joins the open phrase, else opens the
-   *  next one, starting now. */
-  schedule(now: number): string {
-    const id = (this.nextId++).toString(36);
-    if (this.durationMs <= 0) return id;
-    if (!this.open) {
-      const ms = this.settling ? STREAM_FADE_SETTLE_FADE_MS : this.durationMs;
-      this.open = { at: now, ms, endsAt: now + ms, done: this.fast };
-      this.openedAt = now;
+  /** A body committed showing `appearance`; stretches that ended by `now`
+   *  are dropped. */
+  appear(appearance: StreamFadeAppearance, now: number): void {
+    const fresh = appearance.stretches.filter(
+      (stretch) => !this.stretches.some((known) => known.from < stretch.to && stretch.from < known.to)
+    );
+    const stretches = [...this.stretches, ...fresh]
+      .filter((stretch) => stretch.at + stretch.ms > now)
+      .sort((left, right) => left.from - right.from);
+    const onScreen = withRange(this.onScreen, appearance.from, appearance.to);
+    if (onScreen === this.onScreen && fresh.length === 0 && stretches.length === this.stretches.length) return;
+    this.onScreen = onScreen;
+    this.stretches = stretches;
+    this.changed();
+  }
+
+  /** Length of the revealed text the latest pass shows. */
+  revealedLength(): number {
+    return (this.pending ?? this.state).length;
+  }
+
+  /** Whether anything in revealed text [from, to) may fade. */
+  fadesBetween(from: number, to: number, appearing: StreamFadeAppearance): boolean {
+    return (
+      appearing.stretches.length > 0 || this.stretches.some((stretch) => stretch.from < to && from < stretch.to)
+    );
+  }
+
+  /** When the last stretch on screen ends fading (0: none runs at `now`). */
+  fadesUntil(now: number): number {
+    let until = 0;
+    for (const stretch of this.stretches) if (stretch.at + stretch.ms > now) until = Math.max(until, stretch.at + stretch.ms);
+    return until;
+  }
+
+  /** The body `holder` shows fades until `until` (0: none): what its tree
+   *  wrapped (applyStreamFade), so text nothing fades in (a code block, a
+   *  markdown marker) holds nothing. Recorded as the body commits. */
+  show(holder: object, until: number): void {
+    if ((this.shown.get(holder) ?? 0) === until) return;
+    if (until > 0) this.shown.set(holder, until);
+    else this.shown.delete(holder);
+    this.changed();
+  }
+
+  /** When the last fade a body shows ends (0: none runs at `now`). */
+  visibleUntil(now: number): number {
+    let until = 0;
+    for (const end of this.shown.values()) if (end > now && end > until) until = end;
+    return until;
+  }
+
+  /** The render that read `pass` committed. */
+  commit(pass: StreamFadePass): void {
+    this.state = pass;
+    if (this.pending === pass) this.pending = null;
+    // Rewritten shorter: what follows has not been on screen.
+    const last = this.onScreen[this.onScreen.length - 1];
+    if (last !== undefined && pass.length < last) {
+      this.onScreen = withinLength(this.onScreen, pass.length);
+      this.stretches = this.stretches.filter((stretch) => stretch.to <= pass.length);
     }
-    this.starts.set(id, this.open);
-    return id;
   }
 
-  /** How `id` fades; undefined for a word shown unfaded or settled. */
-  startOf(id: string): StreamFadeStart | undefined {
-    const chunk = this.starts.get(id);
-    if (!chunk || chunk.done) return undefined;
-    if (this.horizon < chunk.endsAt) return chunk;
-    chunk.done = true;
+  /** How the revealed character at `offset` fades at `now` (undefined:
+   *  unfaded): from the stretch it came on screen in, or, not on screen yet,
+   *  as `appearing` brings it. */
+  startAt(offset: number, now: number, appearing: StreamFadeAppearance): StreamFadeStart | undefined {
+    const stretches = shownAt(this.onScreen, offset) ? this.stretches : appearing.stretches;
+    for (const stretch of stretches) {
+      if (offset >= stretch.from && offset < stretch.to) return stretch.at + stretch.ms > now ? stretch : undefined;
+    }
     return undefined;
   }
 
-  /** Match `contents` (one chunk's words, in order) to known words. */
-  identify(chunk: string, contents: readonly string[], now: number): string[] {
-    const previous = this.chunks.get(chunk);
-    const inherited = previous ? null : this.orphans;
-    if (inherited) this.orphans = [];
-    let aligned = true;
-    const words = contents.map((content, index): FadeWord => {
-      // Blank text (between list items, table cells) shows nothing to fade.
-      if (!/\S/.test(content)) return { content, id: '' };
-      const known = (previous ?? (aligned ? inherited : null))?.[index];
-      // A word grows in place, and loses its trailing space where a block
-      // ends: either way it is the same word.
-      const was = known?.content.trimEnd() ?? '';
-      const is = content.trimEnd();
-      if (known?.id && (is.startsWith(was) || was.startsWith(is))) return { content, id: known.id };
-      aligned = false;
-      return { content, id: this.schedule(now) };
-    });
-    if (previous && words.length < previous.length) this.orphans = previous.slice(words.length);
-    this.chunks.set(chunk, words);
-    return words.map((word) => word.id);
+  /** Revealed text [from, to) cut where how it fades changes. */
+  runs(from: number, to: number, now: number, appearing: StreamFadeAppearance): FadeRun[] {
+    const cuts = new Set([from, to]);
+    const cut = (at: number) => {
+      if (at > from && at < to) cuts.add(at);
+    };
+    for (const bound of this.onScreen) cut(bound);
+    for (const stretch of [...this.stretches, ...appearing.stretches]) {
+      cut(stretch.from);
+      cut(stretch.to);
+    }
+    const points = [...cuts].sort((left, right) => left - right);
+    const runs: FadeRun[] = [];
+    for (let index = 0; index + 1 < points.length; index += 1) {
+      const start = this.startAt(points[index], now, appearing);
+      const last = runs[runs.length - 1];
+      if (last && sameFade(last.start, start)) last.to = points[index + 1];
+      else runs.push({ from: points[index], to: points[index + 1], start });
+    }
+    return runs;
   }
 }
 
@@ -235,13 +465,14 @@ const timelines = new Map<string, StreamFadeTimeline>();
 
 /** The fade timeline of the reply row `key`, found again on later renders and
  *  remounts. A streaming reply (with motion allowed) gets one. A settled reply
- *  keeps it until dropStreamFadeTimeline (STREAM_FADE_SETTLE_MS later): what
- *  it shows meanwhile still fades. A reply that never streamed here has none. */
-export function streamFadeTimeline(key: string, streaming: boolean): StreamFadeTimeline | null {
+ *  keeps it until dropStreamFadeTimeline, once its fades ended. A reply that
+ *  never streamed here has none. `primed`: the text a new timeline opens on
+ *  when it showed at once; it shows unfaded. */
+export function streamFadeTimeline(key: string, streaming: boolean, primed?: string): StreamFadeTimeline | null {
   const known = timelines.get(key);
   if (known) return known;
   if (!streaming || reducedMotion()) return null;
-  const created = new StreamFadeTimeline();
+  const created = new StreamFadeTimeline(performance.now(), primed);
   timelines.set(key, created);
   while (timelines.size > TIMELINE_LIMIT) timelines.delete(timelines.keys().next().value as string);
   return created;
@@ -260,54 +491,8 @@ export function dropStreamFadeTimelines(prefixes: readonly string[]): void {
   }
 }
 
-/** How an element created now fades for a phrase that started at `at` and
- *  runs `ms`: unchanged, or (`settle` set) from the progress it had when its
- *  reply settled, ending STREAM_FADE_SETTLE_FADE_MS after that. */
-export function settledStreamFade(at: number, ms: number, settle?: number): { at: number; ms: number } {
-  if (settle === undefined) return { at, ms };
-  const progress = Math.min(1, Math.max(0, (settle - at) / ms));
-  const duration = STREAM_FADE_SETTLE_FADE_MS / (1 - progress);
-  return { at: settle - progress * duration, ms: duration };
-}
-
-/** The reply under `root` settled: each of its running fade animations keeps
- *  its progress and ends within STREAM_FADE_SETTLE_FADE_MS. */
-export function settleStreamFades(root: Pick<Element, 'getAnimations'>): void {
-  for (const animation of root.getAnimations({ subtree: true })) {
-    if (!FADE_ANIMATION.test((animation as CSSAnimation).animationName ?? '')) continue;
-    const end = Number(animation.effect?.getComputedTiming().endTime ?? 0);
-    const rate = animation.playbackRate;
-    const left = (end - Number(animation.currentTime ?? end)) / rate;
-    if (left > STREAM_FADE_SETTLE_FADE_MS) animation.updatePlaybackRate((rate * left) / STREAM_FADE_SETTLE_FADE_MS);
-  }
-}
-
 function reducedMotion(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
-
-let segmenter: Intl.Segmenter | null = null;
-const segmentCache = new Map<string, string[]>();
-
-/** `value` cut into words, each with the spaces and punctuation after it
- *  (text before the first word joins that word). */
-export function streamFadeWords(value: string): string[] {
-  const cached = segmentCache.get(value);
-  if (cached) return cached;
-  segmenter ??= new Intl.Segmenter(undefined, { granularity: 'word' });
-  const words: string[] = [];
-  let lead = '';
-  for (const { segment, isWordLike } of segmenter.segment(value)) {
-    if (isWordLike) {
-      words.push(lead + segment);
-      lead = '';
-    } else if (words.length > 0) words[words.length - 1] += segment;
-    else lead += segment;
-  }
-  if (lead) words.push(lead);
-  segmentCache.set(value, words);
-  if (segmentCache.size > SEGMENT_CACHE_LIMIT) segmentCache.delete(segmentCache.keys().next().value as string);
-  return words;
 }
 
 function opaque(node: FadeNode): boolean {
@@ -317,120 +502,127 @@ function opaque(node: FadeNode): boolean {
   return OPAQUE_CLASS.test(typeof className === 'string' ? className : '');
 }
 
-/** Elements that fade as one word: an inline code chip arrives with its box
- *  (word-wrapped, its background showed while the text was invisible), and a
- *  rule has no words at all. */
+/** Elements that fade as one: an inline code chip arrives with its box (its
+ *  background showed while its text was invisible), and a rule has no text. */
 function unitElement(node: FadeNode): boolean {
   return node.type === 'element' && (node.tagName === 'code' || node.tagName === 'hr');
 }
 
-/** Boxes whose chrome fades with their first word: `marker` fades only the
- *  list marker (its words fade themselves), `box` fades the whole element. */
+/** Boxes whose chrome fades with their first character: `marker` fades only
+ *  the list marker (its text fades itself), `box` fades the whole element. */
 const FADE_BOXES: Record<string, 'marker' | 'box'> = { li: 'marker', tr: 'box', blockquote: 'box' };
 /** Tags rendered through the fading box component (MarkdownAstBody). */
 export const STREAM_FADE_BOX_TAGS = ['li', 'tr', 'blockquote', 'hr', 'code'] as const;
-
-function textOf(node: FadeNode): string {
-  return node.type === 'text' ? (node.value ?? '') : (node.children ?? []).map(textOf).join('');
-}
-
-/** A part of the document that takes part: a text node cut into words, or a
- *  unit element counted as one word. `from` indexes its first word in the
- *  chunk's word list. */
-interface FadeUnit {
-  words: string[];
-  from: number;
-}
-
-/** Units of `node`, in document order. */
-function collectUnits(node: FadeNode, units: Map<FadeNode, FadeUnit>, contents: string[]): void {
-  if (node.type === 'text' || unitElement(node)) {
-    let words: string[];
-    if (node.type === 'text') words = streamFadeWords(node.value ?? '');
-    else words = [node.tagName === 'hr' ? '—' : textOf(node)];
-    units.set(node, { words, from: contents.length });
-    contents.push(...words);
-    return;
-  }
-  if (node.type === 'element' && opaque(node)) return;
-  for (const child of node.children ?? []) collectUnits(child, units, contents);
-}
 
 function sameStart(left: StreamFadeStart | undefined, right: StreamFadeStart | undefined): boolean {
   return Boolean(left && right && left.at === right.at && left.ms === right.ms);
 }
 
+/** Both unfaded, or fading alike. */
+function sameFade(left: StreamFadeStart | undefined, right: StreamFadeStart | undefined): boolean {
+  return left === right || sameStart(left, right);
+}
+
 function fadeProperties(start: StreamFadeStart): Record<string, unknown> {
-  return { dataFadeAt: start.at, dataFadeMs: start.ms, dataFadeSettle: start.settle };
+  return { dataFadeAt: start.at, dataFadeMs: start.ms };
 }
 
 interface StreamFadeResult {
   root: MarkdownAstRoot;
   /** Wrapper tags in `root`. */
   tags: string[];
+  /** When the last fade `root` shows ends (0: none): its body renders again
+   *  then, unwrapped. */
+  until: number;
+  /** What `root` brings on screen: its body commits it (appear). */
+  appearance: StreamFadeAppearance;
 }
 
-/** `root` of chunk `chunk` with its still-animating words wrapped. */
+/** `root`, parsed from the revealed text [base, end) (`end`: by default all
+ *  revealed so far), with its still-fading text wrapped. */
 export function applyStreamFade(
   root: MarkdownAstRoot,
-  chunk: string,
+  base: number,
   timeline: StreamFadeTimeline,
-  now: number
+  now: number,
+  end = timeline.revealedLength()
 ): StreamFadeResult {
-  const units = new Map<FadeNode, FadeUnit>();
-  const contents: string[] = [];
-  collectUnits(root as FadeNode, units, contents);
-  const ids = timeline.identify(chunk, contents, now);
-  const starts = ids.map((id) => (id ? timeline.startOf(id) : undefined));
-  if (!starts.some(Boolean)) return { root, tags: [] };
+  const appearance = timeline.appearing(base, end, now);
+  if (!timeline.fadesBetween(base, end, appearance)) return { root, tags: [], until: 0, appearance };
+  // Each node's offset in the revealed text, and where a text node's
+  // characters sit.
+  const offsets = new Map<FadeNode, number>();
+  const stretches = new Map<FadeNode, FadeStretch[]>();
+  const place = (node: FadeNode, cursor: number): number => {
+    const own = node.offset === undefined ? cursor : base + node.offset;
+    offsets.set(node, own);
+    if (node.type === 'text') {
+      const parts = stretchesOf(node, own, base);
+      stretches.set(node, parts);
+      const last = parts[parts.length - 1];
+      return last ? last.at + last.to - last.from : own;
+    }
+    if (node.type === 'element' && opaque(node)) return own;
+    let at = own;
+    for (const child of node.children ?? []) at = place(child, at);
+    return at;
+  };
+  place(root as FadeNode, base);
   const tags: string[] = [];
-
-  /** The reveal of the first word inside `node` (undefined when it showed
-   *  unfaded, or there is none). */
-  const firstStart = (node: FadeNode): { found: boolean; start?: StreamFadeStart } => {
-    const unit = units.get(node);
-    if (unit) {
-      for (let index = unit.from; index < unit.from + unit.words.length; index += 1) {
-        if (ids[index]) return { found: true, start: starts[index] };
-      }
-      return { found: false };
-    }
-    if (node.type === 'element' && opaque(node)) return { found: false };
-    for (const child of node.children ?? []) {
-      const first = firstStart(child);
-      if (first.found) return first;
-    }
-    return { found: false };
+  let until = 0;
+  const shown = (start: StreamFadeStart): StreamFadeStart => {
+    until = Math.max(until, start.at + start.ms);
+    return start;
   };
 
-  /** A text unit with its animating words wrapped, neighbours of one phrase
-   *  in one element named by the first (null: unchanged). Words fading with
-   *  the enclosing box (`box`) are left to it. */
-  const wrapWords = (unit: FadeUnit, box: StreamFadeStart | undefined): FadeNode[] | null => {
+  /** Offset of the first character with ink inside `node`. */
+  const firstInk = (node: FadeNode): number | undefined => {
+    if (node.type === 'text') {
+      const index = (node.value ?? '').search(/\S/);
+      const stretch = stretches.get(node)?.find((part) => index >= part.from && index < part.to);
+      return index === -1 || !stretch ? undefined : stretch.at + index - stretch.from;
+    }
+    if (node.type === 'element' && opaque(node)) return undefined;
+    for (const child of node.children ?? []) {
+      const found = firstInk(child);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  };
+  const startOf = (offset: number | undefined) =>
+    offset === undefined ? undefined : timeline.startAt(offset, now, appearance);
+
+  /** A text node with its fading stretches wrapped (null: unchanged). Text
+   *  fading with the enclosing box (`box`) is left to it. */
+  const wrapText = (node: FadeNode, box: StreamFadeStart | undefined): FadeNode[] | null => {
+    const value = node.value ?? '';
     const parts: FadeNode[] = [];
     let plain = '';
     let wrapped = false;
-    let run: { start: StreamFadeStart; text: FadeNode } | null = null;
-    unit.words.forEach((word, offset) => {
-      const index = unit.from + offset;
-      const start = starts[index];
-      if (!start || sameStart(start, box)) {
-        plain += word;
-        run = null;
-        return;
-      }
-      if (run?.start === start) {
-        run.text.value += word;
-        return;
+    const runs = (stretches.get(node) ?? []).flatMap((stretch) =>
+      timeline.runs(stretch.at, stretch.at + stretch.to - stretch.from, now, appearance).map((run) => ({
+        ...run,
+        letters: value.slice(stretch.from + run.from - stretch.at, stretch.from + run.to - stretch.at),
+      }))
+    );
+    for (const run of runs) {
+      const { letters } = run;
+      if (!run.start || sameStart(run.start, box) || !/\S/.test(letters)) {
+        plain += letters;
+        continue;
       }
       if (plain) parts.push({ type: 'text', value: plain });
       plain = '';
-      const tag = `${STREAM_FADE_TAG}${ids[index]}`;
+      const tag = `${STREAM_FADE_TAG}${run.from.toString(36)}`;
       tags.push(tag);
-      run = { start, text: { type: 'text', value: word } };
-      parts.push({ type: 'element', tagName: tag, properties: fadeProperties(start), children: [run.text] });
+      parts.push({
+        type: 'element',
+        tagName: tag,
+        properties: fadeProperties(shown(run.start)),
+        children: [{ type: 'text', value: letters }],
+      });
       wrapped = true;
-    });
+    }
     if (!wrapped) return null;
     if (plain) parts.push({ type: 'text', value: plain });
     return parts;
@@ -438,13 +630,12 @@ export function applyStreamFade(
 
   const rebuild = (node: FadeNode, box: StreamFadeStart | undefined): FadeNode => {
     if (node.type === 'element' && opaque(node)) return node;
-    const unit = units.get(node);
-    if (unit && unitElement(node)) {
-      const start = starts[unit.from];
+    if (unitElement(node)) {
+      const start = startOf(node.tagName === 'hr' ? offsets.get(node) : firstInk(node));
       if (!start || sameStart(start, box)) return node;
       return {
         ...node,
-        properties: { ...node.properties, ...fadeProperties(start), dataStreamFadeBox: 'box' },
+        properties: { ...node.properties, ...fadeProperties(shown(start)), dataStreamFadeBox: 'box' },
       };
     }
     if (!node.children) return node;
@@ -452,28 +643,27 @@ export function applyStreamFade(
     let inner = box;
     const kind = node.type === 'element' ? FADE_BOXES[node.tagName ?? ''] : undefined;
     if (kind) {
-      const { start } = firstStart(node);
+      const start = startOf(firstInk(node));
       if (start && !sameStart(start, box)) {
-        properties = { ...properties, ...fadeProperties(start), dataStreamFadeBox: kind };
-        // A marker fade leaves the item's words to fade themselves.
+        properties = { ...properties, ...fadeProperties(shown(start)), dataStreamFadeBox: kind };
+        // A marker fade leaves the item's text to fade itself.
         if (kind === 'box') inner = start;
       }
     }
     let changed = properties !== node.properties;
     const children: FadeNode[] = [];
     for (const child of node.children) {
-      const childUnit = child.type === 'text' ? units.get(child) : undefined;
-      const parts = childUnit ? wrapWords(childUnit, inner) : null;
+      const parts = child.type === 'text' ? wrapText(child, inner) : null;
       if (parts) {
         children.push(...parts);
         changed = true;
         continue;
       }
-      const next = childUnit ? child : rebuild(child, inner);
+      const next = child.type === 'text' ? child : rebuild(child, inner);
       if (next !== child) changed = true;
       children.push(next);
     }
     return changed ? { ...node, properties, children } : node;
   };
-  return { root: rebuild(root as FadeNode, undefined) as MarkdownAstRoot, tags };
+  return { root: rebuild(root as FadeNode, undefined) as MarkdownAstRoot, tags, until, appearance };
 }

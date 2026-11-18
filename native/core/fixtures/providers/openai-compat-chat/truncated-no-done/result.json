@@ -1,9 +1,0 @@
-{
-  "ok": {
-    "content": "The result is 42.",
-    "toolCalls": [],
-    "stopReason": "stop",
-    "usage": null
-  },
-  "dispatchedToolCalls": []
-}

@@ -31,7 +31,7 @@ use crate::leg::frame::{Payload, encode_binary_frame, json_frame};
 use crate::leg::inbound::Inbound;
 use crate::leg::socket::{LegConfig, LegEvent, Outgoing, run_leg, validated_relay_url};
 use crate::leg::{MAX_WS_PAYLOAD_BYTES, open_envelopes};
-use crate::pair_code::{PairCode, PairCodeEffects, PairCodeView};
+use crate::pair_code::{NotHeld, PairCode, PairCodeEffects, PairCodeView, PairOwner};
 use crate::push::native_crypto::{NativePushContent, Reason, collapse_key, encrypt_native_push_fresh};
 use crate::push::web::{RelayWebPush, WebPushTarget, encrypt_for_target};
 use crate::push::native::{NativePushInput, NativePushStore, NativePushSubscription, bind_envelope, invalid_token_of, unbind_envelope};
@@ -46,6 +46,12 @@ const HOST_NAME_MAX: usize = 80;
 const OUT_QUEUE: usize = 256;
 
 const RELAY_UNAVAILABLE: &str = "The relay is not connected right now.";
+/// The close reason of a phone whose frames the core is not taking as fast as it sends them.
+const BACKLOG_EXCEEDED: &str = "remote client backlog exceeded";
+/// How long a phone has to finish its end-to-end handshake after `client-open`.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// A device with no registration on any push path (push-notifier.ts `sendTest`, `outcome.targets === 0`).
+const PUSH_NOT_ALLOWED: &str = "This device has not allowed notifications from this PC yet.";
 /// The body of an error notification when the PC gives no words of its own
 /// (desktop-turn-notifier.ts `TURN_FAILED_TEXT`).
 const TURN_FAILED_TEXT: &str = "The turn stopped with an error.";
@@ -104,11 +110,6 @@ impl LegLink {
         self.send_out(Outgoing::Text(envelope.to_string()))
     }
 
-    /// Messages queued for the socket and not yet written.
-    fn queued(&self) -> usize {
-        self.slot().as_ref().map_or(0, |tx| tx.max_capacity() - tx.capacity())
-    }
-
     fn send_out(&self, out: Outgoing) -> bool {
         self.slot().as_ref().is_some_and(|tx| tx.try_send(out).is_ok())
     }
@@ -132,6 +133,24 @@ impl LegLink {
             Some(tx) => tx.send(out).await.is_ok(),
             None => false,
         }
+    }
+}
+
+/// The leg's outgoing queue is the owner of the media lane's room: the queue's own drain frees the slots, and the wait is the
+/// channel's wait for them, so a pump parked behind the socket backlog is woken by the drain and by nothing else. Over the backlog
+/// limit means more than `limit / QUEUED_MESSAGE_BYTES` messages queued (the lane measured the socket this way before it waited on
+/// events); room is that many fewer than the queue holds. A leg that is gone or replaced answers at once, and the lane looks again.
+impl crate::media::Room for LegLink {
+    fn room(&self) -> crate::media::RoomWait {
+        let link = self.clone();
+        Box::pin(async move {
+            let Some(tx) = link.slot().clone() else { return };
+            let allowed = (crate::media::MEDIA_SOCKET_BACKLOG_BYTES / QUEUED_MESSAGE_BYTES) as usize;
+            let max = tx.max_capacity();
+            if max > allowed {
+                drop(tx.reserve_many(max - allowed).await);
+            }
+        })
     }
 }
 
@@ -278,6 +297,11 @@ impl crate::media::MediaSources for SourcesSlot {
         let sources = lock(&self.0).clone();
         sources.download(asset_id, device).await
     }
+
+    async fn project_file(&self, asset_id: &str, device: &str) -> Option<Box<dyn crate::media::ByteSource>> {
+        let sources = lock(&self.0).clone();
+        sources.project_file(asset_id, device).await
+    }
 }
 
 /// Bytes one queued leg message is counted as when the media lane measures the socket backlog.
@@ -286,6 +310,8 @@ const QUEUED_MESSAGE_BYTES: u64 = 96 * 1024;
 /// The transport sessions' view of the runtime.
 struct SessionEnvironment {
     inner: std::sync::Weak<Inner>,
+    /// The client open this session belongs to: what it reports and ends is that open's, never a replacement's.
+    generation: u64,
 }
 
 impl crate::transport::session::SessionEnv for SessionEnvironment {
@@ -301,17 +327,19 @@ impl crate::transport::session::SessionEnv for SessionEnvironment {
     }
 
     fn deliver(&self, client_id: &str, text: String) -> futures::future::BoxFuture<'static, ()> {
-        let (inner, client_id) = (self.inner.upgrade(), client_id.to_owned());
+        let (inner, client_id, generation) = (self.inner.upgrade(), client_id.to_owned(), self.generation);
         Box::pin(async move {
             if let Some(inner) = inner {
-                inner.bridge.from_phone(&client_id, Frame::Text(text)).await;
+                if !inner.bridge.from_phone(&client_id, generation, Frame::Text(text)) {
+                    RemoteRuntime { inner }.close_client(&client_id, generation, BACKLOG_EXCEEDED);
+                }
             }
         })
     }
 
     fn ended(&self, client_id: &str, reason: &str) {
         if let Some(inner) = self.inner.upgrade() {
-            RemoteRuntime { inner }.close_client(client_id, &format!("remote transport {reason}"));
+            RemoteRuntime { inner }.close_client(client_id, self.generation, &format!("remote transport {reason}"));
         }
     }
 
@@ -330,13 +358,13 @@ impl crate::transport::session::SessionEnv for SessionEnvironment {
 
     fn live(&self, client_id: &str) {
         if let Some(inner) = self.inner.upgrade() {
-            inner.cfg.registry.note_peer_live(client_id);
+            inner.cfg.registry.note_peer_live_in(self.generation, client_id);
         }
     }
 
     fn background(&self, client_id: &str) {
         if let Some(inner) = self.inner.upgrade() {
-            inner.cfg.registry.set_peer_background(client_id);
+            inner.cfg.registry.set_peer_background_in(self.generation, client_id);
         }
     }
 
@@ -364,6 +392,227 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+fn is_credential_id(value: &str) -> bool {
+    (8..=64).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase() || b == b'-')
+}
+
+/// The text of a decrypted phone frame as Node reads it (`decryptJson`, remote-e2ee.ts:692): a non-fatal `TextDecoder`
+/// (each invalid UTF-8 sequence U+FFFD, a leading BOM dropped), then `JSON.parse`. `None` when it is not JSON, which
+/// closes the client with 'invalid encrypted relay frame' (remote-relay-client-lifecycle.ts:95-98) before the core sees it.
+fn phone_text(bytes: Vec<u8>) -> Option<String> {
+    let mut text = String::from_utf8(bytes).unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
+    if text.starts_with('\u{feff}') {
+        text.drain(..'\u{feff}'.len_utf8());
+    }
+    serde_json::from_str::<serde::de::IgnoredAny>(&mixdog_js::json_well_formed_str(&text)).ok()?;
+    Some(text)
+}
+
+/// A size the relay reported (`positiveSize`, `remote-payload-limit.ts`): a positive number, a numeric string read as one.
+fn positive_size(value: Option<&Value>) -> Option<u64> {
+    let number = match value? {
+        Value::Number(number) => number.as_f64()?,
+        Value::String(text) => text.trim().parse::<f64>().ok()?,
+        _ => return None,
+    };
+    (number.is_finite() && number > 0.0).then(|| number.floor() as u64)
+}
+
+/// The authenticated event a phone is told of a refusal of its reply with (`relayPayloadRejectedFrame`): no call is named, since
+/// the relay's notice says whose frame it was only by the client.
+fn relay_payload_rejected_frame(bytes: Option<u64>, limit: Option<u64>) -> Value {
+    json!({ "event": "relayPayloadRejected", "payload": { "bytes": bytes, "limit": limit } })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{phone_text, positive_size, relay_payload_rejected_frame};
+    use serde_json::json;
+
+    /// `positiveSize`: a positive number or numeric string is floored; zero, negative, non-numeric and absent read as unknown.
+    #[test]
+    fn a_reported_size_is_a_positive_number_or_none() {
+        assert_eq!(positive_size(Some(&json!(1234))), Some(1234));
+        assert_eq!(positive_size(Some(&json!(12.9))), Some(12));
+        assert_eq!(positive_size(Some(&json!("4096"))), Some(4096));
+        for refused in [json!(0), json!(-5), json!("abc"), json!(null), json!(true), json!([])] {
+            assert_eq!(positive_size(Some(&refused)), None);
+        }
+        assert_eq!(positive_size(None), None);
+    }
+
+    /// The phone's event carries the size and the ceiling, null where the relay did not report them, and no call id or scope.
+    #[test]
+    fn the_phone_is_told_of_a_refusal_by_an_event_without_a_call() {
+        assert_eq!(
+            relay_payload_rejected_frame(Some(70_000_000), Some(67_108_864)),
+            json!({ "event": "relayPayloadRejected", "payload": { "bytes": 70_000_000, "limit": 67_108_864 } })
+        );
+        assert_eq!(
+            relay_payload_rejected_frame(None, None),
+            json!({ "event": "relayPayloadRejected", "payload": { "bytes": null, "limit": null } })
+        );
+    }
+
+    /// The decode of the recorded cases (native/core/fixtures/inbound-lone-surrogate: alias-invalid-byte,
+    /// alias-truncated-sequence, alias-bom-frame, refused-*): invalid bytes read as U+FFFD, a leading BOM dropped, a
+    /// lone surrogate escape kept for the core's decoder, and what is not JSON refused.
+    #[test]
+    fn a_phone_frame_is_read_as_nodes_text_decoder_and_json_parse_read_it() {
+        assert_eq!(phone_text(b"{\"a\":\"ab\xffcd\"}".to_vec()).as_deref(), Some("{\"a\":\"ab\u{fffd}cd\"}"));
+        assert_eq!(phone_text(b"{\"a\":\"ab\xe2\x82cd\"}".to_vec()).as_deref(), Some("{\"a\":\"ab\u{fffd}cd\"}"));
+        assert_eq!(phone_text(b"\xef\xbb\xbf{\"a\":1}".to_vec()).as_deref(), Some("{\"a\":1}"));
+        assert_eq!(phone_text(br#"{"a":"\ud800"}"#.to_vec()).as_deref(), Some(r#"{"a":"\ud800"}"#));
+        let refused: [&[u8]; 4] = [b"{\"a\":", b"{\"a\":\"\\ud800", b"\xff{\"a\":1}", b""];
+        for refused in refused {
+            assert_eq!(phone_text(refused.to_vec()), None);
+        }
+    }
+}
+
+impl Inner {
+    /// Seals one frame for a phone and writes it to the leg: binary relay frames when the relay
+    /// takes them, otherwise JSON text frames. A `droppable` frame is one the relay may skip for a
+    /// phone that cannot take it.
+    async fn write_sealed(&self, client_id: &str, sealed: Sealed, droppable: bool) {
+        let out = self.outgoing(client_id, sealed, droppable);
+        self.cfg.link.send_wait(out).await;
+    }
+
+    /// A write of the live view to a phone on the relay path: it is sealed and enters the leg in one step with the check that the
+    /// phone may still view (`DeviceRegistry::write_view`), the room in the leg's queue taken first. A refused write seals nothing.
+    async fn write_view(&self, client_id: &str, generation: u64, bytes: &[u8], binary: bool) {
+        let Some(permit) = self.cfg.link.reserve().await else { return };
+        let mut permit = Some(permit);
+        self.cfg.registry.write_view(client_id, generation, &mut || {
+            let sealed = self.state().table.seal(client_id, generation, bytes, binary);
+            if let (Ok(sealed), Some(permit)) = (sealed, permit.take()) {
+                permit.send(self.outgoing(client_id, sealed, false));
+            }
+        });
+    }
+
+    /// The leg's form of a sealed frame: binary relay frames when the relay takes them, otherwise JSON text frames, which carry
+    /// `droppable: true` only when it is (Node's `...(droppable ? { droppable: true } : {})`, remote-relay-delivery.ts).
+    fn outgoing(&self, client_id: &str, sealed: Sealed, droppable: bool) -> Outgoing {
+        let binary_frames = self.state().caps.binary_frames();
+        let text_frame = |mut frame: Value| {
+            if droppable {
+                frame["droppable"] = json!(true);
+            }
+            Outgoing::Text(frame.to_string())
+        };
+        match sealed {
+            Sealed::Text(text) => text_frame(json_frame(client_id, &text)),
+            Sealed::Binary(bytes) => match binary_frames.then(|| encode_binary_frame(client_id, &bytes, droppable, false)).flatten() {
+                Some(frame) => Outgoing::Binary(frame),
+                None => {
+                    use base64::Engine;
+                    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    text_frame(json!({ "type": "frame", "clientId": client_id, "data": data }))
+                }
+            },
+        }
+    }
+
+    /// The write gate of the live view's writes to `peer_id` on its transport session.
+    fn view_gate(&self, peer_id: &str, generation: u64) -> WriteGate {
+        let (registry, peer_id) = (self.cfg.registry.clone(), peer_id.to_owned());
+        WriteGate(Arc::new(move |write: &mut dyn FnMut()| registry.write_view(&peer_id, generation, write)))
+    }
+}
+
+/// Whether a frame from the core is one of the live view's two writes to a phone, `browser/frame` or `browser/webrtcSignal`: a
+/// connection-scoped notification, which the core serializes with `method` first (`JsonRpcNotification`).
+fn live_view_write(frame: &[u8]) -> bool {
+    [&br#"{"method":"browser/frame","#[..], &br#"{"method":"browser/webrtcSignal","#[..]].iter().any(|head| frame.starts_with(head))
+}
+
+/// The terminal lane's feed (mixdog-spawn `service::feeds::TERMINAL_LANE_FEED`): every terminal tab's output as Node's relay lane sent it.
+const TERMINAL_LANE_FEED: &str = "process:relay";
+
+/// Whether a frame from the core is terminal output on the terminal lane: a `process/outputDelta` of [`TERMINAL_LANE_FEED`]. Node sent
+/// every tab's output to a phone as `termData` marked droppable (remote-relay-push-lanes.ts:85), and nothing else on this path: the relay
+/// may skip such a frame for a phone that cannot take it, with a resync hint, where a frame that is not droppable cuts the phone's leg
+/// (apps/relay/lib/relay-legs.mjs deliverToPhone, relay-transport.mjs admitFrame). The phone's client takes a skipped frame as a gap in
+/// the feed and attaches again.
+fn terminal_lane_output(frame: &[u8]) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Head<'a> {
+        #[serde(borrow)]
+        feed: Option<Stamp<'a>>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Stamp<'a> {
+        #[serde(borrow)]
+        id: std::borrow::Cow<'a, str>,
+    }
+    frame.starts_with(br#"{"method":"process/outputDelta","#)
+        && serde_json::from_slice::<Head>(frame).is_ok_and(|head| head.feed.is_some_and(|feed| feed.id == TERMINAL_LANE_FEED))
+}
+
+struct WeakSink {
+    inner: std::sync::Weak<Inner>,
+}
+
+#[async_trait]
+impl PhoneSink for WeakSink {
+    async fn deliver(&self, message: ToPhone) {
+        if let Some(inner) = self.inner.upgrade() {
+            RuntimeSink { inner }.deliver(message).await;
+        }
+    }
+}
+
+#[async_trait]
+impl PhoneSink for RuntimeSink {
+    async fn deliver(&self, message: ToPhone) {
+        match message {
+            ToPhone::Frame { peer_id, generation, frame } => {
+                // A frame of a replaced open is not the replacement's: the generation is checked where the session or the channel
+                // that seals is chosen (`transport`, `seal`), in one step with the choice.
+                // The live view's writes are asked about again where they enter the phone's stream: the core queued them before a
+                // revocation that may have come since.
+                let bytes = match &frame {
+                    Frame::Text(text) => text.as_bytes(),
+                    Frame::Binary(bytes) => bytes.as_slice(),
+                };
+                let gated = live_view_write(bytes);
+                let droppable = terminal_lane_output(bytes);
+                let session = self.inner.state().table.transport(&peer_id, generation);
+                if let Some(session) = session {
+                    let text = match frame {
+                        Frame::Text(text) => Some(text),
+                        Frame::Binary(bytes) => String::from_utf8(bytes).ok(),
+                    };
+                    if let Some(text) = text {
+                        let _ = session.send_gated(&text, droppable, gated.then(|| self.inner.view_gate(&peer_id, generation))).await;
+                    }
+                    return;
+                }
+                let (bytes, binary) = match frame {
+                    Frame::Text(text) => (text.into_bytes(), false),
+                    Frame::Binary(bytes) => (bytes, true),
+                };
+                if gated {
+                    self.inner.write_view(&peer_id, generation, &bytes, binary).await;
+                    return;
+                }
+                let sealed = self.inner.state().table.seal(&peer_id, generation, &bytes, binary);
+                if let Ok(sealed) = sealed {
+                    self.inner.write_sealed(&peer_id, sealed, droppable).await;
+                }
+            }
+            ToPhone::Close { peer_id, generation, code: _, reason } => {
+                // One step under the table: a close from a retired bridge open finds the open is no longer the peer's and does
+                // nothing, so it cannot reach a client that replaced it.
+                RemoteRuntime { inner: self.inner.clone() }.close_client(&peer_id, generation, &reason);
+            }
+        }
+    }
+}
+
+
 /// A native push row's `createdAt`. A debug build (never a release one) reads `MIXDOG_FIXED_NOW_MS` as a pinned instant, as
 /// `mixdog_workspace::editorcfg::now_ms` does, so a replay gives the stored row the virtual clock the Node recording ran on.
 fn registered_at_ms() -> u64 {
@@ -373,11 +622,9 @@ fn registered_at_ms() -> u64 {
     }
     now_ms()
 }
-
 fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
-
 impl Inner {
     fn state(&self) -> MutexGuard<'_, State> {
         lock(&self.state)
@@ -521,10 +768,16 @@ impl Inner {
     fn pair_effects_call<R>(&self, f: impl FnOnce(&mut PairCode, &mut dyn PairCodeEffects) -> R) -> R {
         let mut state = self.state();
         let State { pair_code, pair_effects, .. } = &mut *state;
-        f(pair_code, pair_effects.as_mut())
+        let before = pair_code.unsupported();
+        let result = f(pair_code, pair_effects.as_mut());
+        // The view reads "this relay issues no codes" from the section, so every change of it is published.
+        let after = pair_code.unsupported();
+        if after != before {
+            self.cfg.section.set_pair_code_unsupported(after);
+        }
+        result
     }
 }
-
 impl RemoteRuntime {
     pub fn new(cfg: RuntimeConfig, factory: PairEffectsFactory) -> Self {
         let link = cfg.link.clone();
@@ -567,12 +820,8 @@ impl RemoteRuntime {
                 link_up: tokio::sync::watch::Sender::new(false),
                 ice: crate::ice::RemoteIceServers::new(),
                 media_lane: {
-                    let (send_link, backlog_link) = (link.clone(), link.clone());
-                    crate::media::RelayMediaLane::new(
-                        sources.clone(),
-                        Arc::new(move |envelope| send_link.send(&envelope)),
-                        Arc::new(move || backlog_link.queued() as u64 * QUEUED_MESSAGE_BYTES),
-                    )
+                    let send_link = link.clone();
+                    crate::media::RelayMediaLane::new(sources.clone(), Arc::new(move |envelope| send_link.send(&envelope)), Arc::new(link.clone()))
                 },
                 sources,
             }
@@ -624,9 +873,8 @@ impl RemoteRuntime {
         self.inner.cfg.settings.read()
     }
 
-    /// Asks the relay for the client list when the leg is open and has not answered one yet: Node listed whenever a window asked
-    /// for the descriptor (`remoteAccessDescriptor`, `desktop-service.ts:580`, polled by the Connection card), and a failed
-    /// listing was retried by the next ask, never by a timer or a relay event. A failure is the answer "not connected yet".
+    /// Asks the relay for the client list when the leg is open and has not answered one yet. A state read can retry a
+    /// failed listing; an open leg also seeds the list for windows that already read state before the link came up.
     pub async fn list_if_unanswered(&self) {
         let due = {
             let state = self.inner.state();
@@ -670,7 +918,7 @@ impl RemoteRuntime {
         let Some(relay_url) = inner.cfg.relay_url.clone() else { return Ok(()) };
         if explicit {
             self.activate().await?;
-        } else if !inner.cfg.settings.is_activated() {
+        } else if !inner.cfg.settings.read().enabled {
             return Ok(());
         }
         match self.bring_up(relay_url).await {
@@ -732,6 +980,8 @@ impl RemoteRuntime {
                 Ok(())
             })
             .await??;
+        // Rotating while off will not start a leg, so no later relay event will publish the empty roster.
+        self.inner.refresh();
         self.inner.cfg.events.owed_access_changed();
         Ok(())
     }
@@ -838,8 +1088,8 @@ impl RemoteRuntime {
         }
         self.inner.cfg.link.set(None);
         self.inner.bridge.close_all();
-        for peer in peers {
-            self.inner.cfg.registry.detach_peer(&peer);
+        for (peer, generation) in peers {
+            self.inner.cfg.registry.detach_peer_in(generation, &peer);
         }
         self.inner.cfg.registry.detach_all_peers();
     }
@@ -933,7 +1183,7 @@ impl RemoteRuntime {
         if self.inner.state().live.is_none() {
             let roster = self.inner.roster().await?;
             let clients = self.inner.with_aliases(lock(&roster).list());
-            return Ok(if settings.enabled && self.inner.cfg.settings.is_activated() {
+            return Ok(if settings.enabled {
                 Value::Null
             } else {
                 json!({ "relay": { "clientUrl": "", "token": "", "clients": clients }, "enabled": false })
@@ -949,21 +1199,45 @@ impl RemoteRuntime {
         Ok(info)
     }
 
-    /// `ensure` (default), `renew` or `release` the Settings › Connection pair code.
-    pub async fn pair_code(&self, action: &str) -> Result<Value, RemoteError> {
-        if action != "release" {
-            self.start(true).await?;
-        }
+    /// The connection `holder` closed: a pairing view it carried is gone, released or not.
+    pub fn connection_closed(&self, owner: u64) {
+        self.inner.pair_effects_call(|code, fx| code.connection_closed(fx, owner));
+    }
+
+    /// `ensure` (default), `renew` or `release` the Settings › Connection pair code for the view of
+    /// `owner`, the connection it came through; a caller with no connection is refused.
+    pub async fn pair_code(&self, action: &str, owner: Option<PairOwner>) -> Result<Value, RemoteError> {
+        self.pair_code_after(action, owner, self.start(true)).await
+    }
+
+    /// [`Self::pair_code`] with the startup it waits for given. The hold is taken (or renewed, or released) first, in one
+    /// step under the same serialization as the owner's close cleanup, so the owner's connection must be open at that
+    /// moment; nothing after the startup, whether it succeeded or failed, creates or revives a hold. A failed startup leaves
+    /// the hold of a view that is still open: the leg that comes up later supplies the code (`on_connected`).
+    pub async fn pair_code_after(
+        &self,
+        action: &str,
+        owner: Option<PairOwner>,
+        startup: impl std::future::Future<Output = Result<(), RemoteError>>,
+    ) -> Result<Value, RemoteError> {
+        let owner = owner.ok_or_else(|| RemoteError::Invalid("A pairing view needs a connection.".into()))?;
         let host = self.inner.host_name();
-        let now = now_ms();
-        let live = self.inner.state().live.is_some();
-        self.inner.pair_effects_call(|code, fx| match action {
-            "release" => code.release(fx),
-            "renew" => code.renew(fx, &host),
-            _ => code.want(fx, &host, now),
-        });
-        if !live || action == "release" {
+        if action == "release" {
+            self.inner.pair_effects_call(|code, fx| code.release(fx, owner.id));
             return Ok(Value::Null);
+        }
+        let taken = self.inner.pair_effects_call(|code, fx| {
+            let now = now_ms();
+            if action == "renew" { code.renew(fx, &host, now, &owner) } else { code.want(fx, &host, now, &owner) }
+        });
+        taken.map_err(|NotHeld| RemoteError::Invalid("This pairing view's connection has closed or holds no code.".into()))?;
+        startup.await?;
+        if self.inner.state().live.is_none() {
+            return Ok(Value::Null);
+        }
+        // A relay that issues no codes (refused, or silent past the timeout) is `{unsupported: true}`, as Node's `ensure` said.
+        if self.inner.state().pair_code.unsupported() {
+            return Ok(json!({ "unsupported": true }));
         }
         let held = self.inner.state().pair_code.current().cloned();
         Ok(PairCodeView::to_value(held.as_ref()))
@@ -992,6 +1266,8 @@ impl RemoteRuntime {
         let queued = id.clone();
         let recorded = self.inner.with_roster(move |roster, lane| roster.queue_revoke(lane, &queued).map(|()| roster.revocation(&queued))).await;
         self.drop_credential(client_id);
+        // A queued removal is already in force, even if the relay never answers.
+        self.inner.refresh();
         let sent = self.control("revoke-client", revoke_payload(client_id)).await;
         self.inner.cfg.events.owed_access_changed();
         if let (Ok(Ok(Some(revocation))), Ok(_)) = (&recorded, &sent) {
@@ -1011,10 +1287,13 @@ impl RemoteRuntime {
     /// 4003), and a relay that did not leaves it open.
     fn drop_credential(&self, credential_id: &str) {
         let peers = self.inner.state().table.revoke(credential_id);
-        for peer in &peers {
-            self.inner.cfg.registry.revoke_screen(peer);
+        // The table's revoke has set the capability every media delivery of these clients is committed under (relay lane and direct
+        // transport alike) and published its end: nothing new is committed from here on, and every wait made under it (a pump parked
+        // for room, a delivery queued in a direct session) is released by that event.
+        for (peer, generation) in &peers {
+            self.inner.cfg.registry.revoke_screen_in(*generation, peer);
             // A live-view message half in the peer's transport stream cannot be finished: that session ends now.
-            let session = self.inner.state().table.transport(peer);
+            let session = self.inner.state().table.transport(peer, *generation);
             if let Some(session) = session {
                 session.view_revoked();
             }
@@ -1310,6 +1589,8 @@ impl RemoteRuntime {
         let payload = mixdog_js::json_stringify(&Value::Object(payload));
 
         let mut sent = 0usize;
+        // Registrations of this device on every path (Node's `outcome.targets`): what separates "never allowed" from "could not send".
+        let mut targets = 0usize;
         let mut failures: Vec<String> = Vec::new();
         let (relay_targets, all_targets, native_rows, connected) = {
             let state = self.inner.state();
@@ -1319,6 +1600,7 @@ impl RemoteRuntime {
             let native = state.native.as_ref().map(|s| lock(s).list().to_vec()).unwrap_or_default();
             (mine, all, native, state.connected)
         };
+        targets += relay_targets.len();
         for target in &relay_targets {
             match encrypt_for_target(target, payload.as_bytes()) {
                 Err(_) => failures.push("The browser’s subscription keys are invalid.".into()),
@@ -1332,6 +1614,7 @@ impl RemoteRuntime {
             }
         }
         for row in native_rows.iter().filter(|row| row.client_id == push.device_id) {
+            targets += 1;
             let body = if reason == Reason::TurnFailed && push.body.is_empty() { TURN_FAILED_TEXT } else { push.body.as_str() };
             let (title, body) = NativePushContent::clip(&push.title, body);
             let content = NativePushContent {
@@ -1378,6 +1661,7 @@ impl RemoteRuntime {
                     if endpoints.contains(row.endpoint.as_str()) || (!row.client_id.is_empty() && browsers.contains(row.client_id.as_str())) {
                         continue;
                     }
+                    targets += 1;
                     let result = crate::push::legacy::send_web_push(&poster, row, &payload, &keys, now_ms()).await;
                     if result.expired {
                         failures.push("The push service no longer accepts this browser’s subscription.".into());
@@ -1392,9 +1676,15 @@ impl RemoteRuntime {
                 }
             }
         }
-        match (sent, failures.into_iter().next()) {
-            (0, Some(first)) => Err(first),
-            _ => Ok(()),
+        if sent > 0 {
+            return Ok(());
+        }
+        // Nothing was handed over. A native push whose encryption failed adds no failure of its own (Node's `deliverNative` lets it
+        // reject unseen), so it reads as the relay not taking it.
+        match failures.into_iter().next() {
+            Some(first) => Err(first),
+            None if targets == 0 => Err(PUSH_NOT_ALLOWED.into()),
+            None => Err(RELAY_UNAVAILABLE.into()),
         }
     }
 
@@ -1471,10 +1761,23 @@ impl RemoteRuntime {
             self.inner.cfg.link.send(&frame);
         }
         // A fresh leg holds no code of ours: ask for a new one if the screen is open.
-        self.inner.pair_effects_call(|code, fx| code.on_connected(fx, &name));
+        let now = now_ms();
+        self.inner.pair_effects_call(|code, fx| code.on_connected(fx, &name, now));
         self.inner.refresh();
         let runtime = self.clone();
-        tokio::spawn(async move { runtime.drain_pending_revokes().await });
+        let cancel = live.cancel.clone();
+        // The receive loop must remain free to settle these requests. Draining already lists when there
+        // are queued revocations; otherwise seed the roster and publish the ready descriptor here.
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                () = cancel.cancelled() => {}
+                () = async {
+                    runtime.drain_pending_revokes().await;
+                    runtime.list_if_unanswered().await;
+                } => {}
+            }
+        });
     }
 
     fn on_lost(&self, live: &Arc<Live>) {
@@ -1489,8 +1792,8 @@ impl RemoteRuntime {
         live.controls.reject_all(&ControlError::Failed("Relay disconnected.".into()));
         self.inner.media_lane.destroy_all();
         self.inner.bridge.close_all();
-        for peer in peers {
-            self.inner.cfg.registry.detach_peer(&peer);
+        for (peer, generation) in peers {
+            self.inner.cfg.registry.detach_peer_in(generation, &peer);
         }
         self.inner.refresh();
     }
@@ -1541,10 +1844,14 @@ impl RemoteRuntime {
                 }
             }
             Inbound::ClientOpen { client_id, credential_id } => self.on_client_open(&client_id, &credential_id).await,
+            // The relay names the id alone, and in order: what it closes is the open the id holds now. This is the one place the
+            // current generation is taken rather than carried: the relay's `client-close` / `client-open` / `close-client` messages
+            // name no open, so the wire cannot say which one is meant (an inherited limit of the protocol, unchanged from Node).
             Inbound::ClientClose(client_id) => {
-                self.inner.state().table.close(&client_id);
-                self.inner.bridge.close_peer(&client_id);
-                self.inner.cfg.registry.detach_peer(&client_id);
+                let generation = self.inner.state().table.generation_of(&client_id);
+                if let Some(generation) = generation {
+                    self.close_client_quietly(&client_id, generation);
+                }
             }
             Inbound::Frame { client_id, payload } => self.on_frame(live, &client_id, payload).await,
             Inbound::FrameTooLarge(envelope) => {
@@ -1557,7 +1864,10 @@ impl RemoteRuntime {
                 // show it (`remote-relay-inbound.ts`).
                 if let Some(peer_id) = envelope.get("clientId").and_then(Value::as_str).filter(|id| !id.is_empty()) {
                     let frame = Frame::Text(relay_payload_rejected_frame(bytes, limit).to_string());
-                    RuntimeSink { inner: self.inner.clone() }.deliver(ToPhone::Frame { peer_id: peer_id.to_owned(), frame }).await;
+                    let generation = self.inner.state().table.generation_of(peer_id);
+                    if let Some(generation) = generation {
+                        RuntimeSink { inner: self.inner.clone() }.deliver(ToPhone::Frame { peer_id: peer_id.to_owned(), generation, frame }).await;
+                    }
                 } else {
                     tracing::error!(
                         "[mixdog-remote] relay refused an oversize frame bytes={} limit={} (no client attributed)",
@@ -1601,12 +1911,16 @@ impl RemoteRuntime {
             MediaCommand::Serve(request) => {
                 // The session is named by its handshake challenge; only an authenticated client
                 // has a media key to find.
-                let (media_key, device) = {
-                    let state = self.inner.state();
-                    (state.table.media_key(&request.sid), state.table.media_device(&request.sid))
+                // The key, the device and the revocation capability are taken together, here, before the serving task is spawned: a
+                // credential already unpaired has no grant (the request is refused as unauthenticated), and one unpaired after this
+                // holds the capability that the unpair sets, which every delivery of the task is committed under.
+                let grant = self.inner.state().table.media_grant(&request.sid);
+                let session = match grant {
+                    Some(grant) => MediaSession { media_key: grant.key, device: grant.device, revocation: grant.revocation },
+                    None => MediaSession { media_key: None, device: None, revocation: Default::default() },
                 };
                 let inner = self.inner.clone();
-                tokio::spawn(async move { inner.media_lane.serve(request, MediaSession { media_key, device }).await });
+                tokio::spawn(async move { inner.media_lane.serve(request, session).await });
             }
             MediaCommand::Abort(id) => self.inner.media_lane.abort(&id),
             MediaCommand::Pause { id, paused } => self.inner.media_lane.set_paused(&id, paused),
@@ -1619,19 +1933,32 @@ impl RemoteRuntime {
         // A device whose unpair is recorded is admitted under its credential and revoked for the screen for the connection's lifetime,
         // as Node does (`screen-access-publisher.ts` `admitted`).
         let unpaired = roster.is_some_and(|roster| !credential_id.is_empty() && lock(&roster).pending().iter().any(|id| id == credential_id));
-        let text = {
+        // A repeated open of one id retires the first: its bridged socket and registry peer would otherwise keep running beside the new
+        // client (the table ends the first's transport session itself).
+        let (text, challenge, retired) = {
             let mut state = self.inner.state();
+            let retired = state.table.generation_of(client_id);
+            if let Some(generation) = retired {
+                self.inner.bridge.close_peer(client_id, generation);
+            }
             // The core owns the peers, so the transport is always on offer to a phone that can take binary frames.
             let flags = challenge_flags(state.caps.binary_frames(), true, true);
             let text = state.table.open(client_id, credential_id, &flags);
             if text.is_some() && unpaired {
                 state.table.revoke_client(client_id);
             }
-            text
+            let challenge = state.table.challenge_of(client_id);
+            (text, challenge, retired)
         };
+        if let Some(generation) = retired {
+            self.inner.cfg.registry.detach_peer_in(generation, client_id);
+        }
         match text {
             Some(text) => {
                 self.inner.cfg.link.send(&json_frame(client_id, &text));
+                if let Some(challenge) = challenge {
+                    self.arm_handshake_deadline(client_id, challenge);
+                }
             }
             None => {
                 self.inner.cfg.link.send(&json!({ "type": "close-client", "clientId": client_id, "reason": "remote client limit reached" }));
@@ -1639,39 +1966,68 @@ impl RemoteRuntime {
         }
     }
 
+    /// Node closes a client whose end-to-end handshake has not finished in 10 s (`remote-relay-clients.ts` `E2EE_HANDSHAKE_TIMEOUT_MS`),
+    /// so a phone that opens and never answers does not hold one of the 64 places.
+    fn arm_handshake_deadline(&self, client_id: &str, challenge: String) {
+        let (runtime, client_id) = (self.clone(), client_id.to_owned());
+        tokio::spawn(async move {
+            // `handshakeTimer.unref()` in Node.
+            mixdog_rt::time::sleep_unrefed(HANDSHAKE_TIMEOUT).await;
+            // One step under the table lock: a new open of the id takes the same lock, so it either comes first (the challenge no
+            // longer matches, nothing happens) or after the whole close.
+            let closed = {
+                let mut state = runtime.inner.state();
+                let closed = state.table.close_if_pending(&client_id, &challenge);
+                if let Some(generation) = closed {
+                    runtime.inner.bridge.close_peer(&client_id, generation);
+                    runtime.inner.cfg.link.send(&json!({ "type": "close-client", "clientId": client_id, "reason": "relay encryption handshake timed out" }));
+                }
+                closed
+            };
+            if let Some(generation) = closed {
+                runtime.inner.cfg.registry.detach_peer_in(generation, &client_id);
+            }
+        });
+    }
+
     async fn on_frame(&self, live: &Arc<Live>, client_id: &str, payload: Payload) {
         let host = self.inner.host_name();
         let routing = Map::new();
-        let received = {
+        // The open this frame is for is fixed with the frame: everything done for it below belongs to that open.
+        let (received, generation) = {
             let mut state = self.inner.state();
-            state.table.receive(&live.identity, client_id, &payload, &ReadyContext { host_name: &host, routing: &routing })
+            let received = state.table.receive(&live.identity, client_id, &payload, &ReadyContext { host_name: &host, routing: &routing });
+            (received, state.table.generation_of(client_id))
         };
+        let Some(generation) = generation else { return };
         match received {
             Received::Dropped => {}
             Received::Ready(frames) => {
                 for sealed in frames {
                     self.inner.write_sealed(client_id, sealed, false).await;
                 }
-                self.attach_peer(client_id).await;
-                self.inner.bridge.client_open(client_id);
+                if self.attach_peer(client_id, generation).await {
+                    self.inner.bridge.client_open_as(client_id, generation);
+                }
             }
             Received::Transport { session, message } => session.receive_relay(&message),
             Received::TransportReady { channel, ready } => {
-                let (session_id, device) = {
+                let (session_id, device, revocation) = {
                     let state = self.inner.state();
                     let device = state.table.media_device_of(client_id).unwrap_or_default();
-                    (state.table.challenge_of(client_id).unwrap_or_default(), device)
+                    (state.table.challenge_of(client_id).unwrap_or_default(), device, state.table.revocation_of(client_id).unwrap_or_default())
                 };
-                let env: Arc<dyn crate::transport::session::SessionEnv> = Arc::new(SessionEnvironment { inner: Arc::downgrade(&self.inner) });
-                let session = crate::transport::session::TransportSession::open(env, client_id, device, &session_id, channel);
-                self.inner.state().table.attach_transport(client_id, session.clone());
-                self.inner.cfg.registry.set_peer_transport(client_id);
+                let env: Arc<dyn crate::transport::session::SessionEnv> = Arc::new(SessionEnvironment { inner: Arc::downgrade(&self.inner), generation });
+                let session = crate::transport::session::TransportSession::open_under(env, client_id, device, &session_id, channel, revocation);
+                self.inner.state().table.attach_transport(client_id, generation, session.clone());
+                self.inner.cfg.registry.set_peer_transport_in(generation, client_id);
                 // Opened before anything is sent, so `e2ee-ready` is its record 1.
                 if let Ok(text) = String::from_utf8(ready) {
                     let _ = session.send(&text, false).await;
                 }
-                self.attach_peer(client_id).await;
-                self.inner.bridge.client_open(client_id);
+                if self.attach_peer(client_id, generation).await {
+                    self.inner.bridge.client_open_as(client_id, generation);
+                }
             }
             Received::Plain { bytes, binary } => {
                 let frame = if binary {
@@ -1679,12 +2035,14 @@ impl RemoteRuntime {
                 } else {
                     match phone_text(bytes) {
                         Some(text) => Frame::Text(text),
-                        None => return self.close_client(client_id, "invalid encrypted relay frame"),
+                        None => return self.close_client(client_id, generation, "invalid encrypted relay frame"),
                     }
                 };
-                self.inner.bridge.from_phone(client_id, frame).await;
+                if !self.inner.bridge.from_phone(client_id, generation, frame) {
+                    self.close_client(client_id, generation, BACKLOG_EXCEEDED);
+                }
             }
-            Received::Close(reason) => self.close_client(client_id, reason),
+            Received::Close(reason) => self.close_client(client_id, generation, reason),
         }
     }
 
@@ -1692,7 +2050,9 @@ impl RemoteRuntime {
     /// `deviceNameFor` (remote-relay-device-methods.ts:47) — the local alias, else the name the
     /// relay lists for the credential (trimmed, 80 units); empty falls to `connectionDevice`'s
     /// 'Web app' (remote-session-methods.ts:42).
-    async fn attach_peer(&self, client_id: &str) {
+    /// False when the open `generation` is no longer the id's (closed, or replaced) by the time its device is known: nothing is attached
+    /// for it.
+    async fn attach_peer(&self, client_id: &str, generation: u64) -> bool {
         let credential = self.inner.state().table.credential_of(client_id).map(str::to_owned).unwrap_or_default();
         let row = match self.inner.roster().await {
             Ok(roster) => lock(&roster).list().into_iter().find(|row| row.id == credential),
@@ -1703,239 +2063,59 @@ impl RemoteRuntime {
         let listed = row.map(|row| mixdog_js::slice_utf16(mixdog_js::js_trim(&row.name), 80)).unwrap_or_default();
         let name = if !alias.is_empty() { alias } else { listed };
         let device = if name.is_empty() { crate::registry::DEFAULT_DEVICE_NAME } else { &name };
-        self.inner.cfg.registry.attach_peer(client_id, &credential, device, &browser);
-        if self.inner.state().table.screen_revoked(client_id) {
-            self.inner.cfg.registry.revoke_screen(client_id);
+        // Attached under the table lock that still holds this open: a close of it (which takes that lock) either came first, and
+        // nothing is attached, or comes after and detaches what is attached here.
+        let revoked = {
+            let state = self.inner.state();
+            if state.table.generation_of(client_id) != Some(generation) {
+                return false;
+            }
+            if !self.inner.cfg.registry.attach_peer_in(generation, client_id, &credential, device, &browser) {
+                return false;
+            }
+            state.table.screen_revoked(client_id)
+        };
+        if revoked {
+            self.inner.cfg.registry.revoke_screen_in(generation, client_id);
+        }
+        true
+    }
+
+    /// Closes the open `generation` of the client, and only that: a replacement of the id (or a close already made) is not touched.
+    /// The table, the bridge and the link are decided in one step under the table lock; the registry entry is removed by its own
+    /// generation check.
+    fn close_client(&self, client_id: &str, generation: u64, reason: &str) {
+        let closed = {
+            let mut state = self.inner.state();
+            let closed = state.table.close_in(client_id, generation);
+            if closed {
+                self.inner.bridge.close_peer(client_id, generation);
+                self.inner.cfg.link.send(&json!({ "type": "close-client", "clientId": client_id, "reason": reason }));
+            }
+            closed
+        };
+        if closed {
+            self.inner.cfg.registry.detach_peer_in(generation, client_id);
         }
     }
 
-    fn close_client(&self, client_id: &str, reason: &str) {
-        self.inner.state().table.close(client_id);
-        self.inner.bridge.close_peer(client_id);
-        self.inner.cfg.registry.detach_peer(client_id);
-        self.inner.cfg.link.send(&json!({ "type": "close-client", "clientId": client_id, "reason": reason }));
+    /// [`close_client`](Self::close_client) for a close the relay itself made: nothing is sent back to it.
+    fn close_client_quietly(&self, client_id: &str, generation: u64) {
+        let closed = {
+            let mut state = self.inner.state();
+            let closed = state.table.close_in(client_id, generation);
+            if closed {
+                self.inner.bridge.close_peer(client_id, generation);
+            }
+            closed
+        };
+        if closed {
+            self.inner.cfg.registry.detach_peer_in(generation, client_id);
+        }
     }
 
     /// The `Devices` registry the approvals read (the composition shares it with the server).
     pub fn registry(&self) -> Arc<DeviceRegistry> {
         self.inner.cfg.registry.clone()
-    }
-}
-
-fn is_credential_id(value: &str) -> bool {
-    (8..=64).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase() || b == b'-')
-}
-
-/// The text of a decrypted phone frame as Node reads it (`decryptJson`, remote-e2ee.ts:692): a non-fatal `TextDecoder`
-/// (each invalid UTF-8 sequence U+FFFD, a leading BOM dropped), then `JSON.parse`. `None` when it is not JSON, which
-/// closes the client with 'invalid encrypted relay frame' (remote-relay-client-lifecycle.ts:95-98) before the core sees it.
-fn phone_text(bytes: Vec<u8>) -> Option<String> {
-    let mut text = String::from_utf8(bytes).unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
-    if text.starts_with('\u{feff}') {
-        text.drain(..'\u{feff}'.len_utf8());
-    }
-    serde_json::from_str::<serde::de::IgnoredAny>(&mixdog_js::json_well_formed_str(&text)).ok()?;
-    Some(text)
-}
-
-/// A size the relay reported (`positiveSize`, `remote-payload-limit.ts`): a positive number, a numeric string read as one.
-fn positive_size(value: Option<&Value>) -> Option<u64> {
-    let number = match value? {
-        Value::Number(number) => number.as_f64()?,
-        Value::String(text) => text.trim().parse::<f64>().ok()?,
-        _ => return None,
-    };
-    (number.is_finite() && number > 0.0).then(|| number.floor() as u64)
-}
-
-/// The authenticated event a phone is told of a refusal of its reply with (`relayPayloadRejectedFrame`): no call is named, since
-/// the relay's notice says whose frame it was only by the client.
-fn relay_payload_rejected_frame(bytes: Option<u64>, limit: Option<u64>) -> Value {
-    json!({ "event": "relayPayloadRejected", "payload": { "bytes": bytes, "limit": limit } })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{phone_text, positive_size, relay_payload_rejected_frame};
-    use serde_json::json;
-
-    /// `positiveSize`: a positive number or numeric string is floored; zero, negative, non-numeric and absent read as unknown.
-    #[test]
-    fn a_reported_size_is_a_positive_number_or_none() {
-        assert_eq!(positive_size(Some(&json!(1234))), Some(1234));
-        assert_eq!(positive_size(Some(&json!(12.9))), Some(12));
-        assert_eq!(positive_size(Some(&json!("4096"))), Some(4096));
-        for refused in [json!(0), json!(-5), json!("abc"), json!(null), json!(true), json!([])] {
-            assert_eq!(positive_size(Some(&refused)), None);
-        }
-        assert_eq!(positive_size(None), None);
-    }
-
-    /// The phone's event carries the size and the ceiling, null where the relay did not report them, and no call id or scope.
-    #[test]
-    fn the_phone_is_told_of_a_refusal_by_an_event_without_a_call() {
-        assert_eq!(
-            relay_payload_rejected_frame(Some(70_000_000), Some(67_108_864)),
-            json!({ "event": "relayPayloadRejected", "payload": { "bytes": 70_000_000, "limit": 67_108_864 } })
-        );
-        assert_eq!(
-            relay_payload_rejected_frame(None, None),
-            json!({ "event": "relayPayloadRejected", "payload": { "bytes": null, "limit": null } })
-        );
-    }
-
-    /// The decode of the recorded cases (native/core/fixtures/inbound-lone-surrogate: alias-invalid-byte,
-    /// alias-truncated-sequence, alias-bom-frame, refused-*): invalid bytes read as U+FFFD, a leading BOM dropped, a
-    /// lone surrogate escape kept for the core's decoder, and what is not JSON refused.
-    #[test]
-    fn a_phone_frame_is_read_as_nodes_text_decoder_and_json_parse_read_it() {
-        assert_eq!(phone_text(b"{\"a\":\"ab\xffcd\"}".to_vec()).as_deref(), Some("{\"a\":\"ab\u{fffd}cd\"}"));
-        assert_eq!(phone_text(b"{\"a\":\"ab\xe2\x82cd\"}".to_vec()).as_deref(), Some("{\"a\":\"ab\u{fffd}cd\"}"));
-        assert_eq!(phone_text(b"\xef\xbb\xbf{\"a\":1}".to_vec()).as_deref(), Some("{\"a\":1}"));
-        assert_eq!(phone_text(br#"{"a":"\ud800"}"#.to_vec()).as_deref(), Some(r#"{"a":"\ud800"}"#));
-        let refused: [&[u8]; 4] = [b"{\"a\":", b"{\"a\":\"\\ud800", b"\xff{\"a\":1}", b""];
-        for refused in refused {
-            assert_eq!(phone_text(refused.to_vec()), None);
-        }
-    }
-}
-
-impl Inner {
-    /// Seals one frame for a phone and writes it to the leg: binary relay frames when the relay
-    /// takes them, otherwise JSON text frames. A `droppable` frame is one the relay may skip for a
-    /// phone that cannot take it.
-    async fn write_sealed(&self, client_id: &str, sealed: Sealed, droppable: bool) {
-        let out = self.outgoing(client_id, sealed, droppable);
-        self.cfg.link.send_wait(out).await;
-    }
-
-    /// A write of the live view to a phone on the relay path: it is sealed and enters the leg in one step with the check that the
-    /// phone may still view (`DeviceRegistry::write_view`), the room in the leg's queue taken first. A refused write seals nothing.
-    async fn write_view(&self, client_id: &str, bytes: &[u8], binary: bool) {
-        let Some(permit) = self.cfg.link.reserve().await else { return };
-        let mut permit = Some(permit);
-        self.cfg.registry.write_view(client_id, &mut || {
-            let sealed = self.state().table.seal(client_id, bytes, binary);
-            if let (Ok(sealed), Some(permit)) = (sealed, permit.take()) {
-                permit.send(self.outgoing(client_id, sealed, false));
-            }
-        });
-    }
-
-    /// The leg's form of a sealed frame: binary relay frames when the relay takes them, otherwise JSON text frames, which carry
-    /// `droppable: true` only when it is (Node's `...(droppable ? { droppable: true } : {})`, remote-relay-delivery.ts).
-    fn outgoing(&self, client_id: &str, sealed: Sealed, droppable: bool) -> Outgoing {
-        let binary_frames = self.state().caps.binary_frames();
-        let text_frame = |mut frame: Value| {
-            if droppable {
-                frame["droppable"] = json!(true);
-            }
-            Outgoing::Text(frame.to_string())
-        };
-        match sealed {
-            Sealed::Text(text) => text_frame(json_frame(client_id, &text)),
-            Sealed::Binary(bytes) => match binary_frames.then(|| encode_binary_frame(client_id, &bytes, droppable, false)).flatten() {
-                Some(frame) => Outgoing::Binary(frame),
-                None => {
-                    use base64::Engine;
-                    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                    text_frame(json!({ "type": "frame", "clientId": client_id, "data": data }))
-                }
-            },
-        }
-    }
-
-    /// The write gate of the live view's writes to `peer_id` on its transport session.
-    fn view_gate(&self, peer_id: &str) -> WriteGate {
-        let (registry, peer_id) = (self.cfg.registry.clone(), peer_id.to_owned());
-        WriteGate(Arc::new(move |write: &mut dyn FnMut()| registry.write_view(&peer_id, write)))
-    }
-}
-
-/// Whether a frame from the core is one of the live view's two writes to a phone, `browser/frame` or `browser/webrtcSignal`: a
-/// connection-scoped notification, which the core serializes with `method` first (`JsonRpcNotification`).
-fn live_view_write(frame: &[u8]) -> bool {
-    [&br#"{"method":"browser/frame","#[..], &br#"{"method":"browser/webrtcSignal","#[..]].iter().any(|head| frame.starts_with(head))
-}
-
-/// The terminal lane's feed (mixdog-spawn `service::feeds::TERMINAL_LANE_FEED`): every terminal tab's output as Node's relay lane sent it.
-const TERMINAL_LANE_FEED: &str = "process:relay";
-
-/// Whether a frame from the core is terminal output on the terminal lane: a `process/outputDelta` of [`TERMINAL_LANE_FEED`]. Node sent
-/// every tab's output to a phone as `termData` marked droppable (remote-relay-push-lanes.ts:85), and nothing else on this path: the relay
-/// may skip such a frame for a phone that cannot take it, with a resync hint, where a frame that is not droppable cuts the phone's leg
-/// (apps/relay/lib/relay-legs.mjs deliverToPhone, relay-transport.mjs admitFrame). The phone's client takes a skipped frame as a gap in
-/// the feed and attaches again.
-fn terminal_lane_output(frame: &[u8]) -> bool {
-    #[derive(serde::Deserialize)]
-    struct Head<'a> {
-        #[serde(borrow)]
-        feed: Option<Stamp<'a>>,
-    }
-    #[derive(serde::Deserialize)]
-    struct Stamp<'a> {
-        #[serde(borrow)]
-        id: std::borrow::Cow<'a, str>,
-    }
-    frame.starts_with(br#"{"method":"process/outputDelta","#)
-        && serde_json::from_slice::<Head>(frame).is_ok_and(|head| head.feed.is_some_and(|feed| feed.id == TERMINAL_LANE_FEED))
-}
-
-struct WeakSink {
-    inner: std::sync::Weak<Inner>,
-}
-
-#[async_trait]
-impl PhoneSink for WeakSink {
-    async fn deliver(&self, message: ToPhone) {
-        if let Some(inner) = self.inner.upgrade() {
-            RuntimeSink { inner }.deliver(message).await;
-        }
-    }
-}
-
-#[async_trait]
-impl PhoneSink for RuntimeSink {
-    async fn deliver(&self, message: ToPhone) {
-        match message {
-            ToPhone::Frame { peer_id, frame } => {
-                // The live view's writes are asked about again where they enter the phone's stream: the core queued them before a
-                // revocation that may have come since.
-                let bytes = match &frame {
-                    Frame::Text(text) => text.as_bytes(),
-                    Frame::Binary(bytes) => bytes.as_slice(),
-                };
-                let gated = live_view_write(bytes);
-                let droppable = terminal_lane_output(bytes);
-                let session = self.inner.state().table.transport(&peer_id);
-                if let Some(session) = session {
-                    let text = match frame {
-                        Frame::Text(text) => Some(text),
-                        Frame::Binary(bytes) => String::from_utf8(bytes).ok(),
-                    };
-                    if let Some(text) = text {
-                        let _ = session.send_gated(&text, droppable, gated.then(|| self.inner.view_gate(&peer_id))).await;
-                    }
-                    return;
-                }
-                let (bytes, binary) = match frame {
-                    Frame::Text(text) => (text.into_bytes(), false),
-                    Frame::Binary(bytes) => (bytes, true),
-                };
-                if gated {
-                    self.inner.write_view(&peer_id, &bytes, binary).await;
-                    return;
-                }
-                let sealed = self.inner.state().table.seal(&peer_id, &bytes, binary);
-                if let Ok(sealed) = sealed {
-                    self.inner.write_sealed(&peer_id, sealed, droppable).await;
-                }
-            }
-            ToPhone::Close { peer_id, code: _, reason } => {
-                self.inner.state().table.close(&peer_id);
-                self.inner.cfg.registry.detach_peer(&peer_id);
-                self.inner.cfg.link.send(&json!({ "type": "close-client", "clientId": peer_id, "reason": reason }));
-            }
-        }
     }
 }

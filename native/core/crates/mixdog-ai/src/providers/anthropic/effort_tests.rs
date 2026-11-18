@@ -4,44 +4,62 @@
 //! own request builders): the gate decision, the lowered messages with their
 //! control messages, and the beta.
 
+#[cfg(node_twin)]
 use std::collections::BTreeMap;
+#[cfg(node_twin)]
 use std::collections::HashSet;
+#[cfg(node_twin)]
 use std::path::PathBuf;
 
+#[cfg(node_twin)]
 use std::sync::Arc;
 
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::Content;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::EffortProjection;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::Message;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ModelRequest;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::RequestOptions;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::Role;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ToolCall;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ToolDefinition;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::WireCodec;
+#[cfg(node_twin)]
 use mixdog_protocol::ProviderId;
+#[cfg(node_twin)]
 use serde_json::Value;
+#[cfg(node_twin)]
 use serde_json::json;
 
+#[cfg(node_twin)]
 use super::AnthropicCodec;
+#[cfg(node_twin)]
 use super::AnthropicConfig;
+#[cfg(node_twin)]
 use super::Flavor;
+#[cfg(node_twin)]
 use super::ModelCaps;
+#[cfg(node_twin)]
 use super::effort_updates::BETA;
+#[cfg(node_twin)]
 use super::effort_updates::Gate;
+#[cfg(node_twin)]
 use super::effort_updates::enabled;
+#[cfg(node_twin)]
 use super::effort_updates::lower_with_updates;
 use super::effort_updates::model_key;
+#[cfg(node_twin)]
 use super::lowering::LowerContext;
 
-#[allow(clippy::disallowed_methods, reason = "test-only read of a checked-in fixture file")]
-fn cases() -> Vec<Value> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/providers/anthropic-effort/cases.json");
-    let text = std::fs::read_to_string(path).expect("recorded cases");
-    let document: Value = serde_json::from_str(&text).expect("json");
-    document["cases"].as_array().expect("cases").clone()
-}
-
+#[cfg(node_twin)]
 pub(super) fn message_of(recorded: &Value) -> Message {
     let role = match recorded["role"].as_str().expect("role") {
         "system" => Role::System,
@@ -63,6 +81,7 @@ pub(super) fn message_of(recorded: &Value) -> Message {
     message
 }
 
+#[cfg(node_twin)]
 /// Where each effort change lands, from the session snapshots carried by the
 /// recorded messages (the session's job; reproduced here to drive the lowering).
 fn updates_of(case: &Value) -> BTreeMap<usize, String> {
@@ -94,6 +113,7 @@ fn updates_of(case: &Value) -> BTreeMap<usize, String> {
     updates
 }
 
+#[cfg(node_twin)]
 fn gate_of(options: &Value) -> Gate {
     let official = |url: &str| url == "https://api.anthropic.com" || url.starts_with("https://api.anthropic.com/");
     Gate {
@@ -104,6 +124,7 @@ fn gate_of(options: &Value) -> Gate {
     }
 }
 
+#[cfg(node_twin)]
 fn without_cache_control(value: &mut Value) {
     match value {
         Value::Object(map) => {
@@ -115,6 +136,52 @@ fn without_cache_control(value: &mut Value) {
     }
 }
 
+#[cfg(node_twin)]
+/// The model's capabilities as the recorded body shows Node saw them (catalog
+/// data, an input of the codec): adaptive thinking, effort levels, display.
+pub(super) fn caps_of(body: &Value) -> Option<ModelCaps> {
+    let adaptive = body["thinking"]["type"] == "adaptive";
+    let effort = !body["output_config"].is_null();
+    (adaptive || effort).then(|| ModelCaps {
+        adaptive_thinking: adaptive,
+        manual_thinking: false,
+        ladder_stated: false,
+        effort_levels: ["low", "medium", "high", "max"].map(str::to_owned).to_vec(),
+        max_output_tokens: body["max_tokens"].as_u64().map(|v| v as u32),
+        fast_mode: false,
+        context_window: None,
+        thinking_display_updates: body["thinking"]["display"] == "updates",
+    })
+}
+
+#[cfg(node_twin)]
+pub(super) fn tool_of(recorded: &Value) -> ToolDefinition {
+    ToolDefinition {
+        name: recorded["name"].as_str().expect("name").into(),
+        description: recorded["description"].as_str().expect("description").into(),
+        input_schema: recorded["inputSchema"].clone(),
+        defer_loading: recorded["deferLoading"] == true,
+        freeform: None,
+    }
+}
+
+#[test]
+fn model_keys_drop_dates_and_dots() {
+    assert_eq!(model_key(" Claude-Sonnet-5.5 "), "claude-sonnet-5-5");
+    assert_eq!(model_key("claude-sonnet-5-5-20260101"), "claude-sonnet-5-5");
+    assert_eq!(model_key("claude-sonnet-5-5-2026-01-01"), "claude-sonnet-5-5");
+}
+
+
+#[cfg(node_twin)]
+#[allow(clippy::disallowed_methods, reason = "test-only read of a checked-in fixture file")]
+fn cases() -> Vec<Value> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/providers/anthropic-effort/cases.json");
+    let text = std::fs::read_to_string(path).expect("recorded cases");
+    let document: Value = serde_json::from_str(&text).expect("json");
+    document["cases"].as_array().expect("cases").clone()
+}
+#[cfg(node_twin)]
 #[test]
 fn the_gate_matches_node_on_every_recorded_case() {
     let cases = cases();
@@ -135,7 +202,7 @@ fn the_gate_matches_node_on_every_recorded_case() {
         }
     }
 }
-
+#[cfg(node_twin)]
 #[test]
 fn lowered_messages_equal_the_recorded_request_messages() {
     let owner = ProviderId::from("anthropic");
@@ -178,37 +245,10 @@ fn lowered_messages_equal_the_recorded_request_messages() {
     }
     assert!(checked >= 30, "{checked} cases lowered");
 }
-
-/// The model's capabilities as the recorded body shows Node saw them (catalog
-/// data, an input of the codec): adaptive thinking, effort levels, display.
-pub(super) fn caps_of(body: &Value) -> Option<ModelCaps> {
-    let adaptive = body["thinking"]["type"] == "adaptive";
-    let effort = !body["output_config"].is_null();
-    (adaptive || effort).then(|| ModelCaps {
-        adaptive_thinking: adaptive,
-        manual_thinking: false,
-        ladder_stated: false,
-        effort_levels: ["low", "medium", "high", "max"].map(str::to_owned).to_vec(),
-        max_output_tokens: body["max_tokens"].as_u64().map(|v| v as u32),
-        fast_mode: false,
-        context_window: None,
-        thinking_display_updates: body["thinking"]["display"] == "updates",
-    })
-}
-
-pub(super) fn tool_of(recorded: &Value) -> ToolDefinition {
-    ToolDefinition {
-        name: recorded["name"].as_str().expect("name").into(),
-        description: recorded["description"].as_str().expect("description").into(),
-        input_schema: recorded["inputSchema"].clone(),
-        defer_loading: recorded["deferLoading"] == true,
-        freeform: None,
-    }
-}
-
 /// The whole encode path on every recorded case (all of them, both routes):
 /// the complete body Node built and the complete `anthropic-beta` header, with
 /// the static headers of the route; a refusal Node recorded is a refusal here.
+#[cfg(node_twin)]
 #[test]
 fn encoding_matches_the_recorded_request_for_every_case() {
     let mut checked = 0;
@@ -270,7 +310,7 @@ fn encoding_matches_the_recorded_request_for_every_case() {
     assert_eq!(checked, cases().len());
     assert!(checked >= 57, "{checked}");
 }
-
+#[cfg(node_twin)]
 #[test]
 fn the_beta_name_is_the_recorded_one() {
     let recorded = cases()
@@ -278,11 +318,4 @@ fn the_beta_name_is_the_recorded_one() {
         .find_map(|c| c.get("expected").filter(|e| e["midConversation"] == true).cloned())
         .expect("a case with updates");
     assert!(recorded["betas"].as_array().expect("betas").iter().any(|b| b == BETA));
-}
-
-#[test]
-fn model_keys_drop_dates_and_dots() {
-    assert_eq!(model_key(" Claude-Sonnet-5.5 "), "claude-sonnet-5-5");
-    assert_eq!(model_key("claude-sonnet-5-5-20260101"), "claude-sonnet-5-5");
-    assert_eq!(model_key("claude-sonnet-5-5-2026-01-01"), "claude-sonnet-5-5");
 }

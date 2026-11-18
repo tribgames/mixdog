@@ -1,8 +1,4 @@
-//! The idle delete's refusals against `fixtures/delete-idle/golden.json`, recorded by
-//! `record-delete-idle.mjs` from the real service call over the real turn gate and runtime delete
-//! (`session-action.mjs` `deleteIdleSession`, `session-delete.mjs` `deleteSessionIfIdle`): each
-//! situation that raises a reason there is built here from the thread's state, and the reply is
-//! the recorded one.
+//! The idle delete's refusals: each situation that raises a reason is built from the thread's state, and the reply names it.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
@@ -31,15 +27,6 @@ use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
-
-fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/delete-idle/golden.json")).expect("golden.json")
-}
-
-/// The recorded idle-delete case `name`.
-pub(super) fn recorded(name: &str) -> Value {
-    golden()["idle"].as_array().expect("idle").iter().find(|case| case["name"] == name).cloned().expect("a recorded case")
-}
 
 fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
     CoreRequest {
@@ -73,7 +60,12 @@ async fn world() -> World {
     }));
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
-    World { rig, directory, handle, release }
+    World {
+        rig,
+        directory,
+        handle,
+        release,
+    }
 }
 
 impl World {
@@ -117,6 +109,7 @@ impl World {
                 status: "failed".into(),
                 text: "failed".into(),
                 origin: None,
+                hop: 0,
                 live: true,
                 durable: None,
             })
@@ -132,7 +125,7 @@ impl World {
     }
 }
 
-/// The live state the recorded case `name` built in Node, for the situations only that state holds.
+/// The live state the case `name` builds, for the situations only that state holds.
 fn live_of(name: &str) -> Option<Live> {
     match name {
         "turn-waiting" => Some(Live { turn_pending: true, ..Live::default() }),
@@ -142,7 +135,149 @@ fn live_of(name: &str) -> Option<Live> {
     }
 }
 
-/// What Rust answers in the situation the recorded case `name` built in Node.
+/// The paths that start a turn behind the ask lock besides a submit — an approval answer that
+/// resumes it (`approveSession`) and a materialization for a Goal or quota resume
+/// (`materializeSession`) — are admitted starts: refused while an idle delete fences the thread, and
+/// they hold the idle delete off (`turn-starting`) while they run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn approval_answers_and_materializations_pass_the_turn_gate() {
+    use mixdog_core_api::ids::ServerRequestId;
+    use mixdog_core_api::thread::Decision;
+    use mixdog_protocol::ConnectionKind;
+
+    let world = world().await;
+    let gate = world.directory.turn_gate().clone();
+    let decision = || Decision {
+        request: ServerRequestId("srv_1".into()),
+        connection: ConnectionId(1),
+        device: "desktop-1".into(),
+        connection_kind: ConnectionKind::Desktop,
+        origin: mixdog_protocol::Origin::Local,
+        result: json!({ "approved": true }),
+    };
+    let ctx = CallContext::internal("test");
+    let fence = gate.fence(&world.handle.id).expect("not being admitted");
+    assert!(matches!(world.handle.decide(decision()), Err(CoreError::ThreadClosing { .. })), "an answer is refused while fenced");
+    assert!(matches!(world.directory.open_admitted(&world.handle.id, &ctx).await, Err(CoreError::ThreadClosing { .. })), "so is a materialization");
+    drop(fence);
+    assert!(!matches!(world.handle.decide(decision()), Err(CoreError::ThreadClosing { .. })), "an answer is admitted once the fence is gone");
+    world.directory.open_admitted(&world.handle.id, &ctx).await.expect("materialized");
+    // Neither leaves an admission behind.
+    drop(gate.fence(&world.handle.id).expect("none is being admitted"));
+}
+
+/// Another idle delete's fence and a start in its intake each keep the idle delete from closing the
+/// thread, and the thread takes starts again once they end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_turn_gate_admits_and_fences_a_threads_starts() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let gate = directory.turn_gate().clone();
+    let (one, other) = (mixdog_core_api::ids::ThreadId::from("sess_one"), mixdog_core_api::ids::ThreadId::from("sess_other"));
+    let admitted = gate.enter(&one).expect("open");
+    assert!(gate.fence(&one).is_none(), "a start is being admitted");
+    drop(admitted);
+    let fence = gate.fence(&one).expect("none is being admitted");
+    assert!(gate.fence(&one).is_none(), "already fenced");
+    assert!(gate.enter(&one).is_none(), "a fenced thread takes no start");
+    drop(gate.enter(&other).expect("other threads start as usual"));
+    drop(fence);
+    drop(gate.enter(&one).expect("reopened"));
+}
+
+
+// ---- the retention's admission is the session actor's ------------------------------------------------------------------------
+
+impl World {
+    fn activity(&self) -> f64 {
+        super::sub_agent_retention::activity_at(&self.handle.cell.header.load())
+    }
+
+    /// A subscriber attaches (the counting `FeedSource::attach` does around the feed).
+    fn subscribe(&self) {
+        assert!(self.handle.cell.subscribing());
+        self.handle.cell.subscribed(true);
+    }
+
+}
+
+/// A subscriber that attaches after the pass judged the session but before its delete is admitted refuses the delete; the user's
+/// own delete (no `ifIdle`) is not subject to it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_subscriber_attaching_after_the_judgment_refuses_the_retention_delete_and_not_the_users() {
+    let world = world().await;
+    world.flags(true, false).await;
+    let id = world.handle.id.as_str().to_owned();
+    let used = world.directory.session_meta(&world.handle.id).await.expect("meta").expect("listed").last_used_at;
+    let expected = json!({ "lastUsedAt": used, "activity": world.activity() });
+    world.subscribe();
+    let reply = world.ask(&id, expected).await;
+    assert_eq!(reply["deleted"], json!(false), "{reply}");
+    assert!(lock(&world.rig.deletes.0).is_empty(), "nothing deleted");
+    let user = world.handle.request(request("thread/delete", json!({ "threadId": id, "opId": "op-user" }), "op-user")).await.expect("delete");
+    assert!(matches!(user, Reply::Value(Value::Bool(true))), "the user's delete stands: {user:?}");
+}
+
+/// The user restores the session while the retention's delete waits between its archive judgment and its admission (no
+/// activity moved, nobody attached): the delete is refused against the entry it judged, and the restored session stays.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restore_after_the_judgment_refuses_the_retention_delete() {
+    let world = world().await;
+    world.flags(true, false).await;
+    let id = world.handle.id.as_str().to_owned();
+    let used = world.directory.session_meta(&world.handle.id).await.expect("meta").expect("listed").last_used_at;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (go, go_rx) = tokio::sync::oneshot::channel();
+    super::delete::JUDGED_HOLDS.lock().unwrap().push((id.clone(), arrived_tx, go_rx));
+    let restore = async {
+        arrived.await.expect("the delete judged");
+        let header = world.handle.cell.header.load_full();
+        assert!(world.directory.mark_archived(&id, &header, super::archive_trees::Mark::Restore).await.expect("restored"));
+        go.send(()).expect("the delete waits");
+    };
+    let (reply, ()) = tokio::join!(world.ask(&id, json!({ "lastUsedAt": used })), restore);
+    assert_eq!(reply, json!({ "deleted": false, "reason": "changed" }));
+    assert!(world.directory.is_open(&world.handle.id), "the session stays");
+    assert!(!world.rig.archive.resolve(&id, world.handle.cell.header.load().get("archivedAt")).archived(), "restored");
+}
+
+/// After the archive entries were lost (the state database was set aside), an archive only a header still states is not one the
+/// retention may act on (`trusted`, which the idle delete and the pass's archive stamp ask): it may be a restore the user made.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_header_archive_after_the_entries_were_lost_is_not_trusted() {
+    let world = world().await;
+    world.flags(true, false).await;
+    mixdog_store::archive_state::ArchiveStates::mark_lost(&world.rig.state).await.expect("marked");
+    let lost = mixdog_store::archive_state::ArchiveStates::open(world.rig.state.clone()).await.expect("opened");
+    assert!(lost.snapshot().lost());
+    let header = world.handle.cell.header.load_full();
+    let state = lost.resolve(world.handle.id.as_str(), header.get("archivedAt"));
+    assert!(state.archived() && !state.trusted(), "archived by its header alone, which retention does not trust");
+}
+
+/// Goal recovery's materialization (`recoverActiveGoals` -> `materializeSession`) is an admitted
+/// start too: refused (a failed session of the summary, as a closed session is) while an
+/// idle delete fences the thread, and resumed once it is open again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn goal_recovery_materializes_through_the_turn_gate() {
+    use mixdog_core_goal::goal::recovery::RecoverySource;
+    use mixdog_core_goal::goal::recovery::StoredGoals;
+
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let handle = start_thread(&directory).await;
+    let data = tempfile::tempdir().expect("data dir");
+    let stored = StoredGoals::new(data.path().to_string_lossy().into_owned(), mixdog_rt::testing::tokens().durability_io);
+    let recovery = super::goal_recovery_host::SessionGoalRecovery::new(directory.clone(), stored, Arc::new(|_: &str| {}));
+    let fence = directory.turn_gate().fence(&handle.id).expect("not being admitted");
+    assert!(recovery.materialize_session(handle.id.as_str()).await.is_err(), "refused while an idle delete fences the thread");
+    drop(fence);
+    recovery.materialize_session(handle.id.as_str()).await.expect("materialized");
+    drop(directory.turn_gate().fence(&handle.id).expect("no admission is left behind"));
+}
+
+
+/// What the delete answers in the situation the case `name` builds.
 async fn replay(name: &str, world: &World) -> Value {
     let id = world.handle.id.as_str().to_owned();
     let used = world.directory.session_meta(&world.handle.id).await.expect("meta").expect("listed").last_used_at;
@@ -196,8 +331,8 @@ async fn replay(name: &str, world: &World) -> Value {
             eventually_on!(&[&world.handle.cell.stepped], || idle(&world.handle).then_some(())).await;
             json!({ "reply": reply })
         }
-        // A turn in flight that holds no ask lock: Rust wakes the idle thread for a completion with a turn Node would not
-        // run (it wakes only its current session), so the archive flag is read first and the turn still makes it busy.
+        // A turn in flight that holds no ask lock: a completion wakes the idle thread with a turn that holds no ask lock,
+        // so the archive flag is read first and the turn still makes it busy.
         "in-flight-archived" | "in-flight-not-archived" => {
             world.flags(name == "in-flight-archived", false).await;
             world.wake().await;
@@ -211,7 +346,7 @@ async fn replay(name: &str, world: &World) -> Value {
             json!({ "reply": world.ask(&id, same).await })
         }
         // No such session: the app server hands the delete to the directory, which cannot open the
-        // thread (`threadNotFound` there is Node's `not-archived`, the id has no mark).
+        // thread (`threadNotFound` there reads as `not-archived`: the id has no mark).
         "unknown-session" => {
             let reply = match world
                 .directory
@@ -251,111 +386,71 @@ async fn replay(name: &str, world: &World) -> Value {
             let reply = world.ask(&id, same).await;
             json!({ "reply": reply })
         }
-        other => panic!("no Rust situation for the recorded case {other}"),
+        other => panic!("no situation for the case {other}"),
     }
 }
-
-/// Every reason of `deleteSessionIfIdle` and of its service call, in the situation that raises it in Node,
-/// answers the recorded `{deleted: false, reason}` and deletes nothing.
+/// Every reason the idle delete refuses with, in the situation that raises it, answers `{deleted: false, reason}` and deletes
+/// nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn each_refusal_of_the_idle_delete_is_nodes() {
-    let golden = golden();
-    let cases = golden["idle"].as_array().expect("idle");
-    let mut replayed = 0;
-    for case in cases {
-        let name = case["name"].as_str().expect("name");
-        // The deletion itself runs over the real store (`an_idle_delete_refuses_as_node_does_...`).
-        if name == "deleted" {
-            continue;
-        }
-        // The states the actor publishes for the turn about to start, the turn not settled yet and
-        // input in the thread's own queue are not held by anything a test can reach in a loaded
-        // thread: their checks are replayed on the state they read.
+async fn each_refusal_of_the_idle_delete_gives_its_reason_and_deletes_nothing() {
+    let cases: [(&str, &str); 20] = [
+        ("no-target", "invalid"),
+        ("bad-id", "invalid"),
+        ("turn-starting-admitted", "turn-starting"),
+        ("turn-starting-fenced", "turn-starting"),
+        ("unguarded", "unguarded"),
+        ("current", "current"),
+        ("busy-lock-not-archived", "busy"),
+        ("busy-lock-archived", "busy"),
+        ("not-archived", "not-archived"),
+        ("unknown-session", "not-archived"),
+        ("favorite", "favorite"),
+        ("turn-waiting", "turn-waiting"),
+        ("busy-unsettled", "busy"),
+        ("in-flight-not-archived", "not-archived"),
+        ("in-flight-archived", "busy"),
+        ("queued-pending", "queued"),
+        ("queued-hosted", "queued"),
+        ("missing", "missing"),
+        ("changed", "changed"),
+        ("close-failed", "close-failed"),
+    ];
+    for (name, reason) in cases {
+        // The states the actor publishes for the turn about to start, the turn not settled yet and input in the thread's own
+        // queue are not held by anything a test can reach in a loaded thread: their checks run on the state they read.
         if let Some(live) = live_of(name) {
-            assert_eq!(live_refusal(&live), case["reply"]["reason"].as_str(), "{name}");
-            replayed += 1;
+            assert_eq!(live_refusal(&live), Some(reason), "{name}");
             continue;
         }
         let world = world().await;
         let out = replay(name, &world).await;
-        for key in ["reply", "afterwards", "firstReply"] {
-            if case.get(key).is_some() {
-                assert_eq!(out[key], case[key], "{name}: {key}");
+        assert_eq!(out["reply"], json!({ "deleted": false, "reason": reason }), "{name}");
+        // A start that was admitted and then ended, or a fence that was released, no longer holds the delete off.
+        for key in ["afterwards", "firstReply"] {
+            if out.get(key).is_some() {
+                assert_eq!(out[key], json!({ "deleted": false, "reason": "changed" }), "{name}: {key}");
             }
         }
         assert!(lock(&world.rig.deletes.0).is_empty(), "{name}: a refusal deletes nothing");
-        replayed += 1;
     }
-    assert_eq!(replayed, cases.len() - 1);
 }
 
-/// The paths that start a turn behind Node's ask lock besides a submit — an approval answer that
-/// resumes it (`approveSession`) and a materialization for a Goal or quota resume
-/// (`materializeSession`) — are admitted starts: refused while an idle delete fences the thread, and
-/// they hold the idle delete off (`turn-starting`) while they run.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn approval_answers_and_materializations_pass_the_turn_gate() {
-    use mixdog_core_api::ids::ServerRequestId;
-    use mixdog_core_api::thread::Decision;
-    use mixdog_protocol::ConnectionKind;
-
-    let world = world().await;
-    let gate = world.directory.turn_gate().clone();
-    let decision = || Decision {
-        request: ServerRequestId("srv_1".into()),
-        connection: ConnectionId(1),
-        device: "desktop-1".into(),
-        connection_kind: ConnectionKind::Desktop,
-        origin: mixdog_protocol::Origin::Local,
-        result: json!({ "approved": true }),
-    };
-    let ctx = CallContext::internal("test");
-    let fence = gate.fence(&world.handle.id).expect("not being admitted");
-    assert!(matches!(world.handle.decide(decision()), Err(CoreError::ThreadClosing { .. })), "an answer is refused while fenced");
-    assert!(matches!(world.directory.open_admitted(&world.handle.id, &ctx).await, Err(CoreError::ThreadClosing { .. })), "so is a materialization");
-    drop(fence);
-    assert!(!matches!(world.handle.decide(decision()), Err(CoreError::ThreadClosing { .. })), "an answer is admitted once the fence is gone");
-    world.directory.open_admitted(&world.handle.id, &ctx).await.expect("materialized");
-    // Neither leaves an admission behind.
-    drop(gate.fence(&world.handle.id).expect("none is being admitted"));
-}
-
-/// Goal recovery's materialization (`recoverActiveGoals` -> `materializeSession`) is an admitted
-/// start too: refused (a failed session of the summary, as Node's `SessionClosedError` is) while an
-/// idle delete fences the thread, and resumed once it is open again.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn goal_recovery_materializes_through_the_turn_gate() {
-    use mixdog_core_goal::goal::recovery::RecoverySource;
-    use mixdog_core_goal::goal::recovery::StoredGoals;
-
+/// A turn in flight with no run (the ask's mark) makes the session not idle for the desktop (`ui_busy`, the session working) until
+/// the ask ends: the end clears the mark and the actor publishes the session idle again.
+#[tokio::test(start_paused = true)]
+async fn a_marked_ask_keeps_the_session_busy_until_it_ends() {
+    use super::actor::Inbox;
     let rig = Rig::new();
     let directory = Arc::new(SessionDirectory::new(rig.deps()));
     let handle = start_thread(&directory).await;
-    let data = tempfile::tempdir().expect("data dir");
-    let stored = StoredGoals::new(data.path().to_string_lossy().into_owned(), mixdog_rt::testing::tokens().durability_io);
-    let recovery = super::goal_recovery_host::SessionGoalRecovery::new(directory.clone(), stored, Arc::new(|_: &str| {}));
-    let fence = directory.turn_gate().fence(&handle.id).expect("not being admitted");
-    assert!(recovery.materialize_session(handle.id.as_str()).await.is_err(), "refused while an idle delete fences the thread");
-    drop(fence);
-    recovery.materialize_session(handle.id.as_str()).await.expect("materialized");
-    drop(directory.turn_gate().fence(&handle.id).expect("no admission is left behind"));
-}
+    assert!(!handle.cell.ui_busy.load(SeqCst), "an idle session is not busy");
 
-/// Another idle delete's fence and a start in its intake each keep the idle delete from closing the
-/// thread, and the thread takes starts again once they end.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_turn_gate_admits_and_fences_a_threads_starts() {
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
-    let gate = directory.turn_gate().clone();
-    let (one, other) = (mixdog_core_api::ids::ThreadId::from("sess_one"), mixdog_core_api::ids::ThreadId::from("sess_other"));
-    let admitted = gate.enter(&one).expect("open");
-    assert!(gate.fence(&one).is_none(), "a start is being admitted");
-    drop(admitted);
-    let fence = gate.fence(&one).expect("none is being admitted");
-    assert!(gate.fence(&one).is_none(), "already fenced");
-    assert!(gate.enter(&one).is_none(), "a fenced thread takes no start");
-    drop(gate.enter(&other).expect("other threads start as usual"));
-    drop(fence);
-    drop(gate.enter(&one).expect("reopened"));
+    handle.cell.ask_marked.store(true, SeqCst);
+    let (tx, taken) = tokio::sync::oneshot::channel();
+    handle.inbox.send(Inbox::QuotaFacts { tx }).await.expect("the actor takes the inbox");
+    taken.await.expect("the actor answers");
+    crate::eventually_on!(&[&handle.cell.stepped], || handle.cell.ui_busy.load(SeqCst).then_some(())).await;
+
+    handle.inbox.send(Inbox::AskEnded).await.expect("the actor takes the inbox");
+    crate::eventually_on!(&[&handle.cell.stepped], || (!handle.cell.ui_busy.load(SeqCst) && !handle.cell.ask_marked.load(SeqCst)).then_some(())).await;
 }

@@ -70,7 +70,7 @@ const SCRIPT = {
   'getQuotaAutoResume-on': (n) => ({ entries: [{ section: 'config', key: 'quotaAutoResume', value: n.result }] }),
   'getQuotaAutoResume-off': (n) => ({ entries: [{ section: 'config', key: 'quotaAutoResume', value: n.result }] }),
   // config/service.rs:95 ConfigWriteResponse
-  'setQuotaAutoResume-off': () => ({ 'config/value/write': {} }),
+  'setQuotaAutoResume-off': () => ({ 'config/value/write': { values: [false] } }),
   'renameSession-ok': () => ({ 'thread/name/set': {} }),
   // actor.rs:4276 refuses with the text Node's host threw
   'renameSession-refused': (n) => ({ 'thread/name/set': new Error(n.error) }),

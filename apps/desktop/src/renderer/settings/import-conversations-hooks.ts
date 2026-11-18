@@ -274,6 +274,7 @@ export function useImportJob(api: ImportApi | undefined, onClose: () => void) {
   const [error, setError] = useState('');
   const singleRowRef = useRef<ConversationImportRow | null>(null);
   const finishedRef = useRef('');
+  const pendingProgress = useRef<Map<string, ConversationImportJob> | null>(null);
 
   // A job started earlier (or from another window), or a finished one nobody has dismissed yet.
   useEffect(() => {
@@ -289,13 +290,19 @@ export function useImportJob(api: ImportApi | undefined, onClose: () => void) {
       .then((value) => {
         const active = value?.jobs?.find(isConversationImportJobActive);
         if (live && active) {
-          setJobMode('batch');
           setJob((current) => adoptImportJob(current, active));
         }
       })
       .catch(() => undefined);
     const unsubscribe = api.subscribeConversationImportProgress?.((next) => {
-      if (live) setJob((current) => adoptImportJob(current, next));
+      if (!live) return;
+      const pending = pendingProgress.current;
+      if (pending) {
+        const previous = pending.get(next.jobId);
+        if (!previous || next.seq >= previous.seq) pending.set(next.jobId, next);
+      } else {
+        setJob((current) => adoptImportJob(current, next));
+      }
     });
     return () => {
       live = false;
@@ -313,7 +320,9 @@ export function useImportJob(api: ImportApi | undefined, onClose: () => void) {
       void callImport<{ jobs?: ConversationImportJob[] }>(api, 'getConversationImportJobs', { jobId: trackedId })
         .then((value) => {
           const next = value?.jobs?.find((entry) => entry.jobId === trackedId);
-          if (next && mountedRef.current) setJob((current) => adoptImportJob(current, next));
+          if (!next) return;
+          importJobStore.observe(api, next);
+          if (mountedRef.current) setJob((current) => adoptImportJob(current, next));
         })
         .catch(() => undefined);
     };
@@ -331,11 +340,17 @@ export function useImportJob(api: ImportApi | undefined, onClose: () => void) {
     if (!api || !job || jobMode !== 'single' || isConversationImportJobActive(job)) return;
     if (finishedRef.current === job.jobId) return;
     finishedRef.current = job.jobId;
-    importJobStore.acknowledge(job.jobId);
-    const result = job.results.find((entry) => entry.sessionId);
+    const result = job.results.find((entry) => entry.candidateId === singleRowRef.current?.id);
+    if (!result && !job.errorCode) {
+      // No outcome for the selected row: leave the actual summary available to dismiss.
+      setJobMode('batch');
+      return;
+    }
     if (!result?.sessionId) {
-      setError(importCodeMessage(job.errorCode ?? job.results.find((entry) => entry.status === 'failed')?.errorCode));
+      setError(importCodeMessage(job.errorCode ?? result?.errorCode));
+      setJobMode('batch');
       setJob(null);
+      importJobStore.acknowledge(job.jobId);
       return;
     }
     const sessionId = result.sessionId;
@@ -353,6 +368,7 @@ export function useImportJob(api: ImportApi | undefined, onClose: () => void) {
       window.dispatchEvent(
         new CustomEvent<OpenImportedSessionDetail>(OPEN_IMPORTED_SESSION_EVENT, { detail: { sessionId } })
       );
+      importJobStore.acknowledge(job.jobId);
       onClose();
     })();
   }, [api, job, jobMode, onClose, mountedRef]);
@@ -362,7 +378,9 @@ export function useImportJob(api: ImportApi | undefined, onClose: () => void) {
     single: boolean,
     singleRow: ConversationImportRow | null
   ) => {
-    if (!api || starting) return;
+    if (!api || pendingProgress.current) return;
+    const pending = new Map<string, ConversationImportJob>();
+    pendingProgress.current = pending;
     singleRowRef.current = singleRow;
     setError('');
     setStarting(true);
@@ -371,12 +389,20 @@ export function useImportJob(api: ImportApi | undefined, onClose: () => void) {
         requestId: crypto.randomUUID(),
         selection,
       });
+      const progress = pending.get(started.jobId);
+      const latest = progress && progress.seq >= started.seq ? progress : started;
+      importJobStore.observe(api, latest);
       if (!mountedRef.current) return;
       setJobMode(single ? 'single' : 'batch');
-      setJob(started);
+      setJob(latest);
     } catch (failure) {
-      if (mountedRef.current) setError(importCodeMessage(importCodeFromError(failure)));
+      if (mountedRef.current) {
+        setError(importCodeMessage(importCodeFromError(failure)));
+        const other = importJobStore.get() ?? [...pending.values()].find(isConversationImportJobActive);
+        if (other) setJob(other);
+      }
     } finally {
+      pendingProgress.current = null;
       if (mountedRef.current) setStarting(false);
     }
   };
@@ -384,9 +410,14 @@ export function useImportJob(api: ImportApi | undefined, onClose: () => void) {
   const stop = () => {
     if (!api || !job) return;
     void callImport<ConversationImportJob>(api, 'cancelConversationImport', { jobId: job.jobId })
-      .then((next) => mountedRef.current && setJob((current) => adoptImportJob(current, next)))
+      .then((next) => {
+        importJobStore.observe(api, next);
+        if (mountedRef.current) setJob((current) => adoptImportJob(current, next));
+      })
       .catch(() => undefined);
   };
 
-  return { job, jobMode, starting, error, setError, start, stop };
+  // A single completion isn't a displayed summary that closing the dialog can acknowledge.
+  const continuing = jobMode === 'single' && job !== null && !isConversationImportJobActive(job);
+  return { job: continuing ? null : job, jobMode, starting: starting || continuing, error, setError, start, stop };
 }

@@ -39,22 +39,18 @@ fn is_reference(part: &ContentPart) -> bool {
     matches!(part, ContentPart::File { source: BinarySource::AttachmentRef(_), text: Some(_), .. })
 }
 
-/// The messages with every stored image or file reference replaced, in place, by what
-/// [`AttachmentText::media_of`] answers for it. A route that takes no image gets the omitted text for a stored image
-/// without the blob being read (`degradeMediaParts`).
+/// The messages with every stored file reference replaced, in place, by what [`AttachmentText::media_of`] answers for it. A stored
+/// image is not resolved here and never replaced by text: it reaches the provider boundary as the reference it is, where the
+/// route it actually takes decides, from the store's recorded verdict, what bytes (if any) it can carry.
 pub async fn resolve_media_attachments(
     mut messages: Vec<Message>,
     resolver: &dyn AttachmentText,
     native_pdf: bool,
-    takes_vision: bool,
 ) -> Result<Vec<Message>, Box<ProviderError>> {
     for message in &mut messages {
         let Content::Parts(parts) = &mut message.content else { continue };
         for part in parts.iter_mut() {
-            if !takes_vision
-                && matches!(part, ContentPart::File { source: BinarySource::AttachmentRef(_), text: None, mime_type, .. } if mime_type.trim().to_lowercase().starts_with("image/"))
-            {
-                *part = ContentPart::Text(crate::text_only::omitted_media_text("image"), None);
+            if matches!(part, ContentPart::File { mime_type, .. } if mime_type.trim().to_lowercase().starts_with("image/")) {
                 continue;
             }
             if matches!(part, ContentPart::File { source: BinarySource::AttachmentRef(_), text: None, .. })

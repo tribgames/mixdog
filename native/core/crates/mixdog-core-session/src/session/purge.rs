@@ -347,11 +347,9 @@ impl DeleteSeams for SessionDeletion {
     }
 
     fn forget_session_search(&self, session_id: &str) {
-        let Some(search) = self.search.clone() else { return };
-        let id = session_id.to_owned();
-        drop(mixdog_rt::spawn("session-delete-search", mixdog_rt::TaskClass::Work, async move {
-            search.forget_session(&id).await;
-        }));
+        let Some(search) = self.search.as_ref() else { return };
+        // The memory runtime owns the removal (its stop drains or revokes it, and refuses it once stopping).
+        search.forget_session_owned(session_id);
     }
 
     async fn release_deleted_worktree(&self, session_id: &str) {

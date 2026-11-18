@@ -20,6 +20,7 @@ use serde_json::json;
 
 use super::SessionDirectory;
 use super::SessionHandle;
+use super::actor::ForkSource;
 
 /// How many times the removal of a refused carry's "being copied" mark is tried before it is given up.
 const UNMARK_TRIES: usize = 3;
@@ -34,6 +35,12 @@ struct Carry {
 struct Plan {
     rows: Vec<Value>,
     compacted: bool,
+}
+
+pub(super) enum CarryMode {
+    Existing { compact: bool },
+    New { compact: bool },
+    Recovery { rows: Vec<Value> },
 }
 
 /// The heir's route (`inheritanceRouteTarget`): only a route naming a provider and a model has one.
@@ -137,7 +144,8 @@ impl SessionDirectory {
     /// two transcripts would produce a conversation neither model ever had". The checks run in Node's order: the heir is
     /// not the source, it holds no conversation, the source has one to carry. The heir has no lineage of its own to
     /// share with the source's, so the messages are appended to it as rows of no turn, as an import's are.
-    pub(super) async fn carry_into(&self, source: &ThreadId, heir: &ThreadId, compact: bool) -> Result<Reply, CoreError> {
+    pub(super) async fn carry_into(&self, source_handle: &SessionHandle, heir: &ThreadId, snapshot: &ForkSource, mode: CarryMode) -> Result<Reply, CoreError> {
+        let source = &source_handle.id;
         let refused = |message: &str| mixdog_core_base::support::failed("inheritance", message);
         if heir == source {
             return Err(refused("inheritFrom: a session cannot inherit from itself"));
@@ -149,7 +157,7 @@ impl SessionDirectory {
         if super::route_session::has_user_conversation(&self.rows_of(heir.as_str()).await?) || super::route_session::has_user_conversation(&live) {
             return Err(refused("inheritFrom: this session already holds a conversation"));
         }
-                // The heir holds the source's text: the source's sensitive values, now and later, are the heir's to redact.
+        // The heir holds the source's text: the source's sensitive values, now and later, are the heir's to redact.
         self.deps().sensitive.carry(source, heir);
         // The heir's rows will name the source's sidecars (and those the source's set names): its reference set is
         // stored before anything is copied, with the mark of a copy this boot is making, so no prune of a session the
@@ -164,15 +172,10 @@ impl SessionDirectory {
         //    log holds, under the set.
         // 4. the header patched (source link, mark off): complete. A failed patch is point 3.
         // The set is never taken back.
-        // A source that is not there has no conversation to carry (`carry_rows` refuses it).
-        let source_header = match self.read_of(source, "thread/header/read").await {
-            Err(CoreError::ThreadNotFound { .. }) => Value::Null,
-            read => read?,
-        };
         let before = handle.cell.header.load_full();
-        let source_fields = source_header.get("header").and_then(Value::as_object).cloned().unwrap_or_default();
+        let source_fields = &snapshot.header;
         let mut sources: std::collections::BTreeSet<String> = offload_sources::sources(&before).into_iter().collect();
-        sources.extend(offload_sources::sources(&source_fields));
+        sources.extend(offload_sources::sources(source_fields));
         sources.insert(offload_sources::safe_segment(source.as_str()));
         let mut marking = Map::new();
         marking.insert(offload_sources::INHERITING.into(), json!(source.as_str()));
@@ -180,7 +183,7 @@ impl SessionDirectory {
         // The heir's rows name what the source's name: its set is known when the source's is (under the present
         // rules); else it is stored unknown, and read once the copy is stored.
         let mut unset = Vec::new();
-        if offload_sources::holds_set(&source_fields) {
+        if offload_sources::holds_set(source_fields) {
             offload_sources::set_sources(&mut marking, sources.into_iter().collect());
         } else {
             marking.insert(offload_sources::SOURCES.into(), json!(sources));
@@ -191,7 +194,7 @@ impl SessionDirectory {
             handle.request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": heir, "set": set, "unset": unset }), op: None, ctx })
         };
         patch(marking, unset, "inheritance").await?;
-        let (count, compacted) = match self.carry_rows(source, heir, &handle, &source_header, compact).await {
+        let (count, compacted) = match self.carry_rows(source_handle, &handle, snapshot, mode).await {
             Ok(done) => done,
             Err(Carry { error, appended: false }) => {
                 // The "being copied" mark is the core's own carry mark (Node's inheritance has no unmark operation). One left
@@ -220,47 +223,53 @@ impl SessionDirectory {
     /// (compacted when asked or when they cannot fit) and appended to it with its inheritance boundary, the heir's
     /// header naming its source and no longer inheriting. The number of rows carried; a failure says whether the append
     /// was attempted.
-    async fn carry_rows(&self, source: &ThreadId, heir: &ThreadId, handle: &SessionHandle, source_header: &Value, compact: bool) -> Result<(usize, bool), Carry> {
-        let (carried, set, compacted) = self.fit_rows(source, heir, handle, source_header, compact).await.map_err(|error| Carry { error, appended: false })?;
-        let ctx = CallContext::internal("inheritance");
+    async fn carry_rows(&self, source: &SessionHandle, handle: &SessionHandle, snapshot: &ForkSource, mode: CarryMode) -> Result<(usize, bool), Carry> {
+        let existing = matches!(mode, CarryMode::Existing { .. });
+        let (carried, set, compacted) = self.fit_rows(source, handle, snapshot, mode).await.map_err(|error| Carry { error, appended: false })?;
+        // Only the existing-heir path keeps its historical write-behind behavior.
+        let ctx = CallContext::internal(if existing { "inheritance" } else { "inheritance-durable" });
         let count = carried.len();
-        // The rows, the header keys and the end of the copy are one save (`saveSession(target, { immediate: true })`), which
-        // Node does not await: a write that fails keeps them queued for the next one, with one notice, and the inheritance
-        // still answers. Until that write the heir's header still names its source as being copied.
         let params = json!({ "messages": carried, "set": set, "unset": [offload_sources::INHERITING, offload_sources::INHERITING_BOOT] });
         match handle.request(CoreRequest { method: Method("thread/inheritedRows/append"), params, op: None, ctx }).await {
-            Ok(_) | Err(CoreError::BarrierFailed { .. }) => Ok((count, compacted)),
+            Ok(_) => Ok((count, compacted)),
+            Err(CoreError::BarrierFailed { .. }) if existing => Ok((count, compacted)),
             Err(error) => Err(Carry { error, appended: true }),
         }
     }
 
     /// The source's rows fitted to the heir, the last one holding the inheritance boundary, and the heir's header
     /// fields naming its source; nothing is written.
-    async fn fit_rows(&self, source: &ThreadId, heir: &ThreadId, handle: &SessionHandle, source_header: &Value, compact: bool) -> Result<(Vec<Value>, Map<String, Value>, bool), CoreError> {
+    async fn fit_rows(&self, source: &SessionHandle, handle: &SessionHandle, snapshot: &ForkSource, mode: CarryMode) -> Result<(Vec<Value>, Map<String, Value>, bool), CoreError> {
+        let heir = &handle.id;
         let held = handle.cell.header.load_full();
         let target = InheritTarget {
             provider: clean(held.get("provider")),
             model: clean(held.get("model")),
-            selected_context_window: None,
+            selected_context_window: mixdog_agent::agent_tool::scope::positive_int(held.get("selectedContextWindow")),
             session: Some(heir.clone()),
             tools_of: Some(heir.clone()),
-            source: Some(source.clone()),
+            source: Some(source.id.clone()),
         };
-        let Plan { rows: mut carried, compacted } = self.plan_carry(source, &target, compact).await?;
-        // `requestPrefixIdentity`: the system blocks the two sessions hold (a session that holds none yet names no prefix).
-        let system_of = |rows: Vec<Value>| -> Vec<Value> { rows.into_iter().filter(|row| row.get("role").and_then(Value::as_str) == Some("system")).collect() };
-        let (source_system, heir_system) = (system_of(self.rows_of(source.as_str()).await?), system_of(self.rows_of(heir.as_str()).await?));
-        let system_differs = !source_system.is_empty() && !heir_system.is_empty() && source_system != heir_system;
-        carried = self.deps().inherit.bind_to_heir_prefix(source, heir, system_differs, carried).await;
-        let source_title = clean(source_header.pointer("/header/title"));
         let mut set = Map::new();
-        set.insert("inheritedFromSessionId".into(), json!(source.as_str()));
+        set.insert("inheritedFromSessionId".into(), json!(source.id));
+        let source_title = clean(snapshot.header.get("title"));
         if clean(held.get("title")).is_empty() && !source_title.is_empty() {
             set.insert("title".into(), json!(source_title));
         }
+        let compact = match mode {
+            CarryMode::Recovery { rows } => return Ok((rows, set, false)),
+            CarryMode::Existing { compact } | CarryMode::New { compact } => compact,
+        };
+        let source_rows = source.completed_history(snapshot).await?;
+        let system_of = |rows: &[Value]| -> Vec<Value> { rows.iter().filter(|row| row.get("role").and_then(Value::as_str) == Some("system")).cloned().collect() };
+        let source_system = system_of(&source_rows);
+        let Plan { rows: carried, compacted } = self.plan_carry(source, snapshot, source_rows, &target, compact).await?;
+        let heir_system = system_of(&self.rows_of(heir.as_str()).await?);
+        let system_differs = !source_system.is_empty() && !heir_system.is_empty() && source_system != heir_system;
+        let mut carried = self.deps().inherit.bind_to_heir_prefix(&source.id, heir, system_differs, carried).await;
         // `recordInheritanceBoundary`: display-only, on the last carried row, naming the source, the heir and the route the heir holds.
         let boundary = json!({
-            "sourceSessionId": source.as_str(),
+            "sourceSessionId": source.id,
             "sessionId": heir.as_str(),
             "provider": held.get("provider").cloned().unwrap_or(Value::Null),
             "modelId": held.get("model").cloned().unwrap_or(Value::Null),
@@ -279,9 +288,9 @@ impl SessionDirectory {
 
     /// `carryConversation` up to the point anything is written: the source's conversation (or the compactor's, when
     /// `compact` asks for it or the conversation cannot fit `target`), checked as Node checks it.
-    async fn plan_carry(&self, source: &ThreadId, target: &InheritTarget, compact: bool) -> Result<Plan, CoreError> {
+    async fn plan_carry(&self, source: &SessionHandle, snapshot: &ForkSource, rows: Vec<Value>, target: &InheritTarget, compact: bool) -> Result<Plan, CoreError> {
         let refused = |message: &str| mixdog_core_base::support::failed("inheritance", message);
-        let mut carried = inheritable(self.rows_of(source.as_str()).await?);
+        let mut carried = inheritable(rows);
         if !super::route_session::has_user_conversation(&carried) {
             return Err(refused("inheritFrom: the source session has no conversation to carry"));
         }
@@ -295,10 +304,13 @@ impl SessionDirectory {
             // `fitConversationForHeir`: a compaction that cannot run is a refusal, not a half-carry.
             let budget = self.deps().inherit.compaction_budget(target).await;
             let compacted = match budget {
-                Some(budget) => match self.deps().compaction.compact_for_heir(source, budget, compact).await {
-                    Ok(rows) => Some(inheritable(rows.unwrap_or_default())).filter(|rows| super::route_session::has_user_conversation(rows)),
-                    Err(_) => None,
-                },
+                Some(budget) => {
+                    // The host reads the source again. Do not let its result replace the completed snapshot with a live turn.
+                    source.require_fork_source(snapshot, true).await?;
+                    let compacted = self.deps().compaction.compact_for_heir(&source.id, budget, compact).await;
+                    source.require_fork_source(snapshot, true).await?;
+                    compacted.ok().flatten().map(inheritable).filter(|rows| super::route_session::has_user_conversation(rows))
+                }
                 None => None,
             };
             if compact && compacted.is_none() {
@@ -379,5 +391,50 @@ impl SessionDirectory {
         let reason = if known && !fits && !will_compact { fit_message(&name, &tag, used, limit) } else { String::new() };
         out.insert("reason".into(), json!(reason));
         Ok(Value::Object(out))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fit(messages: usize, basis: Option<FitBasis>) -> Value {
+        Value::Object(inheritance_fit("openai", "gpt-5", messages, basis.as_ref()))
+    }
+
+    #[test]
+    fn a_conversation_below_the_routes_limit_fits_and_says_how_much_of_it_is_used() {
+        assert_eq!(
+            fit(4, Some(FitBasis { limit: 200, used: 50, compactable: true })),
+            json!({ "provider": "openai", "model": "gpt-5", "messages": 4, "known": true, "fits": true, "used": 50, "limit": 200, "percent": 25 })
+        );
+    }
+
+    #[test]
+    fn the_percent_rounds_up_and_a_conversation_at_the_limit_no_longer_fits() {
+        assert_eq!(fit(1, Some(FitBasis { limit: 3, used: 1, compactable: true }))["percent"], 34);
+        let full = fit(1, Some(FitBasis { limit: 200, used: 200, compactable: true }));
+        assert_eq!((&full["fits"], &full["percent"]), (&json!(false), &json!(100)));
+        assert_eq!(fit(1, Some(FitBasis { limit: 200, used: 300, compactable: false }))["percent"], 150);
+    }
+
+    #[test]
+    fn a_route_that_cannot_be_measured_stays_permissive() {
+        let open = json!({ "provider": "openai", "model": "gpt-5", "messages": 2, "known": false, "fits": true, "used": 0, "limit": 0, "percent": null });
+        assert_eq!(fit(2, None), open);
+        assert_eq!(fit(2, Some(FitBasis { limit: 0, used: 90, compactable: true })), open, "a limit of nothing measures nothing");
+    }
+
+    #[test]
+    fn the_refusal_names_the_heirs_route_or_a_selected_model_when_it_has_none() {
+        assert_eq!(fit_message("openai", "gpt-5", 300, 200), "inheritFrom: the full conversation needs 300 tokens but openai/gpt-5 allows 200 before compaction");
+        assert_eq!(fit_message("", "gpt-5", 300, 200), "inheritFrom: the full conversation needs 300 tokens but gpt-5 allows 200 before compaction");
+        assert_eq!(fit_message("", "", 300, 200), "inheritFrom: the full conversation needs 300 tokens but the selected model allows 200 before compaction");
+    }
+
+    #[test]
+    fn a_carried_conversation_leaves_the_sources_system_blocks_behind() {
+        let rows = vec![json!({ "role": "system", "content": "s" }), json!({ "role": "user", "content": "u" }), json!({ "role": "assistant", "content": "a" })];
+        assert_eq!(inheritable(rows), vec![json!({ "role": "user", "content": "u" }), json!({ "role": "assistant", "content": "a" })]);
     }
 }

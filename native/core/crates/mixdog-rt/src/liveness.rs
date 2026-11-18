@@ -39,6 +39,21 @@ impl Deadline {
         Self(tokio::time::Instant::now() + window)
     }
 
+    /// The end of a window of `window` that started at `start` (another deadline's instant), not now.
+    pub fn from(start: Self, window: Duration) -> Self {
+        Self(start.0 + window)
+    }
+
+    /// This deadline moved later by `by`: time spent on work that is not what the window measures.
+    pub fn later_by(self, by: Duration) -> Self {
+        Self(self.0 + by)
+    }
+
+    /// How long ago this instant was; zero for one still ahead.
+    pub fn elapsed(self) -> Duration {
+        tokio::time::Instant::now().saturating_duration_since(self.0)
+    }
+
     /// `work`, or `None` when the deadline passes first.
     pub async fn bound<T>(self, work: impl Future<Output = T>) -> Option<T> {
         crate::time::timeout_at(self.0, work).await.ok()

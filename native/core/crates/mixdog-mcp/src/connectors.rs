@@ -137,29 +137,6 @@ fn google_params() -> BTreeMap<String, String> {
     BTreeMap::from([("access_type".to_owned(), "offline".to_owned())])
 }
 
-/// The Google client embedded at build time (see `build.rs`).
-const EMBEDDED_GOOGLE: Option<(&str, &str)> = include!(concat!(env!("OUT_DIR"), "/google_client.rs"));
-
-fn trimmed_env(name: &str) -> String {
-    js_trim(&std::env::var(name).unwrap_or_default()).to_owned()
-}
-
-/// `(client id, client secret)` of Mixdog's Google client, or `None` when this build has none.
-/// The environment wins over the embedded one as a whole: the two are never mixed.
-pub fn google_client() -> Option<(String, String)> {
-    let id = trimmed_env("MIXDOG_GOOGLE_OAUTH_CLIENT_ID");
-    if !id.is_empty() {
-        return Some((id, trimmed_env("MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET")));
-    }
-    EMBEDDED_GOOGLE.map(|(id, secret)| (id.to_owned(), secret.to_owned()))
-}
-
-/// How the server `name` at `url` signs in: the user's own client (`oauthClientId`), else the
-/// catalog connector's, else dynamic client registration.
-pub fn oauth_binding(name: &str, entry: &Value, url: &Url, connector_id: Option<&str>) -> OAuthBinding {
-    oauth_binding_with(name, entry, url, connector_id, google_client())
-}
-
 fn oauth_binding_with(
     name: &str,
     entry: &Value,
@@ -250,4 +227,25 @@ mod tests {
         assert!(tool_default_asks(Some("gmail"), "send_email"));
         assert!(!tool_default_asks(Some("gmail"), "read_email"));
     }
+}
+
+
+/// The Google client embedded at build time (see `build.rs`).
+const EMBEDDED_GOOGLE: Option<(&str, &str)> = include!(concat!(env!("OUT_DIR"), "/google_client.rs"));
+fn trimmed_env(name: &str) -> String {
+    js_trim(&std::env::var(name).unwrap_or_default()).to_owned()
+}
+/// `(client id, client secret)` of Mixdog's Google client, or `None` when this build has none.
+/// The environment wins over the embedded one as a whole: the two are never mixed.
+pub fn google_client() -> Option<(String, String)> {
+    let id = trimmed_env("MIXDOG_GOOGLE_OAUTH_CLIENT_ID");
+    if !id.is_empty() {
+        return Some((id, trimmed_env("MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET")));
+    }
+    EMBEDDED_GOOGLE.map(|(id, secret)| (id.to_owned(), secret.to_owned()))
+}
+/// How the server `name` at `url` signs in: the user's own client (`oauthClientId`), else the
+/// catalog connector's, else dynamic client registration.
+pub fn oauth_binding(name: &str, entry: &Value, url: &Url, connector_id: Option<&str>) -> OAuthBinding {
+    oauth_binding_with(name, entry, url, connector_id, google_client())
 }

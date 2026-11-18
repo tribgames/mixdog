@@ -10,6 +10,8 @@ mod alloc_profile;
 #[cfg(all(feature = "alloc-profile", windows))]
 #[global_allocator]
 static ALLOCATOR: alloc_profile::ProfilingAllocator = alloc_profile::ProfilingAllocator;
+// The ordinary build uses the system heap. mimalloc was tried (2026-11-17): with ~150 threads its per-thread segments held
+// 650-790 MB private at idle where the system heap held 294 MB for the same core a minute after boot.
 
 use mixdog_cli::exec;
 
@@ -22,6 +24,8 @@ use mixdog_exthost::ExtHostPool;
 use mixdog_migrate::run::cli::MigrateArgs;
 use mixdog_migrate::session::context_blobs::OfficeExtractor;
 use mixdog_rt::Backend;
+use mixdog_rt::CancellationToken;
+use mixdog_rt::LaneToken;
 use mixdog_rt::TaskClass;
 
 use clap::ArgGroup;
@@ -39,7 +43,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Run the core in this process.
-    Serve,
+    Serve {
+        /// The desktop launcher supplies a private stdin/stdout pair.
+        #[arg(long, hide = true)]
+        desktop_confirmation_pipe: bool,
+    },
     /// Manage the running core over its control listener.
     Ctl(CtlArgs),
     /// Convert a 1.4.5 data directory (one-shot).
@@ -148,12 +156,15 @@ enum CtlAction {
 }
 
 #[derive(Args)]
-#[command(group(ArgGroup::new("mode").required(true).args(["when_idle", "abort"])))]
+#[command(group(ArgGroup::new("mode").required(true).args(["when_idle", "abort", "force"])))]
 struct StopArgs {
     #[arg(long)]
     when_idle: bool,
     #[arg(long)]
     abort: bool,
+    /// Drain and abort the running work in one request, no token (the desktop's quit).
+    #[arg(long)]
+    force: bool,
     #[arg(long)]
     reason: String,
     #[arg(long)]
@@ -163,10 +174,10 @@ struct StopArgs {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Command::Serve => {
+        Command::Serve { desktop_confirmation_pipe } => {
             #[cfg(all(feature = "alloc-profile", windows))]
             alloc_profile::enable_from_env();
-            serve()
+            serve(desktop_confirmation_pipe)
         }
         Command::Ctl(args) => ctl(args),
         Command::Migrate(args) => {
@@ -227,10 +238,11 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
         Ok(roots) => roots,
         Err(status) => return ExitCode::from(status),
     };
-    let js = match mixdog_app_server_daemon::js_runtime::resolve_current() {
-        Ok(js) => js,
+    // The daemon's own guard of the data dir: no core serves it while this migrates.
+    let ownership = match mixdog_app_server_daemon::ownership::acquire(&roots.data) {
+        Ok(ownership) => Arc::new(ownership),
         Err(err) => {
-            eprintln!("mixdogd migrate: resolving the JS runtime: {err}");
+            eprintln!("mixdogd migrate: {err}");
             return ExitCode::FAILURE;
         }
     };
@@ -242,6 +254,27 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
         }
     };
     let runtime = executors.handle(TaskClass::Work);
+    let cutover = runtime.block_on(async {
+        let ownership = ownership.clone();
+        tokens.durability_io
+            .submit(&CancellationToken::new(), move |lane| {
+                mixdog_app_server_daemon::startup::require_migration_barrier(lane, ownership)
+            })
+            .map_err(|error| error.to_string())?
+            .await
+            .map_err(|error| error.to_string())?
+    });
+    if let Err(error) = cutover {
+        eprintln!("mixdogd migrate: {error}");
+        return ExitCode::FAILURE;
+    }
+    let js = match mixdog_app_server_daemon::js_runtime::resolve_current() {
+        Ok(js) => js,
+        Err(err) => {
+            eprintln!("mixdogd migrate: resolving the JS runtime: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
     let pool = {
         let _context = runtime.enter();
         ExtHostPool::new(mixdog_app_server_daemon::compose::ext_host_config(&js, &roots.data, &tokens))
@@ -431,7 +464,9 @@ async fn ctl_request(
         CtlAction::Status => client.status().await,
         CtlAction::Hold { off } => client.hold(!off).await,
         CtlAction::Stop(stop) => {
-            let mode = if stop.abort {
+            let mode = if stop.force {
+                StopMode::Force
+            } else if stop.abort {
                 StopMode::AbortConfirmed
             } else {
                 StopMode::WhenIdle
@@ -483,7 +518,7 @@ fn leave_console() {
 #[cfg(not(windows))]
 fn leave_console() {}
 
-fn serve() -> ExitCode {
+fn serve(desktop_confirmation_pipe: bool) -> ExitCode {
     adopt_desktop_app_identity();
     leave_console();
     tracing_subscriber::fmt()
@@ -499,7 +534,7 @@ fn serve() -> ExitCode {
         if let Some(ended) = boot_fault::run() {
             return ended;
         }
-        mixdog_app_server_daemon::run().map_err(|error| error.to_string())
+        mixdog_app_server_daemon::run(desktop_confirmation_pipe).map_err(|error| error.to_string())
     };
     ExitCode::from(mixdog_app_server_daemon::crash_record::serve_recorded(start) as u8)
 }
@@ -513,6 +548,12 @@ mod tests {
     #[test]
     fn grammar_is_consistent() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn stop_force_is_a_mode_of_its_own() {
+        assert!(Cli::try_parse_from(["mixdogd", "ctl", "stop", "--force", "--reason", "userStop"]).is_ok());
+        assert!(Cli::try_parse_from(["mixdogd", "ctl", "stop", "--force", "--abort", "--reason", "userStop"]).is_err());
     }
 
     #[test]

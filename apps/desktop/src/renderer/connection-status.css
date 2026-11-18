@@ -11,6 +11,10 @@
   gap: 8px;
   pointer-events: none;
 }
+/* Retry must be reachable even while the startup cover is waiting for the server port. */
+.conn-link-stack--server {
+  z-index: calc(var(--mx-toast-z-index) + 1);
+}
 /* Phone: below the notch and the tab strip, on the banner's gutters. */
 html[data-mixdog-mobile-tabs] .conn-link-stack {
   top: calc(max(8px, env(safe-area-inset-top, 0px)) + 60px);

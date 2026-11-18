@@ -269,7 +269,7 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
   gap: 6px;
   padding-inline: 8px;
 }
-:is(.branch-menu-actions, .branch-menu-foot) > [data-kind="prune"] {
+.branch-menu-actions > [data-kind="prune"] {
   margin-left: auto;
 }
 /* The current branch: the first row, pressed; its icon stays monochrome. */
@@ -382,25 +382,6 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
   height: auto;
   margin-top: 8px;
   padding: 6px 6px 2px;
-}
-.branch-menu-foot {
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  margin-top: 4px;
-  padding-top: 10px;
-  border-top: var(--mx-hairline) solid var(--composer-island-rule);
-}
-.branch-menu-foot > .composer-island-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.branch-menu-foot > .composer-island-button > svg {
-  flex: none;
-}
-.branch-menu-foot > .composer-island-button[aria-disabled="true"] {
-  opacity: var(--mx-op-disabled);
-  cursor: default;
 }
 .branch-menu-item[data-danger],
 .branch-menu-item[data-danger] > svg,

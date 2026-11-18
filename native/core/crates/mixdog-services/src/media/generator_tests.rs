@@ -219,11 +219,12 @@ fn rig() -> Rig {
 }
 
 fn request(lane: &str, kind: &str, model: &str, account: &str) -> GenerationRequest {
+    mixdog_core_api::mock::install_mock_image_supply();
     GenerationRequest {
         resolved: ResolvedMedia { kind: kind.into(), lane: lane.into(), model: model.into(), max_references: 1, request_model: None },
         prompt: "a cat".into(),
         options: json!({}),
-        references: vec![Reference { base64: "AAAA".into(), mime: "image/png".into() }],
+        references: vec![Reference::base64("AAAA")],
         cancel: CancellationToken::new(),
         account: account.into(),
         session_id: "s".into(),

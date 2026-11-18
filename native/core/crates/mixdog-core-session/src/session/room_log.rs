@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_app_protocol::v2::thread::ThreadRoomView;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ThreadHandle;
@@ -69,7 +70,29 @@ impl SessionRoomLog {
 impl RoomLog for SessionRoomLog {
     async fn append_rows(&self, session_id: &str, messages: Vec<Value>) -> Result<usize, CoreError> {
         let handle = open_for_post(&self.directory, session_id).await?;
-        post(&handle, messages, CallContext::internal("room-log")).await
+        post(&handle, messages, CallContext::internal("room-log"), None).await
+    }
+}
+
+impl SessionRoomLog {
+    /// [`RoomLog::append_rows`] with the room's view as it stands with these rows (`None`: the room shows nothing): the log
+    /// takes rows and view as one update, published as one revision.
+    pub async fn append_rows_with_view(&self, session_id: &str, messages: Vec<Value>, view: Option<ThreadRoomView>) -> Result<usize, CoreError> {
+        let handle = open_for_post(&self.directory, session_id).await?;
+        post_on_opened_with_view(&handle, messages, view).await
+    }
+
+    /// The room's view set with no row of its own, in the log's own queue behind the posts before it. A room view is set on the
+    /// log loaded for it; clearing one reaches only a log that is loaded (a fresh load has none).
+    pub async fn set_view(&self, session_id: &str, view: Option<ThreadRoomView>) -> Result<(), CoreError> {
+        let thread = ThreadId::from(session_id);
+        let handle = match &view {
+            Some(_) => Some(self.directory.open_handle(&thread, &CallContext::internal("room-view")).await?),
+            None => self.directory.handle(&thread),
+        };
+        let Some(handle) = handle else { return Ok(()) };
+        let params = json!({ "roomView": view });
+        handle.request(CoreRequest { method: mixdog_core_api::ids::Method("thread/roomView/set"), params, op: None, ctx: CallContext::internal("room-view") }).await.map(drop)
     }
 }
 
@@ -93,11 +116,20 @@ fn unavailable(session_id: &str, error: CoreError) -> CoreError {
 /// The post itself, on a log already opened (what [`RoomLog::append_rows`] does after it opened the log): a log that closes
 /// before the rows are taken in refuses them.
 pub async fn post_on_opened(handle: &super::SessionHandle, messages: Vec<Value>) -> Result<usize, CoreError> {
-    post(handle, messages, CallContext::internal("room-log")).await
+    post(handle, messages, CallContext::internal("room-log"), None).await
 }
 
-async fn post(handle: &super::SessionHandle, messages: Vec<Value>, ctx: CallContext) -> Result<usize, CoreError> {
-    let request = CoreRequest { method: mixdog_core_api::ids::Method("thread/roomRows/append"), params: json!({ "messages": messages }), op: None, ctx };
+/// [`post_on_opened`] with the room's view as it stands with the rows: one update of the log.
+pub async fn post_on_opened_with_view(handle: &super::SessionHandle, messages: Vec<Value>, view: Option<ThreadRoomView>) -> Result<usize, CoreError> {
+    post(handle, messages, CallContext::internal("room-log"), Some(view)).await
+}
+
+async fn post(handle: &super::SessionHandle, messages: Vec<Value>, ctx: CallContext, view: Option<Option<ThreadRoomView>>) -> Result<usize, CoreError> {
+    let mut params = json!({ "messages": messages });
+    if let Some(view) = view {
+        params["roomView"] = json!(view);
+    }
+    let request = CoreRequest { method: mixdog_core_api::ids::Method("thread/roomRows/append"), params, op: None, ctx };
     match handle.request(request).await.map_err(|error| unavailable(handle.id.as_str(), error))? {
         Reply::Value(value) => Ok(value["added"].as_u64().unwrap_or(0) as usize),
         _ => Ok(0),

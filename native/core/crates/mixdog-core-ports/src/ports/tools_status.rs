@@ -201,16 +201,6 @@ mod tests {
         assert_eq!(host.0.lock().unwrap().len(), 1);
     }
 
-    /// `skillsStatus().tools` of the real Node skills API, over surfaces as headers carry them.
-    #[test]
-    fn the_listed_names_are_the_ones_node_lists() {
-        let golden: Value = serde_json::from_str(include_str!("golden/surface_listed.json")).expect("golden");
-        for case in golden["cases"].as_array().unwrap() {
-            let header = case["surface"].as_object().cloned().unwrap_or_default();
-            assert_eq!(serde_json::json!(surface_of_header("full".into(), &header).listed), case["tools"], "case {}", case["name"]);
-        }
-    }
-
     struct Snapshots;
 
     #[async_trait]
@@ -283,5 +273,17 @@ mod tests {
         let surface = surface_of_header("full".into(), header.as_object().unwrap());
         assert_eq!(surface.catalog.len(), 1);
         assert_eq!(surface.active, ["read"]);
+    }
+
+
+    /// `skillsStatus().tools` of the real Node skills API, over surfaces as headers carry them.
+    #[test]
+    #[cfg(node_twin)]
+    fn the_listed_names_are_the_ones_node_lists() {
+        let golden: Value = serde_json::from_str(include_str!("golden/surface_listed.json")).expect("golden");
+        for case in golden["cases"].as_array().unwrap() {
+            let header = case["surface"].as_object().cloned().unwrap_or_default();
+            assert_eq!(serde_json::json!(surface_of_header("full".into(), &header).listed), case["tools"], "case {}", case["name"]);
+        }
     }
 }

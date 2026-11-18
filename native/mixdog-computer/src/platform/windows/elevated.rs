@@ -27,8 +27,12 @@ use windows::Win32::Security::Cryptography::{
     BCryptGenRandom, BCryptHash, BCRYPT_SHA256_ALG_HANDLE, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
 };
 use windows::Win32::System::Threading::{
-    GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, GetProcessId,
-    WaitForSingleObject, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, GetProcessId, WaitForMultipleObjects,
+    WaitForSingleObject, OpenProcess, INFINITE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+};
+use windows::Win32::Storage::FileSystem::{
+    FindCloseChangeNotification, FindFirstChangeNotificationW, FindNextChangeNotification, FILE_NOTIFY_CHANGE_FILE_NAME,
+    FILE_NOTIFY_CHANGE_LAST_WRITE,
 };
 use windows::Win32::System::JobObjects::{CreateJobObjectW, SetInformationJobObject,
     AssignProcessToJobObject, JobObjectExtendedLimitInformation,
@@ -53,9 +57,115 @@ const CANCEL_FILE: &str = "cancel";
 const WORKER_LEDGER_FILE: &str = "worker.ledger";
 const INCOMPLETE: &str = "privileged worker environment is incomplete";
 
+/// The launcher's grant: the worker's input child admits nothing before it.
+const GRANT_FILE: &str = "grant";
+/// The launcher's revocation of the worker's scope.
+const REVOKE_FILE: &str = "revoke";
+/// The supervisor's acknowledgement: the input child closed admission, or exited.
+const CLOSED_FILE: &str = "closed";
+use crate::platform::{
+    ELEVATED_GRANT_LINE as GRANT_LINE, ELEVATED_REVOKED_LINE as REVOKED_LINE, ELEVATED_REVOKE_LINE as REVOKE_LINE,
+};
+
 /// The worker's answer to a foreground request; always Some on Windows.
-pub fn run(req: &Req) -> Option<Result<Obj, String>> {
-    Some(launch(req))
+pub fn run(scope: &crate::port::Scope, req: &Req) -> Option<Result<Obj, String>> {
+    Some(launch(scope, req))
+}
+
+/// The launching executor's fence of one worker, registered with its scope before anything is staged. The fence owns the
+/// worker's admission word (`port::windows::shared`, created fresh before the launch): the worker's input child maps it and
+/// admits each call by one compare-exchange that succeeds only while it is open; the grant opens it (never once closed: a
+/// worker that finishes launching after Off is never granted); the revocation closes it with one `fetch_or` that reads the
+/// child's admitted unfinished calls. Safety is decided by that word alone: the grant, revoke and closed files only wake the
+/// supervisor's relay. The fence also owns the supervisor's process handle for its whole life; the end of the worker's
+/// cleanup is observed there and in the report the child left, never inferred.
+pub(crate) struct WorkerFence {
+    dir: PathBuf,
+    token: String,
+    word: crate::port::windows::shared::SharedWord,
+    /// The supervisor's process, owned for the fence's whole life.
+    process: std::sync::OnceLock<WorkerProcess>,
+    /// The worker's cleanup once it ended, kept in memory before its directory (and the report in it) is removed.
+    ended_cleanup: std::sync::OnceLock<crate::port::Cleanup>,
+}
+
+/// A started supervisor's process handle.
+struct WorkerProcess(Process);
+
+// SAFETY: a process handle is waited on and queried from any thread; it is closed once, on drop.
+unsafe impl Send for WorkerProcess {}
+// SAFETY: as above; the handle is only read.
+unsafe impl Sync for WorkerProcess {}
+
+impl WorkerFence {
+    /// Creates the worker's admission word fresh; an error starts no worker.
+    fn new(dir: PathBuf, token: String) -> Result<WorkerFence, String> {
+        let word = crate::port::windows::shared::create(&token)?;
+        Ok(WorkerFence { dir, token, word, process: std::sync::OnceLock::new(), ended_cleanup: std::sync::OnceLock::new() })
+    }
+
+    /// Takes the started supervisor's process for good, then opens the worker's admission unless it was closed (a late grant
+    /// never reopens it). The handle the launcher waits on is the fence's.
+    fn adopt_and_grant(&self, process: Process) -> (&Process, bool) {
+        let process = &self.process.get_or_init(|| WorkerProcess(process)).0;
+        let granted = crate::port::grant_word(crate::port::AdmissionWord::word(&self.word));
+        if granted {
+            // Only wakes the relay; the word decides.
+            let _ = std::fs::write(self.dir.join(GRANT_FILE), &self.token);
+        }
+        (process, granted)
+    }
+
+    /// The supervisor's process ended, observed on its handle.
+    fn exited(&self) -> bool {
+        // SAFETY: the handle is open with SYNCHRONIZE for the fence's whole life.
+        self.process.get().is_some_and(|process| unsafe { WaitForSingleObject((process.0).0, 0) } == WAIT_OBJECT_0)
+    }
+
+    /// The worker's exit was observed (a stop it did not confirm keeps its directory, read live): its cleanup is settled now,
+    /// before the directory with the child's report is removed. Complete only on positive evidence: the worker answered with no
+    /// worker failure (`answered`) and the child's last report (written at its end, `host::elevated::input`) says its cleanup
+    /// completed. A worker failure, a crash, a missing response or an exit without that report: unconfirmed.
+    fn ended(&self, answered: bool) {
+        use crate::port::Cleanup;
+        let completed = self.child_report().as_ref().and_then(|report| report.get("cleanup")).and_then(Value::as_str) == Some("complete");
+        let _ = self.ended_cleanup.set(if answered && completed { Cleanup::Complete } else { Cleanup::Unconfirmed });
+    }
+
+    /// The child's last report, relayed by the supervisor (the token, then the report's JSON).
+    fn child_report(&self) -> Option<Value> {
+        let text = std::fs::read_to_string(self.dir.join(CLOSED_FILE)).ok()?;
+        let (token, report) = text.split_once('\n')?;
+        (token == self.token).then(|| serde_json::from_str(report).ok()).flatten()
+    }
+}
+
+impl crate::port::Endpoint for WorkerFence {
+    fn close(&self) -> usize {
+        let unfinished = crate::port::close_word(crate::port::AdmissionWord::word(&self.word));
+        // Wakes the relay, which tells the child to release what it holds; the word is already closed.
+        let _ = std::fs::write(self.dir.join(REVOKE_FILE), &self.token);
+        unfinished
+    }
+
+    /// Complete once the worker was never started, or its last report says so; unconfirmed when it ended without saying so
+    /// (its receipts stay its own: the unelevated parent cannot release into an elevated target); pending while it runs.
+    fn cleanup(&self) -> crate::port::Cleanup {
+        use crate::port::Cleanup;
+        let granted = crate::port::AdmissionWord::word(&self.word).load(std::sync::atomic::Ordering::SeqCst) & crate::port::word::OPEN != 0;
+        if !granted || self.process.get().is_none() {
+            return Cleanup::Complete;
+        }
+        if let Some(cleanup) = self.ended_cleanup.get() {
+            return *cleanup;
+        }
+        match self.child_report().as_ref().and_then(|report| report.get("cleanup")).and_then(Value::as_str) {
+            Some("complete") => Cleanup::Complete,
+            Some("unconfirmed") => Cleanup::Unconfirmed,
+            _ if self.exited() => Cleanup::Unconfirmed,
+            _ => Cleanup::Pending,
+        }
+    }
 }
 
 // --- authentication ---------------------------------------------------------
@@ -93,7 +203,7 @@ fn token_valid(token: &str) -> bool {
 }
 
 /// Process identity: id and creation FILETIME.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Identity {
     pid: u32,
     created: i64,
@@ -263,44 +373,170 @@ fn missing_response(exit_code: u32) -> String {
 
 // --- launcher ---------------------------------------------------------------
 
-fn launch(req: &Req) -> Result<Obj, String> {
+fn launch(scope: &crate::port::Scope, req: &Req) -> Result<Obj, String> {
     let id = req.int("id").unwrap_or(0);
     let token = new_token()?;
     let dir = std::env::temp_dir().join(format!("mixdog-elevated-{token}"));
+    let fence = Arc::new(WorkerFence::new(dir.clone(), token.clone())?);
+    // Fenced before anything is staged: a closed scope starts no worker. The fence stays registered for good, so a later
+    // revocation reads the worker again.
+    if !scope.fence(fence.clone()) {
+        return Err(crate::port::REVOKED.into());
+    }
+    let (outcome, unconfirmed) = launch_fenced(req, id, token, dir, &fence);
+    // The worker ended (or never started), or its stop went unconfirmed: its cleanup state changed.
+    scope.notify();
+    // A supervisor still live after an unconfirmed stop is observed until its end: its later child reports and its exit are
+    // published through the scope like every other executor's change.
+    if let Some(tail) = unconfirmed {
+        let (fence, scope) = (fence.clone(), scope.clone());
+        std::thread::spawn(move || watch_unconfirmed(&fence, &tail, || scope.notify()));
+    }
+    outcome
+}
+
+/// What the observation of a live supervisor needs of its launch, once `launch` returned.
+struct Unconfirmed {
+    dir: PathBuf,
+    token: String,
+    ledger: Option<PathBuf>,
+    worker: Identity,
+    id: i64,
+    /// The child's report as `launch` last read it: a later one is a change to publish.
+    reported: Option<Value>,
+}
+
+/// Observes a supervisor whose stop went unconfirmed: each change in its directory that changes the child's report is published
+/// (`changed`); its exit settles the fence's cleanup (positive evidence only: an authenticated answer and a complete child
+/// report), hands its ledger to this host's own, removes its directory and is published. It waits on the process handle and the
+/// directory's change notification; nothing is inferred from elapsed time.
+fn watch_unconfirmed(fence: &WorkerFence, tail: &Unconfirmed, changed: impl Fn()) {
+    let Some(process) = fence.process.get().map(|process| (process.0).0) else { return };
+    // SAFETY: a change notification on the launch directory, closed below.
+    let notification = unsafe {
+        FindFirstChangeNotificationW(
+            &HSTRING::from(tail.dir.as_os_str()),
+            false,
+            FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
+        )
+    }
+    .ok();
+    // A report that landed between `launch`'s last read and this registration is published now; later ones on the notification.
+    let mut reported = tail.reported.clone();
+    let now = fence.child_report();
+    if now != reported {
+        reported = now;
+        changed();
+    }
+    loop {
+        let handles: Vec<HANDLE> = std::iter::once(process).chain(notification).collect();
+        // SAFETY: both handles stay open for the wait (the process handle for the fence's whole life).
+        let woke = unsafe { WaitForMultipleObjects(&handles, false, INFINITE) };
+        if woke == WAIT_OBJECT_0 {
+            break;
+        }
+        if woke.0 != WAIT_OBJECT_0.0 + 1 {
+            // The wait itself failed: only the process's end is left to observe.
+            // SAFETY: the process handle is open.
+            unsafe { WaitForSingleObject(process, INFINITE) };
+            break;
+        }
+        let now = fence.child_report();
+        if now != reported {
+            reported = now;
+            changed();
+        }
+        if let Some(notification) = notification {
+            // SAFETY: the notification handle is open.
+            let _ = unsafe { FindNextChangeNotification(notification) };
+        }
+    }
+    if let Some(notification) = notification {
+        // SAFETY: opened above, closed once.
+        let _ = unsafe { FindCloseChangeNotification(notification) };
+    }
+    let answered = std::fs::read_to_string(tail.dir.join(RESPONSE_FILE))
+        .ok()
+        .is_some_and(|text| authenticated_body(&text, &tail.token, tail.worker, tail.id).is_ok_and(|body| body.get("worker_error").is_none()));
+    fence.ended(answered);
+    if tail.ledger.as_deref().is_none_or(super::ledger::adopt) {
+        let _ = std::fs::remove_dir_all(&tail.dir);
+    }
+    changed();
+}
+
+fn launch_fenced(req: &Req, id: i64, token: String, dir: PathBuf, fence: &WorkerFence) -> (Result<Obj, String>, Option<Unconfirmed>) {
     let request = format!("{}\n", req.0).into_bytes();
+    let request_sha256 = match sha256_hex(&request) {
+        Ok(digest) => digest,
+        Err(error) => return (Err(error), None),
+    };
     let launch = Launch {
         dir: dir.clone(),
         token,
-        request_sha256: sha256_hex(&request)?,
+        request_sha256,
         marker: crate::config::host_input_marker(),
         // The worker records its own holds in a ledger of its own: its
         // supervisor replays only that one, never this host's live ledger.
         ledger: crate::config::inactive_ledger().map(|_| dir.join(WORKER_LEDGER_FILE)),
         parent: own_identity(),
     };
-    std::fs::create_dir(&dir)
-        .and_then(|()| std::fs::write(dir.join(REQUEST_FILE), &request))
-        .map_err(|error| format!("privileged_worker_unavailable: request could not be staged: {error}"))?;
-    let outcome = run_worker(&launch, id);
+    if let Err(error) = std::fs::create_dir(&dir).and_then(|()| std::fs::write(dir.join(REQUEST_FILE), &request)) {
+        return (Err(format!("privileged_worker_unavailable: request could not be staged: {error}")), None);
+    }
+    let (outcome, end) = run_worker(&launch, id, fence);
     // A worker that never confirmed its stop keeps the cancel file it may
     // still read. One that exited leaves its ledger to this host: what it
-    // could not clear is handed to this host's own ledger first.
-    if !matches!(&outcome, Err(error) if error.starts_with("privileged_worker_cleanup_unconfirmed")) {
-        let adopted = launch.ledger.as_deref().is_none_or(super::ledger::adopt);
-        if adopted {
-            let _ = std::fs::remove_dir_all(&dir);
-        }
+    // could not clear is handed to this host's own ledger first. Its cleanup
+    // is settled in the fence before the directory with its report goes.
+    if let WorkerEnd::Exited { answered } = end {
+        fence.ended(answered);
     }
-    outcome
+    if let WorkerEnd::StopUnconfirmed { worker } = end {
+        let Launch { dir, token, ledger, .. } = launch;
+        return (outcome, Some(Unconfirmed { dir, token, ledger, worker, id, reported: fence.child_report() }));
+    }
+    let adopted = launch.ledger.as_deref().is_none_or(super::ledger::adopt);
+    if adopted {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    (outcome, None)
 }
 
-fn run_worker(launch: &Launch, id: i64) -> Result<Obj, String> {
-    let (process, worker) = start(launch)?;
-    let exit = wait(&process, &launch.dir.join(CANCEL_FILE), &launch.token)?;
-    match std::fs::read_to_string(launch.dir.join(RESPONSE_FILE)) {
-        Ok(text) => read_response(&text, &launch.token, worker, id),
-        Err(_) => Err(missing_response(exit)),
-    }
+/// How a worker run ended, as observed (never read from an error's words).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum WorkerEnd {
+    /// No worker process was started.
+    NotStarted,
+    /// It did not acknowledge its cancellation: still live, observed through the fence until it ends (`watch_unconfirmed`).
+    StopUnconfirmed { worker: Identity },
+    /// Its exit was observed; `answered`: its authenticated response carried no worker failure.
+    Exited { answered: bool },
+}
+
+/// Starts the worker, grants it (unless the fence closed meanwhile: then it stays pending until it reads the revoke file), and
+/// waits for its exit holding nothing.
+fn run_worker(launch: &Launch, id: i64, fence: &WorkerFence) -> (Result<Obj, String>, WorkerEnd) {
+    let (process, worker) = match start(launch) {
+        Ok(started) => started,
+        Err(error) => return (Err(error), WorkerEnd::NotStarted),
+    };
+    let (process, _) = fence.adopt_and_grant(process);
+    // An unconfirmed stop leaves the supervisor live: the fence keeps its handle and stays registered with the scope, which
+    // observes its end there.
+    let exit = match wait(process, &launch.dir.join(CANCEL_FILE), &launch.token) {
+        Ok(exit) => exit,
+        Err(error) => return (Err(error), WorkerEnd::StopUnconfirmed { worker }),
+    };
+    let text = std::fs::read_to_string(launch.dir.join(RESPONSE_FILE)).ok();
+    let answered = text.as_deref().is_some_and(|text| {
+        authenticated_body(text, &launch.token, worker, id).is_ok_and(|body| body.get("worker_error").is_none())
+    });
+    let outcome = match text {
+        Some(text) => read_response(&text, &launch.token, worker, id),
+        None => Err(missing_response(exit)),
+    };
+    (outcome, WorkerEnd::Exited { answered })
 }
 
 /// Desktop-owned one-shot launch. The desktop owns the supplied ledger: this
@@ -325,6 +561,9 @@ pub fn launch_pipe(message: Value, cancelled: Arc<Cancellation>) -> i32 {
         std::fs::create_dir(&dir).map_err(|error| format!("privileged_worker_unavailable: {error}"))?;
         staged = Some(dir.clone());
         std::fs::write(dir.join(REQUEST_FILE), bytes).map_err(|error| format!("privileged_worker_unavailable: {error}"))?;
+        // The worker's admission word, created fresh before the launch; the cancellation closes it directly.
+        let word: Arc<dyn crate::port::AdmissionWord> = Arc::new(crate::port::windows::shared::create(&launch.token)?);
+        cancelled.fence(word)?;
         cancelled.arm(dir.join(CANCEL_FILE))?;
         if cancelled.requested() { return Err("privileged_worker_cancelled".into()); }
         stopped = false;
@@ -335,6 +574,11 @@ pub fn launch_pipe(message: Value, cancelled: Arc<Cancellation>) -> i32 {
                 return Err(error);
             }
         };
+        // A worker that finished launching after the cancellation is never granted: the word was closed first, and a late
+        // grant never reopens it. The grant file only wakes the relay.
+        if cancelled.grant() {
+            let _ = std::fs::write(dir.join(GRANT_FILE), &launch.token);
+        }
         if let Some(ticks) = dotnet_ticks(worker.created) {
             crate::elevated_launch::emit(json!({"kind":"identity", "pid":worker.pid, "startTicks":ticks.to_string()}));
         }
@@ -462,11 +706,7 @@ fn live_parent(expected: Identity, actual: Identity, running: bool) -> bool {
 /// request with `validate`, serves the one action with `serve` while a
 /// supervisor watches for cancellation, and writes the response file.
 /// Returns the process exit code.
-pub fn worker(
-    args: &[String],
-    validate: fn(&Req) -> Result<(), String>,
-    _serve: fn(&str) -> Value,
-) -> i32 {
+pub fn worker(args: &[String], validate: fn(&Req) -> Result<(), String>) -> i32 {
     let launch = match Launch::parse(args) {
         Ok(launch) => launch,
         Err(error) => {
@@ -539,7 +779,7 @@ fn supervise_input(line: &str, launch: &Launch, deadline: Instant) -> Value {
     let mut child = match std::env::current_exe().and_then(|program|
         Command::new(program).arg("--elevated-input")
             .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()) {
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()) {
         Ok(child) => child,
         Err(error) => return json!({"worker_error":format!("privileged worker could not start: {error}")}),
     };
@@ -554,21 +794,62 @@ fn supervise_input(line: &str, launch: &Launch, deadline: Instant) -> Value {
         } else { "privileged_worker_cleanup_unconfirmed: input containment failed".into() }});
     }
     let mut input = child.stdin.take().expect("piped input");
-    let request = format!("{line}\n").into_bytes();
-    let writer = std::thread::spawn(move || input.write_all(&request));
+    // The child maps its admission word by the launch's token, which this authenticated launch carries.
+    let request = match serde_json::from_str::<Value>(line) {
+        Ok(Value::Object(mut request)) => {
+            request.insert("admission_token".into(), Value::String(launch.token.clone()));
+            format!("{}\n", Value::Object(request))
+        }
+        _ => format!("{line}\n"),
+    }
+    .into_bytes();
+    // The request, then the control lines; the end of this pipe is the child's revocation too.
+    let (control, controls) = std::sync::mpsc::channel::<&'static str>();
+    let writer = std::thread::spawn(move || {
+        input.write_all(&request)?;
+        input.flush()?;
+        for line in controls {
+            // A child that exited reads no more: its pipe's end is all that is left to say.
+            if input.write_all(format!("{line}\n").as_bytes()).and_then(|()| input.flush()).is_err() {
+                break;
+            }
+        }
+        Ok::<_, std::io::Error>(())
+    });
     let output = child.stdout.take().expect("piped output");
     let reader = std::thread::spawn(move || {
         let mut bytes = Vec::new();
         output.take((crate::elevated_launch::MAX_REQUEST + 1) as u64).read_to_end(&mut bytes)?;
         Ok::<_, std::io::Error>(bytes)
     });
+    // The child's reports of its closure and cleanup, the latest kept for the launcher (never discarded).
+    let reported = Arc::new(std::sync::Mutex::new(None::<String>));
+    let errors = child.stderr.take().expect("piped acknowledgements");
+    let report = reported.clone();
+    let acknowledgements = std::thread::spawn(move || {
+        use std::io::BufRead;
+        for line in std::io::BufReader::new(errors).lines() {
+            if let Some(json) = line.ok().and_then(|line| line.strip_prefix(REVOKED_LINE).map(str::to_owned)) {
+                *report.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(json);
+            }
+        }
+    });
+    let mut relay = Relay { dir: &launch.dir, token: &launch.token, granted: false, revoked: false, reported: None };
     let clock = Instant::now();
+    // Each poll relays the launcher's grant and revocation first; the waits between hold nothing.
     let reason = match supervise_wait(&mut child,
-        || stop_reason(Instant::now(), deadline, launch.dir.join(CANCEL_FILE).exists(), parent_alive(launch.parent)).map(str::to_owned),
+        || {
+            relay.relay(&control, reported.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone());
+            stop_reason(Instant::now(), deadline, launch.dir.join(CANCEL_FILE).exists(), parent_alive(launch.parent)).map(str::to_owned)
+        },
         || clock.elapsed(), || std::thread::sleep(POLL)) {
         Ok(reason) => reason,
         Err(error) => return json!({"worker_error":error}),
     };
+    // Exited: nothing of the child can submit; its last report (read to the end of its pipe) is relayed.
+    let _ = acknowledgements.join();
+    relay.relay(&control, reported.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone());
+    drop(control);
     // The process handle proved exit. Cleanup still runs after a failed write,
     // missing response or cancellation, and failure cannot become success.
     let released = crate::platform::release_owned_input();
@@ -585,6 +866,37 @@ fn supervise_input(line: &str, launch: &Launch, deadline: Instant) -> Value {
             serde_json::from_slice::<Value>(&bytes).unwrap_or_else(|_|
                 json!({"worker_error":"privileged worker host returned no structured response"})),
         _ => json!({"worker_error":"privileged worker host returned no structured response"}),
+    }
+}
+
+/// The supervisor's relay to its input child: it only wakes it (the grant once, the revocation once, the cancel file counting
+/// as one) and hands the child's latest report to the launcher. Safety is the shared admission word's, not this relay's.
+struct Relay<'a> {
+    dir: &'a Path,
+    token: &'a str,
+    granted: bool,
+    revoked: bool,
+    reported: Option<String>,
+}
+
+impl Relay<'_> {
+    fn signed(&self, name: &str) -> bool {
+        std::fs::read_to_string(self.dir.join(name)).is_ok_and(|text| text == self.token)
+    }
+
+    /// One poll: `report` is the child's latest report, if any.
+    fn relay(&mut self, control: &std::sync::mpsc::Sender<&'static str>, report: Option<String>) {
+        if !self.revoked && (self.signed(REVOKE_FILE) || self.dir.join(CANCEL_FILE).exists()) {
+            self.revoked = true;
+            let _ = control.send(REVOKE_LINE);
+        } else if !self.revoked && !self.granted && self.signed(GRANT_FILE) {
+            self.granted = true;
+            let _ = control.send(GRANT_LINE);
+        }
+        if let Some(report) = report.filter(|report| self.reported.as_ref() != Some(report)) {
+            let _ = std::fs::write(self.dir.join(CLOSED_FILE), format!("{}\n{report}", self.token));
+            self.reported = Some(report);
+        }
     }
 }
 
@@ -859,5 +1171,176 @@ mod tests {
         assert!(stop_reason(later, later, false, true).is_some());
         assert!(stop_reason(now, later, true, true).is_some());
         assert!(stop_reason(now, later, false, false).is_some());
+    }
+
+    fn fence_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mixdog-fence-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A process this test controls: it runs until its standard input closes.
+    fn controlled_child() -> (std::process::Child, Process) {
+        let child = std::process::Command::new("findstr.exe")
+            .arg("x")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let process = Process::open(child.id(), (PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE).0).unwrap();
+        (child, process)
+    }
+
+    /// A token of its own for each test: the admission section's name is made from it.
+    fn token(name: &str) -> String {
+        format!("{TOKEN}-{name}-{}", std::process::id())
+    }
+
+    /// Off during the UAC prompt: the revocation closes the worker's word at once, and the worker that finishes launching
+    /// afterwards is never granted (a late grant stays closed); its child maps the closed word and admits nothing.
+    #[test]
+    fn a_worker_that_finishes_launching_after_off_is_never_granted() {
+        let dir = fence_dir("late");
+        let token = token("late");
+        let scope = crate::port::Scope::open(1);
+        let fence = Arc::new(WorkerFence::new(dir.clone(), token.clone()).unwrap());
+        assert!(scope.fence(fence.clone()));
+        assert_eq!(scope.revoke().unfinished, 0, "nothing granted, nothing admitted");
+        let (mut child, process) = controlled_child();
+        assert!(!fence.adopt_and_grant(process).1, "the late start gets no grant");
+        assert!(!dir.join(GRANT_FILE).exists());
+        let worker = crate::port::Scope::shared(1, Box::new(crate::port::windows::shared::open(&token).unwrap()));
+        assert!(!worker.grant());
+        assert!(worker.check().is_err());
+        drop(child.stdin.take());
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The supervisor suspended (no relay runs): the parent's closure alone closes the child's admission, the snapshot counts
+    /// the child's call admitted just before (that one may still run), and its continuation cannot.
+    #[test]
+    fn the_parent_closes_the_child_without_its_supervisor() {
+        let dir = fence_dir("suspended");
+        let token = token("suspended");
+        let scope = crate::port::Scope::open(1);
+        let fence = Arc::new(WorkerFence::new(dir.clone(), token.clone()).unwrap());
+        assert!(scope.fence(fence.clone()));
+        let (mut child, process) = controlled_child();
+        assert!(fence.adopt_and_grant(process).1);
+        let worker = crate::port::Scope::shared(1, Box::new(crate::port::windows::shared::open(&token).unwrap()));
+        let fake = crate::port::fake::FakePort::new(&worker);
+        let pause = crate::port::fake::Pause::new();
+        *fake.driver.inside.lock().unwrap() = Some(pause.clone());
+        std::thread::scope(|threads| {
+            // Admitted, then paused before it enters the API.
+            let call = threads.spawn(|| fake.act_handed_over("click"));
+            pause.reached.wait();
+            assert_eq!(scope.revoke().unfinished, 1, "the child's admitted call is in the parent's snapshot");
+            pause.resume.wait();
+            assert_eq!(call.join().unwrap(), Ok(()), "that one call may run");
+        });
+        assert_eq!(fake.act("after"), Err(crate::port::REVOKED.to_string()), "its continuation cannot");
+        assert_eq!(fake.driver.log(), ["click"]);
+        assert_eq!(crate::port::Endpoint::cleanup(&*fence), crate::port::Cleanup::Pending);
+        drop(child.stdin.take());
+        let _ = child.wait();
+        assert_eq!(crate::port::Endpoint::cleanup(&*fence), crate::port::Cleanup::Unconfirmed, "ended without a report");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The relay only wakes: the grant line once, the revoke line once (the cancel file counts), and the child's latest report
+    /// handed to the launcher, which reads it as the worker's cleanup.
+    #[test]
+    fn the_relay_wakes_the_child_and_hands_its_report_on() {
+        let dir = fence_dir("relay");
+        let token = token("relay");
+        let fence = WorkerFence::new(dir.clone(), token.clone()).unwrap();
+        let (mut child, process) = controlled_child();
+        assert!(fence.adopt_and_grant(process).1);
+        let (control, controls) = std::sync::mpsc::channel();
+        let mut relay = Relay { dir: &dir, token: &token, granted: false, revoked: false, reported: None };
+        relay.relay(&control, None);
+        assert_eq!(controls.try_iter().collect::<Vec<_>>(), [GRANT_LINE]);
+        crate::port::Endpoint::close(&fence);
+        relay.relay(&control, Some(r#"{"cleanup":"pending"}"#.into()));
+        assert_eq!(controls.try_iter().collect::<Vec<_>>(), [REVOKE_LINE]);
+        assert_eq!(crate::port::Endpoint::cleanup(&fence), crate::port::Cleanup::Pending);
+        relay.relay(&control, Some(r#"{"cleanup":"complete"}"#.into()));
+        assert_eq!(crate::port::Endpoint::cleanup(&fence), crate::port::Cleanup::Complete);
+        drop(child.stdin.take());
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A supervisor whose stop went unconfirmed stays observed after `launch` returned: a later child report is published as the
+    /// scope's updated report, and so is its exit (no authenticated answer: unconfirmed); its directory is then removed.
+    #[test]
+    fn an_unconfirmed_stop_is_observed_until_its_end_and_each_change_is_published() {
+        use crate::port::Cleanup;
+        let dir = fence_dir("unconfirmed");
+        let token = token("unconfirmed");
+        let scope = crate::port::Scope::open(1);
+        let fence = Arc::new(WorkerFence::new(dir.clone(), token.clone()).unwrap());
+        assert!(scope.fence(fence.clone()));
+        let (mut child, process) = controlled_child();
+        assert!(fence.adopt_and_grant(process).1);
+        scope.revoke();
+        assert!(scope.release_held(), "this side holds nothing; the worker's own holds are its own");
+        let (published, reports) = std::sync::mpsc::channel();
+        scope.on_report(move |report| {
+            let _ = published.send(report.cleanup);
+        });
+        assert_eq!(scope.report().cleanup, Cleanup::Pending, "the supervisor is live and said nothing");
+        let tail = Unconfirmed { dir: dir.clone(), token: token.clone(), ledger: None, worker: Identity { pid: child.id(), created: 0 }, id: 1, reported: None };
+        let watcher = {
+            let (fence, scope) = (fence.clone(), scope.clone());
+            std::thread::spawn(move || watch_unconfirmed(&fence, &tail, || scope.notify()))
+        };
+        let (control, _controls) = std::sync::mpsc::channel();
+        let mut relay = Relay { dir: &dir, token: &token, granted: true, revoked: true, reported: None };
+        relay.relay(&control, Some(r#"{"cleanup":"complete"}"#.into()));
+        assert_eq!(reports.recv().unwrap(), Cleanup::Complete, "the later child report is published");
+        drop(child.stdin.take());
+        let _ = child.wait();
+        let last = reports.iter().find(|cleanup| *cleanup == Cleanup::Unconfirmed);
+        assert_eq!(last, Some(Cleanup::Unconfirmed), "its exit, without an authenticated answer, is published as unconfirmed");
+        watcher.join().unwrap();
+        assert!(!dir.exists(), "its directory is removed once its end is settled");
+        assert_eq!(scope.report().cleanup, Cleanup::Unconfirmed);
+    }
+
+    /// The fence's cache at a worker's end holds Complete only on positive evidence. A worker that answered and whose child
+    /// reported its cleanup complete, its directory removed as the launcher does, then Off: complete. One that exited without
+    /// that report, or whose answer was a worker failure: unconfirmed, also after its directory is gone.
+    #[test]
+    fn a_worker_end_is_complete_only_on_a_child_report_and_an_answer() {
+        let ended = |name: &str, report: Option<&str>, answered: bool| {
+            let dir = fence_dir(name);
+            let token = token(name);
+            let scope = crate::port::Scope::open(1);
+            let fence = Arc::new(WorkerFence::new(dir.clone(), token.clone()).unwrap());
+            assert!(scope.fence(fence.clone()));
+            let (mut child, process) = controlled_child();
+            assert!(fence.adopt_and_grant(process).1);
+            if let Some(report) = report {
+                let (control, _controls) = std::sync::mpsc::channel();
+                let mut relay = Relay { dir: &dir, token: &token, granted: true, revoked: true, reported: None };
+                relay.relay(&control, Some(report.into()));
+            }
+            drop(child.stdin.take());
+            let _ = child.wait();
+            fence.ended(answered);
+            std::fs::remove_dir_all(&dir).unwrap();
+            scope.revoke();
+            assert!(scope.release_held());
+            scope.report().cleanup
+        };
+        use crate::port::Cleanup;
+        assert_eq!(ended("clean", Some(r#"{"cleanup":"complete"}"#), true), Cleanup::Complete);
+        assert_eq!(ended("silent", None, true), Cleanup::Unconfirmed, "an exit without the child's report");
+        assert_eq!(ended("failed", Some(r#"{"cleanup":"complete"}"#), false), Cleanup::Unconfirmed, "a worker failure");
+        assert_eq!(ended("pending", Some(r#"{"cleanup":"pending"}"#), true), Cleanup::Unconfirmed, "ended while still pending");
     }
 }

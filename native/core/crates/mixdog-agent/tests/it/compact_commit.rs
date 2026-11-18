@@ -3,56 +3,89 @@
 //! benchmarks/rust-core/recorders/record-compaction-commit.mjs with a fake summary provider): the
 //! result object, the `session.compaction` record with its timing, and the usage totals.
 
+#[cfg(node_twin)]
 use crate::compact_support;
 
+#[cfg(node_twin)]
 use compact_support::node_message;
+#[cfg(node_twin)]
 use compact_support::node_row;
+#[cfg(node_twin)]
 use compact_support::replay_owner;
+#[cfg(node_twin)]
 use mixdog_agent::compact::estimate::MediaMeter;
+#[cfg(node_twin)]
 use mixdog_agent::compact::estimate::MessageMeter;
+#[cfg(node_twin)]
 use mixdog_agent::compact::estimate::PartMeter;
+#[cfg(node_twin)]
 use mixdog_agent::compact::execution_tail::MessageRows;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::Archived;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::CommitInput;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::ImageDescriptor;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::ImageIdentities;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::Route;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::StatusInput;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::SummaryFacts;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::TRANSCRIPT_MOVED_ERROR;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::TranscriptSigner;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::commit_compaction;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::compaction_plan;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::failed_compaction;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::usage_totals;
+#[cfg(node_twin)]
 use mixdog_agent::compact::tool_schema::RequestTools;
+#[cfg(node_twin)]
 use mixdog_agent::message::AgentMessage;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ContentPart;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ToolDefinition;
+#[cfg(node_twin)]
 use serde_json::Map;
 use serde_json::Value;
 
+#[cfg(node_twin)]
 struct TextOnly;
+#[cfg(node_twin)]
 impl MediaMeter for TextOnly {
     fn part(&self, part: &ContentPart) -> PartMeter {
         panic!("media part in a text-only golden: {part:?}")
     }
 }
 
+#[cfg(node_twin)]
 struct NoImages;
+#[cfg(node_twin)]
 impl ImageIdentities for NoImages {
     fn images(&self, _: &AgentMessage) -> Vec<ImageDescriptor> {
         Vec::new()
     }
 }
 
+#[cfg(node_twin)]
 struct RebuiltRows;
+#[cfg(node_twin)]
 impl MessageRows for RebuiltRows {
     fn row(&self, message: &AgentMessage) -> Value {
         node_row(message)
     }
 }
 
+#[cfg(node_twin)]
 fn definitions(tools: &[Value]) -> Vec<ToolDefinition> {
     tools
         .iter()
@@ -66,19 +99,14 @@ fn definitions(tools: &[Value]) -> Vec<ToolDefinition> {
         .collect()
 }
 
+#[cfg(node_twin)]
 fn header_of(session: &Value) -> Map<String, Value> {
     session.as_object().expect("session").iter().filter(|(k, _)| !matches!(k.as_str(), "messages" | "tools")).map(|(k, v)| (k.clone(), v.clone())).collect()
 }
 
+#[cfg(node_twin)]
 fn text(value: &Value) -> Option<String> {
     value.as_str().map(str::to_owned)
-}
-
-#[test]
-fn the_config_keys_are_nodes() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/compaction-commit/golden.json")).expect("golden json");
-    let keys: Vec<&str> = golden["configKeys"].as_array().expect("configKeys").iter().map(|k| k.as_str().unwrap()).collect();
-    assert_eq!(keys, mixdog_agent::compact::pressure::COMPACTION_CONFIG_KEYS);
 }
 
 /// compact-smoke.mjs's migration check: `normalizeCompactionConfig` drops the retired compaction types and their knobs.
@@ -92,6 +120,15 @@ fn the_retired_compaction_keys_are_dropped() {
     assert_eq!(migrated.get("auto"), Some(&Value::Bool(true)));
 }
 
+
+#[cfg(node_twin)]
+#[test]
+fn the_config_keys_are_nodes() {
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/compaction-commit/golden.json")).expect("golden json");
+    let keys: Vec<&str> = golden["configKeys"].as_array().expect("configKeys").iter().map(|k| k.as_str().unwrap()).collect();
+    assert_eq!(keys, mixdog_agent::compact::pressure::COMPACTION_CONFIG_KEYS);
+}
+#[cfg(node_twin)]
 #[test]
 fn the_commit_equals_nodes() {
     let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/compaction-commit/golden.json")).expect("golden json");
@@ -123,6 +160,7 @@ fn the_commit_equals_nodes() {
             agent_mode: false,
             meter: &meter,
             signer: &signer,
+            env: &compact_support::NoVars,
         };
         let plan = compaction_plan(&status, false, true).expect("a manual pass has a window").expect("a plan");
         let after = &case["after"];

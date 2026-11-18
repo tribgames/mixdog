@@ -83,6 +83,33 @@ const NODE_KEYS: [&str; 11] = [
 const LIST_KEYS: [&str; 4] = ["prefixItems", "allOf", "anyOf", "oneOf"];
 const ROOT_FORBIDDEN_KEYS: [&str; 4] = ["anyOf", "oneOf", "allOf", "not"];
 
+/// Carries OpenAPI's type-level `nullable` into JSON Schema without weakening
+/// sibling constraints such as `enum`. Literal values and property names are not schemas.
+pub(crate) fn lower_openapi_nullable(schema: &mut JsonValue) {
+    let Some(map) = schema.as_object_mut() else { return };
+    if map.get("nullable") == Some(&JsonValue::Bool(true))
+        && let Some(kind) = map.get("type").and_then(JsonValue::as_str)
+        && kind != "null"
+    {
+        let types = json!([kind, "null"]);
+        map.insert("type".into(), types);
+        map.shift_remove("nullable");
+    }
+    for (key, value) in map {
+        if MAP_KEYS.contains(&key.as_str()) || key == "dependencies" {
+            if let Some(children) = value.as_object_mut() {
+                children.values_mut().for_each(lower_openapi_nullable);
+            }
+        } else if LIST_KEYS.contains(&key.as_str()) || (key == "items" && value.is_array()) {
+            if let Some(children) = value.as_array_mut() {
+                children.iter_mut().for_each(lower_openapi_nullable);
+            }
+        } else if NODE_KEYS.contains(&key.as_str()) || key == "additionalItems" {
+            lower_openapi_nullable(value);
+        }
+    }
+}
+
 pub(crate) fn escape_pointer(segment: &str) -> String {
     segment.replace('~', "~0").replace('/', "~1")
 }
@@ -409,20 +436,81 @@ fn bridge_schema(input: &JsonValue) -> Result<JsonValue, Problem> {
 /// missing root type) and only one still broken is excluded.
 pub fn claude_bridge_input_schema(input: &JsonValue) -> Result<JsonValue, Problem> {
     // Validating a schema compiles it, which a request would repeat for every tool on every turn.
-    static MEMO: LazyLock<RwLock<HashMap<String, Result<JsonValue, Problem>>>> = LazyLock::new(Default::default);
-    let key = input.to_string();
-    if let Some(found) = MEMO.read().ok().and_then(|memo| memo.get(&key).cloned()) {
+    static MEMO: LazyLock<RwLock<Verdicts<()>>> = LazyLock::new(Default::default);
+    memoized(&MEMO, (), input, || {
+        bridge_schema(input).or_else(|error| match repaired_tool_input_schema(input, Rule::Anthropic) {
+            Some(repaired) if wire_problem(&repaired, Rule::Anthropic).is_none() => Ok(repaired),
+            _ => Err(error),
+        })
+    })
+}
+
+/// Verdicts by `(tag, schema hash)`, each with the schema it was made for: a lookup hashes the schema in place instead of
+/// writing it out as text per tool per request, and a hit is confirmed by comparing the schema itself.
+type Verdicts<T> = HashMap<(T, u64), Vec<(JsonValue, Result<JsonValue, Problem>)>>;
+
+/// The order-sensitive hash of `value`: two schemas that differ only in key order are different keys, as their texts were
+/// (the verdict keeps the order it was given).
+fn schema_hash(value: &JsonValue) -> u64 {
+    use std::hash::Hash as _;
+    use std::hash::Hasher as _;
+    fn feed(value: &JsonValue, h: &mut std::collections::hash_map::DefaultHasher) {
+        match value {
+            JsonValue::Null => 0u8.hash(h),
+            JsonValue::Bool(b) => (1u8, *b).hash(h),
+            JsonValue::Number(n) => (2u8, n).hash(h),
+            JsonValue::String(text) => (3u8, text).hash(h),
+            JsonValue::Array(list) => {
+                (4u8, list.len()).hash(h);
+                list.iter().for_each(|item| feed(item, h));
+            }
+            JsonValue::Object(map) => {
+                (5u8, map.len()).hash(h);
+                for (key, item) in map {
+                    key.hash(h);
+                    feed(item, h);
+                }
+            }
+        }
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    feed(value, &mut h);
+    h.finish()
+}
+
+/// `a` and `b` are the same schema with their keys in the same order (`==` on a preserve-order map ignores the order).
+fn same_schema(a: &JsonValue, b: &JsonValue) -> bool {
+    match (a, b) {
+        (JsonValue::Array(x), JsonValue::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(x, y)| same_schema(x, y)),
+        (JsonValue::Object(x), JsonValue::Object(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|((kx, vx), (ky, vy))| kx == ky && same_schema(vx, vy))
+        }
+        (JsonValue::Array(_) | JsonValue::Object(_), _) | (_, JsonValue::Array(_) | JsonValue::Object(_)) => false,
+        _ => a == b,
+    }
+}
+
+/// The verdict on `schema` under `tag` from `memo`, else made by `make` and kept (the memo is cleared past `MEMO_LIMIT`).
+fn memoized<T: Eq + std::hash::Hash>(
+    memo: &RwLock<Verdicts<T>>,
+    tag: T,
+    schema: &JsonValue,
+    make: impl FnOnce() -> Result<JsonValue, Problem>,
+) -> Result<JsonValue, Problem> {
+    let key = (tag, schema_hash(schema));
+    let found = memo
+        .read()
+        .ok()
+        .and_then(|m| m.get(&key).and_then(|row| row.iter().find(|(kept, _)| same_schema(kept, schema)).map(|(_, v)| v.clone())));
+    if let Some(found) = found {
         return found;
     }
-    let verdict = bridge_schema(input).or_else(|error| match repaired_tool_input_schema(input, Rule::Anthropic) {
-        Some(repaired) if wire_problem(&repaired, Rule::Anthropic).is_none() => Ok(repaired),
-        _ => Err(error),
-    });
-    if let Ok(mut memo) = MEMO.write() {
+    let verdict = make();
+    if let Ok(mut memo) = memo.write() {
         if memo.len() >= MEMO_LIMIT {
             memo.clear();
         }
-        memo.insert(key, verdict.clone());
+        memo.entry(key).or_default().push((schema.clone(), verdict.clone()));
     }
     verdict
 }
@@ -471,29 +559,18 @@ pub(crate) fn report_exclusion(options: &RequestOptions, found: ToolExclusion) {
     }
 }
 
-/// Verdicts by schema text and rule: validating a schema compiles it, which a
+/// Verdicts by schema and rule: validating a schema compiles it, which a
 /// request would repeat for every tool on every turn.
 #[derive(Default, Debug)]
 pub struct SchemaMemo {
-    verdicts: RwLock<HashMap<(Rule, String), Result<JsonValue, Problem>>>,
+    verdicts: RwLock<Verdicts<Rule>>,
 }
 
 const MEMO_LIMIT: usize = 256;
 
 impl SchemaMemo {
     fn verdict(&self, schema: &JsonValue, rule: Rule) -> Result<JsonValue, Problem> {
-        let key = (rule, schema.to_string());
-        if let Some(found) = self.verdicts.read().ok().and_then(|m| m.get(&key).cloned()) {
-            return found;
-        }
-        let verdict = wire_input_schema(schema, rule);
-        if let Ok(mut memo) = self.verdicts.write() {
-            if memo.len() >= MEMO_LIMIT {
-                memo.clear();
-            }
-            memo.insert(key, verdict.clone());
-        }
-        verdict
+        memoized(&self.verdicts, rule, schema, || wire_input_schema(schema, rule))
     }
 
     /// `tools` with each unacceptable one left out (reported through
@@ -551,6 +628,25 @@ mod tests {
             defer_loading: false,
             freeform: None,
         }
+    }
+
+    /// The memo's key is the schema itself in its key order, not its text: the same schema with its keys reordered is a
+    /// different entry and keeps its own order, and a repeated schema is a hit.
+    #[test]
+    fn the_memo_tells_apart_key_order_and_hits_a_repeat() {
+        let a = json!({ "type": "object", "properties": { "x": { "type": "string" }, "y": { "type": "number" } } });
+        let b = json!({ "type": "object", "properties": { "y": { "type": "number" }, "x": { "type": "string" } } });
+        assert_eq!(a, b, "preserve-order maps compare without order");
+        assert!(!same_schema(&a, &b));
+        assert_ne!(schema_hash(&a), schema_hash(&b));
+        assert!(same_schema(&a, &a.clone()) && schema_hash(&a) == schema_hash(&a.clone()));
+        assert_ne!(schema_hash(&json!([1, [2]])), schema_hash(&json!([[1], 2])));
+        let memo = SchemaMemo::default();
+        let order = |v: &JsonValue| v["properties"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+        assert_eq!(order(&memo.verdict(&a, Rule::Anthropic).unwrap()), ["x", "y"]);
+        assert_eq!(order(&memo.verdict(&b, Rule::Anthropic).unwrap()), ["y", "x"]);
+        assert_eq!(order(&memo.verdict(&a, Rule::Anthropic).unwrap()), ["x", "y"]);
+        assert_eq!(memo.verdicts.read().unwrap().values().map(Vec::len).sum::<usize>(), 2);
     }
 
     fn accept(tools: &[ToolDefinition], rule: Rule) -> (Vec<ToolDefinition>, Vec<ToolExclusion>) {

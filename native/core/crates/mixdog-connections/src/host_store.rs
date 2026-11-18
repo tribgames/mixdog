@@ -233,6 +233,39 @@ struct Inner {
     gate: Semaphore,
     /// The id each target being connected for the first time holds, with the attempts that share it.
     reservations: std::sync::Mutex<HashMap<String, (String, usize)>>,
+    turns: TargetTurns,
+}
+
+/// One turn per server (by the key of its target) for everything that decides whether the server is saved: a connection from
+/// its check to the end of its save, and a forget from the close of its link to the retirement of its attempts. They never
+/// interleave, so a connection neither saves a server a forget is removing nor works with a row that is gone.
+#[derive(Default)]
+struct TargetTurns {
+    held: std::sync::Mutex<HashMap<String, Arc<Semaphore>>>,
+}
+
+/// A server's turn, or the wait for it, until dropped. Every clone and drop of a gate happens under the map's lock (the permit
+/// borrows the gate instead of holding a clone of it), so the last one out, holder or waiter that went away, removes the entry.
+pub(crate) struct TargetTurn<'a> {
+    turns: &'a TargetTurns,
+    key: String,
+    gate: Option<Arc<Semaphore>>,
+    /// The turn was taken (and its permit is given back on drop); false for a waiter that went away first.
+    taken: bool,
+}
+
+impl Drop for TargetTurn<'_> {
+    fn drop(&mut self) {
+        let mut held = self.turns.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(gate) = self.gate.take() else { return };
+        if self.taken {
+            gate.add_permits(1);
+        }
+        drop(gate);
+        if held.get(&self.key).is_some_and(|gate| Arc::strong_count(gate) == 1) {
+            held.remove(&self.key);
+        }
+    }
 }
 
 /// The saved SSH servers; clones share one list.
@@ -254,7 +287,25 @@ impl SshHostStore {
             }
         };
         let (state, _) = watch::channel(Arc::new(hosts));
-        Self { inner: Arc::new(Inner { io, file, state, gate: Semaphore::new(1), reservations: std::sync::Mutex::new(HashMap::new()) }) }
+        Self { inner: Arc::new(Inner { io, file, state, gate: Semaphore::new(1), reservations: std::sync::Mutex::new(HashMap::new()), turns: TargetTurns::default() }) }
+    }
+
+    /// Waits for the turn of the server whose target has `key` (`SshTarget::key`).
+    pub(crate) async fn turn(&self, key: &str) -> TargetTurn<'_> {
+        let turns = &self.inner.turns;
+        let gate = turns.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(key.to_owned()).or_insert_with(|| Arc::new(Semaphore::new(1))).clone();
+        let mut turn = TargetTurn { turns, key: key.to_owned(), gate: Some(gate), taken: false };
+        if let Some(gate) = &turn.gate {
+            gate.acquire().await.expect("a server's gate is never closed").forget();
+        }
+        turn.taken = true;
+        turn
+    }
+
+    /// How many servers have a turn held or waited for.
+    #[cfg(test)]
+    pub(crate) fn turns_in_use(&self) -> usize {
+        self.inner.turns.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
     }
 
     /// The saved servers, newest first.
@@ -377,7 +428,12 @@ impl SshHostStore {
         if hosts.len() == before {
             return Ok(());
         }
-        self.commit(hosts).await
+        // Written first, published after: a list that could not be saved still has the server in it, so Forget can be tried again
+        // (the other changes publish first because a failed write there loses nothing the user asked to remove).
+        let document = serde_json::json!({ "version": 1, "hosts": hosts });
+        write_state(self.inner.io, self.inner.file.clone(), document, true).await?;
+        self.inner.state.send_replace(Arc::new(hosts));
+        Ok(())
     }
 
     /// Publishes the new list, then writes it (keeping the replaced file as `.bak`). The caller holds the gate.

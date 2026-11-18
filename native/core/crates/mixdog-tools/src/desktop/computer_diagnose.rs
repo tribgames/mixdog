@@ -57,6 +57,137 @@ fn grants(answer: &Value) -> Option<Value> {
     Some(Value::Object(grants))
 }
 
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use mixdog_core_api::domain::computer::ComputerAction;
+    use mixdog_core_api::domain::computer::ComputerBackend;
+    use mixdog_core_api::domain::computer::ComputerRequest;
+
+    use super::super::computer_backend::ComputerConfig;
+    use super::super::computer_backend::ComputerShared;
+    use super::super::computer_targets::testing::Scripted;
+    use super::*;
+
+    fn helper(request: &Value) -> Result<Value, String> {
+        match request["action"].as_str() {
+            Some("list_windows" | "window_snapshot") => Ok(json!({"windows": [
+                {"id": "hwnd:0x2", "focused": true, "app": "notepad", "title": "a.txt", "class_name": "Notepad"},
+                {"id": "hwnd:0x3", "focused": false, "app": "calc", "title": "Calculator", "class_name": "CalcFrame"},
+            ]})),
+            Some("accessibility_probe") => Ok(json!({"interactive": true})),
+            Some("ocr_status") => Ok(json!({
+                "available": request.get("ocr_language") != Some(&json!("xx")),
+                "requested_language": request["ocr_language"],
+                "active_language": "en-US",
+                "installed_languages": ["en-US"],
+            })),
+            Some("input_idle_state") => Ok(json!({"observer_ready": true, "desktop_ready": true, "ready": true, "held": false, "idleMs": 900})),
+            _ => Ok(json!({"text": "ok"})),
+        }
+    }
+
+    async fn diagnose_with(manager: &Arc<Scripted>, observe_only: bool, input: Value) -> Value {
+        let shared = ComputerShared { observe_only: Arc::new(move || observe_only), ..ComputerShared::default() };
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared);
+        let parts = backend.run(ComputerRequest { action: ComputerAction::Diagnose, input }, CancellationToken::new()).await.unwrap();
+        let ToolPart::Text(report) = &parts[0] else { panic!("a text part") };
+        serde_json::from_str(report).unwrap()
+    }
+
+    /// A requested window that is not listed, an OCR language that is not installed and observation-only mode are all reported.
+    #[tokio::test]
+    async fn findings_are_reported_as_issues() {
+        let manager = Scripted::new(helper);
+        let report = diagnose_with(&manager, true, json!({"window_id": "hwnd:0x9", "ocr_language": "xx"})).await;
+
+        assert_eq!(report["ready"], false);
+        assert_eq!(report["capabilities"]["input_mode"], "observation_only");
+        assert_eq!(report["issues"], json!(["requested window is unavailable: hwnd:0x9", "OCR language is unavailable: xx"]));
+    }
+
+    /// A desktop that answers the display list and the grants it reads.
+    struct Grants(Value);
+
+    #[async_trait::async_trait]
+    impl mixdog_core_api::HostChannel for Grants {
+        async fn request(&self, _: mixdog_core_api::HostCapability, method: mixdog_core_api::ids::Method, _: Value) -> Result<Value, mixdog_core_api::HostError> {
+            match method.0 {
+                "host/computer/displays" => Ok(json!([])),
+                "host/computer/permissions" => Ok(self.0.clone()),
+                // The window lists a desktop shows no window of its own in.
+                "host/computer/internalWindows" => Ok(json!({"windowIds": []})),
+                "host/computer/appWindows" => Ok(json!({"windows": []})),
+                other => panic!("the diagnose asked the desktop for {other}"),
+            }
+        }
+
+        fn notify(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(), mixdog_core_api::CoreError> {
+            Ok(())
+        }
+    }
+
+    async fn diagnose_granting(grants: Value) -> Value {
+        let manager = Scripted::new(helper);
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager).with_desktop(Arc::new(Grants(grants)));
+        let parts = backend.run(ComputerRequest { action: ComputerAction::Diagnose, input: json!({}) }, CancellationToken::new()).await.unwrap();
+        let ToolPart::Text(report) = &parts[0] else { panic!("a text part") };
+        serde_json::from_str(report).unwrap()
+    }
+
+    /// Where the desktop reads the grants they are the report's `permissions`, and a macOS grant still to be given is named as an issue
+    /// (`diagnoseIssues`): the Screen Recording one after the others.
+    #[tokio::test]
+    async fn the_grants_the_desktop_reads_are_reported_and_a_missing_one_is_named() {
+        let report = diagnose_granting(json!({"screenCapture": "denied", "accessibility": "not-determined", "input": "granted"})).await;
+        assert_eq!(report["permissions"], json!({"screen_capture": "denied", "accessibility": "not-determined", "input": "granted"}));
+        assert_eq!(report["issues"], json!([ACCESSIBILITY_GUIDANCE, SCREEN_RECORDING_GUIDANCE]));
+
+        let granted = diagnose_granting(json!({"screenCapture": "not_required_on_windows", "accessibility": "target_integrity_dependent", "input": "accessibility_dependent"})).await;
+        assert_eq!(granted["issues"], json!([]));
+        assert_eq!(granted["permissions"]["accessibility"], "target_integrity_dependent");
+    }
+
+    /// A grant that blocks accessibility is named in place of the accessibility probe's own restatement of it.
+    #[test]
+    fn a_blocked_accessibility_grant_replaces_the_probes_restatement() {
+        let mut report = json!({
+            "capabilities": {"semantic_accessibility": {"available": false, "reason": "UI Automation is unavailable"}},
+            "issues": ["UI Automation is unavailable", "OCR language is unavailable: xx"],
+        });
+        name_missing_grants(&mut report, &json!({"screen_capture": "granted", "accessibility": "denied", "input": "granted"}));
+        assert_eq!(report["issues"], json!([ACCESSIBILITY_GUIDANCE, "OCR language is unavailable: xx"]));
+    }
+
+
+    /// Off Linux the report is the host's own: the windows and the focused one, the probes of the requested or focused window, the
+    /// OCR language reaching `ocr_status`, the input mode and the issues.
+    #[tokio::test]
+    async fn the_report_is_the_hosts_on_every_platform() {
+        let manager = Scripted::new(helper);
+        let report = diagnose_with(&manager, false, json!({"ocr_language": "ko"})).await;
+
+        assert_eq!(report["action"], "diagnose");
+        assert_eq!(report["platform"], platform());
+        assert_eq!(report["ok"], true);
+        assert_eq!(report["ready"], true);
+        assert_eq!(report["windows"], json!({"available": true, "count": 2, "focused_window_id": "hwnd:0x2"}));
+        assert_eq!(report["capabilities"]["input_mode"], "enabled");
+        assert_eq!(report["capabilities"]["semantic_accessibility"]["target_window_id"], "hwnd:0x2");
+        assert_eq!(report["capabilities"]["ocr"]["requested_language"], "ko");
+        assert_eq!(report["issues"], json!([]));
+        assert!(report.get("permissions").is_none() && report.get("displays").is_none(), "no desktop serves them here");
+        let sent = manager.lines();
+        let ocr = sent.iter().find(|line| line["action"] == "ocr_status").expect("the OCR probe");
+        assert_eq!(ocr["ocr_language"], "ko");
+        let access = sent.iter().find(|line| line["action"] == "accessibility_probe").expect("the accessibility probe");
+        assert_eq!(access["window_id"], "hwnd:0x2");
+        assert!(sent.iter().all(|line| line["read_only"] == json!(true)), "every probe is a read: {sent:?}");
+    }
+}
+
+
 /// Node's `process.platform` of the machine this process runs on.
 fn platform() -> &'static str {
     match std::env::consts::OS {
@@ -65,6 +196,7 @@ fn platform() -> &'static str {
         other => other,
     }
 }
+
 
 impl ProcessComputerBackend {
     /// Every command of the host starts with a read of the windows through its arrivals worker; the answer is not used here.
@@ -140,134 +272,5 @@ impl ProcessComputerBackend {
             shown = parsed.to_string();
         }
         Ok(vec![ToolPart::Text(shown)])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use mixdog_core_api::domain::computer::ComputerAction;
-    use mixdog_core_api::domain::computer::ComputerBackend;
-    use mixdog_core_api::domain::computer::ComputerRequest;
-
-    use super::super::computer_backend::ComputerConfig;
-    use super::super::computer_backend::ComputerShared;
-    use super::super::computer_targets::testing::Scripted;
-    use super::*;
-
-    fn helper(request: &Value) -> Result<Value, String> {
-        match request["action"].as_str() {
-            Some("list_windows" | "window_snapshot") => Ok(json!({"windows": [
-                {"id": "hwnd:0x2", "focused": true, "app": "notepad", "title": "a.txt", "class_name": "Notepad"},
-                {"id": "hwnd:0x3", "focused": false, "app": "calc", "title": "Calculator", "class_name": "CalcFrame"},
-            ]})),
-            Some("accessibility_probe") => Ok(json!({"interactive": true})),
-            Some("ocr_status") => Ok(json!({
-                "available": request.get("ocr_language") != Some(&json!("xx")),
-                "requested_language": request["ocr_language"],
-                "active_language": "en-US",
-                "installed_languages": ["en-US"],
-            })),
-            Some("input_idle_state") => Ok(json!({"observer_ready": true, "desktop_ready": true, "ready": true, "held": false, "idleMs": 900})),
-            _ => Ok(json!({"text": "ok"})),
-        }
-    }
-
-    async fn diagnose_with(manager: &Arc<Scripted>, observe_only: bool, input: Value) -> Value {
-        let shared = ComputerShared { observe_only: Arc::new(move || observe_only), ..ComputerShared::default() };
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared);
-        let parts = backend.run(ComputerRequest { action: ComputerAction::Diagnose, input }, CancellationToken::new()).await.unwrap();
-        let ToolPart::Text(report) = &parts[0] else { panic!("a text part") };
-        serde_json::from_str(report).unwrap()
-    }
-
-    /// Off Linux the report is the host's own: the windows and the focused one, the probes of the requested or focused window, the
-    /// OCR language reaching `ocr_status`, the input mode and the issues.
-    #[tokio::test]
-    async fn the_report_is_the_hosts_on_every_platform() {
-        let manager = Scripted::new(helper);
-        let report = diagnose_with(&manager, false, json!({"ocr_language": "ko"})).await;
-
-        assert_eq!(report["action"], "diagnose");
-        assert_eq!(report["platform"], platform());
-        assert_eq!(report["ok"], true);
-        assert_eq!(report["ready"], true);
-        assert_eq!(report["windows"], json!({"available": true, "count": 2, "focused_window_id": "hwnd:0x2"}));
-        assert_eq!(report["capabilities"]["input_mode"], "enabled");
-        assert_eq!(report["capabilities"]["semantic_accessibility"]["target_window_id"], "hwnd:0x2");
-        assert_eq!(report["capabilities"]["ocr"]["requested_language"], "ko");
-        assert_eq!(report["issues"], json!([]));
-        assert!(report.get("permissions").is_none() && report.get("displays").is_none(), "no desktop serves them here");
-        let sent = manager.lines();
-        let ocr = sent.iter().find(|line| line["action"] == "ocr_status").expect("the OCR probe");
-        assert_eq!(ocr["ocr_language"], "ko");
-        let access = sent.iter().find(|line| line["action"] == "accessibility_probe").expect("the accessibility probe");
-        assert_eq!(access["window_id"], "hwnd:0x2");
-        assert!(sent.iter().all(|line| line["read_only"] == json!(true)), "every probe is a read: {sent:?}");
-    }
-
-    /// A requested window that is not listed, an OCR language that is not installed and observation-only mode are all reported.
-    #[tokio::test]
-    async fn findings_are_reported_as_issues() {
-        let manager = Scripted::new(helper);
-        let report = diagnose_with(&manager, true, json!({"window_id": "hwnd:0x9", "ocr_language": "xx"})).await;
-
-        assert_eq!(report["ready"], false);
-        assert_eq!(report["capabilities"]["input_mode"], "observation_only");
-        assert_eq!(report["issues"], json!(["requested window is unavailable: hwnd:0x9", "OCR language is unavailable: xx"]));
-    }
-
-    /// A desktop that answers the display list and the grants it reads.
-    struct Grants(Value);
-
-    #[async_trait::async_trait]
-    impl mixdog_core_api::HostChannel for Grants {
-        async fn request(&self, _: mixdog_core_api::HostCapability, method: mixdog_core_api::ids::Method, _: Value) -> Result<Value, mixdog_core_api::HostError> {
-            match method.0 {
-                "host/computer/displays" => Ok(json!([])),
-                "host/computer/permissions" => Ok(self.0.clone()),
-                // The window lists a desktop shows no window of its own in.
-                "host/computer/internalWindows" => Ok(json!({"windowIds": []})),
-                "host/computer/appWindows" => Ok(json!({"windows": []})),
-                other => panic!("the diagnose asked the desktop for {other}"),
-            }
-        }
-
-        fn notify(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(), mixdog_core_api::CoreError> {
-            Ok(())
-        }
-    }
-
-    async fn diagnose_granting(grants: Value) -> Value {
-        let manager = Scripted::new(helper);
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager).with_desktop(Arc::new(Grants(grants)));
-        let parts = backend.run(ComputerRequest { action: ComputerAction::Diagnose, input: json!({}) }, CancellationToken::new()).await.unwrap();
-        let ToolPart::Text(report) = &parts[0] else { panic!("a text part") };
-        serde_json::from_str(report).unwrap()
-    }
-
-    /// Where the desktop reads the grants they are the report's `permissions`, and a macOS grant still to be given is named as an issue
-    /// (`diagnoseIssues`): the Screen Recording one after the others.
-    #[tokio::test]
-    async fn the_grants_the_desktop_reads_are_reported_and_a_missing_one_is_named() {
-        let report = diagnose_granting(json!({"screenCapture": "denied", "accessibility": "not-determined", "input": "granted"})).await;
-        assert_eq!(report["permissions"], json!({"screen_capture": "denied", "accessibility": "not-determined", "input": "granted"}));
-        assert_eq!(report["issues"], json!([ACCESSIBILITY_GUIDANCE, SCREEN_RECORDING_GUIDANCE]));
-
-        let granted = diagnose_granting(json!({"screenCapture": "not_required_on_windows", "accessibility": "target_integrity_dependent", "input": "accessibility_dependent"})).await;
-        assert_eq!(granted["issues"], json!([]));
-        assert_eq!(granted["permissions"]["accessibility"], "target_integrity_dependent");
-    }
-
-    /// A grant that blocks accessibility is named in place of the accessibility probe's own restatement of it.
-    #[test]
-    fn a_blocked_accessibility_grant_replaces_the_probes_restatement() {
-        let mut report = json!({
-            "capabilities": {"semantic_accessibility": {"available": false, "reason": "UI Automation is unavailable"}},
-            "issues": ["UI Automation is unavailable", "OCR language is unavailable: xx"],
-        });
-        name_missing_grants(&mut report, &json!({"screen_capture": "granted", "accessibility": "denied", "input": "granted"}));
-        assert_eq!(report["issues"], json!([ACCESSIBILITY_GUIDANCE, "OCR language is unavailable: xx"]));
     }
 }

@@ -1149,13 +1149,6 @@ mod tests {
         [data.data()[0], data.data()[1], data.data()[2], data.data()[3]]
     }
 
-    fn lisu() -> Registry {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/office-measure/faces/NotoSansLisu-Regular.ttf");
-        let mut registry = Registry::new();
-        registry.register_file(&Unlaned, &path, Some("Twin Lisu")).expect("the fixture face registers");
-        registry
-    }
-
     const LISU_32: &str = "32px \"Twin Lisu\"";
 
     /// `(left, top, right, bottom)` of the pixels with any ink, exclusive on the far edges.
@@ -1610,6 +1603,13 @@ mod tests {
         assert_eq!(canvas.into_pixmap().width(), 3);
     }
 
+
+    fn lisu() -> Registry {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../mixdog-pdf/assets/standard_fonts/LiberationSans-Regular.ttf");
+        let mut registry = Registry::new();
+        registry.register_file(&Unlaned, &path, Some("Twin Lisu")).expect("the repository face registers");
+        registry
+    }
     #[test]
     fn text_is_drawn_from_the_baseline_up_in_the_registered_face() {
         let registry = lisu();
@@ -1622,7 +1622,6 @@ mod tests {
         assert!((top as i32 - 16).abs() <= 2, "a cap height of 0.714 em: {top}");
         assert!(left >= 10 && right <= 10 + 26, "{left} {right}");
     }
-
     #[test]
     fn alignment_baseline_and_max_width_place_the_text() {
         let registry = lisu();
@@ -1658,7 +1657,6 @@ mod tests {
         none.fill_text(&Unlaned, &registry, "H", 1.0, 15.0, Some(0.0)).unwrap();
         assert!(ink(&none).is_none(), "a maximum width of zero draws nothing");
     }
-
     #[test]
     fn stroked_text_leaves_ink() {
         let registry = lisu();
@@ -1668,7 +1666,6 @@ mod tests {
         canvas.stroke_text(&Unlaned, &registry, "I", 20.0, 50.0, None).unwrap();
         assert!(ink(&canvas).is_some());
     }
-
     #[test]
     fn a_missing_font_is_reported_and_korean_text_is_set_when_a_face_has_it() {
         let empty = Registry::new();
@@ -1679,7 +1676,6 @@ mod tests {
         canvas.set_font("12px \"Twin Lisu\"");
         canvas.fill_text(&Unlaned, &registry, "\u{d55c}\u{ae00}", 1.0, 15.0, None).unwrap();
     }
-
     #[test]
     fn measure_text_uses_the_current_letter_spacing() {
         let registry = lisu();

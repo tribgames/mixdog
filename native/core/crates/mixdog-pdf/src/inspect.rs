@@ -146,8 +146,6 @@ impl std::fmt::Display for InspectError {
     }
 }
 
-impl std::error::Error for InspectError {}
-
 /// A text cut to a byte budget (`boundedUtf8`'s answer).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bounded {
@@ -575,3 +573,6 @@ mod tests {
         assert_eq!(fine.check(), Ok(()));
     }
 }
+
+
+impl std::error::Error for InspectError {}

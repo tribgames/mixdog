@@ -30,6 +30,8 @@ use mixdog_connections::notifier::{
 };
 use mixdog_core_api::host::{HostCapability, HostChannel};
 use mixdog_core_api::ids::Method;
+use mixdog_core_api::domain::approval::ApprovalKind;
+use mixdog_core_api::server_request::PendingServerRequest;
 use mixdog_core_domains::notify::decision::{Conversation, DESKTOP_HOLD_MS, Event, Origin, SessionFields};
 use mixdog_core_domains::notify::engine::{
     Audience, HostToast, NotificationEngine, PushApproval, PushRequest, PushSchedule, ThreadEvent,
@@ -51,6 +53,15 @@ const TURN_FAILED_PUSH_TEXT: &str = "The turn stopped with an error.";
 /// The body of a question's push.
 const QUESTION_PUSH_TEXT: &str = "에이전트가 질문했습니다";
 const DEFAULT_TITLE: &str = "Mixdog";
+
+/// Browser cards have a separate session-mark feed and must never enter actionable push production.
+pub(crate) fn notification_card(req: &PendingServerRequest) -> Option<Value> {
+    if req.method == ApprovalKind::Browser.method() {
+        return None;
+    }
+    let frame: Value = serde_json::from_slice(&req.frame).ok()?;
+    frame.pointer("/params/card").filter(|card| card.is_object()).cloned()
+}
 
 /// What a session waits on: a tool approval, or an ask_user question.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

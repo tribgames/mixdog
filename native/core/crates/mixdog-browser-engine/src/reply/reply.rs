@@ -108,8 +108,6 @@ impl fmt::Display for ReplyError {
     }
 }
 
-impl std::error::Error for ReplyError {}
-
 /// What the page looked like before the gesture, for the "no observable change" judgement.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EffectBaseline {
@@ -776,3 +774,6 @@ mod tests {
         assert_eq!(ReplyOutcome::Completed.as_str(), "completed");
     }
 }
+
+
+impl std::error::Error for ReplyError {}

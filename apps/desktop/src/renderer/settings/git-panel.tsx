@@ -92,7 +92,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
     };
   }, [host]);
 
-  // Poll the login flow while it is live; a terminal state stops the timer.
+  // Follow the live flow until the host reports an outcome or acknowledges cancellation.
   const flowId = flow?.flowId || '';
   const flowState = flow?.state || '';
   useGithubLoginPolling({ host, flowId, flowState, setFlow, setStatus, refreshStatus });
@@ -167,6 +167,8 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const loading = status === null;
   const busyAny = Boolean(busy);
   const flowLive = flowState === 'pending' || flowState === 'code';
+  const canConnect =
+    typeof host?.githubCliLoginStart === 'function' && typeof host.githubCliLoginCancel === 'function';
   const cli = cliStatusView(loading, status);
 
   // Same grammar as every other Extensions card: sections of item rows whose
@@ -209,7 +211,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
               )}
               {status?.installed && !status.authenticated && !flowLive && (
                 <ExtensionAction
-                  disabled={busyAny}
+                  disabled={busyAny || !canConnect}
                   onClick={() =>
                     act('connect', () =>
                       host?.githubCliLoginStart?.().then((started) => {
@@ -233,11 +235,13 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
                 <ExtensionAction
                   danger
                   disabled={busyAny}
-                  onClick={() => {
-                    const id = flowId;
-                    setFlow(null);
-                    act('cancel', () => host?.githubCliLoginCancel?.(id));
-                  }}
+                  onClick={() =>
+                    act('cancel', () =>
+                      host?.githubCliLoginCancel?.(flowId).then(() => {
+                        setFlow((current) => (current?.flowId === flowId ? null : current));
+                      })
+                    )
+                  }
                 >
                   {t('Cancel')}
                 </ExtensionAction>

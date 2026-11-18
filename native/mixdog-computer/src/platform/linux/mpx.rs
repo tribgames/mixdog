@@ -15,10 +15,8 @@ use x11rb::protocol::xinput::{
     self, ChangeMode, ConnectionExt as _, DeviceType, HierarchyChange, HierarchyChangeData,
     HierarchyChangeDataAddMaster, HierarchyChangeDataRemoveMaster,
 };
-use x11rb::protocol::xproto::{ConnectionExt as _, Window};
-use x11rb::protocol::xtest::ConnectionExt as _;
+use x11rb::protocol::xproto::Window;
 use x11rb::wrapper::ConnectionExt as _;
-use x11rb::CURRENT_TIME;
 
 // XInput 1 device event offsets from the extension's first event.
 const DEVICE_KEY_PRESS: u8 = 1;
@@ -148,55 +146,19 @@ pub struct MpxRoute<'a> {
 }
 
 impl MpxRoute<'_> {
-    fn first_event(&self) -> Result<u8, String> {
-        let reply = self
-            .x11
-            .conn
-            .query_extension(b"XInputExtension")
-            .map_err(e)?
-            .reply()
-            .map_err(e)?;
-        if !reply.present {
-            return Err(
-                "background_unsupported|the X server has no XInput extension; no input sent".into(),
-            );
-        }
-        Ok(reply.first_event)
-    }
-
+    /// One event on a private master's device through the executor's port (`port::device_event`): a press owned from its
+    /// hand-over, a release the hold's own.
     fn device_event(&self, offset: u8, detail: u8, device: u16) -> Result<(), String> {
-        let kind = self.first_event()? + offset;
-        self.x11
-            .conn
-            .xtest_fake_input(
-                kind,
-                detail,
-                CURRENT_TIME,
-                self.x11.root,
-                0,
-                0,
-                device as u8,
-            )
-            .map_err(|error| format!("background_message_rejected|{error}"))?;
-        self.x11.conn.sync().map_err(e)
+        super::port::device_event(offset, detail, device)
     }
 
     fn warp(&self, devices: Devices, x: i32, y: i32) -> Result<(), String> {
-        self.x11
-            .conn
-            .xinput_xi_warp_pointer(
-                x11rb::NONE,
-                self.x11.root,
-                0,
-                0,
-                0,
-                0,
-                x << 16,
-                y << 16,
-                devices.pointer,
-            )
-            .map_err(|error| format!("background_message_rejected|{error}"))?;
-        self.x11.conn.sync().map_err(e)
+        super::port::x_request(super::port::XRequest::Warp { x, y, pointer: devices.pointer })
+    }
+
+    /// The private keyboard's focus on `window`, through the executor's port.
+    fn set_focus(&self, window: Window, devices: Devices) -> Result<(), String> {
+        super::port::x_request(super::port::XRequest::DeviceFocus { window, keyboard: devices.keyboard })
     }
 
     fn button(&self, devices: Devices, button: u8, press: bool) -> Result<(), String> {
@@ -404,11 +366,7 @@ impl Background for MpxRoute<'_> {
 
     fn keys(&self, window: Wid, keys_text: &str) -> Result<String, String> {
         let (window, devices) = self.target(window)?;
-        self.x11
-            .conn
-            .xinput_xi_set_focus(window, CURRENT_TIME, devices.keyboard)
-            .map_err(e)?;
-        self.x11.conn.sync().map_err(e)?;
+        self.set_focus(window, devices)?;
         let mut sink = PrivateKeys {
             route: self,
             devices,
@@ -425,11 +383,7 @@ impl Background for MpxRoute<'_> {
 
     fn text(&self, window: Wid, text: &str) -> Result<String, String> {
         let (window, devices) = self.target(window)?;
-        self.x11
-            .conn
-            .xinput_xi_set_focus(window, CURRENT_TIME, devices.keyboard)
-            .map_err(e)?;
-        self.x11.conn.sync().map_err(e)?;
+        self.set_focus(window, devices)?;
         let result = PrivateKeys {
             route: self,
             devices,

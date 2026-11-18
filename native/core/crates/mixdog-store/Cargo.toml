@@ -29,6 +29,7 @@ regress = { workspace = true }
 rusqlite = { workspace = true, features = ["hooks"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+indexmap = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
@@ -37,6 +38,9 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = { workspace = true }
+
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
@@ -44,13 +48,13 @@ mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-app-protocol = { workspace = true }
 mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
 mixdog-store = { path = ".", features = ["crash-hook", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-protocol = { workspace = true }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
-# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+# whatever packages are selected (<build-tools>\unify-test-features.py).
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }

@@ -6,6 +6,15 @@ const ID_A: &str = "11111111-1111-4111-8111-111111111111";
 const ID_B: &str = "22222222-2222-4222-8222-222222222222";
 const PROVIDER: &str = "command-code-oauth";
 
+#[test]
+fn account_ids_are_uuids_or_default() {
+    let id = new_account_id();
+    assert!(valid_account_id(&id) && id.as_bytes()[14] == b'4');
+    assert!(valid_account_id("default") && !valid_account_id("Default") && !valid_account_id("../x"));
+}
+
+struct Override(String);
+
 fn store(dir: &tempfile::TempDir) -> AccountStore {
     let tokens = mixdog_rt::testing::tokens();
     AccountStore::new(
@@ -16,7 +25,6 @@ fn store(dir: &tempfile::TempDir) -> AccountStore {
         },
     )
 }
-
 #[tokio::test]
 async fn an_unregistered_provider_has_no_accounts_and_no_credential() {
     let dir = tempfile::tempdir().unwrap();
@@ -26,7 +34,6 @@ async fn an_unregistered_provider_has_no_accounts_and_no_credential() {
     assert!(matches!(s.pool("nope").await, Err(AccountError::Invalid(_))));
     assert!(!s.roster_path().exists(), "reading writes nothing");
 }
-
 #[tokio::test]
 async fn register_labels_selects_first_and_keeps_the_previous_roster_as_bak() {
     let dir = tempfile::tempdir().unwrap();
@@ -42,7 +49,6 @@ async fn register_labels_selects_first_and_keeps_the_previous_roster_as_bak() {
     assert!(dir.path().join("provider-accounts.json.bak").exists());
     assert_eq!(s.accounts(PROVIDER).await.unwrap().len(), 3);
 }
-
 #[tokio::test]
 async fn has_credential_reads_the_slots_file() {
     let dir = tempfile::tempdir().unwrap();
@@ -57,7 +63,6 @@ async fn has_credential_reads_the_slots_file() {
     std::fs::write(&path, "{ not json").unwrap();
     assert!(s.has_credential(PROVIDER, ID_A).await.unwrap(), "unreadable is never a logout");
 }
-
 /// `anthropic-oauth-credentials.mjs` `loadCredentials()` returns null before reading the file when
 /// `MIXDOG_MODEL_PROXY=client`; `refreshOAuthCredentials` throws instead of writing.
 #[tokio::test]
@@ -76,7 +81,6 @@ async fn a_remote_client_store_holds_no_oauth_credentials() {
     assert_eq!(refused.kind(), std::io::ErrorKind::PermissionDenied);
     assert_eq!(std::fs::read_to_string(dir.path().join("anthropic-oauth-credentials.json")).unwrap(), credential);
 }
-
 #[tokio::test]
 async fn change_validates_and_select_if_loses_to_a_newer_selection() {
     let dir = tempfile::tempdir().unwrap();
@@ -115,7 +119,6 @@ async fn change_validates_and_select_if_loses_to_a_newer_selection() {
     let removed = s.remove(PROVIDER, ID_A).await.unwrap();
     assert_eq!(removed.selected_id.as_deref(), Some(ID_B), "selection falls to the first remaining");
 }
-
 #[tokio::test]
 async fn a_selection_move_calls_the_hook_and_other_writes_do_not() {
     let dir = tempfile::tempdir().unwrap();
@@ -129,7 +132,6 @@ async fn a_selection_move_calls_the_hook_and_other_writes_do_not() {
     s.block(PROVIDER, ID_A, s.now_ms() + 1000, "", BlockOptions::default()).await.unwrap();
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
-
 #[tokio::test]
 async fn blocks_cap_replace_per_model_and_a_free_reading_lifts_them() {
     let dir = tempfile::tempdir().unwrap();
@@ -147,6 +149,18 @@ async fn blocks_cap_replace_per_model_and_a_free_reading_lifts_them() {
     assert_eq!(blocks[1].blocked_until, far, "a named reset is kept as given");
     let pool = s.block(PROVIDER, ID_A, far, "m1", BlockOptions::default()).await.unwrap();
     assert_eq!(pool.accounts[0].blocks().len(), 2, "same-model refusal replaces its own block");
+    // A withdrawn meter retires the usage its own sign-in measured, read back from the stored row (so after a restart),
+    // never another sign-in's or an unstamped one, and never the refusal blocks.
+    let stamped = |stamp: Option<&str>| vec![QuotaWindowInput { label: "5H".into(), used_pct: Some(100.0), credential: stamp.map(str::to_owned), ..QuotaWindowInput::default() }];
+    s.record_usage(PROVIDER, ID_A, stamped(Some("mine"))).await.unwrap();
+    assert!(!s.retire_usage(PROVIDER, ID_A, "someone else").await.unwrap(), "another credential's stamp retires nothing");
+    assert_eq!(s.pool(PROVIDER).await.unwrap().account(ID_A).unwrap().usage.as_ref().unwrap().windows.len(), 1);
+    assert!(s.retire_usage(PROVIDER, ID_A, "mine").await.unwrap());
+    let kept = s.pool(PROVIDER).await.unwrap();
+    assert!(kept.account(ID_A).unwrap().usage.as_ref().unwrap().windows.is_empty());
+    assert_eq!(kept.account(ID_A).unwrap().blocks().len(), 2, "the independent refusals stay");
+    s.record_usage(PROVIDER, ID_A, stamped(None)).await.unwrap();
+    assert!(!s.retire_usage(PROVIDER, ID_A, "mine").await.unwrap(), "an unstamped reading is not attributed to any sign-in");
     let free = |used| QuotaWindowInput { label: "5H".into(), used_pct: Some(used), ..QuotaWindowInput::default() };
     s.record_usage(PROVIDER, ID_A, vec![free(100.0)]).await.unwrap();
     assert_eq!(s.accounts(PROVIDER).await.unwrap()[0].blocks().len(), 2, "a full meter lifts nothing");
@@ -157,7 +171,33 @@ async fn blocks_cap_replace_per_model_and_a_free_reading_lifts_them() {
     s.clear_quota_state(PROVIDER, ID_A).await.unwrap();
     assert!(s.accounts(PROVIDER).await.unwrap()[0].usage.is_none());
 }
+#[tokio::test]
+async fn a_withdrawn_go_cap_frees_the_full_meter_it_measured_but_not_an_independent_refusal() {
+    const GO: &str = "opencode-go-oauth";
+    let dir = tempfile::tempdir().unwrap();
+    let s = store(&dir);
+    s.register(GO, ID_A, "A", false).await.unwrap();
+    let now = s.now_ms();
+    let model = "kimi-k2";
+    let full = || vec![QuotaWindowInput { label: "M".into(), used_pct: Some(100.0), reset_at: Some(now + 3_600_000), ..QuotaWindowInput::default() }];
+    let served = |row: &Account| !policy::account_exhausted(row, now, model, false);
 
+    // Full: the account is refused for every Go model; the status then states no cap: eligible again.
+    s.record_usage(GO, ID_A, full()).await.unwrap();
+    assert!(!served(&s.accounts(GO).await.unwrap()[0]));
+    s.record_usage(GO, ID_A, Vec::new()).await.unwrap();
+    let row = &s.accounts(GO).await.unwrap()[0];
+    assert!(row.usage.as_ref().unwrap().windows.is_empty(), "the measured window is retired");
+    assert!(served(row), "no meter and no refusal: dispatch is eligible");
+
+    // A refusal the provider gave on its own survives the retirement of the meter.
+    s.block(GO, ID_A, now + 600_000, model, BlockOptions { server_scheduled: true, ..BlockOptions::default() }).await.unwrap();
+    s.record_usage(GO, ID_A, full()).await.unwrap();
+    s.record_usage(GO, ID_A, Vec::new()).await.unwrap();
+    let row = &s.accounts(GO).await.unwrap()[0];
+    assert_eq!(row.blocks().len(), 1, "the refusal is not cleared");
+    assert!(!served(row), "and still holds the account until it lifts");
+}
 #[tokio::test]
 async fn a_damaged_roster_is_set_aside_and_the_last_good_copy_restored() {
     let dir = tempfile::tempdir().unwrap();
@@ -177,7 +217,6 @@ async fn a_damaged_roster_is_set_aside_and_the_last_good_copy_restored() {
     std::fs::remove_file(dir.path().join("provider-accounts.json.bak")).unwrap();
     assert!(s.accounts(PROVIDER).await.unwrap().is_empty(), "no good copy: start empty");
 }
-
 #[tokio::test]
 async fn a_newer_builds_roster_is_never_overwritten_and_unknown_fields_survive() {
     let dir = tempfile::tempdir().unwrap();
@@ -196,7 +235,6 @@ async fn a_newer_builds_roster_is_never_overwritten_and_unknown_fields_survive()
     let text = std::fs::read_to_string(s.roster_path()).unwrap();
     assert!(text.contains("future-oauth") && text.contains("\"extra\": true") && text.contains("\"note\": \"keep\""));
 }
-
 #[tokio::test]
 async fn custom_provider_key_rosters_follow_the_ids_and_vanish_when_empty() {
     let dir = tempfile::tempdir().unwrap();
@@ -210,10 +248,20 @@ async fn custom_provider_key_rosters_follow_the_ids_and_vanish_when_empty() {
     s.set_custom_key_ids("custom-x", vec![]).await.unwrap();
     assert!(s.accounts("custom-x").await.unwrap().is_empty());
 }
-
-#[test]
-fn account_ids_are_uuids_or_default() {
-    let id = new_account_id();
-    assert!(valid_account_id(&id) && id.as_bytes()[14] == b'4');
-    assert!(valid_account_id("default") && !valid_account_id("Default") && !valid_account_id("../x"));
+impl crate::registry::keys::Environment for Override {
+    fn var(&self, name: &str) -> Option<String> {
+        (name == "ANTIGRAVITY_OAUTH_CREDENTIALS_PATH").then(|| self.0.clone())
+    }
+}
+/// A credential file moved out of the data folder by its variable does not move the model caches: `data_dir` stays
+/// the plugin data folder, where Node's `makeModelCache` always keeps them.
+#[tokio::test]
+async fn the_data_dir_stays_put_when_a_credential_file_is_elsewhere() {
+    let dir = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let moved = elsewhere.path().join("ag.json").display().to_string();
+    let s = store(&dir).with_env(std::sync::Arc::new(Override(moved)));
+    let file = s.credential_file("antigravity-oauth", "default").unwrap();
+    assert_eq!(file.path().parent(), Some(elsewhere.path()));
+    assert_eq!(s.data_dir(), dir.path());
 }

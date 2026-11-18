@@ -43,6 +43,8 @@ use super::coordinator::Sent;
 use super::coordinator::Settle;
 use super::coordinator::StreamChannel;
 use super::coordinator::WriteGate;
+use crate::clients::table::Revocation;
+use crate::media::Permit;
 use super::media::MediaLink;
 use super::media::TransportMedia;
 use super::signal::CloseReason;
@@ -350,6 +352,12 @@ impl TransportSession {
     /// Starts the session of a handshake that negotiated the transport. Nothing has been sent on
     /// the channel yet: the first message sent through [`Self::send`] is its record 1.
     pub fn open(env: Arc<dyn SessionEnv>, client_id: &str, device: String, session_id: &str, channel: Channel) -> Arc<Self> {
+        Self::open_under(env, client_id, device, session_id, channel, Revocation::default())
+    }
+
+    /// [`open`](Self::open) of a session whose phone's credential the client table owns: its media streams are committed under that
+    /// capability, so an unpair (or a credential already revoked) ends them.
+    pub fn open_under(env: Arc<dyn SessionEnv>, client_id: &str, device: String, session_id: &str, channel: Channel, revocation: Revocation) -> Arc<Self> {
         let media_key = channel.media_key().copied();
         let (relay_out, relay_rx) = mpsc::unbounded_channel();
         let session = Arc::new_cyclic(|weak: &Weak<TransportSession>| {
@@ -372,7 +380,7 @@ impl TransportSession {
             }
         });
         let link = Arc::new(SessionLink { session: Arc::downgrade(&session) });
-        let media = TransportMedia::new(link, env.media_sources(), media_key, Some(device));
+        let media = TransportMedia::under(link, env.media_sources(), media_key, Some(device), revocation);
         lock(&session.coordinator).set_media(Box::new(media));
         tokio::spawn(relay_writer(Arc::downgrade(&session), relay_rx));
         tokio::spawn(ticker(Arc::downgrade(&session)));
@@ -545,17 +553,40 @@ impl MediaLink for SessionLink {
         self.session.upgrade().is_some_and(|session| session.run(|c| c.media_can_admit(stream)))
     }
 
-    async fn send(&self, message: Value, stream: Option<&str>) -> Result<bool, ()> {
+    async fn send(&self, message: Value, stream: Option<&str>, permit: Option<Permit>, gated: bool) -> Result<bool, ()> {
         let session = self.session.upgrade().ok_or(())?;
-        let (waiter, result) = oneshot::channel();
-        let options = SendOptions { droppable: false, stream: stream.map(str::to_owned), meter: None, gate: None };
+        let (waiter, mut result) = oneshot::channel();
+        let gate = permit.as_ref().filter(|_| gated).map(|permit| WriteGate(permit.commit_fn()));
+        let options = SendOptions { droppable: false, stream: stream.map(str::to_owned), meter: None, gate };
+        let mut queued = None;
         session.run(|c| match c.send(&message.to_string(), options) {
             Sent::Settled(result) => {
                 let _ = waiter.send(result);
             }
-            Sent::Queued(ticket) => c.host_mut().wait_for(ticket, waiter),
+            Sent::Queued(ticket) => {
+                queued = Some(ticket);
+                c.host_mut().wait_for(ticket, waiter);
+            }
         });
-        match result.await {
+        // A delivery waits in the coordinator's queue behind what is ahead of it. When its authority ends first, it is withdrawn from
+        // the queue (its ticket released, nothing of it sealed) instead of waiting for room that may never come.
+        let result = match (permit, queued) {
+            (Some(permit), Some(ticket)) => {
+                let settled = tokio::select! {
+                    settled = &mut result => Some(settled),
+                    () = permit.ended() => None,
+                };
+                match settled {
+                    Some(settled) => settled,
+                    None => {
+                        session.run(|c| c.cancel_send(ticket));
+                        result.await
+                    }
+                }
+            }
+            _ => result.await,
+        };
+        match result {
             Ok(Ok(sent)) => Ok(sent.is_some()),
             _ => Err(()),
         }

@@ -434,7 +434,7 @@ mod tests {
     }
 
     fn comment() -> GrantKey {
-        GrantKey::Kind(ActionKind::Comment)
+        GrantKey::tool("mcp__github__add_issue_comment").expect("key")
     }
 
     #[tokio::test]
@@ -450,7 +450,7 @@ mod tests {
         let doc: Value = serde_json::from_str(&text).expect("json");
         let row = &doc["grants"][0];
         assert_eq!(row["agentId"], "bot");
-        assert_eq!(row["action"], "comment");
+        assert_eq!(row["action"], "tool:mcp__github__add_issue_comment");
         assert_eq!(row["mode"], "allow");
         assert_eq!(row["device"], "Pixel");
         assert!(row["id"].as_str().is_some_and(|id| id.starts_with("grant_") && id.len() == 30));
@@ -471,6 +471,67 @@ mod tests {
         let shell = GrantKey::tool("shell").expect("key");
         assert_eq!(store.mode_for("any", &shell, false).await, Ok(PermissionMode::Allow));
         assert_eq!(store.list_grants(None).await.expect("list").len(), 1);
+    }
+
+    /// Upgrade rule. A row of 1.4.5 (and of the builds since) names only an action category: it
+    /// cannot say which tool the person meant, so an `allow` of a connector category grants nothing
+    /// and the person is asked once more. A `block`, a tool row and the browser's own allow stand.
+    #[tokio::test]
+    async fn a_category_allow_stored_by_1_4_5_no_longer_grants_but_blocks_and_tool_rows_stand() {
+        let dir = tempfile::tempdir().expect("dir");
+        let row = |agent: &str, action: &str, mode: &str| {
+            let id = super::super::grants::grant_id(agent, &GrantKey::parse(action).expect("action"));
+            format!("{{\"id\":\"{id}\",\"agentId\":\"{agent}\",\"action\":\"{action}\",\"mode\":\"{mode}\",\"device\":\"Pixel\",\"at\":1700000000000}}")
+        };
+        let rows = [
+            row("bot", "comment", "allow"),
+            row("*", "email", "allow"),
+            row("bot", "message", "block"),
+            row("bot", "browser_submit", "allow"),
+            row("bot", "tool:shell", "allow"),
+        ];
+        std::fs::write(dir.path().join(GRANTS_FILE), format!("{{\n  \"grants\": [\n    {}\n  ]\n}}\n", rows.join(",\n    "))).expect("write");
+        let store = store_in(dir.path());
+        let kind = |kind| GrantKey::Kind(kind);
+        assert_eq!(store.mode_for("bot", &kind(ActionKind::Comment), false).await, Ok(PermissionMode::Ask));
+        assert_eq!(store.mode_for("bot", &kind(ActionKind::Email), false).await, Ok(PermissionMode::Ask), "an every-agent category allow too");
+        assert_eq!(store.mode_for("bot", &kind(ActionKind::Message), false).await, Ok(PermissionMode::Block));
+        assert_eq!(store.mode_for("bot", &kind(ActionKind::BrowserSubmit), false).await, Ok(PermissionMode::Allow));
+        assert_eq!(store.mode_for("bot", &GrantKey::tool("shell").expect("key"), false).await, Ok(PermissionMode::Allow));
+        assert_eq!(store.list_grants(None).await.expect("list").len(), 3);
+        // The next answer is stored for its tool, and the old category rows leave the file.
+        assert_eq!(store.grant("bot", &comment(), ApprovalRemember::Agent, "").await, Ok(true));
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join(GRANTS_FILE)).expect("file")).expect("json");
+        let mut actions: Vec<&str> = doc["grants"].as_array().expect("rows").iter().map(|r| r["action"].as_str().expect("action")).collect();
+        actions.sort_unstable();
+        assert_eq!(actions, ["browser_submit", "message", "tool:mcp__github__add_issue_comment", "tool:shell"]);
+    }
+
+    /// A row hand-edited to another owner or action keeps the id of the row it was: it is damaged, grants nothing to
+    /// anyone, and leaves the file with the next write; the file's other rows stand.
+    #[tokio::test]
+    async fn a_row_edited_away_from_its_id_is_dropped_on_load() {
+        let dir = tempfile::tempdir().expect("dir");
+        let shell = GrantKey::tool("shell").expect("key");
+        let mailers = super::super::grants::grant_id("mailer", &shell);
+        let notes = super::super::grants::grant_id("mailer", &GrantKey::tool("notes").expect("key"));
+        let kept = super::super::grants::grant_id("scribe", &comment());
+        let text = format!(
+            "{{\n  \"grants\": [\n    {{\"id\":\"{mailers}\",\"agentId\":\"*\",\"action\":\"tool:shell\",\"mode\":\"allow\",\"device\":\"\",\"at\":1}},\n    {{\"id\":\"{notes}\",\"agentId\":\"mailer\",\"action\":\"tool:shell\",\"mode\":\"allow\",\"device\":\"\",\"at\":1}},\n    {{\"id\":\"{kept}\",\"agentId\":\"scribe\",\"action\":\"tool:mcp__github__add_issue_comment\",\"mode\":\"allow\",\"device\":\"\",\"at\":1}}\n  ]\n}}\n"
+        );
+        std::fs::write(dir.path().join(GRANTS_FILE), text).expect("write");
+        let store = store_in(dir.path());
+        for agent in ["mailer", "scribe", "lead"] {
+            assert_eq!(store.mode_for(agent, &shell, false).await, Ok(PermissionMode::Ask), "{agent}");
+        }
+        assert_eq!(store.mode_for("scribe", &comment(), false).await, Ok(PermissionMode::Allow));
+        let listed: Vec<String> = store.list_grants(None).await.expect("list").into_iter().map(|g| g.id).collect();
+        assert_eq!(listed, [kept.clone()]);
+        assert_eq!(store.revoke_grant(&mailers).await, Ok(false), "no row of that id exists");
+        assert_eq!(store.grant("lead", &comment(), ApprovalRemember::Agent, "").await, Ok(true));
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join(GRANTS_FILE)).expect("file")).expect("json");
+        let ids: Vec<&str> = doc["grants"].as_array().expect("rows").iter().map(|r| r["id"].as_str().expect("id")).collect();
+        assert!(!ids.contains(&mailers.as_str()) && !ids.contains(&notes.as_str()) && ids.contains(&kept.as_str()), "{ids:?}");
     }
 
     #[tokio::test]

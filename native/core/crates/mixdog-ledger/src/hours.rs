@@ -10,6 +10,8 @@ use crate::measure::amount;
 use crate::measure::is_conversation_source;
 use crate::measure::js_number;
 use crate::measure::known_cost_turns;
+use crate::measure::num;
+use crate::rollup::Hourly;
 use crate::time::local_fields;
 use mixdog_js::math::to_fixed;
 
@@ -119,10 +121,9 @@ fn tokens_of(row: &Value, fields: [&str; 4]) -> f64 {
     fields.iter().map(|f| amount(row.get(*f))).sum()
 }
 
-/// `records` is the rollup's `hourly` (`{rows, unallocated}`); the period bounds come from the
-/// resolved period.
+/// `records` is the rollup's `hourly`; the period bounds come from the resolved period.
 pub fn hourly_series(
-    records: Option<&Value>,
+    records: Option<&Hourly>,
     from_ms: i64,
     to_ms: i64,
     end_ms: i64,
@@ -142,19 +143,12 @@ pub fn hourly_series(
         buckets.push(bucket);
         ts += HOUR_MS;
     }
-    let rows = records
-        .and_then(|r| r.get("rows"))
-        .and_then(Value::as_array);
-    for row in rows.into_iter().flatten() {
-        let Some(row_ts) = row.get("ts").and_then(Value::as_f64) else {
-            continue;
-        };
+    for row in records.into_iter().flat_map(|r| &r.rows) {
+        let row_ts = row.ts as f64;
         if row_ts < from_ms as f64 || row_ts > to_ms as f64 {
             continue;
         }
-        if conversation_only
-            && !is_conversation_source(row.get("source_type").and_then(Value::as_str))
-        {
+        if conversation_only && !is_conversation_source(row.source_type.as_deref()) {
             continue;
         }
         let at = (((row_ts - from_ms as f64) / HOUR_MS as f64).floor() as usize)
@@ -162,23 +156,22 @@ pub fn hourly_series(
         let Some(bucket) = buckets.get_mut(at) else {
             continue;
         };
-        let unmeasured = amount(row.get("unmeasuredTurns"));
-        let priced = row.get("cost_usd").is_some_and(|c| !c.is_null()) && unmeasured == 0.0;
+        // What the rollup document's numbers read as (`amount` of the JSON number, and a non-finite cost is null).
+        let unmeasured = if row.unmeasured { 1.0 } else { 0.0 };
+        let cost = row.cost_usd.filter(|c| c.is_finite());
+        let priced = cost.is_some() && !row.unmeasured;
         bucket.add(
-            row.get("provider").and_then(Value::as_str).unwrap_or(""),
+            &row.provider,
             1.0,
-            tokens_of(row, ["input", "output", "cache_read", "cache_write"]),
-            amount(row.get("cost_usd")),
+            num(row.input) + num(row.output) + num(row.cache_read) + num(row.cache_write),
+            cost.map_or(0.0, num),
             unmeasured,
             if priced { 1.0 } else { 0.0 },
         );
     }
     let mut unknown = Bucket::new("unknown-time".into(), String::new(), false);
     unknown.unknown = true;
-    let unallocated = records
-        .and_then(|r| r.get("unallocated"))
-        .and_then(Value::as_array);
-    for route in unallocated.into_iter().flatten() {
+    for route in records.into_iter().flat_map(|r| &r.unallocated) {
         let usage = if conversation_only {
             route.get("conversation")
         } else {

@@ -46,7 +46,7 @@ const { connectCatalogConnector, connectorLoginState, cancelConnectorLogin, star
 const { connectorById } = await import('../../shared/core-src/runtime/shared/connector-catalog.mjs');
 const { CategoryPanel } = await import('./capability-panels.tsx');
 const { ConnectorStep } = await import('../connector-step.tsx');
-const { McpEditorDialog, mcpErrorSummary } = await import('./mcp-editor-dialog.tsx');
+const { McpEditorDialog } = await import('./mcp-editor-dialog.tsx');
 
 const SKILL = 'secret-skill-name';
 const servers = [
@@ -212,7 +212,13 @@ test('the two tabs list connectors and packages, never skills', async () => {
     'unconnected rows offer 연결'
   );
   assert.ok(connectors.host.querySelector('[data-connector-package="docs-pack"]'));
-  assert.match(connectors.host.querySelector('[data-connector-row="broken"]').textContent, /Failed/);
+  // A custom connector's failure: the tag beside the name, its reason only as the tooltip.
+  const broken = connectors.host.querySelector('[data-connector-row="broken"]');
+  const brokenTag = broken.querySelector('.sidebar-resource-title > .sidebar-resource-tag');
+  assert.equal(brokenTag?.textContent, 'Failed');
+  assert.equal(brokenTag.previousElementSibling.tagName, 'B', 'right after the name');
+  assert.ok(brokenTag.title, 'the failure reason is the tag tooltip');
+  assert.equal(broken.querySelector('.utilities-row-copy').textContent, 'brokenFailed');
   assert.match(connectors.host.querySelector('[data-connector-row="off"]').textContent, /Disabled/);
   assert.ok(!text.includes(SKILL));
   await connectors.unmount();
@@ -269,7 +275,10 @@ test('the catalog OAuth row goes 연결 → browser sign-in → 연결됨, and a
   assert.equal(connectorLoginState('notion-2').phase, 'failed');
   await act(async () => {});
   const failed = pane.host.querySelector('[data-connector-row="notion"]');
-  assert.match(failed.textContent, /Couldn't connect/);
+  const failedTag = failed.querySelector('.sidebar-resource-title > .sidebar-resource-tag');
+  assert.equal(failedTag.textContent, 'Failed');
+  assert.match(failedTag.title, /Couldn't connect/);
+  assert.doesNotMatch(failed.textContent, /Couldn't connect/, 'the reason is the tooltip, not inline text');
   assert.equal(failed.querySelector('.extensions-action').textContent, 'Try again');
 
   // Retry: same id, no second add; connected only once the host says so.
@@ -401,7 +410,7 @@ test('the row follows the host flow step by step and turns 연결됨 in the same
   const look = () => {
     const row = rowOf(pane.host, 'linear');
     seen.push(
-      `${row.querySelector('small')?.textContent ?? ''}|${row.querySelector('.extensions-action')?.textContent ?? ''}|${row.querySelector('.connectors-row-step') ? 'spin' : ''}`
+      `${row.querySelector('.sidebar-resource-title .connectors-row-step')?.textContent ?? ''}|${row.querySelector('.extensions-action')?.textContent ?? ''}|${row.querySelector('.connectors-row-step') ? 'spin' : ''}`
     );
   };
   look();
@@ -853,7 +862,7 @@ test('Google Calendar and Drive sign-ins tell the user to check every box; other
   }
 });
 
-test('a scopeNotGranted failure row shows the short instruction whole, with the full sentence as its tooltip', async () => {
+test('a missing Google grant shows More access needed on the row and the full instruction in its tooltip', async () => {
   let live = [];
   handlers = {
     mcpStatus: () => ({ servers: live, googleClient: true }),
@@ -879,53 +888,19 @@ test('a scopeNotGranted failure row shows the short instruction whole, with the 
   );
   const row = pane.host.querySelector('[data-connector-row="google-calendar"]');
   assert.equal(row.dataset.rowStatus, 'failed');
-  const scope = row.querySelector('.connectors-row-scope');
-  assert.equal(scope.textContent, 'More access needed');
-  assert.match(scope.title, /check the access box on the Google screen before Continue\.$/);
-  assert.equal(
-    row.querySelector('.sidebar-resource-title > b').title,
-    'Google Calendar',
-    'the full name is the tooltip'
-  );
-  await pane.unmount();
-
   // Sidebar rule (structure the CSS keys on): the name is one <b> with its
-  // full text as title; the status is ONE <small> holding the badge and one
-  // text span, with the full text as its title.
-  const status = row.querySelector('.utilities-row-copy > small');
-  assert.equal(row.querySelectorAll('.utilities-row-copy > small').length, 1);
-  assert.equal(status.firstElementChild.className, 'sidebar-resource-tag');
-  assert.equal(status.querySelectorAll('.connectors-row-line').length, 1);
-  assert.equal(
-    row.querySelector('.sidebar-resource-title .sidebar-resource-tag'),
-    null,
-    'badge is not on the name line'
-  );
-
-  // The row keys on the failure kind, not on the summary text: after the UI
-  // language changes, the stored (English) summary no longer equals the
-  // translated sentence, and the short text still appears.
-  const { initUiLanguage, setUiLanguagePreference } = await import('../i18n.ts');
-  setUiLanguagePreference('ko');
-  await initUiLanguage();
-  try {
-    const korean = await render(
-      React.createElement(CategoryPanel, {
-        category: 'connectors',
-        context: panelContext({
-          data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] },
-        }),
-      })
-    );
-    const koScope = korean.host.querySelector('[data-connector-row="google-calendar"] .connectors-row-scope');
-    assert.ok(koScope, 'the short text shows although the stored summary text differs from the Korean sentence');
-    assert.notEqual(koScope.title, mcpErrorSummary('MCP OAuth scopeNotGranted'));
-    assert.equal(koScope.textContent, '권한 추가 필요');
-    await korean.unmount();
-  } finally {
-    setUiLanguagePreference('en');
-    await initUiLanguage();
-  }
+  // full text as title, and the tag follows it on the same title line; no
+  // second status line and no inline reason.
+  const title = row.querySelector('.sidebar-resource-title');
+  assert.equal(title.querySelector('b').title,'Google Calendar', 'the full name is the tooltip');
+  const tag = title.querySelector('.sidebar-resource-tag');
+  assert.equal(tag?.textContent, 'More access needed');
+  assert.equal(tag.previousElementSibling, title.querySelector('b'), 'right after the name');
+  assert.equal(tag.dataset.tone, 'danger');
+  assert.match(tag.title, /check the access box on the Google screen before Continue\.$/);
+  assert.equal(row.querySelector('.utilities-row-copy > small'), null, 'no second line');
+  assert.equal(row.querySelector('.utilities-row-copy').textContent, 'Google CalendarMore access needed');
+  await pane.unmount();
 });
 
 test('a sign-in Google granted without a requested access reads as the check-every-box sentence', async () => {

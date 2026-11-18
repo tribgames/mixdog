@@ -117,7 +117,7 @@ impl TagResume {
 
     /// A request naming another agent or directory asks for different work than the saved
     /// session did; that gets a fresh session instead.
-    fn request_fits(&self, session_agent: &str, session_cwd: &str, args: &Value, caller_cwd: &str) -> bool {
+    pub(crate) fn request_fits(&self, session_agent: &str, session_cwd: &str, args: &Value, caller_cwd: &str) -> bool {
         let agent = clean(args.get("agent"));
         if !agent.is_empty() && normalize_agent_name(&agent) != normalize_agent_name(session_agent) {
             return false;

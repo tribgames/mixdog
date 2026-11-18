@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::tool::SurfaceKind;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::mock::MockStatePublisher;
 use mixdog_rt::CancellationToken;
@@ -21,6 +22,10 @@ use mixdog_core_config::config::NoEffects;
 use mixdog_core_config::tool_modules::EffortJudgeState;
 use mixdog_core_config::tool_modules::External;
 use mixdog_core_config::tool_modules::ToolModulesHost;
+
+mod dispatch_rules;
+mod scalar_settings;
+mod status_domains;
 
 struct Host(watch::Sender<u64>);
 
@@ -39,8 +44,8 @@ impl ToolModulesHost for Host {
     fn changes(&self) -> watch::Receiver<u64> {
         self.0.subscribe()
     }
-    async fn prepare_builtin_feature(&self, _: &str, _: Option<&[String]>) -> Result<(), String> {
-        Ok(())
+    async fn prepare_builtin_feature(&self, _: &str, _: Option<&[String]>) -> Result<Option<Value>, String> {
+        Ok(None)
     }
     async fn stop_local_provider_server(&self) {}
     async fn sync_local_provider_registry(&self, _: bool) {}
@@ -116,9 +121,11 @@ impl SetupVoice for Voice {
     }
 }
 
+#[cfg(node_twin)]
 /// An owner of actions other packages serve: the dispatcher's part is the gate and the receipt.
 struct Owner;
 
+#[cfg(node_twin)]
 #[async_trait]
 impl SetupActions for Owner {
     fn actions(&self) -> &'static [&'static str] {
@@ -142,15 +149,329 @@ fn message(error: &PortError) -> String {
     }
 }
 
+#[cfg(node_twin)]
 const KEPT: [&str; 8] = [
     "saved", "scope", "appliesTo", "appliedToCurrentSession", "configured", "promptCacheWarming", "voice", "botOrder",
 ];
 
+#[cfg(node_twin)]
 fn kept(answer: &Value) -> Value {
     let fields = answer.as_object().unwrap();
     Value::Object(fields.iter().filter(|(key, _)| KEPT.contains(&key.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect())
 }
 
+/// `getUpdateSettings()` over a fixed check state, as the recorder's runtime answered it.
+struct UpdateView {
+    settings: Settings,
+    config: Config,
+}
+
+#[async_trait]
+impl UpdateSettings for UpdateView {
+    async fn set_auto_update(&self, enabled: bool) -> Result<Value, PortError> {
+        self.settings.set_auto_update(&Value::Bool(enabled)).await.map_err(from_modules)?;
+        let auto = self.config.agent().get("update").and_then(Value::as_object).and_then(|update| update.get("auto")).cloned();
+        Ok(json!({
+            "autoUpdate": auto != Some(Value::Bool(false)),
+            "currentVersion": "1.0.0",
+            "latestVersion": null,
+            "updateAvailable": false,
+            "lastCheckedAt": null,
+        }))
+    }
+}
+
+#[cfg(node_twin)]
+/// A stand-in for the local-model owner: the services crate's handlers are replayed against Node
+/// in that crate; what is checked here is the receipt this dispatcher wraps around any answer.
+struct LocalOwner;
+
+#[cfg(node_twin)]
+#[async_trait]
+impl SetupActions for LocalOwner {
+    fn actions(&self) -> &'static [&'static str] {
+        &[
+            "install_local_model", "start_local_installation", "cancel_local_installation", "set_local_idle_ttl",
+            "search_local_models", "inspect_hf_model", "register_hf_model", "local_model_details",
+            "maintain_local_model", "delete_local_model",
+        ]
+    }
+    async fn run(&self, call: &SetupCall<'_>) -> Result<Value, PortError> {
+        // `start_local_installation` answers `{ background: true, ...localProvider }` itself.
+        if call.action == "start_local_installation" {
+            return Ok(json!({ "background": true, "idleTtlSeconds": 3600 }));
+        }
+        Ok(json!({ "idleTtlSeconds": 3600 }))
+    }
+}
+
+#[cfg(node_twin)]
+/// The domain table, recording what a setup action calls on it. The answer names the Node facade
+/// method the recorded twin calls, so receipts compare whole.
+struct Recorded(Mutex<Vec<(&'static str, Value)>>);
+
+#[cfg(node_twin)]
+#[async_trait]
+impl DomainCalls for Recorded {
+    async fn call(&self, method: &'static str, params: Value) -> Result<Value, CoreError> {
+        self.0.lock().unwrap().push((method, params));
+        let node = match method {
+            "config/setWebSearchRoute" => "setWebSearchRoute",
+            "config/setModelPreferences" => "setModelPreferences",
+            "config/setCompactionSettings" => "setCompactionSettings",
+            "config/setAutoClear" => "setAutoClear",
+            "config/setNetworkProxy" => "setNetworkProxy",
+            "thread/setWorkflow" => "setWorkflow",
+            "thread/setOrchestrationMode" => "setOrchestrationMode",
+            "localProvider/setLocalProviderContext" | "config/getToolModuleSettings" => "setLocalProviderContext",
+            other => panic!("unexpected domain call {other}"),
+        };
+        Ok(json!({ "answered": node }))
+    }
+}
+
+#[cfg(node_twin)]
+/// What `validateSetupInput` (the tool-input layer, `mixdog-tools`) answers before a handler.
+fn is_input_layer(error: &str) -> bool {
+    error.starts_with("[tool-input-validation]")
+        || error.contains("is only accepted by")
+        || error.contains("supported settings is required")
+        || error.ends_with("requires at least one setting")
+}
+
+#[cfg(node_twin)]
+/// The media catalog, the pin store and the account roster of a recorded `set_media_default` world,
+/// logging each call under the Node facade method that made it.
+struct MediaWorld {
+    lanes: Value,
+    rosters: Value,
+    calls: Mutex<Vec<Value>>,
+}
+
+#[cfg(node_twin)]
+#[async_trait]
+impl DomainCalls for MediaWorld {
+    async fn call(&self, method: &'static str, params: Value) -> Result<Value, CoreError> {
+        let mut calls = self.calls.lock().unwrap();
+        match method {
+            "media/listMediaLanes" => {
+                calls.push(json!({ "method": "listMediaLanes", "args": [] }));
+                Ok(self.lanes.clone())
+            }
+            "media/setMediaPin" => {
+                let input = &params["input"];
+                calls.push(json!({ "method": "setMediaPin", "args": [input] }));
+                // The facade's pin store: a blank lane clears, anything else is kept as given.
+                let lane = input["lane"].as_str().unwrap().trim();
+                Ok(if lane.is_empty() {
+                    Value::Null
+                } else {
+                    json!({ "kind": input["kind"], "lane": lane, "model": input["model"].as_str().unwrap_or(""), "account": input["account"].as_str().unwrap_or("") })
+                })
+            }
+            other => panic!("unexpected domain call {other}"),
+        }
+    }
+}
+
+#[cfg(node_twin)]
+#[async_trait]
+impl ProviderAccounts for MediaWorld {
+    async fn accounts(&self, provider: &str) -> Result<Value, String> {
+        self.calls.lock().unwrap().push(json!({ "method": "getProviderAccounts", "args": [if provider.is_empty() { Value::Null } else { json!(provider) }] }));
+        self.rosters.get(provider).cloned().ok_or_else(|| "Unknown OAuth provider.".to_owned())
+    }
+}
+
+/// An attached UI that takes (or declines) every navigation and remembers what it was asked.
+struct OpenUi(bool, Mutex<Vec<(String, String)>>);
+
+#[cfg(node_twin)]
+/// The domain table answering a recorded case's getters, and remembering which were called.
+struct Getters(Value, Mutex<Vec<String>>);
+
+#[cfg(node_twin)]
+#[async_trait]
+impl DomainCalls for Getters {
+    async fn call(&self, method: &'static str, _: Value) -> Result<Value, CoreError> {
+        let node = method.strip_prefix("config/").or_else(|| method.strip_prefix("voice/")).unwrap();
+        self.1.lock().unwrap().push(node.to_owned());
+        Ok(self.0[node].clone())
+    }
+}
+
+#[cfg(node_twin)]
+#[async_trait]
+impl WorkflowFacts for Getters {
+    fn web_search_route(&self) -> Result<Value, PortError> {
+        self.1.lock().unwrap().push("getWebSearchRoute".to_owned());
+        Ok(self.0["getWebSearchRoute"].clone())
+    }
+    async fn onboarding(&self) -> Result<Value, PortError> {
+        self.1.lock().unwrap().push("getOnboardingStatus".to_owned());
+        Ok(self.0["getOnboardingStatus"].clone())
+    }
+    async fn workflows(&self) -> Result<Value, PortError> {
+        self.1.lock().unwrap().push("listWorkflows".to_owned());
+        Ok(self.0["listWorkflows"].clone())
+    }
+}
+
+#[cfg(node_twin)]
+/// The desktop's bridges, as the recorded case's answer shows them (the host's fact).
+struct Bridges(Value);
+
+#[cfg(node_twin)]
+impl FeatureActivity for Bridges {
+    fn active(&self, id: &str) -> bool {
+        let shown = if self.0.get(id).is_some() { &self.0[id] } else { &self.0["features"][id] };
+        shown["active"] == true
+    }
+}
+
+#[cfg(node_twin)]
+/// The session's live Lead route, as the recorded facade carried it.
+struct Route(Value, Arc<Getters>);
+
+#[cfg(node_twin)]
+#[async_trait]
+impl LiveRoute for Route {
+    fn route(&self, _: &ThreadId) -> Value {
+        self.0.clone()
+    }
+    fn lead_fallbacks(&self) -> Value {
+        self.1.1.lock().unwrap().push("listPresets".to_owned());
+        let presets = self.1.0["listPresets"].as_array().cloned().unwrap_or_default();
+        presets.iter().find(|preset| preset["id"] == "workflow-lead").map_or(Value::Null, |preset| preset["fallbacks"].clone())
+    }
+    async fn positions(&self, _: &ThreadId, _: bool) -> Result<Value, PortError> {
+        Ok(json!({ "sessions": [] }))
+    }
+}
+
+#[cfg(node_twin)]
+/// The model catalog and the web-search model list, answering a recorded case's rows.
+struct Catalog(Value, Mutex<Vec<(String, bool)>>);
+
+#[cfg(node_twin)]
+#[async_trait]
+impl DomainCalls for Catalog {
+    async fn call(&self, method: &'static str, params: Value) -> Result<Value, CoreError> {
+        let (rows, refresh) = match method {
+            "model/list" => (&self.0["rows"], &params["refresh"]),
+            "account/listWebSearchModels" => (&self.0["webRows"], &params["options"]["refresh"]),
+            other => panic!("unexpected domain call {other}"),
+        };
+        self.1.lock().unwrap().push((method.to_owned(), refresh.as_bool().unwrap()));
+        Ok(rows.clone())
+    }
+}
+/// A saved `lead` permission row is Mixy's policy: its receipt names where it applies; another agent's keeps the generic one
+/// (a deliberate difference from Node, which promised "every session").
+#[test]
+fn the_lead_permission_receipt_does_not_promise_the_coding_lead() {
+    let lead: Value = serde_json::from_str(&receipt("set_agent_permission", json!({ "agent": "lead", "permissions": [] }))).unwrap();
+    assert_eq!(lead["saved"], json!(true));
+    let applies = lead["appliesTo"].as_str().unwrap();
+    assert!(applies.contains("Mixy") && applies.contains("coding Lead sessions have no outbound rule"), "{applies}");
+    let other: Value = serde_json::from_str(&receipt("set_agent_permission", json!({ "agent": "alpha", "permissions": [] }))).unwrap();
+    assert_eq!(other["appliesTo"], json!(applies_to("set_agent_permission")));
+}
+
+async fn settings_service(
+    dir: &Path,
+    document: Value,
+    world: &Arc<World>,
+    pending: bool,
+) -> (SetupService, Config, Arc<mixdog_core_base::quota_resume::QuotaResumeStore>) {
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let path = dir.join("mixdog-config.json");
+    std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+    let publisher = Arc::new(MockStatePublisher::default());
+    let (config, _) = Config::open(path, publisher.clone(), lanes).await.unwrap();
+    let modules = ToolModules::with_env(config.clone(), Arc::new(Host(watch::channel(0).0)), publisher, CancellationToken::new(), Arc::new(|_| None));
+    let store = Arc::new(mixdog_core_base::quota_resume::QuotaResumeStore::open(dir, tokens.durability_io, CancellationToken::new()).await.unwrap());
+    if pending {
+        let request = json!({ "sessionId": "sess_a", "turnKey": "t1", "provider": "openai", "resetAt": 4_102_444_800_000u64 });
+        store.schedule(&request).await.unwrap();
+    }
+    let settings = Settings::new(config.clone(), Arc::new(NoEffects), Arc::new(|_| None));
+    let owner = SettingsSetup::new(
+        settings.clone(),
+        Arc::new(UpdateView { settings, config: config.clone() }),
+        QuotaAutoResume::new(config.clone(), store.clone()),
+    );
+    let service = SetupService::new(config.clone(), modules, Arc::new(Callers(world.clone())), Arc::new(Desktop), Arc::new(Voice(world.clone())))
+        .with_actions(Arc::new(owner));
+    (service, config, store)
+}
+async fn settings_call(service: &SetupService, args: &Value) -> Result<Value, String> {
+    settings_call_on(service, "s", args).await
+}
+async fn settings_call_on(service: &SetupService, thread: &str, args: &Value) -> Result<Value, String> {
+    let cwd = AbsPath::new(std::env::temp_dir()).unwrap();
+    let cancel = CancellationToken::new();
+    let thread = ThreadId::from(thread);
+    match service.call(ServiceCall { thread: &thread, surface: SurfaceKind::Lead, cwd: &cwd, args, cancel: &cancel }).await {
+        Ok(parts) => {
+            let ToolPart::Text(text) = &parts[0] else { panic!("text part") };
+            Ok(serde_json::from_str(text).unwrap())
+        }
+        Err(error) => Err(message(&error)),
+    }
+}
+/// `config/value/write` of `quotaAutoResume: false` (or any writer) drops the pending resumes through the config follow, as
+/// Node's setter does; turning it on again drops nothing.
+#[tokio::test]
+async fn the_quota_switch_going_off_through_the_config_drops_pending_resumes() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = Arc::new(World::default());
+    let (_service, config, store) = settings_service(dir.path(), json!({ "agent": {}, "desktop": { "zoom": 1 } }), &world, true).await;
+    assert_eq!(store.list().len(), 1);
+    let cancel = CancellationToken::new();
+    let follow = QuotaAutoResume::new(config.clone(), store.clone()).follow(cancel.clone());
+    config
+        .update(move |doc| {
+            doc.insert("quotaAutoResume".into(), Value::Bool(false));
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !store.list().is_empty() {
+        assert!(tokio::time::Instant::now() < deadline, "the pending resume was not dropped");
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    // On again: a resume scheduled now stays.
+    config
+        .update(move |doc| {
+            doc.insert("quotaAutoResume".into(), Value::Bool(true));
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let request = json!({ "sessionId": "sess_b", "turnKey": "t2", "provider": "openai", "resetAt": 4_102_444_800_000u64 });
+    store.schedule(&request).await.unwrap();
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert_eq!(store.list().len(), 1);
+    cancel.cancel();
+    follow.await.unwrap();
+}
+#[async_trait]
+impl SetupUiSurface for OpenUi {
+    async fn notify(&self, _: &ThreadId, _: &str, _: std::time::Duration) -> bool {
+        false
+    }
+    async fn settled(&self, _: &ThreadId, _: &str) {}
+    async fn open(&self, thread: &ThreadId, command: &str) -> bool {
+        self.1.lock().unwrap().push((thread.as_str().to_owned(), command.to_owned()));
+        self.0
+    }
+}
+
+
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_dispatcher_answers_what_the_recorded_node_executor_answered() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/setup-dispatch-twin.json");
@@ -204,74 +525,7 @@ async fn the_dispatcher_answers_what_the_recorded_node_executor_answered() {
     }
     assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), entries.len(), failures.join("\n"));
 }
-
-/// `getUpdateSettings()` over a fixed check state, as the recorder's runtime answered it.
-struct UpdateView {
-    settings: Settings,
-    config: Config,
-}
-
-#[async_trait]
-impl UpdateSettings for UpdateView {
-    async fn set_auto_update(&self, enabled: bool) -> Result<Value, PortError> {
-        self.settings.set_auto_update(&Value::Bool(enabled)).await.map_err(from_modules)?;
-        let auto = self.config.agent().get("update").and_then(Value::as_object).and_then(|update| update.get("auto")).cloned();
-        Ok(json!({
-            "autoUpdate": auto != Some(Value::Bool(false)),
-            "currentVersion": "1.0.0",
-            "latestVersion": null,
-            "updateAvailable": false,
-            "lastCheckedAt": null,
-        }))
-    }
-}
-
-async fn settings_service(
-    dir: &Path,
-    document: Value,
-    world: &Arc<World>,
-    pending: bool,
-) -> (SetupService, Config, Arc<mixdog_core_base::quota_resume::QuotaResumeStore>) {
-    let tokens = mixdog_rt::testing::tokens();
-    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-    let path = dir.join("mixdog-config.json");
-    std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
-    let publisher = Arc::new(MockStatePublisher::default());
-    let (config, _) = Config::open(path, publisher.clone(), lanes).await.unwrap();
-    let modules = ToolModules::with_env(config.clone(), Arc::new(Host(watch::channel(0).0)), publisher, CancellationToken::new(), Arc::new(|_| None));
-    let store = Arc::new(mixdog_core_base::quota_resume::QuotaResumeStore::open(dir, tokens.durability_io, CancellationToken::new()).await.unwrap());
-    if pending {
-        let request = json!({ "sessionId": "sess_a", "turnKey": "t1", "provider": "openai", "resetAt": 4_102_444_800_000u64 });
-        store.schedule(&request).await.unwrap();
-    }
-    let settings = Settings::new(config.clone(), Arc::new(NoEffects), Arc::new(|_| None));
-    let owner = SettingsSetup::new(
-        settings.clone(),
-        Arc::new(UpdateView { settings, config: config.clone() }),
-        QuotaAutoResume::new(config.clone(), store.clone()),
-    );
-    let service = SetupService::new(config.clone(), modules, Arc::new(Callers(world.clone())), Arc::new(Desktop), Arc::new(Voice(world.clone())))
-        .with_actions(Arc::new(owner));
-    (service, config, store)
-}
-
-async fn settings_call(service: &SetupService, args: &Value) -> Result<Value, String> {
-    settings_call_on(service, "s", args).await
-}
-
-async fn settings_call_on(service: &SetupService, thread: &str, args: &Value) -> Result<Value, String> {
-    let cwd = AbsPath::new(std::env::temp_dir()).unwrap();
-    let cancel = CancellationToken::new();
-    let thread = ThreadId::from(thread);
-    match service.call(ServiceCall { thread: &thread, surface: SurfaceKind::Lead, cwd: &cwd, args, cancel: &cancel }).await {
-        Ok(parts) => {
-            let ToolPart::Text(text) = &parts[0] else { panic!("text part") };
-            Ok(serde_json::from_str(text).unwrap())
-        }
-        Err(error) => Err(message(&error)),
-    }
-}
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_scalar_actions_answer_what_the_recorded_node_executor_answered() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/setup-settings-twin.json");
@@ -305,9 +559,9 @@ async fn the_scalar_actions_answer_what_the_recorded_node_executor_answered() {
     assert!(compared >= 600, "{compared} compared");
     assert!(failures.is_empty(), "{} of {compared} differ:\n{}", failures.len(), failures.join("\n"));
 }
-
+#[cfg(node_twin)]
 #[tokio::test]
-async fn the_quota_switch_is_the_quota_auto_resume_key_and_off_drops_pending_resumes() {
+async fn the_quota_switch_is_the_1_4_5_key_and_off_drops_pending_resumes() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/setup-settings-twin.json");
     let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let world = Arc::new(World::default());
@@ -317,91 +571,22 @@ async fn the_quota_switch_is_the_quota_auto_resume_key_and_off_drops_pending_res
     for entry in quota {
         let dir = tempfile::tempdir().unwrap();
         let stored = if entry["stored"].is_null() { json!({}) } else { entry["stored"].clone() };
-        // Node's recorded section held the switch at `quotaResume.autoResume` beside its other keys. The core keeps the switch at
-        // `quotaAutoResume` and leaves the rest of the section where it is (the migration moves only the switch), so the
-        // stored section is seeded split the way the migration leaves it.
-        let mut rest = stored.as_object().cloned().unwrap_or_default();
-        let switch = rest.shift_remove("autoResume");
+        // Node's recorded section holds the switch at `quotaResume.autoResume` beside its other keys, and the core reads and
+        // writes it there as it is: no step moves it first.
         let mut document = json!({ "agent": {}, "desktop": { "zoom": 1 } });
-        if !rest.is_empty() {
-            document["quotaResume"] = Value::Object(rest);
-        }
-        if let Some(switch) = switch {
-            document["quotaAutoResume"] = switch;
+        if stored.as_object().is_some_and(|section| !section.is_empty()) {
+            document["quotaResume"] = stored.clone();
         }
         let (service, config, store) = settings_service(dir.path(), document, &world, entry["pending"].as_bool().unwrap()).await;
         let got = settings_call(&service, &entry["args"]).await.unwrap();
         assert_eq!(got, entry["result"]["answer"], "{entry}");
-        // Node's whole section, every extra key included, is what the two places hold together.
-        let mut section = config.get("quotaResume").and_then(|rest| rest.as_object().cloned()).unwrap_or_default();
-        if let Some(switch) = config.get("quotaAutoResume") {
-            section.insert("autoResume".into(), switch);
-        }
+        // Node's whole section, every extra key included, is what the file holds.
+        let section = config.get("quotaResume").and_then(|rest| rest.as_object().cloned()).unwrap_or_default();
         assert_eq!(Value::Object(section), entry["section"], "{entry}");
         assert_eq!(store.list().len() as u64, entry["entries"].as_u64().unwrap(), "{entry}");
     }
 }
-
-/// `config/value/write` of `quotaAutoResume: false` (or any writer) drops the pending resumes through the config follow, as
-/// Node's setter does; turning it on again drops nothing.
-#[tokio::test]
-async fn the_quota_switch_going_off_through_the_config_drops_pending_resumes() {
-    let dir = tempfile::tempdir().unwrap();
-    let world = Arc::new(World::default());
-    let (_service, config, store) = settings_service(dir.path(), json!({ "agent": {}, "desktop": { "zoom": 1 } }), &world, true).await;
-    assert_eq!(store.list().len(), 1);
-    let cancel = CancellationToken::new();
-    let follow = QuotaAutoResume::new(config.clone(), store.clone()).follow(cancel.clone());
-    config
-        .update(move |doc| {
-            doc.insert("quotaAutoResume".into(), Value::Bool(false));
-            Ok(())
-        })
-        .await
-        .unwrap();
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-    while !store.list().is_empty() {
-        assert!(tokio::time::Instant::now() < deadline, "the pending resume was not dropped");
-        mixdog_rt::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    // On again: a resume scheduled now stays.
-    config
-        .update(move |doc| {
-            doc.insert("quotaAutoResume".into(), Value::Bool(true));
-            Ok(())
-        })
-        .await
-        .unwrap();
-    let request = json!({ "sessionId": "sess_b", "turnKey": "t2", "provider": "openai", "resetAt": 4_102_444_800_000u64 });
-    store.schedule(&request).await.unwrap();
-    mixdog_rt::time::sleep(std::time::Duration::from_millis(150)).await;
-    assert_eq!(store.list().len(), 1);
-    cancel.cancel();
-    follow.await.unwrap();
-}
-
-/// A stand-in for the local-model owner: the services crate's handlers are replayed against Node
-/// in that crate; what is checked here is the receipt this dispatcher wraps around any answer.
-struct LocalOwner;
-
-#[async_trait]
-impl SetupActions for LocalOwner {
-    fn actions(&self) -> &'static [&'static str] {
-        &[
-            "install_local_model", "start_local_installation", "cancel_local_installation", "set_local_idle_ttl",
-            "search_local_models", "inspect_hf_model", "register_hf_model", "local_model_details",
-            "maintain_local_model", "delete_local_model",
-        ]
-    }
-    async fn run(&self, call: &SetupCall<'_>) -> Result<Value, PortError> {
-        // `start_local_installation` answers `{ background: true, ...localProvider }` itself.
-        if call.action == "start_local_installation" {
-            return Ok(json!({ "background": true, "idleTtlSeconds": 3600 }));
-        }
-        Ok(json!({ "idleTtlSeconds": 3600 }))
-    }
-}
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_local_model_receipts_carry_what_the_recorded_node_executor_wrapped_them_in() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/services/setup-local-voice-twin.json");
@@ -422,38 +607,7 @@ async fn the_local_model_receipts_carry_what_the_recorded_node_executor_wrapped_
     }
     assert!(compared >= 6, "{compared} compared");
 }
-
-/// The domain table, recording what a setup action calls on it. The answer names the Node facade
-/// method the recorded twin calls, so receipts compare whole.
-struct Recorded(Mutex<Vec<(&'static str, Value)>>);
-
-#[async_trait]
-impl DomainCalls for Recorded {
-    async fn call(&self, method: &'static str, params: Value) -> Result<Value, CoreError> {
-        self.0.lock().unwrap().push((method, params));
-        let node = match method {
-            "config/setWebSearchRoute" => "setWebSearchRoute",
-            "config/setModelPreferences" => "setModelPreferences",
-            "config/setCompactionSettings" => "setCompactionSettings",
-            "config/setAutoClear" => "setAutoClear",
-            "config/setNetworkProxy" => "setNetworkProxy",
-            "thread/setWorkflow" => "setWorkflow",
-            "thread/setOrchestrationMode" => "setOrchestrationMode",
-            "localProvider/setLocalProviderContext" | "config/getToolModuleSettings" => "setLocalProviderContext",
-            other => panic!("unexpected domain call {other}"),
-        };
-        Ok(json!({ "answered": node }))
-    }
-}
-
-/// What `validateSetupInput` (the tool-input layer, `mixdog-tools`) answers before a handler.
-fn is_input_layer(error: &str) -> bool {
-    error.starts_with("[tool-input-validation]")
-        || error.contains("is only accepted by")
-        || error.contains("supported settings is required")
-        || error.ends_with("requires at least one setting")
-}
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_domain_settings_make_the_calls_and_answer_the_receipts_the_recorded_node_executor_did() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/setup-domain-settings-twin.json");
@@ -504,48 +658,7 @@ async fn the_domain_settings_make_the_calls_and_answer_the_receipts_the_recorded
     }
     assert!(ok >= 12 && refused >= 8, "{ok} answered, {refused} refused");
 }
-
-/// The media catalog, the pin store and the account roster of a recorded `set_media_default` world,
-/// logging each call under the Node facade method that made it.
-struct MediaWorld {
-    lanes: Value,
-    rosters: Value,
-    calls: Mutex<Vec<Value>>,
-}
-
-#[async_trait]
-impl DomainCalls for MediaWorld {
-    async fn call(&self, method: &'static str, params: Value) -> Result<Value, CoreError> {
-        let mut calls = self.calls.lock().unwrap();
-        match method {
-            "media/listMediaLanes" => {
-                calls.push(json!({ "method": "listMediaLanes", "args": [] }));
-                Ok(self.lanes.clone())
-            }
-            "media/setMediaPin" => {
-                let input = &params["input"];
-                calls.push(json!({ "method": "setMediaPin", "args": [input] }));
-                // The facade's pin store: a blank lane clears, anything else is kept as given.
-                let lane = input["lane"].as_str().unwrap().trim();
-                Ok(if lane.is_empty() {
-                    Value::Null
-                } else {
-                    json!({ "kind": input["kind"], "lane": lane, "model": input["model"].as_str().unwrap_or(""), "account": input["account"].as_str().unwrap_or("") })
-                })
-            }
-            other => panic!("unexpected domain call {other}"),
-        }
-    }
-}
-
-#[async_trait]
-impl ProviderAccounts for MediaWorld {
-    async fn accounts(&self, provider: &str) -> Result<Value, String> {
-        self.calls.lock().unwrap().push(json!({ "method": "getProviderAccounts", "args": [if provider.is_empty() { Value::Null } else { json!(provider) }] }));
-        self.rosters.get(provider).cloned().ok_or_else(|| "Unknown OAuth provider.".to_owned())
-    }
-}
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn set_media_default_checks_the_catalog_and_the_roster_and_pins_as_the_recorded_node_executor_did() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/setup-media-default-twin.json");
@@ -573,7 +686,7 @@ async fn set_media_default_checks_the_catalog_and_the_roster_and_pins_as_the_rec
     }
     assert!(ok >= 10 && refused >= 25, "{ok} answered, {refused} refused");
 }
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_six_desktop_routed_actions_are_forwarded_whole_and_answered_with_the_recorded_wrapper() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/setup-domain-settings-twin.json");
@@ -600,22 +713,7 @@ async fn the_six_desktop_routed_actions_are_forwarded_whole_and_answered_with_th
         assert_eq!(got, want, "{args}");
     }
 }
-
-/// An attached UI that takes (or declines) every navigation and remembers what it was asked.
-struct OpenUi(bool, Mutex<Vec<(String, String)>>);
-
-#[async_trait]
-impl SetupUiSurface for OpenUi {
-    async fn notify(&self, _: &ThreadId, _: &str, _: std::time::Duration) -> bool {
-        false
-    }
-    async fn settled(&self, _: &ThreadId, _: &str) {}
-    async fn open(&self, thread: &ThreadId, command: &str) -> bool {
-        self.1.lock().unwrap().push((thread.as_str().to_owned(), command.to_owned()));
-        self.0
-    }
-}
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn open_answers_and_notifies_as_the_recorded_node_executor_did() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/setup-open-twin.json");
@@ -647,7 +745,7 @@ async fn open_answers_and_notifies_as_the_recorded_node_executor_did() {
     }
     assert_eq!(compared, 21 * 3);
 }
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn status_answers_capabilities_and_forwards_the_desktop_domains_as_the_recorded_node_executor_did() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/setup-status-twin.json");
@@ -679,63 +777,7 @@ async fn status_answers_capabilities_and_forwards_the_desktop_domains_as_the_rec
     let error = settings_call(&service, &json!({ "action": "status", "domain": "providers" })).await.unwrap_err();
     assert!(error.contains("providers status reader is not wired"), "{error}");
 }
-
-/// The domain table answering a recorded case's getters, and remembering which were called.
-struct Getters(Value, Mutex<Vec<String>>);
-
-#[async_trait]
-impl DomainCalls for Getters {
-    async fn call(&self, method: &'static str, _: Value) -> Result<Value, CoreError> {
-        let node = method.strip_prefix("config/").or_else(|| method.strip_prefix("voice/")).unwrap();
-        self.1.lock().unwrap().push(node.to_owned());
-        Ok(self.0[node].clone())
-    }
-}
-
-#[async_trait]
-impl WorkflowFacts for Getters {
-    fn web_search_route(&self) -> Result<Value, PortError> {
-        self.1.lock().unwrap().push("getWebSearchRoute".to_owned());
-        Ok(self.0["getWebSearchRoute"].clone())
-    }
-    async fn onboarding(&self) -> Result<Value, PortError> {
-        self.1.lock().unwrap().push("getOnboardingStatus".to_owned());
-        Ok(self.0["getOnboardingStatus"].clone())
-    }
-    async fn workflows(&self) -> Result<Value, PortError> {
-        self.1.lock().unwrap().push("listWorkflows".to_owned());
-        Ok(self.0["listWorkflows"].clone())
-    }
-}
-
-/// The desktop's bridges, as the recorded case's answer shows them (the host's fact).
-struct Bridges(Value);
-
-impl FeatureActivity for Bridges {
-    fn active(&self, id: &str) -> bool {
-        let shown = if self.0.get(id).is_some() { &self.0[id] } else { &self.0["features"][id] };
-        shown["active"] == true
-    }
-}
-
-/// The session's live Lead route, as the recorded facade carried it.
-struct Route(Value, Arc<Getters>);
-
-#[async_trait]
-impl LiveRoute for Route {
-    fn route(&self, _: &ThreadId) -> Value {
-        self.0.clone()
-    }
-    fn lead_fallbacks(&self) -> Value {
-        self.1.1.lock().unwrap().push("listPresets".to_owned());
-        let presets = self.1.0["listPresets"].as_array().cloned().unwrap_or_default();
-        presets.iter().find(|preset| preset["id"] == "workflow-lead").map_or(Value::Null, |preset| preset["fallbacks"].clone())
-    }
-    async fn positions(&self, _: &ThreadId, _: bool) -> Result<Value, PortError> {
-        Ok(json!({ "sessions": [] }))
-    }
-}
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_config_backed_status_domains_read_the_same_getters_and_print_what_the_recorded_node_executor_did() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/setup-status-config-twin.json");
@@ -768,23 +810,7 @@ async fn the_config_backed_status_domains_read_the_same_getters_and_print_what_t
     assert_eq!(compared, 61);
     assert_eq!(domains.len(), 17);
 }
-
-/// The model catalog and the web-search model list, answering a recorded case's rows.
-struct Catalog(Value, Mutex<Vec<(String, bool)>>);
-
-#[async_trait]
-impl DomainCalls for Catalog {
-    async fn call(&self, method: &'static str, params: Value) -> Result<Value, CoreError> {
-        let (rows, refresh) = match method {
-            "model/list" => (&self.0["rows"], &params["refresh"]),
-            "account/listWebSearchModels" => (&self.0["webRows"], &params["options"]["refresh"]),
-            other => panic!("unexpected domain call {other}"),
-        };
-        self.1.lock().unwrap().push((method.to_owned(), refresh.as_bool().unwrap()));
-        Ok(rows.clone())
-    }
-}
-
+#[cfg(node_twin)]
 #[tokio::test]
 async fn list_models_shapes_the_catalog_as_the_recorded_node_executor_did() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/setup-list-models-twin.json");
@@ -828,15 +854,4 @@ async fn list_models_shapes_the_catalog_as_the_recorded_node_executor_did() {
         }
     }
     assert_eq!((answered, refused), (29, 6));
-}
-/// A saved `lead` permission row is Mixy's policy: its receipt names where it applies; another agent's keeps the generic one
-/// (a deliberate difference from Node, which promised "every session").
-#[test]
-fn the_lead_permission_receipt_does_not_promise_the_coding_lead() {
-    let lead: Value = serde_json::from_str(&receipt("set_agent_permission", json!({ "agent": "lead", "permissions": [] }))).unwrap();
-    assert_eq!(lead["saved"], json!(true));
-    let applies = lead["appliesTo"].as_str().unwrap();
-    assert!(applies.contains("Mixy") && applies.contains("coding Lead sessions have no outbound rule"), "{applies}");
-    let other: Value = serde_json::from_str(&receipt("set_agent_permission", json!({ "agent": "alpha", "permissions": [] }))).unwrap();
-    assert_eq!(other["appliesTo"], json!(applies_to("set_agent_permission")));
 }

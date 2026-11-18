@@ -23,8 +23,18 @@ pub mod thread_settings;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod retire_behaviour_tests;
+#[cfg(test)]
+mod thread_settings_feature_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(test)]
 #[path = "../routes/tests.rs"]
 mod web_search_refusal_tests;
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 mod thread_settings_tests;
 
@@ -96,6 +106,11 @@ pub trait WorkflowHost: Send + Sync {
 
     /// Whether a developer-gated OAuth provider is switched on (`isKnownProvider`).
     fn provider_available(&self, provider: &str) -> bool;
+
+    /// An SSH server can save its own stars for a custom provider registered through the PC.
+    fn proxy_provider_registered(&self, _provider: &str) -> bool {
+        false
+    }
 
     /// `requireLocalProviderManagement()`: refuses where provider management is off.
     fn require_local_provider_management(&self) -> Result<(), String>;
@@ -325,8 +340,6 @@ impl WorkflowConfig {
                     let route = search::plan(&before, &next, &*self.host).await.map_err(thrown)?;
                     let before = self.config.agent();
                     let mut after = before.clone();
-                    // Node answers its adopted route, which still carries a false `fast` that
-                    // the stored form drops.
                     let saved = search::normalized(Some(&route)).map_err(thrown)?;
                     after.insert("webSearchRoute".into(), route);
                     self.save(&before, &after).await?;

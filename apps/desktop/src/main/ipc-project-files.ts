@@ -2,7 +2,7 @@
 // `mixdog-media` and local-page schemes serve in this process), and, in a server window, the uploads, downloads and trash probe.
 // Reading, writing, listing, searching, the editor backups, the entries, the language servers and the code graph are requests of
 // the window's own core connection.
-import { isAbsolute } from 'node:path';
+import { isAbsolute, posix } from 'node:path';
 import type { Shell } from 'electron';
 import { DESKTOP_IPC } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
@@ -30,8 +30,19 @@ interface ProjectFileIpcOptions {
   /** A server (ssh) window: its files are read, previewed and deleted on the
    *  server through the daemon, never through this PC's filesystem. */
   server?: ServerFiles | null;
+  /** A server window's upload coordinator (its connection's, shared with the other windows of that server). */
+  uploads?: Parameters<typeof registerServerFileIpc>[0]['uploads'] | null;
 }
 
+const NO_UPLOADS: Parameters<typeof registerServerFileIpc>[0]['uploads'] = {
+  begin: () => Promise.reject(new Error('The server connection is not available.')),
+  write: () => Promise.reject(new Error('The server connection is not available.')),
+  commit: () => Promise.reject(new Error('The server connection is not available.')),
+  abort: () => false,
+  releaseOwner: () => undefined,
+};
+
+/** Returns the window's teardown (its server uploads are cancelled). */
 export function registerProjectFileIpc({
   handle,
   host,
@@ -39,7 +50,8 @@ export function registerProjectFileIpc({
   shell,
   grantedFile,
   server = null,
-}: ProjectFileIpcOptions): void {
+  uploads = null,
+}: ProjectFileIpcOptions): () => void {
   // A path that is not a registered Project but is an existing folder answers every file call as its own root, wherever it is: a
   // chat link to it opens it like a Project's, and the path alone re-establishes that root. Nothing is remembered or granted. A
   // registered Project always keeps the host's route: the host is tried first, and only when it refuses does the core classify the
@@ -132,14 +144,41 @@ export function registerProjectFileIpc({
     if (!preview) throw new Error('This file type does not support an in-app preview.');
     return { ...preview, ...info };
   });
-  if (server) {
-    registerServerFileIpc({
-      handle,
-      server,
-      invokeDesktopOperation,
-      fileTarget: editorFileTarget,
-      projectDirectory: (project) => host.projectDirectory(project),
-      shell,
-    });
-  }
+  // The converted PDF is a product of the core's bounded cache. The main process owns the conversion so the registration can
+  // convert the same source again when the cache evicted the file: the viewer's URL keeps working.
+  handle(DESKTOP_IPC.previewDocumentFile, async (_event, projectPath, relPath, accessToken) => {
+    const target = await editorFileTarget(projectPath, relPath, accessToken);
+    const convert = () =>
+      invokeDesktopOperation<{ path: string; format: string; mtimeMs: number; size: number }>('documentPreviewIn', [
+        target.root,
+        target.rel,
+      ]);
+    const converted = await convert();
+    const version = `${converted.mtimeMs}:${converted.size}`;
+    // On a server the converted PDF sits in the daemon's cache there.
+    const preview = server
+      ? server.previews.register(posix.dirname(converted.path), posix.basename(converted.path), version, {
+          regenerate: convert,
+        })
+      : registerFilePreview(converted.path, version, { regenerate: convert });
+    if (!preview) throw new Error('The converted document preview is unavailable.');
+    return {
+      url: preview.url,
+      kind: 'pdf' as const,
+      mime: preview.mime,
+      format: converted.format,
+      mtimeMs: converted.mtimeMs,
+      size: converted.size,
+    };
+  });
+  if (!server) return () => undefined;
+  return registerServerFileIpc({
+    handle,
+    server,
+    uploads: uploads ?? NO_UPLOADS,
+    invokeDesktopOperation,
+    fileTarget: editorFileTarget,
+    projectDirectory: (project) => host.projectDirectory(project),
+    shell,
+  });
 }

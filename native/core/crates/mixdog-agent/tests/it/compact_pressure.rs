@@ -5,32 +5,43 @@ use crate::compact_support;
 
 use std::collections::HashMap;
 
+#[cfg(node_twin)]
 use compact_support::node_message;
 use compact_support::replay_owner;
 use mixdog_agent::compact::estimate::MediaMeter;
 use mixdog_agent::compact::estimate::MessageMeter;
 use mixdog_agent::compact::estimate::PartMeter;
 use mixdog_agent::compact::execution_tail::MessageRows;
+#[cfg(node_twin)]
 use mixdog_agent::compact::tool_schema::RequestTools;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::BaselineArgs;
 use mixdog_agent::compact::pressure::Header;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::HeaderPatch;
 use mixdog_agent::compact::pressure::ImageDescriptor;
 use mixdog_agent::compact::pressure::ImageIdentities;
 use mixdog_agent::compact::pressure::TranscriptSigner;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::UsageSnapshotArgs;
 use mixdog_agent::compact::pressure::invalidate_context_usage_snapshot;
 use mixdog_agent::compact::pressure::invalidate_provider_context_baseline;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::record_context_usage_snapshot;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::record_provider_context_baseline;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::restore_turn_checkpoint_context_state;
 use mixdog_agent::compact::pressure::AttachmentBytes;
 use mixdog_agent::compact::pressure::BlobError;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::restore_turn_checkpoint_context_state_rows;
 use mixdog_agent::compact::pressure::rows_exact_signature;
+#[cfg(node_twin)]
 use mixdog_agent::compact::pressure::rows_shape_signature;
 use mixdog_agent::message::AgentMessage;
 use mixdog_core_api::domain::provider::ContentPart;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ToolDefinition;
 use serde_json::Value;
 
@@ -46,6 +57,7 @@ impl MediaMeter for TextOnly {
 struct GoldenImages(HashMap<String, Vec<ImageDescriptor>>);
 
 impl GoldenImages {
+    #[cfg(node_twin)]
     fn new(golden: &Value) -> Self {
         let dimension = |v: &Value| v.as_f64();
         Self(
@@ -97,6 +109,7 @@ fn header_of(value: &Value) -> Header {
     value.as_object().expect("header").clone()
 }
 
+#[cfg(node_twin)]
 fn tools_of(value: &Value) -> Vec<ToolDefinition> {
     value
         .as_array()
@@ -112,11 +125,118 @@ fn tools_of(value: &Value) -> Vec<ToolDefinition> {
         .collect()
 }
 
+#[cfg(node_twin)]
 /// A recorded argument that may be absent or null (`undefined`/`null` in Node).
 fn optional_number(value: Option<&Value>) -> Option<f64> {
     value.filter(|v| !v.is_null()).map(mixdog_js::to_number)
 }
 
+#[test]
+fn cached_prompt_has_one_scale_in_live_reading_and_next_turn_pressure() {
+    use mixdog_agent::boundary::{CompactPolicy, CompactSettings, ContextReading};
+    use mixdog_agent::compact::pressure::{Books, send_pressure, usage_change};
+    use mixdog_core_api::domain::provider::Usage;
+    use serde_json::json;
+
+    let owner = replay_owner();
+    let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
+    let images = GoldenImages(HashMap::new());
+    let stored = GoldenRows(Vec::new());
+    let signer = TranscriptSigner { meter: &meter, images: &images, rows: &stored };
+    let books = Books { signer: &signer, native: &[], agent_mode: false, env: &compact_support::NoVars };
+    let messages = vec![AgentMessage::user("request")];
+    let policy = CompactPolicy::resolve(&CompactSettings {
+        auto: true, context_window: Some(500_000), ..Default::default()
+    }).unwrap();
+    // The reported session's last prompt: 2 fresh + 405,809 read + 1,943 written.
+    for (excludes, input) in [(true, 2), (false, 407_754)] {
+        let mut header = header_of(&json!({
+            "provider": "anthropic-oauth", "model": "m",
+            "contextWindow": 500_000, "compactBoundaryTokens": 500_000
+        }));
+        let usage = Usage { input_tokens: input, cache_read_tokens: 405_809, cache_write_tokens: 1_943, output_tokens: 1_245, ..Default::default() };
+        let mut reading = ContextReading::default();
+        reading.measure(&usage, excludes);
+        let delta = json!({
+            "source": "provider_send", "deltaInput": input, "deltaOutput": 1_245,
+            "deltaCachedRead": 405_809, "deltaCacheWrite": 1_943, "deltaPrompt": 407_754
+        });
+        usage_change(&header, &delta, &messages, &[], Some(&books), excludes, 1.0, 2.0).unwrap().apply(&mut header);
+        let mut next = messages.clone();
+        next.push(AgentMessage::assistant("answer", Vec::new()));
+        let pressure = send_pressure(&header, &next, &[], &books).tokens.unwrap();
+        assert_eq!(pressure, 408_999, "prompt plus reply, not cache counted twice");
+        assert_eq!(header["lastContextTokens"], json!(407_754));
+        assert_eq!(reading.display_before(pressure), 407_754);
+        assert!(pressure < policy.trigger_tokens, "the reported 816k must not compact this 408k context");
+    }
+}
+
+#[test]
+fn a_transient_read_failure_propagates_and_a_missing_blob_does_not() {
+    struct Busy;
+    impl AttachmentBytes for Busy {
+        type Error = &'static str;
+        fn bytes(&self, _: &str) -> Result<Vec<u8>, BlobError<&'static str>> {
+            Err(BlobError::Transient("EBUSY"))
+        }
+        fn office_text(&self, _: &[u8], _: &str) -> Result<Option<String>, &'static str> {
+            Ok(None)
+        }
+    }
+    let row = serde_json::json!({ "role": "user", "content": [{ "type": "file", "attachmentRef": "a".repeat(64), "mimeType": "text/plain" }] });
+    assert_eq!(rows_exact_signature(&[row], &Busy), Err("EBUSY"));
+}
+
+#[cfg(node_twin)]
+/// The golden store: blobs by reference, and Node's office extraction by bytes and filename.
+struct GoldenBlobs {
+    blobs: HashMap<String, Vec<u8>>,
+    office: Vec<(String, Vec<u8>, Option<String>)>,
+}
+
+#[cfg(node_twin)]
+impl GoldenBlobs {
+    #[cfg(node_twin)]
+    fn new(golden: &Value) -> Self {
+        use base64::Engine;
+        let decode = |v: &Value| base64::engine::general_purpose::STANDARD.decode(v.as_str().expect("base64")).expect("valid base64");
+        Self {
+            blobs: golden["blobs"].as_object().expect("blobs").iter().map(|(k, v)| (k.clone(), decode(v))).collect(),
+            office: golden["office"]
+                .as_array()
+                .expect("office")
+                .iter()
+                .map(|o| (o["filename"].as_str().expect("filename").to_owned(), decode(&o["bytes"]), o["text"].as_str().map(str::to_owned)))
+                .collect(),
+        }
+    }
+}
+
+#[cfg(node_twin)]
+impl AttachmentBytes for GoldenBlobs {
+    type Error = std::convert::Infallible;
+    fn bytes(&self, reference: &str) -> Result<Vec<u8>, BlobError<Self::Error>> {
+        self.blobs.get(reference).cloned().ok_or(BlobError::Permanent)
+    }
+    fn office_text(&self, bytes: &[u8], filename: &str) -> Result<Option<String>, Self::Error> {
+        Ok(self.office.iter().find(|(f, b, _)| f == filename && b == bytes).expect("recorded office file").2.clone())
+    }
+}
+
+#[test]
+fn the_two_invalidations_clear_what_a_route_change_makes_stale() {
+    let mut header = header_of(&serde_json::json!({ "contextUsageSnapshot": { "usedTokens": 1 }, "contextPressureBaselineTokens": 5, "contextPressureUnanchoredAfterRestart": true }));
+    invalidate_context_usage_snapshot().apply(&mut header);
+    invalidate_provider_context_baseline().apply(&mut header);
+    assert!(!header.contains_key("contextUsageSnapshot"));
+    assert!(!header.contains_key("contextPressureUnanchoredAfterRestart"));
+    assert_eq!(header["contextPressureBaselineTokens"], Value::Null);
+    assert_eq!(header["lastContextTokensStaleAfterCompact"], Value::Bool(true));
+}
+
+
+#[cfg(node_twin)]
 #[test]
 fn pressure_state_equals_node() {
     let golden = golden!("pressure");
@@ -187,7 +307,7 @@ fn pressure_state_equals_node() {
         assert_eq!(result, case["result"], "{name}: result");
     }
 }
-
+#[cfg(node_twin)]
 #[test]
 fn row_signatures_equal_nodes() {
     let golden = golden!("pressure");
@@ -204,48 +324,7 @@ fn row_signatures_equal_nodes() {
         }
     }
 }
-
-#[test]
-fn cached_prompt_has_one_scale_in_live_reading_and_next_turn_pressure() {
-    use mixdog_agent::boundary::{CompactPolicy, CompactSettings, ContextReading};
-    use mixdog_agent::compact::pressure::{Books, send_pressure, usage_change};
-    use mixdog_core_api::domain::provider::Usage;
-    use serde_json::json;
-
-    let owner = replay_owner();
-    let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
-    let images = GoldenImages(HashMap::new());
-    let stored = GoldenRows(Vec::new());
-    let signer = TranscriptSigner { meter: &meter, images: &images, rows: &stored };
-    let books = Books { signer: &signer, native: &[], agent_mode: false };
-    let messages = vec![AgentMessage::user("request")];
-    let policy = CompactPolicy::resolve(&CompactSettings {
-        auto: true, context_window: Some(500_000), ..Default::default()
-    }).unwrap();
-    // The reported session's last prompt: 2 fresh + 405,809 read + 1,943 written.
-    for (excludes, input) in [(true, 2), (false, 407_754)] {
-        let mut header = header_of(&json!({
-            "provider": "anthropic-oauth", "model": "m",
-            "contextWindow": 500_000, "compactBoundaryTokens": 500_000
-        }));
-        let usage = Usage { input_tokens: input, cache_read_tokens: 405_809, cache_write_tokens: 1_943, output_tokens: 1_245, ..Default::default() };
-        let mut reading = ContextReading::default();
-        reading.measure(&usage, excludes);
-        let delta = json!({
-            "source": "provider_send", "deltaInput": input, "deltaOutput": 1_245,
-            "deltaCachedRead": 405_809, "deltaCacheWrite": 1_943, "deltaPrompt": 407_754
-        });
-        usage_change(&header, &delta, &messages, &[], Some(&books), excludes, 1.0, 2.0).unwrap().apply(&mut header);
-        let mut next = messages.clone();
-        next.push(AgentMessage::assistant("answer", Vec::new()));
-        let pressure = send_pressure(&header, &next, &[], &books).tokens.unwrap();
-        assert_eq!(pressure, 408_999, "prompt plus reply, not cache counted twice");
-        assert_eq!(header["lastContextTokens"], json!(407_754));
-        assert_eq!(reading.display_before(pressure), 407_754);
-        assert!(pressure < policy.trigger_tokens, "the reported 816k must not compact this 408k context");
-    }
-}
-
+#[cfg(node_twin)]
 #[test]
 fn row_restores_equal_nodes() {
     let golden = golden!("pressure");
@@ -263,63 +342,4 @@ fn row_restores_equal_nodes() {
         assert_eq!(Value::Object(after), case["after"], "{name}: header after");
         assert_eq!(Value::Bool(restored.anchored), case["result"], "{name}: result");
     }
-}
-
-#[test]
-fn a_transient_read_failure_propagates_and_a_missing_blob_does_not() {
-    struct Busy;
-    impl AttachmentBytes for Busy {
-        type Error = &'static str;
-        fn bytes(&self, _: &str) -> Result<Vec<u8>, BlobError<&'static str>> {
-            Err(BlobError::Transient("EBUSY"))
-        }
-        fn office_text(&self, _: &[u8], _: &str) -> Result<Option<String>, &'static str> {
-            Ok(None)
-        }
-    }
-    let row = serde_json::json!({ "role": "user", "content": [{ "type": "file", "attachmentRef": "a".repeat(64), "mimeType": "text/plain" }] });
-    assert_eq!(rows_exact_signature(&[row], &Busy), Err("EBUSY"));
-}
-
-/// The golden store: blobs by reference, and Node's office extraction by bytes and filename.
-struct GoldenBlobs {
-    blobs: HashMap<String, Vec<u8>>,
-    office: Vec<(String, Vec<u8>, Option<String>)>,
-}
-
-impl GoldenBlobs {
-    fn new(golden: &Value) -> Self {
-        use base64::Engine;
-        let decode = |v: &Value| base64::engine::general_purpose::STANDARD.decode(v.as_str().expect("base64")).expect("valid base64");
-        Self {
-            blobs: golden["blobs"].as_object().expect("blobs").iter().map(|(k, v)| (k.clone(), decode(v))).collect(),
-            office: golden["office"]
-                .as_array()
-                .expect("office")
-                .iter()
-                .map(|o| (o["filename"].as_str().expect("filename").to_owned(), decode(&o["bytes"]), o["text"].as_str().map(str::to_owned)))
-                .collect(),
-        }
-    }
-}
-
-impl AttachmentBytes for GoldenBlobs {
-    type Error = std::convert::Infallible;
-    fn bytes(&self, reference: &str) -> Result<Vec<u8>, BlobError<Self::Error>> {
-        self.blobs.get(reference).cloned().ok_or(BlobError::Permanent)
-    }
-    fn office_text(&self, bytes: &[u8], filename: &str) -> Result<Option<String>, Self::Error> {
-        Ok(self.office.iter().find(|(f, b, _)| f == filename && b == bytes).expect("recorded office file").2.clone())
-    }
-}
-
-#[test]
-fn the_two_invalidations_clear_what_a_route_change_makes_stale() {
-    let mut header = header_of(&serde_json::json!({ "contextUsageSnapshot": { "usedTokens": 1 }, "contextPressureBaselineTokens": 5, "contextPressureUnanchoredAfterRestart": true }));
-    invalidate_context_usage_snapshot().apply(&mut header);
-    invalidate_provider_context_baseline().apply(&mut header);
-    assert!(!header.contains_key("contextUsageSnapshot"));
-    assert!(!header.contains_key("contextPressureUnanchoredAfterRestart"));
-    assert_eq!(header["contextPressureBaselineTokens"], Value::Null);
-    assert_eq!(header["lastContextTokensStaleAfterCompact"], Value::Bool(true));
 }

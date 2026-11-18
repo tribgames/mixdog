@@ -215,3 +215,17 @@ async fn launcher_files_are_written_once_per_runtime_and_atomically() {
     assert_eq!(written, launcher::render_posix(&runtime));
     assert!(std::fs::read_dir(&first).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().ends_with(".tmp")));
 }
+
+/// `parsed?.trustedProjects ?? parsed?.hooks?.trustedProjects`: a null list falls back, as an absent one does.
+#[tokio::test]
+async fn a_null_trusted_projects_falls_back_to_the_hooks_list() {
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().to_path_buf();
+    write(&data.join("config.json"), &json!({"trustedProjects": null, "hooks": {"trustedProjects": ["/some/proj"]}}).to_string());
+    let trusted = {
+        let data = data.clone();
+        tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| hooks::read_trusted_projects(lane, &data)).unwrap().await.unwrap()
+    };
+    assert_eq!(trusted.len(), 1);
+}

@@ -210,7 +210,7 @@ pub fn fast_preference_for(config: &Obj, provider: &str, model: &str) -> bool {
             .is_some_and(|saved| saved.is_object() && saved.get("fast") == Some(&Value::Bool(true)))
 }
 
-fn clean_model_parameters(value: Option<&Value>) -> Obj {
+pub fn clean_model_parameters(value: Option<&Value>) -> Obj {
     let Some(Value::Object(o)) = value else { return Obj::new() };
     let mut out = Obj::new();
     for (k, v) in o {
@@ -638,6 +638,7 @@ pub fn refresh_route_fields(
     route
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "admin_route_tests.rs"]
 mod tests;
@@ -661,6 +662,9 @@ pub fn upsert_workflow_preset(presets: &Value, slot: &str, route: &Value) -> Res
     }
     if route.get("fast") == Some(&Value::Bool(true)) {
         preset.insert("fast".into(), Value::Bool(true));
+    } else if slot == "lead" && route.get("fast") == Some(&Value::Bool(false)) {
+        // The Lead keeps an explicit Standard: an absent `fast` reads back as the model's default speed.
+        preset.insert("fast".into(), Value::Bool(false));
     }
     if route.get("autoEffort") == Some(&Value::Bool(false)) {
         preset.insert("autoEffort".into(), Value::Bool(false));

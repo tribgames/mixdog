@@ -187,7 +187,8 @@ pub fn run() -> i32 {
     // read-back must agree with the capture's native pixels.
     // SAFETY: a process-wide setting made before any window or metric read.
     let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
-    let sender = Sender::new(marker);
+    // The remote screen relays the person's own input: an executor of its own, outside Computer Use's scope.
+    let sender = Sender::new(crate::port::windows::WinPort::new(&crate::port::Scope::open(1), marker));
     // SAFETY: a plain query of this process's id.
     let session = session_of(unsafe { GetCurrentProcessId() });
     // The first desktop state and this process's session go out before ready,

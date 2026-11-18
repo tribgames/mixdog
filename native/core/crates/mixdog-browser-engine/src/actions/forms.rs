@@ -196,6 +196,10 @@ pub async fn fill(context: &mut dyn FormContext) -> Result<ToolReply, RefError> 
             if context.cancel().is_cancelled() {
                 return Err(HostCallError::Cancelled.into());
             }
+            // The typed loss of the connection is the whole answer: no observation can be taken over it.
+            if matches!(error, RefError::Host(HostCallError::ConnectionLost)) {
+                return Err(error);
+            }
             let observation = context.observation_after_failure().await?;
             return Err(failed(format!(
                 "Fill stopped at field {} of {}; {completed} field(s) completed. Input was not replayed. Do not repeat completed fields; inspect the failing field before continuing. {error}\n\n{observation}",
@@ -309,6 +313,8 @@ mod tests {
         targets: Vec<String>,
         stored: StoredLoginFill,
         options: SelectOptions,
+        /// What the follow-up snapshot fails with, when it does.
+        snapshot_error: Option<RefError>,
     }
 
     fn context(command: Value, script: Vec<Expect>) -> (Context, Arc<FakeHost>, Arc<Mutex<Vec<String>>>) {
@@ -321,6 +327,7 @@ mod tests {
             targets: Vec::new(),
             stored: StoredLoginFill::default(),
             options: SelectOptions::default(),
+            snapshot_error: None,
         };
         (context, host, log)
     }
@@ -358,7 +365,10 @@ mod tests {
             self.log.lock().expect("log").push("invalidate".into());
         }
         async fn action_snapshot(&mut self) -> Result<ToolReply, RefError> {
-            Ok(ToolReply::text("settled"))
+            match &self.snapshot_error {
+                Some(error) => Err(error.clone()),
+                None => Ok(ToolReply::text("settled")),
+            }
         }
         fn decorate_recovery(&self, mut reply: ToolReply) -> ToolReply {
             reply.text = format!("decorated {}", reply.text);
@@ -380,6 +390,15 @@ mod tests {
         assert_eq!(reply.text, "decorated settled");
         assert_eq!(*log.lock().expect("log"), ["mutate p1-s2-e3 editable=true", "invalidate"]);
         host.finish().expect("one call");
+    }
+
+    /// The edit and the submit ran; the follow-up snapshot then loses the connection: the typed loss reaches the caller.
+    #[tokio::test]
+    async fn a_submit_whose_follow_up_snapshot_loses_the_connection_is_the_typed_loss() {
+        let (mut context, _host, _) = context(json!({"ref": "p1-s2-e3", "text": "q", "submit": true}), vec![fill_value("q"), batch_done().with_params(json!({"steps": [{"op": "press", "key": "Enter"}]}))]);
+        context.snapshot_error = Some(RefError::Host(HostCallError::ConnectionLost));
+        let error = fill(&mut context).await.expect_err("lost");
+        assert_eq!(error, RefError::Host(HostCallError::ConnectionLost));
     }
 
     #[tokio::test]

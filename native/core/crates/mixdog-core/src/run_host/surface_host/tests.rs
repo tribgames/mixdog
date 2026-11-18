@@ -1,30 +1,54 @@
+#[cfg(node_twin)]
 use std::collections::HashSet;
+#[cfg(node_twin)]
 use std::path::Path;
+#[cfg(node_twin)]
 use std::sync::Arc;
+#[cfg(node_twin)]
 use std::sync::Mutex;
 
+#[cfg(node_twin)]
 use async_trait::async_trait;
+#[cfg(node_twin)]
 use mixdog_agent::env::Clock;
+#[cfg(node_twin)]
+use mixdog_agent::prefix_guard::{GuardOptions, compare, snapshot};
+#[cfg(node_twin)]
+use mixdog_core_prompt::prompt::blocks::request_system_messages;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::tool::Tool;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::tool::ToolAnnotations;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::tool::ToolContext;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::tool::ToolOutcome;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::tool::ToolOutput;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::tool::ToolSpec;
+#[cfg(node_twin)]
 use mixdog_core_ports::ports::route::Route;
+#[cfg(node_twin)]
 use mixdog_core_ports::ports::threads::Section;
+#[cfg(node_twin)]
 use mixdog_core_session::session::agent_registry::Row;
+#[cfg(node_twin)]
 use mixdog_core_session::session::thread_switches::SurfaceFailure;
 use mixdog_core_session::session::thread_switches::WorkflowTarget;
 
+#[cfg(node_twin)]
 use crate::run_host::prompt_session::SessionPrompt;
+#[cfg(node_twin)]
 use crate::run_host::session_tools::internal_tools;
 
 use super::*;
 
+#[cfg(node_twin)]
 struct Stub(ToolSpec, Option<ToolSpec>);
 
 #[async_trait]
+#[cfg(node_twin)]
 impl Tool for Stub {
     fn spec(&self) -> &ToolSpec {
         &self.0
@@ -37,64 +61,24 @@ impl Tool for Stub {
     }
 }
 
+#[cfg(node_twin)]
 fn flag(doc: &Value, key: &str) -> Option<bool> {
     doc.pointer(&format!("/annotations/{key}")).and_then(Value::as_bool)
 }
 
-/// The tool spec of a definition Node published.
-fn spec_of_doc(doc: &Value) -> ToolSpec {
-    ToolSpec {
-        name: doc["name"].as_str().expect("name").into(),
-        title: doc.get("title").and_then(Value::as_str).map(str::to_owned),
-        trigger: doc.get("trigger").and_then(Value::as_str).map(str::to_owned),
-        public: doc.get("public") != Some(&Value::Bool(false)),
-        aliases: Vec::new(),
-        // The golden pool was recorded on a Claude route, so its shell text already names `edit`; the registered tool carries the template `edit/apply_patch` (builtin-tools.mjs:45) that the surface rewrites per model (`edit-tool-dialect.mjs`).
-        description: doc["description"].as_str().unwrap_or_default().replace("`>`→edit; git→git", "`>`→edit/apply_patch; git→git"),
-        input_schema: doc["inputSchema"].clone(),
-        annotations: ToolAnnotations {
-            title: doc.pointer("/annotations/title").and_then(Value::as_str).map(str::to_owned),
-            read_only_hint: flag(doc, "readOnlyHint"),
-            destructive_hint: flag(doc, "destructiveHint"),
-            idempotent_hint: flag(doc, "idempotentHint"),
-            open_world_hint: flag(doc, "openWorldHint"),
-            compressible: flag(doc, "compressible"),
-            compressible_lossless: flag(doc, "compressibleLossless"),
-            agent_hidden: flag(doc, "agentHidden"),
-        },
-        parallel_safe: true,
-        exclusive_with: Vec::new(),
-    }
-}
-
-/// A pool tool carrying the definition Node published.
-fn stub(doc: &Value) -> Arc<dyn Tool> {
-    let spec = spec_of_doc(doc);
-    // `git` and `task` have the definition delegated agents are sent, as the real ones do.
-    let agent = matches!(spec.name.as_str(), "git" | "task").then(|| spec.clone());
-    Arc::new(Stub(spec, agent))
-}
-
-fn golden() -> Value {
-    mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/surface-host/golden.json")).expect("golden")
-}
-
-/// The golden's pool in the order the golden lists it (Node's session preview, not its registration
-/// order). The internal tools' order in a surface is `internal_tools`' to give (`STANDALONE_ORDER`),
-/// whatever order the pool was registered in.
-fn pool_of(g: &Value) -> Vec<Arc<dyn Tool>> {
-    g["pool"].as_array().expect("pool").iter().map(stub).collect()
-}
-
+#[cfg(node_twin)]
 fn names(value: &Value) -> Vec<String> {
     value.as_array().into_iter().flatten().map(|v| v.as_str().expect("name").to_owned()).collect()
 }
 
+#[cfg(node_twin)]
 fn doc_names(value: Option<&Value>) -> Vec<String> {
     value.and_then(Value::as_array).into_iter().flatten().map(tool_name).collect()
 }
 
+#[cfg(node_twin)]
 struct Routes(Route);
+#[cfg(node_twin)]
 impl LiveRoute for Routes {
     fn route(&self, _: &ThreadId) -> Route {
         self.0.clone()
@@ -102,21 +86,26 @@ impl LiveRoute for Routes {
     fn adopt_held(&self, _: &ThreadId, _: &Route) {}
 }
 
+#[cfg(node_twin)]
 use mixdog_mcp::hub::ScopeReleased;
 
 /// The runtime's own scope in these tests.
+#[cfg(node_twin)]
 const RUNTIME_SCOPE: &str = "runtime-scope";
 
 /// The scopes opened and released, in order: `(scope, owner, cwd)` and `owner`.
 #[derive(Default)]
+#[cfg(node_twin)]
 struct Scopes {
     opened: Mutex<Vec<(String, String, PathBuf)>>,
     released: Mutex<Vec<String>>,
+    initial_ready: Mutex<Vec<String>>,
     /// The folder the runtime scope was opened for, once it is.
     runtime: Mutex<Option<PathBuf>>,
 }
 
 #[async_trait]
+#[cfg(node_twin)]
 impl McpScopes for Scopes {
     async fn open(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased> {
         self.opened.lock().unwrap().push((scope.to_owned(), owner.to_owned(), cwd.to_owned()));
@@ -137,10 +126,15 @@ impl McpScopes for Scopes {
         }
         Ok(RUNTIME_SCOPE.to_owned())
     }
+    async fn await_initial_within(&self, scope: &str, _: std::time::Duration) {
+        self.initial_ready.lock().unwrap().push(scope.to_owned());
+    }
 }
 
 /// One MCP tool, connected under every scope that has been opened and under no other.
+#[cfg(node_twin)]
 struct OpenedMcp(Arc<Scopes>, Arc<dyn Tool>);
+#[cfg(node_twin)]
 impl SessionMcp for OpenedMcp {
     fn tools(&self, scope: Option<&str>, _: &Path) -> Vec<Arc<dyn Tool>> {
         let open = scope.is_some_and(|scope| self.0.opened.lock().unwrap().iter().any(|(opened, _, _)| opened == scope));
@@ -149,7 +143,9 @@ impl SessionMcp for OpenedMcp {
 }
 
 /// The connected servers' tools, whatever the folder.
+#[cfg(node_twin)]
 struct Mcp(Vec<Arc<dyn Tool>>);
+#[cfg(node_twin)]
 impl SessionMcp for Mcp {
     fn tools(&self, _: Option<&str>, _: &Path) -> Vec<Arc<dyn Tool>> {
         self.0.clone()
@@ -157,30 +153,15 @@ impl SessionMcp for Mcp {
 }
 
 /// The prompt a rebuild composes: fixed blocks, and the request it was asked for.
-struct FakePrompt(Mutex<Vec<RebuildRequest>>);
-
-#[async_trait]
-impl PromptRebuild for FakePrompt {
-    async fn rebuild(&self, request: RebuildRequest) -> Result<SessionPrompt, String> {
-        // The identity a rebuild gives back is the one it was asked for (`composeSessionSystem` keeps the session's).
-        let identity = request.header.get("promptIdentity").cloned().unwrap_or_else(|| json!({}));
-        self.0.lock().unwrap().push(request);
-        Ok(SessionPrompt {
-            blocks: SystemBlocks { base: Some("# Tool Calls\nrules".into()), stable: Some("# Profile".into()), core: Some("# Core".into()), env: Some("# Env".into()), combined: false },
-            environment_tail: "tail".into(),
-            prompt_identity: identity,
-            prompt_settings: json!({ "revision": "r1" }),
-            sections: Default::default(),
-            response_language: Value::Null,
-            profile_revision: "coding-lead".into(),
-        })
-    }
-}
+#[cfg(node_twin)]
+struct FakePrompt(Mutex<Vec<RebuildRequest>>, Mutex<Option<String>>);
 
 /// The live gate list, as the test sets it.
+#[cfg(node_twin)]
 struct Gates(Vec<String>);
 
 #[async_trait]
+#[cfg(node_twin)]
 impl FeatureDenied for Gates {
     async fn denied(&self, _: Option<&Header>) -> Result<Vec<String>, String> {
         Ok(self.0.clone())
@@ -188,9 +169,11 @@ impl FeatureDenied for Gates {
 }
 
 /// A gate list the test moves between two uses.
+#[cfg(node_twin)]
 struct Moving(Mutex<Vec<String>>);
 
 #[async_trait]
+#[cfg(node_twin)]
 impl FeatureDenied for Moving {
     async fn denied(&self, _: Option<&Header>) -> Result<Vec<String>, String> {
         Ok(self.0.lock().unwrap().clone())
@@ -198,9 +181,11 @@ impl FeatureDenied for Moving {
 }
 
 /// The connector tools the policies switch off right now.
+#[cfg(node_twin)]
 struct Connectors(Mutex<Vec<String>>);
 
 #[async_trait]
+#[cfg(node_twin)]
 impl ConnectorPermissions for Connectors {
     fn needs_approval(&self, _: &str, _: &str) -> bool {
         false
@@ -216,23 +201,23 @@ impl ConnectorPermissions for Connectors {
     }
 }
 
+#[cfg(node_twin)]
 struct NoSkills;
 #[async_trait]
+#[cfg(node_twin)]
 impl SkillsListed for NoSkills {
     async fn any_for(&self, _: &Path) -> Result<bool, String> {
         Ok(false)
     }
 }
 
-/// The bridge exposure's own definitions, Node's `TOOL_BRIDGE_TOOLS` (`load_tool`, `call_tool`) as the session holds
-/// them, with their title. The recorded pool holds `load_tool` as `_getMcpTools` projects it (no title), which is not
-/// what the bridge appends to a session.
-pub(crate) fn node_bridge() -> Vec<Value> {
-    ["load_tool", "call_tool"].iter().map(|name| mixdog_js::fixture_tools::definition(name).expect("a recorded bridge tool")).collect()
-}
-
+#[cfg(node_twin)]
 pub(crate) struct Bridge(pub(crate) Vec<Value>);
+#[cfg(node_twin)]
 impl ToolSurfaceHost for Bridge {
+    fn defined(&self, _: &str) -> bool {
+        true
+    }
     fn bridge_tools(&self) -> Vec<Value> {
         self.0.clone()
     }
@@ -241,7 +226,9 @@ impl ToolSurfaceHost for Bridge {
     }
 }
 
+#[cfg(node_twin)]
 struct Fixed;
+#[cfg(node_twin)]
 impl Clock for Fixed {
     fn now_ms(&self) -> i64 {
         1_700_000_000_000
@@ -249,15 +236,18 @@ impl Clock for Fixed {
 }
 
 /// The keys set and unset by one patch.
+#[cfg(node_twin)]
 type Patch = (Map<String, Value>, Vec<String>);
 
 /// One thread: its header, and the patches written to it.
+#[cfg(node_twin)]
 struct Threads {
     header: Mutex<Header>,
     patches: Mutex<Vec<Patch>>,
 }
 
 #[async_trait]
+#[cfg(node_twin)]
 impl ThreadState for Threads {
     async fn header(&self, _: &ThreadId) -> Result<Header, PortError> {
         Ok(self.header.lock().unwrap().clone())
@@ -282,15 +272,19 @@ impl ThreadState for Threads {
     }
 }
 
+#[cfg(node_twin)]
 struct Messages(Vec<Value>);
 #[async_trait]
+#[cfg(node_twin)]
 impl ThreadMessages for Messages {
     async fn messages(&self, _: &ThreadId) -> Result<Vec<Value>, PortError> {
         Ok(self.0.clone())
     }
 }
 
+#[cfg(node_twin)]
 struct Live(bool);
+#[cfg(node_twin)]
 impl LiveSessions for Live {
     fn loaded(&self) -> Vec<String> {
         Vec::new()
@@ -309,6 +303,7 @@ impl LiveSessions for Live {
     }
 }
 
+#[cfg(node_twin)]
 struct Workflow {
     denied: Vec<String>,
     standalone: Vec<Value>,
@@ -318,6 +313,7 @@ struct Workflow {
     targeted: Mutex<Vec<Header>>,
 }
 #[async_trait]
+#[cfg(node_twin)]
 impl WorkflowSurface for Workflow {
     async fn target(&self, session: &Header, _: &str, _: Option<&str>) -> Result<WorkflowTarget, SurfaceFailure> {
         self.targeted.lock().unwrap().push(session.clone());
@@ -340,6 +336,7 @@ impl WorkflowSurface for Workflow {
         Ok(String::new())
     }
 }
+#[cfg(node_twin)]
 struct Rig {
     host: LeadSurfaceHost,
     threads: Arc<Threads>,
@@ -350,7 +347,143 @@ struct Rig {
     workflow: Arc<Workflow>,
 }
 
+/// `configuredOrchestrationMode(config)`, the reader the flip hands `SurfaceSources`: the stored
+/// mode, `balanced` for none or an unknown one.
+#[test]
+fn the_configured_orchestration_mode_is_readable_from_the_host_crate() {
+    use mixdog_core_config::workflow::ids::configured_orchestration_mode;
+    let doc = |value: Value| value.as_object().expect("doc").clone();
+    assert_eq!(configured_orchestration_mode(&doc(json!({}))), "balanced");
+    assert_eq!(configured_orchestration_mode(&doc(json!({ "orchestrationMode": "swarm" }))), "swarm");
+    assert_eq!(configured_orchestration_mode(&doc(json!({ "orchestrationMode": "bogus" }))), "balanced");
+}
+
+/// A recorded session as a thread's header: its leading system messages are the header's prompt blocks.
+#[cfg(node_twin)]
+pub(crate) fn header_of(session: &Value) -> Header {
+    let mut header = session.as_object().expect("session").clone();
+    let messages = header.shift_remove("messages").and_then(|messages| messages.as_array().cloned()).unwrap_or_default();
+    // In memory only in Node (`serialize.mjs` strips it on every save and load): no stored header carries it.
+    header.shift_remove("_providerPrefixGuardState");
+    header.insert("bp3EnvSplit".into(), Value::Bool(true));
+    SystemBlocks::from_node_messages(&messages).expect("a system prefix").write(&mut header);
+    header
+}
+// ---- the provider tool array, replayed from Node's recording (`fixtures/tool-resolution/golden.json`) ----
+
+#[cfg(node_twin)]
+use mixdog_agent::tools::ToolSet;
+#[cfg(node_twin)]
+use mixdog_core_api::domain::provider::ToolDefinition;
+#[cfg(node_twin)]
+use mixdog_tools::policy::SessionSurface;
+
+#[cfg(node_twin)]
+use crate::run_host::assemble::SessionTools;
+#[cfg(node_twin)]
+use crate::run_host::context_world::snapshot_tools;
+#[cfg(node_twin)]
+use crate::run_host::resume_tools::ResumeTools;
+#[cfg(node_twin)]
+use crate::run_host::route_surface::resume_header;
+#[cfg(node_twin)]
+use crate::run_host::route_surface::resumed_surface_change;
+#[cfg(node_twin)]
+use crate::run_host::rules::RulesPolicy;
+#[cfg(node_twin)]
+use crate::run_host::session_tools::SessionToolBuilder;
+
+/// What is compared of a tool on the wire: its name, text, schema and `deferLoading`.
+#[cfg(node_twin)]
+fn wire(tool: &ToolDefinition) -> Value {
+    json!({ "name": tool.name, "description": tool.description, "inputSchema": tool.input_schema, "deferLoading": tool.defer_loading })
+}
+
+#[cfg(node_twin)]
+fn node_wire(r: &Value, case: &Value) -> Vec<Value> {
+    case["provider"]
+        .as_array()
+        .expect("provider")
+        .iter()
+        .map(|entry| {
+            let tool = &r["definitions"][entry["definition"].as_str().expect("definition id")];
+            json!({ "name": tool["name"], "description": tool["description"], "inputSchema": tool["inputSchema"], "deferLoading": entry.get("deferLoading") == Some(&Value::Bool(true)) })
+        })
+        .collect()
+}
+
+/// `getHiddenAgent(agent)` as the recording took it.
+#[cfg(node_twin)]
+struct Role(bool);
+#[cfg(node_twin)]
+impl RulesPolicy for Role {
+    fn hidden_agent(&self, _: Option<&str>) -> bool {
+        self.0
+    }
+    fn delegation_disabled(&self, _: &Value, _: bool) -> bool {
+        false
+    }
+}
+
+/// What a request of `header` carries: the session's tools in the header's order (`SessionToolBuilder`), as the loop's
+/// `ToolSet` lists them to the model, then the request boundary's snapshot (`McpCatalog::snapshot`).
+#[cfg(node_twin)]
+async fn request_tools(pool: &[Arc<dyn Tool>], mcp: &[Arc<dyn Tool>], header: &Header) -> Vec<ToolDefinition> {
+    let builder = SessionToolBuilder::new(pool.to_vec(), Arc::new(Mcp(mcp.to_vec())), Arc::new(NoSkills)).expect("a pool with the agent definitions");
+    let surface = SessionSurface::from_header(header, Vec::new());
+    let SessionTools { tools, builtins, agent, .. } = builder.tools(header, &surface).await.expect("tools");
+    let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default();
+    snapshot_tools(header, ToolSet::with_builtins(tools, builtins).for_agent(agent).definitions(), Vec::new(), provider)
+}
+
+
+/// The tool spec of a definition Node published.
+#[cfg(node_twin)]
+fn spec_of_doc(doc: &Value) -> ToolSpec {
+    ToolSpec {
+        name: doc["name"].as_str().expect("name").into(),
+        title: doc.get("title").and_then(Value::as_str).map(str::to_owned),
+        trigger: doc.get("trigger").and_then(Value::as_str).map(str::to_owned),
+        public: doc.get("public") != Some(&Value::Bool(false)),
+        aliases: Vec::new(),
+        // The golden pool was recorded on a Claude route, so its shell text already names `edit`; the registered tool carries the template `edit/apply_patch` (builtin-tools.mjs:45) that the surface rewrites per model (`edit-tool-dialect.mjs`).
+        description: doc["description"].as_str().unwrap_or_default().replace("`>`→edit; git→git", "`>`→edit/apply_patch; git→git"),
+        input_schema: doc["inputSchema"].clone(),
+        annotations: ToolAnnotations {
+            title: doc.pointer("/annotations/title").and_then(Value::as_str).map(str::to_owned),
+            read_only_hint: flag(doc, "readOnlyHint"),
+            destructive_hint: flag(doc, "destructiveHint"),
+            idempotent_hint: flag(doc, "idempotentHint"),
+            open_world_hint: flag(doc, "openWorldHint"),
+            compressible: flag(doc, "compressible"),
+            compressible_lossless: flag(doc, "compressibleLossless"),
+            agent_hidden: flag(doc, "agentHidden"),
+        },
+        parallel_safe: true,
+        exclusive_with: Vec::new(),
+    }
+}
+/// A pool tool carrying the definition Node published.
+#[cfg(node_twin)]
+fn stub(doc: &Value) -> Arc<dyn Tool> {
+    let spec = spec_of_doc(doc);
+    // `git` and `task` have the definition delegated agents are sent, as the real ones do.
+    let agent = matches!(spec.name.as_str(), "git" | "task").then(|| spec.clone());
+    Arc::new(Stub(spec, agent))
+}
+#[cfg(node_twin)]
+fn golden() -> Value {
+    mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/surface-host/golden.json")).expect("golden")
+}
+/// The golden's pool in the order the golden lists it (Node's session preview, not its registration
+/// order). The internal tools' order in a surface is `internal_tools`' to give (`STANDALONE_ORDER`),
+/// whatever order the pool was registered in.
+#[cfg(node_twin)]
+fn pool_of(g: &Value) -> Vec<Arc<dyn Tool>> {
+    g["pool"].as_array().expect("pool").iter().map(stub).collect()
+}
 /// What a test varies: the mode, the Lead's route, the gates, and the thread under reconcile.
+#[cfg(node_twin)]
 struct Setup {
     mode: String,
     route: Value,
@@ -376,7 +509,7 @@ struct Setup {
     /// The session's MCP source itself, instead of `mcp` and `mcp_tool`.
     session_mcp: Option<Arc<dyn SessionMcp>>,
 }
-
+#[cfg(node_twin)]
 fn setup(mode: &str) -> Setup {
     Setup {
         mode: mode.into(),
@@ -397,11 +530,11 @@ fn setup(mode: &str) -> Setup {
         session_mcp: None,
     }
 }
-
+#[cfg(node_twin)]
 fn rig(g: &Value, setup: Setup) -> Rig {
     try_rig(g, setup).expect("a pool whose git and task have their agent definitions")
 }
-
+#[cfg(node_twin)]
 fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
     let Setup { mode, route, feature_denied, header, messages, running, denied, standalone, summary, orchestration, live, without_agent_spec, pool, mcp, mcp_tool, session_mcp } = setup;
     let scopes = Arc::new(Scopes::default());
@@ -416,7 +549,7 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
         pool[at] = Arc::new(Stub(pool[at].spec().clone(), None));
     }
     let threads = Arc::new(Threads { header: Mutex::new(header), patches: Mutex::default() });
-    let prompts = Arc::new(FakePrompt(Mutex::default()));
+    let prompts = Arc::new(FakePrompt(Mutex::default(), Mutex::default()));
     let connectors = Arc::new(Connectors(Mutex::default()));
     let generation = SurfaceGeneration::default();
     let standalone = standalone.unwrap_or_else(|| internal_tools(&pool).iter().map(tool_doc).collect());
@@ -446,10 +579,10 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
     })?;
     Ok(Rig { host, threads, prompts, connectors, generation, scopes, workflow })
 }
-
 /// Node's pre-session surface (`createToolSurface().activeToolSurface()`) over the real tool
 /// resolution, deferred catalog and standalone tools: what is eager, deferred, callable and listed.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn the_preview_surface_follows_node() {
     let g = golden();
     // The standalone tools of the pool are the ones Node's runtime registered.
@@ -482,11 +615,11 @@ async fn the_preview_surface_follows_node() {
         assert_eq!(rig.host.mode(None), case["mode"].as_str().expect("mode"), "{label}: mode");
     }
 }
-
 /// A thread started with the options `thread/start` writes (`write_header`) begins with the
 /// tools and the deferred surface a Lead with no session lists: Node's `createSession` +
 /// `seedToolSurface` run the same resolution, denials and `applyDeferredToolSurface`.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_new_thread_starts_with_the_tools_node_gives_it() {
     let g = golden();
     for case in g["cases"].as_array().expect("cases") {
@@ -535,11 +668,11 @@ async fn a_new_thread_starts_with_the_tools_node_gives_it() {
         assert_eq!((seeded["generation"].clone(), seeded["closed"].clone()), (json!(0), json!(false)));
     }
 }
-
 /// A bot's home chat and its room seat are created as `sessionOptions` makes them: they run as their home agent
 /// (`agent: homeAgent || 'lead'`), in the mode their reserved id resolves to (`resolveSessionMode({ sessionId })`). The prompt's
 /// identity is that agent's, and the workflow's parts and denials are read for the record with its id; a Lead's is Mixy's.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_home_or_room_seat_starts_as_its_agent_in_agent_mode() {
     let g = golden();
     let cases = [
@@ -568,11 +701,11 @@ async fn a_home_or_room_seat_starts_as_its_agent_in_agent_mode() {
         assert_eq!(names(&seeded["disallowedTools"]).contains(&"react".to_owned()), id == "t1", "{id}: react denied outside a bot's own chat");
     }
 }
-
 /// An empty thread is rebuilt for its runtime's live route (`getRoute()`), whatever model its header names: a seated
 /// thread holding a pick for its next turn (the live route is the pick; the header names the model it runs, and the pick
 /// as `pendingRoute`) is composed for the pick, which that turn switches it to.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn an_empty_thread_is_rebuilt_for_its_live_route_not_its_headers_model() {
     let g = golden();
     let pick = json!({ "provider": "openai", "model": "gpt-5" });
@@ -592,11 +725,11 @@ async fn an_empty_thread_is_rebuilt_for_its_live_route_not_its_headers_model() {
     assert_eq!((request.provider.as_str(), request.model.as_str()), ("openai", "gpt-5"), "the rebuild composes for the live route");
     assert_eq!(SystemBlocks::from_header(&rig.threads.header.lock().unwrap()).env, SystemBlocks::from_header(&expected).env, "the # Session block names the pick");
 }
-
 /// Each new thread has an MCP scope of its own (`rt.mcpScopeId = randomUUID()`, `boot/begin.mjs:24`):
 /// the header names it, the thread's servers connect under it before its tools are read, and the
 /// tools it lists are those of that scope; a seed that fails releases it.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_new_thread_has_an_mcp_scope_of_its_own_and_lists_that_scopes_tools() {
     let g = golden();
     let tool = stub(&json!({ "name": "mcp__alpha__zeta", "description": "zeta of alpha", "inputSchema": { "type": "object" } }));
@@ -625,11 +758,11 @@ async fn a_new_thread_has_an_mcp_scope_of_its_own_and_lists_that_scopes_tools() 
     rig.host.abandon(&ThreadId::from("t2"));
     assert_eq!(*rig.scopes.released.lock().unwrap(), ["t2".to_owned()]);
 }
-
 /// The preview reads the runtime's own scope, opened once; no thread takes it. Each thread is created
 /// with a scope of its own, as each Node `createSession` boots a runtime of its own
 /// (`session-service/entries/lifecycle.mjs:47`, `begin.mjs:24`).
 #[tokio::test]
+#[cfg(node_twin)]
 async fn every_thread_has_its_own_scope_and_none_takes_the_previews() {
     let g = golden();
     let rig = rig(&g, setup("full"));
@@ -651,6 +784,7 @@ async fn every_thread_has_its_own_scope_and_none_takes_the_previews() {
 /// scope of its own: it is seeded in the runtime scope, so it and every read with no session share one
 /// connection set, and its close (the owner it names holds no scope) releases nothing.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn the_control_thread_runs_in_the_runtime_scope_and_opens_none() {
     let g = golden();
     let rig = rig(&g, setup("full"));
@@ -667,11 +801,11 @@ async fn the_control_thread_runs_in_the_runtime_scope_and_opens_none() {
     let opened: Vec<String> = rig.scopes.opened.lock().unwrap().iter().map(|(_, owner, _)| owner.clone()).collect();
     assert_eq!(opened, ["runtime".to_owned(), "t1".to_owned()], "the control thread opened no scope");
 }
-
 /// An imported conversation (`createImportedSession`: the manager's `createSession` over Lead options less their
 /// `mcpScopeId`) begins with its tools and prompt, opens no scope, keeps its null scope and lists none of the servers
 /// connected under the scopes the other threads opened.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn an_imported_session_is_seeded_in_no_scope_of_its_own() {
     let g = golden();
     let tool = stub(&json!({ "name": "mcp__alpha__zeta", "description": "zeta of alpha", "inputSchema": { "type": "object" } }));
@@ -690,10 +824,10 @@ async fn an_imported_session_is_seeded_in_no_scope_of_its_own() {
     let opened: Vec<String> = rig.scopes.opened.lock().unwrap().iter().map(|(_, owner, _)| owner.clone()).collect();
     assert_eq!(opened, ["t1".to_owned()], "the imported session opened no scope");
 }
-
 /// A thread just created is built from the settings as they stand (`noteToolAvailability`): its first
 /// turn composes the prompt to read its settings and finds nothing to rebuild.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_just_created_thread_is_not_rebuilt_at_its_first_turn() {
     let g = golden();
     let case = &g["cases"][0];
@@ -716,12 +850,12 @@ async fn a_just_created_thread_is_not_rebuilt_at_its_first_turn() {
     rig.host.reconcile_empty(&thread).await.expect("after a change");
     assert!(rig.host.applied_to(&thread) == Some(Applied { gates: "0|2|".to_owned(), settings: "r1".to_owned() }));
 }
-
 /// `createSession` denies the feature gates as they stand (`disallowedTools: [...callerDisallowedTools,
 /// ...featureDisallowedTools()]`), whatever the options wrote: a header that names only the caller's denials
 /// starts with the surface Node's recorder gave a session built with the gates in them, and a tool a setting
 /// switches off is not in the announced deferred pool either.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_new_thread_denies_the_gates_as_they_stand() {
     let g = golden();
     for case in g["cases"].as_array().expect("cases") {
@@ -747,7 +881,6 @@ async fn a_new_thread_denies_the_gates_as_they_stand() {
         }
     }
 }
-
 /// `leadRosterRevision` over the slices Node's recorder gave it (`create_goldens/lead.json`).
 #[test]
 fn the_roster_revision_is_nodes() {
@@ -763,38 +896,27 @@ fn the_roster_revision_is_nodes() {
     };
     assert_eq!(golden["record"]["agentRosterRevision"], json!(roster_revision(&target)));
 }
-
 /// A pool whose `git` has no definition for delegated agents is refused when the host is built, with
 /// the tool named, instead of letting an agent's thread carry the Lead's text.
 #[test]
+#[cfg(node_twin)]
 fn a_pool_whose_git_lost_its_agent_definition_is_refused_at_construction() {
     let g = golden();
     let error = try_rig(&g, Setup { without_agent_spec: Some("git"), ..setup("full") }).err().expect("refused");
     assert_eq!(error, VariantError { tool: "git" });
     assert!(try_rig(&g, setup("full")).is_ok());
 }
-
 #[test]
+#[cfg(node_twin)]
 fn an_unknown_mode_is_full() {
     let g = golden();
     assert_eq!(rig(&g, setup(" Whatever ")).host.mode(None), "full");
     assert_eq!(rig(&g, setup("READONLY")).host.mode(None), "readonly");
 }
-
-/// `configuredOrchestrationMode(config)`, the reader the flip hands `SurfaceSources`: the stored
-/// mode, `balanced` for none or an unknown one.
-#[test]
-fn the_configured_orchestration_mode_is_readable_from_the_host_crate() {
-    use mixdog_core_config::workflow::ids::configured_orchestration_mode;
-    let doc = |value: Value| value.as_object().expect("doc").clone();
-    assert_eq!(configured_orchestration_mode(&doc(json!({}))), "balanced");
-    assert_eq!(configured_orchestration_mode(&doc(json!({ "orchestrationMode": "swarm" }))), "swarm");
-    assert_eq!(configured_orchestration_mode(&doc(json!({ "orchestrationMode": "bogus" }))), "balanced");
-}
-
 /// A thread reports its own mode (what `thread/start` or `thread/setToolMode` wrote), not the
 /// runtime's; a header from before the key is read from its spec.
 #[test]
+#[cfg(node_twin)]
 fn a_thread_reports_its_own_mode() {
     let g = golden();
     let host = rig(&g, setup("full")).host;
@@ -805,8 +927,8 @@ fn a_thread_reports_its_own_mode() {
     assert_eq!(host.mode(Some(&header(json!({})))), "full");
     assert_eq!(host.mode(None), "full");
 }
-
 /// The header of an empty thread whose surface was built before `shell` was denied.
+#[cfg(node_twin)]
 async fn stale_header(g: &Value) -> Header {
     let mut header = rig(g, setup("full")).host.preview_surface().await.expect("preview");
     header.insert("provider".into(), json!("anthropic"));
@@ -815,17 +937,17 @@ async fn stale_header(g: &Value) -> Header {
     header.insert("disallowedTools".into(), json!([]));
     header
 }
-
+#[cfg(node_twin)]
 async fn reconciled(g: &Value, messages: Vec<Value>, running: bool) -> Rig {
     rig(g, Setup { header: stale_header(g).await, messages, running, denied: vec!["shell".into()], ..setup("full") })
 }
-
 /// Node rebuilds the catalog from `[...session.tools, ...extra, ...deferredCatalogUnion]` and sorts it by route rank, then measured usage,
 /// then that input index (`surfaceCatalog` in `runtime-core/tool-catalog.mjs:407-424`, `sortedCatalogByMeasuredUsage` in
 /// `tool-catalog-schema.mjs:133-146`). The input is the previous pass's output, so a tool that the first pass put in `tools` moves ahead of its
 /// ties on the next pass: Node's catalog order is not a fixed point after one pass either. From the second pass on the input already has the
 /// tools first within every tie, so the order stays. The property is therefore: the second reconcile may only reorder `deferredToolCatalog`
 /// (same members), and the third changes nothing.
+#[cfg(node_twin)]
 async fn settles_after_the_catalog_reorders_once(rig: &Rig, thread: &ThreadId) {
     let before = doc_names(rig.threads.header.lock().unwrap().get("deferredToolCatalog"));
     let written = rig.threads.patches.lock().unwrap().len();
@@ -849,6 +971,7 @@ async fn settles_after_the_catalog_reorders_once(rig: &Rig, thread: &ThreadId) {
     assert_eq!(rig.threads.patches.lock().unwrap().len(), settled, "the third reconcile finds nothing to change");
 }
 #[tokio::test]
+#[cfg(node_twin)]
 async fn an_empty_idle_thread_takes_the_denials_and_the_third_reconcile_changes_nothing() {
     let g = golden();
     let rig = reconciled(&g, Vec::new(), false).await;
@@ -861,8 +984,8 @@ async fn an_empty_idle_thread_takes_the_denials_and_the_third_reconcile_changes_
     assert_eq!(rig.threads.patches.lock().unwrap().len(), 1);
     settles_after_the_catalog_reorders_once(&rig, &thread).await;
 }
-
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_conversation_or_a_running_turn_keeps_its_surface() {
     let g = golden();
     let thread = ThreadId::from("t1");
@@ -873,10 +996,10 @@ async fn a_conversation_or_a_running_turn_keeps_its_surface() {
     running.host.reconcile_empty(&thread).await.expect("running");
     assert!(running.threads.patches.lock().unwrap().is_empty());
 }
-
 /// An empty thread with a prompt identity gets its prompt composed again and the workflow the
 /// config gives now; the request carries the denials and the route.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn an_empty_thread_with_a_prompt_identity_takes_a_new_prompt_and_the_workflow() {
     let g = golden();
     let mut header = stale_header(&g).await;
@@ -903,17 +1026,20 @@ async fn an_empty_thread_with_a_prompt_identity_takes_a_new_prompt_and_the_workf
     // The catalog reorders once at most, then nothing changes.
     settles_after_the_catalog_reorders_once(&rig, &ThreadId::from("t1")).await;
 }
-
 /// A thread with a conversation takes a moved settings gate without being re-prefixed: the tool
 /// a gate opened is announced in the pending delta and the prompt is marked for a fold
 /// (`stageToolAvailability`; its own cases are `fixtures/tool-availability`).
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_moved_gate_reaches_a_thread_with_a_conversation() {
     let g = golden();
     let mut header = stale_header(&g).await;
     let mut denied = names(&header["disallowedTools"]);
     denied.push("memory".to_owned());
     header.insert("disallowedTools".into(), json!(denied));
+    SystemBlocks { base: Some("warm rules".into()), ..Default::default() }.write(&mut header);
+    let system = SystemBlocks::from_header(&header);
+    let tools = header.get("tools").cloned();
     let rig = rig(&g, Setup { header, messages: vec![json!({ "role": "user", "content": "hello" })], ..setup("full") });
     let thread = ThreadId::from("t1");
     let moved = rig.host.stage_gates(&thread).await.expect("stage").moved.expect("the gate moved");
@@ -927,6 +1053,8 @@ async fn a_moved_gate_reaches_a_thread_with_a_conversation() {
     assert!(rig.host.stage_gates(&thread).await.expect("again").moved.is_none());
     // The turn start asks for the header afterwards: a turn built from it sees the moved gate.
     let header = TurnSettings::reconcile(&rig.host, &thread, true).await.expect("turn settings");
+    assert_eq!(SystemBlocks::from_header(&header), system);
+    assert_eq!(header.get("tools"), tools.as_ref(), "an opened gate doesn't change the eager request");
     assert!(!names(&header["disallowedTools"]).contains(&"memory".to_owned()));
     assert_eq!(header["promptFoldPending"], true);
     // Only the MCP fold writes more (the connected names and the late pool a thread never reconciled); the gate has nothing left to write.
@@ -938,23 +1066,40 @@ async fn a_moved_gate_reaches_a_thread_with_a_conversation() {
     keys.sort_unstable();
     assert_eq!(keys, ["deferredLateToolCatalog", "deferredMcpToolNames"]);
 }
+#[tokio::test]
+#[cfg(node_twin)]
+async fn the_request_boundary_migrates_a_bridge_with_only_stale_guidance() {
+    use crate::run_host::tool_exposure::{TOOL_BRIDGE_GUIDANCE, TOOL_EXPOSURE_BRIDGE};
+
+    let g = golden();
+    let route = json!({ "provider": "gemini", "model": "gemini-test" });
+    let mut header = header_of(&json!({
+        "provider": route["provider"], "model": route["model"], "deferredProviderMode": "manifest",
+        "toolExposureMode": TOOL_EXPOSURE_BRIDGE, "deferredSurfaceMode": "lead",
+        "messages": [
+            { "role": "system", "content": "Rules" },
+            { "role": "system", "content": "Profile\n\n<tool-bridge>\nLegacy guide\n</tool-bridge>" },
+        ],
+    }));
+    let mut tools = node_bridge();
+    tools.insert(0, json!({ "name": "read", "description": "read", "inputSchema": {} }));
+    header.insert("tools".into(), json!(tools));
+    let rig = rig(&g, Setup { header, route, ..setup("full") });
+    let thread = ThreadId::from("t1");
+    let migrated = TurnSettings::migrate_exposure(&rig.host, &thread, &[]).await.expect("migration").expect("stale guidance is a migration");
+    let stable = SystemBlocks::from_header(&migrated).stable.expect("bridge guidance lives in BP2");
+    assert!(stable.contains(TOOL_BRIDGE_GUIDANCE) && !stable.contains("Legacy guide"));
+    assert!(TurnSettings::migrate_exposure(&rig.host, &thread, &[]).await.expect("next boundary").is_none());
+}
 
 /// Node's `foldMcpSurface` and the request boundary's reconcile (`fixtures/mcp-fold`, the `turn` cases), over the header
 /// a thread stores: the prompt's deferred-tool block comes out of, and goes back into, the header's blocks.
+#[cfg(node_twin)]
 fn fold_golden() -> Value {
     mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/mcp-fold/golden.json")).expect("mcp fold golden")
 }
-
-/// A recorded session as a thread's header: its leading system messages are the header's prompt blocks.
-pub(crate) fn header_of(session: &Value) -> Header {
-    let mut header = session.as_object().expect("session").clone();
-    let messages = header.shift_remove("messages").and_then(|messages| messages.as_array().cloned()).unwrap_or_default();
-    header.insert("bp3EnvSplit".into(), Value::Bool(true));
-    SystemBlocks::from_node_messages(&messages).expect("a system prefix").write(&mut header);
-    header
-}
-
 #[test]
+#[cfg(node_twin)]
 fn the_mcp_fold_follows_node() {
     let golden = golden();
     let host = rig(&golden, setup("full")).host;
@@ -987,12 +1132,12 @@ fn the_mcp_fold_follows_node() {
     }
     assert!(turns > 0);
 }
-
 /// Node's `migrateToolExposureAtBoundary` and the request boundary's cache-break clean-up (`fixtures/mcp-fold`, the
 /// `migrate` cases): a session persisted for another exposure than its provider's is rebuilt and what was measured
 /// against the old surface is dropped; a session already on its provider's, one with no exposure yet, and one with a
 /// tool call waiting for its result are left as they are.
 #[test]
+#[cfg(node_twin)]
 fn the_exposure_migration_follows_node() {
     let golden = golden();
     let host = rig(&golden, setup("full")).host;
@@ -1018,11 +1163,11 @@ fn the_exposure_migration_follows_node() {
     }
     assert_eq!((steps, migrations), (8, 4));
 }
-
 /// The request boundary migrates at every boundary (`request-boundary.mjs:67`): the thread's header is written with what
 /// Node leaves (`fixtures/mcp-fold`, the `migrate` cases), once; the same transcript again finds nothing to migrate, and
 /// a tool call that waits for its result is no boundary until it is answered.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn the_boundary_migrates_the_thread_header_at_every_boundary() {
     let golden = golden();
     let fold = fold_golden();
@@ -1053,11 +1198,11 @@ async fn the_boundary_migrates_the_thread_header_at_every_boundary() {
     let answered = TurnSettings::migrate_exposure(&rig_waiting.host, &thread, &rows(&waiting["steps"][1])).await.expect("answered").expect("migrated at the next boundary");
     assert_eq!(answered, header_of(&waiting["steps"][1]["after"]));
 }
-
 /// The loop's refresh (request boundary, tool call, `load_tool`) writes what Node's
 /// `refreshDeferredMcpToolCatalog` leaves, once: the same registry again is skipped by the state cache. A thread with
 /// no deferred mode is not touched.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn the_loops_mcp_refresh_follows_nodes() {
     let golden = golden();
     let fold = fold_golden();
@@ -1077,12 +1222,12 @@ async fn the_loops_mcp_refresh_follows_nodes() {
     assert_eq!(*rig_bare.threads.header.lock().unwrap(), header_of(&bare["steps"][0]["after"]));
     assert!(rig_bare.threads.patches.lock().unwrap().is_empty());
 }
-
 /// The first turn clears its one-shot flag and writes the initial fold once, and nothing else before the request
 /// boundary (Node's turn start returns after the fold, `turn-prepare.mjs:53-57`): no reconcile has run, so no state is
 /// remembered and the late pool and connected names are not written yet. The boundary then reconciles exactly once: it
 /// writes what Node's reconcile leaves, and the same registry at the next boundary is skipped by the state cache.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn the_first_turn_reconciles_once_at_the_request_boundary() {
     let golden = golden();
     let fold = fold_golden();
@@ -1107,10 +1252,42 @@ async fn the_first_turn_reconciles_once_at_the_request_boundary() {
     assert_eq!(rig.threads.patches.lock().unwrap().len(), 2, "the same registry is not reconciled again");
 }
 
+#[tokio::test]
+#[cfg(node_twin)]
+async fn a_fresh_agents_initial_fold_sees_tools_that_settle_during_its_grace() {
+    struct InitialMcp(Arc<Scopes>, Arc<dyn Tool>);
+    impl SessionMcp for InitialMcp {
+        fn tools(&self, scope: Option<&str>, _: &Path) -> Vec<Arc<dyn Tool>> {
+            if self.0.initial_ready.lock().unwrap().iter().any(|ready| Some(ready.as_str()) == scope) {
+                vec![self.1.clone()]
+            } else {
+                Vec::new()
+            }
+        }
+    }
+
+    let fold = fold_golden();
+    let case = fold["cases"].as_array().unwrap().iter().find(|case| case["name"] == "first turn: nothing connected").unwrap();
+    let mut header = header_of(&case["before"]);
+    header.insert("visibility".into(), json!("agent-only"));
+    header.insert("mcpScopeId".into(), json!("agent-scope"));
+    let mut rig = rig(&golden(), Setup { header, ..setup("full") });
+    let name = "mcp__plugin-demo__lookup";
+    let doc = json!({"name": name, "description": "look up an entry", "inputSchema": {"type": "object"}});
+    rig.host.sources.mcp = Arc::new(InitialMcp(rig.scopes.clone(), stub(&doc)));
+
+    let thread = ThreadId::from("t1");
+    let first = rig.host.fold_mcp_surface(&thread).await.unwrap();
+    assert!(doc_names(first.get("deferredToolCatalog")).iter().any(|tool| tool == name));
+    rig.host.fold_mcp_surface(&thread).await.unwrap();
+    assert_eq!(*rig.scopes.initial_ready.lock().unwrap(), ["agent-scope"], "the grace is only for the initial fold");
+}
+
 /// The first turn of an empty thread rebuilds it whole, as Node's `reconcileTurnSettings` does for a
 /// session with a prompt identity; a thread that already holds a conversation, and one Node never
 /// rebuilds (no identity), take only the moved gates.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn the_first_turn_of_an_empty_thread_rebuilds_it_and_other_threads_are_left_alone() {
     let g = golden();
     let identity = json!({ "systemPrompt": "", "skipAgentRules": false, "profileSkip": {}, "agent": null });
@@ -1145,11 +1322,11 @@ async fn the_first_turn_of_an_empty_thread_rebuilds_it_and_other_threads_are_lef
     assert!(legacy.prompts.0.lock().unwrap().is_empty(), "a session without an identity is never rebuilt");
     assert!(legacy.threads.patches.lock().unwrap().iter().all(|(set, _)| !set.contains_key("promptSettings") && !set.contains_key("disallowedTools")));
 }
-
 /// A conversation's prompt settings are compared with the sections as they stand at each turn start
 /// (`reconcileSession`): what differs from its prompt is told once by a staged notice and folds in at the next
 /// cold point; a turn start that finds the same gates and sections stages nothing again.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_conversation_is_told_the_settings_that_moved_since_its_prompt() {
     let g = golden();
     let mut header = stale_header(&g).await;
@@ -1168,11 +1345,128 @@ async fn a_conversation_is_told_the_settings_that_moved_since_its_prompt() {
     assert_eq!(again["promptSettingsNotice"], after["promptSettingsNotice"], "the same notice is not staged again");
     assert_eq!(rig.threads.patches.lock().unwrap().len(), written, "nothing left to write");
 }
+/// Changed rule text reaches a conversation's system text at the cold points only (the first turn start after a compaction,
+/// a message tail the provider's cache let expire), for a lead, a bot and a delegated agent alike: a warm session keeps its
+/// prompt, a prompt that comes out the same is left byte-identical with no cache break, and the marks are cleared once folded.
+#[tokio::test]
+#[cfg(node_twin)]
+async fn changed_rule_text_folds_in_at_cold_points_for_every_session_kind() {
+    const OLD: &str = "# Tool Calls\nold rules";
+    const NEW: &str = "# Tool Calls\nnew rules";
+    let g = golden();
+    let thread = ThreadId::from("t1");
+    let identity = json!({ "systemPrompt": "", "skipAgentRules": false, "profileSkip": {}, "agent": null });
+    let base_of = |rig: &Rig| SystemBlocks::from_header(&rig.threads.header.lock().unwrap()).base.unwrap_or_default();
+    let kinds = [("lead", json!({})), ("bot", json!({ "sessionMode": "agent" })), ("delegated agent", json!({ "owner": "agent" }))];
+    for (kind, extra) in kinds {
+        let mut header = stale_header(&g).await;
+        header.insert("promptIdentity".into(), identity.clone());
+        header.extend(extra.as_object().expect("extra").clone());
+        SystemBlocks { base: Some(OLD.into()), stable: Some("# Profile".into()), core: Some("# Core".into()), env: Some("# Env".into()), combined: false }.write(&mut header);
+        let rig = rig(&g, Setup { header, messages: vec![json!({ "role": "user", "content": "hello" })], ..setup("full") });
+        let (set_header, change_rules) = (|key: &str, value: Value| rig.threads.header.lock().unwrap().insert(key.into(), value), |text: &str| *rig.prompts.1.lock().unwrap() = Some(text.into()));
+        change_rules(NEW);
 
+        // Warm: nothing pending, no compaction, a tail inside its lifetime: the prompt is not touched.
+        set_header("providerCacheOpts", json!({ "cacheStrategy": { "messages": "5m" } }));
+        set_header("lastProviderSendAt", json!(1_700_000_000_000_i64 - 1_000));
+        TurnSettings::reconcile(&rig.host, &thread, true).await.expect("warm turn");
+        assert_eq!(base_of(&rig), OLD, "{kind}: a warm cache is never broken");
+
+        // The first turn start after a compaction rebuilds from the current rules and clears the marks.
+        set_header("compactionFoldPending", json!(true));
+        set_header("promptFoldPending", json!(true));
+        set_header("pendingCacheBreakIntent", json!("manual_compaction"));
+        let folded = TurnSettings::reconcile(&rig.host, &thread, true).await.expect("turn after compaction");
+        assert!(base_of(&rig).contains(NEW), "{kind}: the changed rule reaches the system text");
+        assert!(folded.get("compactionFoldPending").is_none() && folded.get("promptFoldPending").is_none(), "{kind}: the marks are cleared");
+        assert_eq!(folded["pendingCacheBreakIntent"], "manual_compaction", "{kind}: the break is tagged with the compaction's intent");
+
+        // The same sources again after a second compaction: byte-identical, no new break.
+        rig.threads.header.lock().unwrap().shift_remove("pendingCacheBreakIntent");
+        let before = rig.threads.header.lock().unwrap().clone();
+        set_header("compactionFoldPending", json!(true));
+        let unchanged = TurnSettings::reconcile(&rig.host, &thread, true).await.expect("second compaction");
+        let mut expected = before;
+        expected.shift_remove("compactionFoldPending");
+        assert_eq!(SystemBlocks::from_header(&unchanged), SystemBlocks::from_header(&expected), "{kind}: an unchanged prompt stays byte-identical");
+        assert_eq!(unchanged.get("updatedAt"), expected.get("updatedAt"), "{kind}: nothing else is rewritten");
+        assert!(unchanged.get("pendingCacheBreakIntent").is_none() && unchanged.get("compactionFoldPending").is_none(), "{kind}: no cache break, mark cleared");
+
+        // A reopened thread: the persisted header, one that never recorded its prompt settings, goes through the same
+        // compaction mark. Its request prefix is the same bytes, so the cache holds: no break is parked, and the prefix guard
+        // finds nothing to refuse.
+        let mut persisted = rig.threads.header.lock().unwrap().clone();
+        persisted.shift_remove("promptSettings");
+        persisted.insert("compactionFoldPending".into(), json!(true));
+        let reopened = self::rig(&g, Setup { header: persisted.clone(), messages: vec![json!({ "role": "user", "content": "hello" })], ..setup("full") });
+        // The reopened process composes from the same sources the first one folded in.
+        *reopened.prompts.1.lock().unwrap() = Some(NEW.into());
+        let after = TurnSettings::reconcile(&reopened.host, &thread, true).await.expect("reopened thread");
+        let sent = |header: &Header| snapshot(&request_system_messages(header), &[], &[] as &[Value], "anthropic", "claude-opus-4-6");
+        let options = GuardOptions { provider: "anthropic", model: "claude-opus-4-6", intent: None, mutation_source: None };
+        assert!(compare(Some(&sent(&persisted)), &sent(&after), &options).is_none(), "{kind}: the reopened prefix passes the guard");
+        assert!(after.get("pendingCacheBreakIntent").is_none() && after.get("compactionFoldPending").is_none(), "{kind}: identical bytes park no break");
+        assert!(after.get("promptSettings").is_some(), "{kind}: the settings are recorded all the same");
+
+        // A tail the cache let expire is a cold point too (the change need not be marked).
+        change_rules("# Tool Calls\nnewer rules");
+        set_header("lastProviderSendAt", json!(1_700_000_000_000_i64 - 301_000));
+        let resumed = TurnSettings::reconcile(&rig.host, &thread, true).await.expect("turn after expiry");
+        assert!(base_of(&rig).contains("newer rules"), "{kind}: an expired tail folds the change in");
+        assert_eq!(resumed["pendingCacheBreakIntent"], "prompt_fold", "{kind}: one break, tagged");
+        // The actor's kept guard describes the prefix that moved. `prompt_fold` is no compaction intent, so the guard would refuse
+        // the rewritten prefix: the fold names a new lineage, which is the guard's deletion (Node's `markToolSurfaceMigrated`).
+        let slot = mixdog_core_session::session::PrefixGuardSlot::default();
+        slot.for_header(&persisted);
+        slot.keep(Some(sent(&persisted)));
+        let kept = slot.for_header(&resumed);
+        assert_ne!(persisted.get("transcriptEpoch"), resumed.get("transcriptEpoch"), "{kind}: the moved prefix starts a new lineage");
+        assert!(compare(kept.as_ref(), &sent(&resumed), &options).is_none(), "{kind}: the moved prefix is sent with no guard error");
+    }
+}
+
+/// A fold of a conversation takes the gates as they stand into its prompt (the late tools join the manifest, nothing is left
+/// pending for them) and a switch reminder that a compaction dropped is a cold point of its own.
+#[tokio::test]
+#[cfg(node_twin)]
+async fn a_fold_takes_late_tools_in_and_a_dropped_switch_reminder_is_cold() {
+    let g = golden();
+    let thread = ThreadId::from("t1");
+    let late = json!({ "name": "mcp__alpha__ping", "description": "ping", "inputSchema": { "type": "object" } });
+    let mut header = stale_header(&g).await;
+    header.insert("promptIdentity".into(), json!({ "systemPrompt": "", "skipAgentRules": false, "profileSkip": {}, "agent": null }));
+    SystemBlocks { base: Some("# Tool Calls\nrules".into()), stable: Some("# Profile".into()), core: Some("# Core".into()), env: Some("# Env".into()), combined: false }.write(&mut header);
+    header.insert("deferredLateToolCatalog".into(), json!([late]));
+    header.insert("deferredMcpToolNames".into(), json!(["mcp__alpha__ping"]));
+    header.insert("pendingDeferredToolDelta".into(), json!({ "revision": 1, "added": [{ "name": "mcp__alpha__ping", "description": "ping" }], "removed": [] }));
+    header.insert("workflowOverlay".into(), json!({ "content": "Switched to review.", "prompt": { "id": "default" }, "deniedTools": ["shell"] }));
+    assert!(doc_names(header.get("tools")).contains(&"shell".to_owned()), "the base allows shell");
+    let rig = rig(&g, Setup { header, messages: vec![json!({ "role": "user", "content": "hello" })], mcp: vec![stub(&late)], denied: vec!["shell".into()], ..setup("full") });
+    // The reminder is neither pending nor in the conversation: the turn is a cold point with no mark at all.
+    let folded = TurnSettings::reconcile(&rig.host, &thread, true).await.expect("turn");
+    assert!(folded.get("workflowOverlay").is_none(), "the overlay is folded into the prompt");
+    assert_eq!(names(&folded["disallowedTools"]), ["shell"], "what the overlay denied is denied by the folded session");
+    assert!(!doc_names(folded.get("tools")).contains(&"shell".to_owned()), "and it leaves the tools the folded prompt tells");
+    assert_eq!(folded["thinkingRebindPending"], true, "the moved prefix owes the stored thinking a rebind");
+    assert!(doc_names(folded.get("deferredToolCatalog")).contains(&"mcp__alpha__ping".to_owned()), "the late tool joined the boot catalog");
+    // The turn's MCP reconcile follows the fold and lists every live tool in the late pool again, as Node's does; what the fold
+    // required is that the tool is in the boot catalog the manifest was built from, so it is held once and announced never.
+    assert!(doc_names(folded.get("deferredLateToolCatalog")).iter().all(|name| doc_names(folded.get("deferredToolCatalog")).contains(name)), "no late tool is left that the manifest does not list");
+    assert!(folded.get("pendingDeferredToolDelta").map_or(true, |delta| delta["added"] == json!([])), "nothing is announced twice");
+
+    // The reminder still in the conversation keeps the cache warm.
+    let mut held = rig.threads.header.lock().unwrap().clone();
+    held.insert("workflowOverlay".into(), json!({ "content": "Switched to review.", "prompt": { "id": "default" } }));
+    let warm = self::rig(&g, Setup { header: held, messages: vec![json!({ "role": "user", "content": "hello\nSwitched to review." })], ..setup("full") });
+    let kept = TurnSettings::reconcile(&warm.host, &thread, true).await.expect("warm turn");
+    assert!(kept.get("workflowOverlay").is_some(), "a delivered reminder is no cold point");
+}
 /// A connector switched off between two turn starts reaches the second one: the first records the
 /// baseline, the move joins the pending delta (`stageConnectorAvailability`; its cases are
 /// `fixtures/connector-availability`).
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_switched_off_connector_reaches_the_next_turn() {
     let g = golden();
     let mut header = stale_header(&g).await;
@@ -1190,10 +1484,10 @@ async fn a_switched_off_connector_reaches_the_next_turn() {
     assert_eq!(second.header["pendingDeferredToolDelta"]["removed"], json!(["mcp__alpha__list"]));
     assert_eq!(second.header["agentConnectorTools"], json!(["mcp__beta__ping"]));
 }
-
 /// The gates are read on every use, never kept: a gate that moves between two turn starts is seen by
 /// the second one.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn the_gates_are_read_fresh_on_every_use() {
     let g = golden();
     let moving = Arc::new(Moving(Mutex::default()));
@@ -1208,21 +1502,21 @@ async fn the_gates_are_read_fresh_on_every_use() {
     assert_eq!(second.header["featureDeniedTools"], json!(["memory"]));
     assert!(names(&second.header["disallowedTools"]).contains(&"memory".to_owned()));
 }
-
 /// A thread without a prompt identity keeps its prompt (Node recomposes only what has an identity).
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_thread_without_a_prompt_identity_is_not_recomposed() {
     let g = golden();
     let rig = reconciled(&g, Vec::new(), false).await;
     rig.host.reconcile_empty(&ThreadId::from("t1")).await.expect("reconcile");
     assert!(rig.prompts.0.lock().unwrap().is_empty());
 }
-
 /// Node's `reconcileEmptySession` over a Lead and delegated workers built by `composeSessionSystem`
 /// (`fixtures/surface-reconcile`): the same tool surface, denials and workflow afterwards, and a
 /// conversation or a running turn left alone. The workflow, the denials and the prompt are the
 /// ports' answers (here Node's own), so this holds the host's pipeline to Node's.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn the_reconcile_follows_node() {
     let g: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/surface-reconcile/golden.json")).expect("golden");
     let pool = golden();
@@ -1256,8 +1550,8 @@ async fn the_reconcile_follows_node() {
         assert_eq!(requests[0].denied, names(&node["disallowedTools"]), "{label}: BP1 omits the denied tools");
     }
 }
-
 /// The host over a recorded session: Node's denials and workflow, the recorded prompt.
+#[cfg(node_twin)]
 fn reconcile_rig(pool: &Value, g: &Value, case: &Value, header: Header, conversation: bool) -> Rig {
     let route = case["route"].clone();
     let running = case["name"].as_str().expect("name").contains("running");
@@ -1278,35 +1572,21 @@ fn reconcile_rig(pool: &Value, g: &Value, case: &Value, header: Header, conversa
     );
     rig
 }
-// ---- the provider tool array, replayed from Node's recording (`fixtures/tool-resolution/golden.json`) ----
-
-use mixdog_agent::tools::ToolSet;
-use mixdog_core_api::domain::provider::ToolDefinition;
-use mixdog_tools::policy::SessionSurface;
-
-use crate::run_host::assemble::SessionTools;
-use crate::run_host::context_world::snapshot_tools;
-use crate::run_host::resume_tools::McpToolNames;
-use crate::run_host::resume_tools::ResumeTools;
-use crate::run_host::route_surface::resume_header;
-use crate::run_host::route_surface::resumed_surface_change;
-use crate::run_host::rules::RulesPolicy;
-use crate::run_host::session_tools::SessionToolBuilder;
-
+#[cfg(node_twin)]
 fn recording() -> Value {
     mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/tool-resolution/golden.json")).expect("tool-resolution golden")
 }
-
 /// The order the daemon builds its pool in (`compose_flip`): `orch::register::tools`, then `code_graph`, the
 /// file, shell and git tools, the web tools and the memory tools. It is an input, not an expectation: Node's own
 /// order for the same tools is `STANDALONE_ORDER`'s to give.
+#[cfg(node_twin)]
 const DAEMON_ORDER: [&str; 36] = [
     "load_tool", "call_tool", "Skill", "session", "agent", "explore", "todo", "goal", "ask_user", "handoff_user", "react", "setup", "media", "tidy", "office", "browser",
     "browser_devtools", "visualize", "terminal", "computer", "code_graph", "read", "edit", "shell", "git", "github", "task", "grep", "glob", "find", "list", "apply_patch",
     "web_search", "web_fetch", "memory", "recall",
 ];
-
 /// The recorded pool in the daemon's registration order, each tool with the definition delegated agents are sent where Node binds one.
+#[cfg(node_twin)]
 fn recorded_pool(r: &Value) -> Vec<Arc<dyn Tool>> {
     let entries = r["pool"]["tools"].as_array().expect("pool");
     assert_eq!(entries.len(), DAEMON_ORDER.len(), "every recorded tool has a place in the daemon's order");
@@ -1318,58 +1598,12 @@ fn recorded_pool(r: &Value) -> Vec<Arc<dyn Tool>> {
         })
         .collect()
 }
-
+#[cfg(node_twin)]
 fn recorded_mcp(r: &Value) -> Vec<Arc<dyn Tool>> {
     r["pool"]["mcpTools"].as_array().expect("mcp tools").iter().map(|doc| Arc::new(Stub(spec_of_doc(doc), None)) as Arc<dyn Tool>).collect()
 }
-
-/// What is compared of a tool on the wire: its name, text, schema and `deferLoading`.
-fn wire(tool: &ToolDefinition) -> Value {
-    json!({ "name": tool.name, "description": tool.description, "inputSchema": tool.input_schema, "deferLoading": tool.defer_loading })
-}
-
-fn node_wire(r: &Value, case: &Value) -> Vec<Value> {
-    case["provider"]
-        .as_array()
-        .expect("provider")
-        .iter()
-        .map(|entry| {
-            let tool = &r["definitions"][entry["definition"].as_str().expect("definition id")];
-            json!({ "name": tool["name"], "description": tool["description"], "inputSchema": tool["inputSchema"], "deferLoading": entry.get("deferLoading") == Some(&Value::Bool(true)) })
-        })
-        .collect()
-}
-
-/// No connected server names its tools differently from the recording.
-struct Unshortened;
-impl McpToolNames for Unshortened {
-    fn names(&self, _: Option<&str>, _: &str) -> Option<(String, String)> {
-        None
-    }
-}
-
-/// `getHiddenAgent(agent)` as the recording took it.
-struct Role(bool);
-impl RulesPolicy for Role {
-    fn hidden_agent(&self, _: Option<&str>) -> bool {
-        self.0
-    }
-    fn delegation_disabled(&self, _: &Value, _: bool) -> bool {
-        false
-    }
-}
-
-/// What a request of `header` carries: the session's tools in the header's order (`SessionToolBuilder`), as the loop's
-/// `ToolSet` lists them to the model, then the request boundary's snapshot (`McpCatalog::snapshot`).
-async fn request_tools(pool: &[Arc<dyn Tool>], mcp: &[Arc<dyn Tool>], header: &Header) -> Vec<ToolDefinition> {
-    let builder = SessionToolBuilder::new(pool.to_vec(), Arc::new(Mcp(mcp.to_vec())), Arc::new(NoSkills)).expect("a pool with the agent definitions");
-    let surface = SessionSurface::from_header(header, Vec::new());
-    let SessionTools { tools, builtins, agent } = builder.tools(header, &surface).await.expect("tools");
-    let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default();
-    snapshot_tools(header, ToolSet::with_builtins(tools, builtins).for_agent(agent).definitions(), Vec::new(), provider)
-}
-
 /// A Lead thread started as `thread/start` writes it: the host seeds its tools and deferred surface.
+#[cfg(node_twin)]
 async fn lead_request(pool: &[Arc<dyn Tool>], mcp: &[Arc<dyn Tool>], case: &Value) -> Vec<ToolDefinition> {
     let input = &case["input"];
     let (provider, model) = (input["provider"].clone(), input["model"].clone());
@@ -1399,41 +1633,13 @@ async fn lead_request(pool: &[Arc<dyn Tool>], mcp: &[Arc<dyn Tool>], case: &Valu
     let seeded = rig.host.seed(&ThreadId::from(input["sessionId"].as_str().expect("session id")), &header).await.expect(case["name"].as_str().expect("name"));
     request_tools(pool, mcp, &seeded).await
 }
-
-/// A delegated worker's thread: its tools resolved as a stored session's are (`ResumeTools`), then the
-/// agent exposure of its route (`applyAgentToolExposure`).
-async fn worker_request(pool: &[Arc<dyn Tool>], mcp: &[Arc<dyn Tool>], case: &Value) -> Vec<ToolDefinition> {
-    let input = &case["input"];
-    let hidden = case["hiddenAgent"] == true;
-    let mut header = Header::new();
-    header.insert("id".into(), input["sessionId"].clone());
-    header.insert("owner".into(), json!("agent"));
-    header.insert("agent".into(), input["agent"].clone());
-    header.insert("provider".into(), input["provider"].clone());
-    header.insert("model".into(), input["model"].clone());
-    header.insert("cwd".into(), json!("/work"));
-    header.insert("disallowedTools".into(), case["persisted"]["disallowedTools"].clone());
-    if case["persisted"]["schemaAllowedTools"].is_array() {
-        header.insert("schemaAllowedTools".into(), case["persisted"]["schemaAllowedTools"].clone());
-    }
-    let resume = ResumeTools { pool: pool.to_vec(), mcp: Arc::new(Mcp(mcp.to_vec())), mcp_names: Arc::new(Unshortened), skills: Arc::new(NoSkills), policy: Arc::new(Role(hidden)) };
-    let prepared = resume.prepare_tools(&header).await.expect("prepared");
-    let host = Bridge(node_bridge());
-    let surface = ToolSurface { host: &host, clock: &Fixed };
-    let change = resumed_surface_change(&surface, &Fixed, &header, prepared, hidden);
-    for key in &change.unset {
-        header.shift_remove(key);
-    }
-    header.extend(change.set);
-    request_tools(pool, mcp, &header).await
-}
-
 /// The tool array each kind of session sends the provider is Node's: which tools, in which order, with which
 /// definitions. Node's resolution drops the hidden tools, sorts the public internal and MCP tools by name, ranks them
 /// by route, appends `todo`, and a bridge surface appends `load_tool` and `call_tool` after (`tool-resolution.mjs`,
 /// `tool-catalog.mjs`); the deferred anchor rides last on an Anthropic route. The pool is registered in the
 /// daemon's order, not Node's.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn the_provider_tool_array_follows_node_for_every_recorded_session() {
     let r = recording();
     let (pool, connected) = (recorded_pool(&r), recorded_mcp(&r));
@@ -1449,22 +1655,22 @@ async fn the_provider_tool_array_follows_node_for_every_recorded_session() {
         assert_eq!(sent, node, "{label}: definitions");
     }
 }
-
 /// `internal_tools` lists the pool's standalone tools as `collectStandaloneToolDefs` does, whatever order the pool was registered in.
 #[test]
+#[cfg(node_twin)]
 fn the_internal_tools_are_in_nodes_order_whatever_the_pool_order() {
     let r = recording();
     let pool = recorded_pool(&r);
     let ours: Vec<String> = internal_tools(&pool).iter().map(|tool| tool.spec().name.clone()).collect();
     assert_eq!(ours, names(&r["pool"]["standalone"]));
 }
-
 /// A Lead thread as `thread/start` makes it: seeded with no route on its header, then seated on its route
 /// (`seat_route`: the route's fields land and the route before was none). The seat must leave the seeded deferred
 /// surface alone, so the first request carries the array a real-turn harness request carried
 /// (`fixtures/tool-resolution/harness-request.json`, `record-harness-request-tools.mjs`): the default tools and
 /// `load_tool`, `call_tool`, with the announced tools deferred behind them, in Node's order.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_started_lead_sends_the_array_of_a_recorded_harness_request() {
     use crate::run_host::route_surface::{route_surface_change, PreparedTools};
     let r = recording();
@@ -1480,7 +1686,7 @@ async fn a_started_lead_sends_the_array_of_a_recorded_harness_request() {
     assert!(!seated.contains_key("provider") && !seated.contains_key("model"), "the route's fields are the seat's");
     seated.insert("provider".into(), route["provider"].clone());
     seated.insert("model".into(), route["model"].clone());
-    let resume = ResumeTools { pool: pool.clone(), mcp: Arc::new(Mcp(mcp.clone())), mcp_names: Arc::new(Unshortened), skills: Arc::new(NoSkills), policy: Arc::new(Role(false)) };
+    let resume = ResumeTools { pool: pool.clone(), mcp: Arc::new(Mcp(mcp.clone())), skills: Arc::new(NoSkills), policy: Arc::new(Role(false)) };
     let prepared: PreparedTools = resume.prepare_tools(&seated).await.expect("prepared");
     let host = Bridge(bridge_docs(&pool));
     let surface = ToolSurface { host: &host, clock: &Fixed };
@@ -1500,13 +1706,13 @@ async fn a_started_lead_sends_the_array_of_a_recorded_harness_request() {
     assert_eq!(names_of(&sent), names_of(&node_sent), "the sent tools and their order");
     assert_eq!(sent, node_sent, "the sent definitions");
 }
-
 /// A Lead thread a new process opens again (`resumeSession`, then `restoreResumedToolSurface`): the manager step stores
 /// the whole resolved list (`_refreshResumedTools`) and the restore puts the deferred surface back, so the first request
 /// after a restart carries the tools the thread sent before it, on a bridge route and on a native one, in either mode:
 /// the manager step resolves the spec of the thread's own mode (`toolSpecForMode(getMode())`, [`resume_header`]). Only
 /// the threads whose spec their mode gives: an `mcp` spec Lead resolves the `full` spec on a resume in Node too.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_resumed_lead_sends_the_tools_it_sent_before_the_restart() {
     use crate::run_host::tool_exposure::TOOL_EXPOSURE_BRIDGE;
     let r = recording();
@@ -1544,7 +1750,7 @@ async fn a_resumed_lead_sends_the_tools_it_sent_before_the_restart() {
         header.insert("provider".into(), input["provider"].clone());
         header.insert("model".into(), input["model"].clone());
         let seeded = rig.host.seed(&ThreadId::from(input["sessionId"].as_str().expect("session id")), &header).await.expect(label);
-        let resume = ResumeTools { pool: pool.clone(), mcp: Arc::new(Mcp(mcp.clone())), mcp_names: Arc::new(Unshortened), skills: Arc::new(NoSkills), policy: Arc::new(Role(false)) };
+        let resume = ResumeTools { pool: pool.clone(), mcp: Arc::new(Mcp(mcp.clone())), skills: Arc::new(NoSkills), policy: Arc::new(Role(false)) };
         let prepared = resume.prepare_tools(&resume_header(&seeded)).await.expect("prepared");
         let change = resumed_surface_change(&surface, &Fixed, &seeded, prepared, false);
         let mut refreshed = seeded.clone();
@@ -1575,6 +1781,7 @@ async fn a_resumed_lead_sends_the_tools_it_sent_before_the_restart() {
     assert!(bridged > 0, "a bridge route is among the resumed Leads");
     assert!(readonly > 0, "a readonly Lead is among the resumed Leads");
 }
+#[cfg(node_twin)]
 const EXEC_READONLY_CASES: [&str; 6] = [
     include_str!("../../../../../fixtures/exec-readonly/readonly-blocked.json"),
     include_str!("../../../../../fixtures/exec-readonly/readonly-json.json"),
@@ -1583,10 +1790,10 @@ const EXEC_READONLY_CASES: [&str; 6] = [
     include_str!("../../../../../fixtures/exec-readonly/interactive-gated.json"),
     include_str!("../../../../../fixtures/exec-readonly/interactive-toggled.json"),
 ];
-
 /// A headless exec session as `thread/start` makes it from the options Node created the runtime with (`runtimeOptions` of the
 /// recording): the header `write_header` writes, the denials `featureDisallowedToolsFor` gives the exec's own config (`builtins`
 /// empty) and environment (the pristine boundary's switches), the thread seeded, then the request it sends.
+#[cfg(node_twin)]
 async fn exec_session(case: &Value) -> (Header, Vec<ToolDefinition>) {
     use mixdog_app_protocol::v2::thread::ThreadSessionOptions;
     use mixdog_app_protocol::v2::thread::ToolProfile;
@@ -1653,10 +1860,10 @@ async fn exec_session(case: &Value) -> (Header, Vec<ToolDefinition>) {
     let sent = request_tools(&pool, &mcp, &seeded).await;
     (seeded, sent)
 }
-
 /// A headless exec session of each recorded mode offers the model Node's tools (names, order, descriptions, schemas) and refuses every
 /// call the recorded model made exactly as Node did, with the same text, or lets it through where Node ran it.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_headless_exec_session_offers_and_refuses_what_node_did_in_each_mode() {
     for text in EXEC_READONLY_CASES {
         let case: Value = serde_json::from_str(text).expect("case");
@@ -1680,9 +1887,9 @@ async fn a_headless_exec_session_offers_and_refuses_what_node_did_in_each_mode()
         }
     }
 }
-
 /// A Lead surface host over a real thread store, for a turn test that runs the host's turn settings (the MCP fold and
 /// the refresh every call starts with) against live threads: the golden pool, no gates, no skills, a fixed clock.
+#[cfg(node_twin)]
 pub(crate) fn lead_host_over(threads: Arc<dyn ThreadState>, messages: Arc<dyn ThreadMessages>, mcp: Arc<dyn SessionMcp>) -> LeadSurfaceHost {
     let pool = pool_of(&golden());
     let standalone = internal_tools(&pool).iter().map(tool_doc).collect();
@@ -1700,7 +1907,7 @@ pub(crate) fn lead_host_over(threads: Arc<dyn ThreadState>, messages: Arc<dyn Th
         skills: Arc::new(NoSkills),
         connectors: Arc::new(Connectors(Mutex::default())),
         hidden_agent: Arc::new(|_| false),
-        prompt: Arc::new(FakePrompt(Mutex::default())),
+        prompt: Arc::new(FakePrompt(Mutex::default(), Mutex::default())),
         clock: Arc::new(Fixed),
         threads,
         messages,
@@ -1710,4 +1917,60 @@ pub(crate) fn lead_host_over(threads: Arc<dyn ThreadState>, messages: Arc<dyn Th
         surface_generation: SurfaceGeneration::default(),
     })
     .expect("a pool whose git and task have their agent definitions")
+}
+
+/// The bridge exposure's own definitions, Node's `TOOL_BRIDGE_TOOLS` (`load_tool`, `call_tool`) as the session holds
+/// them, with their title. The recorded pool holds `load_tool` as `_getMcpTools` projects it (no title), which is not
+/// what the bridge appends to a session.
+#[cfg(node_twin)]
+pub(crate) fn node_bridge() -> Vec<Value> {
+    ["load_tool", "call_tool"].iter().map(|name| mixdog_js::fixture_tools::definition(name).expect("a recorded bridge tool")).collect()
+}
+/// A delegated worker's thread: its tools resolved as a stored session's are (`ResumeTools`), then the
+/// agent exposure of its route (`applyAgentToolExposure`).
+#[cfg(node_twin)]
+async fn worker_request(pool: &[Arc<dyn Tool>], mcp: &[Arc<dyn Tool>], case: &Value) -> Vec<ToolDefinition> {
+    let input = &case["input"];
+    let hidden = case["hiddenAgent"] == true;
+    let mut header = Header::new();
+    header.insert("id".into(), input["sessionId"].clone());
+    header.insert("owner".into(), json!("agent"));
+    header.insert("agent".into(), input["agent"].clone());
+    header.insert("provider".into(), input["provider"].clone());
+    header.insert("model".into(), input["model"].clone());
+    header.insert("cwd".into(), json!("/work"));
+    header.insert("disallowedTools".into(), case["persisted"]["disallowedTools"].clone());
+    if case["persisted"]["schemaAllowedTools"].is_array() {
+        header.insert("schemaAllowedTools".into(), case["persisted"]["schemaAllowedTools"].clone());
+    }
+    let resume = ResumeTools { pool: pool.to_vec(), mcp: Arc::new(Mcp(mcp.to_vec())), skills: Arc::new(NoSkills), policy: Arc::new(Role(hidden)) };
+    let prepared = resume.prepare_tools(&header).await.expect("prepared");
+    let host = Bridge(node_bridge());
+    let surface = ToolSurface { host: &host, clock: &Fixed };
+    let change = resumed_surface_change(&surface, &Fixed, &header, prepared, hidden);
+    for key in &change.unset {
+        header.shift_remove(key);
+    }
+    header.extend(change.set);
+    request_tools(pool, mcp, &header).await
+}
+
+#[async_trait]
+#[cfg(node_twin)]
+impl PromptRebuild for FakePrompt {
+    async fn rebuild(&self, request: RebuildRequest) -> Result<SessionPrompt, String> {
+        // The identity a rebuild gives back is the one it was asked for (`composeSessionSystem` keeps the session's).
+        let identity = request.header.get("promptIdentity").cloned().unwrap_or_else(|| json!({}));
+        self.0.lock().unwrap().push(request);
+        let rules = self.1.lock().unwrap().clone().unwrap_or_else(|| "# Tool Calls\nrules".into());
+        Ok(SessionPrompt {
+            blocks: SystemBlocks { base: Some(rules), stable: Some("# Profile".into()), core: Some("# Core".into()), env: Some("# Env".into()), combined: false },
+            environment_tail: "tail".into(),
+            prompt_identity: identity,
+            prompt_settings: json!({ "revision": "r1" }),
+            sections: Default::default(),
+            response_language: Value::Null,
+            profile_revision: "coding-lead".into(),
+        })
+    }
 }

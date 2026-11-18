@@ -137,12 +137,44 @@ pub fn stat_version(path: &Path) -> io::Result<StatVersion> {
     stat_with_version(path).map(|(_, version)| version)
 }
 
+pub(crate) fn regular_leaf(meta: &Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return false;
+        }
+    }
+    meta.is_file()
+}
+
+/// Match an open file to the current leaf without following a replacement link or opening its data.
+pub fn is_current_regular_leaf(file: &File, path: &Path) -> bool {
+    handle_stat_with_version(file).is_ok_and(|(meta, version)| regular_leaf(&meta)
+        && stat_leaf_with_version(path).is_ok_and(|(named, seen)| regular_leaf(&named) && version == seen))
+}
+
 /// `fs.stat` and `fileVersion` of `path` from one call: the one `metadata` on Unix, the one handle
 /// open on Windows.
 #[cfg(unix)]
 pub fn stat_with_version(path: &Path) -> io::Result<(Metadata, StatVersion)> {
+    Ok(unix_stat(std::fs::metadata(path)?))
+}
+
+#[cfg(unix)]
+pub(crate) fn stat_leaf_with_version(path: &Path) -> io::Result<(Metadata, StatVersion)> {
+    Ok(unix_stat(std::fs::symlink_metadata(path)?))
+}
+
+#[cfg(unix)]
+pub(crate) fn handle_stat_with_version(file: &File) -> io::Result<(Metadata, StatVersion)> {
+    Ok(unix_stat(file.metadata()?))
+}
+
+#[cfg(unix)]
+fn unix_stat(m: Metadata) -> (Metadata, StatVersion) {
     use std::os::unix::fs::MetadataExt;
-    let m = std::fs::metadata(path)?;
     let version = StatVersion {
         mtime_ns: i128::from(m.mtime()) * 1_000_000_000 + i128::from(m.mtime_nsec()),
         ctime_ns: i128::from(m.ctime()) * 1_000_000_000 + i128::from(m.ctime_nsec()),
@@ -150,25 +182,38 @@ pub fn stat_with_version(path: &Path) -> io::Result<(Metadata, StatVersion)> {
         ino: u128::from(m.ino()),
         dev: m.dev(),
     };
-    Ok((m, version))
+    (m, version)
 }
 
 #[cfg(windows)]
 pub fn stat_with_version(path: &Path) -> io::Result<(Metadata, StatVersion)> {
+    stat_path_with_flags(path, 0)
+}
+
+#[cfg(windows)]
+pub(crate) fn stat_leaf_with_version(path: &Path) -> io::Result<(Metadata, StatVersion)> {
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+    stat_path_with_flags(path, FILE_FLAG_OPEN_REPARSE_POINT)
+}
+
+#[cfg(windows)]
+fn stat_path_with_flags(path: &Path, flags: u32) -> io::Result<(Metadata, StatVersion)> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+    use windows_sys::Win32::Storage::FileSystem::FILE_READ_ATTRIBUTES;
+    // Attributes only, like libuv's fs.stat; a no-share data handle does not refuse this.
+    let file = std::fs::OpenOptions::new().access_mode(FILE_READ_ATTRIBUTES)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | flags).open(path)?;
+    handle_stat_with_version(&file)
+}
+
+#[cfg(windows)]
+pub(crate) fn handle_stat_with_version(file: &File) -> io::Result<(Metadata, StatVersion)> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::FILE_BASIC_INFO;
-    use windows_sys::Win32::Storage::FileSystem::FILE_READ_ATTRIBUTES;
     use windows_sys::Win32::Storage::FileSystem::FileBasicInfo;
     use windows_sys::Win32::Storage::FileSystem::GetFileInformationByHandleEx;
-    let mut options = std::fs::OpenOptions::new();
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        // Attributes only, with FILE_FLAG_BACKUP_SEMANTICS, as libuv's `fs.stat` opens: no share mode
-        // refuses that, so a file another process holds open without sharing is still stat'ed.
-        options.access_mode(FILE_READ_ATTRIBUTES).custom_flags(0x0200_0000);
-    }
-    let file = options.open(path)?;
-    let id = file_id(&file)?;
+    let id = file_id(file)?;
     // SAFETY: the handle is open for the call and `info` is a plain out struct of the stated size.
     let mut info: FILE_BASIC_INFO = unsafe { std::mem::zeroed() };
     let ok = unsafe {

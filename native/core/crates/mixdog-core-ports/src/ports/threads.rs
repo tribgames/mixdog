@@ -88,6 +88,9 @@ pub enum Section {
     /// `spinner.quiet` of the runtime section alone (`None` clears it): the running turn's quiet state (`turn-quiet.mjs`
     /// `set({ spinner: { ...spinner, quiet } })`). The rest of the section stays as it was.
     SpinnerQuiet(Option<Value>),
+    /// `commandBusy` and `commandStatus` of the runtime section alone: a command running under the session's lock (a compaction,
+    /// manual or the idle auto-clear), `{ active, verb, startedAt, mode }`; `None` once it ended. The rest of the section stays as it was.
+    Command(Option<Value>),
     Route(ThreadRoute),
     /// `turnEffort` of the route section alone (`None` clears it): the effort the turn in flight
     /// runs at. The rest of the section stays as it was.

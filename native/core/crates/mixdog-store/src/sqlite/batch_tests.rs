@@ -25,6 +25,7 @@ fn frame(ordinal: u64, kind: FrameKind) -> ProjectedFrame {
         frame_len: 10,
         kind,
         op: None,
+        receipt: None,
         history_rev: ordinal,
         rows: ordinal,
         visible_rows: ordinal,
@@ -41,7 +42,6 @@ fn item(ordinal: u64) -> ProjectedFrame {
             form: Form::Message,
             model: true,
             visible: true,
-            refs: Vec::new(),
             prompt: None,
             msg: Some(MessageRow::of(&json!({"role": "user", "content": format!("text {ordinal}")}))),
             facets: None,
@@ -55,7 +55,7 @@ fn item(ordinal: u64) -> ProjectedFrame {
 fn project(w: &mut Writer, frames: Vec<ProjectedFrame>, model: &str) -> oneshot::Receiver<Result<(), DbError>> {
     let (ack, answer) = oneshot::channel();
     w.take(Command::Project {
-        projection: Projection { session: SESSION.into(), frames, head: head(model), pins: Vec::new() },
+        projection: Projection { session: SESSION.into(), frames, head: head(model) },
         ack: Some(ack),
     });
     answer

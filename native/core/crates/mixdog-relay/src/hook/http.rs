@@ -85,6 +85,42 @@ fn forwarded_headers(request: &Request) -> Value {
     Value::Object(headers)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ID: &str = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+    fn hook(path: &str) -> Route {
+        Route::Hook { id: ID.to_owned(), path: path.to_owned() }
+    }
+
+    #[test]
+    fn a_target_is_routed_by_its_path_and_the_agent_gets_the_rest_with_the_query() {
+        assert_eq!(route(&format!("/hook/{ID}")), hook("/"));
+        assert_eq!(route(&format!("/hook/{ID}/")), hook("/"));
+        assert_eq!(route(&format!("/hook/{ID}/webhook/test")), hook("/webhook/test"));
+        assert_eq!(route(&format!("/hook/{ID}/a/b?x=1&y=%20")), hook("/a/b?x=1&y=%20"));
+        assert_eq!(route(&format!("/hook/{ID}?x=1")), hook("/?x=1"));
+        // An empty query is no query (`url.search` is empty), a fragment never travels.
+        assert_eq!(route(&format!("/hook/{ID}/a?")), hook("/a"));
+        assert_eq!(route(&format!("/hook/{ID}/a#frag")), hook("/a"));
+        assert_eq!(route(&format!("http://other.example/hook/{ID}/a")), hook("/a"));
+    }
+
+    #[test]
+    fn what_is_not_a_hook_route_is_not_found_and_what_is_not_a_url_is_malformed() {
+        assert_eq!(route("http://["), Route::Malformed);
+        for target in ["/nope", "/hook", "/hook/", "/hookx/aaaaaaaa", &format!("/hooks/{ID}"), "/hook//x", "/hook/short/x", "/hook/AAAAAAAA-BBBB/x", "/hook/zzzzzzzz/x"] {
+            assert_eq!(route(target), Route::NotFound, "{target}");
+        }
+        // Dot segments are resolved before the match, as the URL parser resolves them.
+        assert_eq!(route(&format!("/hook/{ID}/../x")), Route::NotFound);
+        assert_eq!(route(&format!("/other/../hook/{ID}/y")), hook("/y"));
+    }
+}
+
+
 impl HookHub {
     /// `handleHookRequest`: answers the whole request.
     pub async fn handle_request(&self, mut request: Request, mut response: ResponseWriter) {
@@ -169,40 +205,5 @@ impl HookHub {
             Some(Answer::Failed(code)) => reply(&mut response, 502, code, &[]),
             None => reply(&mut response, 502, "agent disconnected", &[]),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const ID: &str = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-
-    fn hook(path: &str) -> Route {
-        Route::Hook { id: ID.to_owned(), path: path.to_owned() }
-    }
-
-    #[test]
-    fn a_target_is_routed_by_its_path_and_the_agent_gets_the_rest_with_the_query() {
-        assert_eq!(route(&format!("/hook/{ID}")), hook("/"));
-        assert_eq!(route(&format!("/hook/{ID}/")), hook("/"));
-        assert_eq!(route(&format!("/hook/{ID}/webhook/test")), hook("/webhook/test"));
-        assert_eq!(route(&format!("/hook/{ID}/a/b?x=1&y=%20")), hook("/a/b?x=1&y=%20"));
-        assert_eq!(route(&format!("/hook/{ID}?x=1")), hook("/?x=1"));
-        // An empty query is no query (`url.search` is empty), a fragment never travels.
-        assert_eq!(route(&format!("/hook/{ID}/a?")), hook("/a"));
-        assert_eq!(route(&format!("/hook/{ID}/a#frag")), hook("/a"));
-        assert_eq!(route(&format!("http://other.example/hook/{ID}/a")), hook("/a"));
-    }
-
-    #[test]
-    fn what_is_not_a_hook_route_is_not_found_and_what_is_not_a_url_is_malformed() {
-        assert_eq!(route("http://["), Route::Malformed);
-        for target in ["/nope", "/hook", "/hook/", "/hookx/aaaaaaaa", &format!("/hooks/{ID}"), "/hook//x", "/hook/short/x", "/hook/AAAAAAAA-BBBB/x", "/hook/zzzzzzzz/x"] {
-            assert_eq!(route(target), Route::NotFound, "{target}");
-        }
-        // Dot segments are resolved before the match, as the URL parser resolves them.
-        assert_eq!(route(&format!("/hook/{ID}/../x")), Route::NotFound);
-        assert_eq!(route(&format!("/other/../hook/{ID}/y")), hook("/y"));
     }
 }

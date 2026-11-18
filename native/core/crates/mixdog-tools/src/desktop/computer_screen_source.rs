@@ -243,20 +243,6 @@ impl Default for AccountAdmin {
     }
 }
 
-impl AccountAdmin {
-    pub async fn is_admin(&self) -> Option<bool> {
-        let read = async {
-            let args = ["/groups", "/fo", "csv", "/nh"].map(str::to_owned).to_vec();
-            let exit = mixdog_rt::time::timeout(WHOAMI_TIMEOUT, self.runner.run("whoami".into(), args, None)).await.ok()?.ok()?;
-            if exit.code != 0 {
-                return None;
-            }
-            groups_list_administrators(&exit.stdout)
-        };
-        self.known.get_or_try_init(|| async { read.await.ok_or(()) }).await.ok().copied()
-    }
-}
-
 /// How a password request ended: the installer's key-change outcome name, or `busy`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PcAccessAnswer {
@@ -1514,10 +1500,6 @@ mod tests {
         sources_with(Backend::new(true, true), None)
     }
 
-    async fn next_event(received: &mut UnboundedReceiver<Told>) -> Told {
-        mixdog_rt::time::timeout(Duration::from_secs(10), received.recv()).await.expect("the sink was told in time").expect("the sink is open")
-    }
-
     fn session_access(book: &Arc<AccessBook>, client: &str, connection: &str) -> SessionAccess {
         SessionAccess { book: book.clone(), client: client.to_string(), connection: connection.to_string(), ended: Arc::new(Mutex::new(ScreenAccessEnd::Revoked)) }
     }
@@ -1765,6 +1747,10 @@ mod tests {
         assert!(matches!(sources.capture("0"), Err(ComputerError::Unavailable { .. })));
     }
 
+
+    async fn next_event(received: &mut UnboundedReceiver<Told>) -> Told {
+        mixdog_rt::time::timeout(Duration::from_secs(10), received.recv()).await.expect("the sink was told in time").expect("the sink is open")
+    }
     // ---- sessions
 
     #[tokio::test]
@@ -1784,7 +1770,6 @@ mod tests {
         assert_eq!(viewer.geometry_generation(), Some(1));
         assert_eq!(viewer.page().1.expect("the page shows it")["generation"], 1);
     }
-
     #[tokio::test]
     async fn a_withdrawn_access_stops_its_session_and_frees_the_display() {
         let (sources, mut received) = sources();
@@ -1797,7 +1782,6 @@ mod tests {
         assert!(next_event(&mut received).await.1.is_none());
         assert!(sources.resolve("0", "phone-b", true).is_some());
     }
-
     #[tokio::test]
     async fn a_grant_for_another_connection_under_the_same_client_stops_the_old_session() {
         let (sources, mut received) = sources();
@@ -1809,7 +1793,6 @@ mod tests {
         // The new connection opens its own.
         assert!(sources.resolve("0", "phone-a", true).is_some());
     }
-
     #[tokio::test]
     async fn a_closed_source_takes_no_access_and_resolves_nothing() {
         let (sources, mut received) = sources();
@@ -1824,5 +1807,20 @@ mod tests {
         // A second call shares the first one's completion.
         mixdog_rt::time::timeout(Duration::from_secs(10), sources.dispose()).await.expect("already closed");
         assert!(sources.resolve("0", "phone-a", true).is_none());
+    }
+}
+
+
+impl AccountAdmin {
+    pub async fn is_admin(&self) -> Option<bool> {
+        let read = async {
+            let args = ["/groups", "/fo", "csv", "/nh"].map(str::to_owned).to_vec();
+            let exit = mixdog_rt::time::timeout(WHOAMI_TIMEOUT, self.runner.run("whoami".into(), args, None)).await.ok()?.ok()?;
+            if exit.code != 0 {
+                return None;
+            }
+            groups_list_administrators(&exit.stdout)
+        };
+        self.known.get_or_try_init(|| async { read.await.ok_or(()) }).await.ok().copied()
     }
 }

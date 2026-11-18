@@ -1,194 +1,136 @@
 #!/usr/bin/env node
-// generate-runtime-manifest.mjs
-// Aggregator step run after all matrix build jobs succeed.
-// Reads release assets via gh CLI, filters mixdog-runtime-*.tar.gz,
-// fetches sha256 from .sha256 sidecar files, and emits runtime-manifest.json
-// to both dist/ and src/runtime/memory/data/ (for the workflow branch sync).
-//
-// Environment:
-//   GITHUB_TOKEN  — PAT or GITHUB_TOKEN secret with contents:read
-//   RELEASE_TAG   — e.g. "runtime-v0.4.0" (falls back to process.argv[2])
-//   GITHUB_REPOSITORY — auto-set by Actions (e.g. "owner/repo")
-//   RUNTIME_RELEASE_REPOSITORY — override repo for gh commands
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-import { execSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { tmpdir } from 'node:os';
+import { publishDraft, readAssets, readRelease, recordFile, uploadAssets, verifyAssets } from './ci/release-assets.mjs';
+import { ensureDraft, listReleases, releaseState } from './ci/release-state.mjs';
+import { selectRuntimeRelease } from './plan-runtime-release-tag.mjs';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(__dirname, '..');
+const { GITHUB_REPOSITORY: repo, RELEASE_TAG: tag, RELEASE_REF: ref } = process.env;
+const pg = { major: 16, minor: 4 };
+const pgVersion = `${pg.major}.${pg.minor}`;
+const pgvector = { version: '0.8.2' };
+const platforms = ['linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64', 'win32-x64'].map((key) => {
+  const [os, arch] = key.split('-');
+  const script = { linux: 'linux.sh', darwin: 'macos.sh', win32: 'windows.ps1' }[os];
+  const buildHash = createHash('sha256').update(readFileSync(`scripts/build-runtime-${script}`)).digest('hex');
+  const suffix = `${key}-pg${pgVersion}-pgvector${pgvector.version}`;
+  return { key, os, arch, buildHash, tar: `mixdog-runtime-${suffix}.tar.gz`, marker: `build-success-${suffix}-${buildHash}.marker` };
+});
 
-const RELEASE_TAG = process.env.RELEASE_TAG ?? process.argv[2];
-const REPO = process.env.RUNTIME_RELEASE_REPOSITORY || process.env.GITHUB_REPOSITORY || '';
-
-if (!RELEASE_TAG) {
-  console.error('ERROR: RELEASE_TAG env var or argv[2] required');
-  process.exit(1);
+const runtimeTag = /^runtime-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+if (!runtimeTag.test(tag ?? '') || !/^[a-f0-9]{40}$/.test(ref ?? '')) throw new Error('Expected a runtime tag and gated commit SHA');
+const releases = listReleases(repo);
+const remoteCommit = (name) => execFileSync('git', ['ls-remote', '--refs', 'origin', `refs/tags/${name}`], { encoding: 'utf8' }).trim().split(/\s+/)[0];
+function belongsToCommit(name, state) {
+  const remote = remoteCommit(name);
+  return (!remote || remote === ref) && (state.state !== 'public' || remote === ref)
+    && (!state.release || state.release.target_commitish === ref);
 }
 
-// ---------------------------------------------------------------------------
-// 1. List release assets via gh CLI
-// ---------------------------------------------------------------------------
-console.log(`Listing assets for release: ${RELEASE_TAG} (repo: ${REPO})`);
-
-let assetsJson;
-try {
-  assetsJson = execSync(`gh release view ${RELEASE_TAG} --repo ${REPO} --json assets`, {
-    encoding: 'utf8',
-    env: process.env,
-  });
-} catch (err) {
-  console.error('gh release view failed:', err.message);
-  process.exit(1);
-}
-
-const { assets } = JSON.parse(assetsJson);
-
-const tarballs = assets.filter((a) => /^mixdog-runtime-.+\.tar\.gz$/.test(a.name));
-console.log(
-  `Found ${tarballs.length} tarball(s):`,
-  tarballs.map((a) => a.name)
-);
-
-if (tarballs.length === 0) {
-  console.error('No mixdog-runtime-*.tar.gz assets found on release.');
-  process.exit(1);
-}
-
-// ---------------------------------------------------------------------------
-// 2. Parse version strings from a filename
-//    Format: mixdog-runtime-{os}-{arch}-pg{major}.{minor}-pgvector{vec}.tar.gz
-// ---------------------------------------------------------------------------
-const PG_RE = /pg(\d+)\.(\d+)/;
-const VEC_RE = /pgvector(\d+(?:\.\d+)+)/;
-
-// All tarballs of one release share the same versions, so the first asset
-// carrying both wins. A release whose names carry neither must fail here: a
-// manifest built from hardcoded defaults would publish the wrong runtime.
-const versioned = tarballs.find((t) => PG_RE.test(t.name) && VEC_RE.test(t.name));
-if (!versioned) {
-  console.error(
-    `Cannot read pg/pgvector versions from release asset name(s): ${tarballs.map((t) => t.name).join(', ')}`
-  );
-  process.exit(1);
-}
-const pgMajor = parseInt(PG_RE.exec(versioned.name)[1], 10);
-const pgMinor = parseInt(PG_RE.exec(versioned.name)[2], 10);
-const pgvectorVersion = VEC_RE.exec(versioned.name)[1];
-
-// ---------------------------------------------------------------------------
-// 3. Fetch sha256 sidecar content for each tarball
-// ---------------------------------------------------------------------------
-async function fetchSha256(sha256AssetName, _downloadUrl) {
-  const sidecar = assets.find((a) => a.name === sha256AssetName);
-  if (!sidecar) {
-    throw new Error(`Missing required checksum sidecar: ${sha256AssetName}`);
-  }
-
-  const tmpDir = resolve(tmpdir(), 'mixdog-manifest-sha256');
-  mkdirSync(tmpDir, { recursive: true });
-  execSync(
-    `gh release download ${RELEASE_TAG} --repo ${REPO} --pattern ${sha256AssetName} --dir "${tmpDir}" --clobber`,
-    { encoding: 'utf8', env: process.env }
-  );
-  const content = readFileSync(resolve(tmpDir, sha256AssetName), 'utf8').trim();
-  // Format: "<hex>  <filename>"
-  const checksum = content.split(/\s+/)[0];
-  if (!/^[a-f0-9]{64}$/i.test(checksum)) {
-    throw new Error(`Invalid checksum in sidecar ${sha256AssetName}: ${checksum}`);
-  }
-  return checksum.toLowerCase();
-}
-
-// ---------------------------------------------------------------------------
-// 4. Build asset map
-// ---------------------------------------------------------------------------
-const PLATFORM_RE = /mixdog-runtime-([a-z0-9]+)-([a-z0-9]+)-/;
-
-const assetsMap = {};
-
-for (const tarball of tarballs) {
-  const m = PLATFORM_RE.exec(tarball.name);
-  if (!m) {
-    console.warn(`Skipping unrecognised tarball: ${tarball.name}`);
-    continue;
-  }
-  const key = `${m[1]}-${m[2]}`; // e.g. "linux-x64"
-
-  const sha256Key = `${tarball.name}.sha256`;
-  const sha256 = await fetchSha256(sha256Key, tarball.url);
-
-  assetsMap[key] = {
-    url: tarball.url,
-    sha256,
-    size: tarball.size ?? 0,
-  };
-}
-
-// A partial release must never produce a publishable or bundled manifest.
-const EXPECTED = ['linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64', 'win32-x64'];
-const missing = EXPECTED.filter((p) => !assetsMap[p]);
-if (missing.length > 0) {
-  console.error(`Missing required runtime asset(s): ${missing.join(', ')}`);
-  process.exit(1);
-}
-
-for (const p of EXPECTED) {
-  const asset = assetsMap[p];
-  let url;
-  try {
-    url = new URL(asset.url);
-  } catch {
-    console.error(`Invalid asset URL for ${p}: ${asset.url}`);
-    process.exit(1);
-  }
-  if (
-    url.protocol !== 'https:' ||
-    !/^[a-f0-9]{64}$/.test(asset.sha256) ||
-    !Number.isSafeInteger(asset.size) ||
-    asset.size <= 0
-  ) {
-    console.error(`Invalid release metadata for ${p}: ${JSON.stringify(asset)}`);
-    process.exit(1);
+function requireCommit(name, state) {
+  if (!belongsToCommit(name, state)) {
+    throw new Error(`${name} does not belong to the gated commit ${ref}`);
   }
 }
 
-// ---------------------------------------------------------------------------
-// 5. Assemble manifest
-// ---------------------------------------------------------------------------
-const manifest = {
-  schema_version: 1,
-  generated_at: new Date().toISOString(),
-  release_tag: RELEASE_TAG,
-  pg: {
-    major: pgMajor,
-    minor: pgMinor,
-  },
-  pgvector: {
-    version: pgvectorVersion,
-  },
-  assets: assetsMap,
-};
+function plan() {
+  const { release_tag: shipped } = JSON.parse(readFileSync('src/runtime/memory/data/runtime-manifest.json', 'utf8'));
+  if (!runtimeTag.test(shipped)) throw new Error('Bundled runtime tag is invalid');
+  const current = releaseState(releases, tag);
+  const force = process.env.FORCE_REBUILD === 'true';
+  const refresh = process.env.REFRESH_MANIFEST === 'true';
+  const unchanged = tag === shipped && current.state === 'public'
+    && platforms.every(({ marker }) => current.release.assets.some((asset) => asset.name === marker && asset.state === 'uploaded'));
+  let selected = tag;
+  let mode = 'skip';
+  let refreshCommit = '';
+  if (refresh && !force) {
+    refreshCommit = remoteCommit(tag);
+    if (current.state !== 'public' || current.release.prerelease !== false || !refreshCommit) {
+      throw new Error('Manifest refresh requires an existing, published runtime tag and does not rebuild it');
+    }
+    mode = 'refresh';
+  } else if (force || !unchanged) {
+    ({ tag: selected, mode } = selectRuntimeRelease({ requested: tag, shipped, inspect: (candidate) => {
+      const state = releaseState(releases, candidate);
+      return { state: state.state, belongsToCommit: belongsToCommit(candidate, state) };
+    } }));
+  }
+  appendFileSync(process.env.GITHUB_OUTPUT, `tag=${selected}\nmode=${mode}\nhas_builds=${mode === 'build'}\nrefresh_commit=${refreshCommit}\n`);
+}
 
-const manifestJson = `${JSON.stringify(manifest, null, 2)}\n`;
-console.log('Manifest:', manifestJson);
+function writeJson(file, value) {
+  writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+}
 
-// ---------------------------------------------------------------------------
-// 6. Write outputs
-// ---------------------------------------------------------------------------
-const distDir = resolve(ROOT, 'dist');
-mkdirSync(distDir, { recursive: true });
+async function publish() {
+  const state = releaseState(releases, tag);
+  const mode = process.env.RUNTIME_MODE;
+  if (!['build', 'recover', 'refresh'].includes(mode) || (mode !== 'build' && state.state !== 'public')) {
+    throw new Error(`Runtime release ${tag} changed state since it was planned`);
+  }
+  if (mode !== 'refresh') requireCommit(tag, state);
+  const timestamp = execFileSync('git', ['show', '-s', '--format=%cI', ref], { encoding: 'utf8' }).trim();
+  const generated = new Date(timestamp).toISOString(); // Identical when recovering the same release.
+  const manifest = { schema_version: 1, generated_at: generated, release_tag: tag, pg, pgvector, assets: {} };
+  const files = [];
+  const expected = [];
+  mkdirSync('dist', { recursive: true });
+  for (const { key, os, arch, buildHash, tar, marker } of platforms) {
+    const archive = join('smoke-results', `runtime-smoked-${tag}-${ref}-${key}`, tar);
+    const sidecar = `${archive}.sha256`;
+    const record = await recordFile(archive);
+    const hash = record.digest.slice('sha256:'.length);
+    if (readFileSync(sidecar, 'utf8').trim().split(/\s+/)[0].toLowerCase() !== hash) {
+      throw new Error(`${tar} does not match its smoked checksum`);
+    }
+    manifest.assets[key] = { url: `https://github.com/${repo}/releases/download/${tag}/${tar}`, sha256: hash, size: record.size };
+    if (mode === 'refresh') {
+      expected.push(record, await recordFile(sidecar));
+      continue;
+    }
+    const markerPath = join('dist', marker);
+    writeJson(markerPath, { build_hash: buildHash, pg_version: pgVersion, pgvector_version: pgvector.version,
+      built_at: generated, commit_sha: ref, os, arch });
+    files.push(archive, sidecar, markerPath);
+    expected.push(record, await recordFile(sidecar), await recordFile(markerPath));
+  }
+  const manifestPath = 'dist/runtime-manifest.json';
+  if (mode === 'refresh') {
+    // Only the derived workflow artifact is refreshed; public assets are never edited.
+    const commit = process.env.REFRESH_COMMIT;
+    if (!commit || remoteCommit(tag) !== commit) throw new Error(`${tag} is not at the commit selected for refresh`);
+    process.env.RELEASE_ID = String(state.release.id);
+    readRelease(false, state.release.target_commitish);
+    const names = expected.map(({ name }) => name);
+    verifyAssets(readAssets().filter(({ name }) => names.includes(name) || /^mixdog-runtime-/.test(name)), expected, names);
+    if (remoteCommit(tag) !== commit) throw new Error(`${tag} moved during verification`);
+    writeJson(manifestPath, manifest);
+    return;
+  }
+  writeJson(manifestPath, manifest);
+  files.push(manifestPath);
+  expected.push(await recordFile(manifestPath));
+  const names = expected.map(({ name }) => name);
+  // A failed aggregate can be re-run without re-running the planner. If it
+  // already made the release public, only an exact match can complete the handoff.
+  if (state.state === 'public') {
+    process.env.RELEASE_ID = String(state.release.id);
+    readRelease(false);
+    verifyAssets(readAssets(), expected, names);
+    return;
+  }
+  process.env.RELEASE_ID = String(ensureDraft(repo, tag, ref, releases));
+  await uploadAssets(files);
+  requireCommit(tag, state);
+  publishDraft({ expected, names, latest: false });
+  requireCommit(tag, { state: 'public' });
+}
 
-const distPath = resolve(distDir, 'runtime-manifest.json');
-const bundledPath = resolve(ROOT, 'src', 'runtime', 'memory', 'data', 'runtime-manifest.json');
-
-writeFileSync(distPath, manifestJson);
-console.log(`Written: ${distPath}`);
-
-mkdirSync(dirname(bundledPath), { recursive: true });
-writeFileSync(bundledPath, manifestJson);
-console.log(`Written: ${bundledPath}`);
-
-console.log('generate-runtime-manifest.mjs complete.');
+const [command] = process.argv.slice(2);
+if (command === 'plan') plan();
+else if (command === 'publish') await publish();
+else throw new Error('Expected plan or publish');

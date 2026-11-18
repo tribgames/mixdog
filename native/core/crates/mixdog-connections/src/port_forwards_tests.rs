@@ -115,7 +115,7 @@ fn listening(port: u16) -> ListeningPort {
 }
 
 fn active(remote_port: u16, local_port: u16) -> PortForward {
-    PortForward { remote_port, local_port, status: PortForwardStatus::Active, message: None }
+    PortForward { remote_port, local_port, status: PortForwardStatus::Active, message: None, notice: None }
 }
 
 fn saved(remote_port: u16, local_port: u16) -> SavedPortForward {
@@ -251,10 +251,10 @@ async fn a_forward_that_is_not_ready_in_time_shows_as_an_error_while_the_tunnel_
     let slow = Arc::new(FakeTunnel { local: 3000, state: watch::channel(TunnelState::Starting).0, revived: AtomicUsize::new(0) });
     let inner = f.ports.inner.clone();
     let late = inner.ready(slow.as_ref()).await;
-    assert_eq!(late, Err("The ssh tunnel is not ready after 200 ms.".to_owned()));
+    assert_eq!(late.as_ref().map_err(|error| error.message.as_str()), Err("The SSH connection is not ready after 200 ms."));
     let entry = Forward { preferred: 3000, tunnel: slow.clone(), last_error: late.err() };
     let shown = forward_view(3000, &entry);
-    assert_eq!((shown.status, shown.message.as_deref()), (PortForwardStatus::Error, Some("The ssh tunnel is not ready after 200 ms.")));
+    assert_eq!((shown.status, shown.message.as_deref()), (PortForwardStatus::Error, Some("The SSH connection is not ready after 200 ms.")));
     slow.state.send_replace(TunnelState::Up);
     assert_eq!(forward_view(3000, &Forward { last_error: None, ..entry }).status, PortForwardStatus::Active);
 }

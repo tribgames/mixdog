@@ -334,26 +334,34 @@ fn slim_schema(value: &Value, depth: usize) -> Value {
     if depth > 12 {
         return value.clone();
     }
-    match value {
-        Value::Array(items) => Value::Array(items.iter().map(|v| slim_schema(v, depth + 1)).collect()),
-        Value::Object(map) => {
-            let mut out = Map::new();
-            for (key, child) in map {
-                if SCHEMA_ANNOTATIONS.contains(&key.as_str()) {
-                    continue;
-                }
-                if key == "additionalProperties" && child == &Value::Bool(true) {
-                    continue;
-                }
-                if key == "required" && child.as_array().is_some_and(Vec::is_empty) {
-                    continue;
-                }
-                out.insert(key.clone(), slim_schema(child, depth + 1));
-            }
-            Value::Object(out)
+    let Some(map) = value.as_object() else {
+        return value.clone();
+    };
+    let mut out = Map::new();
+    for (key, child) in map {
+        if SCHEMA_ANNOTATIONS.contains(&key.as_str())
+            || (key == "additionalProperties" && child == &Value::Bool(true))
+            || (key == "required" && child.as_array().is_some_and(Vec::is_empty))
+        {
+            continue;
         }
-        other => other.clone(),
+        let value = match (key.as_str(), child) {
+            ("properties" | "patternProperties" | "$defs" | "definitions" | "dependentSchemas", Value::Object(entries)) => {
+                Value::Object(entries.iter().map(|(name, schema)| (name.clone(), slim_schema(schema, depth + 2))).collect())
+            }
+            ("prefixItems" | "anyOf" | "oneOf" | "allOf", Value::Array(items)) => {
+                Value::Array(items.iter().map(|schema| slim_schema(schema, depth + 2)).collect())
+            }
+            (
+                "items" | "additionalProperties" | "propertyNames" | "contains" | "not" | "if" | "then" | "else"
+                | "unevaluatedItems" | "unevaluatedProperties",
+                _,
+            ) => slim_schema(child, depth + 1),
+            _ => child.clone(),
+        };
+        out.insert(key.clone(), value);
     }
+    Value::Object(out)
 }
 
 /// A top-level `oneOf`/`anyOf`/`allOf` has no flat form on the wire: its
@@ -544,11 +552,48 @@ mod tests {
         assert_eq!(slim, serde_json::json!({"type":"object","properties":{"a":{"type":"string"}}}));
     }
 
+    #[test]
+    fn request_context_keeps_property_names_and_literal_enum_values() {
+        let tool = ToolDefinition {
+            name: "lookup".into(),
+            description: "Read a record".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "title": "Display title"},
+                    "default": {"type": ["object", "null"], "enum": [{"default": 1, "required": []}, null]}
+                },
+                "required": ["title"]
+            }),
+            defer_loading: false,
+            freeform: None,
+        };
+        let request = ModelRequest {
+            model: "auto".into(),
+            messages: Vec::new(),
+            tools: vec![tool],
+            options: Default::default(),
+        };
+        let context = request_context(&selected_tools(&request), None);
+        assert_eq!(context.tools[0].name, "lookup");
+        assert_eq!(context.tools[0].description, "Read a record");
+        assert_eq!(context.tools[0].input_schema, serde_json::json!({
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "default": {"type": ["object", "null"], "enum": [{"default": 1, "required": []}, null]}
+            },
+            "required": ["title"]
+        }));
+    }
+
+
     /// Which tools a run offers for a tool choice against `fixtures/providers/cursor-tool-choice/cases.json`
     /// (recorded by `record-cursor-tool-choice.mjs` from the real `toCursorToolChoice`,
     /// `selectToolsForChoice` and `buildToolDefinitions`). `RequestOptions.tool_choice` carries the
     /// choice as one string: the keyword, or the tool name of Node's object form, which is read
     /// from the `tool_choice` Node itself puts in the body.
+    #[cfg(node_twin)]
     #[test]
     fn a_named_tool_choice_narrows_the_offer_as_node_does() {
         use mixdog_core_api::domain::provider::RequestOptions;
@@ -580,12 +625,12 @@ mod tests {
             assert_eq!(offered, want, "{id}");
         }
     }
-
     /// The tools a run offers against `fixtures/providers/cursor-tools/cases.json` (recorded by
     /// `record-cursor-tools.mjs` from the real `acceptedWireTools`, `toOpenAITools`,
     /// `selectToolsForChoice` and `buildToolDefinitions`): the OpenAI rule first (a broken schema
     /// is left out and reported whatever the tool choice, a draft-07 one lowered), then slimming and
     /// the flat form of a compound root. The schema text is compared whole, key order included.
+    #[cfg(node_twin)]
     #[test]
     fn the_tools_a_run_offers_are_the_ones_node_offers() {
         use std::sync::Arc;

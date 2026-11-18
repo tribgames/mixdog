@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ProviderId;
 
+use super::overlay::Overlay;
 use super::record::Capability;
 use super::record::MetadataSource;
 use super::record::ModelRecord;
@@ -20,8 +21,11 @@ pub struct ModelsDev {
     providers: BTreeMap<ProviderId, BTreeMap<String, MetadataRecord>>,
     /// The overlay as the metadata lookup reads it (`model-catalog-projection.mjs`):
     /// the narrowed models.dev document, or the narrowed LiteLLM one for the
-    /// layer [`ModelsDev::parse_litellm`] builds.
-    projected: JsonValue,
+    /// layer [`ModelsDev::parse_litellm`] builds, one compact row each ([`Overlay`]).
+    projected: Overlay,
+    /// A digest of the document this layer was parsed from (0 for one built in a test): two fetches of the same document
+    /// have the same digest ([`ModelsDev::digest`]).
+    digest: u64,
 }
 
 /// Overlay rows do not carry the provider picker's defaults, controls or routing state.
@@ -107,71 +111,225 @@ fn record(provider_npm: Option<&str>, row: &JsonValue) -> MetadataRecord {
     }
 }
 
-impl ModelsDev {
-    /// `None` when `bytes` is not the models.dev document (an object of
-    /// providers); a malformed provider or model row is skipped.
-    pub fn parse(bytes: &[u8]) -> Option<Self> {
-        Self::from_models_dev(serde_json::from_slice(bytes).ok()?)
+/// A digest of a fetched document's bytes, stable within the process.
+fn digest_of(bytes: &[u8]) -> u64 {
+    use std::hash::Hasher;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hasher.write(bytes);
+    hasher.finish()
+}
+
+/// The documents are several megabytes of JSON and their value tree is ten times that. They are read member by member:
+/// one model row is a value at a time, narrowed to its record and its overlay text and dropped, so reading a document
+/// costs what the layer keeps and not the tree.
+mod stream {
+    use indexmap::IndexMap;
+    use serde::de::DeserializeSeed;
+    use serde::de::Deserializer;
+    use serde::de::MapAccess;
+    use serde::de::SeqAccess;
+    use serde::de::Visitor;
+
+    use super::JsonValue;
+    use super::MetadataRecord;
+
+    /// The members of a JSON object handed to `each` one at a time; any other JSON value is read and is `None`.
+    struct Object<F>(F);
+
+    /// A member's value: `each` reads it from the map it is given (exactly once).
+    pub(super) trait Member {
+        fn read<'de, A: MapAccess<'de>>(&mut self, key: String, map: &mut A) -> Result<(), A::Error>;
     }
 
-    /// The LiteLLM price table (`model_prices_and_context_window.json`) as a
-    /// metadata overlay; it carries no per-provider records.
-    pub fn parse_litellm(bytes: &[u8]) -> Option<Self> {
-        let document: JsonValue = serde_json::from_slice(bytes).ok()?;
-        document.is_object().then(|| Self { providers: BTreeMap::new(), projected: super::lookup::project_litellm(&document) })
-    }
+    impl<'de, F: Member> Visitor<'de> for Object<F> {
+        type Value = Option<F>;
 
-    pub(crate) fn from_models_dev(document: JsonValue) -> Option<Self> {
-        let projected = super::lookup::project_models_dev(&document);
-        let JsonValue::Object(providers) = document else {
-            return None;
-        };
-        let mut out = BTreeMap::new();
-        for (key, entry) in &providers {
-            let Some(models) = entry.get("models").and_then(JsonValue::as_object) else {
-                continue;
-            };
-            let provider = ProviderId::from(key.as_str());
-            let npm = entry.get("npm").and_then(JsonValue::as_str);
-            let list = models
-                .iter()
-                .filter(|(_, row)| row.is_object())
-                .map(|(id, row)| (id.clone(), record(npm, row)))
-                .collect();
-            out.insert(provider, list);
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a JSON value")
         }
-        Some(Self { providers: out, projected })
+
+        fn visit_map<A: MapAccess<'de>>(mut self, mut map: A) -> Result<Self::Value, A::Error> {
+            while let Some(key) = map.next_key::<String>()? {
+                self.0.read(key, &mut map)?;
+            }
+            Ok(Some(self.0))
+        }
+
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            while seq.next_element::<Skipped>()?.is_some() {}
+            Ok(None)
+        }
+
+        fn visit_bool<E>(self, _: bool) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_i64<E>(self, _: i64) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_u64<E>(self, _: u64) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_f64<E>(self, _: f64) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_str<E>(self, _: &str) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
     }
 
-    #[cfg(test)]
-    pub(crate) fn from_litellm(document: JsonValue) -> Self {
-        Self { providers: BTreeMap::new(), projected: super::lookup::project_litellm(&document) }
+    impl<'de, F: Member> DeserializeSeed<'de> for Object<F> {
+        type Value = Option<F>;
+
+        fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+            deserializer.deserialize_any(self)
+        }
     }
 
-    /// The narrowed overlay document the metadata lookup reads.
-    pub fn projected(&self) -> &JsonValue {
-        &self.projected
+    /// A value nothing reads, checked as a value tree would have checked it (a number out of range, the nesting limit)
+    /// and not kept. The deserializer's own skip accepts what a value does not.
+    struct Skipped;
+
+    impl<'de> serde::Deserialize<'de> for Skipped {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct Skip;
+
+            impl<'de> Visitor<'de> for Skip {
+                type Value = Skipped;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    formatter.write_str("a JSON value")
+                }
+
+                fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Skipped, A::Error> {
+                    while map.next_entry::<Skipped, Skipped>()?.is_some() {}
+                    Ok(Skipped)
+                }
+
+                fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Skipped, A::Error> {
+                    while seq.next_element::<Skipped>()?.is_some() {}
+                    Ok(Skipped)
+                }
+
+                fn visit_bool<E>(self, _: bool) -> Result<Skipped, E> {
+                    Ok(Skipped)
+                }
+
+                fn visit_i64<E>(self, _: i64) -> Result<Skipped, E> {
+                    Ok(Skipped)
+                }
+
+                fn visit_u64<E>(self, _: u64) -> Result<Skipped, E> {
+                    Ok(Skipped)
+                }
+
+                fn visit_f64<E>(self, _: f64) -> Result<Skipped, E> {
+                    Ok(Skipped)
+                }
+
+                fn visit_str<E>(self, _: &str) -> Result<Skipped, E> {
+                    Ok(Skipped)
+                }
+
+                fn visit_unit<E>(self) -> Result<Skipped, E> {
+                    Ok(Skipped)
+                }
+            }
+            deserializer.deserialize_any(Skip)
+        }
     }
 
-    pub fn models_of(&self, provider: &ProviderId) -> Vec<ModelRecord> {
-        self.providers.get(provider).into_iter().flatten().map(|(id, row)| row.materialize(provider, id)).collect()
+    /// `bytes` as one JSON object read through `members`; `None` when it is not JSON or not an object.
+    pub(super) fn object<F: Member>(bytes: &[u8], members: F) -> Option<F> {
+        let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+        let read = Object(members).deserialize(&mut deserializer).ok()?;
+        deserializer.end().ok()?;
+        read
     }
 
-    /// The row for `id` as `provider` lists it, else the first provider (in
-    /// id order) that lists the model: a gateway serves other providers'
-    /// models under their own ids.
-    pub fn find(&self, provider: &ProviderId, id: &str) -> Option<ModelRecord> {
-        let own = self.providers.get(provider).and_then(|rows| rows.get(id)).map(|row| row.materialize(provider, id));
-        own.or_else(|| self.providers.iter().find_map(|(provider, rows)| rows.get(id).map(|row| row.materialize(provider, id))))
+    /// What a key holds once its last occurrence is read: a repeated key keeps its first place and its last value, as the
+    /// value tree did, so a value that is not kept still holds its key's place until the document ends.
+    type Placed<T> = IndexMap<String, Option<T>>;
+
+    /// The kept values of `placed`, in the order their keys first appeared.
+    pub(super) fn kept<T>(placed: Placed<T>) -> impl Iterator<Item = (String, T)> {
+        placed.into_iter().filter_map(|(key, value)| value.map(|value| (key, value)))
     }
 
-    /// Feeds a compat model table the output modalities this layer states.
-    pub fn fill_table(&self, provider: &ProviderId, table: &ModelTable) {
-        table.fill_output_modalities(|id| {
-            self.find(provider, id)
-                .map(|r| r.output_modalities)
-                .filter(|m| !m.is_empty())
-        });
+    /// One provider's `models` map: every row that is an object, as its record and its overlay text.
+    #[derive(Default)]
+    struct Models(Placed<(MetadataRecord, Box<str>)>);
+
+    /// One provider entry: its package and its models, whichever order the document states them in.
+    #[derive(Default)]
+    struct Provider {
+        npm: Option<String>,
+        models: Option<Models>,
+    }
+
+    impl Member for Provider {
+        fn read<'de, A: MapAccess<'de>>(&mut self, key: String, map: &mut A) -> Result<(), A::Error> {
+            match key.as_str() {
+                "npm" => self.npm = map.next_value::<JsonValue>()?.as_str().map(str::to_owned),
+                "models" => self.models = map.next_value_seed(Object(Models::default()))?,
+                _ => {
+                    map.next_value::<Skipped>()?;
+                }
+            }
+            Ok(())
+        }
+    }
+
+    /// The models.dev document: provider → model id → record and overlay text, in document order. A provider without a
+    /// models map is absent.
+    #[derive(Default)]
+    pub(super) struct ModelsDevDocument(pub(super) Placed<Vec<(String, (MetadataRecord, Box<str>))>>);
+
+    impl Member for ModelsDevDocument {
+        fn read<'de, A: MapAccess<'de>>(&mut self, key: String, map: &mut A) -> Result<(), A::Error> {
+            let provider = map.next_value_seed(Object(Provider::default()))?;
+            let models = provider.and_then(|provider| provider.models.map(|models| (provider.npm, models.0))).map(|(npm, models)| {
+                let mut models: Vec<_> = kept(models).collect();
+                // A model's own package wins over its provider's.
+                for (_, (record, _)) in &mut models {
+                    if record.npm.is_none() {
+                        record.npm.clone_from(&npm);
+                    }
+                }
+                models
+            });
+            self.0.insert(key, models);
+            Ok(())
+        }
+    }
+
+    /// The LiteLLM table: key → overlay text of the narrowed row.
+    #[derive(Default)]
+    pub(super) struct LitellmDocument(pub(super) Placed<Box<str>>);
+
+
+    impl Member for Models {
+        fn read<'de, A: MapAccess<'de>>(&mut self, id: String, map: &mut A) -> Result<(), A::Error> {
+            let row: JsonValue = map.next_value()?;
+            let kept = crate::catalog::lookup::models_dev_row(&row).map(|projected| (super::record(None, &row), crate::catalog::overlay::text(&projected)));
+            self.0.insert(id, kept);
+            Ok(())
+        }
+    }
+    impl Member for LitellmDocument {
+        fn read<'de, A: MapAccess<'de>>(&mut self, key: String, map: &mut A) -> Result<(), A::Error> {
+            let row: JsonValue = map.next_value()?;
+            let kept = crate::catalog::lookup::litellm_row(&row).filter(crate::catalog::overlay::holds).map(|projected| crate::catalog::overlay::text(&projected));
+            self.0.insert(key, kept);
+            Ok(())
+        }
     }
 }
 
@@ -222,19 +380,6 @@ mod tests {
     }
 
     #[test]
-    fn compat_model_table_receives_the_modalities() {
-        use serde_json::json as j;
-        let layer = ModelsDev::parse(&fixture()).unwrap();
-        let table = CompatProfile::mimo_oauth().model_table();
-        table.replace(crate::providers::compat::models::parse_models(&j!([
-            {"id": "gpt-x"}, {"id": "tts-x"}
-        ])));
-        layer.fill_table(&"mimo".into(), &table);
-        let ids: Vec<String> = table.chat_models().iter().map(|m| m.id.clone()).collect();
-        assert_eq!(ids, ["gpt-x"]);
-    }
-
-    #[test]
     fn metadata_lookup_keeps_provider_precedence_and_explicit_empty_strings() {
         let layer = ModelsDev::from_models_dev(json!({
             "z": { "npm": "provider-z", "models": {
@@ -248,5 +393,149 @@ mod tests {
         let other = layer.find(&"missing".into(), "same").unwrap();
         assert_eq!((other.provider.as_str(), other.display_name.as_deref(), other.npm.as_deref()), ("a", Some("A"), Some("provider-a")));
         assert_eq!(layer.models_of(&"z".into()).into_iter().map(|row| row.id).collect::<Vec<_>>(), ["first", "same"]);
+    }
+
+
+    /// The streamed read keeps what reading the whole document as a value kept: the same overlay rows in the same
+    /// order and the same records, whatever the member order, with non-object entries skipped.
+    #[cfg(node_twin)]
+    #[test]
+    fn the_streamed_document_is_the_narrowed_value_tree() {
+        #[cfg(node_twin)]
+        use crate::catalog::lookup::fixtures;
+        let text = br#"{
+            "late": { "models": { "m": { "name": "M", "cost": { "input": 1.5 } }, "own": { "provider": { "npm": "@own/sdk" } }, "bad": 3 }, "npm": "@late/sdk", "doc": [1, {"a": 2}] },
+            "none": { "npm": "@x/y" },
+            "odd": 7,
+            "list": { "models": [1, 2] }
+        }"#;
+        let recorded = serde_json::to_vec(&fixtures::json(fixtures::MODELS_DEV)).unwrap();
+        for bytes in [&text[..], &recorded[..]] {
+            let layer = ModelsDev::parse(bytes).unwrap();
+            let document: JsonValue = serde_json::from_slice(bytes).unwrap();
+            let whole = Overlay::from_projected_models_dev(&crate::catalog::lookup::project_models_dev(&document));
+            assert_eq!(layer.projected().providers().collect::<Vec<_>>(), whole.providers().collect::<Vec<_>>());
+            for provider in whole.providers() {
+                assert_eq!(layer.projected().provider_models(provider), whole.provider_models(provider), "{provider}");
+            }
+        }
+        let layer = ModelsDev::parse(text).unwrap();
+        let late = ProviderId::from("late");
+        assert_eq!(layer.find(&late, "m").unwrap().npm.as_deref(), Some("@late/sdk"));
+        assert_eq!(layer.find(&late, "own").unwrap().npm.as_deref(), Some("@own/sdk"));
+        assert_eq!(layer.models_of(&late).len(), 2);
+        assert!(layer.models_of(&ProviderId::from("none")).is_empty());
+        assert!(ModelsDev::parse(b"{\"a\": {} } trailing").is_none());
+        // What a value tree refuses is refused in a member nothing reads too.
+        assert!(ModelsDev::parse(br#"{"p":{"models":{},"unused":1e400}}"#).is_none());
+        assert!(ModelsDev::parse(format!("{{\"p\":{{\"unused\":{}1{}}}}}", "[".repeat(200), "]".repeat(200)).as_bytes()).is_none());
+        // A repeated key keeps its first place whatever its earlier values were.
+        let repeated = br#"{"z":3,"p":{"models":{"a":null,"b":{},"a":{}}},"z":{"models":{"m":{}}}}"#;
+        let layer = ModelsDev::parse(repeated).unwrap();
+        let document: JsonValue = serde_json::from_slice(repeated).unwrap();
+        let whole = Overlay::from_projected_models_dev(&crate::catalog::lookup::project_models_dev(&document));
+        assert_eq!(layer.projected().providers().collect::<Vec<_>>(), whole.providers().collect::<Vec<_>>());
+        assert_eq!(layer.projected().provider_models("p").unwrap().keys().collect::<Vec<_>>(), vec!["a", "b"]);
+        assert_eq!(layer.projected().provider_models("p"), whole.provider_models("p"));
+        let repeated = br#"{"k":1,"j":{"mode":"chat"},"k":{"mode":"chat"}}"#;
+        assert_eq!(ModelsDev::parse_litellm(repeated).unwrap().projected().row("k").is_some(), true);
+
+        let litellm = serde_json::to_vec(&fixtures::json(fixtures::LITELLM)).unwrap();
+        let document: JsonValue = serde_json::from_slice(&litellm).unwrap();
+        let whole = Overlay::from_projected_litellm(&crate::catalog::lookup::project_litellm(&document));
+        let layer = ModelsDev::parse_litellm(&litellm).unwrap();
+        for key in document.as_object().unwrap().keys() {
+            assert_eq!(layer.projected().row(key), whole.row(key), "{key}");
+        }
+        assert!(ModelsDev::parse_litellm(b"[]").is_none());
+    }
+
+    #[test]
+    fn compat_model_table_receives_the_modalities() {
+        use serde_json::json as j;
+        let layer = ModelsDev::parse(&fixture()).unwrap();
+        let table = CompatProfile::mimo_oauth().model_table();
+        table.replace(crate::providers::compat::models::parse_models(&j!([
+            {"id": "gpt-x"}, {"id": "tts-x"}
+        ])));
+        layer.fill_table(&"mimo".into(), &table);
+        let ids: Vec<String> = table.chat_models().iter().map(|m| m.id.clone()).collect();
+        assert_eq!(ids, ["gpt-x"]);
+    }
+}
+
+impl ModelsDev {
+    /// `None` when `bytes` is not the models.dev document (an object of
+    /// providers); a malformed provider or model row is skipped.
+    pub fn parse(bytes: &[u8]) -> Option<Self> {
+        let document = stream::object(bytes, stream::ModelsDevDocument::default())?.0;
+        let mut providers = BTreeMap::new();
+        let mut projected = indexmap::IndexMap::with_capacity(document.len());
+        for (key, models) in stream::kept(document) {
+            let mut records = BTreeMap::new();
+            let mut rows = indexmap::IndexMap::with_capacity(models.len());
+            for (id, (record, row)) in models {
+                records.insert(id.clone(), record);
+                rows.insert(id, row);
+            }
+            providers.insert(ProviderId::from(key.as_str()), records);
+            projected.insert(key, rows);
+        }
+        Some(Self { providers, projected: Overlay::of_rows(indexmap::IndexMap::new(), projected), digest: digest_of(bytes) })
+    }
+
+    /// The LiteLLM price table (`model_prices_and_context_window.json`) as a
+    /// metadata overlay; it carries no per-provider records.
+    pub fn parse_litellm(bytes: &[u8]) -> Option<Self> {
+        let rows = stream::kept(stream::object(bytes, stream::LitellmDocument::default())?.0).collect();
+        Some(Self { providers: BTreeMap::new(), projected: Overlay::of_rows(rows, indexmap::IndexMap::new()), digest: digest_of(bytes) })
+    }
+
+    /// The layer of a document held as a value (a test's fixture): the layer [`ModelsDev::parse`] reads from its text,
+    /// without a digest.
+    #[cfg(test)]
+    pub(crate) fn from_models_dev(document: JsonValue) -> Option<Self> {
+        let mut layer = Self::parse(&serde_json::to_vec(&document).ok()?)?;
+        layer.digest = 0;
+        Some(layer)
+    }
+
+    #[cfg(node_twin)]
+    #[cfg(test)]
+    pub(crate) fn from_litellm(document: JsonValue) -> Self {
+        let mut layer = Self::parse_litellm(&serde_json::to_vec(&document).unwrap_or_default()).unwrap_or_default();
+        layer.digest = 0;
+        layer
+    }
+
+    /// The digest of the document this layer was parsed from: equal for two fetches of the same document.
+    pub fn digest(&self) -> u64 {
+        self.digest
+    }
+
+    /// The narrowed overlay document the metadata lookup reads.
+    pub fn projected(&self) -> &Overlay {
+        &self.projected
+    }
+
+    pub fn models_of(&self, provider: &ProviderId) -> Vec<ModelRecord> {
+        self.providers.get(provider).into_iter().flatten().map(|(id, row)| row.materialize(provider, id)).collect()
+    }
+
+    /// The row for `id` as `provider` lists it, else the first provider (in
+    /// id order) that lists the model: a gateway serves other providers'
+    /// models under their own ids.
+    pub fn find(&self, provider: &ProviderId, id: &str) -> Option<ModelRecord> {
+        let own = self.providers.get(provider).and_then(|rows| rows.get(id)).map(|row| row.materialize(provider, id));
+        own.or_else(|| self.providers.iter().find_map(|(provider, rows)| rows.get(id).map(|row| row.materialize(provider, id))))
+    }
+
+    /// Feeds a compat model table the output modalities this layer states.
+    pub fn fill_table(&self, provider: &ProviderId, table: &ModelTable) {
+        table.fill_output_modalities(|id| {
+            self.find(provider, id)
+                .map(|r| r.output_modalities)
+                .filter(|m| !m.is_empty())
+        });
     }
 }

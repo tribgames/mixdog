@@ -479,23 +479,65 @@ function rememberedOpen(state: VisualizeSessionState): boolean {
   return state.tabs.length > 0 && memory.open.has(state.sessionId) && !memory.closed.has(state.sessionId);
 }
 
+/** What the holds say, to tell whether a snapshot changed them. */
+const holdKey = (): string =>
+  JSON.stringify([...heldStates.keys()].sort().map((id) => [id, heldSince.get(id) ?? null]));
+
+/** Take a snapshot's holds, the one place a snapshot is read for them, whenever and wherever it comes from. Every session it lists says
+ *  whether it is held now and since when (`held`, `heldSince`): a held one is held here as a live held event holds it (its state
+ *  withheld), every other is released. `replace` drops the holds of sessions the snapshot does not list (a complete snapshot); otherwise
+ *  only the listed sessions' holds are set. A snapshot from an older core carries no hold information: its sessions are taken as not
+ *  held, the lesser harm (a turn still running shows its intermediate state until its next held event; keeping a hold whose release
+ *  may have been missed would withhold the finished state until some later publish). Returns the sessions to display (held ones
+ *  excluded: their state waits for the release) and whether the holds changed. */
+function takeSnapshot(
+  snapshot: readonly VisualizeSessionState[] | null | undefined,
+  replace: boolean
+): { shown: VisualizeSessionState[]; heldIds: Set<string>; holdsChanged: boolean } {
+  const before = holdKey();
+  if (replace) {
+    heldStates = new Map();
+    heldSince.clear();
+  }
+  const shown: VisualizeSessionState[] = [];
+  const heldIds = new Set<string>();
+  for (const raw of snapshot ?? []) {
+    if (!raw?.sessionId) continue;
+    const { held, heldSince: since, ...state } = raw;
+    if (held === true && (state.tabs.length || state.history?.length)) {
+      heldIds.add(state.sessionId);
+      heldStates = new Map(heldStates);
+      heldStates.set(state.sessionId, state);
+      if (Number.isFinite(since)) heldSince.set(state.sessionId, Number(since));
+      else heldSince.delete(state.sessionId);
+      continue;
+    }
+    if (!replace && heldStates.delete(state.sessionId)) heldStates = new Map(heldStates);
+    heldSince.delete(state.sessionId);
+    shown.push(state);
+  }
+  return { shown, heldIds, holdsChanged: holdKey() !== before };
+}
+
 /** Apply main's tab snapshot after a renderer (re)load (exported for tests):
  *  a session whose panel was open before the reload gets it back, unless the
  *  user had closed it. The reveal waits a turn so the shell has rendered the
- *  visualize view the new tabs make available. */
+ *  visualize view the new tabs make available. A session already known is
+ *  left to its pushes; the holds are read as any snapshot's are. */
 export function hydrateVisualizeStates(snapshot: readonly VisualizeSessionState[] | null | undefined): void {
   const reopen: string[] = [];
   const next = new Map(states);
+  const { shown, holdsChanged } = takeSnapshot(
+    (snapshot ?? []).filter((state) => state?.sessionId && !states.has(state.sessionId)),
+    false
+  );
   let changed = false;
-  for (const state of snapshot ?? []) {
-    if (!state?.sessionId || states.has(state.sessionId)) continue;
+  for (const state of shown) {
     changed = putState(next, state) || changed;
     if (rememberedOpen(state)) reopen.push(state.sessionId);
   }
-  if (changed) {
-    states = next;
-    emit();
-  }
+  if (changed) states = next;
+  if (changed || holdsChanged) emit();
   if (reopen.length) setTimeout(() => reopen.forEach(requestReveal), 0);
 }
 
@@ -507,15 +549,20 @@ export function hydrateVisualizeStates(snapshot: readonly VisualizeSessionState[
  *  missed push would have, and a panel that was open before the gap (not
  *  closed by the user) is brought back. */
 export function resyncVisualizeStates(snapshot: readonly VisualizeSessionState[] | null | undefined): void {
+  // A complete replacement, holds included (takeSnapshot). A held session keeps what the panel shows, as a held event leaves it.
   const before = states;
+  const { shown, heldIds, holdsChanged } = takeSnapshot(snapshot, true);
   const next = new Map<string, VisualizeSessionState>();
-  for (const state of snapshot ?? []) {
-    if (state?.sessionId && (state.tabs.length || state.history?.length)) {
-      next.set(state.sessionId, shareSession(states.get(state.sessionId), keptLocalActive(state)));
-    }
+  for (const id of heldIds) {
+    const was = states.get(id);
+    if (was) next.set(id, was);
+  }
+  for (const state of shown) {
+    if (state.tabs.length || state.history?.length) next.set(state.sessionId, shareSession(states.get(state.sessionId), keptLocalActive(state)));
   }
   const same = next.size === states.size && [...next].every(([id, state]) => states.get(id) === state);
   if (!same) replaceStates(next);
+  else if (holdsChanged) emit();
   const missed: Array<[string, string]> = [];
   const reopen: string[] = [];
   for (const [sessionId, state] of next) {
@@ -553,6 +600,9 @@ function connect(): void {
   };
   window.addEventListener('mixdog:remote-reconnected', resync);
   window.addEventListener('mixdog:remote-state-gap', resync);
+  // The phone's visualize adapter asks for the same read when it knows events may have been missed (a dropped part sequence, a core
+  // it follows through its section).
+  window.addEventListener('mixdog:visualize-resync', resync);
 }
 
 /** Subscribe to store changes (exported for tests). */

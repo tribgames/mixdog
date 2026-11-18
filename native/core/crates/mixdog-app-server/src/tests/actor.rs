@@ -222,6 +222,10 @@ pub(crate) struct ActorThread {
 }
 
 impl FeedSource for ActorThread {
+    fn position(&self) -> mixdog_core_api::feed::FeedPosition {
+        self.thread.position()
+    }
+
     fn feed_id(&self) -> FeedId {
         self.thread.feed_id()
     }

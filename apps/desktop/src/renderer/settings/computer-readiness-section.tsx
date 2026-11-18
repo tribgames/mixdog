@@ -152,7 +152,8 @@ export function ComputerReadinessSection({
         const result = await api.requestLinuxInputAccess?.();
         if (!result?.ok) setError(inputAccessError(result));
         await refresh();
-      } else {
+      } else if (action.kind === 'retry') {
+        // The GNOME helper follows Computer Use in the core; this action only rechecks its status.
         await refresh();
       }
     } catch (failure) {
@@ -181,7 +182,7 @@ export function ComputerReadinessSection({
             control={
               row.action ? (
                 <ExtensionAction disabled={busy !== null} onClick={() => void run(row)}>
-                  {row.action.label}
+                  {row.action.kind === 'retry' ? t('Refresh') : row.action.label}
                 </ExtensionAction>
               ) : undefined
             }

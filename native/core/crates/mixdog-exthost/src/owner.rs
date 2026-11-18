@@ -137,10 +137,6 @@ mod tests {
         assert_eq!(*log.lock().unwrap(), ["signal", "reap"]);
     }
 
-    async fn settle() {
-        mixdog_rt::time::sleep(Duration::from_millis(20)).await;
-    }
-
     #[tokio::test]
     async fn an_exit_kills_what_the_leader_left_before_it_is_reaped() {
         // Also the browser's case: the browser exits on its own and its helpers must go.
@@ -151,6 +147,10 @@ mod tests {
         assert_signal_then_reap(&rig.log);
     }
 
+
+    async fn settle() {
+        mixdog_rt::time::sleep(Duration::from_millis(20)).await;
+    }
     #[tokio::test(start_paused = true)]
     async fn an_exit_announced_while_waiting_kills_before_the_reap() {
         let Rig { mut owner, log, exited, tick, kill: _kill } = rig();
@@ -162,7 +162,6 @@ mod tests {
         run.await.unwrap();
         assert_signal_then_reap(&log);
     }
-
     #[tokio::test(start_paused = true)]
     async fn a_stop_that_races_the_exit_signals_once_and_before_the_reap() {
         // Both are visible when the owner looks.
@@ -189,7 +188,6 @@ mod tests {
         settle().await;
         assert_signal_then_reap(&log);
     }
-
     #[tokio::test(start_paused = true)]
     async fn losing_the_notifier_kills_the_still_unreaped_leader_then_reaps() {
         let rig = rig();
@@ -200,7 +198,6 @@ mod tests {
         run.await.unwrap();
         assert_signal_then_reap(&log);
     }
-
     #[tokio::test(start_paused = true)]
     async fn dropping_every_handle_ends_the_child_the_same_way() {
         let Rig { mut owner, log, kill, tick: _tick, exited: _exited } = rig();

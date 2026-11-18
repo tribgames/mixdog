@@ -39,6 +39,9 @@ struct Store {
     written: tokio::sync::Notify,
     /// What a row write tells the agent status listener.
     on_write: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
+    /// The Lead index, and how many writes it had (told to the pool alone).
+    leads: Mutex<HashMap<String, Row>>,
+    lead_writes: std::sync::atomic::AtomicUsize,
     /// Reading the index takes a turn of the executor, as a read of the stored index does.
     slow: std::sync::atomic::AtomicBool,
     /// Bumped by each change of the index, the kept maps or the agent sessions.
@@ -106,6 +109,19 @@ impl WorkerStore for Store {
             changed();
         }
     }
+
+    async fn lead_rows(&self) -> Result<Vec<(String, Row)>, String> {
+        Ok(self.leads.lock().unwrap().iter().map(|(id, row)| (id.clone(), row.clone())).collect())
+    }
+
+    fn write_lead(&self, session: &str, row: Option<Row>) {
+        let mut leads = self.leads.lock().unwrap();
+        match row {
+            Some(row) => leads.insert(session.to_owned(), row),
+            None => leads.remove(session),
+        };
+        self.lead_writes.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 impl Store {
@@ -161,24 +177,39 @@ impl Store {
 #[derive(Default)]
 struct Live {
     headers: Mutex<HashMap<String, Row>>,
-    /// The header each session's stamp was last taken of, and the identity that stands for it (the product's stamp holds
-    /// the published header itself).
-    stamped: Mutex<HashMap<String, (Row, Arc<()>)>>,
+    /// Each session's header as published: a new `Arc` whenever the header changed, as the product publishes one.
+    stamped: Mutex<HashMap<String, (Row, Arc<Row>)>>,
+}
+
+impl Live {
+    fn published(&self, session: &str) -> Option<Arc<Row>> {
+        let header = self.headers.lock().unwrap().get(session).cloned()?;
+        let mut stamped = self.stamped.lock().unwrap();
+        Some(match stamped.get(session) {
+            Some((row, held)) if *row == header => held.clone(),
+            _ => {
+                let held = Arc::new(header.clone());
+                stamped.insert(session.to_owned(), (header, held.clone()));
+                held
+            }
+        })
+    }
+
+    /// The session leaves memory: its published header goes with it.
+    fn unload(&self, session: &str) {
+        self.headers.lock().unwrap().remove(session);
+        self.stamped.lock().unwrap().remove(session);
+    }
 }
 
 impl LiveSessions for Live {
     fn stamp(&self, session: &str) -> Option<LiveStamp> {
-        let header = self.headers.lock().unwrap().get(session).cloned()?;
-        let mut stamped = self.stamped.lock().unwrap();
-        let held = match stamped.get(session) {
-            Some((row, held)) if *row == header => held.clone(),
-            _ => {
-                let held = Arc::new(());
-                stamped.insert(session.to_owned(), (header, held.clone()));
-                held
-            }
-        };
-        Some(LiveStamp { header: held, running: false, stage: None })
+        let held: Arc<dyn std::any::Any + Send + Sync> = self.published(session)?;
+        Some(LiveStamp { header: Arc::downgrade(&held), running: false, stage: None })
+    }
+
+    fn shared_header(&self, session: &str) -> Option<Arc<Row>> {
+        self.published(session)
     }
 
     fn loaded(&self) -> Vec<String> {
@@ -540,6 +571,140 @@ async fn a_bookkeeping_pass_over_running_rows_reads_no_session_record() {
     assert_eq!(rig.store.header_reads.load(Ordering::SeqCst), 0, "a pass loaded a session's record");
 }
 
+/// The tag facts of a loaded session point at its published header instead of keeping a copy of it (a worker's header carries
+/// its whole tool list), and neither they nor the stamp keep it alive: once the session leaves memory its header is freed,
+/// with no pass of the registry in between.
+#[tokio::test]
+async fn the_tag_facts_share_a_loaded_header_and_keep_none_of_it_after_unload() {
+    let rig = Rig::new();
+    let tools = json!([{ "name": "read", "description": "d".repeat(4096), "inputSchema": { "type": "object" } }]);
+    let header = session("s-a", "ta", &at(NOW - HOUR), json!({ "tools": tools }));
+    rig.live.headers.lock().unwrap().insert("s-a".into(), header.clone());
+    let registry = rig.registry();
+    registry.bind_tag("ta", &session_facts(&header), &at(NOW));
+    let published = rig.live.published("s-a").expect("loaded");
+    {
+        let st = registry.lock();
+        let now = registry.now();
+        let pass = registry.tag_pass(&st, now);
+        let facts = registry.facts_of(&st, &pass, "ta", "s-a", now);
+        assert!(Arc::ptr_eq(facts.session.as_ref().expect("the loaded session"), &published), "the facts copied the header");
+    }
+    assert_eq!(Arc::strong_count(&published), 2, "the registry holds the published header");
+    let kept = Arc::downgrade(&published);
+    drop(published);
+    rig.live.unload("s-a");
+    assert!(kept.upgrade().is_none(), "the registry kept an unloaded session's header alive");
+}
+
+/// A cancelled session reads `cancelled` through a copy of its header made for the read only: once the session leaves memory
+/// nothing of its header, the overlaid copy included, is left in the registry.
+#[tokio::test]
+async fn a_cancelled_session_leaves_no_header_copy_after_unload() {
+    let rig = Rig::new();
+    let tools = json!([{ "name": "read", "description": "d".repeat(4096) }]);
+    let header = session("s-c", "tc", &at(NOW - HOUR), json!({ "tools": tools, "status": "running" }));
+    rig.live.headers.lock().unwrap().insert("s-c".into(), header.clone());
+    let registry = rig.registry();
+    registry.bind_tag("tc", &session_facts(&header), &at(NOW));
+    registry.set_cancelled("s-c", true);
+    let read = {
+        let st = registry.lock();
+        let now = registry.now();
+        let pass = registry.tag_pass(&st, now);
+        let facts = registry.facts_of(&st, &pass, "tc", "s-c", now);
+        facts.session.expect("the loaded session")
+    };
+    assert_eq!(read["status"], json!("cancelled"));
+    let copy = Arc::downgrade(&read);
+    drop(read);
+    assert!(copy.upgrade().is_none(), "the registry kept the overlaid copy of the header");
+    let published = Arc::downgrade(&rig.live.published("s-c").expect("loaded"));
+    rig.live.unload("s-c");
+    assert!(published.upgrade().is_none(), "the registry kept a cancelled session's header alive");
+    // Read again while loaded, it still reads cancelled: the overlay comes from the header, not from a kept copy.
+    rig.live.headers.lock().unwrap().insert("s-c".into(), header);
+    let st = registry.lock();
+    let now = registry.now();
+    let pass = registry.tag_pass(&st, now);
+    assert_eq!(registry.facts_of(&st, &pass, "tc", "s-c", now).session.expect("loaded")["status"], json!("cancelled"));
+}
+
+/// A session that loads between the directory's answers: it has no published header when the tag facts ask, and a live
+/// header right after.
+struct LoadsMeanwhile(Row);
+
+impl LiveSessions for LoadsMeanwhile {
+    fn loaded(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn header(&self, _: &str) -> Option<Row> {
+        Some(self.0.clone())
+    }
+
+    fn shared_header(&self, _: &str) -> Option<Arc<Row>> {
+        None
+    }
+
+    fn running(&self, _: &str) -> bool {
+        false
+    }
+
+    fn has_live_work(&self, _: &str) -> bool {
+        false
+    }
+
+    fn runtime_stage(&self, _: &str) -> Option<String> {
+        None
+    }
+}
+
+/// The tag facts ask the directory once: a session it has no header of is read from the index alone, so a session that
+/// loads meanwhile is never copied from its live header into facts kept as an index row.
+#[tokio::test]
+async fn the_tag_facts_of_a_session_not_loaded_read_only_the_index() {
+    let rig = Rig::new();
+    let header = session("s-r", "tr", &at(NOW - HOUR), json!({}));
+    let registry = AgentRegistry::new(rig.store.clone(), Arc::new(LoadsMeanwhile(header.clone())), Arc::new(Hour), rig.clock.clone());
+    registry.bind_tag("tr", &session_facts(&header), &at(NOW));
+    let st = registry.lock();
+    let now = registry.now();
+    let pass = registry.tag_pass(&st, now);
+    assert!(registry.facts_of(&st, &pass, "tr", "s-r", now).session.is_none(), "the facts copied a live header the directory did not publish");
+}
+
+/// A pass reads a tag's facts once: a header the session publishes during the pass, with the one the pass read freed by
+/// everyone else, changes neither what the pass selects nor the rows it answers; the reading goes when the pass ends.
+#[tokio::test]
+async fn a_tag_pass_answers_from_its_one_reading() {
+    let rig = Rig::new();
+    let header = session("s-p", "tp", &at(NOW - HOUR), json!({}));
+    rig.live.headers.lock().unwrap().insert("s-p".into(), header.clone());
+    let registry = rig.registry();
+    registry.bind_tag("tp", &session_facts(&header), &at(NOW));
+    // A first pass keeps the facts; the second takes them from the published header.
+    {
+        let st = registry.lock();
+        drop(registry.tag_pass(&st, registry.now()));
+    }
+    let read = Arc::downgrade(&rig.live.published("s-p").expect("loaded"));
+    let st = registry.lock();
+    let now = registry.now();
+    let pass = registry.tag_pass(&st, now);
+    let mut moved = header.clone();
+    moved.insert("status".into(), json!("running"));
+    rig.live.headers.lock().unwrap().insert("s-p".into(), moved);
+    let newer = rig.live.published("s-p").expect("loaded");
+    assert!(!Arc::ptr_eq(&newer, &read.upgrade().expect("the pass holds its reading")), "a new header is published");
+    let facts = registry.facts_of(&st, &pass, "tp", "s-p", now);
+    assert!(Arc::ptr_eq(facts.session.as_ref().expect("loaded"), &read.upgrade().expect("held")), "the pass read the session twice");
+    drop(facts);
+    drop(pass);
+    drop(st);
+    assert!(read.upgrade().is_none(), "the pass's reading outlived the pass");
+}
+
 /// `worker-row-released.test.mjs` "close → restart + scan keeps the agent released" and "the
 /// marker expires after 7 days on read": the owner's close survives a restart and a session
 /// scan, and its `released` reading ends exactly at the TTL.
@@ -571,6 +736,9 @@ async fn an_owner_close_keeps_the_agent_released_for_seven_days() {
 
     let second = rig.registry();
     second.refresh_tags_from_sessions(true, &scope).await;
+    // DECIDED DEPARTURE FROM NODE: this is what Node recorded and what a `send` still relies on (a closed agent is
+    // revived by its tag). A SPAWN no longer sees it: `ResolveOptions::skip_released` frees the tag for a new session
+    // (`a_spawn_resolve_gives_a_closed_session_its_tag_up`).
     assert_eq!(second.tag_session("rev").as_deref(), Some("sess_rel_1"), "the scan binds it again");
     assert_eq!(row_of(&second).expect("re-indexed")["released"], json!(true));
     assert!(!rig.store.map("sess_rel_1").unwrap().contains_key("released"), "released is never stored");
@@ -579,6 +747,110 @@ async fn an_owner_close_keeps_the_agent_released_for_seven_days() {
     assert_eq!(row_of(&second).expect("row")["released"], json!(true), "still released on day 6");
     rig.clock.0.store(NOW + 7 * DAY + 1, Ordering::SeqCst);
     assert!(!row_of(&second).expect("row").contains_key("released"), "not released once 7 days passed");
+}
+
+/// DECIDED DEPARTURE FROM NODE: a spawn resolving the tag of an agent its owner closed finds the tag free (Node's scan
+/// bound the closed session again and the spawn reused it, whatever it asked for), a send still reaches the closed
+/// agent, and a new session that takes the tag is the one both resolve to, not an ambiguity with the closed one.
+#[tokio::test]
+async fn a_spawn_resolve_gives_a_closed_session_its_tag_up() {
+    let rig = Rig::new();
+    let created = at(NOW - HOUR);
+    let row = |id: &str, cwd: &str| {
+        obj(json!({
+            "id": id, "agentTag": "rev", "ownerSessionId": "lead-rel", "parentSessionId": "lead-rel",
+            "agent": "reviewer", "provider": "anthropic-oauth", "status": "idle", "cwd": cwd,
+            "createdAt": created, "updatedAt": created, "lastUsedAt": created,
+        }))
+    };
+    let (old, new) = (row("sess_rel_1", "/a"), row("sess_rel_2", "/b"));
+    *rig.store.sessions.lock().unwrap() = vec![old.clone()];
+    rig.store.touch_sessions();
+    let scope = lead("lead-rel");
+    let registry = rig.registry();
+    registry.refresh_tags_from_sessions(false, &scope).await;
+    registry.bind_tag("rev", &session_facts(&old), &at(NOW));
+    registry.forget_terminal_session(Some("rev"), "sess_rel_1");
+    registry.mark_released(&["sess_rel_1".into()]);
+
+    let scan = ResolveOptions { scan_sessions: true, ..ResolveOptions::default() };
+    // A send's scan binds the closed agent again (it is revived by its tag).
+    registry.refresh_tags_from_sessions(true, &scope).await;
+    assert_eq!(registry.resolve_tag("rev", &scope, scan), Ok(Some("sess_rel_1".into())), "a send reaches a closed agent");
+    // A spawn finds the tag free, however long ago the close was, and the scan does not take it back.
+    let spawn = ResolveOptions { scan_sessions: true, skip_released: true, ..ResolveOptions::default() };
+    assert_eq!(registry.resolve_tag("rev", &scope, spawn), Ok(None));
+    assert_eq!(registry.tag_session("rev"), None);
+    assert!(registry.is_released("sess_rel_1"), "the release marker stays");
+    // The new session takes the tag; later scans resolve to it, never to both.
+    *rig.store.sessions.lock().unwrap() = vec![old.clone(), new.clone()];
+    rig.store.touch_sessions();
+    registry.bind_tag("rev", &session_facts(&new), &at(NOW));
+    registry.refresh_tags_from_sessions(true, &scope).await;
+    assert_eq!(registry.resolve_tag("rev", &scope, scan), Ok(Some("sess_rel_2".into())));
+}
+
+/// A closed session yields its tag only to a session of the same owner: another lead's live agent under the same tag never
+/// hides the caller's own closed one, so a send (`recover`: a scan) revives it, and the other lead's binding stays.
+#[tokio::test]
+async fn another_owners_binding_of_the_tag_does_not_hide_a_closed_session() {
+    let rig = Rig::new();
+    let created = at(NOW - HOUR);
+    let row = |id: &str, owner: &str| {
+        obj(json!({
+            "id": id, "agentTag": "rev", "ownerSessionId": owner, "parentSessionId": owner,
+            "agent": "reviewer", "provider": "anthropic-oauth", "status": "idle", "cwd": "/w",
+            "createdAt": created, "updatedAt": created, "lastUsedAt": created,
+        }))
+    };
+    let (mine, theirs) = (row("sess_a", "lead-a"), row("sess_b", "lead-b"));
+    *rig.store.sessions.lock().unwrap() = vec![mine.clone(), theirs.clone()];
+    rig.store.touch_sessions();
+    let (scope_a, scope_b) = (lead("lead-a"), lead("lead-b"));
+    let registry = rig.registry();
+    registry.refresh_tags_from_sessions(false, &scope_a).await;
+    registry.bind_tag("rev", &session_facts(&mine), &at(NOW));
+    registry.forget_terminal_session(Some("rev"), "sess_a");
+    registry.mark_released(&["sess_a".into()]);
+    registry.bind_tag("rev", &session_facts(&theirs), &at(NOW));
+
+    let scan = ResolveOptions { scan_sessions: true, ..ResolveOptions::default() };
+    assert_eq!(registry.resolve_tag("rev", &scope_a, scan), Ok(Some("sess_a".into())), "A's own closed session is revived");
+    assert_eq!(registry.resolve_tag("rev", &scope_b, scan), Ok(Some("sess_b".into())));
+    assert_eq!(registry.tag_session("rev").as_deref(), Some("sess_b"), "B's binding is untouched");
+}
+
+/// "Same owner" is the identity the scope rules use: a closed session yields its tag to an open one of the same owner
+/// session, or, where no owner session is named, of the same host process; sessions of different host processes stay an
+/// ambiguity (a global scanning resolve), and sessions with no owner identity are never the same owner.
+#[tokio::test]
+async fn a_closed_session_yields_its_tag_only_to_the_same_owner_identity() {
+    let created = at(NOW - HOUR);
+    let row = |id: &str, session_owner: &str, pid: Option<u64>| {
+        obj(json!({
+            "id": id, "agentTag": "rev", "ownerSessionId": session_owner, "parentSessionId": session_owner,
+            "clientHostPid": pid, "agent": "reviewer", "provider": "anthropic-oauth", "status": "idle", "cwd": "/w",
+            "createdAt": created, "updatedAt": created, "lastUsedAt": created,
+        }))
+    };
+    let global = ResolveOptions { scan_sessions: true, ..ResolveOptions::default() };
+    // (closed session, open session, what a global scanning resolve answers)
+    let cases = [
+        ("host pids 1 and 2", row("sess_c", "", Some(1)), row("sess_o", "", Some(2)), Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".to_owned())),
+        ("one host pid", row("sess_c", "", Some(1)), row("sess_o", "", Some(1)), Ok(Some("sess_o".to_owned()))),
+        ("no owner identity", row("sess_c", "", None), row("sess_o", "", None), Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".to_owned())),
+        ("owner sessions", row("sess_c", "lead-a", Some(1)), row("sess_o", "lead-a", Some(2)), Ok(Some("sess_o".to_owned()))),
+        ("owner session and a host process", row("sess_c", "lead-a", Some(1)), row("sess_o", "", Some(1)), Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".to_owned())),
+    ];
+    for (name, closed, open, want) in cases {
+        let rig = Rig::new();
+        *rig.store.sessions.lock().unwrap() = vec![closed.clone(), open.clone()];
+        rig.store.touch_sessions();
+        let registry = rig.registry();
+        registry.reload().await;
+        registry.mark_released(&["sess_c".into()]);
+        assert_eq!(registry.resolve_tag("rev", &Scope::default(), global), want, "{name}");
+    }
 }
 
 /// An agent its owner closed is released for the list (Node's list drops a closed agent): the marker reads
@@ -652,213 +924,6 @@ impl AgentStatusline for Statusline {
     }
 }
 
-/// `ask-turn-settle.mjs:137-139` stamps every completed turn; a turn start lifts the owner's
-/// release (`worker-index.mjs:59`); an owner close (`bumpSessionGenerationAttempt` with
-/// `ownerClose`) stamps the session durably, then cancels its running turn, leaving it open.
-#[tokio::test(start_paused = true)]
-async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
-    use std::sync::atomic::AtomicUsize;
-
-    use mixdog_agent::agent_tool::host::Sessions;
-
-    use crate::session::thread_state::SessionThreads;
-    use crate::session::SessionDirectory;
-    use crate::session::seams::RunOutcome;
-    use crate::eventually_on;
-    use crate::session::tests::idle;
-    use crate::session::tests::start_thread;
-    use crate::session::tests::turn;
-
-    let srig = crate::session::testing::Rig::new();
-    let runs = Arc::new(AtomicUsize::new(0));
-    let counter = runs.clone();
-    srig.set_script(Arc::new(move |run| {
-        let first = counter.fetch_add(1, Ordering::SeqCst) == 0;
-        Box::pin(async move {
-            if !first {
-                run.cancel.cancelled().await;
-                return RunOutcome::Interrupted;
-            }
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = Arc::new(SessionDirectory::new(srig.deps()));
-    let rig = Rig::new();
-    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
-    assert!(srig.turn_starts.bind(registry.clone()).is_ok());
-    let handle = start_thread(&directory).await;
-    let id = handle.id.as_str().to_owned();
-
-    turn(&handle, "one", "op-1").await;
-    let stamped = eventually_on!(&[&handle.cell.stepped], || {
-        let header = handle.cell.header.load_full();
-        header.contains_key("lastTurnCompletedAt").then(|| (*header).clone())
-    })
-    .await;
-    assert_eq!(stamped["closeProvenance"], json!(1));
-    assert!(stamped["lastTurnCompletedAt"].is_number());
-
-    registry.mark_released(std::slice::from_ref(&id));
-    assert!(rig.store.map(&id).is_some_and(|m| m.contains_key("releasedAt")));
-    turn(&handle, "two", "op-2").await;
-    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
-    assert!(rig.store.map(&id).is_none(), "the turn start lifted the release");
-
-    let statusline = Arc::new(Statusline::default());
-    let threads = Arc::new(SessionThreads::new(directory.clone()));
-    let shells = Arc::new(ClosedShells::default());
-    let read_state = Arc::new(mixdog_tools::fs::ReadState::default());
-    let sessions = AgentSessions::new(directory.clone(), threads, registry.clone(), statusline.clone(), rig.clock.clone(), shells.clone(), read_state.clone());
-    let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: true };
-    assert!(sessions.close_session(&id, "cli-agent-close", options).await);
-    // `cancelOwnedShellTrees(id)` (`session-close.mjs:184`).
-    assert_eq!(*shells.0.lock().unwrap(), [id.clone()]);
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    let header = handle.cell.header.load_full();
-    assert_eq!(header["ownerClosedAt"], json!(NOW));
-    assert_eq!(header["detachedReason"], json!("cli-agent-close"));
-    assert!(header["generation"].as_f64().is_some_and(|generation| generation >= 1.0), "the close moves the generation on (`lifecycle-barriers.mjs:272`)");
-    assert_ne!(header.get("closed"), Some(&json!(true)), "the session stays open");
-    sessions.clear_statusline_route(&id);
-    assert_eq!(*statusline.0.lock().unwrap(), [id.clone()]);
-    assert_eq!(runs.load(Ordering::SeqCst), 2);
-}
-
-/// The job board's cancel (`close_session(id, "agent-task-cancel", {tombstone: false,
-/// owner_close: false})`) ends the worker's turn with Node's `closeSession` abort text, and the
-/// session stays open without an owner-close stamp.
-#[tokio::test(start_paused = true)]
-async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
-    use mixdog_agent::agent_tool::host::Sessions;
-
-    use crate::session::thread_state::SessionThreads;
-    use crate::session::SessionDirectory;
-    use crate::session::seams::RunOutcome;
-    use crate::eventually_on;
-    use crate::session::tests::idle;
-    use crate::session::tests::start_thread;
-    use crate::session::tests::turn;
-
-    let srig = crate::session::testing::Rig::new();
-    let aborted: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
-    let seen = aborted.clone();
-    srig.set_script(Arc::new(move |run| {
-        let seen = seen.clone();
-        Box::pin(async move {
-            run.cancel.cancelled().await;
-            *seen.lock().unwrap() = Some(run.signal.reason());
-            RunOutcome::Interrupted
-        })
-    }));
-    let directory = Arc::new(SessionDirectory::new(srig.deps()));
-    let rig = Rig::new();
-    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
-    let handle = start_thread(&directory).await;
-    let id = handle.id.as_str().to_owned();
-    turn(&handle, "work", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
-
-    let threads = Arc::new(SessionThreads::new(directory.clone()));
-    let sessions = AgentSessions::new(
-        directory.clone(),
-        threads,
-        registry,
-        Arc::new(Statusline::default()),
-        rig.clock.clone(),
-        Arc::new(ClosedShells::default()),
-        Arc::new(mixdog_tools::fs::ReadState::default()),
-    );
-    let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: false };
-    assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    assert_eq!(
-        aborted.lock().unwrap().as_deref(),
-        Some(format!("Session \"{id}\" closed: closeSession (reason=agent-task-cancel)").as_str())
-    );
-    let header = handle.cell.header.load_full();
-    assert_eq!(header["detachedReason"], json!("agent-task-cancel"));
-    assert!(header["generation"].as_f64().is_some_and(|generation| generation >= 1.0));
-    assert!(header.get("ownerClosedAt").is_none(), "not an owner close");
-
-    // `abortSessionTurn(id, reason)` for a session no outer turn holds.
-    turn(&handle, "again", "op-2").await;
-    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
-    assert!(directory.abort_session_turn(&handle.id, "login-required"));
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    assert_eq!(
-        aborted.lock().unwrap().as_deref(),
-        Some(format!("Session \"{id}\" closed: abortSessionTurn (reason=login-required)").as_str())
-    );
-    assert!(!directory.abort_session_turn(&mixdog_core_api::ids::ThreadId::from("sess_none"), "x"));
-}
-
-/// `closeRuntime` (`agent-cancel.mjs:96-102`): a close that stopped a running turn leaves the session reading `cancelled`,
-/// its stage too, so a scan of the sessions builds no open idle row for it that a cleanup would close again; a turn that
-/// starts on it reads it as its runtime again (`agent-turns.mjs`), and closing a finished agent keeps its status.
-#[tokio::test(start_paused = true)]
-async fn a_close_that_stops_a_running_turn_reads_cancelled_until_a_turn_starts() {
-    use std::sync::atomic::AtomicUsize;
-
-    use mixdog_agent::agent_tool::host::Sessions;
-
-    use crate::session::thread_state::SessionThreads;
-    use crate::session::SessionDirectory;
-    use crate::session::seams::RunOutcome;
-    use crate::eventually_on;
-    use crate::session::tests::idle;
-    use crate::session::tests::start_thread;
-    use crate::session::tests::turn;
-
-    let srig = crate::session::testing::Rig::new();
-    let runs = Arc::new(AtomicUsize::new(0));
-    let counter = runs.clone();
-    // The first turn runs until it is stopped; every later one completes.
-    srig.set_script(Arc::new(move |run| {
-        let first = counter.fetch_add(1, Ordering::SeqCst) == 0;
-        Box::pin(async move {
-            if first {
-                run.cancel.cancelled().await;
-                return RunOutcome::Interrupted;
-            }
-            RunOutcome::Completed(Default::default())
-        })
-    }));
-    let directory = Arc::new(SessionDirectory::new(srig.deps()));
-    let rig = Rig::new();
-    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
-    assert!(srig.turn_starts.bind(registry.clone()).is_ok());
-    let handle = start_thread(&directory).await;
-    let id = handle.id.as_str().to_owned();
-    let sessions = AgentSessions::new(
-        directory.clone(),
-        Arc::new(SessionThreads::new(directory.clone())),
-        registry.clone(),
-        Arc::new(Statusline::default()),
-        rig.clock.clone(),
-        Arc::new(ClosedShells::default()),
-        Arc::new(mixdog_tools::fs::ReadState::default()),
-    );
-    // The job board's cancel: the same close, after which the session takes a turn again.
-    let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: false };
-    let state = |session: &Row| (session.get("status").cloned(), session.get("stage").cloned());
-    let cancelled = (Some(json!("cancelled")), Some(json!("cancelled")));
-
-    turn(&handle, "work", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
-    assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
-    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    assert_eq!(state(&registry.session_of(&id).expect("the session")), cancelled);
-    let listed = registry.open_sessions();
-    let scanned = listed.iter().find(|session| session.get("id").and_then(Value::as_str) == Some(id.as_str())).expect("listed");
-    assert_eq!(state(scanned), cancelled, "the scan reads it so");
-
-    turn(&handle, "again", "op-2").await;
-    eventually_on!(&[&handle.cell.stepped], || (runs.load(Ordering::SeqCst) == 2 && idle(&handle)).then_some(())).await;
-    assert_ne!(state(&registry.session_of(&id).expect("the session")), cancelled, "a turn started on it");
-    assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
-    assert_ne!(state(&registry.session_of(&id).expect("the session")), cancelled, "it was not running");
-}
-
 /// A virtual clock: it moves only when the test advances it, and a wait on it resolves at the advance that reaches it.
 struct Virtual(tokio::sync::watch::Sender<i64>);
 impl Virtual {
@@ -876,77 +941,6 @@ impl Clock for Virtual {
             let _ = now.wait_for(|now| *now >= at_ms).await;
         })
     }
-}
-
-/// Resolves once `done` holds, re-checked at every row write; fails at the deadline naming `what`.
-async fn until_written(store: &Store, what: &str, done: impl Fn() -> bool) {
-    let wait = async {
-        loop {
-            let written = store.written.notified();
-            tokio::pin!(written);
-            written.as_mut().enable();
-            if done() {
-                return;
-            }
-            written.await;
-        }
-    };
-    tokio::time::timeout(std::time::Duration::from_secs(10), wait).await.unwrap_or_else(|_| panic!("timed out waiting for {what}"));
-}
-
-/// The maintenance pass's deadline timer (`armDeadline`, maintenance-pass.mjs), on the registry's clock: a running row whose
-/// session is gone leaves the index as a tombstone when the clock reaches its reap deadline, with no agent call, status read
-/// or other event; a row already past its deadline when the timer starts (the core was down) is reaped by the first pass, one
-/// event delay after the start (Node's first pass looks at every deadline after 0); a row that became active again before its deadline is reaped at its new one.
-#[tokio::test]
-async fn a_rows_reap_deadline_tombstones_it_on_the_registry_clock_with_no_event() {
-    let rig = Rig::new();
-    let clock = Arc::new(Virtual(tokio::sync::watch::channel(NOW).0));
-    let stamped = |due_in: i64| at(NOW - HOUR + due_in);
-    let running = |id: &str, tag: &str, due_in: i64| worker_row(id, tag, json!({ "status": "running", "stage": "streaming", "createdAt": stamped(due_in), "updatedAt": stamped(due_in) }));
-    rig.store.write("s-overdue", Some(running("s-overdue", "overdue", -60_000)));
-    rig.store.write("s-late", Some(running("s-late", "late", 60_000)));
-    rig.store.write("s-early", Some(running("s-early", "early", 10_000)));
-    rig.store.write("s-active", Some(running("s-active", "active", 20_000)));
-    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), clock.clone()));
-    let reaped = |id: &str| rig.store.map(id).is_some_and(|map| map.contains_key("tombstone"));
-    // The index is loaded (the boot's first read), then the timer starts.
-    registry.refresh_tags_from_sessions(false, &lead("lead-b")).await;
-    assert!(!reaped("s-overdue"), "another lead's read reaps nothing");
-    let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
-    // The first pass is the event pass one `MAINTENANCE_EVENT_DELAY_MS` after the start (maintenance-pass.mjs:23,129).
-    clock.advance(999);
-    assert!(!reaped("s-overdue"), "not before the first pass");
-    clock.advance(1);
-    until_written(&rig.store, "the row that came due while the core was down", || reaped("s-overdue")).await;
-    assert!(!reaped("s-early") && !reaped("s-late") && !reaped("s-active"), "nothing else is due yet");
-
-    // `s-active` works again 5 s in: its stamps move, and its deadline with them.
-    clock.advance(4_000);
-    {
-        let mut st = registry.lock();
-        let mut active = st.map("s-active").cloned().expect("the active row");
-        active.insert("updatedAt".into(), json!(at(NOW + 5_000)));
-        registry.persist(&mut st, "s-active", Some(active));
-    }
-    clock.advance(4_999);
-    assert!(!reaped("s-early"), "not before its deadline");
-    clock.advance(1);
-    until_written(&rig.store, "the early row's tombstone at its deadline", || reaped("s-early")).await;
-    assert!(!reaped("s-late") && !reaped("s-active"), "the others are not due yet");
-    clock.advance(10_000);
-    assert!(!reaped("s-active"), "its old deadline has passed, its new one (an hour after it worked) has not");
-    clock.advance(40_000);
-    until_written(&rig.store, "the late row's tombstone at its deadline", || reaped("s-late")).await;
-    assert!(!reaped("s-active"), "the active row is not due yet");
-    // Now NOW + 60 s; its new deadline is NOW + 5 s + the reap window.
-    clock.advance(HOUR - 55_001);
-    assert!(!reaped("s-active"), "not before its new deadline");
-    clock.advance(1);
-    until_written(&rig.store, "the active row's tombstone at its new deadline", || reaped("s-active")).await;
-    drop(registry);
-    clock.advance(HOUR);
-    tokio::time::timeout(std::time::Duration::from_secs(10), timer).await.expect("the timer ends with its registry").unwrap();
 }
 
 /// B-15: a close that stopped a running turn leaves the session reading `cancelled` after a restart too: the mark is on its worker
@@ -985,158 +979,6 @@ impl restart::RestartSweep for CountedSweeps {
     }
 }
 
-/// `sweepRestartFailures`, the first step of the maintenance pass: a row written (an agent event) asks for a pass, whose sweep runs
-/// one event delay later and not before; with no event it does not run.
-#[tokio::test]
-async fn a_row_write_runs_the_restart_sweep_one_event_delay_later() {
-    let rig = Rig::new();
-    let clock = Arc::new(Virtual(tokio::sync::watch::channel(NOW).0));
-    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), clock.clone()));
-    let sweeps = Arc::new(CountedSweeps::default());
-    assert!(registry.bind_sweeper(sweeps.clone()).is_ok());
-    assert!(registry.bind_sweeper(sweeps.clone()).is_err(), "a second bind is refused");
-    let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
-    let swept = || sweeps.0.load(Ordering::SeqCst);
-    clock.advance(1_000);
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    assert_eq!(swept(), 0, "no event, no sweep");
-    // A write is an event only for a timer already waiting, so it is repeated until the sweep has run.
-    let wait = async {
-        while swept() == 0 {
-            {
-                let mut st = registry.lock();
-                let row = worker_row("s-new", "new", json!({ "status": "running", "stage": "streaming", "createdAt": at(NOW), "updatedAt": at(NOW) }));
-                registry.persist(&mut st, "s-new", Some(row));
-            }
-            clock.advance(1_000);
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-        }
-    };
-    tokio::time::timeout(std::time::Duration::from_secs(10), wait).await.expect("the event's pass swept");
-    timer.abort();
-}
-
-/// `fixtures/agent-row-deadline` (record-agent-row-deadline.mjs): a Lead's settled worker rows leave the index at their
-/// retention deadlines, on the registry's clock, as Node's maintenance pass removed them, and what the Lead's clients are
-/// told is what Node's were: the status the thread publishes (`thread/agents/updated`, Node's `agentStatusState` after an
-/// `onStatusChange`) lists none of them and changes at no removal, so nothing is published. The row due while the core was
-/// down: Node removes it at its first pass, one event delay (1 s) after the Lead's first status read; the core removes it
-/// at the timer's first look, before that read, so the first two steps differ by that row alone.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_leads_clients_are_told_of_rows_reaped_at_their_deadline_what_nodes_were() {
-    use crate::session::SessionDirectory;
-    use crate::session::agent_activity::AgentStatus;
-    use crate::session::agent_registry::status_rows::AgentToolStatus;
-    use crate::session::tests::caught_up;
-    use crate::session::tests::start_thread;
-    use mixdog_app_protocol::v2::thread::ThreadAgents;
-    use mixdog_core_api::ids::ThreadId;
-
-    struct NoJobs;
-    impl mixdog_core_run::run_host::progress::WaitedJobs for NoJobs {
-        fn silence(&self, _: &[String], _: i64) -> Option<mixdog_agent::agent_tool::progress::ToolSilence> {
-            None
-        }
-    }
-    /// The directory reads its threads' status through this; it is bound once the status is built over the directory.
-    #[derive(Default)]
-    struct LateStatus(std::sync::OnceLock<Arc<AgentToolStatus>>);
-    #[async_trait]
-    impl AgentStatus for LateStatus {
-        async fn status(&self, thread: &ThreadId) -> ThreadAgents {
-            self.0.get().expect("bound").status(thread).await
-        }
-    }
-
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-row-deadline/golden.json")).unwrap();
-    let t0 = golden["t0"].as_i64().unwrap();
-    let srig = crate::session::testing::Rig::new();
-    let late = Arc::new(LateStatus::default());
-    let mut deps = srig.deps_parts(srig.store.clone());
-    deps.agent_status = late.clone() as Arc<dyn AgentStatus>;
-    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
-    let lead = start_thread(&directory).await;
-    let rig = Rig::new();
-    let clock = Arc::new(Virtual(tokio::sync::watch::channel(t0).0));
-    for row in golden["rows"].as_array().unwrap() {
-        let stamp = row["stampedAt"].clone();
-        let id = row["sessionId"].as_str().unwrap();
-        rig.store.write_row(
-            id,
-            Some(obj(json!({
-                "tag": row["tag"], "sessionId": id, "ownerSessionId": lead.id.as_str(), "parentSessionId": lead.id.as_str(),
-                "agent": "worker", "provider": "p", "model": "m", "status": "idle", "stage": "idle", "clientHostPid": PID,
-                "createdAt": stamp, "updatedAt": stamp, "finishedAt": stamp,
-            }))),
-        );
-    }
-    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), clock.clone()));
-    /// The status reads the same virtual time through the run's clock trait.
-    struct RunClock(Arc<Virtual>);
-    impl mixdog_agent::env::Clock for RunClock {
-        fn now_ms(&self) -> i64 {
-            Clock::now_ms(self.0.as_ref())
-        }
-    }
-    late.0.set(Arc::new(AgentToolStatus::new(registry.clone(), mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(RunClock(clock.clone())), None, None), directory.clone(), Arc::new(NoJobs), clock.clone()))).ok();
-    // The one listener of the row signal (`AgentActivity::everyone`): every loaded thread re-reads its status.
-    let weak = Arc::downgrade(&directory);
-    rig.store.on_write.set(Box::new(move || {
-        if let Some(directory) = weak.upgrade() {
-            for thread in directory.loaded_ids() {
-                directory.status_may_have_changed(thread.as_str());
-            }
-        }
-    })).ok();
-    let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
-
-    let tags = |tombstoned: bool| {
-        let mut tags: Vec<String> = rig
-            .store
-            .maps
-            .lock()
-            .unwrap()
-            .iter()
-            .filter_map(|(_, map)| if tombstoned { map.get("tombstone").and_then(|t| t.get("tag")) } else { map.get("sessionId").and(map.get("tag")) })
-            .map(|tag| tag.as_str().unwrap().to_owned())
-            .collect();
-        tags.sort();
-        tags
-    };
-    let published = || srig.feeds.frames(lead.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/agents/updated").count();
-    // The thread's status pass at load (Node's runtime publishes its `agentWorkers` once as it loads, not through
-    // `onStatusChange`): what follows is counted from it.
-    crate::eventually_on!(&[&srig.feeds.published], || (published() == 1).then_some(())).await;
-    let mut told = 1;
-    for step in golden["steps"].as_array().unwrap() {
-        let (step_at, what) = (step["at"].as_i64().unwrap(), step["what"].as_str().unwrap());
-        let shift = Clock::now_ms(clock.as_ref()) - t0;
-        clock.advance(step_at - shift);
-        if step_at == 5000 {
-            // The active row worked again and settled: its stamps move to now.
-            let mut st = registry.lock();
-            let mut active = st.map("sess_rows_active").cloned().expect("the active row");
-            let now = json!(at(t0 + 5000));
-            active.insert("updatedAt".into(), now.clone());
-            active.insert("finishedAt".into(), now);
-            registry.persist(&mut st, "sess_rows_active", Some(active));
-        }
-        let strings = |key: &str| step[key].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
-        let (indexed, tombstoned) = (strings("indexed"), strings("tombstones"));
-        until_written(&rig.store, what, || tags(false) == indexed && tags(true) == tombstoned).await;
-        let status = AgentStatus::status(late.as_ref(), &lead.id).await;
-        let workers: Vec<String> = status.agent_workers.iter().map(|w| format!("{}:{}", w["tag"].as_str().unwrap(), w["status"].as_str().unwrap())).collect();
-        assert_eq!(workers, strings("workers"), "{what}: the workers the Lead's status lists");
-        caught_up(&lead).await;
-        let now = published();
-        assert_eq!((now - told) as u64, step["announced"].as_u64().unwrap(), "{what}: the status changes the Lead's clients were told");
-        told = now;
-        assert_eq!((tags(false), tags(true)), (indexed, tombstoned), "{what}: nothing else left the index");
-    }
-    // The directory's status holds the registry, so the timer is stopped here rather than by the registry going.
-    timer.abort();
-}
-
 /// A settled row past its retention and its continuation window becomes a tombstone when the
 /// registry refreshes (`transitionStaleNonterminalRows`); the tombstone keeps the row's keys
 /// for the index, and a reuse of the tag consumes it.
@@ -1168,7 +1010,8 @@ async fn a_settled_row_ages_into_a_tombstone_and_a_reuse_consumes_it() {
 }
 
 /// `forgetDeletedSession` (`gone-rows.mjs`): a deleted session's settled row leaves the index as
-/// a tombstone; a working row, a Lead pool row and an owed restart failure stay.
+/// a tombstone; a working row and an owed restart failure stay; a deleted Lead's pool row goes with no
+/// tombstone (`forgetLeadSession`).
 #[tokio::test]
 async fn a_deleted_sessions_settled_row_becomes_a_tombstone() {
     let rig = Rig::new();
@@ -1187,17 +1030,19 @@ async fn a_deleted_sessions_settled_row_becomes_a_tombstone() {
             "parentSessionId": "lead-a", "ownerSessionId": "lead-a", "reapedAt": at(NOW),
         })
     );
-    for kept in ["s-busy", "s-lead", "s-missing", ""] {
+    for kept in ["s-busy", "s-missing", ""] {
         assert!(!registry.forget_deleted_session(kept).await, "{kept}");
     }
     assert!(rig.store.map("s-busy").unwrap().contains_key("sessionId"));
-    assert!(rig.store.map("s-lead").unwrap().contains_key("sessionId"));
+    assert!(registry.forget_deleted_session("s-lead").await, "the Lead's row goes");
+    assert!(rig.store.map("s-lead").is_none(), "with no tombstone");
 }
 
 /// A session deleted while the daemon runs: Node's purge hook forgets it (`agent-tool.mjs:347`, `gone-rows.mjs:214`), its
-/// index file keeps the working row, the Lead pool row and the owed restart failure, and every later listing shows them
-/// (`store-agent-worker-rows.mjs` `projectChildWorkerRow` over a null header); the settled row leaves as a tombstone. The
-/// core's index lists no row of a deleted session, so the registry keeps the rows Node keeps.
+/// index file keeps the working row and the owed restart failure, and every later listing shows them
+/// (`store-agent-worker-rows.mjs` `projectChildWorkerRow` over a null header); the settled row leaves as a tombstone, and
+/// the deleted Lead's pool row leaves at once (`forgetLeadSession`). The core's index lists no row of a deleted session, so
+/// the registry keeps the rows Node keeps and removes the Lead row it keeps too.
 #[tokio::test]
 async fn a_session_deleted_while_the_daemon_runs_keeps_the_rows_node_keeps() {
     let rig = Rig::new();
@@ -1217,10 +1062,11 @@ async fn a_session_deleted_while_the_daemon_runs_keeps_the_rows_node_keeps() {
         rows.filter(|row| row["sessionId"] == id).cloned().collect::<Vec<Value>>()
     };
     let before = registry.pool_index().await;
-    let kept: Vec<(&str, Vec<Value>)> = ["s-busy", "s-lead", "s-owed"].into_iter().map(|id| (id, row_of(&before, id))).collect();
+    let kept: Vec<(&str, Vec<Value>)> = ["s-busy", "s-owed"].into_iter().map(|id| (id, row_of(&before, id))).collect();
     for (id, rows) in &kept {
         assert_eq!(rows.len(), 1, "{id} is listed before the delete");
     }
+    assert_eq!(row_of(&before, "s-lead").len(), 1, "the Lead row is listed before the delete");
     // The delete: the index drops every row of the deleted sessions.
     rig.store.maps.lock().unwrap().clear();
     rig.store.touch_sessions();
@@ -1228,307 +1074,17 @@ async fn a_session_deleted_while_the_daemon_runs_keeps_the_rows_node_keeps() {
     for (id, _) in &kept {
         assert!(!registry.forget_deleted_session(id).await, "{id} stays");
     }
+    assert!(registry.forget_deleted_session("s-lead").await, "the Lead row goes");
+    assert!(!WorkerStore::kept(&*rig.store, "s-lead"), "and is not kept apart from the index");
     for listing in 0..2 {
         let after = registry.pool_index().await;
         for (id, rows) in &kept {
             assert_eq!(&row_of(&after, id), rows, "listing {listing}: {id} as before the delete");
         }
+        assert_eq!(row_of(&after, "s-lead"), Vec::<Value>::new(), "listing {listing}: the Lead row is gone");
         assert_eq!(row_of(&after, "s-done"), Vec::<Value>::new(), "listing {listing}: the settled row is gone");
         let tombstones = after.0["tombstones"].as_array().unwrap();
         assert_eq!(tombstones.iter().filter(|t| t["tag"] == "done").count(), 1, "listing {listing}: its tombstone: {tombstones:?}");
-    }
-}
-
-/// A row kept for a session deleted while the core runs lives on as Node's does. Node's index file keeps it
-/// (`gone-rows.mjs:214-226`, `forgetDeletedSession` takes only settled rows); `notifyRestartFailures` (`restart-notify.mjs:136`,
-/// run at start and on each restart settlement, `agent-tool.mjs:103-105`, `:408-409`) tells its owner once and stamps it; and
-/// `sweepGoneRows` (`gone-rows.mjs:162-200`, a maintenance step for every owner, `agent-tool.mjs:207`) tombstones it once it
-/// is settled (`:107-115`: terminal, not owed, past the settled retention, no live work). Here: the owed failure is told
-/// once after a restart of the core, and the told row leaves at the retention's end on the injected clock, by a refresh of
-/// another owner's scope.
-#[tokio::test]
-async fn a_kept_row_is_told_once_survives_a_restart_and_leaves_once_settled() {
-    struct Frozen(i64);
-    impl mixdog_agent::env::Clock for Frozen {
-        fn now_ms(&self) -> i64 {
-            self.0
-        }
-    }
-    #[derive(Default)]
-    struct Told(Mutex<Vec<(String, String)>>);
-    #[async_trait]
-    impl restart::RestartNotices for Told {
-        async fn queue_durably(&self, owner: &ThreadId, execution: &str, _: String) -> Result<(), String> {
-            self.0.lock().unwrap().push((owner.as_str().to_owned(), execution.to_owned()));
-            Ok(())
-        }
-        async fn show(&self, _: &ThreadId, _: &str, _: String) {}
-    }
-
-    let rig = Rig::new();
-    let owed = json!({ "status": "failed", "failureReason": "process-restart", "task_id": "t-1", "finishedAt": at(NOW), "updatedAt": at(NOW) });
-    rig.store.write("s-owed", Some(worker_row("s-owed", "owed", owed)));
-    let registry = rig.registry();
-    registry.pool_index().await;
-    // The delete: the index lists no row of the deleted session any more.
-    rig.store.maps.lock().unwrap().clear();
-    rig.store.touch_sessions();
-    assert!(!registry.forget_deleted_session("s-owed").await, "an owed failure stays");
-    assert!(WorkerStore::kept(&*rig.store, "s-owed"), "the row is kept apart from the index");
-    drop(registry);
-
-    // A restart of the core: a new registry over what was stored.
-    let restarted = rig.registry();
-    let pending: Vec<String> = restarted.pending_restart_failures().await.unwrap().into_iter().map(|(id, _)| id).collect();
-    assert_eq!(pending, ["s-owed"], "the kept row is owed after the restart");
-    let (told, board) = (Told::default(), mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen(NOW)), None, None));
-    assert_eq!(restart::notify_restart_failures(&restarted, &told, &board, &at(NOW)).await.unwrap(), 1);
-    assert_eq!(restart::notify_restart_failures(&restarted, &told, &board, &at(NOW)).await.unwrap(), 0, "told once");
-    assert_eq!(*told.0.lock().unwrap(), [("lead-a".to_owned(), "restart:t-1".to_owned())]);
-    assert_eq!(rig.store.map("s-owed").unwrap()["restartNotified"], json!(at(NOW)), "the stamp is kept with the row");
-
-    async fn listed(registry: &AgentRegistry) -> bool {
-        let (agents, _) = registry.pool_index().await;
-        agents["workers"].as_array().unwrap().iter().any(|row| row["sessionId"] == "s-owed")
-    }
-    let other = lead("lead-b");
-    rig.clock.0.store(NOW + DAY - 1, Ordering::SeqCst);
-    restarted.refresh_tags_from_sessions(false, &other).await;
-    assert!(listed(&restarted).await, "1 ms before the settled retention ends the row stays");
-    rig.clock.0.store(NOW + DAY, Ordering::SeqCst);
-    restarted.refresh_tags_from_sessions(false, &other).await;
-    assert!(!listed(&restarted).await, "at the retention's end the told row leaves");
-    let map = rig.store.map("s-owed").expect("its tombstone stays until its own end");
-    assert!(!map.contains_key("sessionId") && map.contains_key("tombstone"), "{map:?}");
-    // And a restart after that lists it no more.
-    assert!(!listed(&rig.registry()).await);
-}
-
-/// The composed sessions over a data folder, as the daemon builds them: the real thread store and index, the session
-/// directory, the worker rows' store and the kept-row table; a new one over the same folder is the next process.
-struct Core {
-    directory: Arc<crate::session::SessionDirectory>,
-    threads: Arc<crate::session::thread_state::SessionThreads>,
-    workers: Arc<StoreWorkers>,
-    registry: AgentRegistry,
-    state: mixdog_store::state::CoreState,
-    index: mixdog_store::sqlite::SqliteStore,
-    store: Arc<crate::session::StoreThreads>,
-    _rig: crate::session::testing::Rig,
-}
-
-impl Core {
-    async fn up(data: &std::path::Path) -> Self {
-        let t = mixdog_rt::testing::tokens();
-        let root = data.to_path_buf();
-        let index = mixdog_rt::LaneToken::submit(t.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
-            mixdog_store::sqlite::SqliteStore::open(lane, t.sqlite_writer_thread, t.interactive_io, &root)
-        })
-        .expect("lane")
-        .await
-        .expect("job ran")
-        .expect("index");
-        let ownership = Arc::new(mixdog_core_api::domain::mock::MockOwnership::default());
-        let store = Arc::new(crate::session::StoreThreads::over_data_dir(data, index.clone(), ownership, t.maintenance_io).await.expect("the thread store"));
-        let rig = crate::session::testing::Rig::new();
-        let directory = Arc::new(crate::session::SessionDirectory::new(Arc::new(rig.deps_parts(store.clone()))));
-        let threads = Arc::new(crate::session::thread_state::SessionThreads::new(directory.clone()));
-        let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &data.join("core.sqlite")).expect("core state");
-        let workers = Arc::new(StoreWorkers::new(index.clone(), threads.clone(), t.interactive_io, Arc::new(KeptRows::new(state.clone()))));
-        let registry = AgentRegistry::new(workers.clone(), directory.clone(), Arc::new(Hour), Arc::new(TestClock(AtomicI64::new(NOW))));
-        Self { directory, threads, workers, registry, state, index, store, _rig: rig }
-    }
-
-    /// Returns once every worker map written so far is in the index: applied to its header, and projected.
-    async fn written(&self) {
-        self.workers.settled().await.expect("the writes reached the headers");
-        self.store.projected().await;
-    }
-
-    /// A loaded thread's header fields, as its turns would have left them.
-    async fn set_header(&self, thread: &str, fields: Row) {
-        mixdog_core_ports::ports::threads::ThreadState::patch_header(&*self.threads, &ThreadId::from(thread), fields, Vec::new()).await.expect("the header patch");
-    }
-
-    async fn start(&self, op: &str, session: Value) -> ThreadId {
-        use mixdog_core_api::ThreadDirectory;
-        let start = mixdog_core_api::call::CoreRequest {
-            method: mixdog_core_api::ids::Method("thread/start"),
-            params: json!({ "opId": op, "kind": "task", "projectPath": "/ws", "session": session }),
-            op: Some(mixdog_core_api::ids::OpId::from(op)),
-            ctx: mixdog_core_api::call::CallContext::internal("test"),
-        };
-        let mixdog_core_api::Reply::Subscribe(started) = self.directory.request(start).await.expect("thread/start") else { panic!("thread/start subscribes") };
-        ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"))
-    }
-
-    /// The owner's queue as its log holds it: the entries a restart hands its next turn.
-    async fn queued(&self, owner: &ThreadId) -> usize {
-        let handle = self.directory.open_handle(owner, &mixdog_core_api::call::CallContext::internal("test")).await.expect("the owner opens");
-        handle.cell.queue.load().len()
-    }
-
-    async fn notify(&self) -> usize {
-        struct Frozen;
-        impl mixdog_agent::env::Clock for Frozen {
-            fn now_ms(&self) -> i64 {
-                NOW
-            }
-        }
-        let board = mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None);
-        let told = restart::notify_restart_failures(&self.registry, &*self.directory, &board, &at(NOW)).await.expect("the pass ran");
-        self.workers.settled().await.expect("the writes reached the headers");
-        told
-    }
-}
-
-/// How long the kill of an overdue child, and the wait for it to end, may take.
-const KILL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// `command`'s output, hidden, within `deadline`: a child still running then is killed and the test fails naming `what`.
-fn output_within(mut command: std::process::Command, deadline: std::time::Duration, what: &str) -> std::process::Output {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
-    let child = command.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().expect("the child started");
-    let pid = child.id().to_string();
-    let (ended, ending) = std::sync::mpsc::channel::<()>();
-    let reaper = std::thread::spawn(move || {
-        let output = child.wait_with_output().expect("the child's output");
-        let _ = ended.send(());
-        output
-    });
-    if ending.recv_timeout(deadline).is_err() {
-        #[cfg(windows)]
-        let mut kill = {
-            let mut kill = std::process::Command::new("taskkill");
-            kill.args(["/T", "/F", "/PID", &pid]);
-            std::os::windows::process::CommandExt::creation_flags(&mut kill, 0x0800_0000);
-            kill
-        };
-        #[cfg(not(windows))]
-        let mut kill = {
-            let mut kill = std::process::Command::new("kill");
-            kill.args(["-9", &pid]);
-            kill
-        };
-        // Both waits are bounded: a kill that hangs or fails leaves its thread and the reaper behind, and the test still fails.
-        let (killed, kill_ended) = std::sync::mpsc::channel::<()>();
-        std::thread::spawn(move || {
-            let _ = kill.output();
-            let _ = killed.send(());
-        });
-        let kill_done = kill_ended.recv_timeout(KILL_DEADLINE).is_ok();
-        let reaped = kill_done && ending.recv_timeout(KILL_DEADLINE).is_ok();
-        panic!("{what}: the child ended within the deadline (kill finished: {kill_done}, child reaped: {reaped})");
-    }
-    reaper.join().expect("the reaper")
-}
-
-/// A child that outlives the deadline is killed and fails the test, rather than hanging it.
-#[test]
-#[should_panic(expected = "the child ended within the deadline")]
-fn a_child_that_outlives_its_deadline_fails_the_test() {
-    #[cfg(windows)]
-    let command = {
-        let mut command = std::process::Command::new("ping");
-        command.args(["-n", "30", "127.0.0.1"]);
-        command
-    };
-    #[cfg(not(windows))]
-    let command = {
-        let mut command = std::process::Command::new("sleep");
-        command.arg("30");
-        command
-    };
-    let _ = output_within(command, std::time::Duration::from_secs(1), "a sleeping child");
-}
-
-/// A kept write the table refused stays queued and reaches the table once it takes writes again (Node's index queue keeps a
-/// failed write and retries it, `index-write-queue.mjs:231-245`), with no later write of the session to carry it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_kept_row_the_table_refused_reaches_it_when_the_table_takes_writes_again() {
-    let dir = tempfile::tempdir().unwrap();
-    let core = Core::up(dir.path()).await;
-    // A second writer holding the file's write lock: the table refuses every write until it lets go.
-    let t = mixdog_rt::testing::tokens();
-    let (other, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &dir.path().join("core.sqlite")).unwrap();
-    let (locked, lock_held) = std::sync::mpsc::channel::<()>();
-    let (unlock, unlocked) = std::sync::mpsc::channel::<()>();
-    let holder = tokio::spawn(async move {
-        other
-            .write(move |_| {
-                locked.send(()).unwrap();
-                unlocked.recv_timeout(std::time::Duration::from_secs(60)).expect("the test lets the lock go");
-                Ok(())
-            })
-            .await
-    });
-    lock_held.recv_timeout(std::time::Duration::from_secs(60)).expect("the lock was taken within the deadline");
-    let row = obj(json!({ "sessionId": "s-owed", "tag": "owed", "status": "failed" }));
-    WorkerStore::keep(&*core.workers, "s-owed", Some(row.clone()));
-    // Node's `flush` rejects while a batch is unpersisted: the barrier is not settled while a write is owed.
-    let flushed = core.workers.settled().await;
-    assert!(flushed.is_err(), "a write is still owed, so the flush is refused: {flushed:?}");
-    let stored = || async { core.state.meta_prefix("agent-kept-worker:").await.unwrap() };
-    assert!(stored().await.is_empty(), "the table refused the write");
-    unlock.send(()).unwrap();
-    holder.await.unwrap().unwrap();
-    core.workers.settled().await.expect("nothing is owed once the table took the write");
-    assert_eq!(stored().await, [("agent-kept-worker:s-owed".to_owned(), serde_json::to_string(&row).unwrap())], "the table took the write once it could");
-}
-
-/// `restart-notify.mjs:104-109`: the notice is stored under its stable id before the row is stamped. A real process (this test
-/// binary again) is ended by the crate's crash gate on either side of the store, then the core starts again on the same data
-/// folder. Ended before the store: nothing was queued and the row is still owed, so the restart tells it. Ended after it: the
-/// stored notice survived and the row is still owed, so the restart queues it again under the same id, which Node's queue
-/// takes as the entry it already holds (`pending-messages.mjs:476`, `pendingIdStillQueued` over the hydrated queue): the owner
-/// is told once either way, and nothing is owed after.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_restart_notice_cut_off_at_either_side_of_its_store_is_told_once_after_the_restart() {
-    const DATA: &str = "MIXDOG_RESTART_NOTICE_DATA";
-    const NAME: &str = "a_restart_notice_cut_off_at_either_side_of_its_store_is_told_once_after_the_restart";
-    #[allow(clippy::disallowed_methods, reason = "the child process of this test reads the folder its parent named")]
-    let child_data = std::env::var_os(DATA);
-    if let Some(data) = child_data {
-        // The child: one pass, which the crash gate ends.
-        Core::up(std::path::Path::new(&data)).await.notify().await;
-        return;
-    }
-    for (point, survived) in [("restart-notice-unstored", 0), ("restart-notice-stored", 1)] {
-        let dir = tempfile::tempdir().unwrap();
-        let owner = {
-            let core = Core::up(dir.path()).await;
-            let owner = core.start("op-owner", json!({ "autoWakeCompletions": false })).await;
-            let worker = core.start("op-worker", json!({})).await;
-            let row = json!({
-                "tag": "owed", "sessionId": worker.as_str(), "parentSessionId": owner.as_str(), "ownerSessionId": owner.as_str(),
-                "agent": "worker", "clientHostPid": PID, "status": "failed", "failureReason": "process-restart", "task_id": "t-1",
-                "finishedAt": at(NOW), "updatedAt": at(NOW),
-            });
-            let mut set = serde_json::Map::new();
-            set.insert("worker".into(), row);
-            mixdog_core_ports::ports::threads::ThreadState::patch_header(&*core.threads, &worker, set, Vec::new()).await.expect("the worker row");
-            core.directory.shutdown().await;
-            owner
-        };
-        let test = format!("{}::{NAME}", module_path!().trim_start_matches("mixdog_core_session::"));
-        let mut command = std::process::Command::new(std::env::current_exe().expect("the test binary"));
-        command.args(["--exact", &test, "--nocapture", "--test-threads=1"]).env(DATA, dir.path()).env("MIXDOG_NEW_TASK_CRASH_AT", point);
-        let child = output_within(command, std::time::Duration::from_secs(120), point);
-        let stderr = String::from_utf8_lossy(&child.stderr);
-        assert!(!child.status.success() && !stderr.contains("panicked"), "{point}: the gate ended the child: {stderr}");
-
-        let core = Core::up(dir.path()).await;
-        assert_eq!(core.queued(&owner).await, survived, "{point}: what the cut-off pass stored");
-        assert_eq!(core.registry.pending_restart_failures().await.unwrap().len(), 1, "{point}: the row is still owed");
-        assert_eq!(core.notify().await, 1, "{point}: the restart tells the owner");
-        assert_eq!(core.queued(&owner).await, 1, "{point}: one notice");
-        assert_eq!(core.notify().await, 0, "{point}: nothing is owed after");
-        assert_eq!(core.queued(&owner).await, 1, "{point}: still one notice");
-        core.directory.shutdown().await;
     }
 }
 
@@ -1552,151 +1108,6 @@ async fn expired_and_surplus_kept_tombstones_leave_the_kept_table() {
     assert!(!left.contains("s-expired") && !left.contains(&format!("s-{}", max + 1)), "the expired one and the oldest beyond the cap left");
 }
 
-/// The production keeper reads its table once: later reads are memory, current with its own writes.
-#[tokio::test]
-async fn kept_rows_are_read_from_the_table_once_and_kept_current_in_memory() {
-    let dir = tempfile::tempdir().unwrap();
-    let t = mixdog_rt::testing::tokens();
-    let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &dir.path().join("core.sqlite")).unwrap();
-    let kept = KeptRows::new(state.clone());
-    let row = obj(json!({ "sessionId": "s-1", "tag": "one" }));
-    kept.put("s-1", Some(row.clone())).await.unwrap();
-    // Written behind the keeper's back: a keeper that read the table again would list it.
-    let text = serde_json::to_string(&row).unwrap();
-    state.write(move |tx| tx.put_meta("agent-kept-worker:s-2", &text)).await.unwrap();
-    assert_eq!(kept.load().await.unwrap(), [("s-1".to_owned(), row.clone())]);
-    kept.put("s-1", None).await.unwrap();
-    assert_eq!(kept.load().await.unwrap(), Vec::new());
-}
-
-/// A write the table refused changes nothing a listing reads: the kept rows in memory stay what the table holds, for an add,
-/// a replace and a removal alike.
-#[tokio::test]
-async fn a_kept_row_the_table_refused_leaves_the_listing_as_the_table_is() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("core.sqlite");
-    let t = mixdog_rt::testing::tokens();
-    let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap();
-    let kept = KeptRows::new(state.clone());
-    let row = obj(json!({ "sessionId": "s-1", "tag": "one" }));
-    kept.put("s-1", Some(row.clone())).await.unwrap();
-    // The table fails every write from here on.
-    state.close();
-    assert!(kept.put("s-2", Some(obj(json!({ "sessionId": "s-2" })))).await.is_err());
-    assert!(kept.put("s-1", Some(obj(json!({ "sessionId": "s-1", "tag": "two" })))).await.is_err());
-    assert!(kept.put("s-1", None).await.is_err());
-    let listed = kept.load().await.unwrap();
-    let (stored, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap();
-    let table = KeptRows::new(stored).load().await.unwrap();
-    assert_eq!((listed, kept.holds("s-1")), (table, true), "memory is the table");
-}
-
-/// The production keeper of those rows: what it kept is read back by a new keeper over the core's state database opened
-/// again (a restart), and a row kept no more is gone from it.
-#[tokio::test]
-async fn kept_rows_are_read_back_after_the_core_state_is_opened_again() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("core.sqlite");
-    let t = mixdog_rt::testing::tokens();
-    let row = obj(json!({ "sessionId": "s-owed", "tag": "owed", "status": "failed" }));
-    {
-        let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap();
-        KeptRows::new(state.clone()).put("s-owed", Some(row.clone())).await.unwrap();
-        state.close();
-    }
-    let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap();
-    let again = KeptRows::new(state);
-    assert_eq!(again.load().await.unwrap(), [("s-owed".to_owned(), row)]);
-    assert!(again.holds("s-owed"));
-    again.put("s-owed", None).await.unwrap();
-    assert_eq!(again.load().await.unwrap(), Vec::new());
-    assert!(!again.holds("s-owed"));
-}
-
-/// Releasing a tag whose session was deleted: Node's `closeSession` counts a record that is
-/// already gone as closed (`session-close.mjs` `finishClose`, `outcome.absent`), so the close
-/// flow goes on to forget the row and the tag can start a fresh session.
-#[tokio::test]
-async fn closing_a_deleted_session_counts_as_closed() {
-    use mixdog_agent::agent_tool::host::Sessions;
-
-    use crate::session::thread_state::SessionThreads;
-    use crate::session::SessionDirectory;
-
-    let srig = crate::session::testing::Rig::new();
-    let directory = Arc::new(SessionDirectory::new(srig.deps()));
-    let rig = Rig::new();
-    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
-    let sessions = AgentSessions::new(
-        directory.clone(),
-        Arc::new(SessionThreads::new(directory.clone())),
-        registry,
-        Arc::new(Statusline::default()),
-        rig.clock.clone(),
-        Arc::new(ClosedShells::default()),
-        Arc::new(mixdog_tools::fs::ReadState::default()),
-    );
-    let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: true };
-    assert!(sessions.close_session("sess_deleted", "cli-agent-close", options).await);
-}
-
-/// The agent tool's `read` of a worker with no task reads the worker's own text: its sensitive values come back as the
-/// marker, as its report does (Node `execute.mjs` `readJob`).
-#[tokio::test]
-async fn a_workers_text_read_by_its_owner_has_its_sensitive_values_as_the_marker() {
-    use mixdog_agent::agent_tool::host::Sessions;
-
-    use crate::session::thread_state::SessionThreads;
-    use crate::session::SessionDirectory;
-
-    let srig = crate::session::testing::Rig::new();
-    let directory = Arc::new(SessionDirectory::new(srig.deps()));
-    let rig = Rig::new();
-    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
-    let sessions = AgentSessions::new(
-        directory.clone(),
-        Arc::new(SessionThreads::new(directory.clone())),
-        registry,
-        Arc::new(Statusline::default()),
-        rig.clock.clone(),
-        Arc::new(ClosedShells::default()),
-        Arc::new(mixdog_tools::fs::ReadState::default()),
-    );
-    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": "482913" } } });
-    assert!(srig.sensitive.remember("sess_worker", &[fill]));
-    assert_eq!(sessions.redact_text("sess_worker", "the code is 482913".into()), "the code is [redacted]");
-    assert_eq!(sessions.redact_text("sess_other", "the code is 482913".into()), "the code is 482913");
-}
-
-/// `lead-worker-index.mjs` `updateLeadWorkerCwd` against the real Node index
-/// (`fixtures/desktop/settings/lead-worker-cwd-twin.json`): every call answers what Node's did and
-/// leaves, for each Lead row of its scenario, the row text Node left (key order included).
-#[tokio::test]
-async fn the_lead_row_follows_the_cwd_as_the_recorded_node_index_moved_it() {
-    let twin: Value = serde_json::from_str(include_str!("../../../../../fixtures/desktop/settings/lead-worker-cwd-twin.json")).unwrap();
-    for scenario in twin["scenarios"].as_array().unwrap() {
-        let name = scenario["name"].as_str().unwrap();
-        let rig = Rig::new();
-        let mut seeded = HashMap::new();
-        for text in scenario["seed"].as_array().unwrap() {
-            let row = obj(serde_json::from_str(text.as_str().unwrap()).unwrap());
-            let id = clean_str(row["sessionId"].as_str().unwrap());
-            rig.store.headers.lock().unwrap().insert(id.clone(), obj(json!({ "worker": row.clone() })));
-            seeded.insert(id, row);
-        }
-        let registry = rig.registry();
-        for step in scenario["steps"].as_array().unwrap() {
-            let (id, cwd) = (step["args"][0].as_str().unwrap(), step["args"][1].as_str().unwrap());
-            let label = format!("{name}: {id:?} {cwd:?}");
-            assert_eq!(registry.update_lead_worker_cwd(id, cwd).await, step["returns"], "{label}: answer");
-            for (key, want) in step["rows"].as_object().unwrap() {
-                let have = rig.store.map(key).or_else(|| seeded.get(key).cloned()).unwrap();
-                assert_eq!(Value::Object(have).to_string(), want.as_str().unwrap(), "{label}: row {key}");
-            }
-        }
-    }
-}
-
 /// A session the store does not hold has no row to move, and an agent row is not a Lead row.
 #[tokio::test]
 async fn only_an_existing_lead_row_moves() {
@@ -1708,88 +1119,12 @@ async fn only_an_existing_lead_row_moves() {
     assert!(rig.store.map("s-agent").is_none() && rig.store.map("s-absent").is_none());
 }
 
-/// The status-signal scenario of the Node daemon's profile (`status-pulse.test.mjs` "activity bursts over a large unchanged
-/// index") over the product's store (the index, `StoreWorkers`, the session directory): one Lead, 300 worker rows (30
-/// running, 270 finished and kept for the day) with their stored agent sessions, 500 tag tombstones, and 30 loaded threads
-/// (the Lead and 29 running workers, real threads whose rows the registry wrote through the store).
-struct Crowd {
-    core: Core,
-    _dir: tempfile::TempDir,
-    /// The scope of every loaded thread, as `AgentToolStatus::status` reads it.
-    scopes: Vec<Scope>,
-    /// A loaded running worker's session record and tag.
-    running: Vec<(Row, String)>,
-}
-
 const LOADED: usize = 30;
 
 /// A stored session's catalog row, as the index writes it from the session's header.
 fn stored_head(id: &str, mut header: Row) -> mixdog_store::summary::CatalogHead {
     header.insert("id".into(), json!(id));
     mixdog_store::summary::CatalogHead { session: id.to_owned(), log_id: "log".into(), base_session: None, header }
-}
-
-async fn put_stored(core: &Core, id: &str, header: Row) {
-    core.index.upsert(stored_head(id, header), mixdog_store::sqlite::DirtyMark::Clear).await.expect("the index takes the row");
-}
-
-async fn crowd_rig() -> Crowd {
-    let dir = tempfile::tempdir().unwrap();
-    let core = Core::up(dir.path()).await;
-    let lead = core.start("op-lead", json!({})).await.as_str().to_owned();
-    core.set_header(&lead, obj(json!({ "status": "idle", "updatedAt": at(NOW - 60_000), "clientHostPid": PID }))).await;
-    let scope_of = |id: &str| Scope { caller_session_id: Some(id.to_owned()), host_pid: Some(PID) };
-    let owned = json!({ "parentSessionId": lead, "ownerSessionId": lead });
-    let mut scopes = vec![scope_of(&lead)];
-    let mut running = Vec::new();
-    for i in 0..300 {
-        let busy = i < 30;
-        let tag = if busy { format!("r{i}") } else { format!("d{i}") };
-        let (status, created, updated) = if busy { ("running", NOW - HOUR, NOW - 60_000) } else { ("completed", NOW - 3 * HOUR, NOW - 2 * HOUR) };
-        let mut fields = obj(json!({ "status": if busy { "running" } else { "idle" }, "updatedAt": at(updated), "cwd": "/w", "visibility": "agent-only" }));
-        fields.extend(obj(owned.clone()));
-        if busy && i < LOADED - 1 {
-            let id = core.start(&format!("op-w{i}"), json!({})).await.as_str().to_owned();
-            let session = session(&id, &tag, &at(created), Value::Object(fields));
-            let mut live = session.clone();
-            live.shift_remove("id");
-            core.set_header(&id, live).await;
-            core.registry.upsert_worker_row(&session, &tag, &obj(json!({ "status": "running", "stage": "running" })));
-            scopes.push(scope_of(&id));
-            running.push((session, tag));
-            continue;
-        }
-        let id = format!("sess_crowd_{i}");
-        let mut row = worker_row(&id, &tag, json!({ "status": status, "stage": status, "createdAt": at(created), "updatedAt": at(updated), "cwd": "/w" }));
-        row.extend(obj(owned.clone()));
-        if !busy {
-            row.insert("finishedAt".into(), json!(at(updated)));
-        }
-        let mut header = session(&id, &tag, &at(created), Value::Object(fields));
-        header.insert("worker".into(), Value::Object(row));
-        put_stored(&core, &id, header).await;
-    }
-    for i in 0..500 {
-        let id = format!("sess_gone_{i}");
-        let gone = obj(json!({ "tombstone": tombstone(&format!("g{i}"), &at(NOW - HOUR - i), owned.clone()) }));
-        let mut header = obj(json!({ "createdAt": at(NOW - 4 * HOUR) }));
-        header.insert("worker".into(), Value::Object(without_row(&gone).unwrap()));
-        put_stored(&core, &id, header).await;
-    }
-    core.written().await;
-    Crowd { core, _dir: dir, scopes, running }
-}
-
-/// A status signal as the product runs it (`AgentActivity::everyone`): every loaded thread re-reads its status at once
-/// (`AgentToolStatus::status`): `refresh_tags_from_sessions`, which reloads the index, then the scope's agents. The tags
-/// each lists.
-async fn signal(crowd: &Crowd) -> Vec<Vec<String>> {
-    let registry = &crowd.core.registry;
-    futures::future::join_all(crowd.scopes.iter().map(|scope| async move {
-        registry.refresh_tags_from_sessions(false, scope).await;
-        registry.status_entries(scope).iter().map(|(tag, _)| tag.clone()).collect::<Vec<_>>()
-    }))
-    .await
 }
 
 /// The index loads a signal may make: one per thread at most (threads that ask while a load is under way share the next
@@ -1819,112 +1154,6 @@ fn index_work(c: &rows::work::Counts) -> usize {
 const WRITE_WORK: usize = LOADED + 8;
 /// The session records one written row has read again: the written session's, whose header and row changed.
 const WRITE_READS: usize = 8;
-
-/// The work of a status signal is what changed, not the size of the index: 1,000 signals over an unchanged index, and 1,000
-/// single-row writes (one worker's stage change, each followed by its signal), stay within what the loaded threads cost,
-/// while every re-read answers what it answered before.
-// The body runs on the test's own thread (the counts are per thread); the session tasks run on the runtime's workers.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_status_signal_costs_what_changed_not_the_finished_rows_and_tombstones() {
-    let crowd = crowd_rig().await;
-    let first = signal(&crowd).await;
-    assert_eq!(first[0].len(), 30, "the Lead's status lists its working agents");
-    assert!(first[1..].iter().all(Vec::is_empty), "a worker has no agents of its own");
-    {
-        let st = crowd.core.registry.lock();
-        let now = crowd.core.registry.now();
-        assert_eq!((old_all_rows(&st, now).len(), st.stored_tombstones(now).len()), (300, super::rows::MAX_TAG_TOMBSTONES.min(500)), "the data set is loaded");
-    }
-
-    let (start, loads, visits) = (rows::work::counts().total(), rows::work::counts().reloads, rows::work::counts().rows_visited);
-    let before = rows::work::counts();
-    for n in 1..=1000 {
-        assert_eq!(signal(&crowd).await, first);
-        let now = rows::work::counts();
-        let visited = now.rows_visited - visits;
-        if n == 1 {
-            eprintln!("one signal over an unchanged index: {} operations, {} loads, {now:?} from {before:?}", now.total() - start, now.reloads - loads);
-        }
-        assert_eq!(index_work(&now), index_work(&before), "{n} signal(s) over an unchanged index did work that follows what changed");
-        // No thread reads the sessions behind its loaded tags again; the session records read are the Lead's staleness
-        // check of its working rows.
-        assert_eq!(now.tags_visited, before.tags_visited, "{n} signal(s) over an unchanged index read a tag's session again");
-        let records = now.sessions_visited - before.sessions_visited;
-        assert!(records <= n * VISITED_PER_SIGNAL, "{n} signal(s) over an unchanged index read {records} session records");
-        assert!(visited <= n * VISITED_PER_SIGNAL, "{n} signal(s) over an unchanged index visited {visited} rows (at most {VISITED_PER_SIGNAL} each)");
-        let spent = rows::work::counts().total() - start;
-        assert!(spent <= n * signal_budget(), "{n} signal(s) over an unchanged index did {spent} operations (budget {} each)", signal_budget());
-        let loaded = rows::work::counts().reloads - loads;
-        assert!(loaded <= n * SIGNAL_LOADS, "{n} signal(s) loaded the index {loaded} times (at most {SIGNAL_LOADS} each)");
-    }
-    let unchanged = rows::work::counts().total() - start;
-
-    let (start, loads, visits) = (rows::work::counts().total(), rows::work::counts().reloads, rows::work::counts().rows_visited);
-    let before = rows::work::counts();
-    for n in 1..=1000 {
-        let (session, tag) = &crowd.running[n % crowd.running.len()];
-        let stage = if n % 2 == 0 { "streaming" } else { "tool_running" };
-        crowd.core.registry.upsert_worker_row(session, tag, &obj(json!({ "status": "running", "stage": stage })));
-        // The write reaches the index before the signal's loads read it, so each load reads the row written.
-        crowd.core.written().await;
-        let read = signal(&crowd).await;
-        assert_eq!(read[0].len(), 30);
-        if n == 1 {
-            let c = rows::work::counts();
-            eprintln!("one signal after one write: {} operations, {:?} from {before:?}", c.total() - start, c);
-        }
-        let spent = rows::work::counts().total() - start;
-        let budget = signal_budget() + WRITE_WORK + WRITE_READS;
-        assert!(spent <= n * budget, "{n} write(s) did {spent} operations (budget {budget} each)");
-        let written = index_work(&rows::work::counts()) - index_work(&before);
-        assert!(written <= n * WRITE_WORK, "{n} write(s) did {written} operations that follow what changed (at most {WRITE_WORK} each)");
-        let c = rows::work::counts();
-        let reads = c.tags_visited + c.sessions_visited - before.tags_visited - before.sessions_visited;
-        let most = VISITED_PER_SIGNAL + WRITE_READS;
-        assert!(reads <= n * most, "{n} write(s) read {reads} session records (at most {most} each: the staleness check's and the written session's)");
-        let visited = rows::work::counts().rows_visited - visits;
-        assert!(visited <= n * VISITED_PER_SIGNAL, "{n} write(s) visited {visited} rows (at most {VISITED_PER_SIGNAL} each)");
-        let loaded = rows::work::counts().reloads - loads;
-        assert!(loaded <= n * SIGNAL_LOADS, "{n} write(s) loaded the index {loaded} times (at most {SIGNAL_LOADS} each)");
-    }
-    let written = rows::work::counts().total() - start;
-    eprintln!(
-        "status signal work per signal: unchanged index {} operations; one single-row write {} operations (1,000 each: {unchanged} and {written})",
-        unchanged / 1000,
-        written / 1000
-    );
-    let registry = &crowd.core.registry;
-    let st = registry.lock();
-    let stages: Vec<String> = st.rows(&crowd.scopes[0], registry.now()).iter().filter(|r| r["status"] == "running").map(|r| clean(r.get("stage"))).collect();
-    assert_eq!(stages.len(), 30);
-    assert_eq!(stages.iter().filter(|s| *s == "streaming" || *s == "tool_running").count(), LOADED - 1, "{stages:?}");
-    drop(st);
-    crowd.core.directory.shutdown().await;
-}
-
-/// The worker index another connection (another process) committed is what the registry's next load shows, through the
-/// product's store, and that load reads the one row written.
-#[tokio::test]
-async fn a_worker_row_another_connection_wrote_is_seen_by_the_next_load() {
-    let dir = tempfile::tempdir().unwrap();
-    let core = Core::up(dir.path()).await;
-    let row = |status: &str| worker_row("sess_other", "o", json!({ "status": status }));
-    for (id, status) in [("sess_other", "running"), ("sess_quiet", "completed")] {
-        let mut header = obj(json!({ "createdAt": at(NOW - HOUR) }));
-        header.insert("worker".into(), Value::Object(worker_row(id, id, json!({ "status": status }))));
-        put_stored(&core, id, header).await;
-    }
-    let status = |core: &Core| core.registry.lock().map("sess_other").map(|m| m["status"].clone());
-    core.registry.reload().await;
-    assert_eq!(status(&core), Some(json!("running")));
-
-    core.index.set_worker_elsewhere("sess_other", Some(&row("failed")));
-    let before = rows::work::counts();
-    core.registry.reload().await;
-    assert_eq!(status(&core), Some(json!("failed")), "the other connection's commit is loaded");
-    assert_eq!(rows::work::counts().maps_compared - before.maps_compared, 1, "the load compared the one row written");
-    core.directory.shutdown().await;
-}
 
 /// The product's store answering every load whole: the registry over it is what a registry fed deltas is compared with.
 struct Whole(Arc<StoreWorkers>);
@@ -1965,111 +1194,6 @@ fn held(registry: &AgentRegistry) -> (Vec<(String, Place, Row)>, Vec<(Place, Row
     let st = registry.lock();
     let maps = st.maps.iter().map(|(id, map)| (id.clone(), st.maps.key(id).cloned().expect("held"), map.clone())).collect();
     (maps, st.sessions.iter().map(|(place, row)| (place.clone(), row.clone())).collect())
-}
-
-/// Over the product's store, for a random sequence of this registry's writes, another connection's writes, new sessions
-/// at every place in the index order, deletes and agent-only sessions' changes, a registry fed deltas holds, and reads, what
-/// a registry that loads the whole index after every step holds and reads.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_registry_fed_deltas_holds_what_one_that_loads_the_whole_index_holds() {
-    let dir = tempfile::tempdir().unwrap();
-    let core = Core::up(dir.path()).await;
-    let whole = AgentRegistry::new(Arc::new(Whole(core.workers.clone())), core.directory.clone(), Arc::new(Hour), Arc::new(TestClock(AtomicI64::new(NOW))));
-    let lead = core.start("op-lead", json!({})).await.as_str().to_owned();
-    let owned = json!({ "parentSessionId": lead, "ownerSessionId": lead });
-    let mut own: Vec<(Row, String)> = Vec::new();
-    for i in 0..4 {
-        let id = core.start(&format!("op-own-{i}"), json!({})).await.as_str().to_owned();
-        let tag = format!("own{i}");
-        own.push((session(&id, &tag, &at(NOW - HOUR), owned.clone()), tag));
-    }
-    // The sessions another process writes: (id, tag, created at, worker map, agent-only status).
-    let mut foreign: Vec<(String, String, i64, Option<Row>, Option<String>)> = Vec::new();
-    let header_of = |(id, tag, created, worker, agent): &(String, String, i64, Option<Row>, Option<String>)| {
-        let mut header = session(id, tag, &at(*created), owned.clone());
-        if let Some(status) = agent {
-            header.insert("visibility".into(), json!("agent-only"));
-            header.insert("status".into(), json!(status));
-        }
-        if let Some(worker) = worker {
-            header.insert("worker".into(), Value::Object(worker.clone()));
-        }
-        header
-    };
-    let mut dice = Dice(0x5eed_1234);
-    const STATUSES: [&str; 5] = ["running", "streaming", "completed", "failed", "idle"];
-    for step in 0..160 {
-        let status = *dice.pick(&STATUSES);
-        let (session, tag) = dice.pick(&own).clone();
-        let id = clean(session.get("id"));
-        match dice.below(10) {
-            // This process's writes: both registries make each (the same map, written twice), as each would alone.
-            0 | 1 => {
-                for registry in [&core.registry, &whole] {
-                    registry.upsert_worker_row(&session, &tag, &obj(json!({ "status": status, "stage": status })));
-                }
-            }
-            2 => {
-                for registry in [&core.registry, &whole] {
-                    registry.mark_released(std::slice::from_ref(&id));
-                }
-            }
-            3 => {
-                for registry in [&core.registry, &whole] {
-                    registry.remove_worker_row(&id);
-                }
-            }
-            4 => {
-                let forgot = core.registry.forget_deleted_session(&id).await;
-                assert_eq!(whole.forget_deleted_session(&id).await, forgot, "forget, step {step}");
-            }
-            5 | 6 if !foreign.is_empty() => {
-                // Another process writes a worker map, or removes it.
-                let at = dice.below(foreign.len());
-                let (id, tag) = (foreign[at].0.clone(), foreign[at].1.clone());
-                let map = (dice.below(4) != 0).then(|| {
-                    let mut map = worker_row(&id, &tag, json!({ "status": status }));
-                    map.extend(obj(owned.clone()));
-                    if dice.below(3) == 0 {
-                        map.insert("tombstone".into(), Value::Object(tombstone(&tag, &at_ms(NOW - HOUR - step as i64), owned.clone())));
-                    }
-                    map
-                });
-                core.index.set_worker_elsewhere(&id, map.as_ref());
-                foreign[at].3 = map;
-            }
-            7 if !foreign.is_empty() => {
-                // An agent-only session's record changes, or the session is deleted.
-                let at = dice.below(foreign.len());
-                if dice.below(3) == 0 {
-                    core.index.mark_deleted(&foreign.remove(at).0).await.unwrap();
-                } else {
-                    foreign[at].4 = Some(status.to_owned());
-                    put_stored(&core, &foreign[at].0.clone(), header_of(&foreign[at])).await;
-                }
-            }
-            _ => {
-                // A new session, created at any instant: its place may be anywhere in the index order.
-                let id = format!("sess_new_{step}");
-                let tag = format!("n{step}");
-                let mut map = worker_row(&id, &tag, json!({ "status": status }));
-                map.extend(obj(owned.clone()));
-                let created = NOW - (dice.below(5) as i64) * HOUR;
-                let entry = (id.clone(), tag, created, Some(map), (dice.below(2) == 0).then(|| status.to_owned()));
-                put_stored(&core, &id, header_of(&entry)).await;
-                foreign.push(entry);
-            }
-        }
-        // Twice: a load may keep a map the index stopped listing, and that keep is written in turn.
-        for _ in 0..2 {
-            core.written().await;
-            core.registry.reload().await;
-        }
-        whole.reload().await;
-        assert_eq!(held(&core.registry), held(&whole), "what the registries hold, step {step}");
-        assert_eq!(index_reads(&core.registry), index_reads(&whole), "what the registries read, step {step}");
-    }
-    core.directory.shutdown().await;
 }
 
 fn at_ms(ms: i64) -> String {
@@ -2561,10 +1685,9 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
                         // The listing before the scan's writes, over the index as the refresh at the head of the resolve leaves it.
                         registry.refresh(&mut registry.lock(), true, &scope);
                         let head = old_entries_head(&registry, &registry.lock(), &scope, registry.now(), true);
-                        let have = registry.resolve_tag(&tag, &scope, ResolveOptions { scan_sessions: true, exclude_terminal_traces: false }).map_err(|_| ());
+                        let have = registry.resolve_tag(&tag, &scope, ResolveOptions { scan_sessions: true, exclude_terminal_traces: false, skip_released: false }).map_err(|_| ());
                         let st = registry.lock();
-                        let ids: Vec<String> =
-                            old_entries_tail(&registry, &st, &scope, registry.now(), head).iter().filter(|(t, _)| *t == tag).map(|(_, s)| clean(s.get("id"))).collect();
+                        let ids = tag_matches(&rig, registry.now() as i64, &old_entries_tail(&registry, &st, &scope, registry.now(), head), &tag);
                         let want = match ids.as_slice() {
                             [one] => Ok(Some(one.clone())),
                             [] => Ok(st.tag(&tag).cloned().and_then(|id| registry.live_session_row(&st, &id).filter(|s| matches_scope(s, &scope)).map(|_| id))),
@@ -2574,8 +1697,7 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
                     } else {
                         let have = registry.resolve_tag(&tag, &scope, ResolveOptions::default()).map_err(|_| ());
                         let st = registry.lock();
-                        let ids: Vec<String> =
-                            old_entries(&registry, &st, &scope, registry.now()).iter().filter(|(t, _)| *t == tag).map(|(_, s)| clean(s.get("id"))).collect();
+                        let ids = tag_matches(&rig, registry.now() as i64, &old_entries(&registry, &st, &scope, registry.now()), &tag);
                         let want = match ids.as_slice() {
                             [one] => Ok(Some(one.clone())),
                             [] => Ok(st.tag(&tag).cloned().and_then(|id| registry.live_session_row(&st, &id).filter(|s| matches_scope(s, &scope)).map(|_| id))),
@@ -2592,6 +1714,29 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
             }
         }
     }
+}
+
+/// The sessions a resolve of `tag` is answered from, in the reference model, stated from the scripted world's own facts and
+/// no production helper: the listed sessions under the tag, less each one its opener closed (the store holds a `releasedAt` less than
+/// the seven-day marker TTL old) while another listed session under the tag is open and has the same opener. The opener is the
+/// session that started it (`parentSessionId`, else `ownerSessionId`), and only when none is named the host process
+/// (`clientHostPid`); sessions with neither are nobody's. Two open sessions stay an ambiguity.
+fn tag_matches(rig: &Rig, now: i64, listed: &[(String, Row)], tag: &str) -> Vec<String> {
+    let text = |s: &Row, key: &str| s.get(key).and_then(Value::as_str).unwrap_or_default().trim().to_owned();
+    let id = |s: &Row| text(s, "id");
+    let opener = |s: &Row| {
+        let parent = text(s, "parentSessionId");
+        if parent.is_empty() { text(s, "ownerSessionId") } else { parent }
+    };
+    let host = |s: &Row| s.get("clientHostPid").and_then(Value::as_u64);
+    let same_opener = |a: &Row, b: &Row| {
+        let (x, y) = (opener(a), opener(b));
+        if !x.is_empty() || !y.is_empty() { x == y } else { matches!((host(a), host(b)), (Some(p), Some(q)) if p == q) }
+    };
+    let oldest_marker = at(now - 7 * DAY);
+    let closed = |s: &Row| rig.store.map(&id(s)).and_then(|map| map.get("releasedAt").and_then(Value::as_str).map(|stamp| stamp >= oldest_marker.as_str())) == Some(true);
+    let under: Vec<&Row> = listed.iter().filter(|(t, _)| t == tag).map(|(_, s)| s).collect();
+    under.iter().filter(|s| !closed(s) || !under.iter().any(|o| !closed(o) && same_opener(o, s))).map(|s| id(s)).collect()
 }
 
 /// The exit flush settles the rows this process wrote as active and still holds, as failed
@@ -2630,26 +1775,16 @@ fn exit_flush_fails_only_the_rows_this_process_still_runs() {
     assert_eq!(rig.store.map("s-other").unwrap()["status"], "running");
 }
 
-/// The stale-row pass and the scan guard against real Node's (`fixtures/agent-stale-rows/golden.json`, from
-/// `benchmarks/rust-core/recorders/record-agent-stale-rows.mjs`): the rows and sessions of Node's own stale-row tests
-/// go through a refresh, and the rows the index still holds, the tombstones it left and the scan's verdicts are
-/// compared whole. A session Node's manager reports a runtime stage for is a running turn here: the core's stage is
-/// only ever active inside a run.
-const STALE_GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/agent-stale-rows/golden.json");
-
+#[cfg(node_twin)]
 struct ConfigReap(Value);
 
-impl ReapWindow for ConfigReap {
-    fn terminal_reap_ms(&self, provider: &str) -> f64 {
-        mixdog_agent::compact::settings::agent_terminal_reap_ms(self.0.get("autoClear"), provider)
-    }
-}
-
+#[cfg(node_twin)]
 struct WorkLive {
     open: HashSet<String>,
     work: HashSet<String>,
 }
 
+#[cfg(node_twin)]
 impl LiveSessions for WorkLive {
     fn loaded(&self) -> Vec<String> {
         self.open.iter().cloned().collect()
@@ -2672,10 +1807,769 @@ impl LiveSessions for WorkLive {
     }
 }
 
+#[cfg(node_twin)]
 fn ids(value: &Value) -> HashSet<String> {
     value.as_array().into_iter().flatten().map(|v| v.as_str().unwrap().to_owned()).collect()
 }
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+mod job_views;
+
+/// The header seam of the close tests: a session whose header cannot be read fails its close; the stamps that land are kept in order.
+#[derive(Default)]
+struct Detaches {
+    failing: Vec<String>,
+    headers: Mutex<HashMap<String, serde_json::Map<String, Value>>>,
+    /// The sessions whose close was refused, in order.
+    refused: Mutex<Vec<String>>,
+    /// The stamps that landed, in order: the session and whether it was an owner close.
+    stamps: Mutex<Vec<(String, bool)>>,
+}
+
+#[async_trait]
+impl ThreadState for Detaches {
+    async fn header(&self, thread: &ThreadId) -> Result<mixdog_store::schema::record::Header, mixdog_tools::orch::util::PortError> {
+        if self.failing.iter().any(|id| id == thread.as_str()) {
+            self.refused.lock().unwrap().push(thread.as_str().to_owned());
+            return Err(mixdog_tools::orch::util::PortError::Failed { capability: "session".into(), message: "the header cannot be written".into() });
+        }
+        Ok(self.headers.lock().unwrap().get(thread.as_str()).cloned().unwrap_or_default())
+    }
+    /// A close stamps through `patch_header_if`; the archive flag of a hidden or revealed session is the archive authority's.
+    async fn patch_header(&self, _: &ThreadId, _: serde_json::Map<String, Value>, _: Vec<String>) -> Result<(), mixdog_tools::orch::util::PortError> {
+        unreachable!("no header is patched: a hide and a reveal are the archive authority's")
+    }
+    async fn patch_header_if(
+        &self,
+        thread: &ThreadId,
+        _: serde_json::Map<String, Value>,
+        set: serde_json::Map<String, Value>,
+        _: Vec<String>,
+    ) -> Result<Option<serde_json::Map<String, Value>>, mixdog_tools::orch::util::PortError> {
+        self.stamps.lock().unwrap().push((thread.as_str().to_owned(), set.contains_key("ownerClosedAt")));
+        self.headers.lock().unwrap().entry(thread.as_str().to_owned()).or_default().extend(set);
+        Ok(None)
+    }
+    async fn publish(&self, _: &ThreadId, _: mixdog_core_ports::ports::threads::Section) -> Result<(), mixdog_tools::orch::util::PortError> {
+        Ok(())
+    }
+}
+
+/// The owner's queue as the actor keeps it, for the restart notices: an id already queued is one entry, the owner takes entries,
+/// and the write is acknowledged when the test lets it (`gate`), or fails once with its entry rolled back.
+struct OwnerQueue {
+    queue: Mutex<Vec<String>>,
+    taken: Mutex<Vec<String>>,
+    queued: std::sync::atomic::AtomicUsize,
+    gate: tokio::sync::Semaphore,
+    fail_next: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait]
+impl restart::RestartNotices for OwnerQueue {
+    async fn queue_durably(&self, _: &ThreadId, execution: &str, _: String) -> Result<(), String> {
+        self.queued.fetch_add(1, Ordering::SeqCst);
+        {
+            let mut queue = self.queue.lock().unwrap();
+            if !queue.iter().any(|queued| queued == execution) {
+                queue.push(execution.to_owned());
+            }
+        }
+        self.gate.acquire().await.expect("the gate stays open").forget();
+        if self.fail_next.swap(false, Ordering::SeqCst) {
+            self.queue.lock().unwrap().retain(|queued| queued != execution);
+            return Err("the write failed".into());
+        }
+        Ok(())
+    }
+
+    async fn show(&self, _: &ThreadId, _: &str, _: String) {}
+}
+
+impl OwnerQueue {
+    fn new() -> Self {
+        Self {
+            queue: Mutex::default(),
+            taken: Mutex::default(),
+            queued: std::sync::atomic::AtomicUsize::new(0),
+            gate: tokio::sync::Semaphore::new(0),
+            fail_next: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// The owner's turn takes what is queued for it.
+    fn take(&self) {
+        let mut queue = self.queue.lock().unwrap();
+        self.taken.lock().unwrap().extend(queue.drain(..));
+    }
+}
+
+/// The Lead pool row of `pool_index`'s Lead half, if any.
+async fn lead_row_of(registry: &AgentRegistry, id: &str) -> Option<Value> {
+    let (_, leads) = registry.pool_index().await;
+    leads["workers"].as_array().unwrap().iter().find(|row| row["sessionId"] == id).cloned()
+}
+
+/// `upsertLeadSession` (`turn-prepare.mjs:174`, `turn-settle.mjs:105`): a Lead with no pool row gets one at its next turn,
+/// running while the turn runs and idle once it settled, so the pool keeps the Lead's agents listed under it; an agent's
+/// own turn writes no Lead row.
+#[tokio::test]
+async fn a_leads_turn_writes_its_pool_row_running_then_idle() {
+    use crate::session::TurnStarts;
+    use mixdog_core_api::ids::ThreadId;
+    let rig = Rig::new();
+    rig.live.headers.lock().unwrap().insert(
+        "lead-a".into(),
+        obj(json!({ "id": "lead-a", "owner": "user", "agent": "lead", "sourceType": "lead", "provider": "p", "model": "m", "cwd": "/w", "createdAt": at(NOW - DAY), "clientHostPid": PID })),
+    );
+    rig.live.headers.lock().unwrap().insert("s-w".into(), session("s-w", "w", &at(NOW - HOUR), json!({ "owner": "agent" })));
+    rig.store.write("s-w", Some(worker_row("s-w", "w", json!({ "status": "idle", "finishedAt": at(NOW - HOUR) }))));
+    let registry = rig.registry();
+    assert_eq!(lead_row_of(&registry, "lead-a").await, None, "a Lead from before the port has no row");
+
+    registry.turn_started(&ThreadId::from("lead-a"));
+    registry.turn_started(&ThreadId::from("s-w"));
+    let running = lead_row_of(&registry, "lead-a").await.expect("the turn wrote the Lead's row");
+    for (key, value) in [
+        ("tag", json!("lead:lead-a")),
+        ("ownerSessionId", json!("lead-a")),
+        ("agent", json!("lead")),
+        ("status", json!("running")),
+        ("stage", json!("running")),
+        ("turnStartedAt", json!(at(NOW))),
+        ("updatedAt", json!(at(NOW))),
+        ("finishedAt", Value::Null),
+        ("cwd", json!("/w")),
+        ("provider", json!("p")),
+        ("createdAt", json!(at(NOW - DAY))),
+    ] {
+        assert_eq!(running[key], value, "{key}");
+    }
+    assert_eq!(lead_row_of(&registry, "s-w").await, None, "an agent's turn writes no Lead row");
+    assert_eq!(rig.store.map("s-w").unwrap()["agent"], json!("worker"), "and leaves its worker row as it was");
+
+    rig.clock.0.store(NOW + 60_000, Ordering::SeqCst);
+    registry.turn_settled(&ThreadId::from("lead-a"));
+    let idle = lead_row_of(&registry, "lead-a").await.expect("the settled turn keeps the row");
+    for (key, value) in [
+        ("status", json!("idle")),
+        ("stage", json!("idle")),
+        ("turnStartedAt", Value::Null),
+        ("finishedAt", json!(at(NOW + 60_000))),
+        ("updatedAt", json!(at(NOW + 60_000))),
+        ("reapAt", json!(at(NOW + 60_000 + HOUR))),
+    ] {
+        assert_eq!(idle[key], value, "{key}");
+    }
+    assert_eq!(rig.registry().pool_index().await.1, registry.pool_index().await.1, "the row is stored: the next process lists it");
+}
+
+/// A Lead row write tells the pool alone (1.4.5 kept Lead rows in their own index, which no agent status read listened to):
+/// a Lead's turns raise no worker-row signal, whose listener makes every loaded thread re-read its agents.
+#[tokio::test]
+async fn a_leads_turns_raise_no_worker_row_signal() {
+    use crate::session::TurnStarts;
+    use mixdog_core_api::ids::ThreadId;
+    let rig = Rig::new();
+    let told = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = told.clone();
+    rig.store.on_write.set(Box::new(move || {
+        counter.fetch_add(1, Ordering::SeqCst);
+    })).ok();
+    rig.live.headers.lock().unwrap().insert("lead-a".into(), obj(json!({ "id": "lead-a", "owner": "user", "agent": "lead" })));
+    let registry = rig.registry();
+    for _ in 0..2 {
+        registry.turn_started(&ThreadId::from("lead-a"));
+        registry.turn_settled(&ThreadId::from("lead-a"));
+    }
+    assert_eq!(rig.store.lead_writes.load(Ordering::SeqCst), 4, "each start and settle wrote the Lead row");
+    assert_eq!(told.load(Ordering::SeqCst), 0, "and told no agent status reader");
+    assert!(registry.forget_deleted_session("lead-a").await);
+    assert_eq!((rig.store.lead_writes.load(Ordering::SeqCst), told.load(Ordering::SeqCst)), (5, 0), "nor did its removal");
+}
+
+/// `reap-timers.mjs`: a settled Lead row leaves at its reap deadline, never before the pane's hour from its finish; a row its
+/// runtime left running (no finish stamp) is settled from its last update.
+#[tokio::test]
+async fn a_settled_lead_row_leaves_at_its_deadline() {
+    use crate::session::TurnStarts;
+    use mixdog_core_api::ids::ThreadId;
+    let rig = Rig::new();
+    rig.live.headers.lock().unwrap().insert("lead-a".into(), obj(json!({ "id": "lead-a", "owner": "user", "agent": "lead" })));
+    // A row a crashed process left running two hours ago.
+    rig.store.write(
+        "lead-b",
+        Some(obj(json!({ "tag": "lead:lead-b", "sessionId": "lead-b", "ownerSessionId": "lead-b", "agent": "lead", "status": "running", "stage": "running", "updatedAt": at(NOW - 2 * HOUR) }))),
+    );
+    let registry = rig.registry();
+    registry.reload().await;
+    registry.turn_started(&ThreadId::from("lead-a"));
+    registry.turn_settled(&ThreadId::from("lead-a"));
+    assert_eq!(registry.next_lead_reap_deadline(), NOW as f64 - HOUR as f64, "the crashed row is due an hour after its last update");
+    registry.reap_lead_rows();
+    assert!(rig.store.map("lead-b").is_none(), "the crashed row left");
+    assert_eq!(registry.next_lead_reap_deadline(), (NOW + HOUR) as f64, "the settled row is due an hour after its finish");
+    rig.clock.0.store(NOW + HOUR - 1, Ordering::SeqCst);
+    registry.reap_lead_rows();
+    assert!(rig.store.leads.lock().unwrap().contains_key("lead-a"), "not before its deadline");
+    rig.clock.0.store(NOW + HOUR, Ordering::SeqCst);
+    registry.reap_lead_rows();
+    assert!(!rig.store.leads.lock().unwrap().contains_key("lead-a"), "gone at its deadline");
+    assert_eq!(lead_row_of(&registry, "lead-a").await, None);
+    assert_eq!(registry.next_lead_reap_deadline(), f64::INFINITY);
+}
+/// Resolves once `done` holds, re-checked at every row write; fails at the deadline naming `what`.
+async fn until_written(store: &Store, what: &str, done: impl Fn() -> bool) {
+    let wait = async {
+        loop {
+            let written = store.written.notified();
+            tokio::pin!(written);
+            written.as_mut().enable();
+            if done() {
+                return;
+            }
+            written.await;
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(10), wait).await.unwrap_or_else(|_| panic!("timed out waiting for {what}"));
+}
+/// The maintenance pass's deadline timer (`armDeadline`, maintenance-pass.mjs), on the registry's clock: a running row whose
+/// session is gone leaves the index as a tombstone when the clock reaches its reap deadline, with no agent call, status read
+/// or other event; a row already past its deadline when the timer starts (the core was down) is reaped by the first pass, one
+/// event delay after the start (Node's first pass looks at every deadline after 0); a row that became active again before its deadline is reaped at its new one.
+#[tokio::test]
+async fn a_rows_reap_deadline_tombstones_it_on_the_registry_clock_with_no_event() {
+    let rig = Rig::new();
+    let clock = Arc::new(Virtual(tokio::sync::watch::channel(NOW).0));
+    let stamped = |due_in: i64| at(NOW - HOUR + due_in);
+    let running = |id: &str, tag: &str, due_in: i64| worker_row(id, tag, json!({ "status": "running", "stage": "streaming", "createdAt": stamped(due_in), "updatedAt": stamped(due_in) }));
+    rig.store.write("s-overdue", Some(running("s-overdue", "overdue", -60_000)));
+    rig.store.write("s-late", Some(running("s-late", "late", 60_000)));
+    rig.store.write("s-early", Some(running("s-early", "early", 10_000)));
+    rig.store.write("s-active", Some(running("s-active", "active", 20_000)));
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), clock.clone()));
+    let reaped = |id: &str| rig.store.map(id).is_some_and(|map| map.contains_key("tombstone"));
+    // The index is loaded (the boot's first read), then the timer starts.
+    registry.refresh_tags_from_sessions(false, &lead("lead-b")).await;
+    assert!(!reaped("s-overdue"), "another lead's read reaps nothing");
+    let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
+    // The first pass is the event pass one `MAINTENANCE_EVENT_DELAY_MS` after the start (maintenance-pass.mjs:23,129).
+    clock.advance(999);
+    assert!(!reaped("s-overdue"), "not before the first pass");
+    clock.advance(1);
+    until_written(&rig.store, "the row that came due while the core was down", || reaped("s-overdue")).await;
+    assert!(!reaped("s-early") && !reaped("s-late") && !reaped("s-active"), "nothing else is due yet");
+
+    // `s-active` works again 5 s in: its stamps move, and its deadline with them.
+    clock.advance(4_000);
+    {
+        let mut st = registry.lock();
+        let mut active = st.map("s-active").cloned().expect("the active row");
+        active.insert("updatedAt".into(), json!(at(NOW + 5_000)));
+        registry.persist(&mut st, "s-active", Some(active));
+    }
+    clock.advance(4_999);
+    assert!(!reaped("s-early"), "not before its deadline");
+    clock.advance(1);
+    until_written(&rig.store, "the early row's tombstone at its deadline", || reaped("s-early")).await;
+    assert!(!reaped("s-late") && !reaped("s-active"), "the others are not due yet");
+    clock.advance(10_000);
+    assert!(!reaped("s-active"), "its old deadline has passed, its new one (an hour after it worked) has not");
+    clock.advance(40_000);
+    until_written(&rig.store, "the late row's tombstone at its deadline", || reaped("s-late")).await;
+    assert!(!reaped("s-active"), "the active row is not due yet");
+    // Now NOW + 60 s; its new deadline is NOW + 5 s + the reap window.
+    clock.advance(HOUR - 55_001);
+    assert!(!reaped("s-active"), "not before its new deadline");
+    clock.advance(1);
+    until_written(&rig.store, "the active row's tombstone at its new deadline", || reaped("s-active")).await;
+    drop(registry);
+    clock.advance(HOUR);
+    tokio::time::timeout(std::time::Duration::from_secs(10), timer).await.expect("the timer ends with its registry").unwrap();
+}
+/// `sweepRestartFailures`, the first step of the maintenance pass: a row written (an agent event) asks for a pass, whose sweep runs
+/// one event delay later and not before; with no event it does not run.
+#[tokio::test]
+async fn a_row_write_runs_the_restart_sweep_one_event_delay_later() {
+    let rig = Rig::new();
+    let clock = Arc::new(Virtual(tokio::sync::watch::channel(NOW).0));
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), clock.clone()));
+    let sweeps = Arc::new(CountedSweeps::default());
+    assert!(registry.bind_sweeper(sweeps.clone()).is_ok());
+    assert!(registry.bind_sweeper(sweeps.clone()).is_err(), "a second bind is refused");
+    let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
+    let swept = || sweeps.0.load(Ordering::SeqCst);
+    clock.advance(1_000);
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(swept(), 0, "no event, no sweep");
+    // A write is an event only for a timer already waiting, so it is repeated until the sweep has run.
+    let wait = async {
+        while swept() == 0 {
+            {
+                let mut st = registry.lock();
+                let row = worker_row("s-new", "new", json!({ "status": "running", "stage": "streaming", "createdAt": at(NOW), "updatedAt": at(NOW) }));
+                registry.persist(&mut st, "s-new", Some(row));
+            }
+            clock.advance(1_000);
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(10), wait).await.expect("the event's pass swept");
+    timer.abort();
+}
+/// A row kept for a session deleted while the core runs lives on as Node's does. Node's index file keeps it
+/// (`gone-rows.mjs:214-226`, `forgetDeletedSession` takes only settled rows); `notifyRestartFailures` (`restart-notify.mjs:136`,
+/// run at start and on each restart settlement, `agent-tool.mjs:103-105`, `:408-409`) tells its owner once and stamps it; and
+/// `sweepGoneRows` (`gone-rows.mjs:162-200`, a maintenance step for every owner, `agent-tool.mjs:207`) tombstones it once it
+/// is settled (`:107-115`: terminal, not owed, past the settled retention, no live work). Here: the owed failure is told
+/// once after a restart of the core, and the told row leaves at the retention's end on the injected clock, by a refresh of
+/// another owner's scope.
+#[tokio::test]
+async fn a_kept_row_is_told_once_survives_a_restart_and_leaves_once_settled() {
+    struct Frozen(i64);
+    impl mixdog_agent::env::Clock for Frozen {
+        fn now_ms(&self) -> i64 {
+            self.0
+        }
+    }
+    #[derive(Default)]
+    struct Told(Mutex<Vec<(String, String)>>);
+    #[async_trait]
+    impl restart::RestartNotices for Told {
+        async fn queue_durably(&self, owner: &ThreadId, execution: &str, _: String) -> Result<(), String> {
+            self.0.lock().unwrap().push((owner.as_str().to_owned(), execution.to_owned()));
+            Ok(())
+        }
+        async fn show(&self, _: &ThreadId, _: &str, _: String) {}
+    }
+
+    let rig = Rig::new();
+    let owed = json!({ "status": "failed", "failureReason": "process-restart", "task_id": "t-1", "finishedAt": at(NOW), "updatedAt": at(NOW) });
+    rig.store.write("s-owed", Some(worker_row("s-owed", "owed", owed)));
+    let registry = rig.registry();
+    registry.pool_index().await;
+    // The delete: the index lists no row of the deleted session any more.
+    rig.store.maps.lock().unwrap().clear();
+    rig.store.touch_sessions();
+    assert!(!registry.forget_deleted_session("s-owed").await, "an owed failure stays");
+    assert!(WorkerStore::kept(&*rig.store, "s-owed"), "the row is kept apart from the index");
+    drop(registry);
+
+    // A restart of the core: a new registry over what was stored.
+    let restarted = rig.registry();
+    let pending: Vec<String> = restarted.pending_restart_failures().await.unwrap().into_iter().map(|(id, _)| id).collect();
+    assert_eq!(pending, ["s-owed"], "the kept row is owed after the restart");
+    let (told, board) = (Told::default(), mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen(NOW)), None, None));
+    assert_eq!(restart::notify_restart_failures(&restarted, &told, &board, &at(NOW)).await.unwrap(), 1);
+    assert_eq!(restart::notify_restart_failures(&restarted, &told, &board, &at(NOW)).await.unwrap(), 0, "told once");
+    assert_eq!(*told.0.lock().unwrap(), [("lead-a".to_owned(), "restart:t-1".to_owned())]);
+    assert_eq!(rig.store.map("s-owed").unwrap()["restartNotified"], json!(at(NOW)), "the stamp is kept with the row");
+
+    async fn listed(registry: &AgentRegistry) -> bool {
+        let (agents, _) = registry.pool_index().await;
+        agents["workers"].as_array().unwrap().iter().any(|row| row["sessionId"] == "s-owed")
+    }
+    let other = lead("lead-b");
+    rig.clock.0.store(NOW + DAY - 1, Ordering::SeqCst);
+    restarted.refresh_tags_from_sessions(false, &other).await;
+    assert!(listed(&restarted).await, "1 ms before the settled retention ends the row stays");
+    rig.clock.0.store(NOW + DAY, Ordering::SeqCst);
+    restarted.refresh_tags_from_sessions(false, &other).await;
+    assert!(!listed(&restarted).await, "at the retention's end the told row leaves");
+    let map = rig.store.map("s-owed").expect("its tombstone stays until its own end");
+    assert!(!map.contains_key("sessionId") && map.contains_key("tombstone"), "{map:?}");
+    // And a restart after that lists it no more.
+    assert!(!listed(&rig.registry()).await);
+}
+/// How long the kill of an overdue child, and the wait for it to end, may take.
+const KILL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+/// `command`'s output, hidden, within `deadline`: a child still running then is killed and the test fails naming `what`.
+fn output_within(mut command: std::process::Command, deadline: std::time::Duration, what: &str) -> std::process::Output {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let child = command.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().expect("the child started");
+    let pid = child.id().to_string();
+    let (ended, ending) = std::sync::mpsc::channel::<()>();
+    let reaper = std::thread::spawn(move || {
+        let output = child.wait_with_output().expect("the child's output");
+        let _ = ended.send(());
+        output
+    });
+    if ending.recv_timeout(deadline).is_err() {
+        #[cfg(windows)]
+        let mut kill = {
+            let mut kill = std::process::Command::new("taskkill");
+            kill.args(["/T", "/F", "/PID", &pid]);
+            std::os::windows::process::CommandExt::creation_flags(&mut kill, 0x0800_0000);
+            kill
+        };
+        #[cfg(not(windows))]
+        let mut kill = {
+            let mut kill = std::process::Command::new("kill");
+            kill.args(["-9", &pid]);
+            kill
+        };
+        // Both waits are bounded: a kill that hangs or fails leaves its thread and the reaper behind, and the test still fails.
+        let (killed, kill_ended) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let _ = kill.output();
+            let _ = killed.send(());
+        });
+        let kill_done = kill_ended.recv_timeout(KILL_DEADLINE).is_ok();
+        let reaped = kill_done && ending.recv_timeout(KILL_DEADLINE).is_ok();
+        panic!("{what}: the child ended within the deadline (kill finished: {kill_done}, child reaped: {reaped})");
+    }
+    reaper.join().expect("the reaper")
+}
+/// A child that outlives the deadline is killed and fails the test, rather than hanging it.
+#[test]
+#[should_panic(expected = "the child ended within the deadline")]
+fn a_child_that_outlives_its_deadline_fails_the_test() {
+    #[cfg(windows)]
+    let command = {
+        let mut command = std::process::Command::new("ping");
+        command.args(["-n", "30", "127.0.0.1"]);
+        command
+    };
+    #[cfg(not(windows))]
+    let command = {
+        let mut command = std::process::Command::new("sleep");
+        command.arg("30");
+        command
+    };
+    let _ = output_within(command, std::time::Duration::from_secs(1), "a sleeping child");
+}
+/// The production keeper reads its table once: later reads are memory, current with its own writes.
+#[tokio::test]
+async fn kept_rows_are_read_from_the_table_once_and_kept_current_in_memory() {
+    let dir = tempfile::tempdir().unwrap();
+    let t = mixdog_rt::testing::tokens();
+    let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &dir.path().join("core.sqlite")).unwrap();
+    let kept = KeptRows::new(state.clone());
+    let row = obj(json!({ "sessionId": "s-1", "tag": "one" }));
+    kept.put("s-1", Some(row.clone())).await.unwrap();
+    // Written behind the keeper's back: a keeper that read the table again would list it.
+    let text = serde_json::to_string(&row).unwrap();
+    state.write(move |tx| tx.put_meta("agent-kept-worker:s-2", &text)).await.unwrap();
+    assert_eq!(kept.load().await.unwrap(), [("s-1".to_owned(), row.clone())]);
+    kept.put("s-1", None).await.unwrap();
+    assert_eq!(kept.load().await.unwrap(), Vec::new());
+}
+/// A write the table refused changes nothing a listing reads: the kept rows in memory stay what the table holds, for an add,
+/// a replace and a removal alike.
+#[tokio::test]
+async fn a_kept_row_the_table_refused_leaves_the_listing_as_the_table_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("core.sqlite");
+    let t = mixdog_rt::testing::tokens();
+    let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap();
+    let kept = KeptRows::new(state.clone());
+    let row = obj(json!({ "sessionId": "s-1", "tag": "one" }));
+    kept.put("s-1", Some(row.clone())).await.unwrap();
+    // The table fails every write from here on.
+    state.close();
+    assert!(kept.put("s-2", Some(obj(json!({ "sessionId": "s-2" })))).await.is_err());
+    assert!(kept.put("s-1", Some(obj(json!({ "sessionId": "s-1", "tag": "two" })))).await.is_err());
+    assert!(kept.put("s-1", None).await.is_err());
+    let listed = kept.load().await.unwrap();
+    let (stored, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap();
+    let table = KeptRows::new(stored).load().await.unwrap();
+    assert_eq!((listed, kept.holds("s-1")), (table, true), "memory is the table");
+}
+/// The production keeper of those rows: what it kept is read back by a new keeper over the core's state database opened
+/// again (a restart), and a row kept no more is gone from it.
+#[tokio::test]
+async fn kept_rows_are_read_back_after_the_core_state_is_opened_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("core.sqlite");
+    let t = mixdog_rt::testing::tokens();
+    let row = obj(json!({ "sessionId": "s-owed", "tag": "owed", "status": "failed" }));
+    {
+        let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap();
+        KeptRows::new(state.clone()).put("s-owed", Some(row.clone())).await.unwrap();
+        state.close();
+    }
+    let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &path).unwrap();
+    let again = KeptRows::new(state);
+    assert_eq!(again.load().await.unwrap(), [("s-owed".to_owned(), row)]);
+    assert!(again.holds("s-owed"));
+    again.put("s-owed", None).await.unwrap();
+    assert_eq!(again.load().await.unwrap(), Vec::new());
+    assert!(!again.holds("s-owed"));
+}
+#[cfg(node_twin)]
+impl ReapWindow for ConfigReap {
+    fn terminal_reap_ms(&self, provider: &str) -> f64 {
+        mixdog_agent::compact::settings::agent_terminal_reap_ms(self.0.get("autoClear"), provider)
+    }
+}
+fn lost_task_world() -> (Rig, AgentRegistry, mixdog_agent::agent_tool::board::JobBoard) {
+    struct Frozen;
+    impl mixdog_agent::env::Clock for Frozen {
+        fn now_ms(&self) -> i64 {
+            NOW
+        }
+    }
+    let rig = Rig::new();
+    let owed = json!({ "status": "failed", "failureReason": "process-restart", "task_id": "t-1", "finishedAt": at(NOW), "updatedAt": at(NOW) });
+    rig.store.write("s-owed", Some(worker_row("s-owed", "owed", owed)));
+    let registry = rig.registry();
+    (rig, registry, mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None))
+}
+#[tokio::test]
+async fn restart_ownership_keeps_all_failures_visible_independently_of_notice_delivery() {
+    struct Dead;
+    impl restart::ProcessProbe for Dead {
+        fn alive(&self, _: u64) -> bool { false }
+    }
+    let (rig, registry, board) = lost_task_world();
+    for n in 0..8 {
+        let id = format!("s-{n}");
+        rig.store.write(&id, Some(worker_row(&id, &id, json!({
+            "status": "running", "stage": "tool_running", "runtimePid": PID + 1,
+            "task_id": format!("t-{n}"), "updatedAt": at(NOW),
+        }))));
+        rig.store.sessions.lock().unwrap().push(session(&id, &id, &at(NOW), json!({ "updatedAt": at(NOW) })));
+    }
+    rig.store.write("s-owed", None);
+    let live = restart::Liveness { probe: &Dead, own_pid: PID, running: &|_| false, reap: &Hour, now_ms: NOW };
+    assert!(registry.recover_stale_worker_rows(true, &live).await.unwrap());
+
+    let owner = OwnerQueue::new();
+    owner.gate.add_permits(8);
+    owner.fail_next.store(true, Ordering::SeqCst);
+    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await.unwrap(), 7);
+    assert_eq!(board.list_jobs(&Scope::default()).len(), 8, "even the unqueued failure is a failed task");
+    assert!(board.list_jobs(&Scope::default()).iter().all(|job| job.status == "failed"));
+    assert_eq!(registry.pending_restart_failures().await.unwrap().len(), 1);
+    owner.gate.add_permits(1);
+    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await.unwrap(), 1);
+    owner.take();
+    assert_eq!(owner.taken.lock().unwrap().len(), 8);
+
+    // A fresh registry and board represent another core restart. Scanning idle headers
+    // must not replace the task outcomes, and stamped notices must not erase status.
+    let restarted = rig.registry();
+    restarted.refresh_tags_from_sessions(true, &lead("lead-a")).await;
+    let listed = restarted.session_entries(true, &lead("lead-a"));
+    assert_eq!(listed.len(), 8);
+    assert!(listed.iter().all(|(_, row)| row["status"] == "failed"));
+    let (_, _, fresh_board) = lost_task_world();
+    assert_eq!(restart::notify_restart_failures(&restarted, &owner, &fresh_board, &at(NOW)).await.unwrap(), 0);
+    assert_eq!(fresh_board.list_jobs(&Scope::default()).len(), 8);
+    assert!(fresh_board.list_jobs(&Scope::default()).iter().all(|job| job.status == "failed"));
+    for n in 0..8 {
+        assert_eq!(rig.store.map(&format!("s-{n}")).unwrap()["status"], "failed");
+    }
+    restarted.upsert_worker_row(
+        &session("s-0", "s-0", &at(NOW), json!({})),
+        "s-0",
+        &obj(json!({ "status": "running", "stage": "running", "task_id": "new-task" })),
+    );
+    assert_eq!(rig.store.map("s-0").unwrap()["status"], "running", "a genuine new task can still start");
+}
+/// An owner is told a restart notice once when its write is slow: the owner takes the entry before the write is acknowledged, and
+/// a second pass (a compaction's `recoverAgentWorkers` starts one) finds the row still owed. The owner's queue knows an id only
+/// while it holds the entry, so queued again the notice would be delivered again (Node told 19 owners every five seconds).
+#[tokio::test]
+async fn a_slow_write_does_not_tell_the_owner_again_when_it_took_the_entry() {
+    let (_rig, registry, board) = lost_task_world();
+    let owner = OwnerQueue::new();
+    let stamp = at(NOW);
+    let mut first = std::pin::pin!(restart::notify_restart_failures(&registry, &owner, &board, &stamp));
+    assert!(futures::poll!(first.as_mut()).is_pending(), "the first pass waits for its write to be acknowledged");
+    assert_eq!(owner.queued.load(Ordering::SeqCst), 1);
+    owner.take();
+    let mut second = std::pin::pin!(restart::notify_restart_failures(&registry, &owner, &board, &stamp));
+    assert_eq!(futures::poll!(second.as_mut()), std::task::Poll::Ready(Ok(0)), "the notice is the first pass's");
+    owner.gate.add_permits(1);
+    assert_eq!(first.await, Ok(1));
+    assert_eq!(*owner.taken.lock().unwrap(), ["restart:t-1"]);
+    assert!(owner.queue.lock().unwrap().is_empty(), "no second entry for the owner to take");
+    assert_eq!(owner.queued.load(Ordering::SeqCst), 1);
+}
+/// A write that fails once leaves the row owed and nothing queued: the next pass queues the notice again, and the owner is told once.
+#[tokio::test]
+async fn a_failed_write_is_queued_again_and_told_once() {
+    let (_rig, registry, board) = lost_task_world();
+    let owner = OwnerQueue::new();
+    owner.gate.add_permits(2);
+    owner.fail_next.store(true, Ordering::SeqCst);
+    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await, Ok(0), "the write failed");
+    assert_eq!(registry.pending_restart_failures().await.unwrap().len(), 1, "the row is still owed");
+    assert!(owner.queue.lock().unwrap().is_empty(), "the failed write left no entry");
+    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await, Ok(1));
+    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await, Ok(0), "told");
+    owner.take();
+    assert_eq!(*owner.taken.lock().unwrap(), ["restart:t-1"]);
+    assert_eq!(owner.queued.load(Ordering::SeqCst), 2);
+}
+
+
+/// `fixtures/agent-row-deadline` (record-agent-row-deadline.mjs): a Lead's settled worker rows leave the index at their
+/// retention deadlines, on the registry's clock, as Node's maintenance pass removed them, and what the Lead's clients are
+/// told is what Node's were: the status the thread publishes (`thread/agents/updated`, Node's `agentStatusState` after an
+/// `onStatusChange`) lists none of them and changes at no removal, so nothing is published. The row due while the core was
+/// down: Node removes it at its first pass, one event delay (1 s) after the Lead's first status read; the core removes it
+/// at the timer's first look, before that read, so the first two steps differ by that row alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg(node_twin)]
+async fn a_leads_clients_are_told_of_rows_reaped_at_their_deadline_what_nodes_were() {
+    use crate::session::SessionDirectory;
+    use crate::session::agent_activity::AgentStatus;
+    use crate::session::agent_registry::status_rows::AgentToolStatus;
+    use crate::session::tests::caught_up;
+    use crate::session::tests::start_thread;
+    use mixdog_app_protocol::v2::thread::ThreadAgents;
+    use mixdog_core_api::ids::ThreadId;
+
+    struct NoJobs;
+    impl mixdog_core_run::run_host::progress::WaitedJobs for NoJobs {
+        fn silence(&self, _: &[String], _: i64) -> Option<mixdog_agent::agent_tool::progress::ToolSilence> {
+            None
+        }
+    }
+    /// The directory reads its threads' status through this; it is bound once the status is built over the directory.
+    #[derive(Default)]
+    struct LateStatus(std::sync::OnceLock<Arc<AgentToolStatus>>);
+    #[async_trait]
+    impl AgentStatus for LateStatus {
+        async fn status(&self, thread: &ThreadId) -> ThreadAgents {
+            self.0.get().expect("bound").status(thread).await
+        }
+    }
+
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-row-deadline/golden.json")).unwrap();
+    let t0 = golden["t0"].as_i64().unwrap();
+    let srig = crate::session::testing::Rig::new();
+    let late = Arc::new(LateStatus::default());
+    let mut deps = srig.deps_parts(srig.store.clone());
+    deps.agent_status = late.clone() as Arc<dyn AgentStatus>;
+    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+    let lead = start_thread(&directory).await;
+    let rig = Rig::new();
+    let clock = Arc::new(Virtual(tokio::sync::watch::channel(t0).0));
+    for row in golden["rows"].as_array().unwrap() {
+        let stamp = row["stampedAt"].clone();
+        let id = row["sessionId"].as_str().unwrap();
+        rig.store.write_row(
+            id,
+            Some(obj(json!({
+                "tag": row["tag"], "sessionId": id, "ownerSessionId": lead.id.as_str(), "parentSessionId": lead.id.as_str(),
+                "agent": "worker", "provider": "p", "model": "m", "status": "idle", "stage": "idle", "clientHostPid": PID,
+                "createdAt": stamp, "updatedAt": stamp, "finishedAt": stamp,
+            }))),
+        );
+    }
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), clock.clone()));
+    /// The status reads the same virtual time through the run's clock trait.
+    struct RunClock(Arc<Virtual>);
+    impl mixdog_agent::env::Clock for RunClock {
+        fn now_ms(&self) -> i64 {
+            Clock::now_ms(self.0.as_ref())
+        }
+    }
+    late.0.set(Arc::new(AgentToolStatus::new(registry.clone(), mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(RunClock(clock.clone())), None, None), directory.clone(), Arc::new(NoJobs), clock.clone()))).ok();
+    // The one listener of the row signal (`AgentActivity::everyone`): every loaded thread re-reads its status.
+    let weak = Arc::downgrade(&directory);
+    rig.store.on_write.set(Box::new(move || {
+        if let Some(directory) = weak.upgrade() {
+            for thread in directory.loaded_ids() {
+                directory.status_may_have_changed(thread.as_str());
+            }
+        }
+    })).ok();
+    let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
+
+    let tags = |tombstoned: bool| {
+        let mut tags: Vec<String> = rig
+            .store
+            .maps
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(_, map)| if tombstoned { map.get("tombstone").and_then(|t| t.get("tag")) } else { map.get("sessionId").and(map.get("tag")) })
+            .map(|tag| tag.as_str().unwrap().to_owned())
+            .collect();
+        tags.sort();
+        tags
+    };
+    let published = || srig.feeds.frames(lead.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/agents/updated").count();
+    // The thread's status pass at load (Node's runtime publishes its `agentWorkers` once as it loads, not through
+    // `onStatusChange`): what follows is counted from it.
+    crate::eventually_on!(&[&srig.feeds.published], || (published() == 1).then_some(())).await;
+    let mut told = 1;
+    for step in golden["steps"].as_array().unwrap() {
+        let (step_at, what) = (step["at"].as_i64().unwrap(), step["what"].as_str().unwrap());
+        let shift = Clock::now_ms(clock.as_ref()) - t0;
+        clock.advance(step_at - shift);
+        if step_at == 5000 {
+            // The active row worked again and settled: its stamps move to now.
+            let mut st = registry.lock();
+            let mut active = st.map("sess_rows_active").cloned().expect("the active row");
+            let now = json!(at(t0 + 5000));
+            active.insert("updatedAt".into(), now.clone());
+            active.insert("finishedAt".into(), now);
+            registry.persist(&mut st, "sess_rows_active", Some(active));
+        }
+        let strings = |key: &str| step[key].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
+        let (indexed, tombstoned) = (strings("indexed"), strings("tombstones"));
+        until_written(&rig.store, what, || tags(false) == indexed && tags(true) == tombstoned).await;
+        let status = AgentStatus::status(late.as_ref(), &lead.id).await;
+        let workers: Vec<String> = status.agent_workers.iter().map(|w| format!("{}:{}", w["tag"].as_str().unwrap(), w["status"].as_str().unwrap())).collect();
+        assert_eq!(workers, strings("workers"), "{what}: the workers the Lead's status lists");
+        caught_up(&lead).await;
+        let now = published();
+        assert_eq!((now - told) as u64, step["announced"].as_u64().unwrap(), "{what}: the status changes the Lead's clients were told");
+        told = now;
+        assert_eq!((tags(false), tags(true)), (indexed, tombstoned), "{what}: nothing else left the index");
+    }
+    // The directory's status holds the registry, so the timer is stopped here rather than by the registry going.
+    timer.abort();
+}
+#[cfg(node_twin)]
+/// `lead-worker-index.mjs` `updateLeadWorkerCwd` against the real Node index
+/// (`fixtures/desktop/settings/lead-worker-cwd-twin.json`): every call answers what Node's did and
+/// leaves, for each Lead row of its scenario, the row text Node left (key order included).
+#[tokio::test]
+async fn the_lead_row_follows_the_cwd_as_the_recorded_node_index_moved_it() {
+    let twin: Value = serde_json::from_str(include_str!("../../../../../fixtures/desktop/settings/lead-worker-cwd-twin.json")).unwrap();
+    for scenario in twin["scenarios"].as_array().unwrap() {
+        let name = scenario["name"].as_str().unwrap();
+        let rig = Rig::new();
+        let mut seeded = HashMap::new();
+        for text in scenario["seed"].as_array().unwrap() {
+            let row = obj(serde_json::from_str(text.as_str().unwrap()).unwrap());
+            let id = clean_str(row["sessionId"].as_str().unwrap());
+            rig.store.headers.lock().unwrap().insert(id.clone(), obj(json!({ "worker": row.clone() })));
+            seeded.insert(id, row);
+        }
+        let registry = rig.registry();
+        for step in scenario["steps"].as_array().unwrap() {
+            let (id, cwd) = (step["args"][0].as_str().unwrap(), step["args"][1].as_str().unwrap());
+            let label = format!("{name}: {id:?} {cwd:?}");
+            assert_eq!(registry.update_lead_worker_cwd(id, cwd).await, step["returns"], "{label}: answer");
+            for (key, want) in step["rows"].as_object().unwrap() {
+                let have = rig.store.map(key).or_else(|| seeded.get(key).cloned()).unwrap();
+                assert_eq!(Value::Object(have).to_string(), want.as_str().unwrap(), "{label}: row {key}");
+            }
+        }
+    }
+}
+/// The stale-row pass and the scan guard against real Node's (`fixtures/agent-stale-rows/golden.json`, from
+/// `benchmarks/rust-core/recorders/record-agent-stale-rows.mjs`): the rows and sessions of Node's own stale-row tests
+/// go through a refresh, and the rows the index still holds, the tombstones it left and the scan's verdicts are
+/// compared whole. A session Node's manager reports a runtime stage for is a running turn here: the core's stage is
+/// only ever active inside a run.
+#[cfg(node_twin)]
+const STALE_GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/agent-stale-rows/golden.json");
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_stale_row_pass_and_the_scan_guard_equal_nodes() {
     let golden: Value = serde_json::from_str(&STALE_GOLDEN).unwrap();
@@ -2731,101 +2625,11 @@ async fn the_stale_row_pass_and_the_scan_guard_equal_nodes() {
         }
     }
 }
-
-mod job_views;
-
-/// The header seam of the close tests: a session whose header cannot be read fails its close; the stamps that land are kept in order.
-#[derive(Default)]
-struct Detaches {
-    failing: Vec<String>,
-    headers: Mutex<HashMap<String, serde_json::Map<String, Value>>>,
-    /// The sessions whose close was refused, in order.
-    refused: Mutex<Vec<String>>,
-    /// The stamps that landed, in order: the session and whether it was an owner close.
-    stamps: Mutex<Vec<(String, bool)>>,
-}
-
-#[async_trait]
-impl ThreadState for Detaches {
-    async fn header(&self, thread: &ThreadId) -> Result<mixdog_store::schema::record::Header, mixdog_tools::orch::util::PortError> {
-        if self.failing.iter().any(|id| id == thread.as_str()) {
-            self.refused.lock().unwrap().push(thread.as_str().to_owned());
-            return Err(mixdog_tools::orch::util::PortError::Failed { capability: "session".into(), message: "the header cannot be written".into() });
-        }
-        Ok(self.headers.lock().unwrap().get(thread.as_str()).cloned().unwrap_or_default())
-    }
-    /// A close stamps through `patch_header_if`; this is the archive flag of a hidden or revealed session.
-    async fn patch_header(&self, thread: &ThreadId, set: serde_json::Map<String, Value>, unset: Vec<String>) -> Result<(), mixdog_tools::orch::util::PortError> {
-        assert!(set.keys().chain(unset.iter()).all(|key| key == "archivedAt"), "only the archive flag is patched");
-        let mut headers = self.headers.lock().unwrap();
-        let header = headers.entry(thread.as_str().to_owned()).or_default();
-        header.extend(set);
-        for key in unset {
-            header.remove(&key);
-        }
-        Ok(())
-    }
-    async fn patch_header_if(
-        &self,
-        thread: &ThreadId,
-        _: serde_json::Map<String, Value>,
-        set: serde_json::Map<String, Value>,
-        _: Vec<String>,
-    ) -> Result<Option<serde_json::Map<String, Value>>, mixdog_tools::orch::util::PortError> {
-        self.stamps.lock().unwrap().push((thread.as_str().to_owned(), set.contains_key("ownerClosedAt")));
-        self.headers.lock().unwrap().entry(thread.as_str().to_owned()).or_default().extend(set);
-        Ok(None)
-    }
-    async fn publish(&self, _: &ThreadId, _: mixdog_core_ports::ports::threads::Section) -> Result<(), mixdog_tools::orch::util::PortError> {
-        Ok(())
-    }
-}
-
-/// `hideSessions` / `revealSession` (`close-flow/hide-sessions.mjs`): an owner's close takes the agent's session and those
-/// below it out of the lists (the archive flag every listing reads); a session used again is listed again, alone.
-#[tokio::test]
-async fn an_owner_close_hides_the_agents_sessions_and_a_reuse_lists_one_again() {
-    use mixdog_agent::agent_tool::dispatch::CloseParts;
-    use mixdog_agent::agent_tool::host::Sessions;
-
-    use crate::session::SessionDirectory;
-
-    struct Frozen;
-    impl mixdog_agent::env::Clock for Frozen {
-        fn now_ms(&self) -> i64 {
-            NOW
-        }
-    }
-    let rig = Rig::new();
-    for (id, parent) in [("sess_w1", "lead"), ("sess_w2", "sess_w1")] {
-        let tag = id.trim_start_matches("sess_");
-        rig.store.sessions.lock().unwrap().push(session(id, tag, &at(NOW - HOUR), json!({ "parentSessionId": parent, "ownerSessionId": "lead" })));
-        rig.store.write_row(id, Some(worker_row(id, tag, json!({ "parentSessionId": parent, "ownerSessionId": "lead" }))));
-    }
-    rig.store.touch_sessions();
-    let srig = crate::session::testing::Rig::new();
-    let directory = Arc::new(SessionDirectory::new(srig.deps()));
-    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
-    let threads = Arc::new(Detaches::default());
-    let sessions = AgentSessions::new(directory, threads.clone(), registry.clone(), Arc::new(Statusline::default()), rig.clock.clone(), Arc::new(ClosedShells::default()), Arc::new(mixdog_tools::fs::ReadState::default()));
-    let board = mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None);
-    let scope = lead("lead");
-    registry.refresh_tags_from_sessions(false, &scope).await;
-    let archived = |id: &str| threads.headers.lock().unwrap().get(id).and_then(|header| header.get("archivedAt").cloned());
-
-    let parts = CloseParts { registry: &*registry, sessions: &sessions, tasks: &board };
-    let closed = mixdog_agent::agent_tool::dispatch::close_resolved(parts, "sess_w1", "w1", &scope, None, false).await.unwrap();
-    assert!(closed.closed);
-    assert_eq!((archived("sess_w1"), archived("sess_w2")), (Some(json!(NOW)), Some(json!(NOW))));
-
-    sessions.reveal_session("sess_w1").await;
-    assert_eq!((archived("sess_w1"), archived("sess_w2")), (None, Some(json!(NOW))));
-}
-
 /// A member of the agent tree whose durable close fails (the Node recording `flows/close_failures.json`, each member failing
 /// as its canonical close answering false): the tree's cancel, `agent close` and `closeAll` attempt every member and then fail
 /// with Node's text; a closeAll lists the failed tree under `failed`, not `closed`; the members that closed carry their stamp.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn a_member_that_cannot_close_fails_the_close_as_node_recorded() {
     use mixdog_agent::agent_tool::dispatch::CloseParts;
     use mixdog_agent::agent_tool::host::CloseOptions;
@@ -2921,56 +2725,748 @@ async fn a_member_that_cannot_close_fails_the_close_as_node_recorded() {
     }
 }
 
-/// The owner's queue as the actor keeps it, for the restart notices: an id already queued is one entry, the owner takes entries,
-/// and the write is acknowledged when the test lets it (`gate`), or fails once with its entry rolled back.
-struct OwnerQueue {
-    queue: Mutex<Vec<String>>,
-    taken: Mutex<Vec<String>>,
-    queued: std::sync::atomic::AtomicUsize,
-    gate: tokio::sync::Semaphore,
-    fail_next: std::sync::atomic::AtomicBool,
-}
+/// `ask-turn-settle.mjs:137-139` stamps every completed turn; a turn start lifts the owner's
+/// release (`worker-index.mjs:59`); an owner close (`bumpSessionGenerationAttempt` with
+/// `ownerClose`) stamps the session durably, then cancels its running turn, leaving it open.
+#[tokio::test(start_paused = true)]
+async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
+    use std::sync::atomic::AtomicUsize;
 
-#[async_trait]
-impl restart::RestartNotices for OwnerQueue {
-    async fn queue_durably(&self, _: &ThreadId, execution: &str, _: String) -> Result<(), String> {
-        self.queued.fetch_add(1, Ordering::SeqCst);
-        {
-            let mut queue = self.queue.lock().unwrap();
-            if !queue.iter().any(|queued| queued == execution) {
-                queue.push(execution.to_owned());
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    use crate::session::thread_state::SessionThreads;
+    use crate::session::SessionDirectory;
+    use crate::session::seams::RunOutcome;
+    use crate::eventually_on;
+    use crate::session::tests::idle;
+    use crate::session::tests::start_thread;
+    use crate::session::tests::turn;
+
+    let srig = crate::session::testing::Rig::new();
+    let runs = Arc::new(AtomicUsize::new(0));
+    let counter = runs.clone();
+    srig.set_script(Arc::new(move |run| {
+        let first = counter.fetch_add(1, Ordering::SeqCst) == 0;
+        Box::pin(async move {
+            if !first {
+                run.cancel.cancelled().await;
+                return RunOutcome::Interrupted;
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let rig = Rig::new();
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    assert!(srig.turn_starts.bind(registry.clone()).is_ok());
+    let handle = start_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+
+    turn(&handle, "one", "op-1").await;
+    let stamped = eventually_on!(&[&handle.cell.stepped], || {
+        let header = handle.cell.header.load_full();
+        header.contains_key("lastTurnCompletedAt").then(|| (*header).clone())
+    })
+    .await;
+    assert_eq!(stamped["closeProvenance"], json!(1));
+    assert!(stamped["lastTurnCompletedAt"].is_number());
+
+    registry.mark_released(std::slice::from_ref(&id));
+    assert!(rig.store.map(&id).is_some_and(|m| m.contains_key("releasedAt")));
+    turn(&handle, "two", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
+    assert!(rig.store.map(&id).is_none(), "the turn start lifted the release");
+
+    let statusline = Arc::new(Statusline::default());
+    let threads = Arc::new(SessionThreads::new(directory.clone()));
+    let shells = Arc::new(ClosedShells::default());
+    let read_state = Arc::new(mixdog_tools::fs::ReadState::default());
+    let sessions = AgentSessions::new(directory.clone(), threads, registry.clone(), statusline.clone(), rig.clock.clone(), shells.clone(), read_state.clone());
+    let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: true };
+    assert!(sessions.close_session(&id, "cli-agent-close", options).await);
+    // `cancelOwnedShellTrees(id)` (`session-close.mjs:184`).
+    assert_eq!(*shells.0.lock().unwrap(), [id.clone()]);
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let header = handle.cell.header.load_full();
+    assert_eq!(header["ownerClosedAt"], json!(NOW));
+    assert_eq!(header["detachedReason"], json!("cli-agent-close"));
+    assert!(header["generation"].as_f64().is_some_and(|generation| generation >= 1.0), "the close moves the generation on (`lifecycle-barriers.mjs:272`)");
+    assert_ne!(header.get("closed"), Some(&json!(true)), "the session stays open");
+    sessions.clear_statusline_route(&id);
+    assert_eq!(*statusline.0.lock().unwrap(), [id.clone()]);
+    assert_eq!(runs.load(Ordering::SeqCst), 2);
+}
+/// The job board's cancel (`close_session(id, "agent-task-cancel", {tombstone: false,
+/// owner_close: false})`) ends the worker's turn with Node's `closeSession` abort text, and the
+/// session stays open without an owner-close stamp.
+#[tokio::test(start_paused = true)]
+async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    use crate::session::thread_state::SessionThreads;
+    use crate::session::SessionDirectory;
+    use crate::session::seams::RunOutcome;
+    use crate::eventually_on;
+    use crate::session::tests::idle;
+    use crate::session::tests::start_thread;
+    use crate::session::tests::turn;
+
+    let srig = crate::session::testing::Rig::new();
+    let aborted: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
+    let seen = aborted.clone();
+    srig.set_script(Arc::new(move |run| {
+        let seen = seen.clone();
+        Box::pin(async move {
+            run.cancel.cancelled().await;
+            *seen.lock().unwrap() = Some(run.signal.reason());
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let rig = Rig::new();
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
+
+    let threads = Arc::new(SessionThreads::new(directory.clone()));
+    let sessions = AgentSessions::new(
+        directory.clone(),
+        threads,
+        registry,
+        Arc::new(Statusline::default()),
+        rig.clock.clone(),
+        Arc::new(ClosedShells::default()),
+        Arc::new(mixdog_tools::fs::ReadState::default()),
+    );
+    let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: false };
+    assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert_eq!(
+        aborted.lock().unwrap().as_deref(),
+        Some(format!("Session \"{id}\" closed: closeSession (reason=agent-task-cancel)").as_str())
+    );
+    let header = handle.cell.header.load_full();
+    assert_eq!(header["detachedReason"], json!("agent-task-cancel"));
+    assert!(header["generation"].as_f64().is_some_and(|generation| generation >= 1.0));
+    assert!(header.get("ownerClosedAt").is_none(), "not an owner close");
+
+    // `abortSessionTurn(id, reason)` for a session no outer turn holds.
+    turn(&handle, "again", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
+    assert!(directory.abort_session_turn(&handle.id, "login-required"));
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert_eq!(
+        aborted.lock().unwrap().as_deref(),
+        Some(format!("Session \"{id}\" closed: abortSessionTurn (reason=login-required)").as_str())
+    );
+    assert!(!directory.abort_session_turn(&mixdog_core_api::ids::ThreadId::from("sess_none"), "x"));
+}
+/// `closeRuntime` (`agent-cancel.mjs:96-102`): a close that stopped a running turn leaves the session reading `cancelled`,
+/// its stage too, so a scan of the sessions builds no open idle row for it that a cleanup would close again; a turn that
+/// starts on it reads it as its runtime again (`agent-turns.mjs`), and closing a finished agent keeps its status.
+#[tokio::test(start_paused = true)]
+async fn a_close_that_stops_a_running_turn_reads_cancelled_until_a_turn_starts() {
+    use std::sync::atomic::AtomicUsize;
+
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    use crate::session::thread_state::SessionThreads;
+    use crate::session::SessionDirectory;
+    use crate::session::seams::RunOutcome;
+    use crate::eventually_on;
+    use crate::session::tests::idle;
+    use crate::session::tests::start_thread;
+    use crate::session::tests::turn;
+
+    let srig = crate::session::testing::Rig::new();
+    let runs = Arc::new(AtomicUsize::new(0));
+    let counter = runs.clone();
+    // The first turn runs until it is stopped; every later one completes.
+    srig.set_script(Arc::new(move |run| {
+        let first = counter.fetch_add(1, Ordering::SeqCst) == 0;
+        Box::pin(async move {
+            if first {
+                run.cancel.cancelled().await;
+                return RunOutcome::Interrupted;
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let rig = Rig::new();
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    assert!(srig.turn_starts.bind(registry.clone()).is_ok());
+    let handle = start_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+    let sessions = AgentSessions::new(
+        directory.clone(),
+        Arc::new(SessionThreads::new(directory.clone())),
+        registry.clone(),
+        Arc::new(Statusline::default()),
+        rig.clock.clone(),
+        Arc::new(ClosedShells::default()),
+        Arc::new(mixdog_tools::fs::ReadState::default()),
+    );
+    // The job board's cancel: the same close, after which the session takes a turn again.
+    let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: false };
+    let state = |session: &Row| (session.get("status").cloned(), session.get("stage").cloned());
+    let cancelled = (Some(json!("cancelled")), Some(json!("cancelled")));
+
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
+    assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert_eq!(state(&registry.session_of(&id).expect("the session")), cancelled);
+    let listed = registry.open_sessions();
+    let scanned = listed.iter().find(|session| session.get("id").and_then(Value::as_str) == Some(id.as_str())).expect("listed");
+    assert_eq!(state(scanned), cancelled, "the scan reads it so");
+
+    turn(&handle, "again", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (runs.load(Ordering::SeqCst) == 2 && idle(&handle)).then_some(())).await;
+    assert_ne!(state(&registry.session_of(&id).expect("the session")), cancelled, "a turn started on it");
+    assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
+    assert_ne!(state(&registry.session_of(&id).expect("the session")), cancelled, "it was not running");
+}
+/// The composed sessions over a data folder, as the daemon builds them: the real thread store and index, the session
+/// directory, the worker rows' store and the kept-row table; a new one over the same folder is the next process.
+struct Core {
+    directory: Arc<crate::session::SessionDirectory>,
+    threads: Arc<crate::session::thread_state::SessionThreads>,
+    workers: Arc<StoreWorkers>,
+    registry: AgentRegistry,
+    state: mixdog_store::state::CoreState,
+    index: mixdog_store::sqlite::SqliteStore,
+    store: Arc<crate::session::StoreThreads>,
+    _rig: crate::session::testing::Rig,
+}
+impl Core {
+    async fn up(data: &std::path::Path) -> Self {
+        let t = mixdog_rt::testing::tokens();
+        let root = data.to_path_buf();
+        let index = mixdog_rt::LaneToken::submit(t.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            mixdog_store::sqlite::SqliteStore::open(lane, t.sqlite_writer_thread, t.interactive_io, &root)
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("index");
+        let ownership = Arc::new(mixdog_core_api::domain::mock::MockOwnership::default());
+        let store = Arc::new(crate::session::StoreThreads::over_data_dir(data, index.clone(), ownership, t.maintenance_io).await.expect("the thread store"));
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(crate::session::SessionDirectory::new(Arc::new(rig.deps_parts(store.clone()))));
+        let threads = Arc::new(crate::session::thread_state::SessionThreads::new(directory.clone()));
+        let (state, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &data.join("core.sqlite")).expect("core state");
+        let workers = Arc::new(StoreWorkers::new(index.clone(), threads.clone(), t.interactive_io, Arc::new(KeptRows::new(state.clone()))));
+        let registry = AgentRegistry::new(workers.clone(), directory.clone(), Arc::new(Hour), Arc::new(TestClock(AtomicI64::new(NOW))));
+        Self { directory, threads, workers, registry, state, index, store, _rig: rig }
+    }
+
+    /// Returns once every worker map written so far is in the index: applied to its header, and projected.
+    async fn written(&self) {
+        self.workers.settled().await.expect("the writes reached the headers");
+        self.store.projected().await;
+    }
+
+    /// A loaded thread's header fields, as its turns would have left them.
+    async fn set_header(&self, thread: &str, fields: Row) {
+        mixdog_core_ports::ports::threads::ThreadState::patch_header(&*self.threads, &ThreadId::from(thread), fields, Vec::new()).await.expect("the header patch");
+    }
+
+    async fn start(&self, op: &str, session: Value) -> ThreadId {
+        use mixdog_core_api::ThreadDirectory;
+        let start = mixdog_core_api::call::CoreRequest {
+            method: mixdog_core_api::ids::Method("thread/start"),
+            params: json!({ "opId": op, "kind": "task", "projectPath": "/ws", "session": session }),
+            op: Some(mixdog_core_api::ids::OpId::from(op)),
+            ctx: mixdog_core_api::call::CallContext::internal("test"),
+        };
+        let mixdog_core_api::Reply::Subscribe(started) = self.directory.request(start).await.expect("thread/start") else { panic!("thread/start subscribes") };
+        ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"))
+    }
+
+    /// The owner's queue as its log holds it: the entries a restart hands its next turn.
+    async fn queued(&self, owner: &ThreadId) -> usize {
+        let handle = self.directory.open_handle(owner, &mixdog_core_api::call::CallContext::internal("test")).await.expect("the owner opens");
+        handle.cell.queue.load().len()
+    }
+
+    async fn notify(&self) -> usize {
+        struct Frozen;
+        impl mixdog_agent::env::Clock for Frozen {
+            fn now_ms(&self) -> i64 {
+                NOW
             }
         }
-        self.gate.acquire().await.expect("the gate stays open").forget();
-        if self.fail_next.swap(false, Ordering::SeqCst) {
-            self.queue.lock().unwrap().retain(|queued| queued != execution);
-            return Err("the write failed".into());
-        }
-        Ok(())
-    }
-
-    async fn show(&self, _: &ThreadId, _: &str, _: String) {}
-}
-
-impl OwnerQueue {
-    fn new() -> Self {
-        Self {
-            queue: Mutex::default(),
-            taken: Mutex::default(),
-            queued: std::sync::atomic::AtomicUsize::new(0),
-            gate: tokio::sync::Semaphore::new(0),
-            fail_next: std::sync::atomic::AtomicBool::new(false),
-        }
-    }
-
-    /// The owner's turn takes what is queued for it.
-    fn take(&self) {
-        let mut queue = self.queue.lock().unwrap();
-        self.taken.lock().unwrap().extend(queue.drain(..));
+        let board = mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None);
+        let told = restart::notify_restart_failures(&self.registry, &*self.directory, &board, &at(NOW)).await.expect("the pass ran");
+        self.workers.settled().await.expect("the writes reached the headers");
+        told
     }
 }
+/// A finished agent's status is asked for on every status pass, long after its runtime is gone: the facts come from its stored
+/// record, the same each time, and are read again once the session's log has changed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_finished_agents_status_read_gives_the_same_facts_until_its_log_changes() {
+    use mixdog_agent::agent_tool::views::Workers;
 
-fn lost_task_world() -> (Rig, AgentRegistry, mixdog_agent::agent_tool::board::JobBoard) {
+    struct NoJobs;
+    impl mixdog_core_run::run_host::progress::WaitedJobs for NoJobs {
+        fn silence(&self, _: &[String], _: i64) -> Option<mixdog_agent::agent_tool::progress::ToolSilence> {
+            None
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let core = Core::up(dir.path()).await;
+    let worker = core.start("op-worker", json!({})).await;
+    let registry = Arc::new(AgentRegistry::new(core.workers.clone(), core.directory.clone(), Arc::new(Hour), Arc::new(TestClock(AtomicI64::new(NOW)))));
+    let workers = super::workers::AgentWorkers::new(core.directory.clone(), core.threads.clone(), registry, Arc::new(NoJobs), Arc::new(TestClock(AtomicI64::new(NOW))));
+    let finished = |status: &str| obj(json!({ "agent": "worker", "model": "m-1", "status": status, "stage": status, "agentTag": "w1" }));
+    let status_of = || async { workers.session_status(worker.as_str()).await.expect("the stored session answers") };
+
+    core.set_header(worker.as_str(), finished("completed")).await;
+    core.written().await;
+    core.directory.release(&worker).await;
+    assert!(core.directory.handle(&worker).is_none(), "the finished agent's runtime is gone");
+
+    let first = status_of().await;
+    assert_eq!((first.status.as_deref(), first.model.as_deref(), first.agent.as_deref()), (Some("completed"), Some("m-1"), Some("worker")));
+    assert_eq!(status_of().await, first, "asked again with nothing changed, the facts are the same");
+
+    core.set_header(worker.as_str(), finished("failed")).await;
+    core.written().await;
+    core.directory.release(&worker).await;
+    assert!(core.directory.handle(&worker).is_none());
+    let changed = status_of().await;
+    assert_eq!((changed.status.as_deref(), changed.model.as_deref()), (Some("failed"), Some("m-1")), "the log changed, so the record is read again");
+}
+/// A kept write the table refused stays queued and reaches the table once it takes writes again (Node's index queue keeps a
+/// failed write and retries it, `index-write-queue.mjs:231-245`), with no later write of the session to carry it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kept_row_the_table_refused_reaches_it_when_the_table_takes_writes_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = Core::up(dir.path()).await;
+    // A second writer holding the file's write lock: the table refuses every write until it lets go.
+    let t = mixdog_rt::testing::tokens();
+    let (other, _) = mixdog_store::state::CoreState::open(t.sqlite_writer_thread, t.interactive_io, &dir.path().join("core.sqlite")).unwrap();
+    let (locked, lock_held) = std::sync::mpsc::channel::<()>();
+    let (unlock, unlocked) = std::sync::mpsc::channel::<()>();
+    let holder = tokio::spawn(async move {
+        other
+            .write(move |_| {
+                locked.send(()).unwrap();
+                unlocked.recv_timeout(std::time::Duration::from_secs(60)).expect("the test lets the lock go");
+                Ok(())
+            })
+            .await
+    });
+    lock_held.recv_timeout(std::time::Duration::from_secs(60)).expect("the lock was taken within the deadline");
+    let row = obj(json!({ "sessionId": "s-owed", "tag": "owed", "status": "failed" }));
+    WorkerStore::keep(&*core.workers, "s-owed", Some(row.clone()));
+    // Node's `flush` rejects while a batch is unpersisted: the barrier is not settled while a write is owed.
+    let flushed = core.workers.settled().await;
+    assert!(flushed.is_err(), "a write is still owed, so the flush is refused: {flushed:?}");
+    let stored = || async { core.state.meta_prefix("agent-kept-worker:").await.unwrap() };
+    assert!(stored().await.is_empty(), "the table refused the write");
+    unlock.send(()).unwrap();
+    holder.await.unwrap().unwrap();
+    core.workers.settled().await.expect("nothing is owed once the table took the write");
+    assert_eq!(stored().await, [("agent-kept-worker:s-owed".to_owned(), serde_json::to_string(&row).unwrap())], "the table took the write once it could");
+}
+/// `restart-notify.mjs:104-109`: the notice is stored under its stable id before the row is stamped. A real process (this test
+/// binary again) is ended by the crate's crash gate on either side of the store, then the core starts again on the same data
+/// folder. Ended before the store: nothing was queued and the row is still owed, so the restart tells it. Ended after it: the
+/// stored notice survived and the row is still owed, so the restart queues it again under the same id, which Node's queue
+/// takes as the entry it already holds (`pending-messages.mjs:476`, `pendingIdStillQueued` over the hydrated queue): the owner
+/// is told once either way, and nothing is owed after.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restart_notice_cut_off_at_either_side_of_its_store_is_told_once_after_the_restart() {
+    const DATA: &str = "MIXDOG_RESTART_NOTICE_DATA";
+    const NAME: &str = "a_restart_notice_cut_off_at_either_side_of_its_store_is_told_once_after_the_restart";
+    #[allow(clippy::disallowed_methods, reason = "the child process of this test reads the folder its parent named")]
+    let child_data = std::env::var_os(DATA);
+    if let Some(data) = child_data {
+        // The child: one pass, which the crash gate ends.
+        Core::up(std::path::Path::new(&data)).await.notify().await;
+        return;
+    }
+    for (point, survived) in [("restart-notice-unstored", 0), ("restart-notice-stored", 1)] {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = {
+            let core = Core::up(dir.path()).await;
+            let owner = core.start("op-owner", json!({ "autoWakeCompletions": false })).await;
+            let worker = core.start("op-worker", json!({})).await;
+            let row = json!({
+                "tag": "owed", "sessionId": worker.as_str(), "parentSessionId": owner.as_str(), "ownerSessionId": owner.as_str(),
+                "agent": "worker", "clientHostPid": PID, "status": "failed", "failureReason": "process-restart", "task_id": "t-1",
+                "finishedAt": at(NOW), "updatedAt": at(NOW),
+            });
+            let mut set = serde_json::Map::new();
+            set.insert("worker".into(), row);
+            mixdog_core_ports::ports::threads::ThreadState::patch_header(&*core.threads, &worker, set, Vec::new()).await.expect("the worker row");
+            core.directory.shutdown().await;
+            owner
+        };
+        let test = format!("{}::{NAME}", module_path!().trim_start_matches("mixdog_core_session::"));
+        let mut command = std::process::Command::new(std::env::current_exe().expect("the test binary"));
+        command.args(["--exact", &test, "--nocapture", "--test-threads=1"]).env(DATA, dir.path()).env("MIXDOG_NEW_TASK_CRASH_AT", point);
+        let child = output_within(command, std::time::Duration::from_secs(120), point);
+        let stderr = String::from_utf8_lossy(&child.stderr);
+        assert!(!child.status.success() && !stderr.contains("panicked"), "{point}: the gate ended the child: {stderr}");
+
+        let core = Core::up(dir.path()).await;
+        assert_eq!(core.queued(&owner).await, survived, "{point}: what the cut-off pass stored");
+        assert_eq!(core.registry.pending_restart_failures().await.unwrap().len(), 1, "{point}: the row is still owed");
+        assert_eq!(core.notify().await, 1, "{point}: the restart tells the owner");
+        assert_eq!(core.queued(&owner).await, 1, "{point}: one notice");
+        assert_eq!(core.notify().await, 0, "{point}: nothing is owed after");
+        assert_eq!(core.queued(&owner).await, 1, "{point}: still one notice");
+        core.directory.shutdown().await;
+    }
+}
+/// Releasing a tag whose session was deleted: Node's `closeSession` counts a record that is
+/// already gone as closed (`session-close.mjs` `finishClose`, `outcome.absent`), so the close
+/// flow goes on to forget the row and the tag can start a fresh session.
+#[tokio::test]
+async fn closing_a_deleted_session_counts_as_closed() {
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    use crate::session::thread_state::SessionThreads;
+    use crate::session::SessionDirectory;
+
+    let srig = crate::session::testing::Rig::new();
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let rig = Rig::new();
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    let sessions = AgentSessions::new(
+        directory.clone(),
+        Arc::new(SessionThreads::new(directory.clone())),
+        registry,
+        Arc::new(Statusline::default()),
+        rig.clock.clone(),
+        Arc::new(ClosedShells::default()),
+        Arc::new(mixdog_tools::fs::ReadState::default()),
+    );
+    let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: true };
+    assert!(sessions.close_session("sess_deleted", "cli-agent-close", options).await);
+}
+/// The agent tool's `read` of a worker with no task reads the worker's own text: its sensitive values come back as the
+/// marker, as its report does (Node `execute.mjs` `readJob`).
+#[tokio::test]
+async fn a_workers_text_read_by_its_owner_has_its_sensitive_values_as_the_marker() {
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    use crate::session::thread_state::SessionThreads;
+    use crate::session::SessionDirectory;
+
+    let srig = crate::session::testing::Rig::new();
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let rig = Rig::new();
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    let sessions = AgentSessions::new(
+        directory.clone(),
+        Arc::new(SessionThreads::new(directory.clone())),
+        registry,
+        Arc::new(Statusline::default()),
+        rig.clock.clone(),
+        Arc::new(ClosedShells::default()),
+        Arc::new(mixdog_tools::fs::ReadState::default()),
+    );
+    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": "482913" } } });
+    assert!(srig.sensitive.remember("sess_worker", &[fill]));
+    assert_eq!(sessions.redact_text("sess_worker", "the code is 482913".into()), "the code is [redacted]");
+    assert_eq!(sessions.redact_text("sess_other", "the code is 482913".into()), "the code is 482913");
+}
+/// The status-signal scenario of the Node daemon's profile (`status-pulse.test.mjs` "activity bursts over a large unchanged
+/// index") over the product's store (the index, `StoreWorkers`, the session directory): one Lead, 300 worker rows (30
+/// running, 270 finished and kept for the day) with their stored agent sessions, 500 tag tombstones, and 30 loaded threads
+/// (the Lead and 29 running workers, real threads whose rows the registry wrote through the store).
+struct Crowd {
+    core: Core,
+    _dir: tempfile::TempDir,
+    /// The scope of every loaded thread, as `AgentToolStatus::status` reads it.
+    scopes: Vec<Scope>,
+    /// A loaded running worker's session record and tag.
+    running: Vec<(Row, String)>,
+}
+async fn put_stored(core: &Core, id: &str, header: Row) {
+    core.index.upsert(stored_head(id, header), mixdog_store::sqlite::DirtyMark::Clear).await.expect("the index takes the row");
+}
+async fn crowd_rig() -> Crowd {
+    let dir = tempfile::tempdir().unwrap();
+    let core = Core::up(dir.path()).await;
+    let lead = core.start("op-lead", json!({})).await.as_str().to_owned();
+    core.set_header(&lead, obj(json!({ "status": "idle", "updatedAt": at(NOW - 60_000), "clientHostPid": PID }))).await;
+    let scope_of = |id: &str| Scope { caller_session_id: Some(id.to_owned()), host_pid: Some(PID) };
+    let owned = json!({ "parentSessionId": lead, "ownerSessionId": lead });
+    let mut scopes = vec![scope_of(&lead)];
+    let mut running = Vec::new();
+    for i in 0..300 {
+        let busy = i < 30;
+        let tag = if busy { format!("r{i}") } else { format!("d{i}") };
+        let (status, created, updated) = if busy { ("running", NOW - HOUR, NOW - 60_000) } else { ("completed", NOW - 3 * HOUR, NOW - 2 * HOUR) };
+        let mut fields = obj(json!({ "status": if busy { "running" } else { "idle" }, "updatedAt": at(updated), "cwd": "/w", "visibility": "agent-only" }));
+        fields.extend(obj(owned.clone()));
+        if busy && i < LOADED - 1 {
+            let id = core.start(&format!("op-w{i}"), json!({})).await.as_str().to_owned();
+            let session = session(&id, &tag, &at(created), Value::Object(fields));
+            let mut live = session.clone();
+            live.shift_remove("id");
+            core.set_header(&id, live).await;
+            core.registry.upsert_worker_row(&session, &tag, &obj(json!({ "status": "running", "stage": "running" })));
+            scopes.push(scope_of(&id));
+            running.push((session, tag));
+            continue;
+        }
+        let id = format!("sess_crowd_{i}");
+        let mut row = worker_row(&id, &tag, json!({ "status": status, "stage": status, "createdAt": at(created), "updatedAt": at(updated), "cwd": "/w" }));
+        row.extend(obj(owned.clone()));
+        if !busy {
+            row.insert("finishedAt".into(), json!(at(updated)));
+        }
+        let mut header = session(&id, &tag, &at(created), Value::Object(fields));
+        header.insert("worker".into(), Value::Object(row));
+        put_stored(&core, &id, header).await;
+    }
+    for i in 0..500 {
+        let id = format!("sess_gone_{i}");
+        let gone = obj(json!({ "tombstone": tombstone(&format!("g{i}"), &at(NOW - HOUR - i), owned.clone()) }));
+        let mut header = obj(json!({ "createdAt": at(NOW - 4 * HOUR) }));
+        header.insert("worker".into(), Value::Object(without_row(&gone).unwrap()));
+        put_stored(&core, &id, header).await;
+    }
+    core.written().await;
+    Crowd { core, _dir: dir, scopes, running }
+}
+/// A status signal as the product runs it (`AgentActivity::everyone`): every loaded thread re-reads its status at once
+/// (`AgentToolStatus::status`): `refresh_tags_from_sessions`, which reloads the index, then the scope's agents. The tags
+/// each lists.
+async fn signal(crowd: &Crowd) -> Vec<Vec<String>> {
+    let registry = &crowd.core.registry;
+    futures::future::join_all(crowd.scopes.iter().map(|scope| async move {
+        registry.refresh_tags_from_sessions(false, scope).await;
+        registry.status_entries(scope).iter().map(|(tag, _)| tag.clone()).collect::<Vec<_>>()
+    }))
+    .await
+}
+/// The work of a status signal is what changed, not the size of the index: 1,000 signals over an unchanged index, and 1,000
+/// single-row writes (one worker's stage change, each followed by its signal), stay within what the loaded threads cost,
+/// while every re-read answers what it answered before.
+// The body runs on the test's own thread (the counts are per thread); the session tasks run on the runtime's workers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_status_signal_costs_what_changed_not_the_finished_rows_and_tombstones() {
+    let crowd = crowd_rig().await;
+    let first = signal(&crowd).await;
+    assert_eq!(first[0].len(), 30, "the Lead's status lists its working agents");
+    assert!(first[1..].iter().all(Vec::is_empty), "a worker has no agents of its own");
+    {
+        let st = crowd.core.registry.lock();
+        let now = crowd.core.registry.now();
+        assert_eq!((old_all_rows(&st, now).len(), st.stored_tombstones(now).len()), (300, super::rows::MAX_TAG_TOMBSTONES.min(500)), "the data set is loaded");
+    }
+
+    let (start, loads, visits) = (rows::work::counts().total(), rows::work::counts().reloads, rows::work::counts().rows_visited);
+    let before = rows::work::counts();
+    for n in 1..=1000 {
+        assert_eq!(signal(&crowd).await, first);
+        let now = rows::work::counts();
+        let visited = now.rows_visited - visits;
+        if n == 1 {
+            eprintln!("one signal over an unchanged index: {} operations, {} loads, {now:?} from {before:?}", now.total() - start, now.reloads - loads);
+        }
+        assert_eq!(index_work(&now), index_work(&before), "{n} signal(s) over an unchanged index did work that follows what changed");
+        // No thread reads the sessions behind its loaded tags again; the session records read are the Lead's staleness
+        // check of its working rows.
+        assert_eq!(now.tags_visited, before.tags_visited, "{n} signal(s) over an unchanged index read a tag's session again");
+        let records = now.sessions_visited - before.sessions_visited;
+        assert!(records <= n * VISITED_PER_SIGNAL, "{n} signal(s) over an unchanged index read {records} session records");
+        assert!(visited <= n * VISITED_PER_SIGNAL, "{n} signal(s) over an unchanged index visited {visited} rows (at most {VISITED_PER_SIGNAL} each)");
+        let spent = rows::work::counts().total() - start;
+        assert!(spent <= n * signal_budget(), "{n} signal(s) over an unchanged index did {spent} operations (budget {} each)", signal_budget());
+        let loaded = rows::work::counts().reloads - loads;
+        assert!(loaded <= n * SIGNAL_LOADS, "{n} signal(s) loaded the index {loaded} times (at most {SIGNAL_LOADS} each)");
+    }
+    let unchanged = rows::work::counts().total() - start;
+
+    let (start, loads, visits) = (rows::work::counts().total(), rows::work::counts().reloads, rows::work::counts().rows_visited);
+    let before = rows::work::counts();
+    for n in 1..=1000 {
+        let (session, tag) = &crowd.running[n % crowd.running.len()];
+        let stage = if n % 2 == 0 { "streaming" } else { "tool_running" };
+        crowd.core.registry.upsert_worker_row(session, tag, &obj(json!({ "status": "running", "stage": stage })));
+        // The write reaches the index before the signal's loads read it, so each load reads the row written.
+        crowd.core.written().await;
+        let read = signal(&crowd).await;
+        assert_eq!(read[0].len(), 30);
+        if n == 1 {
+            let c = rows::work::counts();
+            eprintln!("one signal after one write: {} operations, {:?} from {before:?}", c.total() - start, c);
+        }
+        let spent = rows::work::counts().total() - start;
+        let budget = signal_budget() + WRITE_WORK + WRITE_READS;
+        assert!(spent <= n * budget, "{n} write(s) did {spent} operations (budget {budget} each)");
+        let written = index_work(&rows::work::counts()) - index_work(&before);
+        assert!(written <= n * WRITE_WORK, "{n} write(s) did {written} operations that follow what changed (at most {WRITE_WORK} each)");
+        let c = rows::work::counts();
+        let reads = c.tags_visited + c.sessions_visited - before.tags_visited - before.sessions_visited;
+        let most = VISITED_PER_SIGNAL + WRITE_READS;
+        assert!(reads <= n * most, "{n} write(s) read {reads} session records (at most {most} each: the staleness check's and the written session's)");
+        let visited = rows::work::counts().rows_visited - visits;
+        assert!(visited <= n * VISITED_PER_SIGNAL, "{n} write(s) visited {visited} rows (at most {VISITED_PER_SIGNAL} each)");
+        let loaded = rows::work::counts().reloads - loads;
+        assert!(loaded <= n * SIGNAL_LOADS, "{n} write(s) loaded the index {loaded} times (at most {SIGNAL_LOADS} each)");
+    }
+    let written = rows::work::counts().total() - start;
+    eprintln!(
+        "status signal work per signal: unchanged index {} operations; one single-row write {} operations (1,000 each: {unchanged} and {written})",
+        unchanged / 1000,
+        written / 1000
+    );
+    let registry = &crowd.core.registry;
+    let st = registry.lock();
+    let stages: Vec<String> = st.rows(&crowd.scopes[0], registry.now()).iter().filter(|r| r["status"] == "running").map(|r| clean(r.get("stage"))).collect();
+    assert_eq!(stages.len(), 30);
+    assert_eq!(stages.iter().filter(|s| *s == "streaming" || *s == "tool_running").count(), LOADED - 1, "{stages:?}");
+    drop(st);
+    crowd.core.directory.shutdown().await;
+}
+/// The worker index another connection (another process) committed is what the registry's next load shows, through the
+/// product's store, and that load reads the one row written.
+#[tokio::test]
+async fn a_worker_row_another_connection_wrote_is_seen_by_the_next_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = Core::up(dir.path()).await;
+    let row = |status: &str| worker_row("sess_other", "o", json!({ "status": status }));
+    for (id, status) in [("sess_other", "running"), ("sess_quiet", "completed")] {
+        let mut header = obj(json!({ "createdAt": at(NOW - HOUR) }));
+        header.insert("worker".into(), Value::Object(worker_row(id, id, json!({ "status": status }))));
+        put_stored(&core, id, header).await;
+    }
+    let status = |core: &Core| core.registry.lock().map("sess_other").map(|m| m["status"].clone());
+    core.registry.reload().await;
+    assert_eq!(status(&core), Some(json!("running")));
+
+    core.index.set_worker_elsewhere("sess_other", Some(&row("failed")));
+    let before = rows::work::counts();
+    core.registry.reload().await;
+    assert_eq!(status(&core), Some(json!("failed")), "the other connection's commit is loaded");
+    assert_eq!(rows::work::counts().maps_compared - before.maps_compared, 1, "the load compared the one row written");
+    core.directory.shutdown().await;
+}
+/// Over the product's store, for a random sequence of this registry's writes, another connection's writes, new sessions
+/// at every place in the index order, deletes and agent-only sessions' changes, a registry fed deltas holds, and reads, what
+/// a registry that loads the whole index after every step holds and reads.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_registry_fed_deltas_holds_what_one_that_loads_the_whole_index_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = Core::up(dir.path()).await;
+    let whole = AgentRegistry::new(Arc::new(Whole(core.workers.clone())), core.directory.clone(), Arc::new(Hour), Arc::new(TestClock(AtomicI64::new(NOW))));
+    let lead = core.start("op-lead", json!({})).await.as_str().to_owned();
+    let owned = json!({ "parentSessionId": lead, "ownerSessionId": lead });
+    let mut own: Vec<(Row, String)> = Vec::new();
+    for i in 0..4 {
+        let id = core.start(&format!("op-own-{i}"), json!({})).await.as_str().to_owned();
+        let tag = format!("own{i}");
+        own.push((session(&id, &tag, &at(NOW - HOUR), owned.clone()), tag));
+    }
+    // The sessions another process writes: (id, tag, created at, worker map, agent-only status).
+    let mut foreign: Vec<(String, String, i64, Option<Row>, Option<String>)> = Vec::new();
+    let header_of = |(id, tag, created, worker, agent): &(String, String, i64, Option<Row>, Option<String>)| {
+        let mut header = session(id, tag, &at(*created), owned.clone());
+        if let Some(status) = agent {
+            header.insert("visibility".into(), json!("agent-only"));
+            header.insert("status".into(), json!(status));
+        }
+        if let Some(worker) = worker {
+            header.insert("worker".into(), Value::Object(worker.clone()));
+        }
+        header
+    };
+    let mut dice = Dice(0x5eed_1234);
+    const STATUSES: [&str; 5] = ["running", "streaming", "completed", "failed", "idle"];
+    for step in 0..160 {
+        let status = *dice.pick(&STATUSES);
+        let (session, tag) = dice.pick(&own).clone();
+        let id = clean(session.get("id"));
+        match dice.below(10) {
+            // This process's writes: both registries make each (the same map, written twice), as each would alone.
+            0 | 1 => {
+                for registry in [&core.registry, &whole] {
+                    registry.upsert_worker_row(&session, &tag, &obj(json!({ "status": status, "stage": status })));
+                }
+            }
+            2 => {
+                for registry in [&core.registry, &whole] {
+                    registry.mark_released(std::slice::from_ref(&id));
+                }
+            }
+            3 => {
+                for registry in [&core.registry, &whole] {
+                    registry.remove_worker_row(&id);
+                }
+            }
+            4 => {
+                let forgot = core.registry.forget_deleted_session(&id).await;
+                assert_eq!(whole.forget_deleted_session(&id).await, forgot, "forget, step {step}");
+            }
+            5 | 6 if !foreign.is_empty() => {
+                // Another process writes a worker map, or removes it.
+                let at = dice.below(foreign.len());
+                let (id, tag) = (foreign[at].0.clone(), foreign[at].1.clone());
+                let map = (dice.below(4) != 0).then(|| {
+                    let mut map = worker_row(&id, &tag, json!({ "status": status }));
+                    map.extend(obj(owned.clone()));
+                    if dice.below(3) == 0 {
+                        map.insert("tombstone".into(), Value::Object(tombstone(&tag, &at_ms(NOW - HOUR - step as i64), owned.clone())));
+                    }
+                    map
+                });
+                core.index.set_worker_elsewhere(&id, map.as_ref());
+                foreign[at].3 = map;
+            }
+            7 if !foreign.is_empty() => {
+                // An agent-only session's record changes, or the session is deleted.
+                let at = dice.below(foreign.len());
+                if dice.below(3) == 0 {
+                    core.index.mark_deleted(&foreign.remove(at).0).await.unwrap();
+                } else {
+                    foreign[at].4 = Some(status.to_owned());
+                    put_stored(&core, &foreign[at].0.clone(), header_of(&foreign[at])).await;
+                }
+            }
+            _ => {
+                // A new session, created at any instant: its place may be anywhere in the index order.
+                let id = format!("sess_new_{step}");
+                let tag = format!("n{step}");
+                let mut map = worker_row(&id, &tag, json!({ "status": status }));
+                map.extend(obj(owned.clone()));
+                let created = NOW - (dice.below(5) as i64) * HOUR;
+                let entry = (id.clone(), tag, created, Some(map), (dice.below(2) == 0).then(|| status.to_owned()));
+                put_stored(&core, &id, header_of(&entry)).await;
+                foreign.push(entry);
+            }
+        }
+        // Twice: a load may keep a map the index stopped listing, and that keep is written in turn.
+        for _ in 0..2 {
+            core.written().await;
+            core.registry.reload().await;
+        }
+        whole.reload().await;
+        assert_eq!(held(&core.registry), held(&whole), "what the registries hold, step {step}");
+        assert_eq!(index_reads(&core.registry), index_reads(&whole), "what the registries read, step {step}");
+    }
+    core.directory.shutdown().await;
+}
+/// `hideSessions` / `revealSession` (`close-flow/hide-sessions.mjs`): an owner's close takes the agent's session and those
+/// below it out of the lists (the archive flag every listing reads); a session used again is listed again, alone.
+#[tokio::test]
+async fn an_owner_close_hides_the_agents_sessions_and_a_reuse_lists_one_again() {
+    use mixdog_agent::agent_tool::dispatch::CloseParts;
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    use crate::session::SessionDirectory;
+
     struct Frozen;
     impl mixdog_agent::env::Clock for Frozen {
         fn now_ms(&self) -> i64 {
@@ -2978,65 +3474,34 @@ fn lost_task_world() -> (Rig, AgentRegistry, mixdog_agent::agent_tool::board::Jo
         }
     }
     let rig = Rig::new();
-    let owed = json!({ "status": "failed", "failureReason": "process-restart", "task_id": "t-1", "finishedAt": at(NOW), "updatedAt": at(NOW) });
-    rig.store.write("s-owed", Some(worker_row("s-owed", "owed", owed)));
-    let registry = rig.registry();
-    (rig, registry, mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None))
+    for (id, parent) in [("sess_w1", "lead"), ("sess_w2", "sess_w1")] {
+        let tag = id.trim_start_matches("sess_");
+        rig.store.sessions.lock().unwrap().push(session(id, tag, &at(NOW - HOUR), json!({ "parentSessionId": parent, "ownerSessionId": "lead" })));
+        rig.store.write_row(id, Some(worker_row(id, tag, json!({ "parentSessionId": parent, "ownerSessionId": "lead" }))));
+    }
+    rig.store.touch_sessions();
+    let srig = crate::session::testing::Rig::new();
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    let threads = Arc::new(Detaches::default());
+    let sessions = AgentSessions::new(directory, threads.clone(), registry.clone(), Arc::new(Statusline::default()), rig.clock.clone(), Arc::new(ClosedShells::default()), Arc::new(mixdog_tools::fs::ReadState::default()));
+    let board = mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None);
+    let scope = lead("lead");
+    registry.refresh_tags_from_sessions(false, &scope).await;
+    // The archive state as the authority resolves it over the headers the close left.
+    let archived = |id: &str| {
+        let header = threads.headers.lock().unwrap().get(id).and_then(|header| header.get("archivedAt").cloned());
+        srig.archive.resolve(id, header.as_ref()).archived_at.map(|at| json!(at as i64))
+    };
+
+    let parts = CloseParts { registry: &*registry, sessions: &sessions, tasks: &board };
+    let closed = mixdog_agent::agent_tool::dispatch::close_resolved(parts, "sess_w1", "w1", &scope, None, false).await.unwrap();
+    assert!(closed.closed);
+    assert_eq!((archived("sess_w1"), archived("sess_w2")), (Some(json!(NOW)), Some(json!(NOW))));
+
+    sessions.reveal_session("sess_w1").await;
+    assert_eq!((archived("sess_w1"), archived("sess_w2")), (None, Some(json!(NOW))));
 }
-
-#[tokio::test]
-async fn restart_ownership_keeps_all_failures_visible_independently_of_notice_delivery() {
-    struct Dead;
-    impl restart::ProcessProbe for Dead {
-        fn alive(&self, _: u64) -> bool { false }
-    }
-    let (rig, registry, board) = lost_task_world();
-    for n in 0..8 {
-        let id = format!("s-{n}");
-        rig.store.write(&id, Some(worker_row(&id, &id, json!({
-            "status": "running", "stage": "tool_running", "runtimePid": PID + 1,
-            "task_id": format!("t-{n}"), "updatedAt": at(NOW),
-        }))));
-        rig.store.sessions.lock().unwrap().push(session(&id, &id, &at(NOW), json!({ "updatedAt": at(NOW) })));
-    }
-    rig.store.write("s-owed", None);
-    let live = restart::Liveness { probe: &Dead, own_pid: PID, running: &|_| false, reap: &Hour, now_ms: NOW };
-    assert!(registry.recover_stale_worker_rows(true, &live).await.unwrap());
-
-    let owner = OwnerQueue::new();
-    owner.gate.add_permits(8);
-    owner.fail_next.store(true, Ordering::SeqCst);
-    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await.unwrap(), 7);
-    assert_eq!(board.list_jobs(&Scope::default()).len(), 8, "even the unqueued failure is a failed task");
-    assert!(board.list_jobs(&Scope::default()).iter().all(|job| job.status == "failed"));
-    assert_eq!(registry.pending_restart_failures().await.unwrap().len(), 1);
-    owner.gate.add_permits(1);
-    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await.unwrap(), 1);
-    owner.take();
-    assert_eq!(owner.taken.lock().unwrap().len(), 8);
-
-    // A fresh registry and board represent another core restart. Scanning idle headers
-    // must not replace the task outcomes, and stamped notices must not erase status.
-    let restarted = rig.registry();
-    restarted.refresh_tags_from_sessions(true, &lead("lead-a")).await;
-    let listed = restarted.session_entries(true, &lead("lead-a"));
-    assert_eq!(listed.len(), 8);
-    assert!(listed.iter().all(|(_, row)| row["status"] == "failed"));
-    let (_, _, fresh_board) = lost_task_world();
-    assert_eq!(restart::notify_restart_failures(&restarted, &owner, &fresh_board, &at(NOW)).await.unwrap(), 0);
-    assert_eq!(fresh_board.list_jobs(&Scope::default()).len(), 8);
-    assert!(fresh_board.list_jobs(&Scope::default()).iter().all(|job| job.status == "failed"));
-    for n in 0..8 {
-        assert_eq!(rig.store.map(&format!("s-{n}")).unwrap()["status"], "failed");
-    }
-    restarted.upsert_worker_row(
-        &session("s-0", "s-0", &at(NOW), json!({})),
-        "s-0",
-        &obj(json!({ "status": "running", "stage": "running", "task_id": "new-task" })),
-    );
-    assert_eq!(rig.store.map("s-0").unwrap()["status"], "running", "a genuine new task can still start");
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn completion_ownership_survives_terminal_reads_dequeue_and_core_restart() {
     use crate::session::{ItemCommit, RunOutcome};
@@ -3111,45 +3576,6 @@ async fn completion_ownership_survives_terminal_reads_dequeue_and_core_restart()
     crate::eventually_on!(&[&handle.cell.stepped], || (turns.load(Ordering::SeqCst) == 3 && idle(&handle)).then_some(())).await;
     reopened.directory.shutdown().await;
 }
-
-/// An owner is told a restart notice once when its write is slow: the owner takes the entry before the write is acknowledged, and
-/// a second pass (a compaction's `recoverAgentWorkers` starts one) finds the row still owed. The owner's queue knows an id only
-/// while it holds the entry, so queued again the notice would be delivered again (Node told 19 owners every five seconds).
-#[tokio::test]
-async fn a_slow_write_does_not_tell_the_owner_again_when_it_took_the_entry() {
-    let (_rig, registry, board) = lost_task_world();
-    let owner = OwnerQueue::new();
-    let stamp = at(NOW);
-    let mut first = std::pin::pin!(restart::notify_restart_failures(&registry, &owner, &board, &stamp));
-    assert!(futures::poll!(first.as_mut()).is_pending(), "the first pass waits for its write to be acknowledged");
-    assert_eq!(owner.queued.load(Ordering::SeqCst), 1);
-    owner.take();
-    let mut second = std::pin::pin!(restart::notify_restart_failures(&registry, &owner, &board, &stamp));
-    assert_eq!(futures::poll!(second.as_mut()), std::task::Poll::Ready(Ok(0)), "the notice is the first pass's");
-    owner.gate.add_permits(1);
-    assert_eq!(first.await, Ok(1));
-    assert_eq!(*owner.taken.lock().unwrap(), ["restart:t-1"]);
-    assert!(owner.queue.lock().unwrap().is_empty(), "no second entry for the owner to take");
-    assert_eq!(owner.queued.load(Ordering::SeqCst), 1);
-}
-
-/// A write that fails once leaves the row owed and nothing queued: the next pass queues the notice again, and the owner is told once.
-#[tokio::test]
-async fn a_failed_write_is_queued_again_and_told_once() {
-    let (_rig, registry, board) = lost_task_world();
-    let owner = OwnerQueue::new();
-    owner.gate.add_permits(2);
-    owner.fail_next.store(true, Ordering::SeqCst);
-    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await, Ok(0), "the write failed");
-    assert_eq!(registry.pending_restart_failures().await.unwrap().len(), 1, "the row is still owed");
-    assert!(owner.queue.lock().unwrap().is_empty(), "the failed write left no entry");
-    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await, Ok(1));
-    assert_eq!(restart::notify_restart_failures(&registry, &owner, &board, &at(NOW)).await, Ok(0), "told");
-    owner.take();
-    assert_eq!(*owner.taken.lock().unwrap(), ["restart:t-1"]);
-    assert_eq!(owner.queued.load(Ordering::SeqCst), 2);
-}
-
 /// `parkSession` and the `parked` stage (`agent-tree.mjs`, main 6de9f07bc): an open agent with no runtime left is parked and
 /// reads `parked` (`descriptor.parked === true && status === 'idle' && !owner`) until a turn starts on it
 /// (`agent-turns.mjs`: `descriptor.parked = false`); an unknown or closed agent is not parked, and a loaded session keeps
@@ -3222,7 +3648,6 @@ async fn an_idle_agent_with_no_runtime_left_is_parked_until_a_turn_starts() {
     assert!(!sessions.session_gone(loaded.id.as_str()).await);
     assert!(!sessions.session_gone("").await);
 }
-
 /// The idle release (`close-flow/idle-release.mjs` over `parkIdle`): an idle row past its period is released at once. The row
 /// of a session whose record is gone is dropped (`dropGoneRow`); an agent whose session is still loaded is not parked and
 /// keeps its row.
@@ -3264,4 +3689,44 @@ async fn the_idle_release_drops_the_row_of_a_deleted_session_and_leaves_a_loaded
     assert!(rig.store.map(loaded.id.as_str()).is_some());
     assert!(!registry.is_parked(loaded.id.as_str()));
     release.abort();
+}
+/// A Lead's turns through the composed stores, with other threads loaded: the row goes to the Lead index, not the Lead's
+/// header, so its record does not change (no `session_record`, whose listener makes every loaded thread re-read its agent
+/// status) and no worker-row signal is raised; the pool alone is told, lists the row, and the next process lists it too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_leads_turns_change_no_session_record_and_tell_the_pool_alone() {
+    #[derive(Default)]
+    struct Told(Mutex<Vec<String>>);
+    impl signals::StatusSignals for Told {
+        fn worker_rows(&self, session: &str) {
+            self.0.lock().unwrap().push(format!("worker:{session}"));
+        }
+        fn lead_rows(&self, session: &str) {
+            self.0.lock().unwrap().push(format!("lead:{session}"));
+        }
+    }
+    let data = tempfile::tempdir().unwrap();
+    let core = Core::up(data.path()).await;
+    let told = Arc::new(Told::default());
+    assert!(core.workers.bind_signals(told.clone()).is_ok());
+    let lead = core.start("op-lead", json!({})).await;
+    let _other = core.start("op-other", json!({})).await;
+    core.written().await;
+    core._rig.signals.0.lock().unwrap().clear();
+
+    crate::session::TurnStarts::turn_started(&core.registry, &lead);
+    crate::session::TurnStarts::turn_settled(&core.registry, &lead);
+    core.written().await;
+    let records = core._rig.signals.0.lock().unwrap().clone();
+    assert!(!records.contains(&format!("record:{}", lead.as_str())), "the Lead's record did not change: {records:?}");
+    let lead_told = format!("lead:{}", lead.as_str());
+    assert_eq!(*told.0.lock().unwrap(), [lead_told.clone(), lead_told], "the pool alone was told, at each turn boundary");
+    let header = mixdog_core_ports::ports::threads::ThreadState::header(&*core.threads, &lead).await.expect("the Lead's header");
+    assert!(!header.contains_key("worker"), "the row is not in the header: {header:?}");
+    assert_eq!(lead_row_of(&core.registry, lead.as_str()).await.expect("the pool lists the row")["status"], json!("idle"));
+    drop(core);
+
+    let next = Core::up(data.path()).await;
+    let row = lead_row_of(&next.registry, lead.as_str()).await.expect("the next process lists the row");
+    assert_eq!((row["status"].clone(), row["ownerSessionId"].clone()), (json!("idle"), json!(lead.as_str())));
 }

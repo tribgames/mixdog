@@ -173,6 +173,16 @@ impl CredentialFile {
         }
     }
 
+    pub(crate) async fn pinned(&self) -> Self {
+        Self { path: self.path_now().await, current: None, ..self.clone() }
+    }
+
+    /// Whether the file read now is the provider's own (the `default` account's): false while a followed account
+    /// scope or selection names another (`!boundProviderAuthPath(provider)`).
+    pub async fn is_own_now(&self) -> bool {
+        self.current.is_none() || self.path_now().await == self.path
+    }
+
     /// The file of a server that holds no model credentials when `on`.
     pub fn remote_client(mut self, on: bool) -> Self {
         self.remote_client = on;
@@ -267,6 +277,17 @@ impl CredentialFile {
         unchanged: impl FnOnce(&Document) -> bool + Send + 'static,
         update: Document,
     ) -> io::Result<bool> {
+        self.replace_if_without(unchanged, update, &[]).await
+    }
+
+    /// [`Self::replace_if`] that also drops the keys in `without` from the document it writes: another spelling of
+    /// a field `update` states, which would otherwise stay beside it as a second representation.
+    pub async fn replace_if_without(
+        &self,
+        unchanged: impl FnOnce(&Document) -> bool + Send + 'static,
+        update: Document,
+        without: &'static [&'static str],
+    ) -> io::Result<bool> {
         self.write_job(move |lane, path| {
             let current = match read_document(path) {
                 Probe::Present(map) => map,
@@ -277,6 +298,9 @@ impl CredentialFile {
                 return Ok(false);
             }
             let mut next = current;
+            for key in without {
+                next.shift_remove(*key);
+            }
             next.extend(update);
             publish(lane, path, &next)?;
             Ok(true)
@@ -284,16 +308,38 @@ impl CredentialFile {
         .await
     }
 
-    /// Runs `refresh` for this credential, or joins the one already running
-    /// (any handle on the same file) and returns its result. Re-read the
-    /// credential at the start of `refresh`: it may just have been renewed. A
-    /// refresh that outlives its deadline ends for every joiner as `Expired`.
-    pub async fn refresh_once<T, F>(&self, refresh: F) -> Result<T, mixdog_rt::Expired>
+    /// Runs `refresh` of the credential `held` (the refresh token the caller read from this file), or joins the one
+    /// already running for that same credential (any handle on the same file) and returns its result. Re-read the
+    /// credential at the start of `refresh`: it may just have been renewed. A refresh that outlives its deadline ends
+    /// for every joiner as `Expired`.
+    pub async fn refresh_once<T, F>(&self, held: &str, refresh: F) -> Result<T, mixdog_rt::Expired>
     where
         T: Clone + Send + Sync + 'static,
         F: std::future::Future<Output = T> + Send + 'static,
     {
-        super::single_flight::refresh_once(&self.path, refresh).await
+        super::single_flight::refresh_once(&self.path, held, refresh).await
+    }
+
+    /// Stores `document` as the whole file for a refresh of the stored login, only if `unchanged` accepts the stored
+    /// document (the generation the refresh exchanged is still the one stored). Returns whether it published.
+    pub async fn replace_refreshed(
+        &self,
+        unchanged: impl FnOnce(&Document) -> bool + Send + 'static,
+        document: Document,
+    ) -> io::Result<bool> {
+        self.write_job(move |lane, path| {
+            let current = match read_document(path) {
+                Probe::Present(map) => map,
+                Probe::Absent => Document::new(),
+                Probe::Unreadable => return Err(io::Error::from(io::ErrorKind::InvalidData)),
+            };
+            if !unchanged(&current) {
+                return Ok(false);
+            }
+            publish(lane, path, &document)?;
+            Ok(true)
+        })
+        .await
     }
 
     /// Removes the credential (logout).
@@ -382,5 +428,23 @@ mod tests {
         assert_eq!(doc["access"], "new");
         f.remove().await.unwrap();
         assert_eq!(f.load_document().await, Probe::Absent);
+    }
+
+    /// A refresh writes one spelling of a field: the other, imported one does not stay beside it.
+    #[tokio::test]
+    async fn a_merged_write_leaves_one_spelling_of_the_expiry() {
+        mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let f = file(&dir);
+        fs::write(f.path(), r#"{"access":"old","refresh":"r1","expiresAt":1,"future":true}"#).unwrap();
+        let mut update = Map::new();
+        update.insert("expires_at".into(), 5_000_000_000_000_u64.into());
+        assert!(f.replace_if_without(|_| true, update, &["expiresAt"]).await.unwrap());
+        let Probe::Present(doc) = f.load_document().await else {
+            panic!("present")
+        };
+        assert!(doc.get("expiresAt").is_none(), "{doc:?}");
+        assert_eq!(doc["expires_at"], 5_000_000_000_000_u64);
+        assert_eq!(doc["future"], true, "unknown fields stay");
     }
 }

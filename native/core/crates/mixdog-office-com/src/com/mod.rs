@@ -184,8 +184,6 @@ impl fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
-
 impl From<ComError> for Error {
     fn from(error: ComError) -> Error {
         Error::Com(error)
@@ -224,3 +222,6 @@ pub trait ComObject {
         None
     }
 }
+
+
+impl std::error::Error for Error {}

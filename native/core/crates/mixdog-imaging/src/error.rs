@@ -98,8 +98,6 @@ impl fmt::Display for ImagingError {
     }
 }
 
-impl std::error::Error for ImagingError {}
-
 /// The sentence for a header the codec of a format could not parse. `detail` is what libvips appends after the
 /// colon (empty for libpng, which gives none).
 pub fn corrupt_header(detail: &str) -> String {
@@ -135,3 +133,6 @@ mod tests {
         assert_eq!(corrupt_header("webp: unable to parse image"), "Input buffer has corrupt header: webp: unable to parse image");
     }
 }
+
+
+impl std::error::Error for ImagingError {}

@@ -492,47 +492,6 @@ mod tests {
             .collect()
     }
 
-    fn doc() -> Doc {
-        serde_json::from_str(mixdog_testkit::fixture!("src/schema/vectors/frames.json")).expect("frames.json")
-    }
-
-    #[test]
-    fn encodes_every_single_vector() {
-        for single in doc().single {
-            let mut out = Vec::new();
-            encode_into(&mut out, single.ordinal, single.payload.as_bytes());
-            assert_eq!(out, unhex(&single.hex));
-        }
-    }
-
-    #[test]
-    fn classifies_every_vector_of_the_table() {
-        for case in doc().classification {
-            let bytes = unhex(&case.hex);
-            let got = scan(&bytes, 0, 0, case.start_ordinal);
-            assert_eq!(
-                (got.frames.len(), got.end),
-                (case.expect.committed, case.expect.end),
-                "{}",
-                case.name
-            );
-            // The same verdict from a non-zero base offset and frame start.
-            let mut shifted = vec![b'x'; 7];
-            shifted.extend_from_slice(&bytes);
-            let moved = scan(&shifted, 100, 7, case.start_ordinal);
-            let shift = |end: ScanEnd| match end {
-                ScanEnd::Clean => ScanEnd::Clean,
-                ScanEnd::Torn { offset } => ScanEnd::Torn { offset: offset + 107 },
-                ScanEnd::Corrupt { offset, ordinal, cause } => ScanEnd::Corrupt {
-                    offset: offset + 107,
-                    ordinal,
-                    cause,
-                },
-            };
-            assert_eq!(moved.end, shift(got.end), "{}", case.name);
-        }
-    }
-
     #[test]
     fn reverse_scan_finds_the_newest_checkpoint_and_passes_over_damage() {
         let mut buf = Vec::new();
@@ -632,6 +591,46 @@ mod tests {
                     assert_eq!(got.unwrap().iter().map(|m| (m.ordinal, m.start)).collect::<Vec<_>>(), [(5, 0), (6, members.len() / 3), (7, 2 * members.len() / 3)]);
                 }
             }
+        }
+    }
+
+
+    fn doc() -> Doc {
+        serde_json::from_str(mixdog_testkit::fixture!("src/schema/vectors/frames.json")).expect("frames.json")
+    }
+    #[test]
+    fn encodes_every_single_vector() {
+        for single in doc().single {
+            let mut out = Vec::new();
+            encode_into(&mut out, single.ordinal, single.payload.as_bytes());
+            assert_eq!(out, unhex(&single.hex));
+        }
+    }
+    #[test]
+    fn classifies_every_vector_of_the_table() {
+        for case in doc().classification {
+            let bytes = unhex(&case.hex);
+            let got = scan(&bytes, 0, 0, case.start_ordinal);
+            assert_eq!(
+                (got.frames.len(), got.end),
+                (case.expect.committed, case.expect.end),
+                "{}",
+                case.name
+            );
+            // The same verdict from a non-zero base offset and frame start.
+            let mut shifted = vec![b'x'; 7];
+            shifted.extend_from_slice(&bytes);
+            let moved = scan(&shifted, 100, 7, case.start_ordinal);
+            let shift = |end: ScanEnd| match end {
+                ScanEnd::Clean => ScanEnd::Clean,
+                ScanEnd::Torn { offset } => ScanEnd::Torn { offset: offset + 107 },
+                ScanEnd::Corrupt { offset, ordinal, cause } => ScanEnd::Corrupt {
+                    offset: offset + 107,
+                    ordinal,
+                    cause,
+                },
+            };
+            assert_eq!(moved.end, shift(got.end), "{}", case.name);
         }
     }
 }

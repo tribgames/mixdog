@@ -1378,16 +1378,6 @@ mod tests {
     }
 
     #[test]
-    fn a_vertical_edge_leaves_the_exact_share_of_its_pixel_held_to_a_256th() {
-        // Original canvas 1.0.11: alpha 230 (white-background RGB 25), reproduced by
-        // tests/oracles/analytic-vertical.mjs and retained in analytic-vertical.json.
-        let path = polygon(&[(10.1, 5.0), (10.1, 25.0), (30.0, 25.0), (30.0, 5.0), (20.0, 4.5)]);
-        let raster = coverage(&path, FillRule::Winding, 40, 40).expect("coverage");
-        assert_eq!(at(&raster, 10, 15), 230);
-        assert_eq!(at(&raster, 11, 15), 255);
-    }
-
-    #[test]
     fn the_top_and_bottom_of_a_path_fall_on_quarter_pixels() {
         // 10.1 is held to 10.0 and 20.9 to 21.0: the first and the last row are covered whole, as Skia draws them.
         let path = polygon(&[(5.3, 10.1), (5.3, 20.9), (8.8, 20.9), (8.8, 10.1), (7.0, 10.1)]);
@@ -1537,5 +1527,16 @@ mod tests {
         let raster = coverage(&path, FillRule::EvenOdd, 40, 40).expect("coverage");
         assert_eq!(at(&raster, 7, 15), 255);
         assert_eq!(at(&raster, 15, 15), 0);
+    }
+
+
+    #[test]
+    fn a_vertical_edge_leaves_the_exact_share_of_its_pixel_held_to_a_256th() {
+        // Original canvas 1.0.11: alpha 230 (white-background RGB 25), reproduced by
+        // tests/oracles/analytic-vertical.mjs and retained in analytic-vertical.json.
+        let path = polygon(&[(10.1, 5.0), (10.1, 25.0), (30.0, 25.0), (30.0, 5.0), (20.0, 4.5)]);
+        let raster = coverage(&path, FillRule::Winding, 40, 40).expect("coverage");
+        assert_eq!(at(&raster, 10, 15), 230);
+        assert_eq!(at(&raster, 11, 15), 255);
     }
 }

@@ -538,7 +538,7 @@ $coreBuildRoot = if ($CoreBuildRoot) { $CoreBuildRoot } elseif ($env:MIXDOG_FAST
 
 # This PC's build gate (machine-wide build slots; it places each checkout's build folder). Where it is not there,
 # cargo runs as it is and builds in the checkout.
-$cargoGate = if ($env:MIXDOG_CARGO_GATE) { $env:MIXDOG_CARGO_GATE } else { 'D:\mixdog-build\tools\cargo-gate.ps1' }
+$cargoGate = if ($env:MIXDOG_CARGO_GATE) { $env:MIXDOG_CARGO_GATE } else { (Join-Path $PSScriptRoot 'cargo-gate.ps1') }
 
 # Where the build of $coreBuildRoot lands: the gate's folder for that checkout (cargo-gate.ps1 names it by the
 # checkout's folder), else cargo's own. Worked out from the checkout alone, so the front process and the detached
@@ -569,9 +569,13 @@ function Build-LocalCore {
     # The published build's profile: the app on this PC is the one its user works in, so it runs what a release
     # runs. A change is checked before this, by its tests and in an isolated instance on a `dev` build.
     Write-Step 'building mixdogd and mixdog-askpass (cargo build --release -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass)'
+    # The core builds from the checkout as it is when cargo reads it. Edits made there while the deploy runs (other
+    # sessions at work) used to fail the deploy here and after the build ("core sources changed after planning"); with
+    # agents editing the checkout around the clock no deploy got through. They are reported and the build goes on: the
+    # installed core is whatever compiled, and the next deploy sees the newer sources as changed and builds again.
     if ($FastDirect -and $fastPlan) {
         & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot" | Out-Host
-        if ($LASTEXITCODE -ne 0) { throw 'FastDirect core sources changed after planning.' }
+        if ($LASTEXITCODE -ne 0) { Write-Warning 'Core sources in the checkout changed after planning; building them as they are now.' }
     }
     $cargoArguments = @('build', '--release', '--locked', '-p', 'mixdog-cli', '--bin', 'mixdogd', '-p', 'mixdog-askpass', '--bin', 'mixdog-askpass')
     Push-Location (Join-Path $coreBuildRoot 'native\core')
@@ -593,7 +597,7 @@ function Build-LocalCore {
     }
     if ($FastDirect -and $fastPlan) {
         & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot" | Out-Host
-        if ($LASTEXITCODE -ne 0) { throw 'FastDirect core sources changed while building.' }
+        if ($LASTEXITCODE -ne 0) { Write-Warning 'Core sources in the checkout changed while building; installing the core cargo built.' }
     }
     $built = Get-BuiltCorePath
     if (-not (Test-Path -LiteralPath $built -PathType Leaf)) { throw "cargo did not produce $built" }

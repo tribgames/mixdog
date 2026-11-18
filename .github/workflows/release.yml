@@ -1,5 +1,8 @@
-# Reusable application release worker. Deploy computes and commits the version,
-# then calls this workflow with an immutable tag + SHA. The npm packages (one per
+# Reusable application release worker. Deploy computes and commits the version
+# (to no branch and no tag), then calls this workflow with the tag, the commit's
+# SHA and the default branch commit it descends from. The full gate verifies
+# that SHA (coverage-gate) before push-release-refs moves the branch and creates
+# the tag, and every publishing job needs both. The npm packages (one per
 # platform and the main package that lists them, built from the programs mixdogd-build.yml
 # builds once) remain staged as an Actions artifact, while verified desktop packages upload directly
 # to one hidden GitHub draft. The draft becomes public only after the exact
@@ -26,11 +29,10 @@ on:
         description: "Immutable commit SHA to build and publish"
         required: true
         type: string
-      run_critical:
-        description: "Run source-critical release invariants changed since the prior app release"
-        required: false
-        type: boolean
-        default: true
+      base:
+        description: "The default branch's commit the release commit descends from; the branch is moved only from exactly it"
+        required: true
+        type: string
       mobile_version:
         description: "Android app version X.Y.Z to publish as mobile-vX.Y.Z before the relay deploy; empty for none"
         required: false
@@ -100,7 +102,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -123,7 +125,7 @@ jobs:
 
       - name: Verify release tag matches package version
         env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           node --input-type=module <<'NODE'
           import { readFile } from 'node:fs/promises';
@@ -162,7 +164,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -183,72 +185,92 @@ jobs:
       - name: Verify native sources match the pinned native releases
         run: node scripts/native-release-status.mjs --check
 
-      # The gate already ran the default lane on every gated main push; this
-      # re-runs it only when a critical path changed after the newest gated
-      # commit (deploy.yml run_critical). The lane needs no native binary, no
-      # Office runtime and no staged native tool: the Rust code that changed
-      # under native/ is verified by the rust-lanes job beside this one.
-      # Retried for a transient registry failure; a deterministic one fails
-      # all three attempts.
-      - name: Install
-        if: inputs.run_critical
-        run: |
-          for attempt in 1 2 3; do
-            npm ci --prefer-offline --no-audit --no-fund && exit 0
-            echo "npm ci failed (attempt ${attempt}/3)" >&2
-            sleep $((attempt * 10))
-          done
-          exit 1
-
-      - name: Verify changed source-critical release invariants
-        if: inputs.run_critical
-        run: npm test
-
-  # The Rust lanes of the gate (scripts/rust-core/k1-lanes.mjs: the tests of native/core that stand in for the Node suites
-  # the cut removed), re-run when a critical path changed after the newest gated commit. The release commit Deploy stamps is
-  # exempt from the gate and rewrites native/core/Cargo.toml and Cargo.lock, so this is the only run of the lanes on the
-  # code being released. It runs beside the packagers; publish waits for it. The job always runs (publish has no `if`, so a
-  # skipped needed job would skip the publication); its steps run only with run_critical.
-  rust-lanes:
-    name: rust-core-lanes
+  # The full-release gate for the exact release commit (release-gate.yml, called with the immutable SHA this run was started for):
+  # every lane of the gate on that commit, then the reconciliation of what the tracked source defines with what the lanes executed.
+  # It replaces the source-critical re-runs this workflow used to select from run history; there is no input that says a commit was
+  # already verified. `publish` and every other release sink of this run lists it in `needs` with the default success semantics
+  # (scripts/ci/coverage/wiring.mjs checks that, and the sink list, on every change to a workflow).
+  coverage-gate:
+    name: full-release-coverage
     needs: identity
+    uses: ./.github/workflows/release-gate.yml
+    permissions:
+      contents: read
+      actions: read
+    with:
+      ref: ${{ inputs.ref }}
+      gate: release
+      joins: true
+
+  # The first write of the release to the repository, and only once the gate has verified this exact commit: the default branch
+  # moves from the deploy's commit (`base`, a lease: if anything else moved it, nothing is pushed) to the release commit, and the app
+  # tag is created at it, in one atomic push. A tag that already exists is never moved: the push is refused unless it already names
+  # this commit. Every sink of this run that publishes under the tag needs this job.
+  push-release-refs:
+    name: push-verified-release-refs
+    needs: [identity, coverage-gate, prepared-runtime-join]
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
-    env:
-      CARGO_BUILD_JOBS: "3"
-      ONNXRUNTIME_NODE_INSTALL: skip
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
-      SCCACHE_GHA_VERSION: release-rust-lanes-rust1.99.1-v1
+    timeout-minutes: 10
+    permissions:
+      contents: write # the default branch and the app tag
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        if: inputs.run_critical
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref }}
+      - name: Move the default branch and create the tag at the verified commit
+        env:
+          SHA: ${{ inputs.ref }}
+          BASE: ${{ inputs.base }}
+          TAG: ${{ inputs.tag }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE" "$SHA"
+          git push --atomic --force-with-lease="refs/heads/${DEFAULT_BRANCH}:${BASE}" origin \
+            "${SHA}:refs/heads/${DEFAULT_BRANCH}" "${SHA}:refs/tags/${TAG}"
+          test "$(git ls-remote origin "refs/heads/${DEFAULT_BRANCH}" | awk '{ print $1 }')" = "$SHA"
+          test "$(git ls-remote origin "refs/tags/${TAG}" | awk '{ print $1 }')" = "$SHA"
+
+  # The join of the prepared environments only this workflow builds (scripts/ci/coverage/plan.json `joinLegs`): the Windows package
+  # job runs the suite that reads its prepared runtime, which the gate's lanes skip; its receipt, from this run and this commit, must
+  # hold a pass of each case an exception sends there, against the gate's manifest of the same commit (cli.mjs join).
+  prepared-runtime-join:
+    name: prepared-runtime-evidence
+    needs: [coverage-gate, desktop-windows]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        if: inputs.run_critical
+      - uses: ./.github/actions/setup-node-ci
         with:
-          node-version: "22"
-          cache: npm
           cache-dependency-path: package-lock.json
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
-        if: inputs.run_critical
-        with:
-          toolchain: "1.99.1"
-      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-        if: inputs.run_critical
-      # scripts/rust-core/lib/core-session.mjs imports `ws`; a clean runner has no node_modules.
       - name: Install
-        if: inputs.run_critical
-        run: npm ci --prefer-offline --no-audit --no-fund
-      # The scripts start every cargo/mixdogd child through this helper (it ends the child's whole tree, whatever exits first).
-      - name: Build the process-tree helper
-        if: inputs.run_critical
-        run: cargo build --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
-      - name: Run the lanes
-        if: inputs.run_critical
-        run: node scripts/rust-core/k1-lanes.mjs
+        run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
+      - name: Download the gate's manifest of this commit
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coverage-manifest-release-${{ inputs.ref }}
+          path: coverage
+      - name: Download the evidence of the join legs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: join-evidence-release-${{ inputs.ref }}-windows-desktop-package-1of1
+          path: join-evidence
+      - name: Require the prepared-environment replacements
+        env:
+          EXPECTED_SHA: ${{ inputs.ref }}
+          ALLOW_REUSED_EVIDENCE: "true"
+        run: |
+          node scripts/ci/coverage/cli.mjs join --manifest coverage/manifest.json --evidence join-evidence \
+            --sha "$EXPECTED_SHA" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --repository "$GITHUB_REPOSITORY" --workflow "$GITHUB_WORKFLOW_REF"
 
   # main/preload/renderer output is platform-neutral. Build it once, cache it
   # by the exact desktop/shared source inputs, then feed the same verified
@@ -271,7 +293,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       # The lock file cannot enter this key through hashFiles: Deploy rewrites
@@ -283,12 +305,12 @@ jobs:
         id: desktop-key
         shell: bash
         run: |
-          echo "manifest=$(node scripts/manifest-cache-key.mjs \
-            apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
+          manifest=$(node scripts/manifest-cache-key.mjs package-lock.json apps/desktop/package-lock.json)
+          echo "manifest=$manifest" >> "$GITHUB_OUTPUT"
 
       # Key mirrored in release-gate.yml, which warms it on every main push. It hashes every tree the bundle imports
-      # from outside apps/desktop/src (packages/protocol, packages/protocol-client, src/tui, the shared runtime
-      # modules): a hand-picked list kept missing one, and a hit restores the old bundle and skips the typecheck.
+      # from outside apps/desktop/src, including the hosted phone client in apps/mobile/src. A hit
+      # restores the old bundle and skips the typecheck.
       # The renderer bundles CHANGELOG.md and the desktop package version
       # (Settings > About > changelog), so both belong in the key: the
       # release commit Deploy stamps must rebuild instead of reusing the
@@ -299,7 +321,7 @@ jobs:
         with:
           path: apps/desktop/out
           key: >-
-            desktop-out-v5-${{ steps.desktop-key.outputs.manifest }}-${{ hashFiles(
+            desktop-out-v8-${{ steps.desktop-key.outputs.manifest }}-${{ hashFiles(
               'CHANGELOG.md',
               'changelog/*.md',
               'apps/desktop/package.json',
@@ -307,6 +329,10 @@ jobs:
               'apps/desktop/scripts/**',
               'apps/desktop/electron.vite.config.ts',
               'apps/desktop/tsconfig*.json',
+              'apps/mobile/src/**',
+              'apps/relay/lib/feedback-attachments.mjs',
+              'apps/relay/lib/media-http.mjs',
+              'apps/relay/lib/relay-close-codes.mjs',
               'packages/**',
               'src/**',
               '!**/*.test.mjs',
@@ -372,17 +398,22 @@ jobs:
     outputs:
       release_id: ${{ steps.draft.outputs.id }}
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+      # A public release of the tag is refused; one draft is resumed only if it names this commit; the draft is then used by its id.
+      # The listing is the evidence: a failed lookup stops the run, and only a complete listing that lacks the tag creates a draft. The
+      # body comes from CHANGELOG.md at publish time (GitHub's generated notes list merged PRs only, and Deploy commits straight to
+      # main, so they would leave just a compare link).
       - name: Create or resume one hidden draft
         id: draft
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
-          target_commitish: ${{ inputs.ref || github.sha }}
-          draft: true
-          prerelease: false
-          # The body comes from CHANGELOG.md at publish time. GitHub's generated
-          # notes list merged PRs only, and Deploy commits straight to main, so
-          # they would leave just a compare link.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_REF: ${{ inputs.ref }}
+        run: node scripts/ci/release-state.mjs
 
   # mixdogd, the Rust core, for every target a desktop package carries (the
   # app's own core and the four server cores): the single producer of the
@@ -409,13 +440,58 @@ jobs:
     permissions:
       contents: read
     with:
-      ref: ${{ inputs.ref || github.sha }}
+      ref: ${{ inputs.ref }}
 
-  core-smoke:
-    name: boot-shipped-mixdogd-${{ matrix.target }}
-    needs: [identity, mixdogd]
+  # The process-tree helper (scripts/rust-core/tree-helper, program `treerun`) every smoke of a shipped mixdogd starts its
+  # children through, built once per target here, beside the mixdogd build and from nothing but the repository, instead of
+  # by each of the nine jobs that run a smoke (the four core-smoke legs and the five packagers: a Rust install and a cargo
+  # build each, after their own work). Consumers take `treerun-<target>` and name it with MIXDOG_TREE_HELPER. The macOS x64
+  # helper is cross-built here and runs on the Intel packager.
+  tree-helper:
+    name: tree-helper-${{ matrix.target }}
+    needs: [identity]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-22.04, exe: "" }
+          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-22.04-arm, exe: "" }
+          - { target: aarch64-apple-darwin, runner: macos-15, exe: "" }
+          - { target: x86_64-apple-darwin, runner: macos-15, exe: "" }
+          - { target: x86_64-pc-windows-msvc, runner: windows-2022, exe: ".exe" }
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: "1.99.1"
+          targets: ${{ matrix.target }}
+      - name: Build the process-tree helper
+        shell: bash
+        run: cargo build --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: treerun-${{ matrix.target }}
+          path: scripts/rust-core/tree-helper/target/${{ matrix.target }}/release/treerun${{ matrix.exe }}
+          if-no-files-found: error
+          retention-days: 2
+
+  # Starts with its own work (checkout, install) beside the mixdogd build, and waits for its mixdogd-<target> artifact
+  # (actions: read) instead of idling behind `needs`; a failed mixdogd build fails it at once.
+  core-smoke:
+    name: boot-shipped-mixdogd-${{ matrix.target }}
+    needs: [identity, tree-helper]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -432,25 +508,37 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: package-lock.json
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+      # Only the pure-JS `ws` is loaded; no install script is needed.
+      - name: Install
+        run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
+      - name: Take the process-tree helper
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          toolchain: "1.99.1"
+          name: treerun-${{ matrix.target }}
+          path: treerun-in
+      - name: Name the process-tree helper
+        run: |
+          chmod +x treerun-in/treerun${{ matrix.exe }}
+          helper="$PWD/treerun-in/treerun${{ matrix.exe }}"
+          # Git Bash's /d/a/... form is not a path node can open.
+          if command -v cygpath > /dev/null; then helper=$(cygpath -m "$helper"); fi
+          echo "MIXDOG_TREE_HELPER=$helper" >> "$GITHUB_ENV"
+      - name: Wait for the mixdogd build
+        timeout-minutes: 105
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/wait-for-artifact.sh mixdogd-${{ matrix.target }} mixdogd-${{ matrix.target }} 100
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: mixdogd-${{ matrix.target }}
           path: core
-      # Only the pure-JS `ws` is loaded; no install script is needed.
-      - name: Install
-        run: npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
-      - name: Build the process-tree helper
-        run: cargo build --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
       - name: Boot mixdogd and answer a first call
         run: |
           chmod +x core/mixdogd${{ matrix.exe }}
@@ -464,10 +552,12 @@ jobs:
     needs: [identity, mixdogd]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
+    outputs:
+      artifact_id: ${{ steps.tarballs.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -501,9 +591,10 @@ jobs:
       - name: Check the tarballs and start the launcher from an install of them
         run: node scripts/check-npm-packages.mjs --dir npm-tarballs --run
       - name: Stage npm packages
+        id: tarballs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: npm-package
+          name: npm-package-${{ github.run_attempt }}
           path: npm-tarballs/*.tgz
           if-no-files-found: error
           retention-days: 2
@@ -525,14 +616,20 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
+      - name: Require the verified npm artifact ID
+        env:
+          NPM_ARTIFACT: ${{ needs.pack-npm.outputs.artifact_id }}
+        shell: bash
+        run: '[[ "$NPM_ARTIFACT" =~ ^[0-9]+$ ]]'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: npm-package
+          artifact-ids: ${{ needs.pack-npm.outputs.artifact_id }}
+          digest-mismatch: error
           path: npm-tarballs
       - name: Start the launcher from the packed tarballs
         run: node scripts/check-npm-packages.mjs --dir npm-tarballs --run ${{ matrix.key }}
@@ -549,8 +646,8 @@ jobs:
       contents: write
       actions: read
     with:
-      ref: ${{ inputs.ref || github.ref }}
-      tag: ${{ inputs.tag || github.ref_name }}
+      ref: ${{ inputs.ref }}
+      tag: ${{ inputs.tag }}
       release_id: ${{ needs.prepare-github-release.outputs.release_id }}
       runner: windows-2022
       platform: win32
@@ -569,8 +666,8 @@ jobs:
       contents: write
       actions: read
     with:
-      ref: ${{ inputs.ref || github.ref }}
-      tag: ${{ inputs.tag || github.ref_name }}
+      ref: ${{ inputs.ref }}
+      tag: ${{ inputs.tag }}
       release_id: ${{ needs.prepare-github-release.outputs.release_id }}
       runner: macos-15
       platform: darwin
@@ -591,8 +688,8 @@ jobs:
       contents: write
       actions: read
     with:
-      ref: ${{ inputs.ref || github.ref }}
-      tag: ${{ inputs.tag || github.ref_name }}
+      ref: ${{ inputs.ref }}
+      tag: ${{ inputs.tag }}
       release_id: ${{ needs.prepare-github-release.outputs.release_id }}
       runner: macos-15-intel
       platform: darwin
@@ -627,8 +724,8 @@ jobs:
       contents: write
       actions: read
     with:
-      ref: ${{ inputs.ref || github.ref }}
-      tag: ${{ inputs.tag || github.ref_name }}
+      ref: ${{ inputs.ref }}
+      tag: ${{ inputs.tag }}
       release_id: ${{ needs.prepare-github-release.outputs.release_id }}
       runner: ubuntu-22.04
       platform: linux
@@ -643,8 +740,8 @@ jobs:
       contents: write
       actions: read
     with:
-      ref: ${{ inputs.ref || github.ref }}
-      tag: ${{ inputs.tag || github.ref_name }}
+      ref: ${{ inputs.ref }}
+      tag: ${{ inputs.tag }}
       release_id: ${{ needs.prepare-github-release.outputs.release_id }}
       runner: ubuntu-22.04-arm
       platform: linux
@@ -652,19 +749,25 @@ jobs:
       artifact_arch: arm64
       target: linux
 
-  # Full Linux verification (update proof, sandbox .deb, distro containers,
-  # native-tool exec matrix) gates publication.
+  # All full Linux checks use the immutable artifacts of the two packagers.
+  # Their byte records, not merely the shared source SHA, also gate publication.
+  # The x64 root and desktop suites are not repeated here (arm64_tests_only): the
+  # gate ran them on this source, and only arm64 is exercised nowhere else.
   linux-verify-full:
     needs: [identity, linux-native-tools, mixdogd, server-cores, desktop-linux-x64, desktop-linux-arm64]
     uses: ./.github/workflows/linux-desktop-verify.yml
     permissions:
       contents: read
+      actions: read
     with:
       full: true
       native_tools_prebuilt: true
       mixdogd_prebuilt: true
       server_cores_prebuilt: true
       packages_prebuilt: true
+      package_x64_id: ${{ needs.desktop-linux-x64.outputs.linux_package_id }}
+      package_arm64_id: ${{ needs.desktop-linux-arm64.outputs.linux_package_id }}
+      arm64_tests_only: true
       # Every checkout inside the called workflow uses this exact commit
       # (and asserts HEAD == ref), not the caller's default-branch sha.
       ref: ${{ inputs.ref }}
@@ -686,7 +789,7 @@ jobs:
 
   publish:
     name: publish-staged-release
-    needs: [validate, rust-lanes, desktop-build, server-cores, core-smoke, pack-npm, verify-npm-install, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
+    needs: [coverage-gate, push-release-refs, prepared-runtime-join, validate, desktop-build, server-cores, core-smoke, pack-npm, verify-npm-install, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:
@@ -695,7 +798,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -703,186 +806,97 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Require artifact IDs from the verified jobs
+        env:
+          NPM_ARTIFACT: ${{ needs.pack-npm.outputs.artifact_id }}
+          MAC_ARM64_FEED: ${{ needs.desktop-darwin-arm64.outputs.mac_feed_id }}
+          MAC_X64_FEED: ${{ needs.desktop-darwin-x64.outputs.mac_feed_id }}
+        shell: bash
+        run: '[[ "$NPM_ARTIFACT" =~ ^[0-9]+$ && "$MAC_ARM64_FEED" =~ ^[0-9]+$ && "$MAC_X64_FEED" =~ ^[0-9]+$ && "$MAC_ARM64_FEED" != "$MAC_X64_FEED" ]]'
+
       - name: Download staged npm package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: npm-package
+          artifact-ids: ${{ needs.pack-npm.outputs.artifact_id }}
+          digest-mismatch: error
           path: staged-npm
 
       # electron-updater on macOS reads one latest-mac.yml, but each macOS job
       # builds a single architecture and so emits a feed for its own zip only.
       # Merge both into the one feed and add it to the hidden draft.
-      - name: Download macOS update feeds
+      - name: Download arm64 macOS update feed
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: desktop-mac-feed-*
-          path: mac-feeds
+          artifact-ids: ${{ needs.desktop-darwin-arm64.outputs.mac_feed_id }}
+          digest-mismatch: error
+          path: mac-feeds/arm64
+
+      - name: Download x64 macOS update feed
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.desktop-darwin-x64.outputs.mac_feed_id }}
+          digest-mismatch: error
+          path: mac-feeds/x64
 
       - name: Merge and upload macOS update feed
+        id: merged-feed
         env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_REF: ${{ inputs.ref }}
           RELEASE_ID: ${{ needs.prepare-github-release.outputs.release_id }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           node scripts/merge-mac-update-feed.mjs --version="${RELEASE_TAG#v}" --out=latest-mac.yml \
-            mac-feeds/desktop-mac-feed-arm64/latest-mac.yml mac-feeds/desktop-mac-feed-x64/latest-mac.yml
+            mac-feeds/arm64/latest-mac.yml mac-feeds/x64/latest-mac.yml
           bash .github/scripts/upload-release-assets.sh latest-mac.yml
 
       - name: Verify complete hidden release
-        env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-          RELEASE_REF: ${{ inputs.ref || github.sha }}
+        env: &desktop-release
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_REF: ${{ inputs.ref }}
           RELEASE_ID: ${{ needs.prepare-github-release.outputs.release_id }}
           GH_TOKEN: ${{ github.token }}
+          WINDOWS_ASSETS: ${{ needs.desktop-windows.outputs.assets }}
+          MAC_ARM64_ASSETS: ${{ needs.desktop-darwin-arm64.outputs.assets }}
+          MAC_X64_ASSETS: ${{ needs.desktop-darwin-x64.outputs.assets }}
+          LINUX_ARM64_ASSETS: ${{ needs.desktop-linux-arm64.outputs.assets }}
+          LINUX_X64_ASSETS: ${{ needs.desktop-linux-x64.outputs.assets }}
+          MERGED_FEED: ${{ steps.merged-feed.outputs.assets }}
         shell: bash
         run: |
           set -euo pipefail
           test -n "$RELEASE_ID"
           git fetch --force origin "+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
           test "$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")" = "$RELEASE_REF"
-          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > /tmp/release.json
-          gh api --paginate --slurp \
-            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" > /tmp/assets.json
-          node --input-type=module <<'NODE'
-          import { readdirSync } from 'node:fs';
-          import { readFileSync } from 'node:fs';
-
-          const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
-          if (process.env.RELEASE_TAG !== `v${version}`) {
-            throw new Error(`Staged ref version ${version} does not match ${process.env.RELEASE_TAG}`);
-          }
-
-          const release = JSON.parse(readFileSync('/tmp/release.json', 'utf8'));
-          if (String(release.id) !== process.env.RELEASE_ID
-              || release.tag_name !== process.env.RELEASE_TAG
-              || release.target_commitish !== process.env.RELEASE_REF
-              || !release.draft || release.prerelease) {
-            throw new Error('Hidden GitHub release identity no longer matches this immutable build');
-          }
-
-          // Per-platform requirements. The publish job already needs every
-          // desktop package job, so each group is an explicit part of the
-          // release contract rather than a side effect of another platform.
-          const requirements = {
-            windows: [
-              'latest.yml',
-              'mixdog-desktop-win-x64.exe',
-              'mixdog-desktop-win-x64.exe.blockmap',
-            ],
-            // latest-mac.yml is merged from both architectures' feeds by the
-            // publish job; the zip blockmaps serve the differential updater.
-            macos: [
-              'latest-mac.yml',
-              'mixdog-desktop-mac-arm64.dmg',
-              'mixdog-desktop-mac-arm64.zip',
-              'mixdog-desktop-mac-arm64.zip.blockmap',
-              'mixdog-desktop-mac-x64.dmg',
-              'mixdog-desktop-mac-x64.zip',
-              'mixdog-desktop-mac-x64.zip.blockmap',
-            ],
-            // electron-updater reads latest-linux*.yml; a .deb install uses
-            // DebUpdater, which downloads the .deb named in that feed.
-            linux: [
-              'latest-linux.yml',
-              'latest-linux-arm64.yml',
-              'mixdog-desktop-linux-arm64.AppImage',
-              'mixdog-desktop-linux-arm64.deb',
-              'mixdog-desktop-linux-x86_64.AppImage',
-              'mixdog-desktop-linux-amd64.deb',
-            ],
-          };
-          const expected = Object.values(requirements).flat().sort();
-          const assets = JSON.parse(readFileSync('/tmp/assets.json', 'utf8')).flat();
-          const actual = assets.map(asset => asset.name).sort();
-          for (const [platform, names] of Object.entries(requirements)) {
-            const missing = names.filter(name => !actual.includes(name));
-            if (missing.length) {
-              throw new Error(`Hidden release is missing ${platform} assets: ${missing.join(', ')}`);
-            }
-          }
-          if (new Set(actual).size !== actual.length
-              || JSON.stringify(actual) !== JSON.stringify(expected)) {
-            throw new Error(`Hidden release asset set is not exact: ${JSON.stringify(actual)}`);
-          }
-          // Every file a Linux update feed points at must be a draft asset,
-          // and each feed must offer both the AppImage and the .deb.
-          for (const feedName of ['latest-linux.yml', 'latest-linux-arm64.yml']) {
-            const feedAsset = assets.find(asset => asset.name === feedName);
-            const response = await fetch(feedAsset.url, {
-              headers: {
-                Authorization: `Bearer ${process.env.GH_TOKEN}`,
-                Accept: 'application/octet-stream',
-              },
-            });
-            if (!response.ok) throw new Error(`Cannot read ${feedName}: HTTP ${response.status}`);
-            const feed = await response.text();
-            const referenced = new Set(
-              [...feed.matchAll(/^\s*(?:-\s+)?(?:url|path):\s*['"]?([^'"\s]+)['"]?\s*$/gm)].map(m => m[1])
-            );
-            for (const ext of ['.AppImage', '.deb']) {
-              if (![...referenced].some(name => name.endsWith(ext))) {
-                throw new Error(`${feedName} does not reference a ${ext} file`);
-              }
-            }
-            for (const name of referenced) {
-              if (!actual.includes(name)) {
-                throw new Error(`${feedName} references ${name}, which is not a hidden release asset`);
-              }
-            }
-          }
-          for (const asset of assets) {
-            if (asset.state !== 'uploaded' || !(asset.size > 0)
-                || !/^sha256:[0-9a-f]{64}$/.test(String(asset.digest || ''))) {
-              throw new Error(`Incomplete hidden release asset: ${asset.name}`);
-            }
-          }
-          console.log(`Verified hidden ${process.env.RELEASE_TAG}: ${assets.length} desktop assets.`);
-          NODE
+          node scripts/ci/release-assets.mjs verify-desktop
 
       # The six tarballs are what pack-npm checked; nothing else may be in the folder.
       - name: Verify the staged npm packages
         run: node scripts/check-npm-packages.mjs --dir staged-npm
 
       # The platform packages first, the main package last: the main package lists them, so an install of it can
-      # never find a version whose platform package is missing. A package already on the registry at this version is
-      # skipped, so a failed release resumes where it stopped.
+      # never find a version whose platform package is missing. Only exact bytes count as already published.
       - name: Publish staged npm packages
         shell: bash
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           CI: "true"
           MIXDOG_MODE: "ship"
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          VERSION=${RELEASE_TAG#v}
-          publish_one() {
-            local name="$1" file="$2"
-            if npm view "${name}@${VERSION}" version --silent 2>/dev/null | grep -qxF "$VERSION"; then
-              echo "${name}@${VERSION} is already published; resuming finalization."
-            else
-              npm publish "./$file" --provenance --access public
-            fi
-          }
-          shopt -s nullglob
-          platform_packages=(staged-npm/mixdog-*-"${VERSION}".tgz)
-          test "${#platform_packages[@]}" -eq 5
-          for file in "${platform_packages[@]}"; do
-            base=${file##*/}
-            publish_one "${base%-"${VERSION}".tgz}" "$file"
-          done
-          publish_one mixdog "staged-npm/mixdog-${VERSION}.tgz"
+          node scripts/ci/publish-npm.mjs staged-npm "${RELEASE_TAG#v}"
 
       - name: Publish one complete GitHub release
-        env:
-          RELEASE_ID: ${{ needs.prepare-github-release.outputs.release_id }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-          GH_TOKEN: ${{ github.token }}
+        env: *desktop-release
         shell: bash
         run: |
           set -euo pipefail
+          # The tag still names the commit the gate verified (push-release-refs created it there); a moved tag publishes nothing.
+          git fetch --force origin "+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          test "$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")" = "$RELEASE_REF"
           # Release notes are the CHANGELOG.md section Deploy stamped with this
           # version, followed by the compare link to the previous version.
           node --input-type=module <<'NODE'
@@ -904,15 +918,7 @@ jobs:
             : '';
           writeFileSync('/tmp/release-notes.md', `${body}${compare}\n`);
           NODE
-          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
-            -F draft=false -f make_latest=true -F body=@/tmp/release-notes.md > /tmp/published.json
-          node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
-          const release = JSON.parse(readFileSync('/tmp/published.json', 'utf8'));
-          if (release.draft || release.tag_name !== process.env.RELEASE_TAG) {
-            throw new Error('GitHub release finalization did not publish the expected tag');
-          }
-          NODE
+          node scripts/ci/release-assets.mjs publish-desktop /tmp/release-notes.md
 
   # Renderer staging is deterministic and does not touch production. Do it
   # while native packages build, then leave only the seven-second atomic remote
@@ -925,7 +931,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
           persist-credentials: false
       - name: Download verified renderer
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -976,6 +982,7 @@ jobs:
   # only the relay deploy below, whose /app page links it.
   mobile-android:
     name: release-mobile-android
+    needs: [coverage-gate, push-release-refs]
     if: ${{ inputs.mobile_version != '' }}
     uses: ./.github/workflows/mobile-android.yml
     permissions:
@@ -1007,7 +1014,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
           persist-credentials: false
       - name: Resolve the newest downloadable Android release
         id: link
@@ -1056,7 +1063,7 @@ jobs:
           RELAY_PORT: ${{ vars.RELAY_PORT }}
           RELAY_USER: ${{ vars.RELAY_USER }}
           RELAY_DOMAIN: ${{ vars.RELAY_DOMAIN }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag }}
           ANDROID_URL: ${{ needs.android-link.outputs.url }}
         shell: bash
         run: |

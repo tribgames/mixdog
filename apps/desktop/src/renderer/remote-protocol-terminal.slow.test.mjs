@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { builtCoreBin } from './built-core.mjs';
 import { compareTraces, loadRuns } from './remote-protocol-terminal-compare.mjs';
 
 // Refused before the scenario runs unless runs.json is exactly what MANIFEST.json's runList lists.
@@ -13,6 +14,7 @@ const runs = loadRuns();
 const runner = fileURLToPath(new URL('./remote-protocol-terminal.scenario.mjs', import.meta.url));
 
 test('phone terminal adapter replays the Node recording over a real core', async () => {
+  builtCoreBin();
   const child = spawnSync(process.execPath, [...process.execArgv, runner], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 600_000 });
   assert.ok(!child.error, `scenario did not finish within 600 s: ${child.error?.message}\n${child.stderr?.slice(-3000)}`);
   const at = child.stdout.lastIndexOf('@@TRACE@@');

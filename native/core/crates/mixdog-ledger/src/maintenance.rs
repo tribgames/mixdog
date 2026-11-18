@@ -16,6 +16,7 @@ use crate::db::TransactionBehavior;
 use crate::db::params;
 use crate::error::Result;
 use crate::rollup::FIRST_DAY;
+use crate::rollup::Hourly;
 use crate::rollup::LAST_DAY;
 use crate::rollup::RollupQuery;
 use crate::rollup::rollup_usage;
@@ -53,6 +54,10 @@ pub fn day_fingerprints(
             (day, format!("{global}:{rev}"))
         })
         .collect())
+}
+
+fn has_legacy_day(conn: &Connection, day: &str) -> Result<bool> {
+    Ok(conn.query_row("SELECT EXISTS(SELECT 1 FROM legacy_days WHERE day=?1)", [day], |r| r.get(0))?)
 }
 
 fn day_value(conn: &Connection, day: &str) -> Result<Value> {
@@ -104,8 +109,8 @@ pub fn recompute_rollup_days(conn: &mut Connection, now_ms: i64) -> Result<Recom
 
 /// The all-time rollup answered from the day cache: completed days come from `rollup_days`
 /// when their fingerprint holds, today and anything stale from the ledger. Equals
-/// [`rollup_usage`] for the same range.
-pub(crate) fn cached_rollup(conn: &Connection, query: &RollupQuery, now_ms: i64) -> Result<Value> {
+/// [`rollup_usage`] for the same range: its `{days}` document and its hourly records.
+pub(crate) fn cached_rollup(conn: &Connection, query: &RollupQuery, now_ms: i64) -> Result<(Value, Option<Hourly>)> {
     let today = day_key(now_ms);
     let fingerprints = day_fingerprints(conn, &query.from_day, &query.to_day)?;
     let mut cached: BTreeMap<String, (String, String)> = BTreeMap::new();
@@ -118,6 +123,19 @@ pub(crate) fn cached_rollup(conn: &Connection, query: &RollupQuery, now_ms: i64)
         cached.insert(day, (fp, value));
     }
     let hourly = query.hourly_day.as_deref();
+    // The hourly rows are that one day's: its best routes and its legacy unallocated rows are per day. Rolled up over the
+    // whole range for them, every statistics read scanned every record of the ledger (1.08M records, about 220 MB read at
+    // each start and on each refresh), only to keep one day of the answer.
+    let hourly_rollup = match hourly {
+        Some(day) => Some(rollup_usage(conn, &RollupQuery { from_day: day.to_owned(), to_day: day.to_owned(), ..query.clone() })?),
+        None => None,
+    };
+    // That rollup's day is the day's value too when no legacy total stands for the day (a legacy day is folded apart for
+    // its hourly view): today, which every read folds, is then folded once instead of twice.
+    let hourly_day_value = match (hourly, &hourly_rollup) {
+        (Some(day), Some(rollup)) if !has_legacy_day(conn, day)? => rollup.days.get(day).cloned(),
+        _ => None,
+    };
     let mut days = Map::new();
     for (day, fp) in &fingerprints {
         let value = match cached.get(day) {
@@ -126,7 +144,10 @@ pub(crate) fn cached_rollup(conn: &Connection, query: &RollupQuery, now_ms: i64)
             {
                 serde_json::from_str(value)?
             }
-            _ => day_value(conn, day)?,
+            _ => match &hourly_day_value {
+                Some(value) if Some(day.as_str()) == hourly => value.clone(),
+                _ => day_value(conn, day)?,
+            },
         };
         if !value.is_null() {
             days.insert(day.clone(), value);
@@ -134,13 +155,7 @@ pub(crate) fn cached_rollup(conn: &Connection, query: &RollupQuery, now_ms: i64)
     }
     let mut out = Map::new();
     out.insert("days".into(), Value::Object(days));
-    if hourly.is_some() {
-        out.insert(
-            "hourly".into(),
-            rollup_usage(conn, query)?.hourly.unwrap_or(Value::Null),
-        );
-    }
-    Ok(Value::Object(out))
+    Ok((Value::Object(out), hourly_rollup.and_then(|rollup| rollup.hourly)))
 }
 
 /// The maintenance job the append commit triggers: one bounded recompute step. Returns whether

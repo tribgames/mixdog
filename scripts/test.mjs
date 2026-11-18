@@ -23,25 +23,30 @@
 import { glob } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { beginReceipt, childrenOf, finishReceipt } from './ci/receipt.mjs';
 import { DEFAULT_TEST_TIMEOUT_MS, LONG_TEST_TIMEOUT_MS, runNodeTests } from './lib/run-node-tests.mjs';
 
 const FILE_LANES = ['fast', 'slow', 'live', 'electron'];
 const LANES = [...FILE_LANES, 'all'];
 
 export const USAGE = `Usage: node scripts/test.mjs [--lane ${LANES.join('|')}] [--exclude-lane <lane>]...
+                             [--exclude-path <path>]...
                              [--rerun-failed <n>] [--list] [--coverage] [--changed]
                              [--import <spec>]... [--test-*]... [filter...]
   filter          substring of a file path; only matching files run.
-  --changed       only the selected files whose relative references (import,
-                  import(), require(), new URL(…, import.meta.url)) reach a file
-                  that differs from HEAD (edits and untracked files). A changed
-                  file no test references (a path joined at run time) is listed,
-                  so a path filter can add its tests.
+  --changed       only the selected files whose relative imports, file URLs or
+                  // @test-input declarations reach a repository change (edits,
+                  deletions and untracked files). An input declaration is relative
+                  to its source file; a trailing slash covers a directory.
+                  Unreached changes in this package are listed. Run their tests
+                  with a path filter instead of --changed.
   --lane          fast is the default; electron needs a real desktop and only
                   runs with --lane electron or --lane all.
   --exclude-lane  drop one lane from the selection, repeatable. Electron and
                   window-capture tests cannot run twice at once, so a second
                   concurrent --lane all run uses --exclude-lane electron.
+  --exclude-path  omit one file or directory relative to the invoking package,
+                  repeatable.
   --rerun-failed <n>  re-run the failed files up to n times to classify flaky
                   tests. Default 0: every failure fails the run;
                   MIXDOG_TEST_RERUN_FAILED overrides the default. A test that
@@ -50,6 +55,7 @@ export const USAGE = `Usage: node scripts/test.mjs [--lane ${LANES.join('|')}] [
   Per-file timeout: --test-timeout (default 120000 ms for the fast lane, 600000
                   ms otherwise); MIXDOG_TEST_TIMEOUT_MS overrides, 0 disables.
   --import        forwarded to node (desktop passes its test-env and tsx loaders).
+  --expose-gc     forwarded to node (the retention suites skip without it).
   --test-*        forwarded to node --test (e.g. --test-name-pattern, --test-only).
   --coverage      collect V8 coverage (NODE_V8_COVERAGE, no dependency) and fold
                   it into .runtime/coverage/coverage.json, which answers "did the
@@ -85,11 +91,24 @@ const ROOT_PATTERNS_BY_ROOT = { packages: [...PATTERNS, '**/*.test.ts'] };
 // The package root is searched shallowly: a recursive pattern there would pull
 // every workspace package into the invoking package's suite.
 const ROOT_PATTERNS = ['*.test.mjs', '*-test.mjs'];
+// One glob invocation shares directory reads across its patterns. Keep the
+// root patterns shallow even though the other roots are recursive.
+const DISCOVERY_PATTERNS = ROOTS.flatMap((root) =>
+  root === '.' ? ROOT_PATTERNS : (ROOT_PATTERNS_BY_ROOT[root] ?? PATTERNS).map((pattern) => `${root}/${pattern}`)
+);
 // node-oracle holds the one test that replays the rows tests against the old Node
 // tree (MIXDOG_NODE_REFERENCE_REPO, a checkout of b6f10295a): it skips by design
 // without that checkout, so it is run by hand where the checkout exists and is
 // no lane's file.
 const EXCLUDED_DIRS = new Set(['node_modules', '.runtime', 'out', 'dist', 'target', 'node-oracle']);
+const inExcludedDir = (path) => String(path).split(/[\\/]/).some((segment) => EXCLUDED_DIRS.has(segment));
+// Directories (relative to the invoking package) whose tests need a built core, its process-tree helper or cargo, so no
+// plain Node lane runs them: they start mixdogd or compile (scripts/rust-core/core-session.test.mjs and
+// smoke-mixdogd.test.mjs fail without MIXDOGD_BIN, the helper's tests need the helper built). The job that has built
+// what they need names them: release-gate.yml `core-real`.
+const EXCLUDED_PATHS = ['scripts/rust-core'];
+const matchesPath = (file, paths) => paths.some((path) => file === path || file.startsWith(`${path}/`));
+const underExcludedPath = (file) => matchesPath(file, EXCLUDED_PATHS);
 
 export function laneOf(file) {
   if (/\.live\.test\.mjs$/.test(file)) return 'live';
@@ -123,11 +142,18 @@ export function parseArgs(argv) {
     // were, so nothing downstream can branch on coverage, lane exclusion or
     // re-runs by accident.
     else if (arg === '--coverage') options.coverage = true;
+    // Two session-lane suites measure retention with `globalThis.gc` and skip without it; a lane that must run them passes this.
+    else if (arg === '--expose-gc') options.nodeArgs.push(arg);
     else if (arg === '--changed') options.changed = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else if (arg === '--exclude-lane') options.excludeLanes = [...(options.excludeLanes ?? []), argv[++index]];
     else if (arg.startsWith('--exclude-lane='))
       options.excludeLanes = [...(options.excludeLanes ?? []), arg.slice('--exclude-lane='.length)];
+    else if (arg === '--exclude-path') {
+      const path = argv[++index];
+      if (!path || path.startsWith('--')) throw new Error('--exclude-path requires a path');
+      options.excludePaths = [...(options.excludePaths ?? []), path.replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '')];
+    }
     else if (arg === '--rerun-failed') options.rerunFailed = rerunCount(argv[++index]);
     else if (arg.startsWith('--rerun-failed=')) options.rerunFailed = rerunCount(arg.slice('--rerun-failed='.length));
     else if (arg === '--import') {
@@ -154,16 +180,9 @@ export function parseArgs(argv) {
 
 export async function discoverTestFiles(cwd = process.cwd()) {
   const files = new Set();
-  for (const root of ROOTS) {
-    const patterns = root === '.' ? ROOT_PATTERNS : (ROOT_PATTERNS_BY_ROOT[root] ?? PATTERNS).map((pattern) => `${root}/${pattern}`);
-    for await (const entry of glob(patterns, {
-      cwd,
-      exclude: (path) =>
-        String(path)
-          .split(/[\\/]/)
-          .some((segment) => EXCLUDED_DIRS.has(segment)),
-    }))
-      files.add(entry.replaceAll('\\', '/'));
+  for await (const entry of glob(DISCOVERY_PATTERNS, { cwd, exclude: inExcludedDir })) {
+    const file = entry.replaceAll('\\', '/');
+    if (!underExcludedPath(file)) files.add(file);
   }
   return [...files].sort();
 }
@@ -172,41 +191,82 @@ export function laneSelected(lane, fileLane) {
   return lane === 'all' || lane === fileLane;
 }
 
-export function selectTestFiles(files, { lane, filters, excludeLanes = [] }) {
+export function selectTestFiles(files, { lane, filters, excludeLanes = [], excludePaths = [] }) {
   const excluded = new Set(excludeLanes);
   return files
     .filter((file) => laneSelected(lane, laneOf(file)) && !excluded.has(laneOf(file)))
+    .filter((file) => !matchesPath(file, excludePaths))
     .filter((file) => filters.length === 0 || filters.some((filter) => file.includes(filter)));
+}
+
+// MIXDOG_RECEIPT=<file>: this invocation's receipt (scripts/ci/receipt.mjs): created here before anything runs (an existing file is an
+// error), filled by the skip reporter (tests that ran, every skipped or todo test) and closed when the last test process has ended, for
+// scripts/ci/check-skips.mjs. The reporter is added to this run's test processes only and the file travels in its URL; the variable is
+// dropped from the environment the tests inherit, so a runner a test starts over a fixture does not write the lane's receipt. A runner
+// a test starts for a suite whose result counts (scripts/ci/node-runner.mjs) finds MIXDOG_CHILD_RECEIPTS instead and leaves a receipt of
+// its own there. The warning is off because the runner already pipes three reporters from one stream and this is the fourth.
+const SKIP_REPORTER = new URL('./ci/skip-reporter.mjs', import.meta.url);
+export function skipReportArgs(env = process.env) {
+  const file = env.MIXDOG_RECEIPT;
+  if (!file) return [];
+  delete env.MIXDOG_RECEIPT;
+  beginReceipt(resolve(file), 'node');
+  env.MIXDOG_CHILD_RECEIPTS = childrenOf(resolve(file));
+  const reporter = new URL(SKIP_REPORTER);
+  reporter.searchParams.set('out', resolve(file));
+  return ['--disable-warning=MaxListenersExceededWarning', `--test-reporter=${reporter.href}`, '--test-reporter-destination=stdout'];
 }
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  // A run that leaves evidence for the release proof is one execution of each test: a re-run that turns a failure green would hide it.
+  if (process.env.MIXDOG_RECEIPT && !options.help && !options.list && (options.rerunFailed ?? defaultRerunFailed()) > 0) {
+    throw new Error('--rerun-failed and MIXDOG_TEST_RERUN_FAILED are not allowed in a run that leaves release evidence (MIXDOG_RECEIPT)');
+  }
+  const receipt = process.env.MIXDOG_RECEIPT && !options.help && !options.list ? resolve(process.env.MIXDOG_RECEIPT) : null;
+  options.nodeArgs.push(...(options.help || options.list ? [] : skipReportArgs()));
+  let threw = true;
+  try {
+    await run(options);
+    threw = false;
+  } finally {
+    if (receipt) finishReceipt(receipt, threw ? 1 : (process.exitCode ?? 0));
+  }
+}
+
+async function run(options) {
   if (options.help) {
     console.log(USAGE);
     return;
   }
-  const discovered = await discoverTestFiles();
+  const changes = options.changed ? await import('./lib/changed-tests.mjs') : null;
+  const changed = changes?.changedFiles();
+  // No tests or unreached paths can be reported when there are no changes.
+  const discovered = changed?.length === 0 ? [] : await discoverTestFiles();
   let files = selectTestFiles(discovered, options);
-  if (options.changed) {
-    // Loaded only for --changed, so a plain run imports nothing it does not use.
-    const { changedFiles, selectChangedTests } = await import('./lib/changed-tests.mjs');
+  if (changes) {
     // The graph spans every discovered test, so "no test imports it" means none
     // in this package; the lane and filters then narrow what actually runs.
-    const { selected, unreached: everywhere } = selectChangedTests(discovered, changedFiles());
+    const { selected, unreached: everywhere } = changes.selectChangedTests(discovered, changed);
     const reaching = new Set(selected);
     files = files.filter((file) => reaching.has(file));
-    // Another workspace package's files belong to that package's own run.
+    // A referenced input can be outside this package. Diagnostics for paths
+    // with no test edge stay local and leave out separately run suites.
     const unreached = everywhere.filter(
       (file) =>
+        !inExcludedDir(file) &&
+        !underExcludedPath(file) &&
+        !matchesPath(file, options.excludePaths ?? []) &&
         ROOTS.some((root) => (root === '.' ? !file.includes('/') : file.startsWith(`${root}/`))) &&
         (options.filters.length === 0 || options.filters.some((filter) => file.includes(filter)))
     );
     if (unreached.length) {
-      console.error(`--changed: no test imports ${unreached.length} changed file(s); add a path filter for them:`);
+      console.error(`--changed: no discovered test reaches ${unreached.length} changed file(s); run their tests with a path filter and without --changed:`);
       for (const file of unreached) console.error(`  ${file}`);
     }
     if (!files.length) {
       console.error(`--changed: no ${options.lane} test file matching the filters reaches a changed file`);
+      if (unreached.length) process.exitCode = 1;
       return;
     }
   }

@@ -36,7 +36,17 @@ on:
         type: boolean
         default: false
       packages_prebuilt:
-        description: "Verify the caller's mixdog-linux-packages artifacts instead of rebuilding the same packages."
+        description: "Verify the caller's immutable Linux packages instead of rebuilding."
+        type: boolean
+        default: false
+      package_x64_id:
+        type: string
+        default: ""
+      package_arm64_id:
+        type: string
+        default: ""
+      arm64_tests_only:
+        description: "Run the root and desktop suites on arm64 only; the caller already ran them on x64 for this source."
         type: boolean
         default: false
     outputs:
@@ -46,6 +56,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # verify: poll this run for the caller's package artifact
 
 defaults:
   run:
@@ -64,6 +75,13 @@ jobs:
       - uses: ./.github/actions/assert-sha
         with:
           expected: ${{ inputs.ref || github.sha }}
+      - name: Require both prebuilt artifact IDs
+        if: inputs.packages_prebuilt
+        env:
+          X64_ARTIFACT: ${{ inputs.package_x64_id }}
+          ARM64_ARTIFACT: ${{ inputs.package_arm64_id }}
+        run: |
+          [[ "$X64_ARTIFACT" =~ ^[0-9]+$ && "$ARM64_ARTIFACT" =~ ^[0-9]+$ && "$X64_ARTIFACT" != "$ARM64_ARTIFACT" ]]
       - id: p
         env:
           EVENT: ${{ github.event_name }}
@@ -123,18 +141,14 @@ jobs:
       ONNXRUNTIME_NODE_INSTALL: skip
     # The desktop suite, the longest leg, runs in two shards per arch (node
     # --test --test-shard, as in release-gate.yml); root stays one leg. Six
-    # legs keep the release run under the plan's 20 concurrent jobs, so the
-    # package jobs never queue behind tests.
+    # legs (three with arm64_tests_only, the release's call) keep the release
+    # run under the plan's 20 concurrent jobs, so the package jobs never queue
+    # behind tests. The legs are the same either way:
+    #   x64:   root 1/1, desktop 1/2, desktop 2/2 (ubuntu-24.04)
+    #   arm64: root 1/1, desktop 1/2, desktop 2/2 (ubuntu-24.04-arm)
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { runner: ubuntu-24.04, arch: x64, suite: root, shard: 1, shards: 1 }
-          - { runner: ubuntu-24.04, arch: x64, suite: desktop, shard: 1, shards: 2 }
-          - { runner: ubuntu-24.04, arch: x64, suite: desktop, shard: 2, shards: 2 }
-          - { runner: ubuntu-24.04-arm, arch: arm64, suite: root, shard: 1, shards: 1 }
-          - { runner: ubuntu-24.04-arm, arch: arm64, suite: desktop, shard: 1, shards: 2 }
-          - { runner: ubuntu-24.04-arm, arch: arm64, suite: desktop, shard: 2, shards: 2 }
+      matrix: ${{ fromJSON(inputs.arm64_tests_only && '{"include":[{"runner":"ubuntu-24.04-arm","arch":"arm64","suite":"root","shard":1,"shards":1},{"runner":"ubuntu-24.04-arm","arch":"arm64","suite":"desktop","shard":1,"shards":2},{"runner":"ubuntu-24.04-arm","arch":"arm64","suite":"desktop","shard":2,"shards":2}]}' || '{"include":[{"runner":"ubuntu-24.04","arch":"x64","suite":"root","shard":1,"shards":1},{"runner":"ubuntu-24.04","arch":"x64","suite":"desktop","shard":1,"shards":2},{"runner":"ubuntu-24.04","arch":"x64","suite":"desktop","shard":2,"shards":2},{"runner":"ubuntu-24.04-arm","arch":"arm64","suite":"root","shard":1,"shards":1},{"runner":"ubuntu-24.04-arm","arch":"arm64","suite":"desktop","shard":1,"shards":2},{"runner":"ubuntu-24.04-arm","arch":"arm64","suite":"desktop","shard":2,"shards":2}]}') }}
     steps:
       # The root lane needs full history: the usage ledger's compatibility
       # tests load older builds' sources from pinned commits with `git show`.
@@ -293,12 +307,17 @@ jobs:
           echo "MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR=$PWD/native-out" >> "$GITHUB_ENV"
           # graph must come from native-out: no silent fallback to the pinned download.
           echo "MIXDOG_NATIVE_TOOLS_REQUIRE_OVERRIDE=graph" >> "$GITHUB_ENV"
+      - name: Resolve Electron download key
+        id: electron-key
+        run: |
+          key=$(node scripts/dependency-lock-cache-key.mjs apps/desktop/package-lock.json)
+          echo "key=$key" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cache/electron
             ~/.cache/electron-builder
-          key: electron-${{ matrix.arch }}-${{ hashFiles('apps/desktop/package-lock.json') }}
+          key: electron-${{ matrix.arch }}-${{ steps.electron-key.outputs.key }}
       # Side by side, each PID waited on, transient failures retried. The skip
       # covers these two trees only: the packaged runtime comes from
       # prepare-runtime's own staging `npm ci`, which keeps downloading the
@@ -357,9 +376,10 @@ jobs:
         run: node apps/desktop/scripts/stage-core.mjs --server-cores=server-cores-in
       - name: Download the release packages under verification
         if: ${{ inputs.packages_prebuilt }}
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: mixdog-linux-packages-${{ matrix.arch }}
+          artifact-ids: ${{ matrix.arch == 'arm64' && inputs.package_arm64_id || inputs.package_x64_id }}
+          digest-mismatch: error
           path: apps/desktop/dist
       - name: Build Linux package
         if: ${{ !inputs.packages_prebuilt }}
@@ -515,12 +535,17 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/desktop/package-lock.json
+      - name: Resolve Electron download key
+        id: electron-key
+        run: |
+          key=$(node scripts/dependency-lock-cache-key.mjs apps/desktop/package-lock.json)
+          echo "key=$key" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cache/electron
             ~/.cache/electron-builder
-          key: electron-x64-${{ hashFiles('apps/desktop/package-lock.json') }}
+          key: electron-x64-${{ steps.electron-key.outputs.key }}
       - name: System packages
         uses: ./.github/actions/apt-packages
         with:
@@ -620,9 +645,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: mixdog-linux-packages-x64
+          name: ${{ !inputs.packages_prebuilt && 'mixdog-linux-packages-x64' || '' }}
+          artifact-ids: ${{ inputs.packages_prebuilt && inputs.package_x64_id || '' }}
+          digest-mismatch: error
           path: n
       - uses: actions/download-artifact@v5
         with:
@@ -716,9 +743,11 @@ jobs:
       - uses: ./.github/actions/assert-sha
         with:
           expected: ${{ inputs.ref || github.sha }}
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: mixdog-linux-packages-${{ matrix.arch }}
+          name: ${{ !inputs.packages_prebuilt && format('mixdog-linux-packages-{0}', matrix.arch) || '' }}
+          artifact-ids: ${{ inputs.packages_prebuilt && (matrix.arch == 'arm64' && inputs.package_arm64_id || inputs.package_x64_id) || '' }}
+          digest-mismatch: error
           path: pkg
       # Every download here is retried: a dropped connection must not fail the
       # distro smoke. The tarball lands on disk first, so a retried transfer

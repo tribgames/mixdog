@@ -14,29 +14,11 @@ import { DIRECT_KEYS } from '../shared/desktop-api-split.ts';
 import { ACTION_NAMESPACES } from '../../../../packages/protocol-client/src/actions/action-namespaces.mjs';
 import { ACTION_OVERRIDES } from '../../../../packages/protocol-client/src/actions/action-overrides.mjs';
 import { METHOD_ARGS } from '../../../../packages/protocol-client/src/actions/method-args.generated.mjs';
-import {
-  projectDisplayName,
-  requiredAbortOptions,
-  requiredDesktopCapabilityRequest,
-  requiredFileSearchLimit,
-  requiredLspDocumentInput,
-  requiredLspRequestInput,
-  requiredModelCatalogOptions,
-  requiredModelSelection,
-  requiredNewTaskDraft,
-  requiredPromptContent,
-  requiredSessionMessageCount,
-  requiredSubmitOptions,
-  requiredTextFileContent,
-  requiredToolApprovalDecision,
-  requiredTranscriptHistoryRequest,
-  requiredTranscriptItemLimit,
-  requiredWorkspaceFolders,
-  requiredWorkspaceSearchOptions,
-  requiredWorkspaceTextWrites,
-  sessionDisplayName,
-} from './ipc-validation.ts';
+import { projectDisplayName, requiredAbortOptions, requiredFileSearchLimit, requiredLspDocumentInput, requiredLspRequestInput, requiredModelCatalogOptions, requiredModelSelection, requiredNewTaskDraft, requiredPromptContent, requiredSessionMessageCount, requiredSubmitOptions, requiredTextFileContent, requiredToolApprovalDecision, requiredTranscriptHistoryRequest, requiredTranscriptItemLimit, requiredWorkspaceSearchOptions, requiredWorkspaceTextWrites, sessionDisplayName } from './ipc-validation.ts';
+import { requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
+import { requiredWorkspaceFolders } from './ipc-workspace-folders.ts';
 
+// @test-input ../../../../native/core/crates/mixdog-app-protocol/src/boundary/validate/fixtures/
 const FIXTURES = new URL(
   '../../../../native/core/crates/mixdog-app-protocol/src/boundary/validate/fixtures/',
   import.meta.url
@@ -491,11 +473,13 @@ test('clients-accepted: what the TUI and the phone send passes the desktop valid
 
 // ---- the coverage table: every validator a direct key's IPC handler called is answered by the core -------------------
 
-const CRATES = new URL('../../../../native/core/crates/', import.meta.url);
 const MAIN_DIRECTORY = fileURLToPath(new URL('./', import.meta.url));
-const GROUPS = 'mixdog-app-protocol/src/boundary/validate/';
-const CONFIG_SCHEMA = 'mixdog-core-config/src/config/schema.rs';
-const SCM_INPUT = 'mixdog-scm/src/input.rs';
+const CAPABILITY = new URL('../../../../native/core/crates/mixdog-app-protocol/src/boundary/validate/capability.rs', import.meta.url);
+const CAPABILITY_SETTINGS = new URL('../../../../native/core/crates/mixdog-app-protocol/src/boundary/validate/capability_settings.rs', import.meta.url);
+const MODEL = new URL('../../../../native/core/crates/mixdog-app-protocol/src/boundary/validate/model.rs', import.meta.url);
+const WORKSPACE_NAMES = new URL('../../../../native/core/crates/mixdog-app-protocol/src/boundary/validate/workspace_names.rs', import.meta.url);
+const CONFIG_SCHEMA = new URL('../../../../native/core/crates/mixdog-core-config/src/config/schema.rs', import.meta.url);
+const SCM_INPUT = new URL('../../../../native/core/crates/mixdog-scm/src/input.rs', import.meta.url);
 
 /**
  * Each validator the handlers of the renderer's direct API called, and the Rust check that answers for it: the file under
@@ -506,14 +490,23 @@ const SCM_INPUT = 'mixdog-scm/src/input.rs';
 const COVERAGE = {
   // The core has no param for the sign-in options (the route's `null` slot, input_tests.rs): the shared scm-input.ts check runs in the
   // host and the phone's adapter before the call, so a malformed options value never reaches the core and there is no Rust check to name.
-  optionalGithubLoginOptions: ['mixdog-scm/src/input_tests.rs', '"githubCliLoginOpenBrowser" => positional("github/login/openBrowser"'],
-  projectDisplayName: [`${GROUPS}workspace_names.rs`, 'alias must be a string.'],
-  normalizeDesktopFeedback: ['mixdog-core-domains/src/domains/feedback.rs', 'const INVALID_REPLY: &str = "Reply email is invalid."'],
-  requiredAttachmentFile: ['mixdog-core-domains/src/domains/desktop_residual_b.rs', 'attachment type cannot be opened.'],
+  optionalGithubLoginOptions: [
+    new URL('../../../../native/core/crates/mixdog-scm/src/input_tests.rs', import.meta.url),
+    '"githubCliLoginOpenBrowser" => positional("github/login/openBrowser"',
+  ],
+  projectDisplayName: [WORKSPACE_NAMES, 'alias must be a string.'],
+  normalizeDesktopFeedback: [
+    new URL('../../../../native/core/crates/mixdog-core-domains/src/domains/feedback.rs', import.meta.url),
+    'const INVALID_REPLY: &str = "Reply email is invalid."',
+  ],
+  requiredAttachmentFile: [
+    new URL('../../../../native/core/crates/mixdog-core-domains/src/domains/desktop_residual_b.rs', import.meta.url),
+    'attachment type cannot be opened.',
+  ],
   requiredCommitHash: [SCM_INPUT, 'A commit hash is required.'],
   requiredConversationNotificationSetting: [CONFIG_SCHEMA, 'Kind::NotificationOverrides'],
-  requiredDesktopCapabilityReadRequests: [`${GROUPS}capability.rs`, 'const CAPABILITIES'],
-  requiredDesktopCapabilityRequest: [`${GROUPS}capability.rs`, 'const CAPABILITIES'],
+  requiredDesktopCapabilityReadRequests: [CAPABILITY, 'const CAPABILITIES'],
+  requiredDesktopCapabilityRequest: [CAPABILITY, 'const CAPABILITIES'],
   requiredDesktopSettingKey: [CONFIG_SCHEMA, 'key("desktop.computerInstalled"'],
   requiredGitBranchName: [SCM_INPUT, 'git branch is invalid.'],
   requiredGitDiscardMode: [SCM_INPUT, 'git discard mode is invalid.'],
@@ -529,21 +522,30 @@ const COVERAGE = {
   requiredGitRequestContextInput: [SCM_INPUT, 'git request input is invalid.'],
   requiredGitResetMode: [SCM_INPUT, 'Git reset mode is invalid.'],
   requiredGitRevision: [SCM_INPUT, 'A git revision is required.'],
-  requiredModelSelection: [`${GROUPS}model.rs`, 'model selection is invalid.'],
+  requiredModelSelection: [MODEL, 'model selection is invalid.'],
   requiredNotificationDeviceId: [CONFIG_SCHEMA, 'Kind::NotificationDevices'],
   requiredNotificationPreferencesPatch: [CONFIG_SCHEMA, 'Kind::NotificationDevice =>'],
   requiredNotificationTarget: [CONFIG_SCHEMA, 'Kind::NotificationOverrides'],
-  requiredProjectRecoveryRequest: ['mixdog-workspace/src/recovery.rs', 'Invalid recovery ID.'],
+  requiredProjectRecoveryRequest: [
+    new URL('../../../../native/core/crates/mixdog-workspace/src/recovery.rs', import.meta.url),
+    'Invalid recovery ID.',
+  ],
   requiredRepositoryCwd: [SCM_INPUT, 'A project directory is required.'],
   requiredReviewDiffFiles: [SCM_INPUT, 'git review files are invalid.'],
   requiredReviewSource: [SCM_INPUT, 'Git review source is invalid.'],
-  requiredSessionId: [`${GROUPS}capability_settings.rs`, 'session id is invalid.'],
-  requiredString: [`${GROUPS}workspace_names.rs`, 'fn required_string'],
-  requiredToolApprovalDecision: [`${GROUPS}model.rs`, 'decision is invalid.'],
-  requiredTranscriptHistoryRequest: [`${GROUPS}workspace_names.rs`, 'transcript history request is invalid.'],
-  requiredTranscriptItemLimit: [`${GROUPS}workspace_names.rs`, 'transcript item limit is invalid.'],
-  validateGithubRequest: ['mixdog-scm/src/gh/contract.rs', 'A supported GitHub action is required.'],
-  validatedRelayUrl: ['mixdog-remote/src/leg/socket.rs', 'MIXDOG_RELAY_URL must not contain credentials.'],
+  requiredSessionId: [CAPABILITY_SETTINGS, 'session id is invalid.'],
+  requiredString: [WORKSPACE_NAMES, 'fn required_string'],
+  requiredToolApprovalDecision: [MODEL, 'decision is invalid.'],
+  requiredTranscriptHistoryRequest: [WORKSPACE_NAMES, 'transcript history request is invalid.'],
+  requiredTranscriptItemLimit: [WORKSPACE_NAMES, 'transcript item limit is invalid.'],
+  validateGithubRequest: [
+    new URL('../../../../native/core/crates/mixdog-scm/src/gh/contract.rs', import.meta.url),
+    'A supported GitHub action is required.',
+  ],
+  validatedRelayUrl: [
+    new URL('../../../../native/core/crates/mixdog-remote/src/leg/socket.rs', import.meta.url),
+    'MIXDOG_RELAY_URL must not contain credentials.',
+  ],
 };
 
 const VALIDATOR_NAME = /^(required|optional|validate|normalize|sanitized|projectDisplayName|sessionDisplayName)/;
@@ -652,8 +654,8 @@ test('coverage: every validator a direct key calls is answered by a rule of the 
     'a covered validator no direct key calls any more: delete it'
   );
   for (const [name, [file, says]] of Object.entries(COVERAGE)) {
-    const path = fileURLToPath(new URL(file, CRATES));
-    assert.ok(fs.existsSync(path), `${name}: ${file} does not exist`);
-    assert.ok(fs.readFileSync(path, 'utf8').includes(says), `${name}: ${file} no longer says ${JSON.stringify(says)}`);
+    const path = fileURLToPath(file);
+    assert.ok(fs.existsSync(path), `${name}: ${path} does not exist`);
+    assert.ok(fs.readFileSync(path, 'utf8').includes(says), `${name}: ${path} no longer says ${JSON.stringify(says)}`);
   }
 });

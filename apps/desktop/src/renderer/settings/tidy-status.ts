@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   DesktopTidyEngine,
   DesktopTidyEngineStatus,
   DesktopTidyInstallEngine,
-  DesktopTidyInstallStatus,
 } from '../../shared/contract';
 import { t } from '../i18n';
+import { record } from '../record-utils';
 import type { SidebarResourceTag } from '../sidebar-resource-row';
 import type { PanelContext } from './capability-data';
 import type { ExtensionItemTone } from './extension-detail';
@@ -23,19 +23,56 @@ function formatMB(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1);
 }
 
-async function readTidyCapability<T>(
+async function readTidyCapability(
   api: PanelContext['api'],
   capability: 'getTidyEngineStatus' | 'getTidyInstallStatus'
-): Promise<T | null> {
+): Promise<unknown> {
   const request = { capability, args: [] };
   if (api.readCapabilities) {
     const [result] = await api.readCapabilities([request]);
-    if (result?.ok) return result.value as T;
+    if (result?.ok) return result.value;
   } else if (api.invokeCapability) {
     const res = await api.invokeCapability(request);
-    return (res?.value as T) ?? null;
+    return res?.value;
   }
   return null;
+}
+
+function stringList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+export type TidyInstallProgress = {
+  active: boolean;
+  percent: number | null;
+  engines: DesktopTidyInstallEngine[];
+};
+
+export type TidyEngineSnapshot = Omit<DesktopTidyEngineStatus, 'installing'>;
+
+function installStatusOf(value: unknown): TidyInstallProgress | null {
+  const status = record(value);
+  if (typeof status.active !== 'boolean') return null;
+  const engines = Array.isArray(status.engines) ? status.engines.filter((value): value is DesktopTidyInstallEngine => {
+    const engine = record(value);
+    return typeof engine.id === 'string' && typeof engine.status === 'string' && Number.isFinite(engine.receivedBytes);
+  }) : [];
+  return {
+    active: status.active,
+    percent: typeof status.percent === 'number' && Number.isFinite(status.percent) ? status.percent : null,
+    engines,
+  };
+}
+
+function engineStatusOf(value: unknown): TidyEngineSnapshot | null {
+  const status = record(value);
+  if (typeof status.toolsDir !== 'string' || !stringList(status.core) || !Array.isArray(status.engines)) return null;
+  if (!status.engines.every((value) => {
+    const engine = record(value);
+    return typeof engine.id === 'string' && typeof engine.title === 'string' &&
+      stringList(engine.languages) && stringList(engine.kind);
+  })) return null;
+  return { toolsDir: status.toolsDir, core: status.core, engines: status.engines, probing: status.probing === true };
 }
 
 /** `optional` engines are the ones nothing is waiting on: a host toolchain
@@ -183,19 +220,28 @@ export function useTidyEngineStatus(
   installing: boolean,
   opened: boolean = false
 ) {
-  const [status, setStatus] = useState<DesktopTidyEngineStatus | null>(null);
-  const [installStatus, setInstallStatus] = useState<DesktopTidyInstallStatus | null>(null);
+  const [snapshot, setSnapshot] = useState<{
+    api: PanelContext['api'];
+    status: TidyEngineSnapshot | null;
+    progress: TidyInstallProgress | null;
+  }>();
+  const [progressRead, setProgressRead] = useState<TidyInstallProgress | null>(null);
+  const latest = useRef(0);
+  const held = snapshot?.api === api ? snapshot : undefined;
+  const status = held?.status ?? null;
 
   const refresh = useCallback(async () => {
+    const ticket = ++latest.current;
+    let value: unknown;
     try {
-      const next = await readTidyCapability<DesktopTidyEngineStatus>(api, 'getTidyEngineStatus');
-      if (next) {
-        setStatus(next);
-      }
-      return next;
+      value = await readTidyCapability(api, 'getTidyEngineStatus');
     } catch {
-      return null;
+      value = null;
     }
+    const next = engineStatusOf(value);
+    // A newer partial reply withdraws the catalog; an older reply must not put its actions back.
+    if (latest.current === ticket) setSnapshot({ api, status: next, progress: installStatusOf(record(value).installing) });
+    return next;
   }, [api]);
 
   // Re-read when the card opens, not only when the feature first turns active:
@@ -203,6 +249,7 @@ export function useTidyEngineStatus(
   useEffect(() => {
     if (!active) return;
     void refresh();
+    return () => { latest.current += 1; };
   }, [active, opened, refresh]);
 
   // A host-module probe still pending settles on its own: keep asking until
@@ -216,18 +263,18 @@ export function useTidyEngineStatus(
 
   useEffect(() => {
     if (!installing) {
-      setInstallStatus(null);
+      setProgressRead(null);
       return;
     }
-    setInstallStatus(null);
+    setProgressRead(null);
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const poll = async () => {
       try {
-        const next = await readTidyCapability<DesktopTidyInstallStatus>(api, 'getTidyInstallStatus');
+        const next = installStatusOf(await readTidyCapability(api, 'getTidyInstallStatus'));
         if (!disposed && next) {
-          setInstallStatus(next);
+          setProgressRead(next);
         }
       } catch {
         /* a status read failure is not an installation failure */
@@ -246,7 +293,8 @@ export function useTidyEngineStatus(
 
   return {
     status,
-    installStatus,
+    unavailable: held !== undefined && status === null,
+    installStatus: (installing ? progressRead : null) ?? held?.progress ?? null,
     refresh,
   };
 }

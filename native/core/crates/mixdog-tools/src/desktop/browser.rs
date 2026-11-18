@@ -684,42 +684,6 @@ impl BrowserTool {
     }
 }
 
-#[async_trait]
-impl Tool for BrowserTool {
-    fn spec(&self) -> &ToolSpec {
-        &self.spec
-    }
-
-    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let call = validate(&self.spec.name, &args, &self.schema_fields).map_err(|m| invalid("input", m))?;
-        let mut input = call.input;
-        // Runtime-set, never from the model's arguments (validation refused a `mail_link` of its own): this exact URL is a link of a
-        // mail the core read for this session, which the desktop may open although it carries a token.
-        if call.action == "navigate" {
-            let url = input.get("url").and_then(Value::as_str).unwrap_or_default();
-            if let Some(link) = mail_links::link_for(ctx.thread_id.as_str(), url, mail_links::now_ms()) {
-                input.insert("mail_link".to_owned(), link.to_json());
-            }
-        }
-        let input = Value::Object(input);
-        if input.to_string().len() > MAX_REQUEST_BYTES {
-            return Err(invalid("input", format!("browser command exceeds {MAX_REQUEST_BYTES} bytes")));
-        }
-        // The 33rd command at once is refused as the bridge refuses it (its 429), before anything is sent.
-        let Some(_slot) = Slot::take(self.running) else {
-            return Err(ToolError::new(ToolErrorCode::Failed { reason: CAPACITY_REFUSAL.to_owned() }, format!("Error: {CAPACITY_REFUSAL}")));
-        };
-        // A Browser Use card the engine raises for this call asks through the call's own gate (s4-tool-adapter).
-        let approvals = crate::orch::service::CallApprovals { gate: ctx.approvals.clone(), call_id: ctx.call_id.clone() };
-        match crate::orch::service::with_call_approvals(approvals, self.host.browser(&ctx.thread_id, &call.action, input, &ctx.cancel)).await {
-            Ok(value) => browser_output(&value),
-            // An observation can be asked again; a state-changing action may already have run.
-            Err(HostCommandError::Cancelled) => Err(command_cancelled("browser", !OBSERVATION_ACTIONS.contains(&&*call.action))),
-            Err(error) => Err(command_error(BROWSER_UNAVAILABLE, error)),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -728,26 +692,6 @@ mod tests {
 
     fn check(tool: &str, args: Value) -> Result<BrowserCall, String> {
         validate(tool, &args, &Map::new())
-    }
-
-    /// Golden twin: `golden/browser_validate.json` is `validateBrowserToolArgs` of today's Node
-    /// product on 65 calls; the verdict and the exact error text (what the model reads) must match.
-    #[test]
-    fn validation_equals_the_recorded_node_verdicts() {
-        let golden: Vec<Value> = serde_json::from_str(include_str!("golden/browser_validate.json")).expect("golden");
-        let fields = |def: &'static str| {
-            let spec = spec_from_def(def, false, &[]);
-            spec.input_schema["properties"]["input"]["properties"].as_object().cloned().unwrap_or_default()
-        };
-        let browser = fields(include_str!("defs/browser.json"));
-        let devtools = fields(include_str!("defs/browser_devtools.json"));
-        for case in golden {
-            let tool = case["tool"].as_str().unwrap();
-            let schema = if tool == "browser" { &browser } else { &devtools };
-            let got = validate(tool, &case["args"], schema);
-            let want = case["error"].as_str();
-            assert_eq!(got.as_ref().err().map(String::as_str), want, "{} {}", tool, case["args"]);
-        }
     }
 
     #[test]
@@ -814,9 +758,11 @@ mod tests {
     }
 
     /// The host commands the tool sent, answering each as the desktop would a navigate it admitted.
+    #[cfg(node_twin)]
     #[derive(Default)]
     struct Sent(std::sync::Mutex<Vec<Value>>);
 
+    #[cfg(node_twin)]
     #[async_trait]
     impl HostCommands for Sent {
         async fn browser(&self, _: &mixdog_protocol::ThreadId, action: &str, input: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
@@ -828,53 +774,6 @@ mod tests {
         async fn visualize(&self, _: &mixdog_protocol::ThreadId, _: &str, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
             unreachable!("a browser call")
         }
-    }
-
-    /// `fixtures/mail-link-navigation`, the runtime leg: every `navigate` of the recorded case hands the host the command Node's
-    /// browser client handed the desktop bridge (its fields beside `action` and `session_id`, the `mail_link` included), and a call
-    /// Node refused reaches no host and reads Node's words. What the desktop answered (admitted or refused) is the desktop's.
-    #[test]
-    fn a_navigate_hands_the_host_the_mail_link_nodes_runtime_hands_the_bridge() {
-        let _turn = mail_links::replay::exclusive();
-        let case = mail_links::replay::Case::of("a link the runtime read in a mail opens");
-        let sent = Arc::new(Sent::default());
-        let tool = BrowserTool::browser(sent.clone());
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let mut navigates = 0;
-        for op in &case.ops {
-            let session = op["session"].as_str().unwrap();
-            match op["op"].as_str().unwrap() {
-                "record" => mail_links::record(session, op["mail"].as_str().unwrap(), case.at(&op["at"])),
-                "probe" => assert_eq!(mail_links::link_for(session, op["url"].as_str().unwrap(), case.at(&op["at"])), case.link(&op["link"]), "{}", op["why"]),
-                "navigate" => {
-                    navigates += 1;
-                    let mut ctx = crate::orch::tests::ctx();
-                    ctx.thread_id = mixdog_protocol::ThreadId::from(session);
-                    let before = sent.0.lock().unwrap().len();
-                    let outcome = runtime.block_on(tool.call(&ctx, json!({ "action": "navigate", "input": op["input"] })));
-                    let reached = sent.0.lock().unwrap().len() - before;
-                    let why = &op["why"];
-                    if op["command"].is_null() {
-                        assert_eq!(reached, 0, "{why}: nothing reaches the host");
-                        let text = op["text"].as_str().unwrap();
-                        assert_eq!(format!("Error: {}", outcome.expect_err("Node refused it").message_for_model), text, "{why}");
-                        continue;
-                    }
-                    assert!(outcome.is_ok(), "{why}");
-                    assert_eq!(reached, 1, "{why}");
-                    let mut want = op["command"].as_object().unwrap().clone();
-                    for key in ["action", "session_id", "turn_id"] {
-                        want.remove(key);
-                    }
-                    if let Some(link) = want.get_mut("mail_link") {
-                        link["read_at"] = json!(case.at(&link["read_at"]));
-                    }
-                    assert_eq!(sent.0.lock().unwrap().last().unwrap(), &Value::Object(want), "{why}");
-                }
-                other => panic!("unexpected recorded operation {other}"),
-            }
-        }
-        assert_eq!(navigates, 7);
     }
 
     /// A host that holds every browser command until it is released, counting those that reached it.
@@ -897,64 +796,6 @@ mod tests {
         async fn visualize(&self, _: &mixdog_protocol::ThreadId, _: &str, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
             unreachable!("a browser call")
         }
-    }
-
-    /// The agent tool path holds at most `MAX_CONCURRENT` commands at once: the next is refused with the bridge's words and never
-    /// reaches the host, and a finished command gives its place back.
-    #[tokio::test]
-    async fn a_thirty_third_browser_command_is_refused_and_a_finished_one_frees_its_place() {
-        static COUNT: AtomicUsize = AtomicUsize::new(0);
-        let host = Arc::new(Held::default());
-        let mut tool = BrowserTool::browser(host.clone());
-        tool.running = &COUNT;
-        let tool = Arc::new(tool);
-        let mut running = Vec::new();
-        for _ in 0..MAX_CONCURRENT {
-            let tool = tool.clone();
-            running.push(tokio::spawn(async move { tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await }));
-        }
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while host.reached.load(Ordering::SeqCst) < MAX_CONCURRENT {
-                tokio::task::yield_now().await;
-            }
-        }).await.expect("all admitted commands reached the host");
-        let refused = tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await.expect_err("the 33rd is refused");
-        assert_eq!(refused.message_for_model, "Error: too many concurrent browser commands");
-        assert_eq!(host.reached.load(Ordering::SeqCst), MAX_CONCURRENT, "the refused command was not sent");
-        host.release.notify_waiters();
-        for task in running {
-            assert!(task.await.unwrap().is_ok());
-        }
-        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
-        let again = tokio::spawn({
-            let tool = tool.clone();
-            async move { tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await }
-        });
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while host.reached.load(Ordering::SeqCst) <= MAX_CONCURRENT {
-                tokio::task::yield_now().await;
-            }
-        }).await.expect("the newly admitted command reached the host");
-        host.release.notify_waiters();
-        assert!(again.await.unwrap().is_ok(), "a place was free again");
-    }
-
-    #[tokio::test]
-    async fn an_aborted_browser_call_releases_its_admission_slot() {
-        static COUNT: AtomicUsize = AtomicUsize::new(0);
-        let host = Arc::new(Held::default());
-        let mut tool = BrowserTool::browser(host.clone());
-        tool.running = &COUNT;
-        let task = tokio::spawn(async move { tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await });
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while host.reached.load(Ordering::SeqCst) == 0 {
-                tokio::task::yield_now().await;
-            }
-        }).await.expect("the command reached the host");
-        assert_eq!(COUNT.load(Ordering::SeqCst), 1);
-        task.abort();
-        assert!(task.await.unwrap_err().is_cancelled());
-        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
     }
 
     mod ceiling {
@@ -1077,6 +918,179 @@ mod tests {
             let failure = outcome.err().expect("the command failed");
             assert!(failure.error.message_for_model.contains("timed out after 42000ms"), "{}", failure.error.message_for_model);
             assert!(started.elapsed() <= COMMAND_TIMEOUT + Duration::from_millis(500), "{:?}", started.elapsed());
+        }
+    }
+
+    /// The agent tool path holds at most `MAX_CONCURRENT` commands at once: the next is refused with the bridge's words and never
+    /// reaches the host, and a finished command gives its place back.
+    #[tokio::test]
+    async fn a_thirty_third_browser_command_is_refused_and_a_finished_one_frees_its_place() {
+        static COUNT: AtomicUsize = AtomicUsize::new(0);
+        let host = Arc::new(Held::default());
+        let mut tool = BrowserTool::browser(host.clone());
+        tool.running = &COUNT;
+        let tool = Arc::new(tool);
+        let mut running = Vec::new();
+        for _ in 0..MAX_CONCURRENT {
+            let tool = tool.clone();
+            running.push(tokio::spawn(async move { tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await }));
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while host.reached.load(Ordering::SeqCst) < MAX_CONCURRENT {
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("all admitted commands reached the host");
+        let refused = tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await.expect_err("the 33rd is refused");
+        assert_eq!(refused.message_for_model, "Error: too many concurrent browser commands");
+        assert_eq!(host.reached.load(Ordering::SeqCst), MAX_CONCURRENT, "the refused command was not sent");
+        host.release.notify_waiters();
+        for task in running {
+            assert!(task.await.unwrap().is_ok());
+        }
+        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
+        let again = tokio::spawn({
+            let tool = tool.clone();
+            async move { tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while host.reached.load(Ordering::SeqCst) <= MAX_CONCURRENT {
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("the newly admitted command reached the host");
+        host.release.notify_waiters();
+        assert!(again.await.unwrap().is_ok(), "a place was free again");
+    }
+    #[tokio::test]
+    async fn an_aborted_browser_call_releases_its_admission_slot() {
+        static COUNT: AtomicUsize = AtomicUsize::new(0);
+        let host = Arc::new(Held::default());
+        let mut tool = BrowserTool::browser(host.clone());
+        tool.running = &COUNT;
+        let task = tokio::spawn(async move { tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while host.reached.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("the command reached the host");
+        assert_eq!(COUNT.load(Ordering::SeqCst), 1);
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
+    }
+
+
+    /// What the model reads when a browser call is malformed: the exact refusal for each rule.
+    #[test]
+    fn a_malformed_browser_call_is_refused_with_the_rule_it_broke() {
+        let fields = |def: &'static str| {
+            let spec = spec_from_def(def, false, &[]);
+            spec.input_schema["properties"]["input"]["properties"].as_object().cloned().unwrap_or_default()
+        };
+        let browser = fields(include_str!("defs/browser.json"));
+        let devtools = fields(include_str!("defs/browser_devtools.json"));
+        let refused = |tool: &str, args: Value| {
+            let schema = if tool == "browser" { &browser } else { &devtools };
+            validate(tool, &args, schema).err().unwrap_or_else(|| panic!("{tool} {args} was accepted"))
+        };
+        for (tool, args, want) in [
+            ("browser", json!({"action": "click", "input": {}}), "browser action \"click\" requires input.ref or input.target or input.snapshotId+x+y"),
+            ("browser", json!({"action": "click", "input": {"ref": "e1", "target": {"role": "button"}}}), "browser action \"click\" accepts only one input target form"),
+            ("browser", json!({"action": "click", "input": {"target": {"nth": 0, "role": "x"}}}), "browser action \"click\" input.target.nth must be an integer from 1 to 500"),
+            ("browser", json!({"action": "click", "input": {"target": "x"}}), "browser action \"click\" input.target must be an object with role, name, and/or selector"),
+            ("browser", json!({"action": "click", "input": {"target": {"foo": 1}}}), "browser action \"click\" input.target does not accept field(s): foo"),
+            ("browser", json!({"action": "navigate", "input": {}}), "browser action \"navigate\" requires input.url or input.reload"),
+            ("browser", json!({"action": "navigate", "url": "x", "input": {"url": "y"}}), "browser action \"navigate\" fields must be inside input: url"),
+            ("browser", json!({"action": "nope"}), "unknown browser action \"nope\""),
+            ("browser", json!({"action": "cookies", "input": {}}), "browser action \"cookies\" belongs to the browser_devtools tool; call browser_devtools with the same input"),
+            ("browser_devtools", json!({"action": "click", "input": {"ref": "e"}}), "browser action \"click\" belongs to the browser tool; call browser with the same input"),
+            ("browser", json!({"action": "snapshot", "input": {"fullPage": true}}), "browser action \"snapshot\" screenshot options require input.mode=visual or input.mode=both"),
+        ] {
+            assert_eq!(refused(tool, args.clone()), want, "{tool} {args}");
+        }
+        assert!(validate("browser", &json!({"action": "click", "input": {"ref": "e1"}}), &browser).is_ok());
+    }
+
+    /// The runtime leg of the mail-link navigation case: every `navigate` hands the host the command the browser client
+    /// builds (its fields beside `action` and `session_id`, the `mail_link` included), and a refused call reaches no host.
+    #[cfg(node_twin)]
+    #[test]
+    fn a_navigate_hands_the_host_the_mail_link_nodes_runtime_hands_the_bridge() {
+        let _turn = mail_links::replay::exclusive();
+        let case = mail_links::replay::Case::of("a link the runtime read in a mail opens");
+        let sent = Arc::new(Sent::default());
+        let tool = BrowserTool::browser(sent.clone());
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let mut navigates = 0;
+        for op in &case.ops {
+            let session = op["session"].as_str().unwrap();
+            match op["op"].as_str().unwrap() {
+                "record" => mail_links::record(session, op["mail"].as_str().unwrap(), case.at(&op["at"])),
+                "probe" => assert_eq!(mail_links::link_for(session, op["url"].as_str().unwrap(), case.at(&op["at"])), case.link(&op["link"]), "{}", op["why"]),
+                "navigate" => {
+                    navigates += 1;
+                    let mut ctx = crate::orch::tests::ctx();
+                    ctx.thread_id = mixdog_protocol::ThreadId::from(session);
+                    let before = sent.0.lock().unwrap().len();
+                    let outcome = runtime.block_on(tool.call(&ctx, json!({ "action": "navigate", "input": op["input"] })));
+                    let reached = sent.0.lock().unwrap().len() - before;
+                    let why = &op["why"];
+                    if op["command"].is_null() {
+                        assert_eq!(reached, 0, "{why}: nothing reaches the host");
+                        let text = op["text"].as_str().unwrap();
+                        assert_eq!(format!("Error: {}", outcome.expect_err("Node refused it").message_for_model), text, "{why}");
+                        continue;
+                    }
+                    assert!(outcome.is_ok(), "{why}");
+                    assert_eq!(reached, 1, "{why}");
+                    let mut want = op["command"].as_object().unwrap().clone();
+                    for key in ["action", "session_id", "turn_id"] {
+                        want.remove(key);
+                    }
+                    if let Some(link) = want.get_mut("mail_link") {
+                        link["read_at"] = json!(case.at(&link["read_at"]));
+                    }
+                    assert_eq!(sent.0.lock().unwrap().last().unwrap(), &Value::Object(want), "{why}");
+                }
+                other => panic!("unexpected recorded operation {other}"),
+            }
+        }
+        assert_eq!(navigates, 7);
+    }
+}
+
+
+#[async_trait]
+impl Tool for BrowserTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let call = validate(&self.spec.name, &args, &self.schema_fields).map_err(|m| invalid("input", m))?;
+        let mut input = call.input;
+        // Runtime-set, never from the model's arguments (validation refused a `mail_link` of its own): this exact URL is a link of a
+        // mail the core read for this session, which the desktop may open although it carries a token.
+        if call.action == "navigate" {
+            let url = input.get("url").and_then(Value::as_str).unwrap_or_default();
+            if let Some(link) = mail_links::link_for(ctx.thread_id.as_str(), url, mail_links::now_ms()) {
+                input.insert("mail_link".to_owned(), link.to_json());
+            }
+        }
+        let input = Value::Object(input);
+        if input.to_string().len() > MAX_REQUEST_BYTES {
+            return Err(invalid("input", format!("browser command exceeds {MAX_REQUEST_BYTES} bytes")));
+        }
+        // The 33rd command at once is refused as the bridge refuses it (its 429), before anything is sent.
+        let Some(_slot) = Slot::take(self.running) else {
+            return Err(ToolError::new(ToolErrorCode::Failed { reason: CAPACITY_REFUSAL.to_owned() }, format!("Error: {CAPACITY_REFUSAL}")));
+        };
+        // A Browser Use card the engine raises for this call asks through the call's own gate (s4-tool-adapter).
+        let approvals = crate::orch::service::CallApprovals { gate: ctx.approvals.clone(), call_id: ctx.call_id.clone() };
+        match crate::orch::service::with_call_approvals(approvals, self.host.browser(&ctx.thread_id, &call.action, input, &ctx.cancel)).await {
+            Ok(value) => browser_output(&value),
+            // An observation can be asked again; a state-changing action may already have run.
+            Err(HostCommandError::Cancelled) => Err(command_cancelled("browser", !OBSERVATION_ACTIONS.contains(&&*call.action))),
+            Err(error) => Err(command_error(BROWSER_UNAVAILABLE, error)),
         }
     }
 }

@@ -123,17 +123,6 @@ async fn the_hold_is_released_when_the_answering_connection_closes() {
     assert!(holds.release("req-1"));
 }
 
-#[tokio::test(start_paused = true)]
-async fn the_hold_is_released_at_its_expiry() {
-    let (_, holds, gated, helper) = setup();
-    holds.hold_for_request_in("req-1", HumanOnlyCard::BrowserApproval, CardScope { expires_after: Some(Duration::from_secs(120)), ..CardScope::default() });
-    tokio::time::sleep(Duration::from_secs(119)).await;
-    assert!(!reaches(&gated, &helper).await);
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    assert!(reaches(&gated, &helper).await);
-    assert!(!holds.release("req-1"), "the expiry ended it");
-}
-
 #[tokio::test]
 async fn the_hold_is_released_when_its_thread_ends() {
     let (_, holds, gated, helper) = setup();
@@ -155,4 +144,16 @@ async fn drained_waits_for_the_running_operation() {
     assert!(futures::poll!(drained.as_mut()).is_pending());
     drop(operation);
     assert!(futures::poll!(drained.as_mut()).is_ready());
+}
+
+
+#[tokio::test(start_paused = true)]
+async fn the_hold_is_released_at_its_expiry() {
+    let (_, holds, gated, helper) = setup();
+    holds.hold_for_request_in("req-1", HumanOnlyCard::BrowserApproval, CardScope { expires_after: Some(Duration::from_secs(120)), ..CardScope::default() });
+    tokio::time::sleep(Duration::from_secs(119)).await;
+    assert!(!reaches(&gated, &helper).await);
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(reaches(&gated, &helper).await);
+    assert!(!holds.release("req-1"), "the expiry ended it");
 }

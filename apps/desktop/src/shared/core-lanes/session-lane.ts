@@ -6,13 +6,14 @@
 // projection (`summariesOfThreadRows`), the chat calls are the phone's adapter (`createChatApi`, `createChatHostApi`)
 // built on this connection's client, and a thread's state is the library's own (`sessionStateOf`).
 import {
+  approvalSurface,
   desktopSessionState,
   sessionReducer,
-  sessionStateOf,
+  streamPositionReached,
   type ProtocolClient,
   type SessionFold,
 } from '../../../../../packages/protocol-client/src/index.ts';
-import type { DesktopSessionStateUpdate, DesktopSessionSummary, SessionSnapshot } from '../contract';
+import type { DesktopSessionStateUpdate, DesktopSessionSummary, DesktopStreamPosition, SessionSnapshot } from '../contract';
 import { remoteSessionIdOf, withRemoteSession } from '../blank-snapshot';
 import { createChatHostApi, type ChatHostApi } from '../../renderer/remote-chat-host';
 import { createChatApi, createRosterFeed, remoteSession, sharedFor, type ChatClient, type RosterClient } from '../../renderer/remote-protocol-chat';
@@ -33,7 +34,21 @@ export interface SessionLane {
   prefetchSession(sessionId: string, itemLimit?: number, readTraceId?: string): Promise<boolean>;
   /** The followed thread's state is published again, whole. */
   requestSessionStateResync(sessionId: string): void;
+  /** The threads whose changes this lane's listeners use (a window's shown sessions and its reads): a change of any other
+   *  thread is not projected. Without one, every followed thread is. */
+  setInterest(interested: ((threadId: string) => boolean) | null): void;
   dispose(): void;
+}
+
+/** The fold fields a projection reads; `frames` and `framedRevision` only count the core's frames. */
+function sameProjectionInputs(before: SessionFold, after: SessionFold): boolean {
+  if (before === after) return true;
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const key of keys) {
+    if (key === 'frames' || key === 'framedRevision') continue;
+    if (!Object.is((before as unknown as Record<string, unknown>)[key], (after as unknown as Record<string, unknown>)[key])) return false;
+  }
+  return true;
 }
 
 export function createSessionLane({
@@ -76,33 +91,89 @@ export function createSessionLane({
   // Node's host stamped every session snapshot it answered with the remote channel's session (`snapshotWithRemoteSession`).
   const decorated = (client: Client, state: unknown): SessionSnapshot =>
     withRemoteSession(state, remoteSessionIdOf(remoteSession(client as unknown as ChatClient))) as unknown as SessionSnapshot;
-  const stateOf = (threadId: string): SessionSnapshot | undefined => {
-    const client = held();
-    const state = client ? sessionStateOf(client, threadId) : undefined;
-    return client && state ? decorated(client, state) : undefined;
-  };
   const emit = (update: DesktopSessionStateUpdate): void => {
     for (const listener of [...stateListeners]) listener(update);
+  };
+  let interest: ((threadId: string) => boolean) | null = null;
+  const interested = (threadId: string): boolean => interest === null || interest(threadId);
+  /** The pending server requests a thread's state shows (its approval card), by id. */
+  const requestsOf = (client: Client, threadId: string): string =>
+    client
+      .pendingServerRequests()
+      .filter((request) => approvalSurface(request) === threadId)
+      .map((request) => JSON.stringify(request.id))
+      .join('\n');
+  /** What each thread's last published state was projected from, keyed by the snapshot its fold grew from (`origin`). The
+   *  client's folds of a subscribed thread all hold that key; once the subscription ends, by whatever path, the client drops
+   *  them and the entry goes with them: nothing of a session is kept past its subscription. */
+  const projected = new WeakMap<
+    object,
+    { fold: SessionFold; requests: string; snapshot: SessionSnapshot; position: DesktopStreamPosition | undefined }
+  >();
+  /** The feed position the thread's held fold was folded up to, every note counted (those that schedule no frame too). */
+  const positionOf = (client: Client, threadId: string): DesktopStreamPosition | undefined => {
+    const entry = client.store.thread(threadId);
+    return entry ? { epoch: entry.feed.epoch, seq: entry.feed.seq, order: entry.order } : undefined;
+  };
+  const projectionOf = (fold: SessionFold) => (fold.origin ? projected.get(fold.origin) : undefined);
+  /** A change of a thread the store announced: its state is published when the change ends one of the core's frames, or
+   *  is a snapshot or a change of the thread's server requests, and only when what the state is made of changed.
+   *
+   *  The core announces each publication of a thread's state as `thread/frame`, after the notifications it carries (a
+   *  streamed reply's deltas among them; the session actor marks a frame for every notification that changes the state,
+   *  phone_frame.rs `mark_of`). A notification folded before its frame is published by that frame: the state is projected
+   *  once per frame, not once per token. */
+  const due = (threadId: string): boolean => {
+    const client = held();
+    const fold = client?.store.thread(threadId)?.state;
+    const last = fold && projectionOf(fold);
+    if (!client || !fold || !last) return true;
+    // A server request (an approval card) arriving or resolving publishes as it lands, whatever the frame state.
+    const requests = requestsOf(client, threadId);
+    if (requests !== last.requests) return true;
+    // What the state shows changed: it is published by the frame that closes the change.
+    if (!sameProjectionInputs(last.fold, fold)) return (fold.frames ?? 0) !== (last.fold.frames ?? 0);
+    // Nothing the state shows changed (a frame that closes nothing new, or a note that schedules no frame: stage, model-request
+    // and tool-batch telemetry): the state already published is current at this fold's position too. It is handed on again
+    // with that position (no new projection), so what a call waits for (`feedPosition`, measured alike) is always reached.
+    const streamPosition = positionOf(client, threadId);
+    if (!streamPosition || (last.position && streamPositionReached(last.position, streamPosition))) return false;
+    if (fold.origin) projected.set(fold.origin, { ...last, fold, requests, position: streamPosition });
+    emit({ sessionId: threadId, snapshot: last.snapshot, frameSource: 'live', streamPosition });
+    return false;
   };
   // The read a frame answers: a prefetch names its frame by trace id (ipc-state-bridge.ts admits it by that id).
   const pendingTraces = new Map<string, string>();
   const publish = (threadId: string): boolean => {
-    const snapshot = stateOf(threadId);
-    if (!snapshot) return false;
+    const client = held();
+    const fold = client?.store.thread(threadId)?.state;
+    if (!client || !fold) return false;
+    // Every publication of a thread, whatever asked for it, makes it one of the threads a host change republishes.
+    shown.add(threadId);
+    const snapshot = decorated(
+      client,
+      desktopSessionState(fold, client.pendingServerRequests(), client.store.section('hostShellJobs')?.value)
+    );
+    const streamPosition = positionOf(client, threadId);
+    if (fold.origin) projected.set(fold.origin, { fold, requests: requestsOf(client, threadId), snapshot, position: streamPosition });
     const readTraceId = pendingTraces.get(threadId);
     pendingTraces.delete(threadId);
-    emit({ sessionId: threadId, snapshot, frameSource: 'live', ...(readTraceId ? { readTraceId } : {}) });
+    emit({ sessionId: threadId, snapshot, frameSource: 'live', ...(readTraceId ? { readTraceId } : {}), ...(streamPosition ? { streamPosition } : {}) });
     return true;
   };
   // The threads a state was published of: a state also changes with what is not the thread's own (the host's shell jobs,
   // the remote channel's session).
   const shown = new Set<string>();
   const republishShown = (): void => {
-    for (const threadId of [...shown]) if (!publish(threadId)) shown.delete(threadId);
+    for (const threadId of [...shown]) {
+      // Membership ends with the subscription: a thread the client no longer folds leaves, shown or not.
+      if (!held()?.store.thread(threadId)) shown.delete(threadId);
+      else if (interested(threadId)) publish(threadId);
+    }
   };
   const offStore = protocol.onStoreChange((change) => {
     if (change.type === 'thread' && change.threadId) {
-      shown.add(change.threadId);
+      if (!interested(change.threadId) || !due(change.threadId)) return;
       publish(change.threadId);
     } else if (change.type === 'section' && (change.section === 'hostShellJobs' || (change.section === 'hostState' && change.key === 'remoteSession'))) {
       republishShown();
@@ -175,6 +246,9 @@ export function createSessionLane({
     },
     requestSessionStateResync(sessionId) {
       publish(sessionId);
+    },
+    setInterest(next) {
+      interest = next;
     },
     dispose() {
       offRoster();

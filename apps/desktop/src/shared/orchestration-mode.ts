@@ -18,3 +18,9 @@ export function readOrchestrationModeChange(value: unknown): OrchestrationModeCh
     ? { mode: mode as DesktopOrchestrationMode }
     : null;
 }
+
+/** The effective configured default from the app feed's `config.agent` subtree. */
+export function configuredOrchestrationMode(agent: unknown): DesktopOrchestrationMode {
+  const mode = (agent as { orchestrationMode?: unknown } | null | undefined)?.orchestrationMode;
+  return readOrchestrationModeChange({ mode })?.mode ?? 'balanced';
+}

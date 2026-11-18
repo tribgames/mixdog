@@ -226,6 +226,12 @@ pub struct SteerInput {
     /// A steered entry's `submittedAt` and `messageId`; a merged group carries neither.
     pub submitted_at: Option<i64>,
     pub message_id: Option<String>,
+    /// How many of the entry's images go without their original: the core's own count, taken from the entry as the input
+    /// is built, so the message it becomes records it whatever id it is delivered under.
+    pub originals_missing: u32,
+    /// The entry's own `transcriptMeta` (a bot's sender and chain), which the message stores in `meta.transcript`
+    /// (`steeringMessageFromEntry`).
+    pub transcript_meta: Option<Value>,
 }
 
 /// `queuePriorityValue(entry.priority) <= queuePriorityValue(max)`: `now` (0) and `next` (1)
@@ -289,6 +295,242 @@ pub struct ItemCommit {
 /// What a compaction's header change is computed from: the header as the actor holds it.
 pub(crate) type DeferredHeader = Box<dyn FnOnce(&mixdog_store::schema::record::Header) -> mixdog_store::schema::record::HeaderChange + Send>;
 
+/// A step of one model call, as the spinner hears it (`turn.mjs` `streamHandlers` at b6f10295a).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallMark {
+    /// The `streaming` stage: the response began.
+    Streaming,
+    /// A tool call began in the stream (`onStreamItemStart` of a tool: `withdrawLiveCall`), and its batch opens
+    /// (`openToolCalls`: `closeThinkingForToolBatch` with `taskWaitSpinnerMode`).
+    ToolCall,
+    /// Whether a call of the open batch is still a `task wait` (`taskWaitSpinnerMode`): `true` as a batch holding one opens,
+    /// `false` once the last of them settles (`refreshTaskWaitSpinner`). The wait has no card, so the spinner is what shows it.
+    TaskWait(bool),
+    /// A call waits for the person's answer (`approveToolRequest`: the spinner's `tool-approval` mode).
+    ToolApproval,
+    /// The tool batch is over and the turn goes back to the model (`onToolPhaseCompleted`: `requesting`).
+    ToolPhaseCompleted,
+}
+
+/// What a compaction pass's summary model used (ccumulateCompactUsage).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CompactUsageReport {
+    pub iteration: u32,
+    pub usage: mixdog_core_api::domain::provider::Usage,
+    pub reasoning_tokens: Option<u64>,
+    pub reasoning_tokens_complete: bool,
+    /// The convention of the adapter that produced the usage.
+    pub input_excludes_cache: bool,
+}
+
+/// The request the loop is about to send, as its pre-send check judged it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SendCheck {
+    pub messages: std::sync::Arc<[mixdog_agent::message::AgentMessage]>,
+    pub tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+    /// A context-overflow retry is pending (`reactivePending`).
+    pub reactive: bool,
+}
+
+/// What the ask's settlement reads of a finished run (`result` of `settleAskTurn`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Settled {
+    /// `session.messages` after the terminal assistant message was appended.
+    pub transcript: Vec<mixdog_agent::message::AgentMessage>,
+    /// `result.usage`: the ask's aggregate.
+    pub usage: mixdog_core_api::domain::provider::Usage,
+    /// `result.lastTurnUsage`.
+    pub last_turn_usage: mixdog_core_api::domain::provider::Usage,
+    /// `result.toolCallsTotal`.
+    pub tool_calls_total: u64,
+    /// `result.lastSendTools`: the tools of the last request.
+    pub send_tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+    /// `result.model`: the model the last response named.
+    pub response_model: String,
+    /// `askStartedAt`, in wall-clock milliseconds.
+    pub asked_at_ms: i64,
+    /// The convention of the adapter the ask ended on, which its aggregate is settled by.
+    pub input_excludes_cache: bool,
+}
+
+/// Everything Node's `usageDeltaEvent` carries about one model call (`onUsageDelta`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct UsageReport {
+    pub iteration: u32,
+    pub usage: mixdog_core_api::domain::provider::Usage,
+    /// `response.model || model`.
+    pub model: String,
+    /// The model the request named.
+    pub requested_model: String,
+    /// `deltaToolCalls`.
+    pub delta_tool_calls: u64,
+    /// `requestMs`.
+    pub request_ms: u64,
+    /// `deltaPrompt`.
+    pub delta_prompt: u64,
+    /// `sendTools`.
+    pub send_tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+    /// `reasoningUsage(usage)`: `None` when the provider reported none.
+    pub reasoning_tokens: Option<u64>,
+    pub reasoning_tokens_complete: bool,
+    /// `outgoing`: the transcript the request carried.
+    pub outgoing: std::sync::Arc<[mixdog_agent::message::AgentMessage]>,
+    /// `sendStartedAt`.
+    pub sent_at_ms: i64,
+    /// The convention of the adapter that produced this usage (`providerInputExcludesCache`).
+    pub input_excludes_cache: bool,
+    /// The session's transcript-cache book as the call's owner settled it, when it changed (`cacheTailBook`).
+    pub tail_book: Option<Value>,
+}
+
+/// A compaction of the run's model context: the store's `compacted` record.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Compaction {
+    /// The new model context, in order: each row's item id and stored body.
+    pub replacement: Vec<(ItemId, Value)>,
+    /// Wall-clock milliseconds of the compaction (the divider's `at`).
+    pub at: i64,
+    /// Node `droppedMessages`: how many rows the pass took out (always written).
+    pub dropped_count: u64,
+    /// The identities the compaction took out of the model context, when the loop reports them.
+    pub dropped: Option<Dropped>,
+}
+
+/// The `compacted` record's `dropped: {messageIds, callIds}`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Dropped {
+    pub message_ids: Vec<String>,
+    pub call_ids: Vec<String>,
+}
+
+/// What the port handed the session and whose save is still to be told ([`RunPort::saved`]).
+pub struct Queued {
+    rx: oneshot::Receiver<Result<(), RunError>>,
+    /// Its wait ends with the run's token.
+    scoped: bool,
+}
+
+/// A cancelled run releases every wait of the port while the actor reads nothing (the state of
+/// a full durability outbox, G3(c)); the actor's end of the lane is held here and never drained.
+#[cfg(test)]
+mod cancel_tests {
+    use mixdog_core_api::domain::approval::ApprovalKind;
+
+    use super::*;
+
+    fn port(lane: usize) -> (RunPort, mpsc::Receiver<ProducerMsg>, mpsc::Receiver<Ctl>, CancellationToken) {
+        let (tx, rx) = mpsc::channel(lane);
+        let (ctl, ctl_rx) = mpsc::channel(4);
+        let cancel = CancellationToken::new();
+        let port = RunPort {
+            thread: ThreadId::from("t"),
+            turn: TurnId::from("r"),
+            tx,
+            input: watch::channel(InputState::Pending).1,
+            cancel: cancel.clone(),
+            ctl,
+            provider: None,
+            meters: Arc::new(crate::session::testing::TestCompaction::default()),
+            meters_provider: Arc::new(String::new),
+            #[cfg(feature = "replay-settled")]
+            replay_run: Default::default(),
+        };
+        (port, rx, ctl_rx, cancel)
+    }
+
+    fn ask() -> ApprovalAsk {
+        ApprovalAsk {
+            kind: ApprovalKind::Tool,
+            call_id: None,
+            tool: Some("bash".to_owned()),
+            action_kind: None,
+            reason: None,
+            payload: Value::Null,
+            remember: Vec::new(),
+            expires_after: None,
+        }
+    }
+
+    fn compaction() -> Compaction {
+        Compaction { replacement: Vec::new(), at: 0, dropped_count: 0, dropped: None }
+    }
+
+    /// A hop to another provider mid-run moves the thread's provider: the next report is prepared for the new
+    /// one, so its pressure is recorded (`books()` finds the meters of the provider the header names).
+    #[tokio::test]
+    async fn a_report_after_a_provider_switch_prepares_the_meters_of_the_new_provider() {
+        let (mut port, _actor, _ctl, _cancel) = port(8);
+        let meters = Arc::new(crate::session::testing::TestCompaction::default());
+        let provider = Arc::new(std::sync::Mutex::new("first".to_owned()));
+        let live = provider.clone();
+        port.meters = meters.clone();
+        port.meters_provider = Arc::new(move || live.lock().unwrap().clone());
+        let check = || SendCheck { messages: Vec::new().into(), tools: Vec::new(), reactive: false };
+        port.send_check(check()).await.unwrap();
+        *provider.lock().unwrap() = "second".to_owned();
+        port.send_check(check()).await.unwrap();
+        assert_eq!(*meters.prepared.lock().unwrap(), vec![("first".to_owned(), 0), ("second".to_owned(), 0)]);
+    }
+
+    #[tokio::test]
+    async fn a_send_blocked_on_a_full_lane_ends_at_cancel() {
+        let (port, _actor, _ctl, cancel) = port(1);
+        port.notice("fills the lane".into(), mixdog_agent::env::Tone::Info).await.expect("room for one");
+        let blocked = tokio::spawn({
+            let port = port.clone();
+            async move { port.save_provider_state(None).await }
+        });
+        cancel.cancel();
+        assert_eq!(blocked.await.unwrap(), Err(RunError::Cancelled));
+    }
+
+    #[tokio::test]
+    async fn an_ack_the_actor_never_sends_ends_at_cancel() {
+        let (port, _actor, _ctl, cancel) = port(4);
+        let compacting = tokio::spawn({
+            let port = port.clone();
+            async move { port.compacted(compaction()).await }
+        });
+        cancel.cancel();
+        assert_eq!(compacting.await.unwrap(), Err(RunError::Cancelled));
+    }
+
+    #[tokio::test]
+    async fn an_approval_rides_the_control_lane_past_a_full_producer_lane_and_ends_at_cancel() {
+        let (port, _actor, mut ctl, cancel) = port(1);
+        port.notice("fills the lane".into(), mixdog_agent::env::Tone::Info).await.expect("room for one");
+        let asking = tokio::spawn({
+            let port = port.clone();
+            async move { port.request(ask()).await }
+        });
+        // The actor reads only its control lane (the producers are held back by the outbox): the
+        // approval is there although the producer lane is full.
+        assert!(matches!(ctl.recv().await, Some(Ctl::Approval { .. })));
+        cancel.cancel();
+        assert!(matches!(asking.await.unwrap(), ApprovalResolution::Cancelled { .. }));
+    }
+
+    /// A close resolves the pending approval `Interrupted` and then fires the run's token. The
+    /// request task is not polled between the two (a current-thread runtime, so this holds on
+    /// every schedule): it must still answer with the resolution that was sent first.
+    #[tokio::test]
+    async fn an_approval_resolved_before_the_cancel_keeps_its_resolution() {
+        let (port, _actor, mut ctl, cancel) = port(4);
+        let asking = tokio::spawn({
+            let port = port.clone();
+            async move { port.request(ask()).await }
+        });
+        let Some(Ctl::Approval { reply, .. }) = ctl.recv().await else { panic!("the approval is on the control lane") };
+        reply.send(ApprovalResolution::Interrupted { at: 7 }).expect("the request still waits");
+        cancel.cancel();
+        assert!(matches!(asking.await.unwrap(), ApprovalResolution::Interrupted { at: 7 }));
+    }
+}
+
+
+
+
+
 pub(crate) enum ProducerMsg {
     Section(Section),
     ItemStarted {
@@ -301,6 +543,12 @@ pub(crate) enum ProducerMsg {
         /// `item/agentMessage/delta` or `item/reasoning/textDelta`.
         method: &'static str,
         params: Bytes,
+    },
+    /// A streamed call settled before its batch (Node's `__earlyNotify`): its result row as it will be stored, which closes
+    /// the call's card now; the row itself is committed later, in call order.
+    EarlyResult {
+        turn: TurnId,
+        row: Value,
     },
     /// A view-only line or notification of the run (not persisted).
     Shown {
@@ -388,7 +636,6 @@ pub(crate) enum ProducerMsg {
         ack: oneshot::Sender<Result<(), RunError>>,
     },
 }
-
 /// What the run shows besides its rows and deltas.
 pub(crate) enum RunShown {
     /// A transcript notice (`pushNotice(text, tone, {transcript: true})`).
@@ -397,6 +644,9 @@ pub(crate) enum RunShown {
     Usage(UsageReport),
     /// The finished `Reasoning` item (`item/completed`).
     Reasoning(ThreadItem),
+    /// The assistant text streamed before a tool call, final as the call starts (`settleSegmentBeforeToolCall`): its row
+    /// until the assistant row that carries it is committed under the same id.
+    TextSettled(ItemId),
     /// The compact marker (`applyCompactEvent`).
     Compact(mixdog_agent::env::CompactEvent),
     /// The pre-send check of a request (`compactTelemetry(ctx, 'pre_send_check')`).
@@ -420,92 +670,6 @@ pub(crate) enum RunShown {
     /// A mark of the model call the spinner follows (`streamHandlers`, `turn-live-call.mjs`).
     Call(CallMark),
 }
-
-/// A step of one model call, as the spinner hears it (`turn.mjs` `streamHandlers` at b6f10295a).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CallMark {
-    /// The `streaming` stage: the response began.
-    Streaming,
-    /// A tool call began in the stream (`onStreamItemStart` of a tool: `withdrawLiveCall`), and its batch opens
-    /// (`openToolCalls`: `closeThinkingForToolBatch` with `taskWaitSpinnerMode`).
-    ToolCall,
-    /// A call waits for the person's answer (`approveToolRequest`: the spinner's `tool-approval` mode).
-    ToolApproval,
-    /// A call passed its gate without an ask: the step's held publication goes out (see `Actor::step_hold`).
-    Authorized,
-    /// The tool batch is over and the turn goes back to the model (`onToolPhaseCompleted`: `requesting`).
-    ToolPhaseCompleted,
-}
-
-/// What a compaction pass's summary model used (ccumulateCompactUsage).
-#[derive(Clone, Debug, PartialEq)]
-pub struct CompactUsageReport {
-    pub iteration: u32,
-    pub usage: mixdog_core_api::domain::provider::Usage,
-    pub reasoning_tokens: Option<u64>,
-    pub reasoning_tokens_complete: bool,
-    /// The convention of the adapter that produced the usage.
-    pub input_excludes_cache: bool,
-}
-
-/// The request the loop is about to send, as its pre-send check judged it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct SendCheck {
-    pub messages: Vec<mixdog_agent::message::AgentMessage>,
-    pub tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
-    /// A context-overflow retry is pending (`reactivePending`).
-    pub reactive: bool,
-}
-
-/// What the ask's settlement reads of a finished run (`result` of `settleAskTurn`).
-#[derive(Clone, Debug, PartialEq)]
-pub struct Settled {
-    /// `session.messages` after the terminal assistant message was appended.
-    pub transcript: Vec<mixdog_agent::message::AgentMessage>,
-    /// `result.usage`: the ask's aggregate.
-    pub usage: mixdog_core_api::domain::provider::Usage,
-    /// `result.lastTurnUsage`.
-    pub last_turn_usage: mixdog_core_api::domain::provider::Usage,
-    /// `result.toolCallsTotal`.
-    pub tool_calls_total: u64,
-    /// `result.lastSendTools`: the tools of the last request.
-    pub send_tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
-    /// `result.model`: the model the last response named.
-    pub response_model: String,
-    /// `askStartedAt`, in wall-clock milliseconds.
-    pub asked_at_ms: i64,
-    /// The convention of the adapter the ask ended on, which its aggregate is settled by.
-    pub input_excludes_cache: bool,
-}
-
-/// Everything Node's `usageDeltaEvent` carries about one model call (`onUsageDelta`).
-#[derive(Clone, Debug, PartialEq)]
-pub struct UsageReport {
-    pub iteration: u32,
-    pub usage: mixdog_core_api::domain::provider::Usage,
-    /// `response.model || model`.
-    pub model: String,
-    /// The model the request named.
-    pub requested_model: String,
-    /// `deltaToolCalls`.
-    pub delta_tool_calls: u64,
-    /// `requestMs`.
-    pub request_ms: u64,
-    /// `deltaPrompt`.
-    pub delta_prompt: u64,
-    /// `sendTools`.
-    pub send_tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
-    /// `reasoningUsage(usage)`: `None` when the provider reported none.
-    pub reasoning_tokens: Option<u64>,
-    pub reasoning_tokens_complete: bool,
-    /// `outgoing`: the transcript the request carried.
-    pub outgoing: Vec<mixdog_agent::message::AgentMessage>,
-    /// `sendStartedAt`.
-    pub sent_at_ms: i64,
-    /// The convention of the adapter that produced this usage (`providerInputExcludesCache`).
-    pub input_excludes_cache: bool,
-}
-
 impl UsageReport {
     /// The report of a loop `RunEvent::Usage`.
     pub fn from_event(iteration: u32, usage: mixdog_core_api::domain::provider::Usage, delta: mixdog_agent::env::UsageDelta) -> Self {
@@ -523,29 +687,11 @@ impl UsageReport {
             outgoing: delta.outgoing,
             sent_at_ms: delta.sent_at_ms,
             input_excludes_cache: delta.input_excludes_cache,
+            tail_book: delta.tail_book,
         }
     }
 }
 
-/// A compaction of the run's model context: the store's `compacted` record.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Compaction {
-    /// The new model context, in order: each row's item id and stored body.
-    pub replacement: Vec<(ItemId, Value)>,
-    /// Wall-clock milliseconds of the compaction (the divider's `at`).
-    pub at: i64,
-    /// Node `droppedMessages`: how many rows the pass took out (always written).
-    pub dropped_count: u64,
-    /// The identities the compaction took out of the model context, when the loop reports them.
-    pub dropped: Option<Dropped>,
-}
-
-/// The `compacted` record's `dropped: {messageIds, callIds}`.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Dropped {
-    pub message_ids: Vec<String>,
-    pub call_ids: Vec<String>,
-}
 
 #[derive(Clone)]
 pub struct RunPort {
@@ -569,7 +715,6 @@ pub struct RunPort {
     #[cfg(feature = "replay-settled")]
     pub(crate) replay_run: mixdog_ai::transport::replay_bytes::Run,
 }
-
 impl RunPort {
     /// Reads the facts of the stored attachments `messages` carry before a report that prices them
     /// reaches the actor, which meters synchronously (`MediaMeter::prepare`).
@@ -712,6 +857,18 @@ impl RunPort {
     /// (`usageDeltaEvent`).
     pub async fn usage(&self, report: UsageReport) -> Result<(), RunError> {
         self.prepare_meters(&report.outgoing).await;
+        self.usage_prepared(report).await
+    }
+
+    /// The facts a report prices (its media), read apart from the report's sending: a run that hands its reports on in order
+    /// starts this as the report is produced, and sends the report once it is done ([`Self::usage_prepared`],
+    /// [`Self::send_check_prepared`], [`Self::compact_pass_prepared`]).
+    pub async fn prepare_report(&self, messages: &[mixdog_agent::message::AgentMessage]) {
+        self.prepare_meters(messages).await;
+    }
+
+    /// [`Self::usage`] whose [`Self::prepare_report`] is done.
+    pub async fn usage_prepared(&self, report: UsageReport) -> Result<(), RunError> {
         self.shown(RunShown::Usage(report)).await
     }
 
@@ -720,6 +877,13 @@ impl RunPort {
     pub async fn reasoning_completed(&self, item: ItemId, text: String) -> Result<(), RunError> {
         let item = ThreadItem::Reasoning { id: item, summary: Vec::new(), content: vec![text], meta: Default::default() };
         self.shown(RunShown::Reasoning(item)).await
+    }
+
+    /// The assistant text item the run started (`item_started`) is final: a tool call began streaming after it
+    /// (`onStreamItemStart` → `settleSegmentBeforeToolCall`). `item/completed` with the text streamed into it. Live only; the
+    /// assistant row committed under the same id takes its place.
+    pub async fn text_settled(&self, item: ItemId) -> Result<(), RunError> {
+        self.shown(RunShown::TextSettled(item)).await
     }
 
     /// A compaction pass's marker (`onCompactEvent` → `applyCompactEvent`): the
@@ -732,6 +896,11 @@ impl RunPort {
     /// The pre-send check of the request the loop is about to send.
     pub async fn send_check(&self, check: SendCheck) -> Result<(), RunError> {
         self.prepare_meters(&check.messages).await;
+        self.send_check_prepared(check).await
+    }
+
+    /// [`Self::send_check`] whose [`Self::prepare_report`] is done.
+    pub async fn send_check_prepared(&self, check: SendCheck) -> Result<(), RunError> {
         self.shown(RunShown::Check(check)).await
     }
 
@@ -751,6 +920,11 @@ impl RunPort {
         if let mixdog_agent::env::PassStage::Done { after, .. } = &pass.stage {
             self.prepare_meters(after).await;
         }
+        self.compact_pass_prepared(pass).await
+    }
+
+    /// [`Self::compact_pass`] whose [`Self::prepare_report`] is done (for its request, and for what a finished pass left).
+    pub async fn compact_pass_prepared(&self, pass: Box<mixdog_agent::env::CompactPass>) -> Result<(), RunError> {
         self.shown(RunShown::Pass(pass)).await
     }
 
@@ -793,28 +967,49 @@ impl RunPort {
         self.shown(RunShown::ToolBatch { request_index, phase, iteration, calls, duration_ms }).await
     }
 
+    /// A call settled before its batch: `row` is its result row as it will be committed; the card closes now.
+    pub async fn early_result(&self, row: Value) -> Result<(), RunError> {
+        self.send(ProducerMsg::EarlyResult { turn: self.turn.clone(), row }).await
+    }
+
     async fn shown(&self, shown: RunShown) -> Result<(), RunError> {
         self.send(ProducerMsg::Shown { turn: self.turn.clone(), shown }).await
     }
 
     /// Appends a history row of this run and resolves once it is durable (or failed).
     pub async fn commit_item(&self, item: ItemCommit) -> Result<(), RunError> {
+        let queued = self.queue_item(item).await?;
+        self.saved(queued).await
+    }
+
+    /// Hands a history row of this run to the session, which shows it in order with everything the run sends after it;
+    /// its save is told by [`Self::saved`].
+    pub async fn queue_item(&self, item: ItemCommit) -> Result<Queued, RunError> {
         let (ack, rx) = oneshot::channel();
-        self.send(ProducerMsg::Commit {
-            turn: self.turn.clone(),
-            item,
-            ack,
-        })
-        .await?;
-        rx.await.map_err(|_| RunError::Closed)?
+        self.send(ProducerMsg::Commit { turn: self.turn.clone(), item, ack }).await?;
+        Ok(Queued { rx, scoped: false })
     }
 
     /// Records what the run produced that no row holds yet (a `draft` record, see `RunDraft`), in order with its rows;
     /// resolves once it is durable (or failed). Recovery at open commits it if the process dies before the run ends.
     pub async fn draft(&self, body: Value) -> Result<(), RunError> {
+        let queued = self.queue_draft(body).await?;
+        self.saved(queued).await
+    }
+
+    /// [`Self::draft`], handed on; its write is told by [`Self::saved`].
+    pub async fn queue_draft(&self, body: Value) -> Result<Queued, RunError> {
         let (ack, rx) = oneshot::channel();
         self.send(ProducerMsg::Draft { turn: self.turn.clone(), body, ack }).await?;
-        rx.await.map_err(|_| RunError::Closed)?
+        Ok(Queued { rx, scoped: false })
+    }
+
+    /// Waits for the save of what was handed on: a row's or draft's even past the run's abort (an aborted run's rows are
+    /// still written), a context change's only while the run lasts.
+    pub async fn saved(&self, queued: Queued) -> Result<(), RunError> {
+        let Queued { rx, scoped } = queued;
+        let saved = async move { rx.await.map_err(|_| RunError::Closed)? };
+        if scoped { self.scoped(saved).await } else { saved.await }
     }
 
     /// `recordAppliedSkills` for the turn's input row: `meta.transcript.appliedSkills` set to `names` (an amend of
@@ -851,8 +1046,15 @@ impl RunPort {
     }
 
     pub async fn context_rewound(&self, replacement: Vec<(ItemId, Value)>) -> Result<(), RunError> {
+        let queued = self.queue_context_rewound(replacement).await?;
+        self.saved(queued).await
+    }
+
+    /// [`Self::context_rewound`], handed on; its save is told by [`Self::saved`].
+    pub async fn queue_context_rewound(&self, replacement: Vec<(ItemId, Value)>) -> Result<Queued, RunError> {
         let (ack, rx) = oneshot::channel();
-        self.call(ProducerMsg::ContextRewound { turn: self.turn.clone(), replacement, unchanged: false, ack }, rx).await?
+        self.send(ProducerMsg::ContextRewound { turn: self.turn.clone(), replacement, unchanged: false, ack }).await?;
+        Ok(Queued { rx, scoped: true })
     }
 
     /// The model context restarts at the rows it held before the turn's prompt (a refused prompt, `turn-run.mjs` throws before
@@ -864,11 +1066,17 @@ impl RunPort {
 
     /// Appends the `compacted` record and resolves once it is durable (or failed).
     pub async fn compacted(&self, compaction: Compaction) -> Result<(), RunError> {
+        let queued = self.queue_compacted(compaction).await?;
+        self.saved(queued).await
+    }
+
+    /// [`Self::compacted`], handed on; its save is told by [`Self::saved`].
+    pub async fn queue_compacted(&self, compaction: Compaction) -> Result<Queued, RunError> {
         let (ack, rx) = oneshot::channel();
-        self.call(ProducerMsg::Compacted { turn: self.turn.clone(), compaction, header: None, ack }, rx).await?
+        self.send(ProducerMsg::Compacted { turn: self.turn.clone(), compaction, header: None, ack }).await?;
+        Ok(Queued { rx, scoped: true })
     }
 }
-
 #[async_trait]
 impl ApprovalGate for RunPort {
     /// Persisted, published, and resolved by the first valid decision, expiry, or the run's
@@ -899,122 +1107,5 @@ impl ApprovalGate for RunPort {
             Err(RunError::Cancelled) => rx.try_recv().unwrap_or(ApprovalResolution::Cancelled { at: 0 }),
             Err(_) => interrupted(),
         }
-    }
-}
-
-/// A cancelled run releases every wait of the port while the actor reads nothing (the state of
-/// a full durability outbox, G3(c)); the actor's end of the lane is held here and never drained.
-#[cfg(test)]
-mod cancel_tests {
-    use mixdog_core_api::domain::approval::ApprovalKind;
-
-    use super::*;
-
-    fn port(lane: usize) -> (RunPort, mpsc::Receiver<ProducerMsg>, mpsc::Receiver<Ctl>, CancellationToken) {
-        let (tx, rx) = mpsc::channel(lane);
-        let (ctl, ctl_rx) = mpsc::channel(4);
-        let cancel = CancellationToken::new();
-        let port = RunPort {
-            thread: ThreadId::from("t"),
-            turn: TurnId::from("r"),
-            tx,
-            input: watch::channel(InputState::Pending).1,
-            cancel: cancel.clone(),
-            ctl,
-            provider: None,
-            meters: Arc::new(crate::session::testing::TestCompaction::default()),
-            meters_provider: Arc::new(String::new),
-            #[cfg(feature = "replay-settled")]
-            replay_run: Default::default(),
-        };
-        (port, rx, ctl_rx, cancel)
-    }
-
-    fn ask() -> ApprovalAsk {
-        ApprovalAsk {
-            kind: ApprovalKind::Tool,
-            call_id: None,
-            tool: Some("bash".to_owned()),
-            action_kind: None,
-            reason: None,
-            payload: Value::Null,
-            remember: Vec::new(),
-            expires_after: None,
-        }
-    }
-
-    fn compaction() -> Compaction {
-        Compaction { replacement: Vec::new(), at: 0, dropped_count: 0, dropped: None }
-    }
-
-    /// A hop to another provider mid-run moves the thread's provider: the next report is prepared for the new
-    /// one, so its pressure is recorded (`books()` finds the meters of the provider the header names).
-    #[tokio::test]
-    async fn a_report_after_a_provider_switch_prepares_the_meters_of_the_new_provider() {
-        let (mut port, _actor, _ctl, _cancel) = port(8);
-        let meters = Arc::new(crate::session::testing::TestCompaction::default());
-        let provider = Arc::new(std::sync::Mutex::new("first".to_owned()));
-        let live = provider.clone();
-        port.meters = meters.clone();
-        port.meters_provider = Arc::new(move || live.lock().unwrap().clone());
-        let check = || SendCheck { messages: Vec::new(), tools: Vec::new(), reactive: false };
-        port.send_check(check()).await.unwrap();
-        *provider.lock().unwrap() = "second".to_owned();
-        port.send_check(check()).await.unwrap();
-        assert_eq!(*meters.prepared.lock().unwrap(), vec![("first".to_owned(), 0), ("second".to_owned(), 0)]);
-    }
-
-    #[tokio::test]
-    async fn a_send_blocked_on_a_full_lane_ends_at_cancel() {
-        let (port, _actor, _ctl, cancel) = port(1);
-        port.notice("fills the lane".into(), mixdog_agent::env::Tone::Info).await.expect("room for one");
-        let blocked = tokio::spawn({
-            let port = port.clone();
-            async move { port.save_provider_state(None).await }
-        });
-        cancel.cancel();
-        assert_eq!(blocked.await.unwrap(), Err(RunError::Cancelled));
-    }
-
-    #[tokio::test]
-    async fn an_ack_the_actor_never_sends_ends_at_cancel() {
-        let (port, _actor, _ctl, cancel) = port(4);
-        let compacting = tokio::spawn({
-            let port = port.clone();
-            async move { port.compacted(compaction()).await }
-        });
-        cancel.cancel();
-        assert_eq!(compacting.await.unwrap(), Err(RunError::Cancelled));
-    }
-
-    #[tokio::test]
-    async fn an_approval_rides_the_control_lane_past_a_full_producer_lane_and_ends_at_cancel() {
-        let (port, _actor, mut ctl, cancel) = port(1);
-        port.notice("fills the lane".into(), mixdog_agent::env::Tone::Info).await.expect("room for one");
-        let asking = tokio::spawn({
-            let port = port.clone();
-            async move { port.request(ask()).await }
-        });
-        // The actor reads only its control lane (the producers are held back by the outbox): the
-        // approval is there although the producer lane is full.
-        assert!(matches!(ctl.recv().await, Some(Ctl::Approval { .. })));
-        cancel.cancel();
-        assert!(matches!(asking.await.unwrap(), ApprovalResolution::Cancelled { .. }));
-    }
-
-    /// A close resolves the pending approval `Interrupted` and then fires the run's token. The
-    /// request task is not polled between the two (a current-thread runtime, so this holds on
-    /// every schedule): it must still answer with the resolution that was sent first.
-    #[tokio::test]
-    async fn an_approval_resolved_before_the_cancel_keeps_its_resolution() {
-        let (port, _actor, mut ctl, cancel) = port(4);
-        let asking = tokio::spawn({
-            let port = port.clone();
-            async move { port.request(ask()).await }
-        });
-        let Some(Ctl::Approval { reply, .. }) = ctl.recv().await else { panic!("the approval is on the control lane") };
-        reply.send(ApprovalResolution::Interrupted { at: 7 }).expect("the request still waits");
-        cancel.cancel();
-        assert!(matches!(asking.await.unwrap(), ApprovalResolution::Interrupted { at: 7 }));
     }
 }

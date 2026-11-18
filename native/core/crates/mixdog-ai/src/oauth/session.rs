@@ -74,6 +74,9 @@ struct Session {
     shared: Arc<Shared>,
     pasted: Option<mpsc::UnboundedSender<String>>,
     cancel: CancellationToken,
+    first: LoginState,
+    /// A fact of how the flow began (a device code was its first state), fixed here.
+    device: bool,
 }
 
 #[async_trait]
@@ -130,6 +133,26 @@ impl LoginSession for Session {
     fn cancel(&self) {
         self.cancel.cancel();
     }
+
+    fn started(&self) -> LoginState {
+        self.first.clone()
+    }
+
+    fn device_code(&self) -> bool {
+        self.device
+    }
+
+    async fn released(&self) {
+        loop {
+            let notified = self.shared.changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.state().is_terminal() {
+                return;
+            }
+            notified.await;
+        }
+    }
 }
 
 /// Runs `run` as one login: its `Ok` account label is `Done`, its failure is
@@ -145,6 +168,8 @@ where
     F: FnOnce(FlowCtx, CancellationToken) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = Result<Option<String>, LoginFailure>> + Send + 'static,
 {
+    let device = matches!(first, LoginState::DeviceCode { .. });
+    let started = first.clone();
     let shared = Arc::new(Shared {
         state: Mutex::new((1, first)),
         delivered: Mutex::new(0),
@@ -159,23 +184,25 @@ where
     let task_shared = shared.clone();
     let task_cancel = cancel.clone();
     mixdog_rt::spawn("ai.oauth.login", TaskClass::Work, async move {
-        let _guard = guard;
         let outcome = tokio::select! {
-            () = task_cancel.cancelled() => {
-                task_shared.set(LoginState::Cancelled);
-                return;
-            }
-            outcome = run(ctx, task_cancel.clone()) => outcome,
+            () = task_cancel.cancelled() => None,
+            outcome = run(ctx, task_cancel.clone()) => Some(outcome),
         };
+        // The flow's slot is free before the end is announced: whoever waits for the end (a newer login that
+        // superseded this one) finds the slot released.
+        drop(guard);
         task_shared.set(match outcome {
-            Ok(account) => LoginState::Done { account },
-            Err(failure) => LoginState::Failed(failure),
+            None => LoginState::Cancelled,
+            Some(Ok(account)) => LoginState::Done { account },
+            Some(Err(failure)) => LoginState::Failed(failure),
         });
     });
     Box::new(Session {
         shared,
         pasted: takes_input.then_some(tx),
         cancel,
+        first: started,
+        device,
     })
 }
 

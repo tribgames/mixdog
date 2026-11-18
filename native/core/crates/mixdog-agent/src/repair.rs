@@ -260,11 +260,7 @@ mod tests {
         assert_eq!(messages.len(), 1);
     }
 
-    fn recorded_scenarios() -> Vec<JsonValue> {
-        let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-untested/agent-tool-call-ids.json")).unwrap();
-        doc["scenarios"].as_array().unwrap().clone()
-    }
-
+    #[cfg(node_twin)]
     fn turn(ids: &[String]) -> Vec<AgentMessage> {
         let calls = ids.iter().map(|id| call(id)).collect();
         std::iter::once(AgentMessage::assistant("", calls))
@@ -272,10 +268,33 @@ mod tests {
             .collect()
     }
 
+    #[cfg(node_twin)]
     fn strings(value: &JsonValue) -> Vec<String> {
         value.as_array().map_or_else(Vec::new, |ids| ids.iter().map(|id| id.as_str().unwrap().to_owned()).collect())
     }
 
+    #[test]
+    fn reused_ids_get_the_smallest_free_suffix() {
+        let history = vec![
+            AgentMessage::assistant("", vec![call("call_0")]),
+            AgentMessage::tool_text("call_0", "r", ToolKind::Normal),
+        ];
+        let mut ids = ToolCallIds::new(&history);
+        let mut first = call("call_0");
+        let mut second = call("call_0");
+        ids.resolve(&mut first);
+        ids.resolve(&mut second);
+        assert_eq!(first.id, "call_0-2");
+        assert_eq!(second.id, "call_0-3");
+    }
+
+
+    #[cfg(node_twin)]
+    fn recorded_scenarios() -> Vec<JsonValue> {
+        let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-untested/agent-tool-call-ids.json")).unwrap();
+        doc["scenarios"].as_array().unwrap().clone()
+    }
+    #[cfg(node_twin)]
     /// Node's `createToolCallIdResolver` over its test's histories and batches: every round's streamed calls, then its
     /// final batch, with the ids the round ended with appended to the history as one more turn.
     #[test]
@@ -306,7 +325,7 @@ mod tests {
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
-
+    #[cfg(node_twin)]
     /// The same, through the builder a provider's stream is folded by: the calls a stream finished, then the response's
     /// returned batch, must end as the ids Node's final batch ends with.
     #[test]
@@ -334,20 +353,5 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
-    }
-
-    #[test]
-    fn reused_ids_get_the_smallest_free_suffix() {
-        let history = vec![
-            AgentMessage::assistant("", vec![call("call_0")]),
-            AgentMessage::tool_text("call_0", "r", ToolKind::Normal),
-        ];
-        let mut ids = ToolCallIds::new(&history);
-        let mut first = call("call_0");
-        let mut second = call("call_0");
-        ids.resolve(&mut first);
-        ids.resolve(&mut second);
-        assert_eq!(first.id, "call_0-2");
-        assert_eq!(second.id, "call_0-3");
     }
 }

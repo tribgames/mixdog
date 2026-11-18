@@ -14,6 +14,7 @@ import { createResidentWorkers } from './resident-workers';
 import { createWorkerLedgers } from './worker-ledgers';
 import { COMMAND_TIMEOUT_MS, createWorkerRequests, type PendingWorkerRequest } from './worker-requests';
 import { recordCursorDiagnostic } from '../overlay/cursor-diagnostics';
+import { currentEndpoint, outsideEndpoint } from '../host/command-fence';
 import { assertComputerWorkerCapacity, MAX_COMPUTER_WORKERS } from './worker-capacity';
 import { WINDOW_ARRIVALS_SESSION_ID } from '../shared/common';
 import type { PowerShellResponse } from '../shared/types';
@@ -204,10 +205,14 @@ export function createWorkerPool(host: WorkerPoolHost) {
         requests.retire(child, error);
         host.foregroundLock?.workerGone(instance);
       },
-      unstarted: () => residents.delete(child),
+      unstarted: () => {
+        residents.delete(child);
+        requests.workerGone(child);
+      },
       exited: () => {
         residents.delete(child);
         ledgers.workerExited(child);
+        requests.workerGone(child);
       },
     });
     return child;
@@ -255,9 +260,49 @@ export function createWorkerPool(host: WorkerPoolHost) {
     return { read_only: !HOST_RELEASE_ACTIONS.has(String(request.action)) };
   }
 
+  /** One worker request under the command endpoint the caller runs in (`command-fence.ts`), if any: each is admitted through the
+   *  endpoint (`commit` and its signal) right before it is sent, except a release of what the worker holds (teardown), and every
+   *  one is counted (`track`) until it settled and, when its worker was retired (whether the request was answered first, as a
+   *  capture whose cleanup was unconfirmed is, or failed with the retirement), until that worker's exit is observed.
+   *  The request itself is sent outside the endpoint, so the worker, its timers and its listeners never carry it. */
+  function fenced(
+    request: Record<string, unknown>,
+    send: () => { reply: Promise<PowerShellResponse>; child?: ChildProcessWithoutNullStreams }
+  ): Promise<PowerShellResponse> {
+    const endpoint = currentEndpoint();
+    if (!endpoint) return send().reply;
+    try {
+      if (!HOST_RELEASE_ACTIONS.has(String(request.action))) {
+        endpoint.commit();
+        endpoint.signal.throwIfAborted();
+      }
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const { reply, child } = outsideEndpoint(send);
+    const settled = (): Promise<void> | undefined =>
+      child && requests.isRetired(child) ? requests.exitObserved(child) : undefined;
+    endpoint.track(reply.then(settled, settled));
+    return reply;
+  }
+
   function callPowerShell(
     request: Record<string, unknown>,
     timeoutMs = COMMAND_TIMEOUT_MS
+  ): Promise<PowerShellResponse> {
+    let sentTo: ChildProcessWithoutNullStreams | undefined;
+    return fenced(request, () => {
+      const reply = sendPowerShell(request, timeoutMs, (child) => {
+        sentTo = child;
+      });
+      return { reply, child: sentTo };
+    });
+  }
+
+  function sendPowerShell(
+    request: Record<string, unknown>,
+    timeoutMs: number,
+    sentTo: (child: ChildProcessWithoutNullStreams) => void
   ): Promise<PowerShellResponse> {
     const classified = classifyWorkerRequest(request);
     const sessionId = classified.sessionId;
@@ -270,6 +315,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
       );
     }
     const child = ensurePowerShell(sessionId);
+    sentTo(child);
     const dispatched = requests.dispatch(
       child,
       id,
@@ -325,7 +371,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
       for (const path of paths) ledgers.registry.forget(path);
     },
     callPowerShell,
-    callPowerShellElevated: elevated.call,
+    callPowerShellElevated: (request: Record<string, unknown>) => fenced(request, () => ({ reply: elevated.call(request) })),
     cancelElevatedSession: elevated.cancel,
     elevatedSessionIds: elevated.sessionIds,
   };

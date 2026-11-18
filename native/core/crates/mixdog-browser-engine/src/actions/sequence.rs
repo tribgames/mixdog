@@ -14,6 +14,7 @@ use mixdog_rt::CancelView;
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::error::HostCallError;
 use crate::limits::SEQUENCE_STEP_ACTIONS;
 use crate::refs::ref_set::RefSet;
 use crate::settle::settle::StepKind;
@@ -109,6 +110,11 @@ pub async fn sequence(cx: &mut ActionContext<'_>, runner: &dyn StepRunner) -> Re
     for (index, step) in steps.iter().enumerate() {
         let action = step_action(step);
         if let Err(error) = run_one(cx, runner, &start, index, step, &action).await {
+            // A step whose connection was lost may have run, and so may the steps before it: that is the whole answer, the typed
+            // cause (a fresh observation could not be taken over the lost connection either).
+            if matches!(error, ActionError::Host(HostCallError::ConnectionLost)) {
+                return Err(error);
+            }
             let stopped = match runner.observe(cx.cancel).await {
                 Ok(text) => text,
                 // A cancelled command ends as a cancelled one; any other observation that fails leaves the failure without a page.
@@ -193,6 +199,32 @@ mod tests {
         let mut rig = Rig::new(None);
         let mut cx = ActionContext { host: &host, page, command, cancel: &rig.source.view(), recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
         sequence(&mut cx, script).await
+    }
+
+    /// A runner whose second step loses the host connection after the first one ran.
+    struct LosesTheConnection;
+
+    #[async_trait]
+    impl StepRunner for LosesTheConnection {
+        async fn run_step(&self, index: u32, _step: Value, _cancel: &CancelView) -> Result<StepResult, ActionError> {
+            if index == 1 { Ok(StepResult { outcome: StepKind::Completed, text: String::new() }) } else { Err(ActionError::Host(HostCallError::ConnectionLost)) }
+        }
+
+        async fn observe(&self, _cancel: &CancelView) -> Result<String, ActionError> {
+            panic!("no observation is taken over a lost connection");
+        }
+    }
+
+    /// A step that lost the connection after an earlier step ran is the typed loss, not a "Sequence stopped" text.
+    #[tokio::test]
+    async fn a_step_that_loses_the_connection_ends_the_sequence_as_the_typed_loss() {
+        let page = page();
+        let host = FakeHost::scripted(Vec::new());
+        let mut rig = Rig::new(None);
+        let command = fills(3);
+        let mut cx = ActionContext { host: &host, page: &page, command: &command, cancel: &rig.source.view(), recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+        let error = sequence(&mut cx, &LosesTheConnection).await.expect_err("lost");
+        assert_eq!(error, ActionError::Host(HostCallError::ConnectionLost));
     }
 
     #[tokio::test]

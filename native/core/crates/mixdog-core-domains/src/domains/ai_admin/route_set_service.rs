@@ -66,6 +66,10 @@ impl SessionFollow for PreSessionAware {
         if pre_session(thread) { Ok(()) } else { self.inner.tune(thread).await }
     }
 
+    async fn tuning_pick(&self, thread: &ThreadId) -> Result<Option<Obj>, PortError> {
+        if pre_session(thread) { Ok(None) } else { self.inner.tuning_pick(thread).await }
+    }
+
     async fn switch_now(&self, thread: &ThreadId) -> Result<Option<Value>, PortError> {
         if pre_session(thread) { Ok(None) } else { self.inner.switch_now(thread).await }
     }
@@ -163,7 +167,14 @@ pub(super) fn plan(selection: &Obj, selected: &Obj) -> Plan {
         only_if_empty: flag("onlyIfEmpty"),
         session_only,
         validate_only: flag("validateOnly"),
-        follow: FollowOptions { apply_to_current_session: flag("applyToCurrentSession"), switch_established: true, defer_until_next_turn: true, lease: None },
+        follow: FollowOptions {
+            apply_to_current_session: flag("applyToCurrentSession"),
+            switch_established: true,
+            defer_until_next_turn: true,
+            // Desktop's addressed model pick, not the Main/default writer or a conditional fill.
+            compact_before_switch: flag("applyToCurrentSession") && flag("keepMainModel") && !flag("onlyIfEmpty"),
+            lease: None,
+        },
     };
     Plan::Write(requested, options)
 }

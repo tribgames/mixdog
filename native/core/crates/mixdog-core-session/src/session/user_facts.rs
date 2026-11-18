@@ -27,7 +27,7 @@ pub fn user_facts(body: &mut Value, blobs: &dyn Blobs) -> RowFacts {
     row_facts(body, &mut UserText::new(blobs)).unwrap_or(RowFacts { visible: true, prompt: None })
 }
 
-/// The prompt-attachment store over the process's [`BlobStore`] (`<data>/prompt-attachments/sha256/<ab>/<hex>`): the blob
+/// The prompt-attachment store over the process's [`BlobStore`] (`<data>/blobs/sha256/<ab>/<hex>`): the blob
 /// store's layout, publication and verified reads, with the intake's refusals and Node's error classes. Every call runs in an
 /// interactive-io lane job and takes the lane.
 #[derive(Clone)]
@@ -56,7 +56,7 @@ impl AttachmentStore {
             return Err(BlobError::Invalid("prompt attachment exceeds the 64 MiB input limit".into()));
         }
         match self.0.put_with(lane, bytes, Access::OwnerOnly) {
-            Ok(pin) => Ok(hex(pin.digest()).to_owned()),
+            Ok(digest) => Ok(hex(&digest).to_owned()),
             // A concurrent writer may have published the same content first (`store.mjs:170`).
             Err(error) => {
                 let digest = digest_of(bytes);
@@ -125,53 +125,6 @@ mod tests {
         }
     }
 
-    /// `write_blob` run on an interactive-io lane, as intake runs it.
-    async fn write(store: &AttachmentStore, bytes: Vec<u8>) -> Result<String, BlobError> {
-        let store = store.clone();
-        let tokens = mixdog_rt::testing::tokens();
-        mixdog_core_base::support::on_lane(tokens.interactive_io, &tokio_util::sync::CancellationToken::new(), move |lane| store.write_blob(lane, &bytes)).await.unwrap()
-    }
-
-    #[tokio::test]
-    async fn a_pasted_text_is_refused_at_intake_as_node_refuses_it_and_a_cut_blob_is_replaced() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = AttachmentStore(BlobStore::new(dir.path()));
-        // store.mjs:137,139: refused when the prompt is taken in, never stored for restore to reject.
-        assert_eq!(write(&store, Vec::new()).await, Err(BlobError::Invalid("prompt attachment is empty".into())));
-        let over = vec![b'a'; MAX_BLOB_BYTES as usize + 1];
-        assert_eq!(write(&store, over).await, Err(BlobError::Invalid("prompt attachment exceeds the 64 MiB input limit".into())));
-        assert!(!dir.path().join("prompt-attachments").exists(), "nothing is stored for a refusal");
-        // A blob a crash cut short sits at the content address: the next write of the same text replaces it (store.mjs:146-160).
-        let text = b"pasted text".to_vec();
-        let reference = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&text));
-        let path = dir.path().join("prompt-attachments/sha256").join(&reference[..2]).join(&reference);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, b"pasted").unwrap();
-        assert_eq!(write(&store, text.clone()).await, Ok(reference.clone()));
-        assert_eq!(std::fs::read(&path).unwrap(), text);
-        // Published whole: no tmp is left beside it.
-        assert_eq!(std::fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
-    }
-
-    /// `saveBuffer` (store.mjs:146-161): a blob at the content address that cannot be read counts as absent; it is written
-    /// again (the publish's rename replaces it), never a failure that may pass.
-    #[cfg(unix)]
-    #[tokio::test]
-    #[allow(clippy::disallowed_methods, reason = "test setup: the blob is made unreadable, then read back")]
-    async fn an_unreadable_blob_at_the_address_is_written_again() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let store = AttachmentStore(BlobStore::new(dir.path()));
-        let text = b"pasted text".to_vec();
-        let reference = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&text));
-        let path = dir.path().join("prompt-attachments/sha256").join(&reference[..2]).join(&reference);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, &text).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
-        assert_eq!(write(&store, text.clone()).await, Ok(reference));
-        assert_eq!(std::fs::read(&path).unwrap(), text);
-    }
-
     /// A Goal entry's prompt shows no row of its own but is listed, in the migration's output as in a live row: a failed end recorded on
     /// it is restored from the history page that lists it.
     #[test]
@@ -185,6 +138,51 @@ mod tests {
         assert!(!user_facts(&mut hook, &NoBlobs).visible);
     }
 
+
+    /// `write_blob` run on an interactive-io lane, as intake runs it.
+    async fn write(store: &AttachmentStore, bytes: Vec<u8>) -> Result<String, BlobError> {
+        let store = store.clone();
+        let tokens = mixdog_rt::testing::tokens();
+        mixdog_core_base::support::on_lane(tokens.interactive_io, &tokio_util::sync::CancellationToken::new(), move |lane| store.write_blob(lane, &bytes)).await.unwrap()
+    }
+    #[tokio::test]
+    async fn a_pasted_text_is_refused_at_intake_as_node_refuses_it_and_a_cut_blob_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AttachmentStore(BlobStore::new(dir.path()));
+        // store.mjs:137,139: refused when the prompt is taken in, never stored for restore to reject.
+        assert_eq!(write(&store, Vec::new()).await, Err(BlobError::Invalid("prompt attachment is empty".into())));
+        let over = vec![b'a'; MAX_BLOB_BYTES as usize + 1];
+        assert_eq!(write(&store, over).await, Err(BlobError::Invalid("prompt attachment exceeds the 64 MiB input limit".into())));
+        assert!(!dir.path().join("blobs").exists(), "nothing is stored for a refusal");
+        // A blob a crash cut short sits at the content address: the next write of the same text replaces it (store.mjs:146-160).
+        let text = b"pasted text".to_vec();
+        let reference = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&text));
+        let path = dir.path().join(mixdog_store::schema::blob::BLOB_DIR).join(&reference[..2]).join(&reference);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"pasted").unwrap();
+        assert_eq!(write(&store, text.clone()).await, Ok(reference.clone()));
+        assert_eq!(std::fs::read(&path).unwrap(), text);
+        // Published whole: no tmp is left beside it.
+        assert_eq!(std::fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+    }
+    /// `saveBuffer` (store.mjs:146-161): a blob at the content address that cannot be read counts as absent; it is written
+    /// again (the publish's rename replaces it), never a failure that may pass.
+    #[cfg(unix)]
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "test setup: the blob is made unreadable, then read back")]
+    async fn an_unreadable_blob_at_the_address_is_written_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let store = AttachmentStore(BlobStore::new(dir.path()));
+        let text = b"pasted text".to_vec();
+        let reference = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&text));
+        let path = dir.path().join(mixdog_store::schema::blob::BLOB_DIR).join(&reference[..2]).join(&reference);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &text).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        assert_eq!(write(&store, text.clone()).await, Ok(reference));
+        assert_eq!(std::fs::read(&path).unwrap(), text);
+    }
     #[test]
     fn a_live_row_equals_the_migrated_row_of_the_same_message() {
         for message in [

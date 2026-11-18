@@ -181,23 +181,20 @@ mod tests;
 mod site_tests {
     use super::*;
     use crate::transport::site_probe::TimingOut;
-    use crate::transport::site_probe::assert_dispatcher;
-    use crate::transport::site_probe::assert_thrown;
-    use crate::transport::site_probe::assert_transport;
 
-    /// The probe that outlives its timer finds no server, as the real Node function did (`sites.vertexMetadataProbe`); the
-    /// mint arms none and ends at the dispatcher like every Vertex token request (`sites.vertexToken`).
+    /// A server that never answers: the project probe gives up after its own 1 s window and finds nothing; the token
+    /// request arms no window of its own, so it ends at the shared dispatcher's 10 minutes and says authentication failed.
     #[tokio::test(start_paused = true)]
-    async fn the_probe_and_the_mint_read_as_nodes_when_the_server_never_answers() {
+    async fn the_probe_and_the_mint_end_at_their_windows_when_the_server_never_answers() {
         let transport = TimingOut::new();
         let http: Arc<dyn HttpSend> = transport.clone();
-        let found = probe_project(&http).await;
-        assert_transport("vertexMetadataProbe", &transport);
-        assert_eq!(found.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null), crate::transport::site_probe::recorded("vertexMetadataProbe")["value"]);
+        assert_eq!(probe_project(&http).await, None);
+        let seen = transport.seen();
+        assert_eq!((seen[0].after, seen[0].text.as_str()), (std::time::Duration::from_millis(1000), "The operation was aborted due to timeout"));
 
         let mint = TimingOut::new();
         let error = MetadataAuth::new(mint.clone(), "p", Box::new(|| 0)).authorize().await.expect_err("never answers");
-        assert_dispatcher("vertexToken", &mint);
-        assert_thrown("vertexToken", &error.message);
+        assert_eq!(mint.seen()[0].after, std::time::Duration::from_millis(600_000));
+        assert!(error.message.starts_with("Vertex AI authentication failed: "), "{}", error.message);
     }
 }

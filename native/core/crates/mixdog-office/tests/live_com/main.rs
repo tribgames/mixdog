@@ -65,11 +65,6 @@ use mixdog_raster::svg::SvgFonts;
 use mixdog_rt::{CancellationToken, LaneTokens};
 use serde_json::Value;
 
-/// `process.platform === 'win32' && process.env.MIXDOG_TEST_LIVE_OFFICE === '1'`.
-fn enabled() -> bool {
-    std::env::var("MIXDOG_TEST_LIVE_OFFICE").is_ok_and(|value| value == "1")
-}
-
 // ---- the platform of the engine ---------------------------------------------------------------------------------------------
 
 /// The brief readings of the authoring crate.
@@ -151,49 +146,6 @@ struct LocalBrowser {
     profile: PathBuf,
 }
 
-impl LocalBrowser {
-    /// The installed browser (`PUPPETEER_EXECUTABLE_PATH`, else Chrome, else Edge).
-    fn installed() -> PathBuf {
-        let explicit = std::env::var_os("PUPPETEER_EXECUTABLE_PATH").map(PathBuf::from);
-        let program_files = std::env::var_os("PROGRAMFILES").map_or_else(|| PathBuf::from("C:/Program Files"), PathBuf::from);
-        let program_files_x86 = std::env::var_os("PROGRAMFILES(X86)").map_or_else(|| PathBuf::from("C:/Program Files (x86)"), PathBuf::from);
-        let candidates = [
-            program_files.join("Google/Chrome/Application/chrome.exe"),
-            program_files_x86.join("Google/Chrome/Application/chrome.exe"),
-            program_files.join("Microsoft/Edge/Application/msedge.exe"),
-            program_files_x86.join("Microsoft/Edge/Application/msedge.exe"),
-        ];
-        explicit.into_iter().chain(candidates).find(|path| path.exists()).expect("an installed Chrome or Edge (or PUPPETEER_EXECUTABLE_PATH)")
-    }
-
-    /// Starts the browser with the flags the render browser has and waits (at most 30 seconds) for its DevTools address.
-    fn start(scratch: &Path) -> Self {
-        let profile = scratch.join("browser-profile");
-        std::fs::create_dir_all(&profile).expect("a browser profile folder");
-        let mut command = Command::new(Self::installed());
-        command
-            .args(["--headless=new", "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", "--force-color-profile=srgb", "--font-render-hinting=none", "--hide-scrollbars", "--mute-audio"])
-            .arg(format!("--user-data-dir={}", profile.display()))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let mut child = command.spawn().expect("the browser starts");
-        let announced = profile.join("DevToolsActivePort");
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while Instant::now() < deadline {
-            if let Ok(text) = std::fs::read_to_string(&announced) {
-                let mut lines = text.lines();
-                if let (Some(port), Some(path)) = (lines.next(), lines.next()) {
-                    return Self { child: Mutex::new(child), endpoint: format!("ws://127.0.0.1:{port}{path}"), profile };
-                }
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        let _ = child.kill();
-        panic!("the browser did not announce its DevTools address");
-    }
-}
-
 impl Drop for LocalBrowser {
     fn drop(&mut self) {
         let _ = self.child.lock().unwrap_or_else(PoisonError::into_inner).kill();
@@ -273,128 +225,57 @@ impl Platform for LivePlatform {
     }
 }
 
-/// The Rust session host: the daemon binary, `mixdogd office-com-host`.
-fn mixdogd() -> PathBuf {
-    let program = std::env::var_os("MIXDOG_TEST_MIXDOGD").map(PathBuf::from).unwrap_or_else(|| {
-        let exe = std::env::current_exe().expect("the test binary's path");
-        exe.parent().and_then(Path::parent).expect("the target directory").join("mixdogd.exe")
-    });
-    assert!(program.exists(), "build mixdogd first (cargo build -p mixdog-cli) or name it in MIXDOG_TEST_MIXDOGD: {}", program.display());
-    program
-}
-
-/// The system's fonts, scanned once on this thread.
-fn system_fonts() -> Arc<FontRegistry> {
-    let home = std::env::var("USERPROFILE").unwrap_or_default();
-    let env = HostEnv::current(&|name| std::env::var(name).ok(), Path::new(&home));
-    Arc::new(scan(&Unlaned, &env).registry)
-}
-
 // ---- one live session of the suite ------------------------------------------------------------------------------------------
 
 /// The tests share one machine's Office (and its foreground), so they run one at a time.
 static SERIAL: Mutex<()> = Mutex::new(());
+
+const SCRATCH_PREFIX: &str = "mixdog-office-live-";
+
+/// The scratch folder. A plain `TempDir` drops its failure to remove the folder silently, which is how a `.pptx` that Office
+/// still held stayed behind unnoticed: this one retries (Office releases a file moments after its process ends) and then says
+/// which folder it could not remove and why. A killed or timed-out run never reaches the drop, so the next start sweeps the
+/// folders of earlier runs that are old enough not to be a live one.
+struct Scratch(Option<tempfile::TempDir>);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let Some(dir) = self.0.take() else { return };
+        let path = dir.path().to_path_buf();
+        for attempt in 0..10 {
+            if !path.exists() {
+                return;
+            }
+            match std::fs::remove_dir_all(&path) {
+                Ok(()) => return,
+                Err(error) if attempt == 9 => {
+                    let held: Vec<_> = std::fs::read_dir(&path).into_iter().flatten().flatten().map(|entry| entry.file_name()).collect();
+                    eprintln!("the live Office scratch folder {} was not removed: {error}; still in it: {held:?}", path.display());
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(500)),
+            }
+        }
+        drop(dir);
+    }
+}
+
+#[test]
+fn the_scratch_folder_and_what_is_in_it_are_removed_when_the_test_ends() {
+    let scratch = Scratch::new();
+    let path = scratch.path().to_path_buf();
+    std::fs::create_dir_all(path.join("com")).unwrap();
+    std::fs::write(path.join("발표.pptx"), b"deck").unwrap();
+    drop(scratch);
+    assert!(!path.exists());
+}
 
 /// A scratch folder (Node's `mkdtemp(join(tmpdir(), 'mixdog-office-live-'))`), an engine over a real Office, and what removes both
 /// when the test ends (Node's `resetOfficeSessionsForTest` and `rm(cwd)`).
 pub struct Live {
     engine: Arc<Engine<LivePlatform>>,
     runtime: tokio::runtime::Runtime,
-    cwd: tempfile::TempDir,
+    cwd: Scratch,
     _serial: MutexGuard<'static, ()>,
-}
-
-impl Live {
-    /// `None` when the live suite was not asked for (the test then does nothing).
-    pub fn start() -> Option<Self> {
-        Self::boot(false)
-    }
-
-    /// As [`Live::start`], with an installed Chrome or Edge started headless for the author routes that print or measure HTML.
-    pub fn start_with_browser() -> Option<Self> {
-        Self::boot(true)
-    }
-
-    fn boot(browser: bool) -> Option<Self> {
-        if !enabled() {
-            eprintln!("needs Windows with MIXDOG_TEST_LIVE_OFFICE=1: nothing was run");
-            return None;
-        }
-        let serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
-        let cwd = tempfile::Builder::new().prefix("mixdog-office-live-").tempdir().expect("a scratch folder");
-        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().expect("a runtime");
-        let lanes = mixdog_rt::testing::tokens();
-        let mut config = OfficeComConfig::new(cwd.path().join("com"), lanes);
-        config.rust_host_program = mixdogd();
-        let office = runtime.block_on(async { OfficeCom::new(config) });
-        let fonts = system_fonts();
-        let font_env = FontEnv::host();
-        let machine = Machine { lanes, fonts: Arc::clone(&fonts), font_env: font_env.clone() };
-        let platform = LivePlatform {
-            lanes,
-            office,
-            fonts,
-            font_env,
-            svg_fonts: SvgFonts::none(),
-            environment: DesignEnvironment::process(),
-            validator: ValidatorEnvironment::from_process(),
-            machine,
-            endpoint: if browser { Box::new(LocalBrowser::start(cwd.path())) } else { Box::new(NoBrowser) },
-        };
-        Some(Self { engine: Engine::new(platform), runtime, cwd, _serial: serial })
-    }
-
-    /// The scratch folder (`cwd`).
-    pub fn dir(&self) -> &Path {
-        self.cwd.path()
-    }
-
-    /// `join(cwd, name)`, as the text a request carries.
-    pub fn path(&self, name: &str) -> String {
-        self.cwd.path().join(name).to_string_lossy().into_owned()
-    }
-
-    /// `await executeOfficeTool(args, { cwd })`: the tool result as it came back.
-    pub fn raw(&self, args: Value) -> Value {
-        let (result, _changes) = self.runtime.block_on(self.engine.execute(args, self.cwd.path().to_path_buf(), Some(self.cwd.path().join("mixdog-data")), None, CancellationToken::new()));
-        result
-    }
-
-    /// `value(await executeOfficeTool(args, { cwd }))`: the call must not be an error; its text parsed.
-    pub fn call(&self, args: Value) -> Value {
-        let result = self.raw(args);
-        assert!(result.get("isError").is_none(), "{}", text_of(&result));
-        serde_json::from_str(&text_of(&result)).unwrap_or_else(|error| panic!("the answer is not JSON ({error}): {}", text_of(&result)))
-    }
-
-    /// `executeOfficeTool(...)` that must fail: the error text.
-    pub fn refused(&self, args: Value) -> String {
-        let result = self.raw(args);
-        assert_eq!(result["isError"], true, "the call was expected to fail: {}", text_of(&result));
-        text_of(&result)
-    }
-
-    /// `create` of `name` in the scratch folder, in `mode` with `operations` (the batch that runs as the document is made).
-    pub fn create(&self, name: &str, format: &str, mode: &str, operations: Value) -> Value {
-        self.call(serde_json::json!({ "action": "create", "path": self.path(name), "format": format, "mode": mode, "operations": operations }))
-    }
-
-    /// `close` of a session.
-    pub fn close(&self, session: &Value) {
-        self.call(serde_json::json!({ "action": "close", "session": session }));
-    }
-
-    /// `snapshot` of a session: the `document` of the answer.
-    pub fn document(&self, session: &Value) -> Value {
-        self.call(serde_json::json!({ "action": "snapshot", "session": session }))["document"].clone()
-    }
-
-    /// The package saved at `path` (a name inside the scratch folder or an absolute path).
-    pub fn package(&self, path: &str) -> Package {
-        let full = if Path::new(path).is_absolute() { PathBuf::from(path) } else { self.cwd.path().join(path) };
-        let bytes = std::fs::read(&full).unwrap_or_else(|error| panic!("{}: {error}", full.display()));
-        Package::load_unchecked(&bytes).unwrap_or_else(|error| panic!("{}: {error}", full.display()))
-    }
 }
 
 impl Drop for Live {
@@ -563,6 +444,188 @@ try { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($workbook) 
 try { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($excel) } catch {}
 "#;
 
+impl Drop for ExternalExcel {
+    fn drop(&mut self) {
+        if self.running() {
+            let _ = self.child.kill();
+        }
+    }
+}
+
+
+/// `process.platform === 'win32' && process.env.MIXDOG_TEST_LIVE_OFFICE === '1'`.
+fn enabled() -> bool {
+    std::env::var("MIXDOG_TEST_LIVE_OFFICE").is_ok_and(|value| value == "1")
+}
+impl LocalBrowser {
+    /// The installed browser (`PUPPETEER_EXECUTABLE_PATH`, else Chrome, else Edge).
+    fn installed() -> PathBuf {
+        let explicit = std::env::var_os("PUPPETEER_EXECUTABLE_PATH").map(PathBuf::from);
+        let program_files = std::env::var_os("PROGRAMFILES").map_or_else(|| PathBuf::from("C:/Program Files"), PathBuf::from);
+        let program_files_x86 = std::env::var_os("PROGRAMFILES(X86)").map_or_else(|| PathBuf::from("C:/Program Files (x86)"), PathBuf::from);
+        let candidates = [
+            program_files.join("Google/Chrome/Application/chrome.exe"),
+            program_files_x86.join("Google/Chrome/Application/chrome.exe"),
+            program_files.join("Microsoft/Edge/Application/msedge.exe"),
+            program_files_x86.join("Microsoft/Edge/Application/msedge.exe"),
+        ];
+        explicit.into_iter().chain(candidates).find(|path| path.exists()).expect("an installed Chrome or Edge (or PUPPETEER_EXECUTABLE_PATH)")
+    }
+
+    /// Starts the browser with the flags the render browser has and waits (at most 30 seconds) for its DevTools address.
+    fn start(scratch: &Path) -> Self {
+        let profile = scratch.join("browser-profile");
+        std::fs::create_dir_all(&profile).expect("a browser profile folder");
+        let mut command = Command::new(Self::installed());
+        command
+            .args(["--headless=new", "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", "--force-color-profile=srgb", "--font-render-hinting=none", "--hide-scrollbars", "--mute-audio"])
+            .arg(format!("--user-data-dir={}", profile.display()))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = command.spawn().expect("the browser starts");
+        let announced = profile.join("DevToolsActivePort");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < deadline {
+            if let Ok(text) = std::fs::read_to_string(&announced) {
+                let mut lines = text.lines();
+                if let (Some(port), Some(path)) = (lines.next(), lines.next()) {
+                    return Self { child: Mutex::new(child), endpoint: format!("ws://127.0.0.1:{port}{path}"), profile };
+                }
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let _ = child.kill();
+        panic!("the browser did not announce its DevTools address");
+    }
+}
+/// The Rust session host: the daemon binary, `mixdogd office-com-host`.
+fn mixdogd() -> PathBuf {
+    let program = std::env::var_os("MIXDOG_TEST_MIXDOGD").map(PathBuf::from).unwrap_or_else(|| {
+        let exe = std::env::current_exe().expect("the test binary's path");
+        exe.parent().and_then(Path::parent).expect("the target directory").join("mixdogd.exe")
+    });
+    assert!(program.exists(), "build mixdogd first (cargo build -p mixdog-cli) or name it in MIXDOG_TEST_MIXDOGD: {}", program.display());
+    program
+}
+/// The system's fonts, scanned once on this thread.
+fn system_fonts() -> Arc<FontRegistry> {
+    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    let env = HostEnv::current(&|name| std::env::var(name).ok(), Path::new(&home));
+    Arc::new(scan(&Unlaned, &env).registry)
+}
+impl Scratch {
+    fn new() -> Self {
+        Self(Some(tempfile::Builder::new().prefix(SCRATCH_PREFIX).tempdir().expect("a scratch folder")))
+    }
+
+    fn path(&self) -> &Path {
+        self.0.as_ref().expect("the folder lives until the drop").path()
+    }
+
+    fn sweep_stale() {
+        let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
+        for entry in entries.flatten() {
+            let old = entry.metadata().and_then(|meta| meta.modified()).ok().and_then(|at| at.elapsed().ok()).is_some_and(|age| age > Duration::from_secs(3600));
+            if old && entry.file_name().to_string_lossy().starts_with(SCRATCH_PREFIX) {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
+    }
+}
+impl Live {
+    /// `None` when the live suite was not asked for (the test then does nothing).
+    pub fn start() -> Option<Self> {
+        Self::boot(false)
+    }
+
+    /// As [`Live::start`], with an installed Chrome or Edge started headless for the author routes that print or measure HTML.
+    pub fn start_with_browser() -> Option<Self> {
+        Self::boot(true)
+    }
+
+    fn boot(browser: bool) -> Option<Self> {
+        if !enabled() {
+            eprintln!("needs Windows with MIXDOG_TEST_LIVE_OFFICE=1: nothing was run");
+            return None;
+        }
+        let serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+        Scratch::sweep_stale();
+        let cwd = Scratch::new();
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().expect("a runtime");
+        let lanes = mixdog_rt::testing::tokens();
+        let mut config = OfficeComConfig::new(cwd.path().join("com"), lanes);
+        config.rust_host_program = mixdogd();
+        let office = runtime.block_on(async { OfficeCom::new(config) });
+        let fonts = system_fonts();
+        let font_env = FontEnv::host();
+        let machine = Machine { lanes, fonts: Arc::clone(&fonts), font_env: font_env.clone() };
+        let platform = LivePlatform {
+            lanes,
+            office,
+            fonts,
+            font_env,
+            svg_fonts: SvgFonts::none(),
+            environment: DesignEnvironment::process(),
+            validator: ValidatorEnvironment::from_process(),
+            machine,
+            endpoint: if browser { Box::new(LocalBrowser::start(cwd.path())) } else { Box::new(NoBrowser) },
+        };
+        Some(Self { engine: Engine::new(platform), runtime, cwd, _serial: serial })
+    }
+
+    /// The scratch folder (`cwd`).
+    pub fn dir(&self) -> &Path {
+        self.cwd.path()
+    }
+
+    /// `join(cwd, name)`, as the text a request carries.
+    pub fn path(&self, name: &str) -> String {
+        self.cwd.path().join(name).to_string_lossy().into_owned()
+    }
+
+    /// `await executeOfficeTool(args, { cwd })`: the tool result as it came back.
+    pub fn raw(&self, args: Value) -> Value {
+        let (result, _changes) = self.runtime.block_on(self.engine.execute(args, self.cwd.path().to_path_buf(), Some(self.cwd.path().join("mixdog-data")), None, CancellationToken::new()));
+        result
+    }
+
+    /// `value(await executeOfficeTool(args, { cwd }))`: the call must not be an error; its text parsed.
+    pub fn call(&self, args: Value) -> Value {
+        let result = self.raw(args);
+        assert!(result.get("isError").is_none(), "{}", text_of(&result));
+        serde_json::from_str(&text_of(&result)).unwrap_or_else(|error| panic!("the answer is not JSON ({error}): {}", text_of(&result)))
+    }
+
+    /// `executeOfficeTool(...)` that must fail: the error text.
+    pub fn refused(&self, args: Value) -> String {
+        let result = self.raw(args);
+        assert_eq!(result["isError"], true, "the call was expected to fail: {}", text_of(&result));
+        text_of(&result)
+    }
+
+    /// `create` of `name` in the scratch folder, in `mode` with `operations` (the batch that runs as the document is made).
+    pub fn create(&self, name: &str, format: &str, mode: &str, operations: Value) -> Value {
+        self.call(serde_json::json!({ "action": "create", "path": self.path(name), "format": format, "mode": mode, "operations": operations }))
+    }
+
+    /// `close` of a session.
+    pub fn close(&self, session: &Value) {
+        self.call(serde_json::json!({ "action": "close", "session": session }));
+    }
+
+    /// `snapshot` of a session: the `document` of the answer.
+    pub fn document(&self, session: &Value) -> Value {
+        self.call(serde_json::json!({ "action": "snapshot", "session": session }))["document"].clone()
+    }
+
+    /// The package saved at `path` (a name inside the scratch folder or an absolute path).
+    pub fn package(&self, path: &str) -> Package {
+        let full = if Path::new(path).is_absolute() { PathBuf::from(path) } else { self.cwd.path().join(path) };
+        let bytes = std::fs::read(&full).unwrap_or_else(|error| panic!("{}: {error}", full.display()));
+        Package::load_unchecked(&bytes).unwrap_or_else(|error| panic!("{}: {error}", full.display()))
+    }
+}
 impl ExternalExcel {
     /// Starts the PowerShell host (`-Sta`, no console window) and waits up to twenty seconds for it to say READY.
     pub fn start(live: &Live, path: &str) -> Self {
@@ -626,13 +689,5 @@ impl ExternalExcel {
         }
         let _ = self.child.kill();
         panic!("External Excel host did not close");
-    }
-}
-
-impl Drop for ExternalExcel {
-    fn drop(&mut self) {
-        if self.running() {
-            let _ = self.child.kill();
-        }
     }
 }

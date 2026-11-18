@@ -33,6 +33,7 @@ use crate::agent_tool::host::Prepared;
 use crate::agent_tool::host::Registry;
 use crate::agent_tool::host::ResolveOptions;
 use crate::agent_tool::host::SendFlow;
+use crate::agent_tool::host::Sessions;
 use crate::agent_tool::resume::resolve_prompt;
 use crate::agent_tool::scope::Caller;
 use crate::agent_tool::scope::Owner;
@@ -93,6 +94,8 @@ pub struct SendFlowImpl {
     runner: Arc<TurnRunner>,
     turns: Arc<dyn TurnOwner>,
     default_cwd: String,
+    /// Lists a closed agent's session again when a completion wakes it (`revealSession`).
+    sessions: Option<Arc<dyn Sessions>>,
 }
 
 impl SendFlowImpl {
@@ -106,7 +109,14 @@ impl SendFlowImpl {
             runner: deps.runner,
             turns: deps.turns,
             default_cwd: deps.default_cwd,
+            sessions: None,
         }
+    }
+
+    /// The sessions a wake reveals (a closed agent's session is hidden from the lists; used again it is listed again).
+    pub fn with_sessions(mut self, sessions: Arc<dyn Sessions>) -> Self {
+        self.sessions = Some(sessions);
+        self
     }
 
     /// The session a prepared send runs on, as the manager holds it now.
@@ -130,7 +140,7 @@ impl SendFlowImpl {
         }
         let session_id = self
             .registry
-            .resolve_tag(&target, scope, ResolveOptions { scan_sessions: scan, exclude_terminal_traces: false })?
+            .resolve_tag(&target, scope, ResolveOptions { scan_sessions: scan, exclude_terminal_traces: false, skip_released: false })?
             .ok_or_else(|| format!("agent send: target \"{target}\" not found"))?;
         let session = self.world.session(&session_id).filter(|s| s.get("closed") != Some(&Value::Bool(true)));
         let Some(session) = session else {
@@ -309,8 +319,8 @@ impl SendFlowImpl {
             caller_session_id: Some(notify.caller_id()).filter(|c| !c.is_empty()),
             owner_session_id: Some(notify.owner_id()).filter(|c| !c.is_empty()),
             client_host_pid: notify.client_host_pid,
-            hop: None,
-            tool_call_id: None,
+            hop: (notify.hop > 0).then(|| serde_json::json!(notify.hop)),
+            tool_call_id: notify.tool_call_id.clone(),
         };
         let (flow, prepared_run) = (self.clone(), prepared.clone());
         let job = self.starter.start_job("send", meta, start, move |job, owner_context| async move {
@@ -368,12 +378,17 @@ impl SendFlowImpl {
             session_id: None,
             owner_session_id: Some(owner).filter(|o| !o.is_empty()),
             client_host_pid: session.get("clientHostPid").and_then(Value::as_u64),
+            ..SpawnContext::default()
         };
         let prepared = Prepared { args: Value::Object(Map::new()), session: facts_of(&session), session_id: id, prompt: Some(String::new()), route: None };
-        let flow = self.clone();
+        let (flow, sessions) = (self.clone(), self.sessions.clone());
         // A wake that cannot dispatch has nobody to tell: the completion stays queued, and Node
         // writes the failure to stderr (`send-flow.mjs:340-344`).
         drop(mixdog_rt::spawn("agent-completion-wake", mixdog_rt::TaskClass::Work, async move {
+            // `dispatchToExistingSession` reveals the session first (`send-flow.mjs:236`): a closed agent woken is listed again.
+            if let Some(sessions) = sessions {
+                sessions.reveal_session(&prepared.session_id).await;
+            }
             if let Err(error) = flow.dispatch_to_existing_session(&prepared, &notify, DispatchOptions::default()).await {
                 mixdog_rt::node_stderr!("[agent] completion wake failed session={}: {error}", prepared.session_id);
             }

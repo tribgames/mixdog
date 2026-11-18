@@ -43,7 +43,8 @@ mod storage;
 mod browser_permissions;
 mod network_proxy_store;
 pub mod patch;
-mod settings;
+pub(crate) mod settings;
+pub mod quota;
 mod desktop;
 mod notifications;
 pub mod output_style;
@@ -60,7 +61,7 @@ pub use storage::migrate_codex_route_over;
 pub use secret_changes::AnnouncingStore;
 pub use secret_changes::SecretChanges;
 pub use seams::ConfigFeatureGate;
-pub use service::ConfigService;
+pub use service::{ConfigService, DESKTOP_CONFIRMATION_CALLER};
 pub use watch::ConfigWatcher;
 pub use channel_follow::ChannelConfigFollow;
 pub use service::set_worktree_settings;
@@ -80,6 +81,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use arc_swap::ArcSwap;
+use mixdog_core_api::CoreError;
 use mixdog_core_api::state::SectionChange;
 use mixdog_core_api::state::StatePublisher;
 use mixdog_protocol::ConfigWriteMode;
@@ -179,8 +181,6 @@ impl std::fmt::Display for ConfigError {
     }
 }
 
-impl std::error::Error for ConfigError {}
-
 impl ConfigError {
     /// The text Node's `error.message` carries for the same failure: a failed file step is `<CODE>: <description>,
     /// <syscall> '<path>'` (`EEXIST: file already exists, mkdir '<data>/backups'`).
@@ -252,6 +252,8 @@ pub struct ConfigLanes {
 pub struct Config {
     shared: Arc<Shared>,
     lanes: ConfigLanes,
+    /// How the writers adopt this handle's document (`withGrandfatheredBuiltins`): the product's is the config loaded from disk.
+    origin: crate::tool_modules::Origin,
 }
 
 struct Shared {
@@ -323,6 +325,190 @@ async fn on_lane<L: LaneToken, R: Send + 'static>(
         .map_err(|_| ConfigError::Stopped)
 }
 
+/// The top-level section `name` as an object, in its place; one that is missing is added last, one that holds anything else is
+/// replaced by an empty one.
+fn ensure_section(doc: &mut Doc, name: &str) {
+    if !doc.get(name).is_some_and(Value::is_object) {
+        doc.insert(name.to_owned(), Value::Object(Map::new()));
+    }
+}
+
+fn parts_of(path: &str) -> Vec<&str> {
+    path.split('.').collect()
+}
+
+/// `DesktopSettingsStore.update('autoCompact')`: before `auto` is stored, the retired compaction
+/// keys go and their canonical successors take their values (`summaryModel` from `semanticModel`,
+/// `memoryTimeoutMs` from `recallMemoryTimeoutMs`), so a legacy value cannot override `auto`.
+fn retire_legacy_compaction(doc: &mut Doc) {
+    const RETIRED: [&str; 17] = [
+        "enabled",
+        "type",
+        "compactType",
+        "compact_type",
+        "semantic",
+        "semanticModel",
+        "prune",
+        "tailTurns",
+        "recallMemoryTimeoutMs",
+        "recallIngestLimit",
+        "recallChunkLimit",
+        "recallLimit",
+        "recallCycle1BatchSize",
+        "recallRowsPerSession",
+        "recallWindowSize",
+        "recallConcurrency",
+        "recallCycle1DeadlineMs",
+    ];
+    // JavaScript truthiness of a stored value.
+    let set = |value: Option<&Value>| match value {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::String(text)) => !text.is_empty(),
+        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0),
+        Some(_) => true,
+    };
+    let Some(compaction) = doc
+        .get_mut("agent")
+        .and_then(Value::as_object_mut)
+        .and_then(|agent| agent.get_mut("compaction"))
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    for (canonical, retired) in [("summaryModel", "semanticModel"), ("memoryTimeoutMs", "recallMemoryTimeoutMs")] {
+        if !set(compaction.get(canonical)) && set(compaction.get(retired)) {
+            let carried = compaction[retired].clone();
+            compaction.insert(canonical.to_owned(), carried);
+        }
+    }
+    for key in RETIRED {
+        compaction.shift_remove(key);
+    }
+}
+
+fn warnings_of(doc: &Doc) -> Vec<ConfigWarning> {
+    let mut warnings = Vec::new();
+    if session_retention(doc).is_some() {
+        return warnings;
+    }
+    for key in ["sessionAutoArchiveDays", "sessionAutoDeleteDays"] {
+        let choices = if key == "sessionAutoArchiveDays" {
+            schema::SESSION_AUTO_ARCHIVE_DAY_CHOICES
+        } else {
+            schema::SESSION_AUTO_DELETE_DAY_CHOICES
+        };
+        let stored = get_in(doc, &["desktop", key]);
+        if stored.is_some_and(|v| !v.as_i64().is_some_and(|n| choices.contains(&n))) {
+            warnings.push(ConfigWarning {
+                path: format!("desktop.{key}"),
+                message: format!(
+                    "desktop.{key} is not one of {choices:?}; session retention is paused"
+                ),
+            });
+        }
+    }
+    warnings
+}
+
+fn get_in<'a>(doc: &'a Doc, parts: &[&str]) -> Option<&'a Value> {
+    let (first, rest) = parts.split_first()?;
+    let mut node = doc.get(*first)?;
+    for part in rest {
+        node = node.as_object()?.get(*part)?;
+    }
+    Some(node)
+}
+
+fn set_in(doc: &mut Doc, parts: &[&str], value: Value) {
+    let (last, parents) = parts.split_last().expect("a path has a segment");
+    let mut node = doc;
+    for part in parents {
+        let child = node
+            .entry((*part).to_owned())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !child.is_object() {
+            *child = Value::Object(Map::new());
+        }
+        node = child.as_object_mut().expect("just made an object");
+    }
+    node.insert((*last).to_owned(), value);
+}
+
+/// Removes the value and the objects it leaves empty below the top level (a top-level subtree
+/// stays, as a default-valued write leaves `desktop: {}`).
+fn remove_in(doc: &mut Doc, parts: &[&str]) {
+    fn go(node: &mut Doc, parts: &[&str], top: bool) {
+        let (first, rest) = parts.split_first().expect("a path has a segment");
+        if rest.is_empty() {
+            // Shifting keeps the user's key order.
+            node.shift_remove(*first);
+            return;
+        }
+        // A stored non-object where a subtree belongs is replaced, as a write to it would.
+        let Some(slot) = node.get_mut(*first) else {
+            return;
+        };
+        if !slot.is_object() {
+            *slot = Value::Object(Map::new());
+        }
+        let child = slot.as_object_mut().expect("just made an object");
+        go(child, rest, false);
+        if child.is_empty() && !top {
+            node.shift_remove(*first);
+        }
+    }
+    go(doc, parts, true);
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[allow(clippy::disallowed_methods, reason = "an io-interactive job body: the proof says it runs there")]
+fn read_file(_lane: &InLane<InteractiveIo>, path: &Path) -> Result<Doc, ConfigError> {
+    #[cfg(feature = "count-work")]
+    crate::work::file_read();
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Doc::new()),
+        Err(error) => return Err(error.into()),
+    };
+    match mixdog_statefile::parse_json_text(&bytes) {
+        Ok(Value::Object(doc)) => Ok(canonical::canonicalize(doc)),
+        Ok(_) => Err(ConfigError::Parse("the top level is not an object".into())),
+        Err(error) => Err(ConfigError::Parse(error.to_string())),
+    }
+}
+
+/// `writeJsonAtomicSync(configPath(), data, { lock: false, fsyncDir: true, mode: 0o600, secret: true })`. The caller holds
+/// `<config>.lock`, the lock Node's own config writers take (`mixdog-statefile`): the guard's `locked`.
+fn write_file(lane: &InLane<DurabilityIo>, path: &Path, doc: &Doc) -> Result<(), ConfigError> {
+    let opts = mixdog_statefile::Opts { fsync_dir: true, secret: true, ..mixdog_statefile::Opts::default() };
+    // The one place a config document is serialized (updates, separation, restores): whatever the caller produced, the file
+    // carries both quota keys in agreement, so a 1.4.5 build reads what this one reads.
+    let mut doc = doc.clone();
+    quota::make_keys_agree(&mut doc);
+    let bytes = mixdog_statefile::json_bytes(&Value::Object(doc), &opts);
+    mixdog_statefile::write_file_stepped(lane, path, &bytes, &opts).map(|_| ()).map_err(ConfigError::Publish)
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
+mod tests;
+#[cfg(test)]
+mod guard_feature_tests;
+#[cfg(test)]
+mod concurrency_feature_tests;
+#[cfg(node_twin)]
+#[cfg(test)]
+mod guard_replay;
+#[cfg(node_twin)]
+#[cfg(test)]
+mod concurrency_node_cases;
+
+
+impl std::error::Error for ConfigError {}
 impl Config {
     /// Opens the file (absent = empty document; the document is the canonical one, so a retired
     /// key of an old install is never seen). An unreadable or non-object file is an error:
@@ -374,10 +560,11 @@ impl Config {
     fn assemble(
         path: PathBuf,
         guard: Arc<guard::Guard>,
-        doc: Doc,
+        mut doc: Doc,
         publisher: Arc<dyn StatePublisher>,
         lanes: ConfigLanes,
     ) -> (Self, Vec<ConfigWarning>) {
+        quota::make_keys_agree(&mut doc);
         let warnings = warnings_of(&doc);
         let raised = warnings.iter().map(|w| w.path.clone()).collect();
         let shared = Shared {
@@ -405,8 +592,20 @@ impl Config {
         let config = Self {
             shared: Arc::new(shared),
             lanes,
+            origin: crate::tool_modules::Origin::Loaded,
         };
         (config, warnings)
+    }
+
+    /// A handle over the same document whose writers adopt it as `origin`. A replay harness that hands Node's recorded literal
+    /// config in states [`Origin::Given`](crate::tool_modules::Origin::Given) here.
+    pub fn with_origin(mut self, origin: crate::tool_modules::Origin) -> Self {
+        self.origin = origin;
+        self
+    }
+
+    pub fn origin(&self) -> crate::tool_modules::Origin {
+        self.origin
     }
 
     /// Ticks after every installed document (write or external reload), for services that
@@ -471,6 +670,11 @@ impl Config {
     /// Counts the documents installed so far; the `revision` of a write reply.
     pub fn revision(&self) -> u64 {
         self.shared.generation.load(Ordering::Acquire)
+    }
+
+    /// The config file this handle reads and writes.
+    pub fn path(&self) -> &Path {
+        &self.shared.path
     }
 
     /// The whole document, secrets included.
@@ -603,6 +807,32 @@ impl Config {
         desktop::activity_rail_pins(self.shared.doc.load().get("desktop")?.get("activityRailPins"))
     }
 
+    /// A present canonical key wins even when it normalizes to Preview.
+    pub fn markdown_default_view(&self) -> Option<String> {
+        self.get(mixdog_protocol::config::keys::DESKTOP_MARKDOWN_DEFAULT_VIEW)
+            .map(|value| schema::markdown_view(&value).to_owned())
+    }
+
+    /// Runs after profile files have been moved, both at boot and on late adoption.
+    pub async fn adopt_legacy_markdown_view(&self, user_data: PathBuf) -> Result<(), ConfigError> {
+        if self.markdown_default_view().is_none()
+            && let Some(view) = on_lane(self.lanes.read, move |_| mixdog_workspace::editorcfg::legacy_markdown_view(&user_data)).await?
+        {
+            // Recheck under the writer lock in case Settings wrote a choice during the file read.
+            let applied = self.write(
+                mixdog_protocol::config::keys::DESKTOP_MARKDOWN_DEFAULT_VIEW,
+                Value::from(view),
+                ConfigWriteMode::InitializeIfMissing,
+            )
+            .await?;
+            if applied.changed.contains(&"desktop") {
+                // Refresh open editors and Settings after the canonical section is published.
+                self.shared.settings_changed("desktop");
+            }
+        }
+        Ok(())
+    }
+
     /// Boot: Node's notification store, on its first load with no document, writes one stamped `migratedAt: now`
     /// (`notification-preferences.ts:228`). Without it nothing reads the stamp as anything but 0, and every
     /// paired phone app would start from bot chats only. Run once after `open`, like `separate_defaults`: the
@@ -668,6 +898,7 @@ impl Config {
             shared.update_viewed(
                 lane,
                 &announced,
+                false,
                 move |doc| {
                     for edit in &edits {
                         applying.apply_edit(doc, edit)?;
@@ -695,6 +926,18 @@ impl Config {
         on_lane(self.lanes.write, move |lane| shared.update_on(lane, change)).await?
     }
 
+    /// Only the developer-option service may carry a confirmation to the writer, and only
+    /// for this single setting. Generic transactions cannot carry that authority.
+    async fn enable_confirmed_allow_all_actions(&self) -> Result<Applied, ConfigError> {
+        let shared = self.shared.clone();
+        on_lane(self.lanes.write, move |lane| {
+            shared.update_viewed(lane, &[], true, |doc| {
+                set_in(doc, ALLOW_ALL_ACTIONS, Value::Bool(true));
+                Ok(())
+            }, |_| ()).map(|(applied, ())| applied)
+        }).await?
+    }
+
     /// Republishes an external edit of the file (called by the file watcher). Our own writes
     /// reload to an identical document and publish nothing. An invalid file keeps the current
     /// document and is reported.
@@ -719,6 +962,23 @@ impl Config {
         }
     }
 }
+const ALLOW_ALL_ACTIONS: &[&str] = &["agent", "developer", "allowAllActions"];
+
+fn require_allow_all_actions_confirmation(was_enabled: bool, next: &Doc, confirmed: bool) -> Result<(), ConfigError> {
+    if !was_enabled && !confirmed && allow_all_actions_enabled(next) {
+        return Err(ConfigError::Rejected(CoreError::DomainError {
+            domain: "config".into(),
+            code: Some("RISK_CONFIRMATION_REQUIRED".into()),
+            message: Some("Confirm the risk in the desktop app before turning on Allow all actions.".into()),
+            detail: None,
+        }));
+    }
+    Ok(())
+}
+
+fn allow_all_actions_enabled(doc: &Doc) -> bool {
+    get_in(doc, ALLOW_ALL_ACTIONS) == Some(&Value::Bool(true))
+}
 
 impl Shared {
     fn update_on(
@@ -726,7 +986,7 @@ impl Shared {
         lane: &InLane<DurabilityIo>,
         change: impl FnOnce(&mut Doc) -> Result<(), ConfigError>,
     ) -> Result<Applied, ConfigError> {
-        self.update_viewed(lane, &[], change, |_| ()).map(|(applied, ())| applied)
+        self.update_viewed(lane, &[], false, change, |_| ()).map(|(applied, ())| applied)
     }
 
     /// `update_on`, plus `view` of the document the update left, taken under the same writer lock: Node's
@@ -735,6 +995,7 @@ impl Shared {
         &self,
         lane: &InLane<DurabilityIo>,
         announced: &[&'static str],
+        confirmed: bool,
         change: impl FnOnce(&mut Doc) -> Result<(), ConfigError>,
         view: impl FnOnce(&Doc) -> T,
     ) -> Result<(Applied, T), ConfigError> {
@@ -745,6 +1006,7 @@ impl Shared {
         // snapshots.
         let written = self.guard.locked(lane, |baseline| {
             let mut next = baseline.doc;
+            let was_enabled = allow_all_actions_enabled(&next);
             let fresh = next.is_empty();
             change(&mut next)?;
             // `writeAll`: a save writes the canonical document, whatever the edit put back.
@@ -753,6 +1015,7 @@ impl Shared {
             if fresh && !next.contains_key(separation::DEFAULTS_VERSION_KEY) {
                 next.insert(separation::DEFAULTS_VERSION_KEY.into(), Value::from(2));
             }
+            require_allow_all_actions_confirmation(was_enabled, &next, confirmed)?;
             // Node writes (and snapshots) even when the edit changed nothing.
             self.guard.write(lane, &next, "post-config-write")?;
             Ok(Some(next))
@@ -775,7 +1038,9 @@ impl Shared {
     }
 
     /// `None` when a document was installed since `seen`, so `next` may be stale.
-    fn install_read(&self, seen: u64, next: Doc) -> Option<Applied> {
+    fn install_read(&self, seen: u64, mut next: Doc) -> Option<Applied> {
+        // What the file holds is compared as it will be held: the quota keys agreeing.
+        quota::make_keys_agree(&mut next);
         let mut raised = lock(&self.writer);
         if self.generation.load(Ordering::Acquire) != seen {
             return None;
@@ -821,7 +1086,8 @@ impl Shared {
         self.announce(SETTINGS_CHANGED, serde_json::json!({ "scope": scope }));
     }
 
-    fn install_document(&self, raised: &mut BTreeSet<String>, current: &Doc, next: Doc) -> Applied {
+    fn install_document(&self, raised: &mut BTreeSet<String>, current: &Doc, mut next: Doc) -> Applied {
+        quota::make_keys_agree(&mut next);
         let warnings = warnings_of(&next);
         let now: BTreeSet<String> = warnings.iter().map(|w| w.path.clone()).collect();
         let fresh = warnings
@@ -921,7 +1187,9 @@ impl Shared {
             return write_pins(doc, &edit.value, edit.mode, path);
         }
         if matches!(key.kind, schema::Kind::MarkdownView) {
-            set_in(doc, &parts, schema::markdown_view(&edit.value));
+            if edit.mode != ConfigWriteMode::InitializeIfMissing || get_in(doc, &parts).is_none() {
+                set_in(doc, &parts, Value::from(schema::markdown_view(&edit.value)));
+            }
             return Ok(());
         }
         if matches!(key.kind, schema::Kind::CookieAutoImport) {
@@ -963,18 +1231,12 @@ impl Shared {
         } else {
             set_in(doc, &parts, edit.value.clone());
         }
+        if path == "quotaAutoResume" {
+            quota::mirror_key_into_legacy(doc);
+        }
         Ok(())
     }
 }
-
-/// The top-level section `name` as an object, in its place; one that is missing is added last, one that holds anything else is
-/// replaced by an empty one.
-fn ensure_section(doc: &mut Doc, name: &str) {
-    if !doc.get(name).is_some_and(Value::is_object) {
-        doc.insert(name.to_owned(), Value::Object(Map::new()));
-    }
-}
-
 /// `Date.now()`: milliseconds from the epoch, negative for a clock set before it.
 fn epoch_ms() -> i64 {
     match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
@@ -982,61 +1244,6 @@ fn epoch_ms() -> i64 {
         Err(before) => -(before.duration().as_millis() as i64),
     }
 }
-
-fn parts_of(path: &str) -> Vec<&str> {
-    path.split('.').collect()
-}
-
-/// `DesktopSettingsStore.update('autoCompact')`: before `auto` is stored, the retired compaction
-/// keys go and their canonical successors take their values (`summaryModel` from `semanticModel`,
-/// `memoryTimeoutMs` from `recallMemoryTimeoutMs`), so a legacy value cannot override `auto`.
-fn retire_legacy_compaction(doc: &mut Doc) {
-    const RETIRED: [&str; 17] = [
-        "enabled",
-        "type",
-        "compactType",
-        "compact_type",
-        "semantic",
-        "semanticModel",
-        "prune",
-        "tailTurns",
-        "recallMemoryTimeoutMs",
-        "recallIngestLimit",
-        "recallChunkLimit",
-        "recallLimit",
-        "recallCycle1BatchSize",
-        "recallRowsPerSession",
-        "recallWindowSize",
-        "recallConcurrency",
-        "recallCycle1DeadlineMs",
-    ];
-    // JavaScript truthiness of a stored value.
-    let set = |value: Option<&Value>| match value {
-        None | Some(Value::Null) => false,
-        Some(Value::Bool(flag)) => *flag,
-        Some(Value::String(text)) => !text.is_empty(),
-        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0),
-        Some(_) => true,
-    };
-    let Some(compaction) = doc
-        .get_mut("agent")
-        .and_then(Value::as_object_mut)
-        .and_then(|agent| agent.get_mut("compaction"))
-        .and_then(Value::as_object_mut)
-    else {
-        return;
-    };
-    for (canonical, retired) in [("summaryModel", "semanticModel"), ("memoryTimeoutMs", "recallMemoryTimeoutMs")] {
-        if !set(compaction.get(canonical)) && set(compaction.get(retired)) {
-            let carried = compaction[retired].clone();
-            compaction.insert(canonical.to_owned(), carried);
-        }
-    }
-    for key in RETIRED {
-        compaction.shift_remove(key);
-    }
-}
-
 /// `desktop.activityRailPins`: the revision is assigned inside the write transaction; the/// default list is never stored, the revision alone keeps ordering.
 fn write_pins(
     doc: &mut Doc,
@@ -1065,113 +1272,3 @@ fn write_pins(
     set_in(doc, &["desktop", "activityRailPins"], stored);
     Ok(())
 }
-
-fn warnings_of(doc: &Doc) -> Vec<ConfigWarning> {
-    let mut warnings = Vec::new();
-    if session_retention(doc).is_some() {
-        return warnings;
-    }
-    for key in ["sessionAutoArchiveDays", "sessionAutoDeleteDays"] {
-        let choices = if key == "sessionAutoArchiveDays" {
-            schema::SESSION_AUTO_ARCHIVE_DAY_CHOICES
-        } else {
-            schema::SESSION_AUTO_DELETE_DAY_CHOICES
-        };
-        let stored = get_in(doc, &["desktop", key]);
-        if stored.is_some_and(|v| !v.as_i64().is_some_and(|n| choices.contains(&n))) {
-            warnings.push(ConfigWarning {
-                path: format!("desktop.{key}"),
-                message: format!(
-                    "desktop.{key} is not one of {choices:?}; session retention is paused"
-                ),
-            });
-        }
-    }
-    warnings
-}
-
-fn get_in<'a>(doc: &'a Doc, parts: &[&str]) -> Option<&'a Value> {
-    let (first, rest) = parts.split_first()?;
-    let mut node = doc.get(*first)?;
-    for part in rest {
-        node = node.as_object()?.get(*part)?;
-    }
-    Some(node)
-}
-
-fn set_in(doc: &mut Doc, parts: &[&str], value: Value) {
-    let (last, parents) = parts.split_last().expect("a path has a segment");
-    let mut node = doc;
-    for part in parents {
-        let child = node
-            .entry((*part).to_owned())
-            .or_insert_with(|| Value::Object(Map::new()));
-        if !child.is_object() {
-            *child = Value::Object(Map::new());
-        }
-        node = child.as_object_mut().expect("just made an object");
-    }
-    node.insert((*last).to_owned(), value);
-}
-
-/// Removes the value and the objects it leaves empty below the top level (a top-level subtree
-/// stays, as a default-valued write leaves `desktop: {}`).
-fn remove_in(doc: &mut Doc, parts: &[&str]) {
-    fn go(node: &mut Doc, parts: &[&str], top: bool) {
-        let (first, rest) = parts.split_first().expect("a path has a segment");
-        if rest.is_empty() {
-            // Shifting keeps the user's key order.
-            node.shift_remove(*first);
-            return;
-        }
-        // A stored non-object where a subtree belongs is replaced, as a write to it would.
-        let Some(slot) = node.get_mut(*first) else {
-            return;
-        };
-        if !slot.is_object() {
-            *slot = Value::Object(Map::new());
-        }
-        let child = slot.as_object_mut().expect("just made an object");
-        go(child, rest, false);
-        if child.is_empty() && !top {
-            node.shift_remove(*first);
-        }
-    }
-    go(doc, parts, true);
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-#[allow(clippy::disallowed_methods, reason = "an io-interactive job body: the proof says it runs there")]
-fn read_file(_lane: &InLane<InteractiveIo>, path: &Path) -> Result<Doc, ConfigError> {
-    #[cfg(feature = "count-work")]
-    crate::work::file_read();
-    let bytes = match fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Doc::new()),
-        Err(error) => return Err(error.into()),
-    };
-    match mixdog_statefile::parse_json_text(&bytes) {
-        Ok(Value::Object(doc)) => Ok(canonical::canonicalize(doc)),
-        Ok(_) => Err(ConfigError::Parse("the top level is not an object".into())),
-        Err(error) => Err(ConfigError::Parse(error.to_string())),
-    }
-}
-
-/// `writeJsonAtomicSync(configPath(), data, { lock: false, fsyncDir: true, mode: 0o600, secret: true })`. The caller holds
-/// `<config>.lock`, the lock Node's own config writers take (`mixdog-statefile`): the guard's `locked`.
-fn write_file(lane: &InLane<DurabilityIo>, path: &Path, doc: &Doc) -> Result<(), ConfigError> {
-    let opts = mixdog_statefile::Opts { fsync_dir: true, secret: true, ..mixdog_statefile::Opts::default() };
-    let bytes = mixdog_statefile::json_bytes(&Value::Object(doc.clone()), &opts);
-    mixdog_statefile::write_file_stepped(lane, path, &bytes, &opts).map(|_| ()).map_err(ConfigError::Publish)
-}
-
-#[cfg(test)]
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
-mod tests;
-#[cfg(test)]
-mod guard_replay;
-#[cfg(test)]
-mod concurrency_node_cases;

@@ -18,7 +18,7 @@ use super::tool_failures::{
 };
 use super::turn_done::{RightHint, status_done, turn_done};
 use crate::tool_cards::{CardCtx, render_tool_card};
-use crate::transcript::ItemCtx;
+use crate::transcript::{ItemCtx, render_notice, render_user_message};
 use crate::{Line, Run, runs_to_ansi, themed};
 
 /// The gutter of a transcript row: the marker's box is two cells wide.
@@ -117,6 +117,21 @@ impl Block for HookDenialCard {
     }
 }
 
+/// How many of a sent message's images went with only their smaller copy, as the core recorded on the row; none when it is
+/// absent or not a positive whole number.
+fn original_images_missing(item: &Value) -> Option<u64> {
+    item.get("originalImagesMissing").and_then(Value::as_u64).filter(|count| *count > 0)
+}
+
+/// The note under such a message. The desktop words the same sentences by their English text in the reader's language;
+/// the terminal has no catalog and shows them as they are.
+fn original_images_missing_text(count: u64) -> String {
+    match count {
+        1 => "The full-size original of an image could not be found, so it was sent at its smaller size.".to_owned(),
+        n => format!("The full-size originals of {n} images could not be found, so they were sent at their smaller size."),
+    }
+}
+
 /// The right hint of an item and its parts as the item gave them.
 fn hint_of(ctx: &ItemCtx) -> Option<RightHint> {
     RightHint::new(&ctx.right_message, &ctx.right_tone, ctx.right_message_width)
@@ -130,7 +145,15 @@ pub(crate) fn draw_item(item: &Value, ctx: &ItemCtx) -> Drawn {
         "user" => {
             let text = text_of(item.get("text"));
             let attached = ctx.prev_kind.as_deref() == Some("user");
-            Drawn::Block(Box::new(UserMessage::new(text.as_deref(), attached, columns, item.get("appliedSkills"))))
+            match original_images_missing(item) {
+                // The note the core recorded on the message itself (`originalImagesMissing`), under it.
+                Some(count) => {
+                    let mut lines = render_user_message(text.as_deref(), attached, columns, item.get("appliedSkills"));
+                    lines.extend(render_notice(&original_images_missing_text(count), Some("warn"), columns));
+                    Drawn::Lines(lines)
+                }
+                None => Drawn::Block(Box::new(UserMessage::new(text.as_deref(), attached, columns, item.get("appliedSkills")))),
+            }
         }
         "assistant" => {
             let text = text_of(item.get("text")).unwrap_or_default();
@@ -247,6 +270,23 @@ mod tests {
         ctx.prev_kind = Some("user".to_owned());
         let Drawn::Block(block) = draw_item(&json!({ "kind": "user", "text": "hi" }), &ctx) else { panic!("a block") };
         assert_eq!(block.rows(), 1);
+    }
+
+    #[test]
+    fn a_user_row_that_lost_originals_says_so_under_the_message() {
+        let ctx = ItemCtx::new(200);
+        let drawn = |item: Value| match draw_item(&item, &ctx) {
+            Drawn::Lines(lines) => lines.iter().map(|line| line.0.clone()).collect::<Vec<_>>().join("\n"),
+            Drawn::Block(_) => String::new(),
+            Drawn::Nothing => panic!("a row"),
+        };
+        let one = drawn(json!({ "kind": "user", "text": "look", "originalImagesMissing": 1 }));
+        assert!(one.contains("look") && one.contains("The full-size original of an image could not be found, so it was sent at its smaller size."));
+        let two = drawn(json!({ "kind": "user", "text": "look", "originalImagesMissing": 2 }));
+        assert!(two.contains("The full-size originals of 2 images could not be found, so they were sent at their smaller size."));
+        for none in [json!(0), json!(null), json!("1")] {
+            assert!(matches!(draw_item(&json!({ "kind": "user", "text": "look", "originalImagesMissing": none }), &ctx), Drawn::Block(_)));
+        }
     }
 
     #[test]

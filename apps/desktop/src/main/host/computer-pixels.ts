@@ -16,6 +16,7 @@ import {
   type PixelSources,
 } from "../computer/pixels/acquire";
 import { type CallCore, uploadBlob } from "../computer/pixels/blob-upload";
+import type { ComputerScopes } from "./computer-scope";
 import { encodeImage, type PixelFormat } from "../computer/pixels/encode";
 import {
   HOST_COMMAND_FAILED,
@@ -35,6 +36,8 @@ export interface ComputerPixelsDeps {
   sources?: PixelSources;
   /** The core's `limits.maxBlobPutChunkBytes`, when known; uploads never exceed it. */
   blobChunkBytes?: () => number | undefined;
+  /** The connection's automation scopes: each capture attempt, every fallback included, commits under the request's scope. */
+  scopes: ComputerScopes;
 }
 
 const MAX_DIMENSION = 2 ** 31 - 1;
@@ -141,8 +144,9 @@ export function registerComputerPixels(
         HOST_COMPUTER_PIXELS,
       );
       const { request, format, quality } = checked(wire);
+      const scope = deps.scopes.admit(params, signal);
       try {
-        const pixels = await acquirePixels(await sourcesOf(), request, signal);
+        const pixels = await acquirePixels(await sourcesOf(), request, scope.signal, scope.commit);
         const encoded = encodeImage(pixels.image, format, quality);
         const { digest, byteLength } = await uploadBlob(
           deps.callCore,

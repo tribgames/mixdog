@@ -121,11 +121,6 @@ fn read_file(path: &Path) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
 
-/// `--port <port>` or `--port=<port>` in a command line, the port not followed by a digit.
-fn names_port(command_line: &str, port: i64) -> bool {
-    JsRegex::new(&format!("--port(?:\\s+|=){port}(?!\\d)"), "").is_ok_and(|re| re.is_match(command_line))
-}
-
 /// Runs a system query; `None` when it could not run or failed.
 async fn query(processes: &Processes, program: &str, args: &[String], cwd: &Path, cancel: Option<&CancellationToken>) -> Option<String> {
     let mut options = RunOptions::new(cwd);
@@ -138,43 +133,6 @@ async fn query(processes: &Processes, program: &str, args: &[String], cwd: &Path
 
 fn strings(args: &[&str]) -> Vec<String> {
     args.iter().map(|a| (*a).to_owned()).collect()
-}
-
-/// The live command line of `pid`; empty when it cannot be read, which callers treat as "cannot
-/// prove". Windows asks `wmic` at its System32 path, never through PATH.
-async fn command_line(processes: &Processes, pid: u32, cwd: &Path) -> String {
-    if cfg!(windows) {
-        let Some(root) = std::env::var("SystemRoot").ok().filter(|r| !r.is_empty()) else { return String::new() };
-        let wmic = Path::new(&root).join("System32").join("wbem").join("wmic.exe");
-        return query(processes, &wmic.to_string_lossy(), &strings(&["process", "where", &format!("ProcessId={pid}"), "get", "CommandLine", "/FORMAT:LIST"]), cwd, None).await.unwrap_or_default();
-    }
-    query(processes, "ps", &strings(&["-o", "args=", "-p", &pid.to_string()]), cwd, None).await.unwrap_or_default()
-}
-
-/// Whether `pid` is a live whisper-server whose command line names our model or port. Anything
-/// that cannot be proven reads as not ours: only a positive match licenses a kill.
-pub async fn is_owned(processes: &Processes, pid: Option<u32>, model_path: &str, port: Option<i64>, cwd: &Path) -> bool {
-    let Some(pid) = pid.filter(|p| *p > 0) else { return false };
-    #[cfg(unix)]
-    {
-        // SAFETY: signal 0 only probes for existence.
-        if unsafe { libc::kill(pid as i32, 0) } != 0 {
-            return false;
-        }
-    }
-    let image = if cfg!(windows) {
-        query(processes, "tasklist", &strings(&["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]), cwd, None).await.unwrap_or_default().to_lowercase().contains("whisper-server.exe")
-    } else {
-        query(processes, "ps", &strings(&["-p", &pid.to_string(), "-o", "comm="]), cwd, None).await.unwrap_or_default().to_lowercase().contains("whisper-server")
-    };
-    if !image {
-        return false;
-    }
-    let line = command_line(processes, pid, cwd).await;
-    if line.is_empty() {
-        return false;
-    }
-    (!model_path.is_empty() && line.contains(model_path)) || port.is_some_and(|p| names_port(&line, p))
 }
 
 /// Node's Windows tree kill (`TREE_KILL_SCRIPT`, `child-tree.mjs`), one PowerShell pass. `taskkill
@@ -234,35 +192,6 @@ fn file_time(ms: i64) -> i128 {
     i128::from(ms) * 10_000 + 116_444_736_000_000_000
 }
 
-/// `treeKillCommand([pid], { aliveAt })`: the program and arguments of one Windows tree kill.
-pub fn tree_kill_command(pid: u32, alive_at_ms: i64) -> (String, Vec<String>) {
-    use base64::Engine as _;
-    let source = format!("& {{\n{TREE_KILL_SCRIPT}\n}} -Pids @({pid}) -AliveAt {}", file_time(alive_at_ms));
-    let units: Vec<u8> = source.encode_utf16().flat_map(u16::to_le_bytes).collect();
-    let root = ["SystemRoot", "WINDIR"].iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).unwrap_or_else(|| "C:\\Windows".into());
-    (format!("{root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"), strings(&["-NoProfile", "-NonInteractive", "-EncodedCommand", &base64::engine::general_purpose::STANDARD.encode(units)]))
-}
-
-/// Ends a stale child by pid, as Node's `killPid` does: the shared tree kill on Windows (no
-/// graceful stop exists for a console server), SIGTERM or SIGKILL elsewhere. `alive_at_ms`: when
-/// `pid` was last known to be the process meant.
-pub async fn kill_pid(processes: &Processes, pid: u32, force: bool, cwd: &Path, alive_at_ms: i64) {
-    #[cfg(windows)]
-    {
-        let _ = force;
-        let (command, args) = tree_kill_command(pid, alive_at_ms);
-        let mut options = RunOptions::new(cwd);
-        options.timeout = TREE_KILL_DEADLINE;
-        let _ = processes.run(&command, &args, options).await;
-    }
-    #[cfg(unix)]
-    {
-        let _ = (processes, cwd, alive_at_ms);
-        // SAFETY: a signal to a pid proven to be our server a moment ago.
-        unsafe { libc::kill(pid as i32, if force { libc::SIGKILL } else { libc::SIGTERM }) };
-    }
-}
-
 /// `os.setPriority(pid, PRIORITY_ABOVE_NORMAL)`: a warm transcription stays fast when every core
 /// is busy. Best-effort; a refusal leaves the default priority.
 pub fn raise_priority(pid: u32) {
@@ -286,6 +215,150 @@ pub fn raise_priority(pid: u32) {
     }
 }
 
+/// One `OwningProcess` number per line (no localized words).
+pub(crate) fn listener_pids_include(stdout: &str, pid: u32) -> bool {
+    stdout.split(['\n']).any(|line| mixdog_js::js_trim(line) == pid.to_string())
+}
+
+/// The operating systems whose listener query differs (`process.platform` of Node).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Os {
+    Windows,
+    Linux,
+    Other,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_port_variable_reads_like_parse_int() {
+        assert_eq!(port_from_env("9000"), Some(9000));
+        assert_eq!(port_from_env("  42abc"), Some(42));
+        assert_eq!(port_from_env("65536"), None);
+        assert_eq!(port_from_env("0"), None);
+        assert_eq!(port_from_env("x"), None);
+        assert_eq!(port_from_env("-5"), None);
+    }
+
+    #[test]
+    fn the_pid_file_sits_two_levels_above_the_binary_directory() {
+        assert_eq!(pid_file(Path::new("/data/voice-runtime/bin/whisper-server")), PathBuf::from("/data/whisper-server.pid.json"));
+    }
+
+    #[test]
+    fn listener_pids_match_whole_trimmed_lines() {
+        assert!(listener_pids_include("12\r\n 345 \r\n", 345));
+        assert!(!listener_pids_include("12\r\n3456\r\n", 345));
+    }
+
+    #[test]
+    fn a_busy_preferred_port_falls_back_but_a_bad_host_is_an_error() {
+        let held = TcpListener::bind("127.0.0.1:0").unwrap();
+        let busy = held.local_addr().unwrap().port();
+        let chosen = select_port("127.0.0.1", busy).unwrap();
+        assert_ne!(chosen, busy);
+        assert!(!FETCH_BLOCKED_PORTS.contains(&chosen));
+        assert!(select_port("not-an-ip", 8771).is_err());
+    }
+
+
+    #[test]
+    fn a_command_line_names_the_port_only_as_a_whole_number() {
+        assert!(names_port("whisper-server --port 8771 -t 4", 8771));
+        assert!(names_port("whisper-server --port=8771", 8771));
+        assert!(!names_port("whisper-server --port 87710", 8771));
+        assert!(!names_port("whisper-server --port8771", 8771));
+    }
+    #[tokio::test]
+    async fn an_unknown_pid_is_not_ours() {
+        let processes = Processes::for_tests();
+        let cwd = std::env::temp_dir();
+        assert!(!is_owned(&processes, None, "m", Some(1), &cwd).await);
+        assert!(!is_owned(&processes, Some(u32::MAX - 1), "m", Some(1), &cwd).await);
+    }
+    #[tokio::test]
+    async fn the_pid_file_round_trips_and_clears() {
+        let dir = tempfile::tempdir().unwrap();
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let path = pid_file(&dir.path().join("rt").join("bin").join("whisper-server"));
+        write_pid_file(lane, path.clone(), &PidMeta { pid: 7, server_cmd: Path::new("s"), model_path: Path::new("m"), thread_count: 2, host: "127.0.0.1", port: 8771, started_at_ms: 5 }).await;
+        let meta = read_pid_file(lane, path.clone()).await.unwrap().unwrap();
+        assert_eq!(meta["pid"], 7);
+        assert_eq!(meta["runtimeKey"], r#"["s","m",2,"127.0.0.1"]"#);
+        clear_pid_file(lane, path.clone()).await;
+        assert!(read_pid_file(lane, path).await.unwrap().is_none());
+    }
+}
+
+
+/// `--port <port>` or `--port=<port>` in a command line, the port not followed by a digit.
+fn names_port(command_line: &str, port: i64) -> bool {
+    JsRegex::new(&format!("--port(?:\\s+|=){port}(?!\\d)"), "").is_ok_and(|re| re.is_match(command_line))
+}
+/// The live command line of `pid`; empty when it cannot be read, which callers treat as "cannot
+/// prove". Windows asks `wmic` at its System32 path, never through PATH.
+async fn command_line(processes: &Processes, pid: u32, cwd: &Path) -> String {
+    if cfg!(windows) {
+        let Some(root) = std::env::var("SystemRoot").ok().filter(|r| !r.is_empty()) else { return String::new() };
+        let wmic = Path::new(&root).join("System32").join("wbem").join("wmic.exe");
+        return query(processes, &wmic.to_string_lossy(), &strings(&["process", "where", &format!("ProcessId={pid}"), "get", "CommandLine", "/FORMAT:LIST"]), cwd, None).await.unwrap_or_default();
+    }
+    query(processes, "ps", &strings(&["-o", "args=", "-p", &pid.to_string()]), cwd, None).await.unwrap_or_default()
+}
+/// Whether `pid` is a live whisper-server whose command line names our model or port. Anything
+/// that cannot be proven reads as not ours: only a positive match licenses a kill.
+pub async fn is_owned(processes: &Processes, pid: Option<u32>, model_path: &str, port: Option<i64>, cwd: &Path) -> bool {
+    let Some(pid) = pid.filter(|p| *p > 0) else { return false };
+    #[cfg(unix)]
+    {
+        // SAFETY: signal 0 only probes for existence.
+        if unsafe { libc::kill(pid as i32, 0) } != 0 {
+            return false;
+        }
+    }
+    let image = if cfg!(windows) {
+        query(processes, "tasklist", &strings(&["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]), cwd, None).await.unwrap_or_default().to_lowercase().contains("whisper-server.exe")
+    } else {
+        query(processes, "ps", &strings(&["-p", &pid.to_string(), "-o", "comm="]), cwd, None).await.unwrap_or_default().to_lowercase().contains("whisper-server")
+    };
+    if !image {
+        return false;
+    }
+    let line = command_line(processes, pid, cwd).await;
+    if line.is_empty() {
+        return false;
+    }
+    (!model_path.is_empty() && line.contains(model_path)) || port.is_some_and(|p| names_port(&line, p))
+}
+/// `treeKillCommand([pid], { aliveAt })`: the program and arguments of one Windows tree kill.
+pub fn tree_kill_command(pid: u32, alive_at_ms: i64) -> (String, Vec<String>) {
+    use base64::Engine as _;
+    let source = format!("& {{\n{TREE_KILL_SCRIPT}\n}} -Pids @({pid}) -AliveAt {}", file_time(alive_at_ms));
+    let units: Vec<u8> = source.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let root = ["SystemRoot", "WINDIR"].iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).unwrap_or_else(|| "C:\\Windows".into());
+    (format!("{root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"), strings(&["-NoProfile", "-NonInteractive", "-EncodedCommand", &base64::engine::general_purpose::STANDARD.encode(units)]))
+}
+/// Ends a stale child by pid, as Node's `killPid` does: the shared tree kill on Windows (no
+/// graceful stop exists for a console server), SIGTERM or SIGKILL elsewhere. `alive_at_ms`: when
+/// `pid` was last known to be the process meant.
+pub async fn kill_pid(processes: &Processes, pid: u32, force: bool, cwd: &Path, alive_at_ms: i64) {
+    #[cfg(windows)]
+    {
+        let _ = force;
+        let (command, args) = tree_kill_command(pid, alive_at_ms);
+        let mut options = RunOptions::new(cwd);
+        options.timeout = TREE_KILL_DEADLINE;
+        let _ = processes.run(&command, &args, options).await;
+    }
+    #[cfg(unix)]
+    {
+        let _ = (processes, cwd, alive_at_ms);
+        // SAFETY: a signal to a pid proven to be our server a moment ago.
+        unsafe { libc::kill(pid as i32, if force { libc::SIGKILL } else { libc::SIGTERM }) };
+    }
+}
 /// Reclaims a child a previous core left behind, when the pid file proves it is ours; `true` when
 /// it did (the caller then clears the file).
 pub async fn reclaim_stale(processes: &Processes, meta: &Value, model_path: &str, preferred_port: u16, cwd: &Path) -> bool {
@@ -310,27 +383,12 @@ pub async fn reclaim_stale(processes: &Processes, meta: &Value, model_path: &str
     }
     true
 }
-
-/// One `OwningProcess` number per line (no localized words).
-pub(crate) fn listener_pids_include(stdout: &str, pid: u32) -> bool {
-    stdout.split(['\n']).any(|line| mixdog_js::js_trim(line) == pid.to_string())
-}
-
 /// Whether the process `pid` is the one listening on `host:port`. No evidence reads as not
 /// owned: such a server gets neither readiness nor audio. The query is ended by `cancel` only.
 pub async fn listener_owned(processes: &Processes, host: &str, port: u16, pid: u32, cwd: &Path, cancel: &CancellationToken) -> bool {
     let os = if cfg!(windows) { Os::Windows } else if cfg!(target_os = "linux") { Os::Linux } else { Os::Other };
     listener_owned_on(os, processes, host, port, pid, cwd, cancel).await
 }
-
-/// The operating systems whose listener query differs (`process.platform` of Node).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Os {
-    Windows,
-    Linux,
-    Other,
-}
-
 /// [`listener_owned`] for an explicit operating system.
 pub async fn listener_owned_on(os: Os, processes: &Processes, host: &str, port: u16, pid: u32, cwd: &Path, cancel: &CancellationToken) -> bool {
     if pid == 0 {
@@ -359,69 +417,4 @@ pub async fn listener_owned_on(os: Os, processes: &Processes, host: &str, port: 
     }
     let Some(out) = query(processes, "lsof", &strings(&["-nP", "-a", "-p", &pid.to_string(), &format!("-iTCP@{host}:{port}"), "-sTCP:LISTEN", "-Fp"]), cwd, Some(cancel)).await else { return false };
     out.split(['\n']).any(|line| line.strip_suffix('\r').unwrap_or(line) == format!("p{pid}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_port_variable_reads_like_parse_int() {
-        assert_eq!(port_from_env("9000"), Some(9000));
-        assert_eq!(port_from_env("  42abc"), Some(42));
-        assert_eq!(port_from_env("65536"), None);
-        assert_eq!(port_from_env("0"), None);
-        assert_eq!(port_from_env("x"), None);
-        assert_eq!(port_from_env("-5"), None);
-    }
-
-    #[test]
-    fn the_pid_file_sits_two_levels_above_the_binary_directory() {
-        assert_eq!(pid_file(Path::new("/data/voice-runtime/bin/whisper-server")), PathBuf::from("/data/whisper-server.pid.json"));
-    }
-
-    #[test]
-    fn a_command_line_names_the_port_only_as_a_whole_number() {
-        assert!(names_port("whisper-server --port 8771 -t 4", 8771));
-        assert!(names_port("whisper-server --port=8771", 8771));
-        assert!(!names_port("whisper-server --port 87710", 8771));
-        assert!(!names_port("whisper-server --port8771", 8771));
-    }
-
-    #[test]
-    fn listener_pids_match_whole_trimmed_lines() {
-        assert!(listener_pids_include("12\r\n 345 \r\n", 345));
-        assert!(!listener_pids_include("12\r\n3456\r\n", 345));
-    }
-
-    #[test]
-    fn a_busy_preferred_port_falls_back_but_a_bad_host_is_an_error() {
-        let held = TcpListener::bind("127.0.0.1:0").unwrap();
-        let busy = held.local_addr().unwrap().port();
-        let chosen = select_port("127.0.0.1", busy).unwrap();
-        assert_ne!(chosen, busy);
-        assert!(!FETCH_BLOCKED_PORTS.contains(&chosen));
-        assert!(select_port("not-an-ip", 8771).is_err());
-    }
-
-    #[tokio::test]
-    async fn an_unknown_pid_is_not_ours() {
-        let processes = Processes::for_tests();
-        let cwd = std::env::temp_dir();
-        assert!(!is_owned(&processes, None, "m", Some(1), &cwd).await);
-        assert!(!is_owned(&processes, Some(u32::MAX - 1), "m", Some(1), &cwd).await);
-    }
-
-    #[tokio::test]
-    async fn the_pid_file_round_trips_and_clears() {
-        let dir = tempfile::tempdir().unwrap();
-        let lane = mixdog_rt::testing::tokens().durability_io;
-        let path = pid_file(&dir.path().join("rt").join("bin").join("whisper-server"));
-        write_pid_file(lane, path.clone(), &PidMeta { pid: 7, server_cmd: Path::new("s"), model_path: Path::new("m"), thread_count: 2, host: "127.0.0.1", port: 8771, started_at_ms: 5 }).await;
-        let meta = read_pid_file(lane, path.clone()).await.unwrap().unwrap();
-        assert_eq!(meta["pid"], 7);
-        assert_eq!(meta["runtimeKey"], r#"["s","m",2,"127.0.0.1"]"#);
-        clear_pid_file(lane, path.clone()).await;
-        assert!(read_pid_file(lane, path).await.unwrap().is_none());
-    }
 }

@@ -1,17 +1,19 @@
-//! The HTTP/1.1 layer against Node. `tests/fixtures/node-http-echo.recording.json` holds what a `node:http` server with the
-//! fixed handler of `tests/fixtures/node-http-echo.mjs` answered to raw requests (recorded once by that script, with the
-//! `Date` value masked here); [`EchoHandler`] is the same handler written against this layer, and every exchange must come
-//! back byte for byte. The other tests are about what a recording cannot show: panics, drops, backpressure, TLS, closing.
+//! The HTTP/1.1 layer over raw sockets: framing of requests and responses, keep-alive, refusals, hand-off of upgrades,
+//! panics, drops, backpressure, TLS, closing. [`EchoHandler`] is a small fixed handler the framing tests talk to.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+#[cfg(node_twin)]
 use mixdog_fsio::Unlaned;
 use mixdog_relay::http1::{Handler, HandlerFuture, Headers, HeaderValue, Limits, Request, ResponseWriter, UpgradeRequest, fail_request};
 use mixdog_relay::net::{Server, tls};
-use mixdog_rt::time::{Instant, sleep, timeout};
+#[cfg(node_twin)]
+use mixdog_rt::time::Instant;
+use mixdog_rt::time::{sleep, timeout};
+#[cfg(node_twin)]
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -179,6 +181,7 @@ async fn route(events: Arc<Mutex<Vec<String>>>, mut request: Request, mut respon
 
 // ---- the byte comparison ----
 
+#[cfg(node_twin)]
 fn latin1_bytes(text: &str) -> Vec<u8> {
     text.chars().map(|c| c as u8).collect()
 }
@@ -202,17 +205,20 @@ fn mask_date(text: &str) -> String {
     out
 }
 
+#[cfg(node_twin)]
 struct Outcome {
     received: Vec<u8>,
     closed_by_server: bool,
     elapsed_ms: u128,
 }
 
+#[cfg(node_twin)]
 fn number(value: &Value, key: &str) -> u64 {
     value[key].as_u64().unwrap_or_else(|| panic!("{key} is not a number"))
 }
 
 /// Plays the steps of a recorded connection against `addr` and reads as the recording's `end` says.
+#[cfg(node_twin)]
 async fn play(addr: SocketAddr, conn: &Value) -> Outcome {
     let stream = TcpStream::connect(addr).await.unwrap();
     let (mut rd, mut wr) = stream.into_split();
@@ -272,12 +278,14 @@ async fn play(addr: SocketAddr, conn: &Value) -> Outcome {
 }
 
 /// Where two texts first differ, with a little of each side.
+#[cfg(node_twin)]
 fn first_difference(expected: &str, actual: &str) -> String {
     let at = expected.chars().zip(actual.chars()).take_while(|(a, b)| a == b).count();
     let clip = |text: &str| text.chars().skip(at.saturating_sub(20)).take(70).collect::<String>();
     format!("at {at}: expected {:?} got {:?}", clip(expected), clip(actual))
 }
 
+#[cfg(node_twin)]
 async fn run_scenario(scenario: Value) -> Vec<String> {
     let name = scenario["name"].as_str().unwrap().to_owned();
     let limits = if scenario["server"] == "short" {
@@ -304,20 +312,6 @@ async fn run_scenario(scenario: Value) -> Vec<String> {
     }
     server.terminate_connections();
     failures
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn every_exchange_recorded_from_node_comes_back_byte_for_byte() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/node-http-echo.recording.json");
-    let recording: Value = serde_json::from_str(&mixdog_fsio::read_to_string(&Unlaned, path).unwrap()).unwrap();
-    let scenarios = recording["scenarios"].as_array().unwrap().clone();
-    assert!(scenarios.len() >= 16, "the recording lost scenarios");
-    let tasks: Vec<_> = scenarios.into_iter().map(|scenario| tokio::spawn(run_scenario(scenario))).collect();
-    let mut failures = Vec::new();
-    for task in tasks {
-        failures.extend(task.await.unwrap());
-    }
-    assert!(failures.is_empty(), "{} exchanges differ from node:\n{}", failures.len(), failures.join("\n"));
 }
 
 // ---- what a recording cannot show ----
@@ -559,5 +553,168 @@ async fn tls_is_served_with_no_alpn_and_an_upgrade_hands_over_the_decrypted_stre
     assert!(latin1_text(&out).ends_with("head=818061626364"), "the leftover is the decrypted bytes: {:?}", latin1_text(&out));
     let seen = upgrades.lock().unwrap().clone();
     assert!(matches!(seen.as_slice(), [(true, _)]), "the request knew it was encrypted");
+    server.terminate_connections();
+}
+
+
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn every_exchange_recorded_from_node_comes_back_byte_for_byte() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/node-http-echo.recording.json");
+    let recording: Value = serde_json::from_str(&mixdog_fsio::read_to_string(&Unlaned, path).unwrap()).unwrap();
+    let scenarios = recording["scenarios"].as_array().unwrap().clone();
+    assert!(scenarios.len() >= 16, "the recording lost scenarios");
+    let tasks: Vec<_> = scenarios.into_iter().map(|scenario| tokio::spawn(run_scenario(scenario))).collect();
+    let mut failures = Vec::new();
+    for task in tasks {
+        failures.extend(task.await.unwrap());
+    }
+    assert!(failures.is_empty(), "{} exchanges differ from node:\n{}", failures.len(), failures.join("\n"));
+}
+
+// ---- framing, as raw bytes ----
+
+async fn echo_server() -> (Server, SocketAddr) {
+    let server = Server::start(0, None, Arc::new(EchoHandler::default()), Limits::default()).await.unwrap();
+    let addr = ([127, 0, 0, 1], server.port()).into();
+    (server, addr)
+}
+
+fn status_lines(text: &str) -> Vec<&str> {
+    text.match_indices("HTTP/1.").map(|(at, _)| &text[at..text[at..].find("\r\n").map_or(text.len(), |end| at + end)]).collect()
+}
+
+#[tokio::test]
+async fn a_connection_is_kept_alive_across_requests_until_a_response_says_close() {
+    let (server, addr) = echo_server().await;
+    let text = exchange(
+        addr,
+        b"GET /hello HTTP/1.1\r\nHost: h\r\n\r\nGET /close HTTP/1.1\r\nHost: h\r\n\r\nGET /hello HTTP/1.1\r\nHost: h\r\n\r\n",
+    )
+    .await;
+    // The third request is never read: the second response closes the connection.
+    assert_eq!(status_lines(&text), ["HTTP/1.1 200 OK", "HTTP/1.1 200 OK"], "{text}");
+    assert!(text.contains("Connection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 5\r\n\r\nhello"), "{text}");
+    assert!(text.contains("Connection: close\r\n"), "{text}");
+    assert!(text.ends_with("bye"), "{text}");
+    server.terminate_connections();
+}
+
+#[tokio::test]
+async fn a_body_of_known_length_is_sent_with_its_length_and_a_streamed_one_in_chunks() {
+    let (server, addr) = echo_server().await;
+    let known = exchange(addr, b"GET /json-cl HTTP/1.1\r\nHost: h\r\n\r\n").await;
+    assert!(known.contains("Content-Length: 11\r\n") && !known.contains("Transfer-Encoding"), "{known}");
+    assert!(known.ends_with("\r\n\r\n{\"ok\":true}"), "{known}");
+    let streamed = exchange(addr, b"GET /stream HTTP/1.1\r\nHost: h\r\n\r\n").await;
+    assert!(streamed.contains("Transfer-Encoding: chunked\r\n") && !streamed.contains("Content-Length"), "{streamed}");
+    assert!(streamed.ends_with("\r\n\r\n3\r\none\r\n3\r\ntwo\r\n5\r\nthree\r\n0\r\n\r\n"), "{streamed}");
+    server.terminate_connections();
+}
+
+#[tokio::test]
+async fn head_204_and_304_answers_carry_no_body() {
+    let (server, addr) = echo_server().await;
+    let head = exchange(addr, b"HEAD /hello HTTP/1.1\r\nHost: h\r\n\r\n").await;
+    assert!(head.starts_with("HTTP/1.1 200 OK\r\n"), "{head}");
+    assert!(head.ends_with("\r\n\r\n"), "a HEAD answer has no body: {head}");
+    for (path, status) in [("/nocontent", "HTTP/1.1 204 No Content\r\n"), ("/notmod", "HTTP/1.1 304 Not Modified\r\n")] {
+        let text = exchange(addr, format!("GET {path} HTTP/1.1\r\nHost: h\r\n\r\n").as_bytes()).await;
+        assert!(text.starts_with(status), "{text}");
+        assert!(!text.contains("Content-Length") && !text.contains("Transfer-Encoding"), "{text}");
+        assert!(text.ends_with("\r\n\r\n"), "{text}");
+    }
+    server.terminate_connections();
+}
+
+#[tokio::test]
+async fn a_set_cookie_array_is_one_header_line_per_value() {
+    let (server, addr) = echo_server().await;
+    let text = exchange(addr, b"GET /cookies HTTP/1.1\r\nHost: h\r\n\r\n").await;
+    assert!(text.contains("Set-Cookie: a=1; Path=/\r\nSet-Cookie: b=2\r\n"), "{text}");
+    server.terminate_connections();
+}
+
+#[tokio::test]
+async fn an_http_1_0_request_is_answered_and_the_connection_closed() {
+    let (server, addr) = echo_server().await;
+    let text = exchange(addr, b"GET /hello HTTP/1.0\r\n\r\nGET /hello HTTP/1.0\r\n\r\n").await;
+    assert_eq!(status_lines(&text).len(), 1, "{text}");
+    assert!(text.ends_with("hello"), "{text}");
+    assert!(!text.contains("Keep-Alive"), "{text}");
+    server.terminate_connections();
+}
+
+#[tokio::test]
+async fn request_bodies_are_read_by_length_or_in_chunks() {
+    let (server, addr) = echo_server().await;
+    let sized = exchange(addr, b"POST /body HTTP/1.1\r\nHost: h\r\nContent-Length: 5\r\n\r\nhello").await;
+    assert!(sized.ends_with("len=5 body=hello"), "{sized}");
+    let chunked =
+        exchange(addr, b"POST /body HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n4\r\ndefg\r\n0\r\n\r\n")
+            .await;
+    assert!(chunked.ends_with("len=7 body=abcdefg"), "{chunked}");
+    server.terminate_connections();
+}
+
+#[tokio::test]
+async fn pipelined_requests_are_answered_in_the_order_they_arrived() {
+    let (server, addr) = echo_server().await;
+    let text = exchange(addr, b"GET /slow HTTP/1.1\r\nHost: h\r\n\r\nGET /hello HTTP/1.1\r\nHost: h\r\n\r\n").await;
+    let slow = text.find("slow").expect("the slow answer");
+    let hello = text.find("hello").expect("the hello answer");
+    assert!(slow < hello, "{text}");
+    server.terminate_connections();
+}
+
+#[tokio::test]
+async fn a_head_that_cannot_be_served_is_refused_with_a_bare_status_line_and_closed() {
+    let (server, addr) = echo_server().await;
+    let big = format!("GET / HTTP/1.1\r\nHost: h\r\nX-Big: {}\r\n\r\n", "a".repeat(20 * 1024));
+    assert!(exchange(addr, big.as_bytes()).await.starts_with("HTTP/1.1 431 Request Header Fields Too Large\r\n"));
+    for malformed in ["GARBAGE\r\n\r\n", "GET / HTTP/1.1\r\nBad Header\r\n\r\n", "GET / HTTP/2.5\r\nHost: h\r\n\r\n"] {
+        let text = exchange(addr, malformed.as_bytes()).await;
+        assert!(text.starts_with("HTTP/1.1 400 Bad Request\r\n") && text.contains("Connection: close"), "{malformed:?}: {text}");
+    }
+    let no_host = exchange(addr, b"GET /hello HTTP/1.1\r\n\r\n").await;
+    assert!(no_host.starts_with("HTTP/1.1 400 Bad Request\r\n"), "{no_host}");
+    server.terminate_connections();
+}
+
+#[tokio::test]
+async fn an_expect_100_continue_is_answered_before_the_body_is_sent() {
+    let (server, addr) = echo_server().await;
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+    stream.write_all(b"POST /body HTTP/1.1\r\nHost: h\r\nContent-Length: 2\r\nExpect: 100-continue\r\n\r\n").await.unwrap();
+    let mut chunk = [0u8; 256];
+    let read = timeout(Duration::from_secs(2), stream.read(&mut chunk)).await.unwrap().unwrap();
+    assert_eq!(latin1_text(&chunk[..read]), "HTTP/1.1 100 Continue\r\n\r\n");
+    stream.write_all(b"ok").await.unwrap();
+    let read = timeout(Duration::from_secs(2), stream.read(&mut chunk)).await.unwrap().unwrap();
+    assert!(latin1_text(&chunk[..read]).ends_with("len=2 body=ok"));
+    server.terminate_connections();
+}
+
+#[tokio::test]
+async fn an_upgrade_request_is_handed_over_with_the_bytes_that_followed_its_head() {
+    let (server, addr) = echo_server().await;
+    let text = exchange(addr, b"GET /ws HTTP/1.1\r\nHost: h\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\nab").await;
+    assert!(text.starts_with("UPGRADE GET /ws "), "{text}");
+    assert!(text.ends_with("head=6162"), "{text}");
+    server.terminate_connections();
+}
+
+#[tokio::test]
+async fn the_request_headers_are_reported_lower_cased_with_repeats_joined_or_listed() {
+    let (server, addr) = echo_server().await;
+    let text = exchange(
+        addr,
+        b"GET /echo?q=1 HTTP/1.1\r\nHost: h\r\nX-A: 1\r\nx-a: 2\r\nCookie: a=1\r\nCookie: b=2\r\nSet-Cookie: s\r\nSet-Cookie: t\r\n\r\n",
+    )
+    .await;
+    assert!(text.contains("\"url\":\"/echo?q=1\"") && text.contains("\"httpVersion\":\"1.1\""), "{text}");
+    assert!(text.contains("\"x-a\":\"1, 2\""), "repeated headers are joined: {text}");
+    assert!(text.contains("\"cookie\":\"a=1; b=2\""), "cookies are joined with a semicolon: {text}");
+    assert!(text.contains("\"set-cookie\":[\"s\",\"t\"]"), "set-cookie stays a list: {text}");
     server.terminate_connections();
 }

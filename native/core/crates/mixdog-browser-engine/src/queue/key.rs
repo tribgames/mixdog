@@ -54,8 +54,6 @@ impl fmt::Display for KeyError {
     }
 }
 
-impl std::error::Error for KeyError {}
-
 impl QueueKey {
     pub fn new(lane: impl Into<String>, page: Option<String>) -> Self {
         Self { lane: lane.into(), page }
@@ -232,3 +230,6 @@ mod tests {
         assert_eq!(normalize_background_tab_name(" research ", true), Ok("research".into()));
     }
 }
+
+
+impl std::error::Error for KeyError {}

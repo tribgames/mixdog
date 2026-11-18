@@ -169,9 +169,10 @@ impl DirectorySpawnWorld {
             skip_role_reminder: false,
             schema_allowed_tools: spec.get("schemaAllowedTools").and_then(Value::as_array).map(|tools| tools.iter().filter_map(Value::as_str).map(str::to_owned).collect()),
         };
-        let mut header = stamped_header(&prepare, |name| self.providers.registered(name).is_some())?;
+        let mut header = stamped_header(&prepare, |name| self.providers.registered_for_route(name).is_some())?;
         header.insert("visibility".into(), json!("agent-only"));
-        let tag = nonempty(text(spec.get("agentTag"))).or_else(|| nonempty(tag.to_owned()));
+        super::session_cache_opts::stamp_cache_opts(&mut header, &self.config.agent().get("autoClear").cloned().unwrap_or(Value::Null));
+        let tag =nonempty(text(spec.get("agentTag"))).or_else(|| nonempty(tag.to_owned()));
         header.insert("agentTag".into(), tag.map_or(Value::Null, Value::String));
         header.insert("clientHostPid".into(), spec.get("clientHostPid").filter(|pid| pid.as_u64().is_some_and(|p| p > 0)).cloned().unwrap_or(Value::Null));
         // The scope of the runtime that spawns it (`spawn-plan.mjs:108`, `rt.mcpScopeId`): the child shares

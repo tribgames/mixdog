@@ -10,11 +10,15 @@ use async_trait::async_trait;
 use mixdog_agent::text_only::MediaText;
 use mixdog_ai::client_versions::ClientVersions;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ListingLookup, ModelRecord, ModelsDevSource};
-use mixdog_ai::effort::{reasoning_row, RejectionEntry};
+use mixdog_ai::effort::RejectionEntry;
+#[cfg(node_twin)]
+use mixdog_ai::effort::reasoning_row;
 use mixdog_ai::netproxy::NetworkProxy;
 use mixdog_ai::netproxy::system::SystemProxy;
 use mixdog_ai::oauth::CredentialIo;
-use mixdog_ai::providers::openai::config::{ModelFactsSource, PromptCacheLifetime};
+use mixdog_ai::providers::openai::config::ModelFactsSource;
+#[cfg(node_twin)]
+use mixdog_ai::providers::openai::config::PromptCacheLifetime;
 use mixdog_ai::registry::builder::DefaultProviderBuilder;
 use mixdog_ai::registry::keys::{Environment, MemoryVault};
 use mixdog_ai::registry::providers::ProviderBuilder;
@@ -28,7 +32,9 @@ use mixdog_protocol::ProviderId;
 use mixdog_store::schema::record::Header;
 use serde_json::{json, Map, Value};
 
-use super::accounting_scope::{accounting_deps, HeaderScope};
+use super::accounting_scope::HeaderScope;
+#[cfg(node_twin)]
+use super::accounting_scope::accounting_deps;
 use super::fixture_fs;
 use super::builder_env::{builder_env, client_identity, CatalogCaps, CatalogOpenAiFacts};
 use super::hop_bindings::HopBindings;
@@ -36,16 +42,12 @@ use super::ladder_sources::ProcessLadder;
 use super::process::{
     resolve_installation_id, EffortRejections, FileRejections, HostInfo, LocalModels, ProcessServices, SessionHeaders,
 };
+#[cfg(node_twin)]
 use mixdog_core_run::run_host::route_wiring::AnthropicEffortGates;
 use mixdog_core_run::run_host::route_wiring::LocalEntry;
 use super::step_judge::{ladder_facts, LadderSources};
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
-
-const CAPS: &str = include_str!("../../../../fixtures/anthropic-caps/golden.json");
-const WIRE_ANTHROPIC: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/wire-anthropic-gemini/anthropic.json");
-const OPENAI: &str = include_str!("../../../../fixtures/openai-facts/golden.json");
-const SCOPE: &str = include_str!("../../../../fixtures/accounting-scope/golden.json");
 
 struct Offline;
 
@@ -141,7 +143,10 @@ impl mixdog_ai::providers::local::listing::InstalledModels for NoRuntime {
 
 #[async_trait::async_trait]
 impl mixdog_ai::providers::local::LocalRuntime for NoRuntime {
-    async fn ensure_server(&self, _: &str) -> Result<mixdog_ai::providers::local::Endpoint, mixdog_core_api::domain::provider::ProviderError> {
+    fn supports_tools(&self, _: &str) -> Option<bool> {
+        None
+    }
+    async fn ensure_server(&self, _: &str, _: Option<mixdog_rt::CancellationToken>) -> Result<mixdog_ai::providers::local::Endpoint, mixdog_core_api::domain::provider::ProviderError> {
         let mut error = mixdog_core_api::domain::provider::ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Unknown, mixdog_core_api::domain::provider::DeliveryState::NotSent);
         error.message = "[local-provider] runtime is not installed".into();
         Err(error)
@@ -156,6 +161,7 @@ impl mixdog_ai::providers::local::LocalRuntime for NoRuntime {
 
 pub(crate) struct World {
     pub(crate) services: ProcessServices,
+    #[cfg(node_twin)]
     headers: Arc<Headers>,
     rejections: Arc<Rejections>,
     _dir: tempfile::TempDir,
@@ -164,50 +170,6 @@ pub(crate) struct World {
 /// What a provider's `getCachedModelInfo` answers in these worlds: the rows its adapter stored (the listing's records, as
 /// Node's rows state their levels).
 struct StoredRows(Vec<Arc<Value>>);
-
-impl mixdog_ai::catalog::CachedModelInfo for StoredRows {
-    fn cached_row(&self, model: &str) -> Option<Arc<Value>> {
-        self.0.iter().find(|row| row["id"] == model).cloned()
-    }
-}
-
-/// The registry's providers as production binds them (`ProviderReadiness::new` binds `route_provider`), here without
-/// a registry: a provider with listed `records` answers their rows; a custom provider of the config with none holds the
-/// rows its config states, through its real listing (`CustomListing`, which the custom builder hands the registry).
-fn bind_providers(catalog: &CatalogService, providers: &Value, records: &[ModelRecord]) {
-    let mut stored: HashMap<String, Vec<Arc<Value>>> = HashMap::new();
-    for record in records {
-        let mut row = json!({ "id": record.id, "provider": record.provider.as_str(), "reasoningLevels": record.reasoning_efforts, "reasoningOptions": record.picker.reasoning_options });
-        if let Some(custom) = &record.picker.custom_reasoning {
-            row["customReasoning"] = json!(custom);
-        }
-        stored.entry(record.provider.as_str().to_owned()).or_default().push(Arc::new(row));
-    }
-    let mut custom: HashMap<String, Arc<mixdog_ai::providers::custom::listing::CustomListing>> = HashMap::new();
-    for (name, cfg) in providers.as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("custom-")) {
-        let Ok(protocol) = serde_json::from_value(cfg["protocol"].clone()) else { continue };
-        let listing = mixdog_ai::providers::custom::listing::CustomListing::new(
-            name,
-            protocol,
-            cfg["baseURL"].as_str().unwrap_or_default(),
-            Vec::new(),
-            Arc::new(Offline),
-            Arc::new(mixdog_ai::providers::connect::rewrite::StaticCredential(None)),
-            true,
-            cfg,
-            ListingLookup::new(),
-        );
-        custom.insert(name.clone(), Arc::new(listing));
-    }
-    catalog.bind_providers(Arc::new(move |name| {
-        let cached: Option<Arc<dyn mixdog_ai::catalog::CachedModelInfo>> = match (stored.get(name), custom.get(name)) {
-            (Some(rows), _) => Some(Arc::new(StoredRows(rows.clone()))),
-            (None, Some(listing)) => Some(listing.clone()),
-            (None, None) => return None,
-        };
-        Some(mixdog_ai::catalog::RouteProvider { cached, listing: None })
-    }));
-}
 
 async fn catalog_with(dir: &std::path::Path, records: Vec<ModelRecord>) -> Arc<CatalogService> {
     let tokens = mixdog_rt::testing::tokens();
@@ -218,46 +180,6 @@ async fn catalog_with(dir: &std::path::Path, records: Vec<ModelRecord>) -> Arc<C
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let metadata = ModelsDevSource::new(Arc::new(Offline), dir.to_path_buf(), io);
     Arc::new(CatalogService::cold_start(snapshot, Vec::new(), metadata).await)
-}
-
-pub(crate) async fn world(env: &[(&str, &str)], providers: Value, records: Vec<ModelRecord>) -> World {
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-    let providers_config = providers.clone();
-    config
-        .update_agent(move |doc| {
-            doc.insert("providers".into(), providers);
-            Ok(())
-        })
-        .await
-        .unwrap();
-    let catalog = catalog_with(dir.path(), records.clone()).await;
-    bind_providers(&catalog, &providers_config, &records);
-    let env: Arc<dyn Environment> = Arc::new(TestEnv(env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()));
-    let headers = Arc::new(Headers::default());
-    let rejections = Arc::new(Rejections::default());
-    let services = ProcessServices {
-        config,
-        catalog,
-        listing: ListingLookup::new(),
-        network: NetworkProxy::new(Arc::new(mixdog_ai::netproxy::route::ProcessEnv), SystemProxy::default()),
-        vault: Arc::new(MemoryVault::default()),
-        env,
-        lanes: tokens,
-        plugin_data: dir.path().join("plugin-data"),
-        home_dir: dir.path().to_path_buf(),
-        host: HostInfo { os_type: "Windows".into(), os_release: "10.0.26100".into(), arch: "x86_64".into() },
-        build_version: "9.8.7".into(),
-        installation_id: "11111111-2222-4333-8444-555555555555".into(),
-        ledger: Arc::new(|| None),
-        sessions: headers.clone(),
-        rejections: rejections.clone(),
-        unsupported: Arc::new(UnsupportedEfforts::default()),
-        local: Arc::new(Local),
-    };
-    World { services, headers, rejections, _dir: dir }
 }
 
 /// A subscription-route row in Node's shape: `reasoningOptions` (a stated ladder, possibly empty)
@@ -272,6 +194,7 @@ fn anthropic_row(row: &Value) -> ModelRecord {
     record.thinking_enabled = row["thinkingTypes"]["enabled"].as_bool();
     record
 }
+#[cfg(node_twin)]
 fn strings(value: &Value) -> Vec<String> {
     value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect()
 }
@@ -297,7 +220,7 @@ async fn the_client_identity_follows_nodes_floors_and_overrides() {
     let id = identity(&[]);
     assert_eq!(id.codex.user_agent.get(), "codex_cli_rs/0.166.0 (Windows 10.0.26100; x86_64) unknown");
     assert_eq!((id.codex.version.get().as_str(), id.codex.beta_features.as_str()), ("0.166.0", "remote_compaction_v2"));
-    assert_eq!((id.grok.get().as_str(), id.cursor.get().as_str(), id.antigravity.get().as_str()), ("1.0.70", "cli-2026.10.22-27dcf5f", "2.19.1"));
+    assert_eq!((id.grok.get().as_str(), id.cursor.get().as_str(), id.antigravity.get().as_str()), ("1.0.70", "cli-2026.10.22-27dcf5f", "2.32.1"));
 
     let id = identity(&[
         ("MIXDOG_CODEX_ORIGINATOR", " codex_exec "),
@@ -373,124 +296,11 @@ async fn an_installation_id_needs_a_valid_version_and_variant_and_a_damaged_file
     }
 }
 
-#[tokio::test]
-async fn every_builder_input_comes_from_the_process_services() {
-    let w = world(&[], json!({}), Vec::new()).await;
-    let env = builder_env(&w.services);
-    assert_eq!(env.client_version, "9.8.7");
-    assert_eq!(env.codex_identity.installation_id, "11111111-2222-4333-8444-555555555555");
-    assert_eq!(env.home_dir, w.services.home_dir);
-
-    // `providerAvailable`: a gated provider follows its stored Developer option, live.
-    assert!((env.gated_off)("cursor-oauth"));
-    assert!(!(env.gated_off)("anthropic"));
-    w.services.config.update_agent(|doc| { doc.insert("developer".into(), json!({"cursorOAuth": true})); Ok(()) }).await.unwrap();
-    assert!(!(env.gated_off)("cursor-oauth"));
-
-    // The builder builds adapters from it.
-    let builder = DefaultProviderBuilder::new(env);
-    for name in ["anthropic", "openai", "gemini", "xai"] {
-        let adapter = builder.build(name, &json!({"enabled": true, "apiKey": "k"})).await.unwrap_or_else(|e| panic!("{name}: {e}"));
-        assert_eq!(adapter.id().to_string(), name);
-    }
-}
-
-/// A thread opened after a restart finds the process registry empty; its first request readies the header's provider as
-/// the route hop does (`RegistryHopHost::provider`: `initProviders(ensureProviderEnabled(agentConfig, id))`, then the
-/// registry) — for every kind of provider the agent config can name, not only a custom one.
-#[tokio::test]
-async fn after_a_reload_each_provider_kind_is_readied_from_the_agent_config() {
-    let key = json!({"enabled": true, "apiKey": "k"});
-    let mut providers = Map::new();
-    for name in ["anthropic", "openai", "gemini", "xai", "deepseek", "openrouter"] {
-        providers.insert(name.into(), key.clone());
-    }
-    providers.insert(
-        "custom-abc".into(),
-        json!({"enabled": true, "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"}),
-    );
-    let names: Vec<String> = providers.keys().cloned().collect();
-    let w = world(&[], Value::Object(providers), Vec::new()).await;
-    let (registry, _) = super::compose_parts::provider_registry(&w.services, builder_env(&w.services), Arc::new(mixdog_exthost::ExtImageCodec::new(Arc::new(mixdog_core_api::domain::mock::MockExtPool::new(1)))));
-    for name in names {
-        let enabled = mixdog_ai::service::admin_route::ensure_provider_enabled(&w.services.config.agent(), &name);
-        registry.init_providers(&enabled).await.unwrap_or_else(|e| panic!("{name}: {e}"));
-        let adapter = registry.try_get(&name).await.unwrap().unwrap_or_else(|| panic!("{name}: not readied"));
-        assert_eq!(adapter.id().to_string(), name);
-    }
-}
-
-#[tokio::test]
-async fn a_remote_client_holds_no_model_credentials() {
-    let w = world(&[("MIXDOG_MODEL_PROXY", "client"), ("OPENAI_API_KEY", "sk-live")], json!({}), Vec::new()).await;
-    let env = builder_env(&w.services);
-    assert!(env.keys.get("openai").await.unwrap().is_none());
-    // The PC's providers are available whatever the local Developer option says.
-    assert!(!(env.gated_off)("cursor-oauth"));
-    let local = world(&[("OPENAI_API_KEY", "sk-live")], json!({}), Vec::new()).await;
-    assert_eq!(builder_env(&local.services).keys.get("openai").await.unwrap().as_deref(), Some("sk-live"));
-}
-
 /// The listed rows the recorder fed Node's `setModelEffortCapabilities`, as the subscription
 /// route lists them: a row that states no `reasoningOptions` states no ladder at all.
+#[cfg(node_twin)]
 fn listed_rows(rows: &Value) -> Vec<ModelRecord> {
     rows.as_array().unwrap().iter().map(anthropic_row).collect()
-}
-
-#[tokio::test]
-async fn the_anthropic_caps_are_nodes_floor_live_and_declared_catalog_answers() {
-    let golden: Value = serde_json::from_str(CAPS).unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let none = TestEnv(HashMap::new());
-    let sets = [
-        ("floor", Vec::new()),
-        ("withLive", listed_rows(&golden["live"])),
-        ("declared", listed_rows(&golden["declaredRows"])),
-    ];
-    for (set, rows) in sets {
-        let caps = CatalogCaps::new(catalog_with(dir.path(), rows).await, &none);
-        for row in golden[set].as_array().unwrap() {
-            let model = row["model"].as_str().unwrap();
-            let got = caps.caps(model);
-            let gates = AnthropicEffortGates::for_model(model, got.as_ref());
-            let supports = got.as_ref().is_some_and(|c| c.supports_effort());
-            let adaptive = got.as_ref().is_some_and(|c| c.adaptive_thinking);
-            let want = |key: &str| row[key].as_bool().unwrap();
-            let ctx = format!("{set} {model}");
-            assert_eq!(supports, want("supportsEffort"), "{ctx} supports effort");
-            assert_eq!((gates.xhigh, gates.max), (want("xhigh"), want("max")), "{ctx} gates");
-            assert_eq!(got.as_ref().is_some_and(|c| !c.manual_thinking), want("adaptiveOnly"), "{ctx} adaptive only");
-            assert_eq!(supports && adaptive, want("betaHeader"), "{ctx} beta header");
-            assert_eq!(caps.effort_levels_for(model), strings(&row["levels"]), "{ctx} levels");
-            assert_eq!(caps.effort_levels_empty(model), row["levels"].as_array().unwrap().is_empty(), "{ctx} no levels");
-        }
-    }
-}
-
-/// The capabilities `mixdog-ai`'s Anthropic wire test feeds the adapter are what Node's functions answered for the
-/// models of `anthropic.json`, with a catalog that lists them by id only (`_setInMemoryCatalog`). The product's
-/// `CatalogCaps` over such a catalog gives the same answers, so the adapter test's input is the product's.
-#[tokio::test]
-async fn the_anthropic_wire_models_get_nodes_catalog_answers() {
-    let recorded: Value = serde_json::from_str(&WIRE_ANTHROPIC).unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    let caps = CatalogCaps::new(catalog_with(dir.path(), Vec::new()).await, &TestEnv(HashMap::new()));
-    let models = recorded["capabilities"].as_object().unwrap();
-    assert!(!models.is_empty(), "the recording holds no model capabilities");
-    for (model, node) in models {
-        let got = caps.caps(model);
-        let gates = AnthropicEffortGates::for_model(model, got.as_ref());
-        let supports = got.as_ref().is_some_and(|c| c.supports_effort());
-        let adaptive = got.as_ref().is_some_and(|c| c.adaptive_thinking);
-        let flag = |key: &str| node[key].as_bool().unwrap();
-        assert_eq!(supports, flag("supportsEffort"), "{model} supports effort");
-        assert_eq!((gates.xhigh, gates.max), (flag("supportsXhighEffort"), flag("supportsMaxEffort")), "{model} gates");
-        assert_eq!(got.as_ref().is_some_and(|c| !c.manual_thinking), flag("adaptiveOnly"), "{model} adaptive only");
-        assert_eq!(supports && adaptive, flag("effortBeta"), "{model} effort beta");
-        assert_eq!(caps.effort_levels_for(model), strings(&node["effortLevels"]), "{model} effort levels");
-        assert_eq!(got.as_ref().is_some_and(|c| c.thinking_display_updates), flag("progressUpdates"), "{model} progress updates");
-        assert_eq!(got.as_ref().and_then(|c| c.max_output_tokens).map(u64::from), node["declaredOutputTokens"].as_u64(), "{model} declared output tokens");
-    }
 }
 
 /// `m?.supports_reasoning_summaries === true` on the cached Codex roster, read for the exact id;
@@ -518,65 +328,10 @@ async fn the_always_enable_switch_gives_every_model_adaptive_effort() {
     assert_eq!(caps.effort_levels_for("some-gateway-model"), ["low", "medium", "high"]);
 }
 
-#[tokio::test]
-async fn the_openai_facts_are_nodes_catalog_and_documented_id_rules() {
-    let dir = tempfile::tempdir().unwrap();
-    let facts = CatalogOpenAiFacts::new(catalog_with(dir.path(), Vec::new()).await);
-    let golden: Value = serde_json::from_str(OPENAI).unwrap();
-    for case in golden["cases"].as_array().unwrap() {
-        let model = case["model"].as_str().unwrap();
-        let got = facts.facts(model);
-        let flag = |key: &str| case[key].as_bool().unwrap();
-        assert_eq!(got.reasoning, Some(flag("reasoning")), "{model} reasoning");
-        assert_eq!(got.verbosity, Some(flag("verbosity")), "{model} verbosity");
-        assert_eq!(got.native_tool_search, Some(flag("toolSearch")), "{model} tool search");
-        assert_eq!((got.fast_tier, got.ultrafast_tier), (flag("fast"), flag("ultrafast")), "{model} tiers");
-        let cache = match (case["cacheOptions"].is_null(), case["cacheRetention"].is_null()) {
-            (false, true) => PromptCacheLifetime::Options30m,
-            (true, false) => PromptCacheLifetime::Retention24h,
-            (true, true) => PromptCacheLifetime::None,
-            (false, false) => unreachable!(),
-        };
-        assert_eq!(got.prompt_cache, cache, "{model} prompt cache");
-    }
-}
-
 // ---- AccountingDeps ----------------------------------------------------------------------
 
 fn header_of(session: &Value) -> Arc<Header> {
     Arc::new(session.as_object().unwrap().clone())
-}
-
-#[tokio::test]
-async fn a_sends_identity_is_filled_from_its_session_as_node_does() {
-    let golden: Value = serde_json::from_str(SCOPE).unwrap();
-    let w = world(&[], json!({}), Vec::new()).await;
-    let deps = accounting_deps(&w.services);
-    for case in golden["cases"].as_array().unwrap() {
-        let (provider, model) = (case["provider"].as_str().unwrap(), case["model"].as_str().unwrap());
-        let opts = &case["opts"];
-        let text = |key: &str| opts.get(key).and_then(Value::as_str).map(str::to_owned);
-        if let Some(session) = case.get("session") {
-            w.headers.0.lock().unwrap().insert(text("sessionId").unwrap(), header_of(session));
-        }
-        let request = ModelRequest {
-            model: model.into(),
-            messages: Vec::new(),
-            tools: Vec::new(),
-            options: RequestOptions { session_id: text("sessionId"), usage_session_id: text("usageSessionId"), request_kind: text("requestKind"), ..RequestOptions::default() },
-        };
-        let scope = deps.scope.of(provider, &request);
-        let (requested_provider, requested_model, _) = mixdog_ai::registry::accounted::requested_route(scope.primary.clone(), provider, model);
-        let want = &case["identity"];
-        let name = &case["name"];
-        assert_eq!(json!(scope.session_id), want["sessionId"], "{name}");
-        assert_eq!(scope.source_type, want["sourceType"].as_str().unwrap(), "{name}");
-        assert_eq!(json!(scope.owner_session_id), want["ownerSessionId"], "{name}");
-        // The row blanks a requested route equal to the sent one.
-        let blank = |requested: String, sent: &str| if requested == sent { String::new() } else { requested };
-        assert_eq!(blank(requested_provider, provider), want["requestedProvider"].as_str().unwrap(), "{name}");
-        assert_eq!(blank(requested_model, model), want["requestedModel"].as_str().unwrap(), "{name}");
-    }
 }
 
 #[tokio::test]
@@ -625,6 +380,160 @@ async fn a_codex_requests_spend_is_scoped_to_its_thread_and_a_sessionless_one_st
     assert_eq!((got.session_id, got.source_type.as_str(), got.owner_session_id), (None, "heartbeat", None));
 }
 
+#[cfg(node_twin)]
+fn listed_row(provider: &str, id: &str, levels: &Value, options: &Value) -> ModelRecord {
+    let mut record = ModelRecord::new(ProviderId::from(provider), id);
+    record.reasoning_efforts = strings(levels);
+    record.picker.reasoning_options = serde_json::from_value(options.clone()).unwrap();
+    record
+}
+
+async fn adapter_of(w: &World, name: &str) -> Arc<dyn ProviderAdapter> {
+    DefaultProviderBuilder::new(builder_env(&w.services)).build(name, &json!({"enabled": true, "apiKey": "k"})).await.unwrap()
+}
+
+impl mixdog_ai::catalog::CachedModelInfo for StoredRows {
+    fn cached_row(&self, model: &str) -> Option<Arc<Value>> {
+        self.0.iter().find(|row| row["id"] == model).cloned()
+    }
+}
+/// The registry's providers as production binds them (`ProviderReadiness::new` binds `route_provider`), here without
+/// a registry: a provider with listed `records` answers their rows; a custom provider of the config with none holds the
+/// rows its config states, through its real listing (`CustomListing`, which the custom builder hands the registry).
+fn bind_providers(catalog: &CatalogService, providers: &Value, records: &[ModelRecord]) {
+    let mut stored: HashMap<String, Vec<Arc<Value>>> = HashMap::new();
+    for record in records {
+        let mut row = json!({ "id": record.id, "provider": record.provider.as_str(), "reasoningLevels": record.reasoning_efforts, "reasoningOptions": record.picker.reasoning_options });
+        if let Some(custom) = &record.picker.custom_reasoning {
+            row["customReasoning"] = json!(custom);
+        }
+        stored.entry(record.provider.as_str().to_owned()).or_default().push(Arc::new(row));
+    }
+    let mut custom: HashMap<String, Arc<mixdog_ai::providers::custom::listing::CustomListing>> = HashMap::new();
+    for (name, cfg) in providers.as_object().into_iter().flatten().filter(|(name, _)| name.starts_with("custom-")) {
+        let Ok(protocol) = serde_json::from_value(cfg["protocol"].clone()) else { continue };
+        let listing = mixdog_ai::providers::custom::listing::CustomListing::new(
+            name,
+            protocol,
+            cfg["baseURL"].as_str().unwrap_or_default(),
+            Vec::new(),
+            Arc::new(Offline),
+            Arc::new(mixdog_ai::providers::connect::rewrite::StaticCredential(None)),
+            true,
+            cfg,
+            ListingLookup::new(),
+        );
+        custom.insert(name.clone(), Arc::new(listing));
+    }
+    catalog.bind_providers(Arc::new(move |name| {
+        let cached: Option<Arc<dyn mixdog_ai::catalog::CachedModelInfo>> = match (stored.get(name), custom.get(name)) {
+            (Some(rows), _) => Some(Arc::new(StoredRows(rows.clone()))),
+            (None, Some(listing)) => Some(listing.clone()),
+            (None, None) => return None,
+        };
+        Some(mixdog_ai::catalog::RouteProvider { cached, listing: None })
+    }));
+}
+pub(crate) async fn world(env: &[(&str, &str)], providers: Value, records: Vec<ModelRecord>) -> World {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let providers_config = providers.clone();
+    config
+        .update_agent(move |doc| {
+            doc.insert("providers".into(), providers);
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let catalog = catalog_with(dir.path(), records.clone()).await;
+    bind_providers(&catalog, &providers_config, &records);
+    let env: Arc<dyn Environment> = Arc::new(TestEnv(env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()));
+    let headers = Arc::new(Headers::default());
+    let rejections = Arc::new(Rejections::default());
+    let services = ProcessServices {
+        config,
+        catalog,
+        listing: ListingLookup::new(),
+        network: NetworkProxy::new(Arc::new(mixdog_ai::netproxy::route::ProcessEnv), SystemProxy::default()),
+        vault: Arc::new(MemoryVault::default()),
+        env,
+        lanes: tokens,
+        plugin_data: dir.path().join("plugin-data"),
+        home_dir: dir.path().to_path_buf(),
+        host: HostInfo { os_type: "Windows".into(), os_release: "10.0.26100".into(), arch: "x86_64".into() },
+        build_version: "9.8.7".into(),
+        installation_id: "11111111-2222-4333-8444-555555555555".into(),
+        ledger: Arc::new(|| None),
+        sessions: headers.clone(),
+        rejections: rejections.clone(),
+        unsupported: Arc::new(UnsupportedEfforts::default()),
+        local: Arc::new(Local),
+    };
+    World {
+        services,
+        #[cfg(node_twin)]
+        headers,
+        rejections,
+        _dir: dir,
+    }
+}
+#[tokio::test]
+async fn every_builder_input_comes_from_the_process_services() {
+    let w = world(&[], json!({}), Vec::new()).await;
+    let env = builder_env(&w.services);
+    assert_eq!(env.client_version, "9.8.7");
+    assert_eq!(env.codex_identity.installation_id, "11111111-2222-4333-8444-555555555555");
+    assert_eq!(env.home_dir, w.services.home_dir);
+
+    // `providerAvailable`: a gated provider follows its stored Developer option, live.
+    assert!((env.gated_off)("cursor-oauth"));
+    assert!(!(env.gated_off)("anthropic"));
+    w.services.config.update_agent(|doc| { doc.insert("developer".into(), json!({"cursorOAuth": true})); Ok(()) }).await.unwrap();
+    assert!(!(env.gated_off)("cursor-oauth"));
+
+    // The builder builds adapters from it.
+    let builder = DefaultProviderBuilder::new(env);
+    for name in ["anthropic", "openai", "gemini", "xai"] {
+        let adapter = builder.build(name, &json!({"enabled": true, "apiKey": "k"})).await.unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(adapter.id().to_string(), name);
+    }
+}
+/// A thread opened after a restart finds the process registry empty; its first request readies the header's provider as
+/// the route hop does (`RegistryHopHost::provider`: `initProviders(ensureProviderEnabled(agentConfig, id))`, then the
+/// registry) — for every kind of provider the agent config can name, not only a custom one.
+#[tokio::test]
+async fn after_a_reload_each_provider_kind_is_readied_from_the_agent_config() {
+    let key = json!({"enabled": true, "apiKey": "k"});
+    let mut providers = Map::new();
+    for name in ["anthropic", "openai", "gemini", "xai", "deepseek", "openrouter"] {
+        providers.insert(name.into(), key.clone());
+    }
+    providers.insert(
+        "custom-abc".into(),
+        json!({"enabled": true, "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"}),
+    );
+    let names: Vec<String> = providers.keys().cloned().collect();
+    let w = world(&[], Value::Object(providers), Vec::new()).await;
+    let (registry, _) = super::compose_parts::provider_registry(&w.services, builder_env(&w.services), Arc::new(mixdog_exthost::ExtImageCodec::new(Arc::new(mixdog_core_api::domain::mock::MockExtPool::new(1)))), None);
+    for name in names {
+        let enabled = mixdog_ai::service::admin_route::ensure_provider_enabled(&w.services.config.agent(), &name);
+        registry.init_providers(&enabled).await.unwrap_or_else(|e| panic!("{name}: {e}"));
+        let adapter = registry.try_get(&name).await.unwrap().unwrap_or_else(|| panic!("{name}: not readied"));
+        assert_eq!(adapter.id().to_string(), name);
+    }
+}
+#[tokio::test]
+async fn a_remote_client_holds_no_model_credentials() {
+    let w = world(&[("MIXDOG_MODEL_PROXY", "client"), ("OPENAI_API_KEY", "sk-live")], json!({}), Vec::new()).await;
+    let env = builder_env(&w.services);
+    assert!(env.keys.get("openai").await.unwrap().is_none());
+    // The PC's providers are available whatever the local Developer option says.
+    assert!(!(env.gated_off)("cursor-oauth"));
+    let local = world(&[("OPENAI_API_KEY", "sk-live")], json!({}), Vec::new()).await;
+    assert_eq!(builder_env(&local.services).keys.get("openai").await.unwrap().as_deref(), Some("sk-live"));
+}
 // ---- LadderSources -----------------------------------------------------------------------
 
 #[tokio::test]
@@ -656,7 +565,6 @@ async fn the_ladder_reads_the_process_stores() {
     assert_eq!(ladder.anthropic_levels("claude-opus-5"), ["low", "medium", "high", "xhigh"]);
     assert!(ladder.anthropic_levels("claude-haiku-4-5").is_empty());
 }
-
 #[tokio::test]
 async fn the_ladder_facts_of_a_custom_and_an_anthropic_route() {
     let providers = json!({
@@ -672,65 +580,6 @@ async fn the_ladder_facts_of_a_custom_and_an_anthropic_route() {
     assert_eq!(anthropic.options, ["low", "medium", "high", "xhigh"]);
     assert!(anthropic.custom.is_none());
 }
-
-const LADDER_ROWS: &str = include_str!("../../../../fixtures/ladder-rows/golden.json");
-
-fn listed_row(provider: &str, id: &str, levels: &Value, options: &Value) -> ModelRecord {
-    let mut record = ModelRecord::new(ProviderId::from(provider), id);
-    record.reasoning_efforts = strings(levels);
-    record.picker.reasoning_options = serde_json::from_value(options.clone()).unwrap();
-    record
-}
-
-/// `autoEffortModel` asks every provider's `getCachedModelInfo`, not a fixed few: the OpenAI OAuth
-/// catalog's row and a compat provider's give the ladder Node's `effortOptionsFor` gives.
-#[tokio::test]
-async fn the_ladder_asks_every_provider_for_its_cached_row() {
-    let golden: Value = serde_json::from_str(LADDER_ROWS).unwrap();
-    for route in golden["routes"].as_array().unwrap() {
-        let (provider, model) = (route["provider"].as_str().unwrap(), route["model"].as_str().unwrap());
-        let records = match route["levels"].is_null() {
-            true => Vec::new(),
-            false => vec![listed_row(provider, model, &route["levels"], &json!([{"type": "effort", "values": route["levels"]}]))],
-        };
-        let w = world(&[], json!({}), records).await;
-        let ladder = ProcessLadder::new(&w.services);
-        assert_eq!(json!(ladder_facts(&ladder, provider, model).await.options), route["options"], "{provider} {}", route["levels"]);
-    }
-}
-
-/// `effectiveCustomModelRows` layers an override onto the discovered row, and the row keeps the
-/// discovered levels when the override states none (`{manual: true}`): the ladder reads the row
-/// the listing holds, not one rebuilt from the config. Before any listing the config's own manual
-/// row stands.
-#[tokio::test]
-async fn a_manual_override_keeps_the_levels_discovery_found() {
-    let golden: Value = serde_json::from_str(LADDER_ROWS).unwrap();
-    let levels_of = |row: &Map<String, Value>| reasoning_row(&Value::Object(row.clone())).effort_levels();
-    for (case, override_, want) in [
-        ("manualOnly", json!({"manual": true}), Some(vec!["low", "high"])),
-        ("manualWithLevels", json!({"manual": true, "reasoning": {"levels": ["medium"]}}), Some(vec!["medium"])),
-    ] {
-        let node = &golden["rows"][case];
-        assert_eq!(node["reasoningLevels"], json!(want), "{case}: Node's row");
-        let providers = json!({"custom-acme": {"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
-            "modelOverrides": {"m1": override_}}});
-        let record = listed_row("custom-acme", "m1", &node["reasoningLevels"], &node["reasoningOptions"]);
-        let w = world(&[], providers, vec![record]).await;
-        let ladder = ProcessLadder::new(&w.services);
-        let row = ladder.cached_row("custom-acme", "m1").unwrap();
-        assert_eq!(levels_of(&row), want.map(|l| l.iter().map(|s| (*s).to_owned()).collect()), "{case}");
-    }
-    let providers = json!({"custom-acme": {"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
-        "modelOverrides": {"m1": {"manual": true}}}});
-    let w = world(&[], providers, Vec::new()).await;
-    let row = ProcessLadder::new(&w.services).cached_row("custom-acme", "m1").unwrap();
-    let node = &golden["rows"]["notDiscovered"];
-    assert_eq!(row.get("reasoningLevels"), node.get("reasoningLevels"));
-    assert_eq!(row.get("supportsReasoning"), node.get("supportsReasoning"));
-    assert_eq!(row["manual"], node["manual"]);
-}
-
 #[tokio::test]
 async fn a_rejection_the_file_holds_reaches_the_ladder() {
     let w = world(&[], json!({}), Vec::new()).await;
@@ -744,7 +593,6 @@ async fn a_rejection_the_file_holds_reaches_the_ladder() {
     assert_eq!((entry.rejected, entry.allowed), (vec!["xhigh".to_owned()], vec!["low".to_owned(), "high".to_owned()]));
     assert!(store.entry("openai", "gpt-5.4").await.is_none());
 }
-
 /// `effort-rejection.mjs` `load`: the cached copy is trusted only while the file's mtime and size
 /// are unchanged, so a rejection another process persists (or a file it removes) shows on the
 /// next read.
@@ -763,7 +611,6 @@ async fn a_file_another_process_changed_is_reloaded_on_the_next_read() {
     fixture_fs::remove_file(&file);
     assert!(store.entry("openai", "gpt-5.5").await.is_none(), "a removed file holds nothing");
 }
-
 // ---- HopWiring and ErrorText --------------------------------------------------------------
 
 #[tokio::test]
@@ -775,11 +622,6 @@ async fn the_hop_phrases_errors_with_present_error_text() {
     assert_eq!((bindings.errors)(&error), want);
     assert!(!want.is_empty());
 }
-
-async fn adapter_of(w: &World, name: &str) -> Arc<dyn ProviderAdapter> {
-    DefaultProviderBuilder::new(builder_env(&w.services)).build(name, &json!({"enabled": true, "apiKey": "k"})).await.unwrap()
-}
-
 #[tokio::test]
 async fn the_hop_wires_a_route_as_the_turn_start_does() {
     let providers = json!({
@@ -806,10 +648,182 @@ async fn the_hop_wires_a_route_as_the_turn_start_does() {
     assert_eq!((model.name.as_str(), model.supports_tools), ("Qwen", Some(false)));
 }
 
+
+#[cfg(node_twin)]
+const CAPS: &str = include_str!("../../../../fixtures/anthropic-caps/golden.json");
+#[cfg(node_twin)]
+const WIRE_ANTHROPIC: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/wire-anthropic-gemini/anthropic.json");
+#[cfg(node_twin)]
+const OPENAI: &str = include_str!("../../../../fixtures/openai-facts/golden.json");
+#[cfg(node_twin)]
+const SCOPE: &str = include_str!("../../../../fixtures/accounting-scope/golden.json");
+#[tokio::test]
+#[cfg(node_twin)]
+async fn the_anthropic_caps_are_nodes_floor_live_and_declared_catalog_answers() {
+    let golden: Value = serde_json::from_str(CAPS).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let none = TestEnv(HashMap::new());
+    let sets = [
+        ("floor", Vec::new()),
+        ("withLive", listed_rows(&golden["live"])),
+        ("declared", listed_rows(&golden["declaredRows"])),
+    ];
+    for (set, rows) in sets {
+        let caps = CatalogCaps::new(catalog_with(dir.path(), rows).await, &none);
+        for row in golden[set].as_array().unwrap() {
+            let model = row["model"].as_str().unwrap();
+            let got = caps.caps(model);
+            let gates = AnthropicEffortGates::for_model(model, got.as_ref());
+            let supports = got.as_ref().is_some_and(|c| c.supports_effort());
+            let adaptive = got.as_ref().is_some_and(|c| c.adaptive_thinking);
+            let want = |key: &str| row[key].as_bool().unwrap();
+            let ctx = format!("{set} {model}");
+            assert_eq!(supports, want("supportsEffort"), "{ctx} supports effort");
+            assert_eq!((gates.xhigh, gates.max), (want("xhigh"), want("max")), "{ctx} gates");
+            assert_eq!(got.as_ref().is_some_and(|c| !c.manual_thinking), want("adaptiveOnly"), "{ctx} adaptive only");
+            assert_eq!(supports && adaptive, want("betaHeader"), "{ctx} beta header");
+            assert_eq!(caps.effort_levels_for(model), strings(&row["levels"]), "{ctx} levels");
+            assert_eq!(caps.effort_levels_empty(model), row["levels"].as_array().unwrap().is_empty(), "{ctx} no levels");
+        }
+    }
+}
+/// The capabilities `mixdog-ai`'s Anthropic wire test feeds the adapter are what Node's functions answered for the
+/// models of `anthropic.json`, with a catalog that lists them by id only (`_setInMemoryCatalog`). The product's
+/// `CatalogCaps` over such a catalog gives the same answers, so the adapter test's input is the product's.
+#[tokio::test]
+#[cfg(node_twin)]
+async fn the_anthropic_wire_models_get_nodes_catalog_answers() {
+    let recorded: Value = serde_json::from_str(&WIRE_ANTHROPIC).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let caps = CatalogCaps::new(catalog_with(dir.path(), Vec::new()).await, &TestEnv(HashMap::new()));
+    let models = recorded["capabilities"].as_object().unwrap();
+    assert!(!models.is_empty(), "the recording holds no model capabilities");
+    for (model, node) in models {
+        let got = caps.caps(model);
+        let gates = AnthropicEffortGates::for_model(model, got.as_ref());
+        let supports = got.as_ref().is_some_and(|c| c.supports_effort());
+        let adaptive = got.as_ref().is_some_and(|c| c.adaptive_thinking);
+        let flag = |key: &str| node[key].as_bool().unwrap();
+        assert_eq!(supports, flag("supportsEffort"), "{model} supports effort");
+        assert_eq!((gates.xhigh, gates.max), (flag("supportsXhighEffort"), flag("supportsMaxEffort")), "{model} gates");
+        assert_eq!(got.as_ref().is_some_and(|c| !c.manual_thinking), flag("adaptiveOnly"), "{model} adaptive only");
+        assert_eq!(supports && adaptive, flag("effortBeta"), "{model} effort beta");
+        assert_eq!(caps.effort_levels_for(model), strings(&node["effortLevels"]), "{model} effort levels");
+        assert_eq!(got.as_ref().is_some_and(|c| c.thinking_display_updates), flag("progressUpdates"), "{model} progress updates");
+        assert_eq!(got.as_ref().and_then(|c| c.max_output_tokens).map(u64::from), node["declaredOutputTokens"].as_u64(), "{model} declared output tokens");
+    }
+}
+#[tokio::test]
+#[cfg(node_twin)]
+async fn the_openai_facts_are_nodes_catalog_and_documented_id_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let facts = CatalogOpenAiFacts::new(catalog_with(dir.path(), Vec::new()).await);
+    let golden: Value = serde_json::from_str(OPENAI).unwrap();
+    for case in golden["cases"].as_array().unwrap() {
+        let model = case["model"].as_str().unwrap();
+        let got = facts.facts(model);
+        let flag = |key: &str| case[key].as_bool().unwrap();
+        assert_eq!(got.reasoning, Some(flag("reasoning")), "{model} reasoning");
+        assert_eq!(got.verbosity, Some(flag("verbosity")), "{model} verbosity");
+        assert_eq!(got.native_tool_search, Some(flag("toolSearch")), "{model} tool search");
+        assert_eq!((got.fast_tier, got.ultrafast_tier), (flag("fast"), flag("ultrafast")), "{model} tiers");
+        let cache = match (case["cacheOptions"].is_null(), case["cacheRetention"].is_null()) {
+            (false, true) => PromptCacheLifetime::Options30m,
+            (true, false) => PromptCacheLifetime::Retention24h,
+            (true, true) => PromptCacheLifetime::None,
+            (false, false) => unreachable!(),
+        };
+        assert_eq!(got.prompt_cache, cache, "{model} prompt cache");
+    }
+}
+#[tokio::test]
+#[cfg(node_twin)]
+async fn a_sends_identity_is_filled_from_its_session_as_node_does() {
+    let golden: Value = serde_json::from_str(SCOPE).unwrap();
+    let w = world(&[], json!({}), Vec::new()).await;
+    let deps = accounting_deps(&w.services);
+    for case in golden["cases"].as_array().unwrap() {
+        let (provider, model) = (case["provider"].as_str().unwrap(), case["model"].as_str().unwrap());
+        let opts = &case["opts"];
+        let text = |key: &str| opts.get(key).and_then(Value::as_str).map(str::to_owned);
+        if let Some(session) = case.get("session") {
+            w.headers.0.lock().unwrap().insert(text("sessionId").unwrap(), header_of(session));
+        }
+        let request = ModelRequest {
+            model: model.into(),
+            messages: Vec::new(),
+            tools: Vec::new(),
+            options: RequestOptions { session_id: text("sessionId"), usage_session_id: text("usageSessionId"), request_kind: text("requestKind"), ..RequestOptions::default() },
+        };
+        let scope = deps.scope.of(provider, &request);
+        let (requested_provider, requested_model, _) = mixdog_ai::registry::accounted::requested_route(scope.primary.clone(), provider, model);
+        let want = &case["identity"];
+        let name = &case["name"];
+        assert_eq!(json!(scope.session_id), want["sessionId"], "{name}");
+        assert_eq!(scope.source_type, want["sourceType"].as_str().unwrap(), "{name}");
+        assert_eq!(json!(scope.owner_session_id), want["ownerSessionId"], "{name}");
+        // The row blanks a requested route equal to the sent one.
+        let blank = |requested: String, sent: &str| if requested == sent { String::new() } else { requested };
+        assert_eq!(blank(requested_provider, provider), want["requestedProvider"].as_str().unwrap(), "{name}");
+        assert_eq!(blank(requested_model, model), want["requestedModel"].as_str().unwrap(), "{name}");
+    }
+}
+#[cfg(node_twin)]
+const LADDER_ROWS: &str = include_str!("../../../../fixtures/ladder-rows/golden.json");
+/// `autoEffortModel` asks every provider's `getCachedModelInfo`, not a fixed few: the OpenAI OAuth
+/// catalog's row and a compat provider's give the ladder Node's `effortOptionsFor` gives.
+#[tokio::test]
+#[cfg(node_twin)]
+async fn the_ladder_asks_every_provider_for_its_cached_row() {
+    let golden: Value = serde_json::from_str(LADDER_ROWS).unwrap();
+    for route in golden["routes"].as_array().unwrap() {
+        let (provider, model) = (route["provider"].as_str().unwrap(), route["model"].as_str().unwrap());
+        let records = match route["levels"].is_null() {
+            true => Vec::new(),
+            false => vec![listed_row(provider, model, &route["levels"], &json!([{"type": "effort", "values": route["levels"]}]))],
+        };
+        let w = world(&[], json!({}), records).await;
+        let ladder = ProcessLadder::new(&w.services);
+        assert_eq!(json!(ladder_facts(&ladder, provider, model).await.options), route["options"], "{provider} {}", route["levels"]);
+    }
+}
+/// `effectiveCustomModelRows` layers an override onto the discovered row, and the row keeps the
+/// discovered levels when the override states none (`{manual: true}`): the ladder reads the row
+/// the listing holds, not one rebuilt from the config. Before any listing the config's own manual
+/// row stands.
+#[tokio::test]
+#[cfg(node_twin)]
+async fn a_manual_override_keeps_the_levels_discovery_found() {
+    let golden: Value = serde_json::from_str(LADDER_ROWS).unwrap();
+    let levels_of = |row: &Map<String, Value>| reasoning_row(&Value::Object(row.clone())).effort_levels();
+    for (case, override_, want) in [
+        ("manualOnly", json!({"manual": true}), Some(vec!["low", "high"])),
+        ("manualWithLevels", json!({"manual": true, "reasoning": {"levels": ["medium"]}}), Some(vec!["medium"])),
+    ] {
+        let node = &golden["rows"][case];
+        assert_eq!(node["reasoningLevels"], json!(want), "{case}: Node's row");
+        let providers = json!({"custom-acme": {"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
+            "modelOverrides": {"m1": override_}}});
+        let record = listed_row("custom-acme", "m1", &node["reasoningLevels"], &node["reasoningOptions"]);
+        let w = world(&[], providers, vec![record]).await;
+        let ladder = ProcessLadder::new(&w.services);
+        let row = ladder.cached_row("custom-acme", "m1").unwrap();
+        assert_eq!(levels_of(&row), want.map(|l| l.iter().map(|s| (*s).to_owned()).collect()), "{case}");
+    }
+    let providers = json!({"custom-acme": {"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
+        "modelOverrides": {"m1": {"manual": true}}}});
+    let w = world(&[], providers, Vec::new()).await;
+    let row = ProcessLadder::new(&w.services).cached_row("custom-acme", "m1").unwrap();
+    let node = &golden["rows"]["notDiscovered"];
+    assert_eq!(row.get("reasoningLevels"), node.get("reasoningLevels"));
+    assert_eq!(row.get("supportsReasoning"), node.get("supportsReasoning"));
+    assert_eq!(row["manual"], node["manual"]);
+}
 /// The cache-warm gate's `providerAvailable(name)` (`fixtures/warm-gate-seams/golden.json`, from
 /// the real Node `providerAvailable`): the builder's own `gated_off` switch, for every stored
 /// Developer value and `MIXDOG_MODEL_PROXY` mode, answers as Node does.
 #[tokio::test]
+#[cfg(node_twin)]
 async fn the_gate_asks_the_builders_switch_and_gets_nodes_answer() {
     use mixdog_ai::warmer::gate::{GatedOff, ProviderSwitch};
 

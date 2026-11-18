@@ -2,15 +2,12 @@
  * Golden twin for the visualize and file methods: each step runs through
  * today's Node path (the loopback bridge over HTTP; the window-process request
  * handlers' direct calls) and through the new `host/*` handler, and the results
- * must be equal. The Node-path results are the recorded corpus
- * (`native/core/fixtures/desktop-host/visualize-files-golden.json`); the test
- * fails when they drift from the file, and rewrites it with MIXDOG_GOLDEN_WRITE=1.
+ * must be equal; the outcome of each step (admitted or refused) is also stated here.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { createFileSnapshotService } from '../file-snapshot.ts';
@@ -19,8 +16,6 @@ import { createVisualizeService } from '../visualize/service.ts';
 import { registerFilesHost } from './files.ts';
 import { createVisualizeHost } from './visualize.ts';
 import { HOST_CAPABILITIES } from './connection.ts';
-
-const CORPUS = join(dirname(fileURLToPath(import.meta.url)), '../../../../../native/core/fixtures/desktop-host/visualize-files-golden.json');
 
 function handlers() {
   const table = new Map();
@@ -69,14 +64,6 @@ function freshService() {
   });
   return { service, published };
 }
-
-// The workspace root (parent of the project) varies per run; the project folder is `<CWD>`.
-const strip = (value, cwd) => {
-  const escaped = (path) => path.replaceAll('\\', '\\\\');
-  return JSON.parse(
-    JSON.stringify(value).split(escaped(cwd)).join('<CWD>').split(escaped(dirname(cwd))).join('<ROOT>')
-  );
-};
 
 test('host/visualize/command equals the loopback bridge on every step', async () => {
   const { root, cwd } = workspace();
@@ -130,10 +117,15 @@ test('host/visualize/command equals the loopback bridge on every step', async ()
       const fromNode = await viaBridge(body);
       const fromHost = await viaHost(body);
       assert.deepEqual(fromHost, fromNode, `${name}: host result differs from the bridge`);
-      recorded.push({ name, request: strip(body, cwd), result: strip(fromNode, cwd) });
+      recorded.push({ name, ok: fromNode.ok });
     }
-    assert.equal(recorded[0].result.ok, true);
-    assert.equal(recorded[2].result.ok, false);
+    // The agent tool's `open` takes a supported file anywhere, rooted in its own folder when outside the project (targets.ts
+    // `resolveVisualizeTarget`, since 1.4.0; the boundary is pinned in visualize/targets.test.mjs); a missing target, too many targets, an unknown action and a
+    // path-shaped session id are refused.
+    assert.deepEqual(
+      recorded.map((r) => [r.name, r.ok]),
+      [['open-page', true], ['open-outside-cwd', true], ['open-missing', false], ['open-too-many', false], ['unknown-action', false], ['bad-session', false]]
+    );
     assert.deepEqual(hostSide.published.map((e) => e.sessionId), nodeSide.published.map((e) => e.sessionId));
   } finally {
     await bridge.stop();
@@ -142,7 +134,6 @@ test('host/visualize/command equals the loopback bridge on every step', async ()
     rmSync(root, { recursive: true, force: true });
     rmSync(dataDirectory, { recursive: true, force: true });
   }
-  verifyCorpus('visualize', recorded);
 });
 
 test('host/capture/fileSnapshot equals the window-process handler', async () => {
@@ -186,30 +177,24 @@ test('host/capture/fileSnapshot equals the window-process handler', async () => 
         assert.equal(fromHost.ok, false, `${name}: host should fail`);
         assert.equal(fromHost.error, fromNode.error, `${name}: host message differs`);
       }
-      recorded.push({
-        name,
-        request: strip({ root: r, rel, grant }, cwd),
-        result: strip(fromNode.ok ? { ok: true, value: { dataUrl: fromNode.value.dataUrl, size: fromNode.value.size } } : fromNode, cwd),
-      });
+      recorded.push({ name, ok: fromNode.ok, dataUrl: fromNode.ok ? fromNode.value.dataUrl : undefined });
     }
+    assert.deepEqual(
+      recorded.map((r) => [r.name, r.ok, r.dataUrl]),
+      [
+        ['snapshot-html', true, 'data:image/png;base64,UE5H'],
+        ['snapshot-granted-image', true, 'data:image/png;base64,UE5H'],
+        ['snapshot-unsupported-type', false, undefined],
+        ['snapshot-missing', false, undefined],
+      ]
+    );
     assert.ok(renders.length >= 2, 'the renderer ran for supported files');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-  verifyCorpus('files', recorded);
 });
 
 test('the host declares the visualize and files capabilities it now serves', () => {
   assert.equal(HOST_CAPABILITIES.visualize, true);
   assert.equal(HOST_CAPABILITIES.files, true);
 });
-
-function verifyCorpus(section, recorded) {
-  const current = existsSync(CORPUS) ? JSON.parse(readFileSync(CORPUS, 'utf8')) : {};
-  if (process.env.MIXDOG_GOLDEN_WRITE === '1') {
-    mkdirSync(dirname(CORPUS), { recursive: true });
-    writeFileSync(CORPUS, `${JSON.stringify({ ...current, version: 1, [section]: recorded }, null, 2)}\n`);
-    return;
-  }
-  assert.deepEqual(current[section], recorded, `${section} drifted from the recorded Node-path corpus`);
-}

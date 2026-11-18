@@ -199,21 +199,34 @@ pub fn session_context_meta(catalog: &CatalogService, provider: &str, model: &st
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::sync::Arc;
 
+    #[cfg(node_twin)]
     use async_trait::async_trait;
-    use mixdog_ai::catalog::{CatalogSnapshot, ModelsDevSource};
+    #[cfg(node_twin)]
+    use mixdog_ai::catalog::CatalogSnapshot;
+    #[cfg(node_twin)]
+    use mixdog_ai::catalog::ModelsDevSource;
+    #[cfg(node_twin)]
     use mixdog_ai::oauth::CredentialIo;
-    use mixdog_ai::transport::http::{HttpResponse, HttpSend};
-    use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError, WireRequest};
+    #[cfg(node_twin)]
+    use mixdog_ai::transport::http::HttpResponse;
+    #[cfg(node_twin)]
+    use mixdog_ai::transport::http::HttpSend;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::DeliveryState;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::ErrorKind;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::ProviderError;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::WireRequest;
     use serde_json::json;
 
     use super::*;
 
-    fn golden() -> Value {
-        serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/session_context_meta.json")).expect("fixture")
-    }
-
+    #[cfg(node_twin)]
     fn fields(meta: &ContextMeta) -> Value {
         json!({
             "contextWindow": meta.context_window, "rawContextWindow": meta.raw_context_window,
@@ -222,22 +235,11 @@ mod tests {
         })
     }
 
-    /// Every recorded case equals Node's answer, given the cached row and the catalog row Node read.
-    #[test]
-    fn every_window_equals_nodes() {
-        let golden = golden();
-        let cases = golden["cases"].as_array().expect("cases");
-        assert!(cases.len() > 800);
-        for case in cases {
-            let row = |key: &str| case[key].as_object().cloned();
-            let got = resolve_context_meta(row("info").as_ref(), row("catalogInfo").as_ref(), case["provider"].as_str().unwrap(), case["model"].as_str().unwrap(), &case["seed"], case["wholeWindow"].as_bool().unwrap());
-            assert_eq!(fields(&got), case["meta"], "{case}");
-        }
-    }
-
+    #[cfg(node_twin)]
     struct Offline;
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl HttpSend for Offline {
         async fn send(
             &self,
@@ -251,9 +253,38 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_catalog_outranks_a_stale_cached_window_and_a_live_field_outranks_both() {
+        let row = |value: Value| value.as_object().cloned();
+        let pick = |info: Option<Obj>, catalog: Option<Obj>| resolve_context_meta(info.as_ref(), catalog.as_ref(), "anthropic", "claude-opus-4-8", &json!({}), true).raw_context_window;
+        assert_eq!(pick(row(json!({ "contextWindow": 272000 })), row(json!({ "contextWindow": 1000000 }))), 1_000_000);
+        assert_eq!(pick(row(json!({ "context_window": 2000000, "contextWindow": 272000 })), row(json!({ "contextWindow": 1000000 }))), 2_000_000);
+        assert_eq!(pick(None, row(json!({ "maxContextWindow": 640000 }))), 640_000);
+        assert_eq!(pick(None, None), 1_000_000);
+    }
+
+
+    #[cfg(node_twin)]
+    fn golden() -> Value {
+        serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/session_context_meta.json")).expect("fixture")
+    }
+    /// Every recorded case equals Node's answer, given the cached row and the catalog row Node read.
+    #[test]
+    #[cfg(node_twin)]
+    fn every_window_equals_nodes() {
+        let golden = golden();
+        let cases = golden["cases"].as_array().expect("cases");
+        assert!(cases.len() > 800);
+        for case in cases {
+            let row = |key: &str| case[key].as_object().cloned();
+            let got = resolve_context_meta(row("info").as_ref(), row("catalogInfo").as_ref(), case["provider"].as_str().unwrap(), case["model"].as_str().unwrap(), &case["seed"], case["wholeWindow"].as_bool().unwrap());
+            assert_eq!(fields(&got), case["meta"], "{case}");
+        }
+    }
     /// A cold catalog reads the same as Node's cold catalog: the cases Node answered with no
     /// provider row are the ones Rust answers from `CatalogService`.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_cold_catalog_answers_as_nodes_does() {
         let dir = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();
@@ -270,15 +301,5 @@ mod tests {
         }
         assert!(checked > 200);
         assert!(session_context_meta(&catalog, "", "m", &json!({})).is_none());
-    }
-
-    #[test]
-    fn the_catalog_outranks_a_stale_cached_window_and_a_live_field_outranks_both() {
-        let row = |value: Value| value.as_object().cloned();
-        let pick = |info: Option<Obj>, catalog: Option<Obj>| resolve_context_meta(info.as_ref(), catalog.as_ref(), "anthropic", "claude-opus-4-8", &json!({}), true).raw_context_window;
-        assert_eq!(pick(row(json!({ "contextWindow": 272000 })), row(json!({ "contextWindow": 1000000 }))), 1_000_000);
-        assert_eq!(pick(row(json!({ "context_window": 2000000, "contextWindow": 272000 })), row(json!({ "contextWindow": 1000000 }))), 2_000_000);
-        assert_eq!(pick(None, row(json!({ "maxContextWindow": 640000 }))), 640_000);
-        assert_eq!(pick(None, None), 1_000_000);
     }
 }

@@ -40,6 +40,7 @@ use crate::provider_case::CaseSet;
 use crate::provider_case::RecorderDraws;
 use crate::provider_case::plain;
 use crate::provider_cases;
+#[cfg(node_twin)]
 use crate::replay_world;
 
 /// A recorded `env` object.
@@ -65,6 +66,7 @@ fn traits() -> Arc<CatalogGoogleTraits> {
 }
 
 /// A recorded message; a Google-wire replay envelope (`{version, provider, items}`) is the parts the decoder kept.
+#[cfg(node_twin)]
 fn message(node: &Exact) -> Message {
     let Exact::Object(entries) = node else { panic!("a message: {node:?}") };
     let replay = entries.iter().find(|(k, _)| k == "providerReplay").map(|(_, v)| v);
@@ -133,6 +135,7 @@ fn build_env(case: &Case, n: usize) -> Arc<dyn Environment> {
     no_vars()
 }
 
+#[cfg(node_twin)]
 fn report(r: &ToolExclusionReport) -> Exact {
     Exact::Object(vec![
         ("name".into(), Exact::String(r.name.clone())),
@@ -144,6 +147,7 @@ fn report(r: &ToolExclusionReport) -> Exact {
 }
 
 /// The request options of a recorded `opts`; `onToolExcluded` reports into `sink`.
+#[cfg(node_twin)]
 fn options(opts: &Exact, sink: &Arc<Mutex<Vec<ToolExclusionReport>>>) -> RequestOptions {
     let mut options = RequestOptions::default();
     for (key, value) in opts.entries() {
@@ -224,6 +228,7 @@ struct Answers {
     warned: Vec<Exact>,
 }
 
+#[cfg(node_twin)]
 fn answer(case: &Case) -> Answers {
     let mut answers = Answers::default();
     let (lines, guard) = mixdog_rt::node_log::capture();
@@ -284,6 +289,7 @@ fn json_equal(a: &Exact, b: &Exact) -> bool {
 }
 
 /// The recorder's `hasUnion`: an `anyOf` or `oneOf` key anywhere.
+#[cfg(node_twin)]
 fn has_union(value: &Exact) -> bool {
     match value {
         Exact::Array(items) => items.iter().any(has_union),
@@ -303,6 +309,7 @@ fn valid_schema(schema: &Exact) -> Exact {
 }
 
 /// `validates: values.map((value) => ({ value, valid: validate(value) }))` with the schema compiled by a 2020-12 validator.
+#[cfg(node_twin)]
 fn validates(schema: &Exact, recorded: &Exact) -> Exact {
     let validator = jsonschema::draft202012::new(&provider_cases::plain(schema)).expect("the core's schema compiles");
     Exact::Array(
@@ -336,6 +343,7 @@ fn build_args(case: &Case, i: usize) -> &[Exact] {
 }
 
 /// The case's `value`, built from the core's answers as the recorder builds it from Node's (`record-antigravity-request.mjs`).
+#[cfg(node_twin)]
 fn value(case: &Case, a: &mut Answers) -> Exact {
     let recorded = case.recorded().raw().get("value");
     let b = &a.builds;
@@ -508,14 +516,17 @@ fn value(case: &Case, a: &mut Answers) -> Exact {
     }
 }
 
+#[cfg(node_twin)]
 pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "antigravity-request", run: every_case_builds_as_nodes }];
 
 /// Run in the replay's own scope (`run_scoped`): its scripted draws are its own.
+#[cfg(node_twin)]
 #[test]
 fn every_case_builds_as_nodes() {
     mixdog_ai::random::run_scoped(async { every_case() });
 }
 
+#[cfg(node_twin)]
 fn every_case() {
     let set = CaseSet::load("antigravity-request");
     assert_eq!(set.cases.len(), 30, "the recorded cases");

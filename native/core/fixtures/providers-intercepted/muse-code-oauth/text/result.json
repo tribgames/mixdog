@@ -1,8 +1,0 @@
-{
-  "dispatchedToolCalls": [],
-  "error": {
-    "message": "muse-code-oauth:responses SSE stream truncated: no response.completed",
-    "name": "TruncatedStreamError",
-    "status": null
-  }
-}

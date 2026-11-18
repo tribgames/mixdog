@@ -96,6 +96,7 @@ mod tests {
         assert_eq!(lines[0].0, "a\x1b[0m\x1b[1;38;2;1;2;3mb\x1b[0m \x1b]8;;http://x\x07\u{754c}\x1b]8;;\x07");
     }
 
+
     #[test]
     fn a_background_blank_is_kept_and_read_back_as_the_same_cells() {
         let mut grid = Grid::new(6, 1);

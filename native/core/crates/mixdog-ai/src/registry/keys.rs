@@ -77,17 +77,6 @@ pub trait Environment: Send + Sync {
     }
 }
 
-/// [`Environment::key_var`] over the real process environment for a caller with no injected one, keeping `var_os`'s answer
-/// (a value that is not UTF-8 is still set). With `key_var`, the one place a credential variable is read.
-pub fn process_key_var_os(name: &str) -> Option<std::ffi::OsString> {
-    #[cfg(feature = "count-work")]
-    crate::work::credential_read();
-    let value = std::env::var_os(name);
-    let text = value.as_ref().map(|value| value.to_string_lossy());
-    crate::oauth::carried::keep(&format!("env {name}"), &text.as_deref().into_iter().collect::<Vec<_>>());
-    value
-}
-
 /// The API keys bound in process for this run (provider -> key): a headless exec's selected provider, whose key Node's
 /// runtime config carries in memory and never names in the environment its tools see.
 static KEY_BINDINGS: std::sync::RwLock<Option<Arc<HashMap<String, String>>>> = std::sync::RwLock::new(None);
@@ -104,12 +93,6 @@ fn bound_api_key(provider: &str) -> Option<String> {
 
 /// The real process environment.
 pub struct ProcessEnv;
-
-impl Environment for ProcessEnv {
-    fn var(&self, name: &str) -> Option<String> {
-        std::env::var(name).ok()
-    }
-}
 
 /// `AGENT_PROVIDER_ENV`: the standard variable per provider.
 const AGENT_PROVIDER_ENV: [(&str, &str); 6] = [
@@ -662,5 +645,22 @@ mod tests {
         assert_eq!(error.kind, ErrorKind::Transient);
         assert!(error.message.contains("could not be read"), "{}", error.message);
         assert_eq!(key.reloaded().await.unwrap_err().kind, ErrorKind::Transient);
+    }
+}
+
+
+/// [`Environment::key_var`] over the real process environment for a caller with no injected one, keeping `var_os`'s answer
+/// (a value that is not UTF-8 is still set). With `key_var`, the one place a credential variable is read.
+pub fn process_key_var_os(name: &str) -> Option<std::ffi::OsString> {
+    #[cfg(feature = "count-work")]
+    crate::work::credential_read();
+    let value = std::env::var_os(name);
+    let text = value.as_ref().map(|value| value.to_string_lossy());
+    crate::oauth::carried::keep(&format!("env {name}"), &text.as_deref().into_iter().collect::<Vec<_>>());
+    value
+}
+impl Environment for ProcessEnv {
+    fn var(&self, name: &str) -> Option<String> {
+        std::env::var(name).ok()
     }
 }

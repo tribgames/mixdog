@@ -1,5 +1,4 @@
-import { createElement, Fragment, type ReactNode, useContext, useMemo, useRef } from 'react';
-import { settledRowCount } from './use-conversation-follow-effects';
+import { createElement, Fragment, type ReactNode, useContext, useMemo } from 'react';
 import { greetingSuggestions } from '../shared/greeting-suggestions';
 import { stripAgentMessageEnvelope } from '../shared/core-src/runtime/shared/agent-message-envelope.mjs';
 import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
@@ -58,31 +57,20 @@ import { useConversationRetry } from './use-conversation-retry';
 const NO_TOOL_ITEMS: TranscriptItem[] = [];
 const NO_MEMBERS: string[] = [];
 
-/** Who is typing in a room: the member the host's trailing typing row names.
- *  The host drops that row while its supervisor decides, a moment BEFORE the
- *  member's words reach the view, so the bubble is held until a row lands
- *  after it (the words, or a pass): dropping it at once let the followed
- *  thread fall by the bubble and rise by the words ~70ms later. */
-function useRoomTyping(inRoom: boolean, settledItems: TranscriptItem[], disclosureScope: string) {
-  const typingSeen = useRef<{ scope: string; id: string; count: number; speaker: string; name: string } | null>(null);
-  return useMemo(() => {
-    if (!inRoom) return null;
-    const count = settledRowCount(settledItems);
-    const last = settledItems.at(-1);
-    const id = isRoomTypingItem(last) ? String(last?.id ?? '') : '';
-    const seen = typingSeen.current;
-    if (id && (seen?.id !== id || seen.scope !== disclosureScope)) {
-      typingSeen.current = {
-        scope: disclosureScope,
-        id,
-        count,
-        speaker: String(last?.room?.speaker || ''),
-        name: String(last?.room?.name || ''),
-      };
-    }
-    const held = typingSeen.current;
-    return held && held.scope === disclosureScope && held.count === count && held.speaker ? held : null;
-  }, [inRoom, settledItems, disclosureScope]);
+/** What a room's band shows: the core's trailing typing row as supplied. A member's name, or nobody's while the
+ *  supervisor chooses the next speaker (`room.speaker` empty), which keeps the band's footprint through the hand-off. The
+ *  core publishes the row with the rows it goes with, so there is nothing to hold or infer here: no row, no band. */
+export function roomTypingOf(
+  inRoom: boolean,
+  settledItems: readonly TranscriptItem[]
+): { speaker: string; name: string; deciding: boolean } | null {
+  const last = settledItems.at(-1);
+  if (!inRoom || !isRoomTypingItem(last)) return null;
+  return {
+    speaker: String(last?.room?.speaker || ''),
+    name: String(last?.room?.name || ''),
+    deciding: last?.room?.deciding === true,
+  };
 }
 
 /** The turn's visualize cards, and the targets they show (what its changed-files
@@ -231,7 +219,7 @@ function thinkingBand(
     asideRow,
   }: {
     inRoom: boolean;
-    roomTyping: ReturnType<typeof useRoomTyping>;
+    roomTyping: ReturnType<typeof roomTypingOf>;
     questionCard: ReactNode;
     label: ReturnType<typeof useRoomContacts>['label'];
     homeAgent: string;
@@ -241,13 +229,15 @@ function thinkingBand(
 ): ReactNode {
   const alone = block ? asideRow(block) : null;
   if (inRoom) {
-    // A room's band is a member's typing bubble, under its face and name,
-    // only while one types (roomTyping); otherwise it takes no room.
+    // A room's band is the core's typing row (roomTyping): a member's typing
+    // bubble under its face and name, or an unnamed one while the supervisor
+    // chooses; with no row it takes no room.
     if (!roomTyping || questionCard) return alone;
     const member = label(roomTyping.speaker);
     return createElement(AgentTypingRow, {
       member: roomTyping.name ? { ...member, name: roomTyping.name } : member,
       lead: true,
+      deciding: roomTyping.deciding,
       after: block,
     });
   }
@@ -334,7 +324,7 @@ export function useConversationRowRenderer({
   const homeAgent = agentIdOfHomeSession(disclosureScope) || MIXY_AGENT_ID;
   // A room's members type through its own typing rows.
   const inRoom = Boolean(roomIdOfSession(disclosureScope));
-  const roomTyping = useRoomTyping(inRoom, settledItems, disclosureScope);
+  const roomTyping = useMemo(() => roomTypingOf(inRoom, settledItems), [inRoom, settledItems]);
   // A room's members whose handed-off sessions ask the user something now.
   const handoffQuestions = useContext(HandoffQuestionsContext);
   const asking = useMemo(
@@ -463,7 +453,7 @@ function agentChatRow(
     label: ReturnType<typeof useRoomContacts>['label'];
     homeAgent: string;
     inRoom: boolean;
-    roomTyping: ReturnType<typeof useRoomTyping>;
+    roomTyping: ReturnType<typeof roomTypingOf>;
     questionCard: ReactNode;
     cardKey: string | undefined;
     disclosureScope: string;
@@ -498,6 +488,7 @@ function agentChatRow(
     return createElement(AgentTypingRow, {
       member: item.room.name ? { ...member, name: item.room.name } : member,
       lead: agentTypingLead(rows, index, speaker, cardKey),
+      deciding: item.room.deciding === true,
     });
   }
   // A quiet pass paints nothing: no empty bubble row (its gap shook the

@@ -61,6 +61,10 @@ pub(crate) struct Feed {
     gate: Condvar,
     /// Replay ring bound and the most a consumer may trail the reader.
     cap: usize,
+    /// See [`Feed::replay_after_exit`].
+    replays_after_exit: std::sync::atomic::AtomicBool,
+    /// See [`Feed::owned_by_its_reader`].
+    owned: std::sync::atomic::AtomicBool,
     /// Tests only: see [`Feed::on_refused`].
     #[cfg(all(test, feature = "core-test"))]
     refused: Mutex<Option<Box<dyn FnOnce() + Send>>>,
@@ -89,9 +93,66 @@ impl Feed {
             changed: Notify::new(),
             gate: Condvar::new(),
             cap,
+            replays_after_exit: std::sync::atomic::AtomicBool::new(false),
+            owned: std::sync::atomic::AtomicBool::new(false),
             #[cfg(all(test, feature = "core-test"))]
             refused: Mutex::new(None),
         })
+    }
+
+    /// The output stays in the ring after the process ended and its readers left, for a subscriber that comes later (a
+    /// terminal tab's client). Without it, the output of an ended process leaves the feed with the last reader that took it to
+    /// the exit: the exited processes the manager keeps listed do not each keep a ring of output that was already read.
+    pub(crate) fn replay_after_exit(&self) {
+        self.replays_after_exit.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn replays(&self) -> bool {
+        self.replays_after_exit.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// The process was started with its reader ([`crate::manager::LocalProcessManager::spawn_subscribed`]): the output is that
+    /// reader's from the first byte, and what every subscriber has taken leaves the feed at once instead of filling the ring
+    /// for as long as the process runs.
+    pub(crate) fn owned_by_its_reader(&self) {
+        self.owned.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn owned(&self) -> bool {
+        self.owned.load(std::sync::atomic::Ordering::Relaxed) && !self.replays()
+    }
+
+    /// The last reader of an ended process left, having taken its exit: the output goes, unless the feed replays it. The exit
+    /// stays, for a subscriber that asks how the process ended.
+    fn release_read_to_the_exit(&self, state: &mut State) {
+        if self.replays() || !state.done || !state.consumers.is_empty() {
+            return;
+        }
+        while let Some(Entry { event: ProcessEvent::Output { bytes, .. }, end }) = state.events.front() {
+            state.stored -= bytes.len();
+            state.base = *end;
+            state.first_seq += 1;
+            state.events.pop_front();
+        }
+    }
+
+    /// Drops the output every subscriber has taken, of a feed its reader owns.
+    fn release_taken(&self, state: &mut State) {
+        if !self.owned() {
+            return;
+        }
+        let Some(taken) = state.consumers.iter().map(|c| c.taken).min() else {
+            return;
+        };
+        while let Some(Entry { event: ProcessEvent::Output { bytes, .. }, end }) = state.events.front() {
+            if *end > taken {
+                break;
+            }
+            state.stored -= bytes.len();
+            state.base = *end;
+            state.first_seq += 1;
+            state.events.pop_front();
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -342,6 +403,11 @@ impl Feed {
                 (seq, start)
             }
         };
+        // Output after a subscription from here on is an event of its own: merged into the event before it, it would be in
+        // an event the subscription starts after.
+        if next_seq == state.next_seq {
+            state.handed_seq = state.handed_seq.max(next_seq);
+        }
         let id = state.next_consumer;
         state.next_consumer += 1;
         state.consumers.push(Consumer { id, taken });
@@ -377,12 +443,29 @@ impl Subscription {
         let Some(entry) = state.events.get(index) else {
             return if state.done { Err(()) } else { Ok(None) };
         };
-        let event = entry.event.clone();
-        let end = entry.end;
+        // The only reader of output nobody replays takes the event itself, not a copy of it.
+        let sole = index == 0
+            && state.consumers.len() == 1
+            && matches!(entry.event, ProcessEvent::Output { .. })
+            && self.feed.owned();
+        let (event, end) = if sole {
+            let entry = state.events.pop_front().expect("the event was just seen");
+            if let ProcessEvent::Output { bytes, .. } = &entry.event {
+                state.stored -= bytes.len();
+            }
+            state.base = entry.end;
+            state.first_seq += 1;
+            (entry.event, entry.end)
+        } else {
+            (entry.event.clone(), entry.end)
+        };
         self.next_seq += 1;
         state.handed_seq = state.handed_seq.max(self.next_seq);
         if let Some(consumer) = state.consumers.iter_mut().find(|c| c.id == self.id) {
             consumer.taken = end;
+        }
+        if !sole {
+            self.feed.release_taken(&mut state);
         }
         drop(state);
         self.feed.gate.notify_all();
@@ -394,6 +477,10 @@ impl Drop for Subscription {
     fn drop(&mut self) {
         let mut state = self.feed.lock();
         state.consumers.retain(|c| c.id != self.id);
+        self.feed.release_taken(&mut state);
+        if self.next_seq >= state.next_seq {
+            self.feed.release_read_to_the_exit(&mut state);
+        }
         drop(state);
         self.feed.gate.notify_all();
     }
@@ -414,5 +501,107 @@ impl EventSource<ProcessEvent> for Subscription {
             }
             notified.await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mixdog_core_api::domain::process::ExitStatus;
+
+    use super::*;
+
+    fn output(event: Option<ProcessEvent>) -> Vec<u8> {
+        match event {
+            Some(ProcessEvent::Output { bytes, .. }) => bytes,
+            other => panic!("not output: {other:?}"),
+        }
+    }
+
+    fn stored(feed: &Feed) -> usize {
+        feed.lock().stored
+    }
+
+    /// Output its readers have all taken leaves the feed; a reader that trails keeps what it has not taken, and the exit stays
+    /// for a subscriber that comes after the readers left.
+    #[test]
+    fn output_every_reader_took_leaves_the_feed() {
+        let feed = Feed::new(1 << 20);
+        feed.owned_by_its_reader();
+        let mut first = feed.subscribe_oldest();
+        feed.push_output(OutputStream::Stdout, b"one");
+        assert_eq!(output(first.poll().unwrap()), b"one");
+        assert_eq!(stored(&feed), 0, "its only reader took it");
+
+        let mut second = feed.subscribe(None).unwrap();
+        feed.push_output(OutputStream::Stdout, b"two");
+        assert_eq!(output(first.poll().unwrap()), b"two");
+        assert_eq!(stored(&feed), 3, "the second reader has not taken it");
+        assert_eq!(output(second.poll().unwrap()), b"two");
+        assert_eq!(stored(&feed), 0);
+
+        feed.push_output(OutputStream::Stdout, b"three");
+        feed.push_exit(ProcessExit { status: ExitStatus::Code(0), killed: None });
+        drop(second);
+        assert_eq!(output(first.poll().unwrap()), b"three");
+        assert!(matches!(first.poll(), Ok(Some(ProcessEvent::Exited { .. }))));
+        drop(first);
+        assert_eq!(stored(&feed), 0);
+        let mut late = feed.subscribe(None).unwrap();
+        assert!(first_seq_is_the_exit(&feed));
+        assert!(late.poll().is_err(), "nothing follows the exit");
+        let mut asks = feed.subscribe_oldest();
+        assert!(matches!(asks.poll(), Ok(Some(ProcessEvent::Exited { .. }))));
+    }
+
+    fn first_seq_is_the_exit(feed: &Feed) -> bool {
+        let state = feed.lock();
+        state.events.len() == 1 && matches!(state.events[0].event, ProcessEvent::Exited { .. })
+    }
+
+    /// A process started without its reader replays to each reader while it runs; once it ended and a reader took the exit
+    /// and left, its output is gone and the exit stays.
+    #[test]
+    fn the_output_of_an_ended_process_leaves_with_the_reader_that_took_its_exit() {
+        let feed = Feed::new(1 << 20);
+        feed.push_output(OutputStream::Stdout, b"line");
+        let mut early = feed.subscribe(Some(0)).unwrap();
+        assert_eq!(output(early.poll().unwrap()), b"line");
+        drop(early);
+        assert_eq!(stored(&feed), 4, "the process still runs: the next reader replays it");
+        feed.push_exit(ProcessExit { status: ExitStatus::Code(0), killed: None });
+        let mut reader = feed.subscribe(Some(0)).unwrap();
+        assert_eq!(output(reader.poll().unwrap()), b"line");
+        drop(reader);
+        assert_eq!(stored(&feed), 4, "it left before the exit");
+        let mut reader = feed.subscribe(Some(0)).unwrap();
+        assert_eq!(output(reader.poll().unwrap()), b"line");
+        assert!(matches!(reader.poll(), Ok(Some(ProcessEvent::Exited { .. }))));
+        drop(reader);
+        assert_eq!(stored(&feed), 0);
+        assert!(first_seq_is_the_exit(&feed));
+    }
+
+    /// A feed that replays keeps the output its reader took, for the next subscriber.
+    #[test]
+    fn a_replaying_feed_keeps_what_was_taken() {
+        let feed = Feed::new(1 << 20);
+        feed.replay_after_exit();
+        let mut first = feed.subscribe_oldest();
+        feed.push_output(OutputStream::Stdout, b"kept");
+        assert_eq!(output(first.poll().unwrap()), b"kept");
+        drop(first);
+        let mut again = feed.subscribe(Some(0)).unwrap();
+        assert_eq!(output(again.poll().unwrap()), b"kept");
+    }
+
+    /// Output that follows a subscription from the feed's end reaches it, though the event before it was still open to merging.
+    #[test]
+    fn a_subscription_from_the_end_gets_the_output_after_it() {
+        let feed = Feed::new(1 << 20);
+        feed.replay_after_exit();
+        feed.push_output(OutputStream::Stdout, b"before");
+        let mut from_end = feed.subscribe(None).unwrap();
+        feed.push_output(OutputStream::Stdout, b"after");
+        assert_eq!(output(from_end.poll().unwrap()), b"after");
     }
 }

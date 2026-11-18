@@ -61,22 +61,31 @@ pub fn bind_agent_docs(docs: Vec<Value>, agent: &HashMap<String, Value>) -> Vec<
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use async_trait::async_trait;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::tool::ToolAnnotations;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::tool::ToolContext;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::tool::ToolOutcome;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::tool::ToolOutput;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::tool::ToolSpec;
 
+    #[cfg(node_twin)]
     use super::*;
 
     /// A tool with the Lead's definition and, where Node's `bindAgentOwner` rebuilds it, the agent's.
+    #[cfg(node_twin)]
     struct Stub {
         lead: ToolSpec,
         agent: Option<ToolSpec>,
     }
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl Tool for Stub {
         fn spec(&self) -> &ToolSpec {
             &self.lead
@@ -89,6 +98,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn spec(view: &Value) -> ToolSpec {
         ToolSpec {
             name: view["name"].as_str().expect("name").into(),
@@ -104,6 +114,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn golden() -> Value {
         serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent-tool-variants/golden.json")).expect("golden")
     }
@@ -112,6 +123,7 @@ mod tests {
     /// agent definitions are exactly the tools Node rebuilds, and binding the Lead's definitions gives
     /// the agent text (description and schema, key order included); the others are themselves.
     #[test]
+    #[cfg(node_twin)]
     fn the_agent_definitions_bind_as_nodes_bind_agent_owner_does() {
         let golden = golden();
         let cases = golden["tools"].as_array().expect("tools");
@@ -136,6 +148,7 @@ mod tests {
     /// A pool whose `git` or `task` has no agent definition is refused with the tool named; a pool
     /// that has both, or neither, passes.
     #[test]
+    #[cfg(node_twin)]
     fn a_pool_whose_git_or_task_lost_its_agent_definition_is_refused() {
         let golden = golden();
         let build = |without: &str| -> Vec<Arc<dyn Tool>> {
@@ -157,3 +170,4 @@ mod tests {
         assert_eq!(check_pool(&build("task")).unwrap_err().to_string(), "the task tool has no definition for delegated agents (Tool::agent_spec)");
     }
 }
+

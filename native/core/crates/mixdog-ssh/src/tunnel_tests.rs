@@ -315,7 +315,7 @@ async fn ready_waits_through_a_restart_for_the_forward_and_reports_a_terminal_fa
     assert_eq!(tunnel.ready(Duration::from_millis(1)).await, Ok(port), "an up forward answers at once");
     tunnel.stop().await;
     let closed = tunnel.ready(Duration::from_secs(1)).await.unwrap_err();
-    assert_eq!((closed.kind, closed.message.as_str()), (FailureClass::Terminal, "The ssh tunnel is closed."));
+    assert_eq!((closed.kind, closed.message.as_str()), (FailureClass::Terminal, "The SSH connection to devbox is closed."));
 
     let (_listener, port) = open_port().await;
     let spawner = Spawner::new(false);

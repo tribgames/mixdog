@@ -55,8 +55,6 @@ impl fmt::Display for EmbedError {
     }
 }
 
-impl std::error::Error for EmbedError {}
-
 pub(crate) fn be_u16(data: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_be_bytes([*data.get(at)?, *data.get(at + 1)?]))
 }
@@ -772,87 +770,6 @@ pub struct FontEnv {
     pub system_fonts: Vec<String>,
 }
 
-impl FontEnv {
-    /// The setting `MIXDOG_OCR_FONT` and the faces a machine of this platform is likely to have.
-    pub fn host() -> Self {
-        let mut system_fonts: Vec<&str> = Vec::new();
-        if cfg!(windows) {
-            system_fonts.extend([
-                "C:\\Windows\\Fonts\\malgun.ttf",
-                "C:\\Windows\\Fonts\\arialuni.ttf",
-                "C:\\Windows\\Fonts\\segoeui.ttf",
-            ]);
-        }
-        if cfg!(target_os = "macos") {
-            system_fonts.extend([
-                "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-                "/Library/Fonts/Arial Unicode.ttf",
-                "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-            ]);
-        }
-        system_fonts.extend([
-            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        ]);
-        Self {
-            ocr_font: std::env::var("MIXDOG_OCR_FONT").ok(),
-            system_fonts: system_fonts.into_iter().map(str::to_owned).collect(),
-        }
-    }
-}
-
-/// `path.resolve`: relative to the working directory, `.` and `..` folded away.
-fn resolve(path: &str) -> String {
-    let given = Path::new(path);
-    let absolute = if given.is_absolute() {
-        given.to_path_buf()
-    } else {
-        std::env::current_dir().unwrap_or_default().join(given)
-    };
-    let mut out = PathBuf::new();
-    for component in absolute.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out.to_string_lossy().into_owned()
-}
-
-/// Readable Unicode fonts in preference order: the explicit path, the `MIXDOG_OCR_FONT` override, then the platform list.
-fn unicode_font_candidates<P: ReadProof>(proof: &P, env: &FontEnv, explicit: &str) -> Vec<String> {
-    let mut wanted: Vec<String> = Vec::new();
-    if !explicit.is_empty() {
-        wanted.push(resolve(explicit));
-    }
-    if let Some(ocr) = env.ocr_font.as_deref().filter(|path| !path.is_empty()) {
-        wanted.push(ocr.to_owned());
-    }
-    wanted.extend(
-        env.system_fonts
-            .iter()
-            .filter(|path| !path.is_empty())
-            .cloned(),
-    );
-    wanted
-        .into_iter()
-        .filter(|path| mixdog_fsio::exists(proof, path).unwrap_or(false))
-        .collect()
-}
-
-/// `unicodeFontPath`: the first readable Unicode font, or an empty string.
-pub fn unicode_font_path<P: ReadProof>(proof: &P, env: &FontEnv, explicit: &str) -> String {
-    unicode_font_candidates(proof, env, explicit)
-        .into_iter()
-        .next()
-        .unwrap_or_default()
-}
-
 /// `😀 (U+1F600)` for each character, for an error that names what blocks the file.
 fn describe_uncovered(characters: &[char]) -> String {
     characters
@@ -916,95 +833,6 @@ pub struct DocumentFont {
     /// The file the face came from; empty for a standard font.
     pub font_path: String,
     pub embedded: bool,
-}
-
-/// `embedDocumentFont`: an explicit fontPath always wins; otherwise the standard font when it can encode the text, else
-/// the first installed Unicode face that covers it. Refuses with a hint instead of the WinAnsi error when no face does.
-pub fn embed_document_font<P: ReadProof>(
-    proof: &P,
-    env: &FontEnv,
-    request: &FontRequest<'_>,
-) -> Result<DocumentFont, EmbedError> {
-    let explicit = !request.font_path.is_empty();
-    if !explicit {
-        let builtin = Font::standard(request.standard);
-        if builtin.covers(request.text) {
-            return Ok(DocumentFont {
-                font: builtin.with_stand_ins(),
-                font_path: String::new(),
-                embedded: false,
-            });
-        }
-    }
-    let candidates = unicode_font_candidates(proof, env, request.font_path);
-    if explicit && candidates.is_empty() {
-        return Err(EmbedError::new(format!(
-            "PDF font file was not found: {}",
-            request.font_path
-        )));
-    }
-    // The first face that embedded is what the missing characters are reported against: it is the coverage the machine
-    // actually has.
-    let mut widest: Option<Font> = None;
-    let tried: &[String] = if explicit {
-        &candidates[..1]
-    } else {
-        &candidates
-    };
-    for candidate in tried {
-        let font = match mixdog_fsio::read(proof, candidate)
-            .map_err(|error| EmbedError::new(error.to_string()))
-            .and_then(EmbeddedFace::from_bytes)
-        {
-            Ok(face) => Font::embedded(face),
-            Err(error) => {
-                // Collections (.ttc) and damaged files cannot be embedded; an explicit choice reports it, the fallback moves on.
-                if explicit {
-                    return Err(EmbedError::new(format!(
-                        "PDF font {candidate} could not be embedded: {error}"
-                    )));
-                }
-                continue;
-            }
-        };
-        if font.covers(request.text) {
-            return Ok(DocumentFont {
-                font: font.with_stand_ins(),
-                font_path: candidate.clone(),
-                embedded: true,
-            });
-        }
-        if explicit {
-            let missing = describe_uncovered(&font.uncovered(request.text, 6));
-            let shown = if missing.is_empty() {
-                "part of the text"
-            } else {
-                missing.as_str()
-            };
-            return Err(EmbedError::new(format!(
-                "Font {candidate} has no glyph for {shown}; {PDF_FONT_HINT}"
-            )));
-        }
-        widest = widest.or(Some(font));
-    }
-    // Naming the characters is the difference between a fixable answer and a font hunt: an emoji or a rare ideograph no
-    // installed face carries is removed or replaced in the text, while a missing script really does want another font.
-    let missing = widest
-        .map(|font| describe_uncovered(&font.uncovered(request.text, 6)))
-        .unwrap_or_default();
-    let (carries, those) = if missing.is_empty() {
-        ("characters ".to_owned(), "them")
-    } else {
-        (format!("{missing} — "), "those characters")
-    };
-    let cannot = if missing.is_empty() {
-        " and the standard PDF fonts cannot encode"
-    } else {
-        ""
-    };
-    Err(EmbedError::new(format!(
-        "PDF text carries {carries}no installed font covers{cannot}. Replace or remove {those}, or {PDF_FONT_HINT}."
-    )))
 }
 
 /// `embedBoldFont`: the bold face for headings, table headers, labels and figures: Helvetica-Bold beside Helvetica, else
@@ -1097,12 +925,6 @@ mod tests {
     }
 
     #[test]
-    fn resolve_folds_dots() {
-        let resolved = resolve("/a/b/../c/./d.ttf");
-        assert!(resolved.replace('\\', "/").ends_with("/a/c/d.ttf"));
-    }
-
-    #[test]
     fn files_that_are_not_fonts_are_refused_with_the_recorded_texts() {
         assert_eq!(
             EmbeddedFace::from_bytes(b"this is not a font file at all".to_vec())
@@ -1123,4 +945,179 @@ mod tests {
             "Cannot read properties of undefined (reading 'unitsPerEm')"
         );
     }
+
+
+    #[test]
+    fn resolve_folds_dots() {
+        let resolved = resolve("/a/b/../c/./d.ttf");
+        assert!(resolved.replace('\\', "/").ends_with("/a/c/d.ttf"));
+    }
+}
+
+
+impl std::error::Error for EmbedError {}
+impl FontEnv {
+    /// The setting `MIXDOG_OCR_FONT` and the faces a machine of this platform is likely to have.
+    pub fn host() -> Self {
+        let mut system_fonts: Vec<&str> = Vec::new();
+        if cfg!(windows) {
+            system_fonts.extend([
+                "C:\\Windows\\Fonts\\malgun.ttf",
+                "C:\\Windows\\Fonts\\arialuni.ttf",
+                "C:\\Windows\\Fonts\\segoeui.ttf",
+            ]);
+        }
+        if cfg!(target_os = "macos") {
+            system_fonts.extend([
+                "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+                "/Library/Fonts/Arial Unicode.ttf",
+                "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+            ]);
+        }
+        system_fonts.extend([
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        ]);
+        Self {
+            ocr_font: std::env::var("MIXDOG_OCR_FONT").ok(),
+            system_fonts: system_fonts.into_iter().map(str::to_owned).collect(),
+        }
+    }
+}
+/// `path.resolve`: relative to the working directory, `.` and `..` folded away.
+fn resolve(path: &str) -> String {
+    let given = Path::new(path);
+    let absolute = if given.is_absolute() {
+        given.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_default().join(given)
+    };
+    let mut out = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out.to_string_lossy().into_owned()
+}
+/// Readable Unicode fonts in preference order: the explicit path, the `MIXDOG_OCR_FONT` override, then the platform list.
+fn unicode_font_candidates<P: ReadProof>(proof: &P, env: &FontEnv, explicit: &str) -> Vec<String> {
+    let mut wanted: Vec<String> = Vec::new();
+    if !explicit.is_empty() {
+        wanted.push(resolve(explicit));
+    }
+    if let Some(ocr) = env.ocr_font.as_deref().filter(|path| !path.is_empty()) {
+        wanted.push(ocr.to_owned());
+    }
+    wanted.extend(
+        env.system_fonts
+            .iter()
+            .filter(|path| !path.is_empty())
+            .cloned(),
+    );
+    wanted
+        .into_iter()
+        .filter(|path| mixdog_fsio::exists(proof, path).unwrap_or(false))
+        .collect()
+}
+/// `unicodeFontPath`: the first readable Unicode font, or an empty string.
+pub fn unicode_font_path<P: ReadProof>(proof: &P, env: &FontEnv, explicit: &str) -> String {
+    unicode_font_candidates(proof, env, explicit)
+        .into_iter()
+        .next()
+        .unwrap_or_default()
+}
+/// `embedDocumentFont`: an explicit fontPath always wins; otherwise the standard font when it can encode the text, else
+/// the first installed Unicode face that covers it. Refuses with a hint instead of the WinAnsi error when no face does.
+pub fn embed_document_font<P: ReadProof>(
+    proof: &P,
+    env: &FontEnv,
+    request: &FontRequest<'_>,
+) -> Result<DocumentFont, EmbedError> {
+    let explicit = !request.font_path.is_empty();
+    if !explicit {
+        let builtin = Font::standard(request.standard);
+        if builtin.covers(request.text) {
+            return Ok(DocumentFont {
+                font: builtin.with_stand_ins(),
+                font_path: String::new(),
+                embedded: false,
+            });
+        }
+    }
+    let candidates = unicode_font_candidates(proof, env, request.font_path);
+    if explicit && candidates.is_empty() {
+        return Err(EmbedError::new(format!(
+            "PDF font file was not found: {}",
+            request.font_path
+        )));
+    }
+    // The first face that embedded is what the missing characters are reported against: it is the coverage the machine
+    // actually has.
+    let mut widest: Option<Font> = None;
+    let tried: &[String] = if explicit {
+        &candidates[..1]
+    } else {
+        &candidates
+    };
+    for candidate in tried {
+        let font = match mixdog_fsio::read(proof, candidate)
+            .map_err(|error| EmbedError::new(error.to_string()))
+            .and_then(EmbeddedFace::from_bytes)
+        {
+            Ok(face) => Font::embedded(face),
+            Err(error) => {
+                // Collections (.ttc) and damaged files cannot be embedded; an explicit choice reports it, the fallback moves on.
+                if explicit {
+                    return Err(EmbedError::new(format!(
+                        "PDF font {candidate} could not be embedded: {error}"
+                    )));
+                }
+                continue;
+            }
+        };
+        if font.covers(request.text) {
+            return Ok(DocumentFont {
+                font: font.with_stand_ins(),
+                font_path: candidate.clone(),
+                embedded: true,
+            });
+        }
+        if explicit {
+            let missing = describe_uncovered(&font.uncovered(request.text, 6));
+            let shown = if missing.is_empty() {
+                "part of the text"
+            } else {
+                missing.as_str()
+            };
+            return Err(EmbedError::new(format!(
+                "Font {candidate} has no glyph for {shown}; {PDF_FONT_HINT}"
+            )));
+        }
+        widest = widest.or(Some(font));
+    }
+    // Naming the characters is the difference between a fixable answer and a font hunt: an emoji or a rare ideograph no
+    // installed face carries is removed or replaced in the text, while a missing script really does want another font.
+    let missing = widest
+        .map(|font| describe_uncovered(&font.uncovered(request.text, 6)))
+        .unwrap_or_default();
+    let (carries, those) = if missing.is_empty() {
+        ("characters ".to_owned(), "them")
+    } else {
+        (format!("{missing} — "), "those characters")
+    };
+    let cannot = if missing.is_empty() {
+        " and the standard PDF fonts cannot encode"
+    } else {
+        ""
+    };
+    Err(EmbedError::new(format!(
+        "PDF text carries {carries}no installed font covers{cannot}. Replace or remove {those}, or {PDF_FONT_HINT}."
+    )))
 }

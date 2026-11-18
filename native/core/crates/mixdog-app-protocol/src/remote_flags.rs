@@ -92,6 +92,7 @@ mod tests {
         }
     }
 
+
     /// Every method the table names is in the method table, a relay connection may call it (a request) or send it (a notification).
     #[test]
     fn every_served_call_is_a_method_a_phone_may_use() {

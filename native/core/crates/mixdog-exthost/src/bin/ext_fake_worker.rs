@@ -412,6 +412,7 @@ fn main() {
             kind::CALL => worker.serve(frame.id, &frame.body),
             // A late cancel, credit or browser answer of a call that is over.
             kind::CANCEL | kind::CREDIT | kind::BROWSER => {}
+            kind::BYE if mode == "ignore-idle-bye" => {}
             kind::BYE => std::process::exit(0),
             other => fail_protocol(&format!("unknown frame kind {other}")),
         }

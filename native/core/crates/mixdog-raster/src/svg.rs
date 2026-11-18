@@ -278,14 +278,9 @@ impl Document {
         if Format::sniff(bytes) != Some(Format::Svg) {
             return Err(RasterError::new(UNSUPPORTED_FORMAT));
         }
-        let unzipped;
-        let source = if bytes.starts_with(&[0x1f, 0x8b]) {
-            unzipped = usvg::decompress_svgz(bytes).map_err(|_| invalid_svg())?;
-            &unzipped[..]
-        } else {
-            bytes
-        };
-        let text = std::str::from_utf8(source).map_err(|_| invalid_svg())?;
+        // Gzip is inflated to the workspace's one bound (`mixdog_imaging::svg_limits`), not without end.
+        let document_text = mixdog_imaging::svg_limits::document_text(bytes).map_err(|_| invalid_svg())?;
+        let text: &str = &document_text;
         let options = options(fonts, density, rendering);
         let document = parse(text)?;
         let root = document.root_element();
@@ -1143,8 +1138,9 @@ fn options(fonts: &SvgFonts, density: f64, rendering: usvg::ImageRendering) -> u
 }
 
 fn parse(text: &str) -> Result<roxmltree::Document<'_>, RasterError> {
-    roxmltree::Document::parse_with_options(text, roxmltree::ParsingOptions { allow_dtd: true, ..roxmltree::ParsingOptions::default() })
-        .map_err(|_| invalid_svg())
+    let document = roxmltree::Document::parse_with_options(text, mixdog_imaging::svg_limits::parsing_options()).map_err(|_| invalid_svg())?;
+    mixdog_imaging::svg_limits::check_depth(&document).map_err(|_| invalid_svg())?;
+    Ok(document)
 }
 
 fn build(document: &roxmltree::Document<'_>, options: &usvg::Options<'_>) -> Result<usvg::Tree, RasterError> {
@@ -1442,26 +1438,6 @@ mod tests {
     }
 
     #[test]
-    fn thin_diagonal_strokes_that_cairo_keeps_match_the_original_node_picture() {
-        // Original sharp 0.35.5 / Cairo 1.18.6 / librsvg 2.63.2, density 72.
-        // Provenance and a reproducible recorder accompany the PNG in tests/oracles.
-        let mut paths = String::new();
-        for x in (-120..=120).step_by(4) {
-            paths.push_str(&format!("<path d=\"M{x} 0L{} 128\"/>", x + 128));
-        }
-        let page = svg("width=\"128\" height=\"128\"", &format!(
-            "<rect width=\"128\" height=\"128\" fill=\"white\"/><g fill=\"none\" stroke=\"black\" stroke-width=\"0.05\">{paths}</g>"
-        ));
-        let actual = rasterize(&SvgFonts::none(), &page, 72.0).expect("SVG");
-        let recorded = Image::decode(include_bytes!("../tests/oracles/svg-thin-0.05.png")).expect("Node PNG");
-        let comparison = mixdog_office_base::twin::pixels::compare(
-            mixdog_office_base::twin::pixels::Picture::new(actual.width(), actual.height(), actual.rgba()),
-            mixdog_office_base::twin::pixels::Picture::new(recorded.width(), recorded.height(), recorded.rgba()),
-        );
-        comparison.verdict().unwrap_or_else(|why| panic!("{why}"));
-    }
-
-    #[test]
     fn a_collapsed_pen_leaves_nothing_but_the_normal_size_draws() {
         let page = svg("width=\"40\" height=\"24\" viewBox=\"0 0 40 24\"", "<path d=\"M0 24 L40 0\" stroke=\"#d33\" stroke-width=\"1\"/>");
         let thin = rasterize_to(&SvgFonts::none(), &page, 180.0, 2, 1).unwrap();
@@ -1529,5 +1505,48 @@ mod tests {
         let single = "<svg width='7'/>";
         let document = roxmltree::Document::parse(single).unwrap();
         assert_eq!(with_size(single, &document.root_element(), 8.5, 3.0), "<svg height=\"3\" width='8.5'/>");
+    }
+
+
+    #[test]
+    fn thin_diagonal_strokes_are_kept_and_leave_a_faint_even_tint() {
+        let mut paths = String::new();
+        for x in (-120..=120).step_by(4) {
+            paths.push_str(&format!("<path d=\"M{x} 0L{} 128\"/>", x + 128));
+        }
+        let page = svg("width=\"128\" height=\"128\"", &format!(
+            "<rect width=\"128\" height=\"128\" fill=\"white\"/><g fill=\"none\" stroke=\"black\" stroke-width=\"0.05\">{paths}</g>"
+        ));
+        let image = rasterize(&SvgFonts::none(), &page, 72.0).expect("SVG");
+        assert_eq!((image.width(), image.height()), (128, 128));
+        let rgba = image.rgba();
+        // Each of 16 horizontal bands is a little darker than white but far from black: the hairlines are drawn, not dropped.
+        for band in 0..16 {
+            let rows = band * 8..band * 8 + 8;
+            let sum: u64 = rows.clone().flat_map(|y| (0..128).map(move |x| (y * 128 + x) * 4)).map(|at| u64::from(rgba[at])).sum();
+            let mean = sum as f64 / (8.0 * 128.0);
+            assert!(mean < 255.0 && mean > 200.0, "band {band}: mean red {mean}");
+        }
+    }
+
+    #[cfg(node_twin)]
+    #[test]
+    fn thin_diagonal_strokes_that_cairo_keeps_match_the_original_node_picture() {
+        // Original sharp 0.35.5 / Cairo 1.18.6 / librsvg 2.63.2, density 72.
+        // Provenance and a reproducible recorder accompany the PNG in tests/oracles.
+        let mut paths = String::new();
+        for x in (-120..=120).step_by(4) {
+            paths.push_str(&format!("<path d=\"M{x} 0L{} 128\"/>", x + 128));
+        }
+        let page = svg("width=\"128\" height=\"128\"", &format!(
+            "<rect width=\"128\" height=\"128\" fill=\"white\"/><g fill=\"none\" stroke=\"black\" stroke-width=\"0.05\">{paths}</g>"
+        ));
+        let actual = rasterize(&SvgFonts::none(), &page, 72.0).expect("SVG");
+        let recorded = Image::decode(include_bytes!("../tests/oracles/svg-thin-0.05.png")).expect("Node PNG");
+        let comparison = mixdog_office_base::twin::pixels::compare(
+            mixdog_office_base::twin::pixels::Picture::new(actual.width(), actual.height(), actual.rgba()),
+            mixdog_office_base::twin::pixels::Picture::new(recorded.width(), recorded.height(), recorded.rgba()),
+        );
+        comparison.verdict().unwrap_or_else(|why| panic!("{why}"));
     }
 }

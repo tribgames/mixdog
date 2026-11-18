@@ -9,17 +9,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::FutureExt;
-use futures::future::{BoxFuture, Shared};
 use mixdog_js::{js_trim, to_number};
-use mixdog_rt::TaskClass;
 use serde_json::Value;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
 use super::{BATCH_SIZE, RawEmbedFlush, is_raw_embeddable};
 use crate::memory::error::MemoryError;
-use crate::memory::pg::db::Db;
+use crate::memory::pg::db::{Db, Lease};
 use crate::memory::recall::hybrid::embedding_to_sql;
 use crate::tool_state::onnx_runtime_supported;
 
@@ -75,8 +72,6 @@ pub struct SweepStep {
     pub done: bool,
 }
 
-/// A flush in progress, shared by every caller that asks while it runs.
-pub(super) type Flight = Shared<BoxFuture<'static, Result<RootFlush, FlushFailure>>>;
 
 fn check(cancel: &CancellationToken) -> Result<(), FlushFailure> {
     if cancel.is_cancelled() { Err(FlushFailure::Cancelled) } else { Ok(()) }
@@ -102,11 +97,6 @@ pub fn root_embed_text(element: Option<&str>, summary: Option<&str>, role: Optio
     let content = content.unwrap_or("");
     let content = if is_raw_embeddable(role.unwrap_or(""), content) { js_trim(content) } else { "" };
     if content.is_empty() { head.to_owned() } else { format!("{head}\n\n{content}") }
-}
-
-/// A claimed connection whose transaction state is unknown goes away with its error.
-fn destroy(client: deadpool_postgres::Object) {
-    drop(deadpool_postgres::Object::take(client));
 }
 
 /// `startRootEmbedSweep`: records where the sweep starts (above the newest root) unless a sweep
@@ -144,31 +134,19 @@ impl RawEmbedFlush {
 
     /// `flushEmbeddingDirty`: embeds roots that have no vector, newest first, until none are left
     /// or the deadline passes. Callers that ask while a flush runs share it (the first caller's
-    /// `cancel` governs it); the work is a task of its own, so a caller that stops waiting never
-    /// leaves a transaction open.
+    /// `cancel` governs it). The flight is a keyed slot of the database's owner (`_flushInFlight`): the registry publishes the key before the work is
+    /// built and retires it with the slot, however the work ends (completed, destroyed by the runtime, revoked, or refused at activation), so neither a
+    /// waiter that stopped waiting nor a refused start leaves it cached, and no caller lock is re-taken to forget it.
     pub async fn flush_roots(self: &Arc<Self>, cancel: &CancellationToken) -> Result<RootFlush, FlushFailure> {
         check(cancel)?;
         if !self.embeds() {
             return Ok(RootFlush::default());
         }
-        let (flight, started) = {
-            let mut slot = self.roots_in_flight.lock().expect("flush flight");
-            match slot.as_ref() {
-                Some(flight) => (flight.clone(), false),
-                None => {
-                    let (this, cancel) = (self.clone(), cancel.clone());
-                    let task = mixdog_rt::spawn("services.memory.root-flush", TaskClass::Work, async move { this.run_root_flush(&cancel).await });
-                    let flight: Flight = async move { task.await.unwrap_or_else(|e| Err(FlushFailure::Store(format!("root flush task: {e}")))) }.boxed().shared();
-                    *slot = Some(flight.clone());
-                    (flight, true)
-                }
-            }
-        };
-        let outcome = flight.await;
-        if started {
-            self.roots_in_flight.lock().expect("flush flight").take();
-        }
-        outcome
+        let key = ("services.memory.root-flush", Arc::as_ptr(self) as usize);
+        let (this, cancel) = (self.clone(), cancel.clone());
+        let flight = self.db.scope().coalesce(key, "services.memory.root-flush", move || async move { this.run_root_flush(&cancel).await });
+        let Some(flight) = flight else { return Err(FlushFailure::Cancelled) };
+        flight.await.unwrap_or(Err(FlushFailure::Cancelled))
     }
 
     async fn run_root_flush(&self, cancel: &CancellationToken) -> Result<RootFlush, FlushFailure> {
@@ -186,12 +164,13 @@ impl RawEmbedFlush {
                 break;
             }
             // Newest roots first, so a model migration restores current work before deep history.
-            let client = self.db.client().await?;
+            let client = Lease::take(&self.db).await?;
             let ids = match self.claim_roots(&client, cursor).await {
                 Ok(ids) => ids,
                 Err(error) => {
-                    let rollback = client.batch_execute("ROLLBACK").await;
-                    destroy(client);
+                    let rollback = client.rollback().await;
+                    // Discarded whatever the rollback did: the claim's state is unknown.
+                    drop(client);
                     if cancel.is_cancelled() {
                         return Err(FlushFailure::Cancelled);
                     }
@@ -204,10 +183,8 @@ impl RawEmbedFlush {
                 }
             };
             if ids.is_empty() {
-                if let Err(error) = client.batch_execute("COMMIT").await {
-                    destroy(client);
-                    return Err(error.into());
-                }
+                client.commit().await?;
+                client.release(None).await;
                 break;
             }
             cursor = ids.last().copied();
@@ -229,13 +206,18 @@ impl RawEmbedFlush {
                     done.failed.extend(&ids);
                 }
             }
-            if let Err(error) = client.batch_execute(if batch_done { "COMMIT" } else { "ROLLBACK" }).await {
-                destroy(client);
-                // Cancelled work reports as cancelled: a store fault here would replace it.
-                if !aborted {
-                    return Err(error.into());
+            let ended = if batch_done { client.commit().await } else { client.rollback().await };
+            match ended {
+                Ok(()) => client.release(None).await,
+                // The lease is dropped here, so the connection is discarded.
+                Err(error) => {
+                    drop(client);
+                    // Cancelled work reports as cancelled: a store fault here would replace it.
+                    if !aborted {
+                        return Err(error.into());
+                    }
+                    mixdog_rt::memory_stderr!("[embed] rollback after cancellation failed: {error}");
                 }
-                mixdog_rt::memory_stderr!("[embed] rollback after cancellation failed: {error}");
             }
             if aborted {
                 return Err(FlushFailure::Cancelled);
@@ -253,8 +235,8 @@ impl RawEmbedFlush {
         Ok(!self.sync_roots(&client, &[root_id], false, cancel).await?.is_empty())
     }
 
-    async fn claim_roots(&self, client: &deadpool_postgres::Object, cursor: Option<i64>) -> Result<Vec<i64>, tokio_postgres::Error> {
-        client.batch_execute("BEGIN").await?;
+    async fn claim_roots(&self, client: &Lease, cursor: Option<i64>) -> Result<Vec<i64>, tokio_postgres::Error> {
+        client.begin().await?;
         let rows = client
             .query(
                 "SELECT id FROM entries
@@ -399,20 +381,25 @@ impl RawEmbedFlush {
             return Ok(finished);
         }
         self.ensure_cache_table().await?;
-        let client = self.db.client().await?;
-        client.batch_execute("BEGIN").await?;
+        let client = Lease::take(&self.db).await?;
+        client.begin().await?;
         let stepped = self.sweep_in_transaction(&client, batch, cancel).await;
         match &stepped {
             Ok(_) => {
-                if let Err(error) = client.batch_execute("COMMIT").await {
-                    let _ = client.batch_execute("ROLLBACK").await;
+                if let Err(error) = client.commit().await {
+                    if client.rollback().await.is_ok() {
+                        client.release(None).await;
+                    }
                     return Err(error.into());
                 }
             }
             Err(_) => {
-                let _ = client.batch_execute("ROLLBACK").await;
+                if client.rollback().await.is_err() {
+                    return stepped;
+                }
             }
         }
+        client.release(None).await;
         stepped
     }
 

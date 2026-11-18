@@ -73,14 +73,17 @@ type Row = RecordValue;
 
 const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 
-/** One list row: the open button (icon, title, tag, optional line) and,
- *  beside it, the row's one action (연결 / 취소). */
+/** One single-line list row: the open button (icon, title, then the tag or the
+ *  live sign-in step right after the name) and, beside it, the row's one action
+ *  (연결 / 취소). The status detail (`line`) is not printed: the narrow rail has
+ *  no room for it, so it is the tag's tooltip (the row's, without a tag). */
 function ConnectorRow({
   id,
   icon,
   title,
   tag,
   line,
+  step,
   action,
   expanded,
   nested = false,
@@ -92,7 +95,8 @@ function ConnectorRow({
   icon: ReactNode;
   title: string;
   tag?: SidebarResourceTag | null;
-  line?: ReactNode;
+  line?: string;
+  step?: ReactNode;
   action?: ReactNode;
   /** A package row: the chevron shows its open state. */
   expanded?: boolean;
@@ -115,24 +119,16 @@ function ConnectorRow({
         className="schedules-row utilities-row extensions-row extensions-row-open"
         aria-label={title}
         aria-expanded={expanded}
+        title={!tag?.label && line ? line : undefined}
         onClick={onOpen}
       >
         <span className="extensions-row-icon sidebar-resource-icon" aria-hidden="true">
           {icon}
         </span>
         <span className="schedules-row-copy utilities-row-copy">
-          <SidebarResourceTitle label={title} />
-          {/* One status line: the badge first, then the text. */}
-          {tag?.label || line ? (
-            <small title={typeof line === 'string' ? [tag?.label, line].filter(Boolean).join(' · ') : undefined}>
-              {tag?.label ? (
-                <span className="sidebar-resource-tag" data-tone={tag.tone || 'muted'}>
-                  {tag.label}
-                </span>
-              ) : null}
-              {line ? <span className="connectors-row-line">{line}</span> : null}
-            </small>
-          ) : null}
+          <SidebarResourceTitle label={title} tag={tag?.label ? { ...tag, title: line || undefined } : null}>
+            {step}
+          </SidebarResourceTitle>
         </span>
         {!action && <Chevron className="utilities-row-chevron" size={16} aria-hidden="true" />}
       </button>
@@ -222,7 +218,8 @@ function useRowState({
       return {
         view,
         tag: null,
-        line: <ConnectorStep view={view} connector={connector} compact />,
+        line: '',
+        step: <ConnectorStep view={view} connector={connector} compact />,
         action: (
           <ExtensionAction onClick={() => cancelConnectorLogin(serverName, connector)}>{t('Cancel')}</ExtensionAction>
         ),
@@ -237,18 +234,11 @@ function useRowState({
     case 'failed':
       return {
         view,
-        // A short chip; the line says what happened and why.
-        tag: { label: t('Failed'), tone: 'danger' as const },
-        // A sign-in Google granted without the access: the row's instruction
-        // is the short form, shown whole; the full sentence is its tooltip.
+        tag: { label: view.reason === 'scopeNotGranted' ? t('More access needed') : t('Failed'), tone: 'danger' as const },
         line:
-          view.reason === 'scopeNotGranted' ? (
-            <span className="connectors-row-scope" title={view.error}>
-              {t('More access needed')}
-            </span>
-          ) : (
-            [t("Couldn't connect"), view.error].filter(Boolean).join(' · ')
-          ),
+          view.reason === 'scopeNotGranted'
+            ? view.error
+            : [t("Couldn't connect"), view.error].filter(Boolean).join(' · '),
         action: button(t('Try again'), retryOf(view, actions, null)),
       };
     case 'disabled':
@@ -268,7 +258,9 @@ function useRowState({
     default:
       return {
         view,
-        tag: serverTag(server),
+        // Never signed in (a sign-in that was started and not finished included): the row reads as any other
+        // unconnected one, with 연결 alone.
+        tag: view.status === 'needs-connect' ? null : serverTag(server),
         line: server ? mcpReason(server) : '',
         action: button(t('Connect'), actions.connect),
       };
@@ -308,6 +300,7 @@ function CatalogRow({
       title={entry.name}
       tag={state.tag}
       line={state.line}
+      step={state.step}
       action={state.action}
       status={state.view.status}
       justConnected={state.view.justConnected}
@@ -321,7 +314,7 @@ function CatalogRow({
   );
 }
 
-/** Why a configured server is not working, for the row's second line. */
+/** Why a configured server is not working, for the row's tag tooltip. */
 function mcpReason(server: Row): string {
   if (server.enabled === false) {
     return server.disabledReason === 'plugin disabled' ? t('The plugin is turned off.') : '';
@@ -367,6 +360,7 @@ function CustomServerRow({
       title={name}
       tag={state.tag}
       line={state.line}
+      step={state.step}
       action={state.action}
       status={state.view.status}
       justConnected={state.view.justConnected}
@@ -620,7 +614,7 @@ function ConnectorDetail({
             ? undefined
             : view.status === 'failed'
               ? { label: t("Couldn't connect"), tone: 'danger' }
-              : status && server?.enabled !== false
+              : status && server?.enabled !== false && view.status !== 'needs-connect'
                 ? { label: status.label, tone: status.tone }
                 : { label: t('Not connected yet'), tone: 'muted' }
       }

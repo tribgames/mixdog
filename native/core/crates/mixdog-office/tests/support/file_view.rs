@@ -91,6 +91,7 @@ pub fn png_fingerprint(bytes: &[u8]) -> Value {
     }
 }
 
+
 /// A PNG as `twin_e2e.rs` compares it: its description and the PNG itself (`data`, base64), which the recorder keeps beside the
 /// description (`record-office-e2e.mjs`). A PNG that does not decode has no `data`.
 pub fn png_fingerprint_with_pixels(bytes: &[u8]) -> Value {

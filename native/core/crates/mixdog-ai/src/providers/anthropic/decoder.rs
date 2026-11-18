@@ -93,7 +93,7 @@ enum Block {
     Text { text: String, citations: Vec<Value> },
     Thinking { thinking: String, signature: String },
     Redacted { data: String },
-    ToolUse { id: String, name: String, json: String, done: Option<Value> },
+    ToolUse { id: String, name: String, opening_input: Option<Value>, json: String, done: Option<Value> },
     NativeCall { block: Value, json: String, done: bool },
     NativeResult(Value),
 }
@@ -121,6 +121,16 @@ fn reported_cost_usd(value: &Value) -> Option<f64> {
 }
 
 impl UsageAcc {
+    fn has_report(raw: &Value) -> bool {
+        ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]
+            .iter()
+            .any(|name| raw.get(*name).and_then(Value::as_u64).is_some())
+            || ["ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"].iter().any(|name| {
+                raw.get("cache_creation").and_then(|split| split.get(*name)).and_then(Value::as_u64).is_some()
+            })
+            || raw.get("cost").and_then(reported_cost_usd).is_some()
+    }
+
     /// Omitted fields keep the earlier report; an explicit zero replaces it.
     pub(super) fn update(&mut self, raw: &Value) {
         let Some(map) = raw.as_object() else { return };
@@ -149,6 +159,27 @@ impl UsageAcc {
             self.cost = Some(cost);
         }
         for (key, value) in map {
+            if key == "cache_creation" {
+                if let Some(split) = value.as_object() {
+                    let held = self.raw.entry(key.clone()).or_insert_with(|| Value::Object(Map::new()));
+                    if !held.is_object() {
+                        *held = Value::Object(Map::new());
+                    }
+                    if let Some(held) = held.as_object_mut() {
+                        for (ttl, tokens) in split {
+                            if tokens.as_u64().is_some() || held.get(ttl).and_then(Value::as_u64).is_none() {
+                                held.insert(ttl.clone(), tokens.clone());
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            if matches!(key.as_str(), "input_tokens" | "output_tokens" | "cache_read_input_tokens" | "cache_creation_input_tokens")
+                && value.as_u64().is_none() && self.raw.get(key).and_then(Value::as_u64).is_some()
+            {
+                continue;
+            }
             self.raw.insert(key.clone(), value.clone());
         }
     }
@@ -175,6 +206,8 @@ pub(crate) struct AnthropicDecoder {
     framer: SseFramer,
     blocks: BTreeMap<u64, Block>,
     usage: UsageAcc,
+    /// Presence means this stream reported a billable field, even if its value was explicitly zero.
+    usage_model: Option<Box<str>>,
     stop: Option<String>,
     saw_message_start: bool,
     terminal: bool,
@@ -199,8 +232,74 @@ pub(crate) struct AnthropicDecoder {
     /// The model the turn is attributed to (Node `turn.model`): the requested one until `message_start` names the model
     /// that answers or a `fallback` block hands the turn to the fallback model.
     model: String,
+    /// The request asked for `thinking.display: "updates"` (`relayProgressUpdates`): reasoning streams no text, so thinking
+    /// text is a progress update, relayed as [`StreamEvent::ProgressDelta`].
+    relays_updates: bool,
+    /// The thinking block the last relayed progress update belongs to (`progressIndex`).
+    progress_index: Option<u64>,
+    /// Text of the turn was relayed (`turn.content` holds some).
+    text_relayed: bool,
+    /// The last thing relayed was a progress update.
+    update_shown_last: bool,
 }
 
+/// What a turn's decoder shares with its stream: the stream decodes through it and, when the turn is cut, asks it for
+/// the blocks the turn holds at that moment, as Node's `partialFields` reads its store at the failure.
+#[derive(Clone)]
+pub(super) struct Shared(std::sync::Arc<std::sync::Mutex<AnthropicDecoder>>);
+
+impl Shared {
+    pub(super) fn new(decoder: AnthropicDecoder) -> Self {
+        Self(std::sync::Arc::new(std::sync::Mutex::new(decoder)))
+    }
+
+    fn decoder(&self) -> std::sync::MutexGuard<'_, AnthropicDecoder> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Whether `message_start` has arrived (`state.sawMessageStart`).
+    pub(super) fn message_started(&self) -> bool {
+        self.decoder().saw_message_start
+    }
+
+    pub(super) fn usage_model(&self) -> Option<String> {
+        self.decoder().usage_model.as_deref().map(str::to_owned)
+    }
+
+    /// What the turn holds at a cut. The thinking blocks (`partialThinkingBlocks`) are the valid ones among the store's
+    /// blocks, in provider order, whatever else the turn did. The exact replay (`partialAssistantBlocks`,
+    /// `orderedAssistantBlocks`, turn-blocks.mjs) is the same blocks whole, absent when it could not be exact: a turn
+    /// that recovered a call from its text has no block for it, so the replay would silently omit the call.
+    pub(super) fn partial(&self) -> Cut {
+        let decoder = self.decoder();
+        let blocks = decoder.replay_blocks(true);
+        let thinking = blocks.iter().filter(|b| replay_blocks::is_thinking(b)).cloned().collect();
+        let replay = (decoder.leaked_dispatched == 0 && !blocks.is_empty())
+            .then(|| ProviderReplay { owner: decoder.owner.clone(), items: Value::Array(blocks) });
+        Cut { thinking, replay }
+    }
+}
+
+/// A cut turn's partial blocks: the thinking it can carry, and its exact ordered replay when one can be built.
+pub(super) struct Cut {
+    pub(super) thinking: Vec<Value>,
+    pub(super) replay: Option<ProviderReplay>,
+}
+
+impl WireDecoder for Shared {
+    fn feed(&mut self, unit: &[u8]) -> Result<Vec<StreamEvent>, ProviderError> {
+        self.decoder().feed(unit)
+    }
+    fn finish(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
+        self.decoder().finish()
+    }
+    fn terminal_seen(&self) -> bool {
+        self.decoder().terminal_seen()
+    }
+    fn exposure(&self) -> Exposure {
+        self.decoder().exposure()
+    }
+}
 /// Node `message.stop_reason || null`: an absent reason stays absent.
 pub(super) fn stop_reason(raw: Option<&str>) -> Option<StopReason> {
     Some(match raw.filter(|r| !r.is_empty())? {
@@ -244,6 +343,7 @@ impl AnthropicDecoder {
             framer: SseFramer::default(),
             blocks: BTreeMap::new(),
             usage: UsageAcc::default(),
+            usage_model: None,
             stop: None,
             saw_message_start: false,
             terminal: false,
@@ -257,7 +357,17 @@ impl AnthropicDecoder {
             has_thinking: false,
             block_types: Vec::new(),
             output_started: false,
+            relays_updates: false,
+            progress_index: None,
+            text_relayed: false,
+            update_shown_last: false,
         }
+    }
+
+    /// The request was sent with `thinking.display: "updates"`: its thinking text is relayed as progress updates.
+    pub(crate) fn relaying_updates(mut self, relays: bool) -> Self {
+        self.relays_updates = relays;
+        self
     }
 
     /// Recover tool calls leaked into the text, naming only these tools (the request body's).
@@ -270,6 +380,7 @@ impl AnthropicDecoder {
     fn relay_leak(&mut self, (text, calls): (String, Vec<Recovered>), out: &mut Vec<StreamEvent>) {
         if !text.is_empty() {
             self.exposure.text_emitted = true;
+            self.part_from_update(out);
             out.push(StreamEvent::TextDelta(text));
         }
         for recovered in calls {
@@ -294,7 +405,19 @@ impl AnthropicDecoder {
 
     fn fail(&self, mut err: ProviderError) -> ProviderError {
         err.exposure = self.exposure;
+        if let Some(model) = &self.usage_model {
+            err.partial_usage = Some(Box::new(self.usage.usage()));
+            err.partial_model = Some(model.clone());
+        }
         err
+    }
+
+    fn report_usage(&mut self, raw: &Value, out: &mut Vec<StreamEvent>) {
+        self.usage.update(raw);
+        if UsageAcc::has_report(raw) {
+            self.usage_model = Some(self.model.as_str().into());
+            out.push(StreamEvent::Usage(self.usage.usage()));
+        }
     }
 
     fn truncated(&self) -> ProviderError {
@@ -311,8 +434,9 @@ impl AnthropicDecoder {
 
     /// The ordered assistant blocks of the turn, in provider block order,
     /// reduced to what the API accepts back ([`replay_blocks::sanitize`]); a
-    /// merged thinking run dropped is reported once (turn-blocks.mjs:88-99).
-    fn replay_blocks(&self) -> Vec<Value> {
+    /// merged thinking run dropped is reported once (turn-blocks.mjs:88-99). `at_cut`: the turn is read mid-stream, and
+    /// a thinking block with no signature is not carried (the API refuses it back); an empty one with a signature is.
+    fn replay_blocks(&self, at_cut: bool) -> Vec<Value> {
         let mut blocks: Vec<Value> = Vec::new();
         for (index, block) in &self.blocks {
             if self.skipped.contains(index) {
@@ -326,6 +450,7 @@ impl AnthropicDecoder {
                     }
                     value
                 }
+                Block::Thinking { signature, .. } if at_cut && signature.is_empty() => continue,
                 Block::Thinking { thinking, signature } => {
                     json!({ "type": "thinking", "thinking": thinking, "signature": signature })
                 }
@@ -362,7 +487,7 @@ impl AnthropicDecoder {
         // The turn is stored flattened, content + `thinkingBlocks` + calls (`orderedThinkingBlocks`).
         let blocks = if self.leaked_dispatched > 0 {
             let thinking: Vec<Value> = self
-                .replay_blocks()
+                .replay_blocks(false)
                 .into_iter()
                 .filter(|b| matches!(b.get("type").and_then(Value::as_str), Some("thinking" | "redacted_thinking")))
                 .collect();
@@ -371,7 +496,7 @@ impl AnthropicDecoder {
             }
             Vec::new()
         } else {
-            self.replay_blocks()
+            self.replay_blocks(false)
         };
         if !blocks.is_empty() {
             out.push(StreamEvent::ReasoningReplay(ProviderReplay {
@@ -396,7 +521,7 @@ impl AnthropicDecoder {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn on_event(&mut self, event: &Value, name: &str, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
         let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
-        if name == "error" || kind == "error" || event.get("error").is_some() {
+        if name == "error" || kind == "error" || event.get("error").is_some_and(crate::providers::js_value::truthy) {
             return Err(self.fail(classify_stream_error(event)));
         }
         let index = event.get("index").and_then(Value::as_u64).unwrap_or(0);
@@ -413,8 +538,7 @@ impl AnthropicDecoder {
                     self.serve(model, out);
                 }
                 if let Some(usage) = message.get("usage") {
-                    self.usage.update(usage);
-                    out.push(StreamEvent::Usage(self.usage.usage()));
+                    self.report_usage(usage, out);
                 }
             }
             "content_block_start" => self.block_start(index, event.get("content_block"), out),
@@ -507,7 +631,8 @@ impl AnthropicDecoder {
                 let (id, name) = (text_of("id"), text_of("name"));
                 out.push(StreamEvent::ItemStart { kind: ItemKind::Tool, phase: None });
                 out.push(StreamEvent::ToolCallStart { id: id.clone(), name: name.clone() });
-                self.blocks.insert(index, Block::ToolUse { id, name, json: String::new(), done: None });
+                let opening_input = block.get("input").filter(|input| input.is_object()).cloned();
+                self.blocks.insert(index, Block::ToolUse { id, name, opening_input, json: String::new(), done: None });
             }
             kind if NATIVE_CALL_TYPES.contains(&kind) => {
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
@@ -525,7 +650,8 @@ impl AnthropicDecoder {
     }
 
     fn append_text(&mut self, index: u64, delta: &str, out: &mut Vec<StreamEvent>) {
-        let Some(Block::Text { text, .. }) = self.blocks.get_mut(&index) else {
+        // A text delta for an index that never opened still counts: its slot is created (`appendText`).
+        let Block::Text { text, .. } = self.blocks.entry(index).or_insert_with(|| Block::Text { text: String::new(), citations: Vec::new() }) else {
             return;
         };
         text.push_str(delta);
@@ -534,8 +660,18 @@ impl AnthropicDecoder {
             self.relay_leak(scanned, out);
         } else if !delta.is_empty() {
             self.exposure.text_emitted = true;
+            self.part_from_update(out);
             out.push(StreamEvent::TextDelta(delta.to_owned()));
         }
+    }
+
+    /// Text is about to be relayed. Text that follows a progress update is shown as a paragraph of its own: the break is
+    /// part of what is shown, as an update is, never of the turn's text (Node relayed the two with nothing between them).
+    fn part_from_update(&mut self, out: &mut Vec<StreamEvent>) {
+        if std::mem::take(&mut self.update_shown_last) {
+            out.push(StreamEvent::ProgressDelta("\n\n".to_owned()));
+        }
+        self.text_relayed = true;
     }
 
     /// `turn.contentBlockTypes.add(kind)`: first-seen order, each once.
@@ -575,7 +711,16 @@ impl AnthropicDecoder {
                     // Emitted thinking is an exposure boundary like text: the
                     // consumer has seen output a replay would repeat.
                     self.exposure.text_emitted = true;
-                    out.push(StreamEvent::ReasoningDelta(piece.to_owned()));
+                    if self.relays_updates {
+                        // `relayProgressUpdate`: an update of another block starts a paragraph of its own after what was shown.
+                        let apart = self.progress_index != Some(index) && (self.progress_index.is_some() || self.text_relayed);
+                        self.progress_index = Some(index);
+                        self.update_shown_last = true;
+                        out.push(StreamEvent::ProgressDelta(format!("{}{piece}", if apart { "\n\n" } else { "" })));
+                        out.push(StreamEvent::Progress(ProgressKind::Text));
+                    } else {
+                        out.push(StreamEvent::ReasoningDelta(piece.to_owned()));
+                    }
                 }
             }
             "signature_delta" => {
@@ -623,11 +768,11 @@ impl AnthropicDecoder {
 
     fn block_stop(&mut self, index: u64, out: &mut Vec<StreamEvent>) {
         match self.blocks.get_mut(&index) {
-            Some(Block::ToolUse { id, name, json, done }) => {
+            Some(Block::ToolUse { id, name, opening_input, json, done }) if done.is_none() => {
                 // A malformed input stays a call carrying the parse failure, so
                 // the model can re-issue it; a non-object input is `{}`.
                 let arguments = if json.is_empty() {
-                    Value::Object(Map::new())
+                    opening_input.take().unwrap_or_else(|| Value::Object(Map::new()))
                 } else {
                     match mixdog_js::json_parse(json) {
                         Ok(value) if value.is_object() => value,
@@ -684,8 +829,7 @@ impl AnthropicDecoder {
             self.stop = Some(stop.to_owned());
         }
         if let Some(usage) = event.get("usage") {
-            self.usage.update(usage);
-            out.push(StreamEvent::Usage(self.usage.usage()));
+            self.report_usage(usage, out);
         }
         // A stop declared while a tool input still streams: the arguments can
         // never complete, so the turn is cut now rather than at message_stop.
@@ -750,7 +894,194 @@ impl WireDecoder for AnthropicDecoder {
         self.terminal
     }
 
+    /// What the stream has shown so far. A tool input still streaming is a cut input whenever the stream ends here, by its
+    /// own truncation or by a transport fault of the body, so the loop can tell a call that never ran from one that did.
     fn exposure(&self) -> Exposure {
-        self.exposure
+        Exposure { tool_input_cut: self.tool_input_in_flight(), ..self.exposure }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decode(frames: &[Value]) -> Result<Vec<StreamEvent>, ProviderError> {
+        let mut decoder = AnthropicDecoder::for_model(ProviderId::from("anthropic"), "claude-x");
+        let mut out = Vec::new();
+        for frame in frames {
+            let line = format!("data: {frame}\n\n");
+            out.extend(decoder.feed(line.as_bytes())?);
+        }
+        out.extend(decoder.feed(&[])?);
+        Ok(out)
+    }
+
+    fn message_start() -> Value {
+        json!({ "type": "message_start", "message": { "model": "claude-x", "usage": { "input_tokens": 1 } } })
+    }
+
+    #[test]
+    fn an_opening_tool_input_survives_without_fragments_and_is_dispatched_once() {
+        let frames = [
+            message_start(),
+            json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "tool_use", "id": "call_a", "name": "lookup", "input": { "key": "opening" } } }),
+            json!({ "type": "content_block_stop", "index": 0 }),
+            json!({ "type": "content_block_stop", "index": 0 }),
+            json!({ "type": "content_block_start", "index": 1, "content_block": { "type": "tool_use", "id": "call_b", "name": "lookup", "input": { "key": "preview" } } }),
+            json!({ "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "{\"key\":" } }),
+            json!({ "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "\"streamed\"}" } }),
+            json!({ "type": "content_block_stop", "index": 1 }),
+            json!({ "type": "message_delta", "delta": { "stop_reason": "tool_use" } }),
+        ];
+        let events = decode(&frames).expect("a complete tool turn");
+        let calls: Vec<_> = events.iter().filter_map(|event| match event {
+            StreamEvent::ToolCallDone(call) => Some((call.id.as_str(), call.arguments.clone())),
+            _ => None,
+        }).collect();
+        assert_eq!(calls, [("call_a", json!({ "key": "opening" })), ("call_b", json!({ "key": "streamed" }))]);
+        assert!(events.iter().any(|event| matches!(event, StreamEvent::ReasoningReplay(replay)
+            if replay.items[0]["input"] == json!({"key": "opening"}) && replay.items[1]["input"] == json!({"key": "streamed"}))));
+    }
+
+    /// `event?.error` is JavaScript truthiness: an explicit `"error": null` on a normal event is not an error frame.
+    #[test]
+    fn a_null_error_field_on_a_normal_event_is_not_an_error() {
+        let events = decode(&[
+            message_start(),
+            json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" }, "error": null }),
+            json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "hi" }, "error": null }),
+            json!({ "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 1 }, "error": null }),
+            json!({ "type": "message_stop" }),
+        ])
+        .expect("no error frame");
+        assert!(events.iter().any(|e| matches!(e, StreamEvent::TextDelta(t) if t == "hi")));
+        assert!(events.iter().any(|e| matches!(e, StreamEvent::Completed { .. })));
+    }
+
+    /// `appendText` creates the slot: a text delta for an index that never opened is still the turn's text.
+    /// What a cut turn carries is read from the decoder's state at the cut, not from its last block end: text that
+    /// streamed after the last block stop is in it, and an unsigned thinking block still open is not.
+    #[test]
+    fn the_partial_blocks_are_read_at_the_cut() {
+        let shared = Shared::new(AnthropicDecoder::for_model(ProviderId::from("anthropic"), "claude-x"));
+        let mut feeding = shared.clone();
+        for frame in [
+            message_start(),
+            json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "thinking", "thinking": "" } }),
+            json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "thinking": "hm" } }),
+            json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "signature_delta", "signature": "sig" } }),
+            json!({ "type": "content_block_stop", "index": 0 }),
+            json!({ "type": "content_block_start", "index": 1, "content_block": { "type": "text", "text": "" } }),
+            json!({ "type": "content_block_delta", "index": 1, "delta": { "type": "text_delta", "text": "so far" } }),
+            json!({ "type": "content_block_start", "index": 2, "content_block": { "type": "thinking", "thinking": "" } }),
+            json!({ "type": "content_block_delta", "index": 2, "delta": { "type": "thinking_delta", "thinking": "open" } }),
+        ] {
+            feeding.feed(format!("data: {frame}\n\n").as_bytes()).expect("fed");
+        }
+        let cut = shared.partial();
+        let replay = cut.replay.expect("blocks at the cut");
+        assert_eq!(cut.thinking, vec![json!({ "type": "thinking", "thinking": "hm", "signature": "sig" })]);
+        assert_eq!(
+            replay.items,
+            json!([{ "type": "thinking", "thinking": "hm", "signature": "sig" }, { "type": "text", "text": "so far" }])
+        );
+    }
+    /// Text between two thinking blocks, ahead of two tool calls, is in the turn's text and its replay at its place.
+    #[test]
+    fn text_between_thinking_blocks_before_two_tool_calls_is_kept() {
+        let start = |index: u64, block: Value| json!({ "type": "content_block_start", "index": index, "content_block": block });
+        let delta = |index: u64, delta: Value| json!({ "type": "content_block_delta", "index": index, "delta": delta });
+        let stop = |index: u64| json!({ "type": "content_block_stop", "index": index });
+        let events = decode(&[
+            message_start(),
+            start(0, json!({ "type": "thinking", "thinking": "" })),
+            delta(0, json!({ "type": "signature_delta", "signature": "sig-a" })),
+            stop(0),
+            start(1, json!({ "type": "text", "text": "" })),
+            delta(1, json!({ "type": "text_delta", "text": "I will look." })),
+            stop(1),
+            start(2, json!({ "type": "thinking", "thinking": "" })),
+            delta(2, json!({ "type": "thinking_delta", "thinking": "plan" })),
+            delta(2, json!({ "type": "signature_delta", "signature": "sig-b" })),
+            stop(2),
+            start(3, json!({ "type": "tool_use", "id": "t1", "name": "Skill", "input": {} })),
+            delta(3, json!({ "type": "input_json_delta", "partial_json": "{\"name\":\"a\"}" })),
+            stop(3),
+            start(4, json!({ "type": "tool_use", "id": "t2", "name": "shell", "input": {} })),
+            delta(4, json!({ "type": "input_json_delta", "partial_json": "{\"command\":\"b\"}" })),
+            stop(4),
+            json!({ "type": "message_delta", "delta": { "stop_reason": "tool_use" }, "usage": { "output_tokens": 1 } }),
+            json!({ "type": "message_stop" }),
+        ])
+        .expect("decoded");
+        let text_at = events.iter().position(|e| matches!(e, StreamEvent::TextDelta(t) if t == "I will look.")).expect("text streamed");
+        let call_at = events.iter().position(|e| matches!(e, StreamEvent::ToolCallDone(_))).expect("calls dispatched");
+        assert!(text_at < call_at);
+        let replay = events.iter().find_map(|e| match e {
+            StreamEvent::ReasoningReplay(replay) => Some(replay.items.clone()),
+            _ => None,
+        });
+        let kinds: Vec<String> = replay.unwrap().as_array().unwrap().iter().map(|b| b["type"].as_str().unwrap().to_owned()).collect();
+        assert_eq!(kinds, ["thinking", "text", "thinking", "tool_use", "tool_use"]);
+    }
+
+    /// A request sent asking for progress updates relays its thinking text as progress updates, each block's a paragraph of
+    /// its own after what was shown, and the turn's blocks stay what the model wrote; a request that did not ask streams
+    /// the same text as reasoning.
+    #[test]
+    fn thinking_text_of_a_request_for_progress_updates_is_relayed_as_progress_updates() {
+        let start = |index: u64, block: Value| json!({ "type": "content_block_start", "index": index, "content_block": block });
+        let delta = |index: u64, delta: Value| json!({ "type": "content_block_delta", "index": index, "delta": delta });
+        let frames = [
+            message_start(),
+            start(0, json!({ "type": "thinking", "thinking": "" })),
+            delta(0, json!({ "type": "thinking_delta", "thinking": "Reading " })),
+            delta(0, json!({ "type": "thinking_delta", "thinking": "the file." })),
+            delta(0, json!({ "type": "signature_delta", "signature": "sig-a" })),
+            start(1, json!({ "type": "thinking", "thinking": "" })),
+            delta(1, json!({ "type": "thinking_delta", "thinking": "Now the tests." })),
+            delta(1, json!({ "type": "signature_delta", "signature": "sig-b" })),
+            start(2, json!({ "type": "tool_use", "id": "t1", "name": "shell", "input": {} })),
+            delta(2, json!({ "type": "input_json_delta", "partial_json": "{}" })),
+            json!({ "type": "content_block_stop", "index": 2 }),
+            json!({ "type": "message_delta", "delta": { "stop_reason": "tool_use" }, "usage": { "output_tokens": 1 } }),
+            json!({ "type": "message_stop" }),
+        ];
+        let run = |relays: bool| {
+            let mut decoder = AnthropicDecoder::for_model(ProviderId::from("anthropic"), "claude-x").relaying_updates(relays);
+            let mut out = Vec::new();
+            for frame in &frames {
+                out.extend(decoder.feed(format!("data: {frame}\n\n").as_bytes()).expect("decoded"));
+            }
+            out.extend(decoder.finish().expect("finished"));
+            out
+        };
+        let relayed = run(true);
+        let updates: Vec<&str> = relayed.iter().filter_map(|e| if let StreamEvent::ProgressDelta(text) = e { Some(text.as_str()) } else { None }).collect();
+        assert_eq!(updates, ["Reading ", "the file.", "\n\nNow the tests."]);
+        assert!(!relayed.iter().any(|e| matches!(e, StreamEvent::ReasoningDelta(_) | StreamEvent::TextDelta(_))), "an update is neither reasoning nor the reply's text");
+        let replay = relayed.iter().find_map(|e| if let StreamEvent::ReasoningReplay(replay) = e { Some(replay.items.clone()) } else { None }).expect("the blocks");
+        assert_eq!(replay[0], json!({ "type": "thinking", "thinking": "Reading the file.", "signature": "sig-a" }));
+        let plain = run(false);
+        let reasoning: Vec<&str> = plain.iter().filter_map(|e| if let StreamEvent::ReasoningDelta(text) = e { Some(text.as_str()) } else { None }).collect();
+        assert_eq!(reasoning, ["Reading ", "the file.", "Now the tests."]);
+        assert!(!plain.iter().any(|e| matches!(e, StreamEvent::ProgressDelta(_))));
+    }
+
+    #[test]
+    fn a_text_delta_with_no_block_start_is_kept() {
+        let events = decode(&[
+            message_start(),
+            json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "hi" } }),
+            json!({ "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 1 } }),
+            json!({ "type": "message_stop" }),
+        ])
+        .expect("decoded");
+        assert!(events.iter().any(|e| matches!(e, StreamEvent::TextDelta(t) if t == "hi")));
+        let replay = events.iter().find_map(|e| match e {
+            StreamEvent::ReasoningReplay(replay) => Some(replay.items.clone()),
+            _ => None,
+        });
+        assert_eq!(replay, Some(json!([{ "type": "text", "text": "hi" }])));
     }
 }

@@ -97,6 +97,9 @@ pub struct ProgramArgs {
     pub lock_wait_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lock_stale_ms: Option<u64>,
+    /// probe/ensure: the saved host's grace in ms; only a host with its own grace sends it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grace_ms: Option<u64>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -120,6 +123,7 @@ impl ProgramArgs {
             remove_user_data: false,
             lock_wait_ms: None,
             lock_stale_ms: None,
+            grace_ms: None,
         }
     }
 }
@@ -157,10 +161,12 @@ pub enum BootstrapCode {
     DaemonDataInUse,
     PortUnavailable,
     LocalPayload,
+    /// A serving core of the intended build that publishes no SSH listener: only a newer build of the server fixes it.
+    ServerUpgradeRequired,
 }
 
 impl BootstrapCode {
-    pub const ALL: [BootstrapCode; 18] = [
+    pub const ALL: [BootstrapCode; 19] = [
         BootstrapCode::InstallLocked,
         BootstrapCode::InstallFailed,
         BootstrapCode::InstallMissing,
@@ -179,6 +185,7 @@ impl BootstrapCode {
         BootstrapCode::DaemonDataInUse,
         BootstrapCode::PortUnavailable,
         BootstrapCode::LocalPayload,
+        BootstrapCode::ServerUpgradeRequired,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -201,6 +208,7 @@ impl BootstrapCode {
             BootstrapCode::DaemonDataInUse => "daemon-data-in-use",
             BootstrapCode::PortUnavailable => "port-unavailable",
             BootstrapCode::LocalPayload => "local-payload",
+            BootstrapCode::ServerUpgradeRequired => "server-upgrade-required",
         }
     }
 
@@ -232,6 +240,8 @@ pub const TERMINAL_BOOTSTRAP_CODES: &[BootstrapCode] = &[
     // This PC's own runtime payload is missing or unusable: nothing was sent to the server, and
     // redialing cannot restore a local file.
     BootstrapCode::LocalPayload,
+    // The core of the intended build does not publish the SSH listener: connecting again finds the same core.
+    BootstrapCode::ServerUpgradeRequired,
 ];
 
 /// An older core winding down for a replace (`core/drain`, LR §5.1): what the user is shown and
@@ -253,16 +263,23 @@ pub struct RemoteBootstrapError {
     pub code: String,
     pub message: String,
     pub detail: Option<RemoteDrain>,
+    /// The message by code (a `MIXDOG_NOTICE` line of the server program, or this desktop's own sentence).
+    pub notice: Option<mixdog_app_protocol::v2::connections::SshMessage>,
 }
 
 impl RemoteBootstrapError {
     pub fn new(code: BootstrapCode, message: impl Into<String>) -> Self {
-        Self { code: code.as_str().to_owned(), message: message.into(), detail: None }
+        Self { code: code.as_str().to_owned(), message: message.into(), detail: None, notice: None }
+    }
+
+    /// A desktop-side failure that says `said`.
+    pub fn said(code: BootstrapCode, said: mixdog_app_protocol::message::Said) -> Self {
+        Self { code: code.as_str().to_owned(), message: said.english, detail: None, notice: Some(said.message) }
     }
 
     /// A code read off the wire, known or not.
     pub fn from_wire(code: &str, message: impl Into<String>, detail: Option<RemoteDrain>) -> Self {
-        Self { code: code.to_owned(), message: message.into(), detail }
+        Self { code: code.to_owned(), message: message.into(), detail, notice: None }
     }
 
     pub fn is_terminal(&self) -> bool {
@@ -337,8 +354,6 @@ fi
 printf 'MIXDOG_PLATFORM %s|%s\n' "$(uname -sm 2>/dev/null)" "$MIXDOG_LIBC"
 "##;
 
-const UNSUPPORTED_HINT: &str = "Mixdog servers need Linux (x64 or arm64, glibc) or macOS (x64 or arm64).";
-
 /// stderr of a command line a Windows OpenSSH server (cmd.exe/PowerShell) refused.
 pub fn is_windows_shell_failure(stderr: &str) -> bool {
     let lower = stderr.to_lowercase();
@@ -350,10 +365,7 @@ pub fn is_windows_shell_failure(stderr: &str) -> bool {
 }
 
 pub fn windows_server_error() -> RemoteBootstrapError {
-    RemoteBootstrapError::new(
-        BootstrapCode::UnsupportedPlatform,
-        format!("The server runs Windows. {UNSUPPORTED_HINT}"),
-    )
+    RemoteBootstrapError::said(BootstrapCode::UnsupportedPlatform, crate::said::SERVER_RUNS_WINDOWS.plain())
 }
 
 /// The probe line `(uname, libc)`, or `None` when the output carries none.
@@ -373,12 +385,7 @@ pub fn classify_platform(uname: &str, libc: &str) -> Result<ServerPlatform, Remo
     let mut words = uname.split_whitespace();
     let system = words.next().unwrap_or("");
     let machine = words.next().unwrap_or("");
-    let unsupported = |found: String| {
-        RemoteBootstrapError::new(
-            BootstrapCode::UnsupportedPlatform,
-            format!("The server is {found}. {UNSUPPORTED_HINT}"),
-        )
-    };
+    let unsupported = |found: String| RemoteBootstrapError::said(BootstrapCode::UnsupportedPlatform, crate::said::SERVER_SYSTEM_UNSUPPORTED.said([("found", found)]));
     let lower_system = system.to_lowercase();
     if ["mingw", "msys", "cygwin", "windows"].iter().any(|prefix| lower_system.starts_with(prefix)) {
         return Err(unsupported(format!("Windows ({uname})")));
@@ -412,7 +419,9 @@ pub fn classify_platform(uname: &str, libc: &str) -> Result<ServerPlatform, Remo
 // The program
 // ---------------------------------------------------------------------------------------------
 
-const FAIL_SHELL: &str = r#"fail() { printf 'MIXDOG_ERROR %s %s\n' "$1" "$2"; exit 3; }"#;
+/// `fail <code> <message> <notice-code>`: the notice line names the sentence the interface words in its own language; the message
+/// is its English fallback.
+const FAIL_SHELL: &str = r#"fail() { printf 'MIXDOG_NOTICE {"code":"%s"}\nMIXDOG_ERROR %s %s\n' "$3" "$1" "$2"; exit 3; }"#;
 
 /// Not installed: the probe still reports where the server's home is.
 const PROBE_NOT_INSTALLED_SHELL: &str = r##"
@@ -425,22 +434,22 @@ printf 'MIXDOG_RESULT {"home":"%s","uid":%s,"installed":false}\n' "$HOME_JSON" "
 /// `$ROOT`, so the install can move `payload/` by rename) and runs `server-ensure` from the
 /// unpacked `mixdogd`. Both are removed on every exit.
 pub const REMOTE_PROGRAM: &str = r##"
-command -v gzip >/dev/null 2>&1 || fail install-failed "gzip was not found on the server."
-command -v tar >/dev/null 2>&1 || fail install-failed "tar was not found on the server."
+command -v gzip >/dev/null 2>&1 || fail install-failed "gzip was not found on the server." install-no-gzip
+command -v tar >/dev/null 2>&1 || fail install-failed "tar was not found on the server." install-no-tar
 if command -v sha256sum >/dev/null 2>&1; then SHA_TOOL="sha256sum"
 elif command -v shasum >/dev/null 2>&1; then SHA_TOOL="shasum -a 256"
-else fail install-failed "Neither sha256sum nor shasum was found on the server."; fi
+else fail install-failed "Neither sha256sum nor shasum was found on the server." install-no-checksum-tool; fi
 mkdir -p "$ROOT/tmp" && chmod 700 "$ROOT" "$ROOT/tmp" 2>/dev/null
 WORK="$ROOT/tmp/upload.$$"
 BUNDLE="$WORK.tgz"
 trap 'rm -rf "$WORK" "$BUNDLE"' EXIT
 trap 'exit 1' HUP INT TERM
-cat > "$BUNDLE" || fail install-failed "The uploaded Mixdog runtime could not be stored on the server."
+cat > "$BUNDLE" || fail install-failed "The uploaded files could not be stored on the server." upload-not-stored
 ACTUAL=$($SHA_TOOL "$BUNDLE" | cut -d' ' -f1)
-[ "$ACTUAL" = @BUNDLE_SHA256@ ] || fail install-failed "The uploaded Mixdog runtime does not match its digest."
-mkdir -m 700 "$WORK" || fail install-failed "The upload directory could not be created on the server."
-gzip -dc < "$BUNDLE" | tar -xf - -C "$WORK" || fail install-failed "The uploaded Mixdog runtime could not be unpacked on the server."
-chmod 700 "$WORK/mixdogd" || fail install-failed "The uploaded Mixdog runtime holds no mixdogd."
+[ "$ACTUAL" = @BUNDLE_SHA256@ ] || fail install-failed "The uploaded files do not match their checksum." upload-checksum-mismatch
+mkdir -m 700 "$WORK" || fail install-failed "The upload folder could not be created on the server." upload-folder-failed
+gzip -dc < "$BUNDLE" | tar -xf - -C "$WORK" || fail install-failed "The uploaded files could not be unpacked on the server." upload-not-unpacked
+chmod 700 "$WORK/mixdogd" || fail install-failed "The uploaded files do not contain the server program." upload-no-program
 chmod 755 "$WORK/payload/js/node" 2>/dev/null
 "$WORK/mixdogd" server-ensure "$ARGS"
 exit $?
@@ -465,16 +474,10 @@ fn is_sha256_hex(value: Option<&str>) -> bool {
 /// Platform probe, then the run: the installed `mixdogd`, or the uploaded one.
 pub fn remote_program_script(args: &ProgramArgs) -> Result<String, RemoteBootstrapError> {
     if !is_safe_segment(&args.install_id) {
-        return Err(RemoteBootstrapError::new(
-            BootstrapCode::InstallFailed,
-            format!("Server install id is not a safe path segment: {}", args.install_id),
-        ));
+        return Err(RemoteBootstrapError::said(BootstrapCode::InstallFailed, crate::said::INSTALL_ID_UNSAFE.said([("id", args.install_id.as_str())])));
     }
     if args.upload && !(is_sha256_hex(args.sha256.as_deref()) && is_sha256_hex(args.bundle_sha256.as_deref())) {
-        return Err(RemoteBootstrapError::new(
-            BootstrapCode::InstallFailed,
-            "An upload needs the sha256 of the runtime and of its bundle.",
-        ));
+        return Err(RemoteBootstrapError::said(BootstrapCode::InstallFailed, crate::said::UPLOAD_NEEDS_CHECKSUMS.plain()));
     }
     let head = [
         FAIL_SHELL.to_owned(),
@@ -495,7 +498,7 @@ pub fn remote_program_script(args: &ProgramArgs) -> Result<String, RemoteBootstr
         lines.push(PROBE_NOT_INSTALLED_SHELL.to_owned());
     } else {
         lines.push(
-            r#"[ -x "$INSTALLED" ] || fail install-missing "The Mixdog runtime is not installed on the server and must be uploaded.""#
+            r#"[ -x "$INSTALLED" ] || fail install-missing "The app is not installed on the server and must be uploaded." install-missing"#
                 .to_owned(),
         );
         lines.push(installed.to_owned());

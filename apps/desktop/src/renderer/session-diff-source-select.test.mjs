@@ -118,8 +118,17 @@ test('a capped set draws only the selected file (default: first); a header click
     },
     { sessionId: 'pane-capped', cwd: 'C:/capped-pane' }
   );
-  const section = (path) => view.q(`.session-diff-section[data-session-diff-path="${path}"]`);
-  assert.equal(view.document.querySelectorAll('.session-diff-section').length, 130, 'every file lists its header');
+  // The stack mounts the files near its viewport: scroll a folded (34px)
+  // header into it before reading it.
+  const section = (path) => {
+    const stack = view.q('.session-diff-stack');
+    act(() => {
+      stack.scrollTop = paths.indexOf(path) * 34;
+      stack.dispatchEvent(new view.window.Event('scroll'));
+    });
+    return view.q(`.session-diff-section[data-session-diff-path="${path}"]`);
+  };
+  assert.equal(section('src/f000.ts').getAttribute('aria-setsize'), '130', 'every file is in the list');
   assert.deepEqual(batches, [['src/f000.ts']], 'only the first file is read');
   assert.equal(view.document.querySelectorAll('.session-diff-section .inline-diff').length, 1);
   assert.ok(section('src/f000.ts').querySelector('.inline-diff'));
@@ -128,8 +137,8 @@ test('a capped set draws only the selected file (default: first); a header click
   await view.settle();
   assert.deepEqual(batches.slice(1), [['src/f050.ts']]);
   assert.ok(section('src/f050.ts').querySelector('.inline-diff'));
-  assert.equal(section('src/f000.ts').querySelector('.inline-diff'), null);
   assert.equal(view.document.querySelectorAll('.session-diff-section .inline-diff').length, 1);
+  assert.equal(section('src/f000.ts').querySelector('.inline-diff'), null);
 });
 
 test('an uncapped set reads all patches in one batch; deleted files start folded; a too-large file offers Open in editor', async (t) => {

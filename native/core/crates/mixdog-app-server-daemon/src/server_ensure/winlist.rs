@@ -57,14 +57,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lists_this_process_with_its_own_image() {
-        let own = std::env::current_exe().unwrap();
-        let images = process_images().unwrap();
-        let ours = images.iter().find(|p| p.pid == std::process::id()).expect("own pid is listed");
-        assert!(ours.within(own.parent().unwrap()));
-    }
-
-    #[test]
     fn collection_removes_an_unused_version_and_keeps_the_one_a_process_runs_from() {
         use std::collections::HashSet;
 
@@ -87,5 +79,14 @@ mod tests {
         child.wait().unwrap();
         assert!(!unused.exists(), "{report:?}");
         assert!(used.exists(), "an install a process runs from is kept");
+    }
+
+
+    #[test]
+    fn lists_this_process_with_its_own_image() {
+        let own = std::env::current_exe().unwrap();
+        let images = process_images().unwrap();
+        let ours = images.iter().find(|p| p.pid == std::process::id()).expect("own pid is listed");
+        assert!(ours.within(own.parent().unwrap()));
     }
 }

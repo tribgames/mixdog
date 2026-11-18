@@ -24,7 +24,7 @@ const THIS_PC_FEATURES = [
   {
     feature: 'Phone access',
     keys: [
-      'getRemoteAccessInfo', 'rotateRemoteAccess', 'revokeRemoteAccessClient', 'getRemotePairCode',
+      'getRemoteAccessInfo', 'getRemoteConnectionState', 'rotateRemoteAccess', 'revokeRemoteAccessClient', 'getRemotePairCode',
       'getRemoteAccessSettings', 'setRemoteAccessEnabled', 'setRemotePcName', 'setRemoteClientAlias',
       'listRemoteClientClaims', 'resolveRemoteClientClaim',
     ],

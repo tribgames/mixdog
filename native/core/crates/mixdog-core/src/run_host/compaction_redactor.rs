@@ -36,11 +36,22 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn a_session_is_redacted_by_its_own_marks_only() {
+        let store = Arc::new(SensitiveStore::default());
+        store.remember("a", &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "text": "s3cret", "sensitive": true } } })]);
+        let row = json!({ "role": "user", "content": "s3cret" });
+        assert_eq!(SensitiveRedactor::new(store.clone(), "a").redact(vec![row.clone()]), [json!({ "role": "user", "content": "[redacted]" })]);
+        assert_eq!(SensitiveRedactor::new(store, "b").redact(vec![row.clone()]), [row]);
+    }
+
+
     /// Node's `_messagesForDisk` over stored rows, recorded for a session without marks and two
     /// with, array and other non-string attachment references among the rows (`fixtures/compaction-redactor`, from\n    /// `benchmarks/rust-core/recorders/record-compaction-redactor.mjs`).
+    #[cfg(node_twin)]
     const GOLDEN: &str = include_str!("../../../../fixtures/compaction-redactor/golden.json");
-
     #[test]
+    #[cfg(node_twin)]
     fn rows_are_redacted_as_nodes_messages_for_disk_stores_them() {
         let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
         let rows: Vec<Value> = golden["rows"].as_array().expect("rows").clone();
@@ -64,14 +75,5 @@ mod tests {
             }
             assert_eq!(got == rows, session["same"].as_bool().expect("same"), "{id}: untouched rows stay as they are");
         }
-    }
-
-    #[test]
-    fn a_session_is_redacted_by_its_own_marks_only() {
-        let store = Arc::new(SensitiveStore::default());
-        store.remember("a", &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "text": "s3cret", "sensitive": true } } })]);
-        let row = json!({ "role": "user", "content": "s3cret" });
-        assert_eq!(SensitiveRedactor::new(store.clone(), "a").redact(vec![row.clone()]), [json!({ "role": "user", "content": "[redacted]" })]);
-        assert_eq!(SensitiveRedactor::new(store, "b").redact(vec![row.clone()]), [row]);
     }
 }

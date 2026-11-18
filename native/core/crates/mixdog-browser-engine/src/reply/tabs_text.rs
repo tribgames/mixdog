@@ -9,17 +9,25 @@ use mixdog_app_protocol::v2::browser_engine::PageDescriptor;
 use mixdog_browser_policy::redaction::redact_browser_text;
 use mixdog_browser_policy::redaction::redact_url;
 
-/// The `list_tabs` reply text. `pages` are the session's pages in the order the host lists them: the visible ones are numbered
-/// `v1`, `v2`, ... in that order; `active_page_id` is the visible page commands run against.
+/// Whether a tab id is the pane's own visible form (`v1`, `v2`, ...: `VISIBLE_POSITION` of `tabs-target.ts`). A tab the person
+/// opened with "+" is shown but is named (`user-tab-1`), so it is not one; the host's `background` flag cannot tell them apart.
+pub fn is_visible_tab_id(tab_id: &str) -> bool {
+    let mut chars = tab_id.chars();
+    matches!(chars.next(), Some('v' | 'V')) && !chars.as_str().is_empty() && chars.all(|c| c.is_ascii_digit())
+}
+
+/// The `list_tabs` reply text. `pages` are the session's pages in the order the host lists them: the pane's visible ones are
+/// numbered `v1`, `v2`, ... in that order and the active mark is theirs alone (`tabs.ts` marks only the visible loop); every other
+/// page is listed by its name; `active_page_id` is the visible page commands run against.
 pub fn list_tabs_text(pages: &[PageDescriptor], active_page_id: Option<&str>) -> String {
     let mut lines = Vec::new();
     let mut visible = 0;
-    for page in pages.iter().filter(|page| !page.background) {
+    for page in pages.iter().filter(|page| is_visible_tab_id(&page.tab_id)) {
         visible += 1;
         let marker = if active_page_id == Some(page.page_id.as_str()) { " (active)" } else { "" };
         lines.push(format!("- {} [v{visible}]{marker}: {}", page.page_id, title_and_address(page)));
     }
-    for page in pages.iter().filter(|page| page.background) {
+    for page in pages.iter().filter(|page| !is_visible_tab_id(&page.tab_id)) {
         // A popup is named by the page that opened it (`popup from <opener>`).
         let opener = pages.iter().find(|other| other.facts.opened_popups.contains(&page.page_id));
         let kind = opener.map(|opener| format!("popup from {}", opener.page_id)).unwrap_or_else(|| "background".to_owned());
@@ -29,6 +37,19 @@ pub fn list_tabs_text(pages: &[PageDescriptor], active_page_id: Option<&str>) ->
         return "No tabs are open. navigate opens the visible tab; background:true opens a hidden page.".to_owned();
     }
     format!("Tabs:\n{}", lines.join("\n"))
+}
+
+/// `status` with no `tab` while the session holds pages but none of them is a visible one: the status of the session's browser is
+/// the pages it has, as `list_tabs` words them, and how to ask about one. `None` when there is nothing to say instead of the page
+/// the command would resolve to (a visible page exists, or no page at all).
+pub fn status_without_visible_page(pages: &[PageDescriptor], active_page_id: Option<&str>) -> Option<String> {
+    if active_page_id.is_some() || pages.is_empty() || pages.iter().any(|page| is_visible_tab_id(&page.tab_id)) {
+        return None;
+    }
+    Some(format!(
+        "No visible page is open; the session has background pages. Name one with tab to read its status.\n{}",
+        list_tabs_text(pages, active_page_id)
+    ))
 }
 
 fn title_and_address(page: &PageDescriptor) -> String {
@@ -67,7 +88,21 @@ mod tests {
             object.insert("url".into(), json!(url));
             object.insert("background".into(), json!(background));
         }
-        serde_json::from_value(json!({"pageId": id, "tabId": format!("t-{id}"), "sessionId": "s1", "background": background, "facts": facts})).expect("page")
+        serde_json::from_value(json!({"pageId": id, "tabId": if background { format!("t-{id}") } else { format!("v{}", id.trim_start_matches('p')) }, "sessionId": "s1", "background": background, "facts": facts})).expect("page")
+    }
+
+    #[test]
+    fn a_status_with_only_background_pages_says_so_and_lists_them_and_otherwise_gives_way_to_the_page() {
+        let background = vec![page("p2", true, "Beta", "https://b.test/")];
+        assert_eq!(
+            status_without_visible_page(&background, None).as_deref(),
+            Some("No visible page is open; the session has background pages. Name one with tab to read its status.\nTabs:\n- p2 [\"t-p2\"] (background): Beta \u{2014} https://b.test/")
+        );
+        // A visible page, an active page, or no page at all: the command goes on to the page it resolves.
+        let visible = vec![page("p1", false, "One", "https://one.test/"), page("p2", true, "Beta", "https://b.test/")];
+        assert_eq!(status_without_visible_page(&visible, None), None);
+        assert_eq!(status_without_visible_page(&background, Some("p2")), None);
+        assert_eq!(status_without_visible_page(&[], None), None);
     }
 
     #[test]
@@ -86,6 +121,20 @@ mod tests {
             list_tabs_text(&pages, Some("p2")),
             "Tabs:\n- p1 [v1]: One — https://one.test/\n- p2 [v2] (active): (untitled) — about:blank\n- p9 [\"t-p9\"] (background): Worker — https://w.test/"
         );
+    }
+
+    /// A tab the person opened with "+" is shown (the host's `background` is false) but named: it is no `vN`, is not the active
+    /// mark's, and does not shift the visible numbering.
+    #[test]
+    fn a_user_opened_tab_is_listed_by_its_name_and_never_active() {
+        let mut user = page("p5", false, "Mine", "https://mine.test/");
+        user.tab_id = "user-tab-1".into();
+        let pages = vec![user, page("p1", false, "One", "https://one.test/")];
+        assert_eq!(
+            list_tabs_text(&pages, Some("p5")),
+            "Tabs:\n- p1 [v1]: One — https://one.test/\n- p5 [\"user-tab-1\"] (background): Mine — https://mine.test/"
+        );
+        assert!(is_visible_tab_id("v2") && is_visible_tab_id("V10") && !is_visible_tab_id("v") && !is_visible_tab_id("v1a") && !is_visible_tab_id("user-tab-1"));
     }
 
     #[test]

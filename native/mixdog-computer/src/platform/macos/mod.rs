@@ -4,14 +4,14 @@
 // Apple's constant names are kept as the SDK spells them.
 #![allow(non_upper_case_globals)]
 
-mod appkit;
+pub(crate) mod appkit;
 mod apps;
 mod ax;
-mod ffi;
-mod input;
+pub(crate) mod ffi;
+pub(crate) mod input;
 mod observe;
 mod ocr;
-mod skylight;
+pub(crate) mod skylight;
 mod windows;
 
 use super::{AppEntry, Background, Button, Desktop, Launched, Wid, WinState, WindowInfo};
@@ -193,6 +193,8 @@ impl Background for MacBackground {
                     let y = fy + (ty - fy) * step / 12;
                     self.poster
                         .mouse(kCGEventLeftMouseDragged, x as f64, y as f64, 0, 1, dest)?;
+                    // The pause holds nothing; revoked meanwhile, the next step is refused at the port and the button is
+                    // let go below through its receipt.
                     std::thread::sleep(std::time::Duration::from_millis(12));
                 }
             }
@@ -245,13 +247,16 @@ pub struct MacDesktop {
 }
 
 impl MacDesktop {
-    pub fn new(observer: Arc<Shared>, marker: i64) -> MacDesktop {
+    pub fn new(observer: Arc<Shared>, marker: i64, scope: &crate::port::Scope) -> MacDesktop {
+        // The executor's port: every posted event, AX write and action, activation, pasteboard write and launch of this
+        // desktop is one of its typed operations (`crate::port::macos`).
+        crate::port::macos::install(scope, marker);
         observe::start(observer, marker);
         MacDesktop {
-            poster: Poster::new(marker),
+            poster: Poster::new(),
             accessibility: ax::MacAccessibility::new(),
             background: MacBackground {
-                poster: Poster::new(marker),
+                poster: Poster::new(),
             },
             host_pid: std::os::unix::process::parent_id() as i32,
             restore_frames: RefCell::new(HashMap::new()),
@@ -351,7 +356,11 @@ impl Desktop for MacDesktop {
             if windows::focused_window() == handle {
                 return true;
             }
+            // The wait holds nothing; revoked meanwhile, no further attempt (each one is refused at the port anyway).
             std::thread::sleep(std::time::Duration::from_millis(20));
+            if crate::port::macos::revoked() {
+                return false;
+            }
         }
         if appkit::frontmost_pid() != pid && appkit::activate_through_launch_services(pid) {
             ax_perform(window.element.as_CFTypeRef(), "AXRaise");
@@ -361,6 +370,9 @@ impl Desktop for MacDesktop {
                     return true;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(20));
+                if crate::port::macos::revoked() {
+                    return false;
+                }
             }
         }
         false
@@ -478,6 +490,10 @@ impl Desktop for MacDesktop {
         Ok(ax_perform(button.as_CFTypeRef(), "AXPress") == kAXErrorSuccess)
     }
 
+    fn terminate(&self, pid: i64) -> Result<(), String> {
+        crate::port::macos::terminate(pid)
+    }
+
     /// A hung application stops answering accessibility queries.
     fn is_responding(&self, handle: Wid) -> bool {
         let Ok(pid) = window_pid(handle) else {
@@ -580,7 +596,7 @@ impl Desktop for MacDesktop {
     }
 
     fn clipboard_write(&self, text: &str) -> Result<bool, String> {
-        Ok(appkit::pasteboard_write(text))
+        appkit::pasteboard_write(text)
     }
 
     fn launch(&self, target: &str, app: Option<&AppEntry>) -> Result<Launched, String> {

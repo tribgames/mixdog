@@ -2,16 +2,19 @@
 //! synthetic events; a Wayland session through the desktop portal. Both read
 //! accessibility over AT-SPI.
 
-mod apps;
+pub(crate) mod apps;
 mod atspi;
-mod clipboard;
+pub(crate) mod clipboard;
 mod compositor;
 mod keysym;
 mod mpx;
 mod observe;
-mod uinput;
+pub(crate) mod uinput;
 mod wayland;
-mod x11;
+pub(crate) mod x11;
+
+/// The executor's port: every effect of this desktop is one of its typed operations.
+use crate::port::linux as port;
 #[cfg(test)]
 mod session_node_cases;
 
@@ -24,17 +27,15 @@ use atspi::Atspi;
 use serde_json::Value;
 use std::cell::RefCell;
 use std::sync::Arc;
-use x11rb::connection::Connection;
 use x11rb::protocol::xproto::ConnectionExt as _;
-use x11rb::protocol::xtest::ConnectionExt as _;
-use x11rb::wrapper::ConnectionExt as _;
 
 pub fn wayland_session() -> bool {
     std::env::var_os("WAYLAND_DISPLAY").is_some()
         && std::env::var("XDG_SESSION_TYPE").map_or(true, |kind| kind == "wayland")
 }
 
-pub fn create(observer: Arc<Shared>, _marker: i64) -> Box<dyn Desktop> {
+pub fn create(observer: Arc<Shared>, _marker: i64, scope: &crate::port::Scope) -> Box<dyn Desktop> {
+    port::install(scope);
     if wayland_session() {
         observe::start_session_idle(observer);
         return Box::new(wayland::WaylandDesktop::new());
@@ -50,8 +51,9 @@ pub fn create(observer: Arc<Shared>, _marker: i64) -> Box<dyn Desktop> {
     }
 }
 
-/// Releases modifiers and buttons still down, through XTest, and removes the
-/// private input masters of hosts that are gone.
+/// The cleanup from a fresh process, which holds no receipt of the host that was stopped: the private input masters of hosts
+/// that are gone are removed (their devices, and whatever they held, go with them). Core input still down is never released
+/// on its physical state (it may be the person's): it is reported unconfirmed.
 pub fn release_owned_input() -> Result<(), String> {
     if wayland_session() {
         return Ok(());
@@ -63,21 +65,7 @@ pub fn release_owned_input() -> Result<(), String> {
         .map_err(|error| error.to_string())?
         .reply()
         .map_err(|error| error.to_string())?;
-    let mask = u16::from(pointer.mask);
-    for (bit, button) in [(0x100u16, 1u8), (0x200, 2), (0x400, 3)] {
-        if mask & bit != 0 {
-            conn.xtest_fake_input(
-                x11rb::protocol::xproto::BUTTON_RELEASE_EVENT,
-                button,
-                x11rb::CURRENT_TIME,
-                root,
-                0,
-                0,
-                0,
-            )
-            .map_err(|error| error.to_string())?;
-        }
-    }
+    let buttons = u16::from(pointer.mask) & 0x700 != 0;
     let keymap = conn
         .query_keymap()
         .map_err(|error| error.to_string())?
@@ -88,21 +76,16 @@ pub fn release_owned_input() -> Result<(), String> {
         .map_err(|error| error.to_string())?
         .reply()
         .map_err(|error| error.to_string())?;
-    for code in modifiers.keycodes.iter().copied().filter(|code| *code != 0) {
-        if keymap.keys[(code / 8) as usize] & (1 << (code % 8)) != 0 {
-            conn.xtest_fake_input(
-                x11rb::protocol::xproto::KEY_RELEASE_EVENT,
-                code,
-                x11rb::CURRENT_TIME,
-                root,
-                0,
-                0,
-                0,
-            )
-            .map_err(|error| error.to_string())?;
-        }
+    let keys = modifiers
+        .keycodes
+        .iter()
+        .copied()
+        .filter(|code| *code != 0)
+        .any(|code| keymap.keys[(code / 8) as usize] & (1 << (code % 8)) != 0);
+    if buttons || keys {
+        return Err("input_cleanup_unconfirmed: input is still down and no receipt names it as this helper's; nothing was released".into());
     }
-    conn.sync().map_err(|error| error.to_string())
+    Ok(())
 }
 
 pub struct X11Desktop {
@@ -221,6 +204,10 @@ impl Desktop for X11Desktop {
         self.x11.responding(handle as u32)
     }
 
+    fn terminate(&self, pid: i64) -> Result<(), String> {
+        port::terminate(pid)
+    }
+
     fn cursor(&self) -> (i32, i32) {
         self.x11.cursor()
     }
@@ -296,13 +283,10 @@ impl Desktop for X11Desktop {
         self.x11.clipboard_read()
     }
 
+    /// The selection taken (or given up), one operation of the executor's port; the read-back holds nothing.
     fn clipboard_write(&self, text: &str) -> Result<bool, String> {
         if text.is_empty() {
-            self.x11
-                .conn
-                .set_selection_owner(x11rb::NONE, self.x11.atoms.CLIPBOARD, x11rb::CURRENT_TIME)
-                .map_err(|error| error.to_string())?;
-            self.x11.conn.flush().map_err(|error| error.to_string())?;
+            port::x_request(port::XRequest::ClearSelection { selection: self.x11.atoms.CLIPBOARD })?;
             return Ok(self.x11.clipboard_read()?.is_empty());
         }
         clipboard::own(text.to_string())?;
@@ -399,7 +383,7 @@ impl Accessibility for X11Desktop {
         &self,
         window: &WindowInfo,
         path: &[String],
-        authorize: &dyn Fn() -> Result<(), String>,
+        authorize: crate::platform::Authorize<'_>,
     ) -> Result<MenuOutcome, String> {
         self.atspi()?.invoke_menu(window, path, authorize)
     }

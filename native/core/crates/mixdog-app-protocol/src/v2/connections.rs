@@ -195,6 +195,9 @@ pub enum SshHostKeyCheck {
         message: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "codegen", ts(optional))]
+        notice: Option<SshMessage>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         ssh_missing: Option<SshMissing>,
     },
 }
@@ -285,6 +288,19 @@ pub enum SshFailureKind {
     Failed { message: String },
 }
 
+/// A message the interface words in the user's language: `code` is a stable name (the set is the `message` lists, exported to
+/// TypeScript as `sshMessages`) that picks the text, `params` fill the names and numbers in it. The sentence
+/// the sender also has in English is only a fallback for logs and for a code a client does not know.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct SshMessage {
+    pub code: String,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub params: std::collections::BTreeMap<String, String>,
+}
+
 /// A failure with the code behind its view.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
@@ -293,6 +309,9 @@ pub enum SshFailureKind {
 pub struct SshFailure {
     #[serde(flatten)]
     pub kind: SshFailureKind,
+    /// The words of the failure by code, in the interface language; the kind's `message` is their English fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<SshMessage>,
     /// The error code behind the view (a bootstrap code such as `install-failed`, or the view's own name); shown in the details line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
@@ -507,9 +526,57 @@ pub struct SshCleanupProgress {
     pub phase: SshCleanupPhase,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail_notice: Option<SshMessage>,
 }
 
-/// `{ ok: true, hosts, detail? }` of a cleanup.
+/// `{ ok: true }` of a forget: the saved entry is gone. This PC's host-key pins and ssh settings stay as they are.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct SshForgetDone {
+    #[cfg_attr(feature = "codegen", ts(type = "true"))]
+    pub ok: bool,
+}
+
+/// The local half of a cleanup that also forgets the server: whether its saved entry was removed (the remote half is the
+/// cleanup's own result). When it failed the server stays saved so Forget can be retried.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct SshLocalForget {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<SshMessage>,
+}
+
+/// `{ ok: false, message, notice? }` of a forget that could not finish: the server stays saved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct SshForgetFailed {
+    #[cfg_attr(feature = "codegen", ts(type = "false"))]
+    pub ok: bool,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<SshMessage>,
+}
+
+/// `connections/ssh/forget`: the saved entry is removed, or why it could not be (a typed answer, so the reason reaches the window
+/// by code).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(untagged)]
+pub enum SshForgetResult {
+    Failed(SshForgetFailed),
+    Done(SshForgetDone),
+}
+
+/// `{ ok: true, hosts, detail?, forget? }` of a cleanup.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -520,6 +587,11 @@ pub struct SshCleanupDone {
     pub hosts: Vec<SshHost>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail_notice: Option<SshMessage>,
+    /// Present when the request asked to forget the server: how that went on this PC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forget: Option<SshLocalForget>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -531,8 +603,8 @@ pub enum SshCleanupResult {
 }
 
 impl SshCleanupResult {
-    pub fn done(hosts: Vec<SshHost>, detail: Option<String>) -> Self {
-        Self::Done(SshCleanupDone { ok: true, hosts, detail })
+    pub fn done(hosts: Vec<SshHost>, detail: Option<String>, detail_notice: Option<SshMessage>) -> Self {
+        Self::Done(SshCleanupDone { ok: true, hosts, detail, detail_notice, forget: None })
     }
 
     pub fn failed(failure: SshFailure) -> Self {
@@ -804,6 +876,8 @@ pub struct PortForward {
     /// Why it stopped, for `error`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<SshMessage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -943,7 +1017,13 @@ pub struct SshAskpassReplyParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SshCleanupParams {
+    /// The saved server to clean up; empty when `target` names a server that was never saved.
+    #[serde(default)]
     pub id: String,
+    /// A server that is not saved (a first connection that failed): the `user@host[:port]` the connect dialog was given. Used when
+    /// `id` is empty; the request's `forget` is then meaningless and ignored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
     pub request: SshCleanupRequest,
 }
 
@@ -1135,17 +1215,23 @@ pub enum HostWindowKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostWindowOpenParams {
     pub connection_id: String,
     pub kind: HostWindowKind,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_token: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostWindowOpenResult {
     pub opened: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<bool>,
 }
 
 /// `host/window/close`.
@@ -1171,9 +1257,12 @@ pub struct HostWindowFocusParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostWindowClosedParams {
     pub connection_id: String,
     pub by_user: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_token: Option<String>,
 }
 
 /// One window of `windowFocus`.
@@ -1259,13 +1348,13 @@ mod tests {
         let ok = serde_json::to_value(SshConnectResult::connected(host.clone())).unwrap();
         assert_eq!(ok["ok"], json!(true));
         assert_eq!(serde_json::from_value::<SshConnectResult>(ok).unwrap(), SshConnectResult::connected(host.clone()));
-        let failed = SshConnectResult::failed(SshFailure { kind: SshFailureKind::AlreadyConnected, code: None });
+        let failed = SshConnectResult::failed(SshFailure { kind: SshFailureKind::AlreadyConnected, notice: None, code: None });
         let value = serde_json::to_value(&failed).unwrap();
         assert_eq!(value, json!({"ok": false, "failure": {"kind": "already-connected"}}));
         assert_eq!(serde_json::from_value::<SshConnectResult>(value).unwrap(), failed);
         let log = serde_json::to_value(SshServerLog::text("t".into(), "c".into())).unwrap();
         assert_eq!(log, json!({"ok": true, "text": "t", "copyText": "c"}));
-        let cleanup = serde_json::to_value(SshCleanupResult::done(vec![host], Some("d".into()))).unwrap();
+        let cleanup = serde_json::to_value(SshCleanupResult::done(vec![host], Some("d".into()), None)).unwrap();
         assert_eq!(cleanup["ok"], json!(true));
         assert_eq!(cleanup["detail"], json!("d"));
     }

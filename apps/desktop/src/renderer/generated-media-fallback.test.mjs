@@ -80,3 +80,51 @@ test('a clip loaded while mounted is kept until unmount, also under StrictMode',
   await act(async () => root.unmount());
   assert.deepEqual(revoked, [url]);
 });
+
+async function mountStill(api, assetId = 'a1') {
+  const result = {};
+  const Probe = ({ id }) => {
+    result.current = useGeneratedMediaFallback(api, id, 'image', true);
+    return null;
+  };
+  const root = createRoot(document.getElementById('root'));
+  await act(async () => root.render(React.createElement(Probe, { id: assetId })));
+  return { result, root, rerender: (id) => act(async () => root.render(React.createElement(Probe, { id }))) };
+}
+
+const stillApi = {
+  invokeCapability: async () => ({ value: { base64: 'AAAA', mime: 'image/webp' } }),
+};
+
+test('the still is an object URL over its bytes, revoked on replace and on unmount', async () => {
+  created.length = 0;
+  revoked.length = 0;
+  const { result, root, rerender } = await mountStill(stillApi);
+  await act(async () => {});
+  assert.equal(result.current.still, created[0]);
+  assert.match(result.current.still, /^blob:/);
+  await rerender('a2');
+  await act(async () => {});
+  assert.deepEqual(revoked, [created[0]]);
+  assert.equal(result.current.still, created[1]);
+  await act(async () => root.unmount());
+  assert.deepEqual(revoked, [created[0], created[1]]);
+});
+
+test('a still read that lands after unmount is revoked at once', async () => {
+  created.length = 0;
+  revoked.length = 0;
+  const release = deferred();
+  const api = {
+    invokeCapability: async () => {
+      await release.promise;
+      return { value: { base64: 'AAAA', mime: 'image/png' } };
+    },
+  };
+  const { root } = await mountStill(api);
+  await act(async () => root.unmount());
+  release.resolve();
+  await new Promise((done) => setTimeout(done, 0));
+  assert.equal(created.length, 1);
+  assert.deepEqual(revoked, created);
+});

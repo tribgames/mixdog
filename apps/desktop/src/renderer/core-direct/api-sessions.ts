@@ -19,7 +19,6 @@ import {
   isNoDelta,
   releaseHiddenSessionStateEntries,
   shouldPublishSessionState,
-  type SnapshotDeltaEncoder,
 } from '../../main/state-delta';
 import { reportTranscriptRead } from '../../shared/transcript-read-diagnostics';
 import type { DirectContext } from './context.ts';
@@ -110,9 +109,6 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
   const recoveries = new Map<string, ReturnType<typeof setTimeout>>();
   const latest = new Map<string, Pick<DesktopSessionStateUpdate, 'snapshot' | 'frameSource' | 'contentRevision'>>();
   const stateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
-  // What each shown session last published, held as the delta encoder's baseline: a frame that leaves it unchanged is not
-  // delivered (ipc-state-bridge.ts `sendSessionState`, whose encoder answered isNoDelta).
-  const sessionEncoders = new Map<string, SnapshotDeltaEncoder>();
   let visibleVersion = 0;
 
   const takeRecovery = (sessionId: string): boolean => {
@@ -156,24 +152,28 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
     }
     if (update.snapshot === null) {
       latest.delete(sessionId);
-      sessionEncoders.delete(sessionId);
       emit(update);
       return;
     }
-    let encoder = sessionEncoders.get(sessionId);
-    if (!encoder) encoder = createSnapshotDeltaEncoder({ prepend: true, partialAppend: true });
-    else if (answersRecovery) encoder.reset();
-    sessionEncoders.set(sessionId, encoder);
+    // The lane publishes a thread only when what its state is made of changed (session-lane.ts), so nothing here
+    // re-encodes the state to find that out; the lane store keeps every unchanged row and field of a state it is handed.
     latest.set(sessionId, {
       snapshot: update.snapshot,
       frameSource: update.frameSource,
       ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
     });
-    const unchanged = isNoDelta(encoder.encode(update.snapshot));
-    reportTranscriptRead(sessionId, update.readTraceId, unchanged ? 'ipc-unchanged' : 'ipc-send');
-    if (!unchanged) emit(update);
+    reportTranscriptRead(sessionId, update.readTraceId, 'ipc-send');
+    emit(update);
   };
   session.subscribeSessionStates(receive);
+  // A thread nothing in this window shows or reads is not projected at all.
+  session.setInterest(
+    (sessionId) =>
+      visible.has(sessionId) ||
+      reads.has(sessionId) ||
+      recoveries.has(sessionId) ||
+      [...readTraces.values()].some((pending) => pending.sessionId === sessionId)
+  );
 
   return {
     // ── the lists ──
@@ -227,7 +227,7 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
       const target = optionalId(sessionId);
       return (await withDirectErrors(capability.invoke('setRoute', [modelRouteWrite(selection, target)], target))).snapshot;
     },
-    setFast: (enabled, sessionId) => svc('setFast', [enabled, optionalId(sessionId)]),
+    setFast: async (enabled, sessionId) => (await withDirectErrors(capability.invoke('setFast', [enabled], optionalId(sessionId)))).snapshot,
     // The core announces a frame the relay refused as `ui/relayPayloadRefused` on the app feed (the size and the ceiling, each null
     // when the relay reported none); the window shows the toast.
     subscribeRelayPayloadRefused: (listener) =>
@@ -279,7 +279,7 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
       const ids = requiredSessionIds(sessionIds);
       visible.clear();
       for (const id of ids) visible.add(id);
-      const released = releaseHiddenSessionStateEntries(visible, [sessionEncoders, latest], (sessionId) =>
+      const released = releaseHiddenSessionStateEntries(visible, [latest], (sessionId) =>
         emit({ sessionId, snapshot: null } as unknown as DesktopSessionStateUpdate)
       );
       if (released.length > 0) {
@@ -306,13 +306,13 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
       stateListeners.add(listener);
       return () => void stateListeners.delete(listener);
     },
+    sessionStreamPosition: async (sessionId) => connection.protocolClient()?.feedPosition(trimmed(sessionId)) ?? null,
     resyncSessionState(sessionId, options) {
       const id = String(sessionId || '');
       if (!isSessionId(id)) return;
       // `fresh`: the existing fold projected anew, with no transcript fetched (the held frame may show a request the client
       // no longer holds). Without a fold nothing is published; one bounded read is attempted, which no caller waits on.
       if (options?.fresh) {
-        sessionEncoders.get(id)?.reset();
         const before = latest.get(id);
         session.requestSessionStateResync(id);
         if (latest.get(id) !== before) return Promise.resolve(true);
@@ -322,10 +322,7 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
         ]);
       }
       const held = latest.get(id);
-      if (held) {
-        sessionEncoders.get(id)?.reset();
-        receive({ sessionId: id, ...held });
-      }
+      if (held) receive({ sessionId: id, ...held });
       else requestRecovery(id);
     },
   };

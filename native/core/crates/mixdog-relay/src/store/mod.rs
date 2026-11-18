@@ -48,8 +48,6 @@ impl std::fmt::Display for LoadError {
     }
 }
 
-impl std::error::Error for LoadError {}
-
 /// A browser credential handed out once: the token is shown to the caller and kept only as its digest.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RegisteredClient {
@@ -159,6 +157,8 @@ impl Inner {
     }
 }
 
+
+impl std::error::Error for LoadError {}
 /// `scheduleSave`: one pending beat at a time.
 fn schedule_save(inner: &Arc<Inner>, state: &mut State) {
     if state.timer.is_some() {
@@ -173,7 +173,6 @@ fn schedule_save(inner: &Arc<Inner>, state: &mut State) {
     });
     state.timer = Some(task.abort_handle());
 }
-
 impl DeviceStore {
     /// `new DeviceStore(dataDir)`: loads `<dataDir>/devices.json`. A missing file is an empty store; any invalid row, id or
     /// digest refuses the start.

@@ -65,6 +65,11 @@ impl TaskNotifier for LateBoardNotifier {
         let directory = self.0.directory().expect("the agent board notifier is verified bound before jobs run");
         directory.finished(owner, surface, task_id, status, notification).await;
     }
+
+    async fn finished_at_hop(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, notification: String, hop: u32) {
+        let directory = self.0.directory().expect("the agent board notifier is verified bound before jobs run");
+        directory.finished_at_hop(owner, surface, task_id, status, notification, hop).await;
+    }
 }
 
 #[cfg(test)]

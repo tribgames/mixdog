@@ -9,7 +9,7 @@ const patchFor = (path, body) => `diff --git a/${path} b/${path}\n--- a/${path}\
 // Landed file patches are announced in one batch per 100ms.
 const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 150)));
 
-test('the list is drawn once the unfolded files have their diffs, never as one-line notes that later grow', async (t) => {
+test('the list is drawn while the files’ patches are read; each diff lands in its own section', async (t) => {
   const { dom, document, root } = installTestDom(t, {
     expose: ['navigator', 'HTMLElement', 'Node', 'Event', 'MouseEvent'],
     rootId: 'root',
@@ -42,9 +42,14 @@ test('the list is drawn once the unfolded files have their diffs, never as one-l
   await act(async () => root.render(h(SessionDiffPane, { sessionId: 'sd-hold', active: true, onClose() {} })));
   await settle();
   await settle();
-  // Reads are in flight: no section is on screen to grow later.
-  assert.equal(document.querySelectorAll('.session-diff-section').length, 0);
-  assert.equal(document.body.textContent.includes('Loading diff…'), false);
+  // Reads are in flight: the list is already there, each file saying so.
+  assert.equal(document.querySelector('.initial-surface'), null);
+  const pending = [...document.querySelectorAll('.session-diff-section')];
+  assert.deepEqual(
+    pending.map((section) => section.dataset.sessionDiffPath),
+    ['first.txt', 'second.txt']
+  );
+  for (const section of pending) assert.match(section.textContent, /Loading diff…/);
   release();
   await settle();
   await settle();

@@ -2,14 +2,8 @@
 //! user (no `memory_caller`): it may list and delete any agent's pool and has no way to write
 //! one, because this type only ever sends `list` and `delete`.
 
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-
 use async_trait::async_trait;
-use mixdog_rt::DurabilityIo;
-use mixdog_services::memory::core::action::{CoreContext, run};
-use mixdog_services::memory::pg::db::Db;
+use mixdog_services::memory::core::action::ControlScope;
 use serde_json::{Value, json};
 
 use super::RoomError;
@@ -19,29 +13,21 @@ const DELETED: &str = "core deleted ";
 /// The sentence the memory runtime answers a delete whose list version moved on with.
 const STALE: &str = "memory indices changed";
 
+/// Each list or delete is one operation the memory runtime owns from acceptance to completion ([`ControlScope`]): the memory stop drains or revokes
+/// it, and a call after that stop began is refused before it touches the database.
 pub struct RuntimeMemoryControl {
-    db: Arc<Db>,
-    data_dir: PathBuf,
-    snapshot_revision: Arc<AtomicU64>,
-    /// The lane the memory runtime reads project markers and writes its snapshot on.
-    lane: DurabilityIo,
+    control: ControlScope,
 }
 
 impl RuntimeMemoryControl {
-    pub fn new(db: Arc<Db>, data_dir: PathBuf, snapshot_revision: Arc<AtomicU64>, lane: DurabilityIo) -> Self {
-        Self { db, data_dir, snapshot_revision, lane }
+    /// Over the stack's memory-control operation (`MemoryStack::memory_control`).
+    pub fn scoped(control: ControlScope) -> Self {
+        Self { control }
     }
 
     /// The `memory` op runner's reply text for `args` (errors included, as text).
     pub async fn call(&self, args: Value) -> String {
-        let ctx = CoreContext {
-            db: &self.db,
-            data_dir: &self.data_dir,
-            session_cwd: None,
-            snapshot_revision: &self.snapshot_revision,
-            lane: self.lane,
-        };
-        run(&ctx, &args).await.text
+        self.control.call(args).await
     }
 }
 
@@ -98,32 +84,41 @@ fn outcome_of(text: String) -> Result<DeleteOutcome, RoomError> {
 mod tests {
     use super::*;
 
-    /// Replies recorded from Node's own memory code (`indexedCoreRecord`, `JSON.stringify`, the
-    /// delete reply template and the index errors).
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("golden/memory.json")).unwrap()
+    fn entry(id: u64, revision: &str, summary: &str) -> MemoryEntry {
+        MemoryEntry { id, index_revision: revision.into(), summary: summary.into() }
     }
 
     #[test]
-    fn list_replies_read_as_pages_with_archived_entries_unaddressable() {
-        let golden = golden();
-        let pages: Vec<_> = golden["pages"].as_array().unwrap().iter().map(|p| page_of(p["text"].as_str().unwrap().to_owned()).unwrap()).collect();
-        let tabs = MemoryEntry { id: 1, index_revision: "rev-1".into(), summary: "Prefers tabs".into() };
-        let lines = MemoryEntry { id: 2, index_revision: "rev-1".into(), summary: "Line one\nLine two 한글".into() };
-        let archived = MemoryEntry { id: 0, index_revision: String::new(), summary: "Archived".into() };
-        assert_eq!(pages[0], MemoryPage { entries: vec![tabs.clone(), lines.clone()], next_offset: Some(2) });
-        assert_eq!(pages[1], MemoryPage { entries: vec![tabs, lines, archived], next_offset: None });
-        assert_eq!(pages[2], MemoryPage { entries: vec![], next_offset: None });
+    fn a_list_reply_reads_as_a_page_with_its_next_offset() {
+        let text = json!({ "entries": [
+            { "id": 1, "index_revision": "rev-1", "summary": "Prefers tabs" },
+            { "id": 2, "index_revision": "rev-1", "summary": "Line one\nLine two 한글" },
+        ], "nextOffset": 2 })
+        .to_string();
+        assert_eq!(
+            page_of(text),
+            Ok(MemoryPage { entries: vec![entry(1, "rev-1", "Prefers tabs"), entry(2, "rev-1", "Line one\nLine two 한글")], next_offset: Some(2) })
+        );
     }
 
     #[test]
-    fn delete_replies_map_to_deleted_stale_or_the_runtimes_own_words() {
-        let replies: Vec<String> =
-            golden()["deletes"].as_array().unwrap().iter().map(|t| t.as_str().unwrap().to_owned()).collect();
-        assert_eq!(outcome_of(replies[0].clone()), Ok(DeleteOutcome::Deleted));
-        assert_eq!(outcome_of(replies[1].clone()), Ok(DeleteOutcome::StaleRevision));
-        assert_eq!(outcome_of(replies[2].clone()), Err(RoomError::Port(replies[2].clone())));
-        assert_eq!(outcome_of(replies[3].clone()), Err(RoomError::Port("The agent memory entry could not be deleted.".into())));
+    fn an_archived_entry_has_no_id_or_revision_so_no_delete_accepts_it_and_the_last_page_has_no_next_offset() {
+        let text = json!({ "entries": [{ "id": 1, "index_revision": "rev-1", "summary": "Prefers tabs" }, { "index_revision": null, "summary": "Archived" }] }).to_string();
+        assert_eq!(page_of(text), Ok(MemoryPage { entries: vec![entry(1, "rev-1", "Prefers tabs"), entry(0, "", "Archived")], next_offset: None }));
+        assert_eq!(page_of(json!({ "entries": [] }).to_string()), Ok(MemoryPage { entries: vec![], next_offset: None }));
+    }
+
+    #[test]
+    fn a_list_reply_that_is_not_a_page_is_the_runtimes_own_words_or_a_fixed_sentence_when_empty() {
+        assert_eq!(page_of("memory is stopping".into()), Err(RoomError::Port("memory is stopping".into())));
         assert_eq!(page_of(String::new()), Err(RoomError::Port("The agent memory could not be read.".into())));
+    }
+
+    #[test]
+    fn a_delete_reply_maps_to_deleted_a_moved_list_version_or_the_runtimes_own_words() {
+        assert_eq!(outcome_of("core deleted 12".into()), Ok(DeleteOutcome::Deleted));
+        assert_eq!(outcome_of("memory indices changed: reload the list".into()), Ok(DeleteOutcome::StaleRevision));
+        assert_eq!(outcome_of("no such entry".into()), Err(RoomError::Port("no such entry".into())));
+        assert_eq!(outcome_of(String::new()), Err(RoomError::Port("The agent memory entry could not be deleted.".into())));
     }
 }

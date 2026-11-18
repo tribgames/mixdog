@@ -29,6 +29,7 @@ registerHooks({
   },
 });
 const { createDesktopHost } = await import('./index.ts');
+const { createComputerSwitch } = await import('./computer-scope.ts');
 
 function pair() {
   const requests = new Map();
@@ -140,6 +141,7 @@ function build(overrides = {}) {
       permissions: { read: () => ({}), request: () => undefined },
       environment: { ready: new Promise(() => {}), sources: () => ({ power: new EventEmitter(), screen: new EventEmitter() }) },
       desktopHostCommand: () => null,
+      computerSwitch: createComputerSwitch(true),
       desktopHostScreen: () =>
         calls.computerOff
           ? null
@@ -201,14 +203,26 @@ test('an abandoned command aborts and a closed claimed connection stops the brow
     { key: 'browserTabs', value: { tabs: [{ id: 'main-browser-1', title: 'T', url: 'https://a.test/', loading: false }] } },
   ]);
   await host.publishRemoteTabs([]);
-  assert.equal(wire.sent.requests[2][1].key, 'visualize', 'the visualize state follows the claim');
-  assert.deepEqual(wire.sent.requests[3], ['host/state/set', { key: 'browserTabs', value: { tabs: [] } }]);
+  assert.equal(wire.sent.requests[3][1].key, 'visualize', 'the visualize state follows the claim');
+  assert.deepEqual(wire.sent.requests[4], ['host/state/set', { key: 'browserTabs', value: { tabs: [] } }]);
   const abort = new AbortController();
   const pending = wire.call('host/browser/command', { action: 'wait', threadId: 't' }, abort.signal);
   abort.abort();
   await assert.rejects(pending);
   wire.close();
-  assert.deepEqual(calls.lifecycle.slice(3), ['watch:false', 'inactive', 'end']);
+  // The named background pages survive the reconnect: the runner is neither ended nor its reclaim stopped.
+  assert.deepEqual(calls.lifecycle.slice(3), ['watch:false']);
+});
+
+test('PC dialog marks publish as ids only, are restored on claim, and clear with the last dialog', async () => {
+  const { wire, host } = build();
+  await host.claim();
+  host.reports.browserApprovalSessions(['s1']);
+  wire.close();
+  await host.claim();
+  host.reports.browserApprovalSessions([]);
+  const marks = wire.sent.requests.filter(([method, params]) => method === 'host/state/set' && params.key === 'browserDialogApprovalSessions');
+  assert.deepEqual(marks.map(([, params]) => params.value), [[], ['s1'], ['s1'], []]);
 });
 
 test('view frames start the lease, send X17 JPEG frames only while viewed, and stop on off', async () => {
@@ -457,11 +471,12 @@ test('visualize state is sent on a claim and on each change, and its commands an
   await host.claim();
   const states = () => wire.sent.requests.filter(([method, params]) => method === 'host/state/set' && params.key === 'visualize');
   // The claim sends the list `hostSnapshot()` returns, `active: null` included.
-  assert.deepEqual(states(), [
-    ['host/state/set', { key: 'visualize', value: [{ sessionId: 's1', tabs: [], active: null }] }],
-  ]);
+  const first = states()[0][1].value;
+  assert.deepEqual(first, [{ sessionId: 's1', tabs: [], active: null }]);
+  assert.equal(states().length, 1);
   await host.publishVisualize({ sessionId: 's1', reveal: true });
-  assert.deepEqual(states()[1][1].value, { sessionId: 's1', reveal: true });
+  const second = states()[1][1].value;
+  assert.deepEqual(second, { sessionId: 's1', reveal: true });
   assert.deepEqual(await wire.call('host/visualize/command', { sessionId: 's1', action: 'open' }), {
     text: 'ran',
     command: { sessionId: 's1', action: 'open' },

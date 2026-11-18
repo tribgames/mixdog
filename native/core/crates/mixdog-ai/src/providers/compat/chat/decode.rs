@@ -169,6 +169,8 @@ pub struct ChatDecoder {
     tool_dispatched: bool,
     tool_input_cut: bool,
     terminal: bool,
+    /// A `data:` record has been decoded ([`WireDecoder::payload_seen`]).
+    payload: bool,
     failure: Option<ProviderError>,
     /// Some output was reported (`semanticIdleDeadlineAt > 0`): from then on a role-only delta is progress.
     progressed: bool,
@@ -210,6 +212,7 @@ impl ChatDecoder {
             tool_dispatched: false,
             tool_input_cut: false,
             terminal: false,
+            payload: false,
             failure: None,
             progressed: false,
             leak: LeakGuard::new(HashSet::new(), true),
@@ -256,7 +259,15 @@ impl ChatDecoder {
 
     fn error(&self, mut err: ProviderError) -> ProviderError {
         err.exposure = self.exposure_now();
+        self.attach_usage(&mut err);
         err
+    }
+
+    fn attach_usage(&self, err: &mut ProviderError) {
+        if let Some(raw) = &self.usage {
+            err.partial_usage = Some(Box::new(usage_from(raw, self.profile.chat.cost)));
+            err.partial_model = Some(self.served.as_str()).filter(|m| !m.is_empty()).map(Box::from);
+        }
     }
 
     fn exposure_now(&self) -> Exposure {
@@ -448,12 +459,6 @@ impl ChatDecoder {
             self.finish = Some(reason.to_owned());
             self.on_finish(reason, out);
         }
-        if let Some(usage) = chunk.get("usage").filter(|u| u.is_object()) {
-            self.usage = Some(usage.clone());
-        }
-        if let Some(model) = chunk.get("model").and_then(JsonValue::as_str).filter(|m| !m.is_empty()) {
-            model.clone_into(&mut self.served);
-        }
     }
 
     /// Calls are dispatched only once a normal finish confirms the turn ended.
@@ -545,10 +550,7 @@ impl ChatDecoder {
         err.message = format!("{} response incomplete: finish_reason={finish}", self.owner);
         err.exposure = Exposure { text_emitted: self.text_emitted, ..Exposure::default() };
         err.partial_tool_calls = calls;
-        if let Some(raw) = &self.usage {
-            err.partial_usage = Some(Box::new(usage_from(raw, self.profile.chat.cost)));
-            err.partial_model = Some(self.served.as_str()).filter(|m| !m.is_empty()).map(Box::from);
-        }
+        self.attach_usage(&mut err);
         Some(err)
     }
 
@@ -570,6 +572,20 @@ impl ChatDecoder {
             return self.finalize(out);
         }
         let chunk: JsonValue = serde_json::from_str(data).map_err(|e| self.malformed(raw, &e))?;
+        let model = chunk.get("model").and_then(JsonValue::as_str).filter(|m| !m.is_empty() && *m != self.served);
+        if let Some(model) = model {
+            model.clone_into(&mut self.served);
+        }
+        let usage = chunk.get("usage").filter(|u| u.as_object().is_some_and(|fields| !fields.is_empty()));
+        if let Some(raw) = usage {
+            self.usage = Some(raw.clone());
+        }
+        if (usage.is_some() || model.is_some()) && let Some(raw) = &self.usage {
+            crate::registry::accounted::observe_attempt_usage(
+                usage_from(raw, self.profile.chat.cost),
+                Some(self.served.clone()).filter(|m| !m.is_empty()),
+            );
+        }
         if chunk.get("error").is_some_and(|e| !e.is_null()) {
             return Err(self.in_band_error(&chunk));
         }
@@ -637,6 +653,10 @@ impl ChatDecoder {
 }
 
 impl WireDecoder for ChatDecoder {
+    fn attach_observed_usage(&self, err: &mut ProviderError) {
+        self.attach_usage(err);
+    }
+
     fn feed(&mut self, unit: &[u8]) -> Result<Vec<StreamEvent>, ProviderError> {
         if let Some(failure) = &self.failure {
             return Err(failure.clone());
@@ -651,7 +671,10 @@ impl WireDecoder for ChatDecoder {
                     out.push(StreamEvent::ProviderKeepalive);
                     Ok(())
                 }
-                SseItem::Event { data, .. } => self.on_data(&data, &mut out),
+                SseItem::Event { data, .. } => {
+                    self.payload = true;
+                    self.on_data(&data, &mut out)
+                }
             };
             if let Err(err) = step {
                 self.failure = Some(err.clone());
@@ -691,6 +714,10 @@ impl WireDecoder for ChatDecoder {
 
     fn terminal_seen(&self) -> bool {
         self.terminal
+    }
+
+    fn payload_seen(&self) -> bool {
+        self.payload
     }
 
     fn exposure(&self) -> Exposure {

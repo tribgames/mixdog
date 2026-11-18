@@ -88,9 +88,9 @@ for (const capability of ['setAgentRoute', 'setModelRoute']) {
   test(`${capability}: a primary-only edit omits the stored fallbacks; a row edit sends the list`, async (t) => {
     const sent = [];
     const harness = mount(t, {
-      async setModelRoute(selection) {
+      async invokeCapability({ args: [selection] }) {
         sent.push(selection);
-        return { ...selection };
+        return { value: { preset: { ...selection, id: 'workflow-lead', fallbacks: selection.fallbacks ?? [OTHER, DUPLICATE] } } };
       },
     });
     await harness.render();
@@ -112,11 +112,61 @@ for (const capability of ['setAgentRoute', 'setModelRoute']) {
     await submit({ ...STORED, model: 'claude-haiku-5-5', effort: 'low' });
     assert.equal(routeOf().model, 'claude-haiku-5-5');
     assert.equal('fallbacks' in routeOf(), false, 'the stored list is kept, not re-sent');
+    if (capability === 'setModelRoute') {
+      assert.deepEqual(harness.mainRoutes.at(-1).fallbacks, [OTHER, DUPLICATE], 'keep the order the host retained');
+    }
 
     await submit({ ...STORED, fallbacks: [OTHER] });
     assert.deepEqual(routeOf().fallbacks, [OTHER], 'a deliberate list edit is sent');
   });
 }
+
+// A missing tier on a saved Fast slot is ordinary Fast, not a request to
+// inherit the model's remembered parameters.
+test('a slot-2-only speed edit sends slot 1 unchanged and shows both speeds as saved', async (t) => {
+  const { routeChain } = await import('../shared/core-src/runtime/shared/model-route-chain.mjs');
+  const PRIMARY = { provider: 'openai-oauth', model: 'gpt-5', effort: 'high', fast: true };
+  const SLOT2 = { provider: 'anthropic-oauth', model: 'claude-opus-4-5', effort: 'high', fast: false };
+  const LOADED = { ...PRIMARY, fallbacks: [SLOT2] };
+  const sent = [];
+  const harness = mount(t, {
+    async invokeCapability({ capability, args: [selection] }) {
+      assert.equal(capability, 'setRoute');
+      sent.push(selection);
+      return {
+        value: { preset: { ...PRIMARY, id: 'workflow-lead', fallbacks: [{ ...SLOT2, fast: true, autoEffort: false }] } },
+        snapshot: { ...PRIMARY, modelParameters: { serviceTier: 'ultrafast' } },
+      };
+    },
+  });
+  await harness.render();
+  await act(async () =>
+    harness.editors().openRoute({
+      id: 'lead',
+      label: 'Lead',
+      route: LOADED,
+      capability: 'setModelRoute',
+      modelKind: 'main',
+      description: '',
+      readOnlyDefinition: true,
+    })
+  );
+  // RouteChainEditor's row edit: only row 2 is replaced, the rest kept as loaded.
+  const rows = routeChain(LOADED);
+  const next = rows.map((row, at) => (at === 1 ? { ...row, fast: true } : row));
+  const [primary, ...fallbacks] = next;
+  await act(async () => harness.editors().saveRoute({ ...primary, fallbacks }));
+
+  const payload = sent.at(-1);
+  const { fallbacks: sentChain, ...sentPrimary } = payload;
+  assert.deepEqual(sentPrimary, { ...PRIMARY, modelParameters: {}, applyToCurrentSession: true, keepMainModel: false });
+  assert.deepEqual(sentChain, [{ ...SLOT2, fast: true }], 'slot 2 carries its new speed');
+
+  const shown = harness.mainRoutes.at(-1);
+  assert.equal(shown.fast, true);
+  assert.equal(shown.modelParameters?.serviceTier, undefined, 'slot 1 still shows ordinary Fast');
+  assert.deepEqual(shown.fallbacks, [{ ...SLOT2, fast: true, autoEffort: false }], 'the resolved fallback wins');
+});
 
 test('saving an agent definition omits unchanged fallbacks and sends an edited list', async (t) => {
   const harness = mount(t, {

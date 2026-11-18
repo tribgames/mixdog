@@ -2,9 +2,16 @@
 // react-markdown chunk and the worker AST processor) so their DOM output
 // stays identical. Keep this module free of DOM and React dependencies: it is
 // pulled into the renderer bundle and the markdown worker alike.
+import { decodeString } from 'micromark-util-decode-string';
 import { filePreviewTypeForPath } from '../shared/file-preview';
 import { isOsDocumentExtension, parseLocalFileLocation } from '../shared/local-files';
 import { isLocalMarkdownLink, localMarkdownPath } from './markdown-url';
+
+interface SourcePoint {
+  line: number;
+  column: number;
+  offset: number;
+}
 
 interface HastLikeNode {
   type?: string;
@@ -13,7 +20,82 @@ interface HastLikeNode {
   properties?: Record<string, unknown>;
   children?: HastLikeNode[];
   url?: unknown;
-  position?: { start: { offset?: number } };
+  position?: { start: { offset?: number }; end?: { offset?: number } };
+}
+
+/** The markdown a plugin runs on (the file the processor was run with). */
+interface SourceFile {
+  value?: unknown;
+}
+
+/** A character escape or reference where it starts (micromark's syntax). */
+const ESCAPE_OR_REFERENCE = /\\[!-/:-@[-`{-~]|&(?:#(?:\d{1,7}|x[\da-f]{1,6})|[\da-z]{1,31});/iy;
+
+/** Where each character of text `value`, parsed from `source` [start, end),
+ *  sits in `source`. The source between characters holds what the parser
+ *  dropped (container markers, indentation, the spaces trimmed at line ends,
+ *  line ends a code span turned into spaces); outside code (`code` false) an
+ *  escape or a reference decodes, and its characters sit where it starts.
+ *  null: `value` does not read off that source. */
+export function sourceOffsets(source: string, start: number, end: number, value: string, code: boolean): number[] | null {
+  const offsets: number[] = [];
+  if (end - start === value.length && source.startsWith(value, start)) {
+    for (let index = 0; index < value.length; index += 1) offsets.push(start + index);
+    return offsets;
+  }
+  let at = start;
+  for (let index = 0; index < value.length; ) {
+    let found = -1;
+    let width = 1;
+    let span = 1;
+    for (; at < end && found === -1; at += found === -1 ? 1 : 0) {
+      if (!code) {
+        ESCAPE_OR_REFERENCE.lastIndex = at;
+        const construct = ESCAPE_OR_REFERENCE.exec(source)?.[0];
+        const decoded = construct === undefined ? '' : decodeString(construct);
+        if (construct !== undefined && decoded !== construct && value.startsWith(decoded, index)) {
+          found = at;
+          width = decoded.length;
+          span = construct.length;
+          continue;
+        }
+      }
+      const char = source[at];
+      if (char === value[index] || (code && value[index] === ' ' && (char === '\n' || char === '\r'))) found = at;
+    }
+    if (found === -1) return null;
+    for (let part = 0; part < width; part += 1) offsets.push(found);
+    index += width;
+    at = found + span;
+  }
+  return offsets;
+}
+
+function pointAt(source: string, offset: number): SourcePoint {
+  const lineStart = source.lastIndexOf('\n', offset - 1) + 1;
+  let line = 1;
+  for (let at = source.indexOf('\n'); at !== -1 && at < lineStart; at = source.indexOf('\n', at + 1)) line += 1;
+  return { line, column: offset - lineStart + 1, offset };
+}
+
+/** A text node holding [from, to) of text node `node`'s value, placed at the
+ *  source of those characters (`source`: the markdown parsed; without it, or
+ *  for a node with no place, unplaced, as the node was). */
+function textSlice(node: HastLikeNode, from: number, to: number, source: string | undefined): HastLikeNode {
+  const value = String(node.value ?? '');
+  const slice: HastLikeNode = { type: 'text', value: value.slice(from, to) };
+  const start = node.position?.start.offset;
+  const end = node.position?.end?.offset;
+  if (source === undefined || start === undefined || end === undefined || from >= to) return slice;
+  const offsets = sourceOffsets(source, start, end, value, false);
+  if (!offsets) return slice;
+  const sliceEnd = to < value.length ? offsets[to] : end;
+  slice.position = { start: pointAt(source, offsets[from]), end: pointAt(source, sliceEnd) };
+  return slice;
+}
+
+function sourceOf(file: SourceFile | undefined): string | undefined {
+  return typeof file?.value === 'string' ? file.value : undefined;
 }
 
 const adjacentStrongPunctuation =
@@ -54,16 +136,15 @@ function projectChildren(
 }
 
 // The children covering [start, end) of the projection, text nodes cut to
-// the range and other nodes kept whole.
-function sliceSpans(spans: ChildSpan[], start: number, end: number): HastLikeNode[] {
+// the range (placed at their source) and other nodes kept whole.
+function sliceSpans(spans: ChildSpan[], start: number, end: number, source: string | undefined): HastLikeNode[] {
   const result: HastLikeNode[] = [];
   for (const span of spans) {
     if (span.end <= start || span.start >= end) continue;
     if (span.child.type === 'text' && typeof span.child.value === 'string') {
-      result.push({
-        type: 'text',
-        value: span.child.value.slice(Math.max(0, start - span.start), end - span.start),
-      });
+      result.push(
+        textSlice(span.child, Math.max(0, start - span.start), Math.min(end, span.end) - span.start, source)
+      );
     } else {
       result.push(span.child);
     }
@@ -72,7 +153,8 @@ function sliceSpans(spans: ChildSpan[], start: number, end: number): HastLikeNod
 }
 
 export function repairAdjacentStrongPunctuation() {
-  return (tree: HastLikeNode) => {
+  return (tree: HastLikeNode, file?: SourceFile) => {
+    const source = sourceOf(file);
     const visit = (node: HastLikeNode) => {
       if (node.type === 'strong' || node.type === 'code' || node.type === 'inlineCode') return;
       const children = node.children;
@@ -88,14 +170,14 @@ export function repairAdjacentStrongPunctuation() {
       ) {
         if (escapedAt(projection, match.index)) continue;
         const end = match.index + match[0].length;
-        repaired.push(...sliceSpans(spans, cursor, match.index), {
+        repaired.push(...sliceSpans(spans, cursor, match.index, source), {
           type: 'strong',
-          children: sliceSpans(spans, match.index + 2, end - 2),
+          children: sliceSpans(spans, match.index + 2, end - 2, source),
         });
         cursor = end;
       }
       if (cursor > 0) {
-        repaired.push(...sliceSpans(spans, cursor, projection.length));
+        repaired.push(...sliceSpans(spans, cursor, projection.length, source));
         node.children = repaired;
       }
     };
@@ -138,7 +220,8 @@ function literalAutolink(link: HastLikeNode): { url: string; label: HastLikeNode
 }
 
 export function trimAutolinkCjkSuffix() {
-  return (tree: HastLikeNode) => {
+  return (tree: HastLikeNode, file?: SourceFile) => {
+    const source = sourceOf(file);
     const visit = (node: HastLikeNode) => {
       const children = node.children;
       if (!children) return;
@@ -151,12 +234,13 @@ export function trimAutolinkCjkSuffix() {
         const { url, label } = autolink;
         const end = autolinkCut(label.value);
         if (end <= 0) continue;
-        const tail = label.value.slice(end);
-        child.url = url.slice(0, url.length - tail.length);
-        label.value = label.value.slice(0, end);
+        const tail = textSlice(label, end, label.value.length, source);
+        const head = textSlice(label, 0, end, source);
+        child.url = url.slice(0, url.length - String(tail.value).length);
+        label.value = String(head.value);
+        label.position = head.position;
         delete child.position;
-        delete label.position;
-        repaired.push({ type: 'text', value: tail });
+        repaired.push(tail);
       }
       node.children = repaired;
     };
@@ -533,7 +617,10 @@ function skipsPathLinks(node: HastLikeNode): boolean {
   return names.some((name) => /katex|math/.test(name));
 }
 
-function linkifyText(value: string): HastLikeNode[] | null {
+/** Text node `node` with its path mentions linked, its pieces placed at
+ *  their source (null: none). */
+function linkifyText(node: HastLikeNode, source: string | undefined): HastLikeNode[] | null {
+  const value = String(node.value);
   const out: HastLikeNode[] = [];
   let last = 0;
   PROSE_PATH.lastIndex = 0;
@@ -548,17 +635,21 @@ function linkifyText(value: string): HastLikeNode[] | null {
         end += trailing.consumed;
       }
     }
-    if (match.index > last) out.push({ type: 'text', value: value.slice(last, match.index) });
-    out.push(pathLink(locationHref(path, location), [{ type: 'text', value: value.slice(match.index, end) }]));
+    if (match.index > last) out.push(textSlice(node, last, match.index, source));
+    out.push(pathLink(locationHref(path, location), [textSlice(node, match.index, end, source)]));
     last = end;
     PROSE_PATH.lastIndex = end;
   }
   if (!out.length) return null;
-  if (last < value.length) out.push({ type: 'text', value: value.slice(last) });
+  if (last < value.length) out.push(textSlice(node, last, value.length, source));
   return out;
 }
 
-function inlineCodeLink(code: HastLikeNode, next: HastLikeNode | undefined): HastLikeNode | null {
+function inlineCodeLink(
+  code: HastLikeNode,
+  next: HastLikeNode | undefined,
+  source: string | undefined
+): HastLikeNode | null {
   if (code.type !== 'element' || code.tagName !== 'code' || skipsPathLinks(code)) return null;
   const only = code.children?.length === 1 ? code.children[0] : null;
   if (only?.type !== 'text' || typeof only.value !== 'string') return null;
@@ -570,8 +661,10 @@ function inlineCodeLink(code: HastLikeNode, next: HastLikeNode | undefined): Has
     const trailing = trailingLocation(next.value);
     if (trailing) {
       location = trailing;
-      children.push({ type: 'text', value: next.value.slice(0, trailing.consumed) });
-      next.value = next.value.slice(trailing.consumed);
+      const rest = textSlice(next, trailing.consumed, next.value.length, source);
+      children.push(textSlice(next, 0, trailing.consumed, source));
+      next.value = rest.value;
+      next.position = rest.position;
     }
   }
   return pathLink(locationHref(mention.bare ? `./${mention.path}` : mention.path, location), children);
@@ -624,14 +717,15 @@ export function linkedLocalPaths(markdown: string): string[] {
 }
 
 export function linkifyLocalPaths() {
-  return (tree: HastLikeNode) => {
+  return (tree: HastLikeNode, file?: SourceFile) => {
+    const source = sourceOf(file);
     const visit = (node: HastLikeNode) => {
       const children = node.children;
       if (!children || skipsPathLinks(node)) return;
       const linked: HastLikeNode[] = [];
       for (let index = 0; index < children.length; index += 1) {
         const child = children[index];
-        const link = inlineCodeLink(child, children[index + 1]) || localImageLink(child);
+        const link = inlineCodeLink(child, children[index + 1], source) || localImageLink(child);
         if (link) {
           linked.push(link);
           continue;
@@ -643,7 +737,7 @@ export function linkifyLocalPaths() {
           continue;
         }
         if (child.type === 'text' && typeof child.value === 'string') {
-          const parts = linkifyText(child.value);
+          const parts = linkifyText(child, source);
           if (parts) linked.push(...parts);
           else if (child.value) linked.push(child);
           continue;

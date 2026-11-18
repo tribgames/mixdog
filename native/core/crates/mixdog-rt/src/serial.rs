@@ -256,24 +256,6 @@ mod tests {
         assert!(!chain.is_busy());
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn a_waiter_cancelled_after_the_hand_off_passes_the_turn_on() {
-        let chain = SerialChain::new();
-        let first = chain.acquire().await;
-        let mut second = Box::pin(chain.acquire());
-        assert!(futures_poll_once(&mut second).await.is_none());
-        let third = tokio::spawn({
-            let chain = chain.clone();
-            async move { drop(chain.acquire().await) }
-        });
-        tokio::task::yield_now().await;
-        // The turn reaches the second waiter, which is dropped before it ever polls again.
-        drop(first);
-        drop(second);
-        crate::time::timeout(Duration::from_secs(5), third).await.unwrap().unwrap();
-        assert!(!chain.is_busy());
-    }
-
     #[tokio::test]
     async fn keys_are_independent_and_a_settled_key_leaves_the_map() {
         let chains = KeyedChains::new();
@@ -308,6 +290,33 @@ mod tests {
         assert_eq!(chains.busy_keys(), 0);
     }
 
+    /// Polls a future once; `None` when it is still pending.
+    async fn futures_poll_once<F: Future + Unpin>(future: &mut F) -> Option<F::Output> {
+        std::future::poll_fn(|cx| match std::pin::Pin::new(&mut *future).poll(cx) {
+            std::task::Poll::Ready(out) => std::task::Poll::Ready(Some(out)),
+            std::task::Poll::Pending => std::task::Poll::Ready(None),
+        })
+        .await
+    }
+
+
+    #[tokio::test(start_paused = true)]
+    async fn a_waiter_cancelled_after_the_hand_off_passes_the_turn_on() {
+        let chain = SerialChain::new();
+        let first = chain.acquire().await;
+        let mut second = Box::pin(chain.acquire());
+        assert!(futures_poll_once(&mut second).await.is_none());
+        let third = tokio::spawn({
+            let chain = chain.clone();
+            async move { drop(chain.acquire().await) }
+        });
+        tokio::task::yield_now().await;
+        // The turn reaches the second waiter, which is dropped before it ever polls again.
+        drop(first);
+        drop(second);
+        crate::time::timeout(Duration::from_secs(5), third).await.unwrap().unwrap();
+        assert!(!chain.is_busy());
+    }
     #[tokio::test(start_paused = true)]
     async fn state_is_readable_while_a_task_holding_the_turn_awaits() {
         let chain = SerialChain::new();
@@ -320,14 +329,5 @@ mod tests {
         assert!(chain.is_busy());
         running.await.unwrap();
         assert!(!chain.is_busy());
-    }
-
-    /// Polls a future once; `None` when it is still pending.
-    async fn futures_poll_once<F: Future + Unpin>(future: &mut F) -> Option<F::Output> {
-        std::future::poll_fn(|cx| match std::pin::Pin::new(&mut *future).poll(cx) {
-            std::task::Poll::Ready(out) => std::task::Poll::Ready(Some(out)),
-            std::task::Poll::Pending => std::task::Poll::Ready(None),
-        })
-        .await
     }
 }

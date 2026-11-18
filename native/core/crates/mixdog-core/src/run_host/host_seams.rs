@@ -47,6 +47,11 @@ pub trait ConfigSeams: Send + Sync + 'static {
     /// installed (created or resumed), the one point that leaves a headless caller's injected configuration
     /// alone (`usesInjectedConfig`); a configuration reload or settings save syncs regardless.
     fn synced_compaction(&self, header: &Header, install: bool) -> Option<Value>;
+    /// `refreshSessionProviderCacheOpts(session)` when a session is resumed (`session-lifecycle.mjs:649`): the thread's
+    /// `providerCacheOpts` once it follows the saved `autoClear`, when that differs from the header's.
+    fn synced_cache_opts(&self, _header: &Header) -> Option<Value> {
+        None
+    }
     /// The configured values the route section carries besides the session's own: `autoClear` (`getAutoClear`), `systemShell`
     /// (`normalizeSystemShellConfig(config.shell)`) and `webSearchRoute` (`webSearchRouteOrDefault(config.webSearchRoute)`), for
     /// the thread whose header is `header`.

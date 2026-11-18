@@ -229,11 +229,20 @@ impl ExploreRunner for AgentExplorer {
         system.message.role = Role::System;
         let messages = vec![system, AgentMessage::user(run.query)];
 
+        // `sharedPrefixProviderCacheOpts`: the explorer's breakpoints ride `model_parameters.cacheStrategy`, where the
+        // Anthropic body reads them.
+        let mut model_parameters = route.model_parameters.clone();
+        if let Some(strategy) = crate::cache_scope::shared_prefix_strategy(route.provider.id().as_str()) {
+            let parameters = model_parameters.get_or_insert_with(|| JsonValue::Object(Default::default()));
+            if let Some(parameters) = parameters.as_object_mut() {
+                parameters.insert("cacheStrategy".to_owned(), strategy);
+            }
+        }
         // No session id: nothing session-keyed is created for an explorer.
         let options = mixdog_core_api::domain::provider::RequestOptions {
             effort: route.effort.clone(),
             fast: route.fast,
-            model_parameters: route.model_parameters.clone(),
+            model_parameters,
             // `ownerSessionId: ctx.callerSessionId`: the thread that called `explore`.
             parent_session_id: route.owner_session_id.clone().or_else(|| Some(run.thread.as_str().to_owned())),
             prompt_cache_scope: Some(crate::cache_scope::SHARED.to_owned()),

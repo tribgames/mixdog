@@ -22,6 +22,7 @@ use url::Url;
 use super::NetworkProxy;
 use super::clients::RoutedClients;
 use super::route::ProxyConfigError;
+use super::route::Route;
 use super::route::RouteError;
 use super::route::proxy_variables_set;
 use super::setting::NetworkProxySetting;
@@ -104,10 +105,20 @@ fn platform_name() -> &'static str {
 /// `via` is off, manual, env, system or direct; `proxy` is `host:port` without
 /// credentials. Under `off`, `ignored` names what exists and is not followed.
 pub async fn explain_proxy_route(policy: &NetworkProxy, origin: &str, setting: &NetworkProxySetting) -> Result<Value, RouteError> {
+    let route = policy.route_with(origin, setting).await;
+    route_facts(policy, origin, setting, &route).await
+}
+
+async fn route_facts(
+    policy: &NetworkProxy,
+    origin: &str,
+    setting: &NetworkProxySetting,
+    route: &Result<Route, RouteError>,
+) -> Result<Value, RouteError> {
     let env = policy.env();
     let no_proxy = env.get("NO_PROXY").or_else(|| env.get("no_proxy")).unwrap_or_default();
     let mut facts = Map::new();
-    let (via, proxy, env_var, error) = match policy.route_with(origin, setting).await {
+    let (via, proxy, env_var, error) = match route {
         Ok(route) => (
             route.via,
             route.proxy.as_deref().map_or(Value::Null, |url| json!(proxy_display(url))),
@@ -115,7 +126,7 @@ pub async fn explain_proxy_route(policy: &NetworkProxy, origin: &str, setting: &
             Value::Null,
         ),
         Err(RouteError::Config(_)) => ("manual", Value::Null, Value::Null, json!("no-address")),
-        Err(other) => return Err(other),
+        Err(other) => return Err(other.clone()),
     };
     let mut ignored = Map::new();
     let (mut ignored_system, mut ignored_env) = (false, Vec::new());
@@ -160,11 +171,16 @@ pub async fn check_proxy_connection(
     origin: &str,
     setting: &NetworkProxySetting,
 ) -> Result<Value, RouteError> {
-    let route = explain_proxy_route(clients.policy(), origin, setting).await?;
+    // The route reported to Settings must be the same decision the HEAD uses.
+    let decision = clients.policy().route_with(origin, setting).await;
+    let route = route_facts(clients.policy(), origin, setting, &decision).await?;
     let started = tokio::time::Instant::now();
-    let outcome = match mixdog_rt::time::timeout(CHECK_TIMEOUT, head_request(clients.policy(), origin, setting)).await {
-        Ok(outcome) => outcome,
-        Err(_) => Err("ETIMEDOUT".to_owned()),
+    let outcome = match decision {
+        Ok(route) => match mixdog_rt::time::timeout(CHECK_TIMEOUT, head_request(origin, &route)).await {
+            Ok(outcome) => outcome,
+            Err(_) => Err("ETIMEDOUT".to_owned()),
+        },
+        Err(_) => Err(ProxyConfigError::CODE.to_owned()),
     };
     let mut out = Map::new();
     out.insert("ok".into(), json!(outcome.is_ok()));
@@ -180,11 +196,7 @@ pub async fn check_proxy_connection(
 
 /// The one request of the check, over the one connection our own tunnel opens,
 /// so every failure on the way is the typed error of that connection.
-async fn head_request(policy: &NetworkProxy, origin: &str, setting: &NetworkProxySetting) -> Result<u16, String> {
-    let route = policy.route_with(origin, setting).await.map_err(|error| match error {
-        RouteError::Config(_) => ProxyConfigError::CODE.to_owned(),
-        RouteError::InvalidTarget(_) => "UNKNOWN".to_owned(),
-    })?;
+async fn head_request(origin: &str, route: &Route) -> Result<u16, String> {
     let url = Url::parse(origin).map_err(|_| "UNKNOWN".to_owned())?;
     let host = url.host_str().unwrap_or_default().trim_matches(['[', ']']).to_owned();
     let port = url.port_or_known_default().unwrap_or(443);

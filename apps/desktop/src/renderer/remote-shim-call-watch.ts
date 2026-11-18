@@ -9,6 +9,8 @@ export const SILENT_CALL_PROBE_MS = 5_000;
 export interface CallWatch {
   /** The frame has left this page: the deadline restarts and the silence is measured from now. */
   transmitted(): void;
+  /** A transfer chunk was acknowledged: allow another window to move the rest. */
+  progressed(): void;
   /** The call settled. */
   cancel(): void;
 }
@@ -34,6 +36,11 @@ export function armCallWatch(
         // One probe at a time; any frame since the send proves the leg.
         if (pending.has(id) && silentSince(sentAt)) probe();
       }, SILENT_CALL_PROBE_MS);
+    },
+    progressed() {
+      if (!pending.has(id)) return;
+      cancelDeadline();
+      cancelDeadline = armRemoteCallDeadline(pending, id, reject, probe, timers);
     },
     cancel() {
       cancelDeadline();

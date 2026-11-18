@@ -67,17 +67,20 @@ version of the main PC it is paired with (the relay's renderer release registry)
 - Layout: `/opt/mixdog-relay/renderer` stays the newest renderer (also the
   delta base); `/opt/mixdog-relay/renderer-releases/` holds `index.json` plus one
   tree per release (`<desktopVersion>-<shell hash prefix>`, and `legacy`).
-  Override with `RENDERER_RELEASES_DIR`; with no registry the relay serves
-  `RENDERER_DIR` to everyone, as before.
-- **Selection rule**, first match wins: the device's reported renderer release
-  id; else the newest release whose desktop version equals the device's; else
-  the newest release for an older-or-equal desktop version (a desktop newer than
-  every retained release gets the newest one); else — old desktops that never
-  report, or versions older than everything retained — the **`legacy`**
-  release, i.e. the renderer that was installed when this feature first shipped
-  (adopted automatically by the first deploy); with no legacy release, the
-  newest. `/d/<id>/…` uses the route's device; root requests (`/sw.js`,
-  `/assets/…`) use the paired token's device, else the `mixdog_device` cookie.
+  Override with `RENDERER_RELEASES_DIR`; only an absent registry allows
+  single-renderer mode. An invalid registry never serves the default shell.
+- **Selection rule**: a reported desktop version requires an exact match. The
+  shell hash can pin a rebuild of that version; otherwise the newest build of
+  that version wins. The adopted **`legacy`** shell may match by exact hash
+  when it has no version metadata and no known version contradicts the match.
+  A PC reporting neither identifier keeps the **`legacy`**
+  release (or the newest release if there is no legacy). If the reported version
+  has no available renderer, the relay shows a reload page instead of serving
+  another version. The response is `no-store`, so already-installed workers
+  discard a stale cached shell, and worker scripts remain reachable. The native
+  app still gets update advice for unmatched older PCs. `/d/<id>/…` uses the route's
+  device; root requests (`/sw.js`, `/assets/…`) use the paired token's device,
+  else the `mixdog_device` cookie.
 - **Retention rule**: `legacy` is never collected; the newest 3 releases are
   kept; releases still selected for a device seen in the last 30 days are kept
   too (newest first) up to 6 non-legacy releases.

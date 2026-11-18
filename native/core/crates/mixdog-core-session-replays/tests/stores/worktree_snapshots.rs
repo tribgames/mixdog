@@ -13,6 +13,16 @@ use mixdog_core_session::session::worktree::worktree_tests::rig;
 const FOREVER_MS: u64 = 3_600_000;
 
 #[tokio::test]
+async fn a_disposed_runtime_starts_no_cleanup() {
+    let rig = rig();
+    let cleanups = SnapshotCleanups::new();
+    cleanups.dispose();
+    assert!(cleanups.release(rig.worktrees.clone(), "worker-1", None).is_none());
+    assert_eq!(cleanups.running(), 0);
+}
+
+
+#[tokio::test]
 async fn a_stop_ends_the_retries_of_its_session_only_and_the_snapshot_is_left_for_the_prune() {
     let rig = rig();
     let cancel = CancellationToken::new();
@@ -34,13 +44,4 @@ async fn a_stop_ends_the_retries_of_its_session_only_and_the_snapshot_is_left_fo
     assert_eq!(cleanups.running(), 0);
     assert!(mixdog_core_session::session::fixture_fs::exists(&path).unwrap());
     drop(lease);
-}
-
-#[tokio::test]
-async fn a_disposed_runtime_starts_no_cleanup() {
-    let rig = rig();
-    let cleanups = SnapshotCleanups::new();
-    cleanups.dispose();
-    assert!(cleanups.release(rig.worktrees.clone(), "worker-1", None).is_none());
-    assert_eq!(cleanups.running(), 0);
 }

@@ -197,42 +197,6 @@ impl Bound for LateCycleLlm {
         self.0.get().is_some()
     }
 }
-/// The room summaries' publish, bound once they exist. The rooms' daemon port republishes a room log's snapshot, `RoomSummaries` reads `ThreadListService`, which reads the
-/// room rows, which read the room runner, which sits on the live rooms that hold the daemon port: a true cycle. A call before the bind cannot happen once `verify_bound`
-/// has passed, so the reads `expect` the verified cell (the rule of the live-directory read).
-#[derive(Default)]
-pub struct LateRoomSummaries(OnceLock<Arc<mixdog_core_session::session::thread_list::RoomSummaries>>);
-
-impl LateRoomSummaries {
-    pub fn bind(&self, summaries: Arc<mixdog_core_session::session::thread_list::RoomSummaries>) -> Result<(), &'static str> {
-        self.0.set(summaries).map_err(|_| "room summaries")
-    }
-
-    fn summaries(&self) -> &Arc<mixdog_core_session::session::thread_list::RoomSummaries> {
-        self.0.get().expect("room summaries bound (compose::verify_bound)")
-    }
-
-    /// Every room's log row, published (`republish_catalog`).
-    pub fn republish(&self) {
-        self.summaries().republish();
-    }
-
-    /// One room log's row, published again (`republish(session)`), off the caller's thread.
-    pub fn republish_session(&self, session_id: &str) {
-        let (summaries, thread) = (self.summaries().clone(), ThreadId::from(session_id));
-        drop(mixdog_rt::spawn("room-publish", mixdog_rt::TaskClass::Work, async move { summaries.publish_room(&thread, None).await }));
-    }
-}
-
-impl Bound for LateRoomSummaries {
-    fn cell(&self) -> &'static str {
-        "room summaries"
-    }
-
-    fn is_bound(&self) -> bool {
-        self.0.get().is_some()
-    }
-}
 /// The takeover holds of the sessions this process hosts, for the secret fill's gates (`TakeoverGates`) and the human-only lock (`HumanOnlyLock`). The gates are built before
 /// the directory (the fill is a tool pool input, the pool is a directory input): the reads `expect` the directory the verified cell holds.
 pub struct LateHolds(pub Arc<LateDirectory>);
@@ -277,9 +241,27 @@ impl LateComputerHosts {
         self.0.set(pool).map_err(|_| "computer hosts")
     }
 
-    /// Whether the `computer` tool is registered: a pool was bound. Unbound reads as none (nothing is served before the bind).
+    fn pool(&self) -> Option<&Arc<mixdog_core::run_host::native_tools::ComputerSessionPool>> {
+        self.0.get().and_then(Option::as_ref)
+    }
+
+    /// Whether this core can serve `computer` now, read live: the pool is bound and a helper is found (or the desktop host is the chosen
+    /// backend). Unbound reads as no (nothing is served before the bind).
     pub fn registered(&self) -> bool {
-        self.0.get().is_some_and(Option::is_some)
+        self.pool().is_some_and(|pool| pool.can_serve())
+    }
+
+    /// Looks for the helper now ([`ComputerSessionPool::probe`](mixdog_core::run_host::native_tools::ComputerSessionPool::probe)); unbound has nothing to look for.
+    pub async fn probe(&self) -> bool {
+        match self.pool() {
+            Some(pool) => pool.probe().await,
+            None => false,
+        }
+    }
+
+    /// Whether the helper was there at the last look (the core's own, with no desktop).
+    pub fn helper_resolvable(&self) -> bool {
+        self.pool().is_some_and(|pool| pool.helper_resolvable())
     }
 
     fn host(&self, thread: &mixdog_core_api::ids::ThreadId) -> Option<Arc<dyn mixdog_tools::state::secrets::ComputerSecretHost>> {
@@ -390,6 +372,24 @@ impl mixdog_tools::orch::bridge::CatalogView for LateCatalog {
     fn resolve_call(&self, thread: &ThreadId, name: &str) -> mixdog_tools::orch::bridge::CallResolution {
         self.catalog().resolve_call(thread, name)
     }
+
+    // The trait's defaults say "describe, nothing to refresh": a wrapper that keeps them turns a native session's
+    // `load_tool` (which loads) into the bridge's describe page and its call_tool note.
+    async fn refresh(&self, thread: &ThreadId) {
+        self.catalog().refresh(thread).await;
+    }
+
+    async fn load_native(&self, thread: &ThreadId, args: &serde_json::Value) -> Option<Result<String, String>> {
+        self.catalog().load_native(thread, args).await
+    }
+
+    fn lacks(&self, thread: &ThreadId, names: &[String]) -> bool {
+        self.catalog().lacks(thread, names)
+    }
+
+    async fn await_connect(&self, thread: &ThreadId) {
+        self.catalog().await_connect(thread).await;
+    }
 }
 
 impl Bound for LateCatalog {
@@ -435,192 +435,6 @@ impl mixdog_tools::state::react::Reactions for LateReactions {
 impl Bound for LateReactions {
     fn cell(&self) -> &'static str {
         "reactions"
-    }
-
-    fn is_bound(&self) -> bool {
-        self.0.get().is_some()
-    }
-}
-
-/// The catalog the `session` tool's list reads: the thread list service, built after the pool the port sits in.
-#[derive(Default)]
-pub struct LateListCatalog(OnceLock<Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadCatalog>>);
-
-impl LateListCatalog {
-    pub fn bind(&self, catalog: Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadCatalog>) -> Result<(), &'static str> {
-        self.0.set(catalog).map_err(|_| "session list catalog")
-    }
-
-    fn catalog(&self) -> Result<&Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadCatalog>, mixdog_core_api::CoreError> {
-        self.0.get().ok_or_else(|| mixdog_core_base::support::failed("session", "the session catalog is not bound"))
-    }
-}
-
-#[async_trait]
-impl mixdog_core::run_host::tool_pool::session_port::ThreadCatalog for LateListCatalog {
-    async fn page(&self, cursor: Option<&str>, limit: usize) -> Result<mixdog_core::run_host::tool_pool::session_output::ListPage, mixdog_core_api::CoreError> {
-        self.catalog()?.page(cursor, limit).await
-    }
-
-    async fn row(&self, id: &str) -> Result<Option<Value>, mixdog_core_api::CoreError> {
-        self.catalog()?.row(id).await
-    }
-
-    fn live(&self) -> mixdog_core::run_host::tool_pool::session_port::LiveWork {
-        self.0.get().map(|catalog| catalog.live()).unwrap_or_default()
-    }
-
-    fn work_of(&self, id: &str) -> mixdog_core::run_host::tool_pool::session_port::SessionWork {
-        self.0.get().map(|catalog| catalog.work_of(id)).unwrap_or_default()
-    }
-}
-
-/// What `session bots` reads besides the catalog, over the stores the daemon composes: the contact bots (off the roster when
-/// the config disables them), the schedules and webhooks (`channelSetup`), the held requests of unattended runs
-/// (`pendingHeldRequests`) and the report watches of task turns (`agentTaskWatches`, the home delivery, built after the pool
-/// this sits in).
-pub struct DaemonBotWorld {
-    pub bots: Arc<dyn mixdog_core::run_host::tool_pool::session_port::BotIds>,
-    pub config: mixdog_core_config::config::Config,
-    pub admin: Arc<mixdog_services::channels::ChannelAdmin>,
-    pub held: Arc<crate::held_requests::HeldRequests>,
-    delivery: OnceLock<Arc<mixdog_services::bots::delivery::home::AgentHomeDelivery>>,
-}
-
-impl DaemonBotWorld {
-    pub fn new(
-        bots: Arc<dyn mixdog_core::run_host::tool_pool::session_port::BotIds>,
-        config: mixdog_core_config::config::Config,
-        admin: Arc<mixdog_services::channels::ChannelAdmin>,
-        held: Arc<crate::held_requests::HeldRequests>,
-    ) -> Self {
-        Self { bots, config, admin, held, delivery: OnceLock::new() }
-    }
-
-    pub fn bind(&self, delivery: Arc<mixdog_services::bots::delivery::home::AgentHomeDelivery>) -> Result<(), &'static str> {
-        self.delivery.set(delivery).map_err(|_| "bot world delivery")
-    }
-}
-
-#[async_trait]
-impl mixdog_core::run_host::tool_pool::session_port::BotWorld for DaemonBotWorld {
-    async fn bots(&self) -> Result<Vec<mixdog_core::run_host::tool_pool::session_port::BotRow>, String> {
-        let agent = self.config.agent();
-        let mut rows = Vec::new();
-        for id in self.bots.ids().await? {
-            let name = self.bots.name(&id).await;
-            let disabled = mixdog_core_config::config::agent_disabled(&agent, &id);
-            rows.push(mixdog_core::run_host::tool_pool::session_port::BotRow { id, name, disabled });
-        }
-        Ok(rows)
-    }
-
-    async fn routines(&self) -> Result<Vec<Value>, String> {
-        let setup = self.admin.get_channel_setup().await.map_err(|error| error.to_string())?;
-        let mut rows = Vec::new();
-        for (key, kind) in [("schedules", "schedule"), ("webhooks", "webhook")] {
-            for row in setup.get(key).and_then(Value::as_array).into_iter().flatten() {
-                let mut row = row.clone();
-                if let Some(row) = row.as_object_mut() {
-                    row.insert("kind".to_owned(), Value::String(kind.to_owned()));
-                }
-                rows.push(row);
-            }
-        }
-        Ok(rows)
-    }
-
-    async fn held_requests(&self) -> Result<Vec<Value>, String> {
-        self.held.pending().iter().map(|held| serde_json::to_value(held).map_err(|error| error.to_string())).collect()
-    }
-
-    async fn task_watches(&self) -> Result<Vec<Value>, String> {
-        match self.delivery.get() {
-            Some(delivery) => delivery.task_watches().await,
-            None => Err("the report queue is not bound".to_owned()),
-        }
-    }
-}
-
-impl Bound for DaemonBotWorld {
-    fn cell(&self) -> &'static str {
-        "bot world delivery"
-    }
-
-    fn is_bound(&self) -> bool {
-        self.delivery.get().is_some()
-    }
-}
-
-impl Bound for LateListCatalog {
-    fn cell(&self) -> &'static str {
-        "session list catalog"
-    }
-
-    fn is_bound(&self) -> bool {
-        self.0.get().is_some()
-    }
-}
-
-/// `ThreadRequests` of the `session` tool's port over the live directory (the port is built with the pool, before the directory).
-/// Bound with the thread settings service (`SettingsRequests`), which answers the methods the thread actor does not.
-#[derive(Default)]
-pub struct LateRequests(OnceLock<Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadRequests>>);
-
-impl LateRequests {
-    pub fn bind(&self, requests: Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadRequests>) -> Result<(), &'static str> {
-        self.0.set(requests).map_err(|_| "session tool requests")
-    }
-
-    fn bound(&self) -> &Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadRequests> {
-        self.0.get().expect("session tool requests bound (compose::verify_bound)")
-    }
-}
-
-#[async_trait]
-impl mixdog_core::run_host::tool_pool::session_port::ThreadRequests for LateRequests {
-    async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, mixdog_core_api::CoreError> {
-        match self.0.get() {
-            Some(requests) => requests.request(thread, method, params).await,
-            None => Err(mixdog_core_base::support::failed("session", "the session directory is not bound")),
-        }
-    }
-
-    async fn set_caller_cwd(&self, thread: &ThreadId, path: &str) -> Result<String, mixdog_core_api::CoreError> {
-        match self.0.get() {
-            Some(requests) => requests.set_caller_cwd(thread, path).await,
-            None => Err(mixdog_core_base::support::failed("session", "the session directory is not bound")),
-        }
-    }
-
-    fn interrupt(&self, thread: &ThreadId) -> Result<bool, mixdog_core_api::CoreError> {
-        self.bound().interrupt(thread)
-    }
-
-    async fn transcript(&self, thread: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, mixdog_core_api::CoreError> {
-        self.bound().transcript(thread).await
-    }
-
-    fn compact_after_turn(&self, thread: &ThreadId) -> Result<(), mixdog_core_api::CoreError> {
-        self.bound().compact_after_turn(thread)
-    }
-
-    async fn submit(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], from_agent: Option<&str>) -> Result<bool, mixdog_core_api::CoreError> {
-        self.bound().submit(thread, content, id, hop, bot_chain, from_agent).await
-    }
-
-    async fn start(&self, params: Value) -> Result<Value, mixdog_core_api::CoreError> {
-        self.bound().start(params).await
-    }
-
-    fn turn_state(&self, thread: &ThreadId) -> (u32, Vec<String>) {
-        self.bound().turn_state(thread)
-    }
-}
-
-impl Bound for LateRequests {
-    fn cell(&self) -> &'static str {
-        "session tool requests"
     }
 
     fn is_bound(&self) -> bool {
@@ -674,19 +488,6 @@ impl Bound for LateSkills {
 
     fn is_bound(&self) -> bool {
         self.0.get().is_some()
-    }
-}
-/// The cache-invalidation hook of `ProviderReadiness` (the cached provider setup and the usage
-/// dashboard are dropped with the catalog), bound once at compose; startup verifies it is bound.
-pub struct LateReadinessHook(pub Arc<mixdog_ai::catalog::ProviderReadiness>);
-
-impl Bound for LateReadinessHook {
-    fn cell(&self) -> &'static str {
-        "provider cache invalidation"
-    }
-
-    fn is_bound(&self) -> bool {
-        self.0.invalidation_bound()
     }
 }
 
@@ -748,6 +549,64 @@ mod tests {
         assert!(callers.header(&thread).await.is_none());
         assert!(matches!(callers.acting_agent(&thread).await, Err(CoreError::ThreadNotFound { .. })));
     }
+
+    /// The catalog `load_tool` reads: a native session's load, its MCP refresh and connect wait, and its missing-name check
+    /// reach the bound catalog (the wrapper's defaults would describe instead, with the bridge's `call_tool` note).
+    #[tokio::test]
+    async fn the_late_catalog_hands_a_native_load_and_the_mcp_hooks_to_the_bound_one() {
+        use mixdog_tools::orch::bridge::{CallResolution, CatalogView, ToolDoc};
+
+        #[derive(Default)]
+        struct Native(AtomicUsize, AtomicUsize);
+
+        #[async_trait]
+        impl CatalogView for Native {
+            fn available(&self, _: &ThreadId) -> Vec<ToolDoc> {
+                Vec::new()
+            }
+            fn is_eager(&self, _: &ThreadId, _: &str) -> bool {
+                false
+            }
+            fn block_reason(&self, _: &ThreadId, _: &str) -> Option<String> {
+                None
+            }
+            fn alias_members(&self, _: &str) -> Vec<String> {
+                Vec::new()
+            }
+            fn mcp_server_members(&self, _: &ThreadId, _: &str) -> Vec<String> {
+                Vec::new()
+            }
+            fn instructions_for(&self, _: &ThreadId, _: &[String]) -> String {
+                String::new()
+            }
+            async fn announce(&self, _: &ThreadId, _: &[String]) {}
+            fn resolve_call(&self, _: &ThreadId, _: &str) -> CallResolution {
+                CallResolution::NotFound
+            }
+            async fn refresh(&self, _: &ThreadId) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+            async fn load_native(&self, _: &ThreadId, _: &Value) -> Option<Result<String, String>> {
+                Some(Ok("loaded".to_owned()))
+            }
+            fn lacks(&self, _: &ThreadId, _: &[String]) -> bool {
+                true
+            }
+            async fn await_connect(&self, _: &ThreadId) {
+                self.1.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let late = LateCatalog::default();
+        let bound = Arc::new(Native::default());
+        assert!(late.bind(bound.clone()).is_ok());
+        let thread = ThreadId::from("t");
+        assert_eq!(late.load_native(&thread, &serde_json::json!({ "names": ["web_fetch"] })).await, Some(Ok("loaded".to_owned())));
+        assert!(late.lacks(&thread, &["x".to_owned()]));
+        late.refresh(&thread).await;
+        late.await_connect(&thread).await;
+        assert_eq!((bound.0.load(Ordering::SeqCst), bound.1.load(Ordering::SeqCst)), (1, 1));
+    }
 }
 
 /// The `git` tool's `SessionWorktrees`, bound once the session workspaces exist. The tool pool is built before the directory and `SessionWorkspaces`
@@ -759,28 +618,6 @@ pub struct LateWorkspaces(OnceLock<Arc<dyn mixdog_tools::git::SessionWorktrees>>
 impl LateWorkspaces {
     pub fn bind(&self, workspaces: Arc<dyn mixdog_tools::git::SessionWorktrees>) -> Result<(), &'static str> {
         self.0.set(workspaces).map_err(|_| "session workspaces")
-    }
-}
-
-#[async_trait]
-impl mixdog_tools::git::SessionWorktrees for LateWorkspaces {
-    async fn is_lead(&self, session_id: &str) -> bool {
-        match self.0.get() {
-            Some(workspaces) => workspaces.is_lead(session_id).await,
-            None => false,
-        }
-    }
-
-    async fn run(
-        &self,
-        op: mixdog_tools::git::SessionOp,
-        caller_session_id: &str,
-        cancel: &mixdog_rt::CancellationToken,
-    ) -> Result<Value, mixdog_scm::error::ScmFailure> {
-        match self.0.get() {
-            Some(workspaces) => workspaces.run(op, caller_session_id, cancel).await,
-            None => Err(mixdog_scm::error::ScmFailure::git("the session workspaces were not bound before the server accepted connections")),
-        }
     }
 }
 
@@ -978,6 +815,50 @@ impl LateTurnAdmission {
     }
 }
 
+impl Bound for LateTurnAdmission {
+    fn cell(&self) -> &'static str {
+        "turn admission"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.get().is_some()
+    }
+}
+
+/// The cache-invalidation hook of `ProviderReadiness` (the cached provider setup and the usage
+/// dashboard are dropped with the catalog), bound once at compose; startup verifies it is bound.
+pub struct LateReadinessHook(pub Arc<mixdog_ai::catalog::ProviderReadiness>);
+impl Bound for LateReadinessHook {
+    fn cell(&self) -> &'static str {
+        "provider cache invalidation"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.invalidation_bound()
+    }
+}
+
+#[async_trait]
+impl mixdog_tools::git::SessionWorktrees for LateWorkspaces {
+    async fn is_lead(&self, session_id: &str) -> bool {
+        match self.0.get() {
+            Some(workspaces) => workspaces.is_lead(session_id).await,
+            None => false,
+        }
+    }
+
+    async fn run(
+        &self,
+        op: mixdog_tools::git::SessionOp,
+        caller_session_id: &str,
+        cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<Value, mixdog_scm::error::ScmFailure> {
+        match self.0.get() {
+            Some(workspaces) => workspaces.run(op, caller_session_id, cancel).await,
+            None => Err(mixdog_scm::error::ScmFailure::git("the session workspaces were not bound before the server accepted connections")),
+        }
+    }
+}
 #[async_trait]
 impl mixdog_core_session::session::worktree::TurnAdmission for LateTurnAdmission {
     async fn admit(&self, thread: &str, cwd: mixdog_core_session::session::worktree::Cwd, cancel: &mixdog_rt::CancellationToken) -> Result<Box<dyn Send>, mixdog_scm::error::ScmFailure> {
@@ -989,9 +870,209 @@ impl mixdog_core_session::session::worktree::TurnAdmission for LateTurnAdmission
     }
 }
 
-impl Bound for LateTurnAdmission {
+
+/// The room summaries' publish, bound once they exist. The rooms' daemon port republishes a room log's snapshot, `RoomSummaries` reads `ThreadListService`, which reads the
+/// room rows, which read the room runner, which sits on the live rooms that hold the daemon port: a true cycle. A call before the bind cannot happen once `verify_bound`
+/// has passed, so the reads `expect` the verified cell (the rule of the live-directory read).
+#[derive(Default)]
+pub struct LateRoomSummaries(OnceLock<Arc<mixdog_core_session::session::thread_list::RoomSummaries>>);
+impl LateRoomSummaries {
+    pub fn bind(&self, summaries: Arc<mixdog_core_session::session::thread_list::RoomSummaries>) -> Result<(), &'static str> {
+        self.0.set(summaries).map_err(|_| "room summaries")
+    }
+
+    fn summaries(&self) -> &Arc<mixdog_core_session::session::thread_list::RoomSummaries> {
+        self.0.get().expect("room summaries bound (compose::verify_bound)")
+    }
+
+    /// Every room's log row, published (`republish_catalog`).
+    pub fn republish(&self) {
+        self.summaries().republish();
+    }
+
+    /// One room log's row, published again (`republish(session)`), off the caller's thread.
+    pub fn republish_session(&self, session_id: &str) {
+        let (summaries, thread) = (self.summaries().clone(), ThreadId::from(session_id));
+        drop(mixdog_rt::spawn("room-publish", mixdog_rt::TaskClass::Work, async move { summaries.publish_room(&thread, None).await }));
+    }
+}
+impl Bound for LateRoomSummaries {
     fn cell(&self) -> &'static str {
-        "turn admission"
+        "room summaries"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.get().is_some()
+    }
+}
+/// The catalog the `session` tool's list reads: the thread list service, built after the pool the port sits in.
+#[derive(Default)]
+pub struct LateListCatalog(OnceLock<Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadCatalog>>);
+impl LateListCatalog {
+    pub fn bind(&self, catalog: Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadCatalog>) -> Result<(), &'static str> {
+        self.0.set(catalog).map_err(|_| "session list catalog")
+    }
+
+    fn catalog(&self) -> Result<&Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadCatalog>, mixdog_core_api::CoreError> {
+        self.0.get().ok_or_else(|| mixdog_core_base::support::failed("session", "the session catalog is not bound"))
+    }
+}
+#[async_trait]
+impl mixdog_core::run_host::tool_pool::session_port::ThreadCatalog for LateListCatalog {
+    async fn page(&self, cursor: Option<&str>, limit: usize) -> Result<mixdog_core::run_host::tool_pool::session_output::ListPage, mixdog_core_api::CoreError> {
+        self.catalog()?.page(cursor, limit).await
+    }
+
+    async fn row(&self, id: &str) -> Result<Option<Value>, mixdog_core_api::CoreError> {
+        self.catalog()?.row(id).await
+    }
+
+    fn live(&self) -> mixdog_core::run_host::tool_pool::session_port::LiveWork {
+        self.0.get().map(|catalog| catalog.live()).unwrap_or_default()
+    }
+
+    fn work_of(&self, id: &str) -> mixdog_core::run_host::tool_pool::session_port::SessionWork {
+        self.0.get().map(|catalog| catalog.work_of(id)).unwrap_or_default()
+    }
+}
+/// What `session bots` reads besides the catalog, over the stores the daemon composes: the contact bots (off the roster when
+/// the config disables them), the schedules and webhooks (`channelSetup`), the held requests of unattended runs
+/// (`pendingHeldRequests`) and the report watches of task turns (`agentTaskWatches`, the home delivery, built after the pool
+/// this sits in).
+pub struct DaemonBotWorld {
+    pub bots: Arc<dyn mixdog_core::run_host::tool_pool::session_port::BotIds>,
+    pub config: mixdog_core_config::config::Config,
+    pub admin: Arc<mixdog_services::channels::ChannelAdmin>,
+    pub held: Arc<crate::held_requests::HeldRequests>,
+    delivery: OnceLock<Arc<mixdog_services::bots::delivery::home::AgentHomeDelivery>>,
+}
+impl DaemonBotWorld {
+    pub fn new(
+        bots: Arc<dyn mixdog_core::run_host::tool_pool::session_port::BotIds>,
+        config: mixdog_core_config::config::Config,
+        admin: Arc<mixdog_services::channels::ChannelAdmin>,
+        held: Arc<crate::held_requests::HeldRequests>,
+    ) -> Self {
+        Self { bots, config, admin, held, delivery: OnceLock::new() }
+    }
+
+    pub fn bind(&self, delivery: Arc<mixdog_services::bots::delivery::home::AgentHomeDelivery>) -> Result<(), &'static str> {
+        self.delivery.set(delivery).map_err(|_| "bot world delivery")
+    }
+}
+#[async_trait]
+impl mixdog_core::run_host::tool_pool::session_port::BotWorld for DaemonBotWorld {
+    async fn bots(&self) -> Result<Vec<mixdog_core::run_host::tool_pool::session_port::BotRow>, String> {
+        let agent = self.config.agent();
+        let mut rows = Vec::new();
+        for id in self.bots.ids().await? {
+            let name = self.bots.name(&id).await;
+            let disabled = mixdog_core_config::config::agent_disabled(&agent, &id);
+            rows.push(mixdog_core::run_host::tool_pool::session_port::BotRow { id, name, disabled });
+        }
+        Ok(rows)
+    }
+
+    async fn routines(&self) -> Result<Vec<Value>, String> {
+        let setup = self.admin.get_channel_setup().await.map_err(|error| error.to_string())?;
+        let mut rows = Vec::new();
+        for (key, kind) in [("schedules", "schedule"), ("webhooks", "webhook")] {
+            for row in setup.get(key).and_then(Value::as_array).into_iter().flatten() {
+                let mut row = row.clone();
+                if let Some(row) = row.as_object_mut() {
+                    row.insert("kind".to_owned(), Value::String(kind.to_owned()));
+                }
+                rows.push(row);
+            }
+        }
+        Ok(rows)
+    }
+
+    async fn held_requests(&self) -> Result<Vec<Value>, String> {
+        self.held.pending().iter().map(|held| serde_json::to_value(held).map_err(|error| error.to_string())).collect()
+    }
+
+    async fn task_watches(&self) -> Result<Vec<Value>, String> {
+        match self.delivery.get() {
+            Some(delivery) => delivery.task_watches().await,
+            None => Err("the report queue is not bound".to_owned()),
+        }
+    }
+}
+impl Bound for DaemonBotWorld {
+    fn cell(&self) -> &'static str {
+        "bot world delivery"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.delivery.get().is_some()
+    }
+}
+impl Bound for LateListCatalog {
+    fn cell(&self) -> &'static str {
+        "session list catalog"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.get().is_some()
+    }
+}
+/// `ThreadRequests` of the `session` tool's port over the live directory (the port is built with the pool, before the directory).
+/// Bound with the thread settings service (`SettingsRequests`), which answers the methods the thread actor does not.
+#[derive(Default)]
+pub struct LateRequests(OnceLock<Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadRequests>>);
+impl LateRequests {
+    pub fn bind(&self, requests: Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadRequests>) -> Result<(), &'static str> {
+        self.0.set(requests).map_err(|_| "session tool requests")
+    }
+
+    fn bound(&self) -> &Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadRequests> {
+        self.0.get().expect("session tool requests bound (compose::verify_bound)")
+    }
+}
+#[async_trait]
+impl mixdog_core::run_host::tool_pool::session_port::ThreadRequests for LateRequests {
+    async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, mixdog_core_api::CoreError> {
+        match self.0.get() {
+            Some(requests) => requests.request(thread, method, params).await,
+            None => Err(mixdog_core_base::support::failed("session", "the session directory is not bound")),
+        }
+    }
+
+    async fn set_caller_cwd(&self, thread: &ThreadId, path: &str) -> Result<String, mixdog_core_api::CoreError> {
+        match self.0.get() {
+            Some(requests) => requests.set_caller_cwd(thread, path).await,
+            None => Err(mixdog_core_base::support::failed("session", "the session directory is not bound")),
+        }
+    }
+
+    fn interrupt(&self, thread: &ThreadId) -> Result<bool, mixdog_core_api::CoreError> {
+        self.bound().interrupt(thread)
+    }
+
+    async fn transcript(&self, thread: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, mixdog_core_api::CoreError> {
+        self.bound().transcript(thread).await
+    }
+
+    fn compact_after_turn(&self, thread: &ThreadId) -> Result<(), mixdog_core_api::CoreError> {
+        self.bound().compact_after_turn(thread)
+    }
+
+    async fn submit(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], from_agent: Option<&str>) -> Result<bool, mixdog_core_api::CoreError> {
+        self.bound().submit(thread, content, id, hop, bot_chain, from_agent).await
+    }
+
+    async fn start(&self, params: Value) -> Result<Value, mixdog_core_api::CoreError> {
+        self.bound().start(params).await
+    }
+
+    fn turn_state(&self, thread: &ThreadId) -> (u32, Vec<String>) {
+        self.bound().turn_state(thread)
+    }
+}
+impl Bound for LateRequests {
+    fn cell(&self) -> &'static str {
+        "session tool requests"
     }
 
     fn is_bound(&self) -> bool {

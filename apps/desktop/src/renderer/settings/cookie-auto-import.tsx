@@ -8,6 +8,7 @@ import type { DesktopApi, DesktopBrowserImportProfile, DesktopCookieAutoImportSt
 import { ErrorNotice } from '../ErrorNotice';
 import { t, uiFormatLocale } from '../i18n';
 import { ActionButton, Group, SelectRow, ToggleRow } from './capability-controls';
+import { followSettingsReadConnection, startSettingsReadRecovery } from './read-recovery';
 
 type CookieAutoImportApi = Partial<
   Pick<
@@ -16,11 +17,9 @@ type CookieAutoImportApi = Partial<
     | 'browserCookieAutoImportConfigure'
     | 'browserCookieAutoImportForgetKey'
     | 'browserProfileImportSources'
+    | 'sections'
   >
 >;
-
-/** While a run is in progress the status is re-read at this pace. */
-const RUNNING_REFRESH_MS = 2_000;
 
 /** The one-line state of the last run; empty until there is one to report. */
 export function cookieAutoImportSummary(status: DesktopCookieAutoImportStatus): string {
@@ -49,44 +48,80 @@ export function CookieAutoImportGroup({
   const [status, setStatus] = useState<DesktopCookieAutoImportStatus | null>(null);
   const [profiles, setProfiles] = useState<DesktopBrowserImportProfile[]>([]);
   const [error, setError] = useState('');
-  const latestRead = useRef(0);
-  const [refresh, setRefresh] = useState(0);
-  const running = status?.running === true;
+  const writing = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const version = useRef(0);
+  const refreshStatus = useRef<(() => void) | null>(null);
+  const refreshProfiles = useRef<(() => void) | null>(null);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: revision and refresh only re-trigger the read
   useEffect(() => {
-    if (!active || !api.browserCookieAutoImportStatus || !api.browserProfileImportSources) return;
-    const read = ++latestRead.current;
-    void Promise.all([api.browserCookieAutoImportStatus(), api.browserProfileImportSources()])
-      .then(([next, sources]) => {
-        if (read !== latestRead.current) return;
-        const list = sources.find((source) => source.supports.cookies)?.profiles ?? [];
-        setStatus(next);
-        setProfiles(list);
-      })
-      .catch(() => {
-        // Not available here (another platform or surface): the section stays hidden.
-        if (read === latestRead.current) setStatus(null);
-      });
-  }, [active, api, revision, refresh]);
+    const read = api.browserCookieAutoImportStatus;
+    if (!active || !read) return undefined;
+    let live = true;
+    const recovery = startSettingsReadRecovery(async (signal) => {
+      if (writing.current) return;
+      const stamp = version.current;
+      const next = await read();
+      if (live && !signal.aborted && stamp === version.current && !writing.current) setStatus(next);
+    }, 5_000, true, true);
+    refreshStatus.current = recovery.replace;
+    const stopLink = followSettingsReadConnection(api, recovery);
+    window.addEventListener('focus', recovery.replace);
+    return () => {
+      live = false;
+      refreshStatus.current = null;
+      stopLink?.();
+      recovery.stop();
+      window.removeEventListener('focus', recovery.replace);
+    };
+  }, [active, api]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refresh re-arms the timer after each status read while a run lasts
   useEffect(() => {
-    if (!running) return undefined;
-    const timer = window.setTimeout(() => setRefresh((count) => count + 1), RUNNING_REFRESH_MS);
-    return () => window.clearTimeout(timer);
-  }, [running, refresh]);
+    const sources = api.browserProfileImportSources;
+    if (!active || !sources || !api.browserCookieAutoImportStatus) return undefined;
+    let live = true;
+    const recovery = startSettingsReadRecovery(async (signal) => {
+      const next = await sources();
+      if (live && !signal.aborted) setProfiles(next.find((source) => source.supports.cookies)?.profiles ?? []);
+    }, 30_000, true, true);
+    refreshProfiles.current = recovery.replace;
+    const stopLink = followSettingsReadConnection(api, recovery);
+    window.addEventListener('focus', recovery.replace);
+    return () => {
+      live = false;
+      refreshProfiles.current = null;
+      stopLink?.();
+      window.removeEventListener('focus', recovery.replace);
+      recovery.stop();
+    };
+  }, [active, api]);
 
-  if (!status || profiles.length === 0 || !api.browserCookieAutoImportConfigure) return null;
+  const seenRevision = useRef(revision);
+  useEffect(() => {
+    if (revision === seenRevision.current) return;
+    seenRevision.current = revision;
+    refreshStatus.current?.();
+    refreshProfiles.current?.();
+  }, [revision]);
+
+  if (!status || (!status.profileId && profiles.length === 0) || !api.browserCookieAutoImportConfigure) return null;
   const summary = status.enabled || status.lastImportAt !== undefined ? cookieAutoImportSummary(status) : '';
 
-  const run = (work: Promise<DesktopCookieAutoImportStatus> | undefined) => {
+  const run = (work: () => Promise<DesktopCookieAutoImportStatus> | undefined) => {
+    if (writing.current) return;
+    writing.current = true;
+    version.current += 1;
+    setBusy(true);
     setError('');
-    void Promise.resolve(work)
+    void Promise.resolve().then(work)
       .then((next) => {
         if (next) setStatus(next);
       })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => {
+        writing.current = false;
+        setBusy(false);
+      });
   };
   // The profile the runs use, even when Chrome no longer lists it (shown as missing, never replaced).
   // Until one is bound, the first listed is what a toggle or choice here binds.
@@ -102,11 +137,16 @@ export function CookieAutoImportGroup({
           'While Chrome is closed, cookies are imported again from the chosen profile: when the app starts and each time Chrome exits. No administrator approval is asked.'
         )}
         showDescription
+        disabled={busy}
         checked={status.enabled}
-        onChange={(next) => run(api.browserCookieAutoImportConfigure?.({ enabled: next, profileId: selected }))}
+        onChange={(next) => run(() => api.browserCookieAutoImportConfigure?.({ enabled: next, profileId: selected }))}
       />
+      <p className="settings-empty">
+        {t('Sites you sign out of are skipped by automatic import. You can still import their cookies manually.')}
+      </p>
       <SelectRow
         title={t('Chrome profile to import')}
+        disabled={busy}
         value={selected}
         options={[
           ...(missing ? [{ value: bound, label: t('{{id}} (profile not found)', { id: bound }) }] : []),
@@ -116,7 +156,7 @@ export function CookieAutoImportGroup({
           })),
         ]}
         onChange={(value) => {
-          run(api.browserCookieAutoImportConfigure?.({ enabled: status.enabled, profileId: value }));
+          run(() => api.browserCookieAutoImportConfigure?.({ enabled: status.enabled, profileId: value }));
         }}
       />
       {summary && (
@@ -130,7 +170,7 @@ export function CookieAutoImportGroup({
             <span className="mixdog-settings__row-desc">{t('Chrome key saved on this PC (encrypted).')}</span>
           </div>
           <div className="settings-row-control">
-            <ActionButton onClick={() => run(api.browserCookieAutoImportForgetKey?.())}>
+            <ActionButton disabled={busy} onClick={() => run(() => api.browserCookieAutoImportForgetKey?.())}>
               {t('Forget saved key')}
             </ActionButton>
           </div>

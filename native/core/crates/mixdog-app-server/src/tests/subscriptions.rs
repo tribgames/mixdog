@@ -50,6 +50,35 @@ async fn app_subscribe_answers_first_then_snapshot_then_live_frames() {
 }
 
 #[tokio::test]
+async fn feed_heads_reports_live_positions_without_reattaching() {
+    let rig = Rig::new();
+    let app = rig.core.mock.app();
+    let client = rig.ready(1, json!({}));
+    client.request(1, "app/subscribe", json!({}));
+    client.drain();
+    app.publish(&[event(1)], None).unwrap();
+    client.drain();
+
+    client.request(2, "feed/heads", json!({ "feedIds": ["app", "not-followed"] }));
+    let frames = client.drain();
+    assert_eq!(lanes(&frames), ["response"], "no snapshot or replay");
+    assert_eq!(frames[0].body["result"]["positions"], json!([{ "epoch": app_epoch(), "seq": 1 }, null]));
+
+    client.request(3, "feed/heads", json!({}));
+    assert_eq!(client.drain()[0].body["result"], json!({
+        "feedIds": ["app"], "positions": [{ "epoch": app_epoch(), "seq": 1 }],
+    }));
+    let other = rig.ready(2, json!({}));
+    other.request(1, "feed/heads", json!({}));
+    assert_eq!(other.drain()[0].body["result"], json!({ "feedIds": [], "positions": [] }));
+    other.request(2, "feed/heads", json!({ "feedIds": ["app"] }));
+    assert_eq!(other.drain()[0].body["result"]["positions"], json!([null]));
+
+    app.publish(&[event(2)], None).unwrap();
+    assert_eq!(lanes(&client.drain()), ["evt@2"]);
+}
+
+#[tokio::test]
 async fn a_resume_position_in_the_ring_replays() {
     let rig = Rig::new();
     let app = rig.core.mock.app();

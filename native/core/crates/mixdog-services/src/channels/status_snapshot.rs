@@ -78,6 +78,55 @@ fn stable_text(snapshot: &Value) -> String {
     serde_json::to_string_pretty(&stable).unwrap_or_default()
 }
 
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeZone, Utc};
+
+    use super::*;
+
+    fn at(ms: i64) -> Option<chrono::DateTime<Utc>> {
+        Utc.timestamp_millis_opt(ms).single()
+    }
+
+    fn cron(name: &str, next: i64) -> Schedule {
+        Schedule { name: name.into(), when_cron: Some("* * * * *".into()), next_fire_at: at(next), ..Schedule::default() }
+    }
+
+    #[test]
+    fn the_earliest_armed_fire_is_named_and_a_skipped_schedule_is_not_a_candidate() {
+        let one_shot = Schedule { name: "once".into(), when_at: at(1_500), ..Schedule::default() };
+        let rows = [cron("later", 3_000), one_shot, cron("sooner", 2_000), cron("skipped", 900)];
+        let snap = snapshot(&rows, |name| name == "skipped", 1_000, Some("https://hook.example/x".into()));
+        assert_eq!(snap["schedules"]["next"], json!({ "name": "once", "fireAt": 1_500, "kind": "one-shot" }));
+        assert_eq!(snap["hook"]["publicUrl"], "https://hook.example/x");
+        assert_eq!(snap["writtenAt"], 1_000);
+        // Equal instants: the cron entry, which Node looks at first, wins.
+        let tie = [Schedule { name: "once".into(), when_at: at(2_000), ..Schedule::default() }, cron("cron", 2_000)];
+        assert_eq!(snapshot(&tie, |_| false, 0, None)["schedules"]["next"]["name"], "cron");
+        assert_eq!(snapshot(&[], |_| false, 0, None)["schedules"]["next"], Value::Null);
+        assert_eq!(snapshot(&[], |_| false, 0, None)["hook"]["publicUrl"], Value::Null);
+    }
+
+    #[test]
+    fn only_a_deferral_still_in_the_future_counts() {
+        let held = Schedule { deferred_until: at(5_000), ..cron("held", 9_000) };
+        let lapsed = Schedule { deferred_until: at(500), ..cron("lapsed", 9_000) };
+        let snap = snapshot(&[held, lapsed], |_| false, 1_000, None);
+        assert_eq!(snap["schedules"]["deferredCount"], 1);
+        assert_eq!(snap["schedules"]["deferred"], json!([{ "name": "held", "until": 5_000 }]));
+    }
+
+    #[test]
+    fn the_time_written_is_not_part_of_what_is_compared() {
+        let rows = [cron("a", 2_000)];
+        let (first, later) = (snapshot(&rows, |_| false, 1_000, None), snapshot(&rows, |_| false, 7_000, None));
+        assert_eq!(stable_text(&first), stable_text(&later));
+        assert!(!stable_text(&first).contains("writtenAt"));
+        assert_ne!(stable_text(&first), stable_text(&snapshot(&[cron("a", 3_000)], |_| false, 1_000, None)));
+    }
+}
+
+
 impl StatusSnapshot {
     pub fn new(scheduler: Scheduler, base: Arc<dyn PublicBase>, clock: Arc<dyn Clock>, path: PathBuf, lane: DurabilityIo) -> Arc<Self> {
         Arc::new(Self { scheduler, base, clock, path, lane, timer: Mutex::new(None), written: Mutex::new(Written::default()) })
@@ -143,53 +192,5 @@ impl StatusSnapshot {
             .await
             .map_err(|e| e.to_string())?;
         job.await.map_err(|e| e.to_string())?
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use chrono::{TimeZone, Utc};
-
-    use super::*;
-
-    fn at(ms: i64) -> Option<chrono::DateTime<Utc>> {
-        Utc.timestamp_millis_opt(ms).single()
-    }
-
-    fn cron(name: &str, next: i64) -> Schedule {
-        Schedule { name: name.into(), when_cron: Some("* * * * *".into()), next_fire_at: at(next), ..Schedule::default() }
-    }
-
-    #[test]
-    fn the_earliest_armed_fire_is_named_and_a_skipped_schedule_is_not_a_candidate() {
-        let one_shot = Schedule { name: "once".into(), when_at: at(1_500), ..Schedule::default() };
-        let rows = [cron("later", 3_000), one_shot, cron("sooner", 2_000), cron("skipped", 900)];
-        let snap = snapshot(&rows, |name| name == "skipped", 1_000, Some("https://hook.example/x".into()));
-        assert_eq!(snap["schedules"]["next"], json!({ "name": "once", "fireAt": 1_500, "kind": "one-shot" }));
-        assert_eq!(snap["hook"]["publicUrl"], "https://hook.example/x");
-        assert_eq!(snap["writtenAt"], 1_000);
-        // Equal instants: the cron entry, which Node looks at first, wins.
-        let tie = [Schedule { name: "once".into(), when_at: at(2_000), ..Schedule::default() }, cron("cron", 2_000)];
-        assert_eq!(snapshot(&tie, |_| false, 0, None)["schedules"]["next"]["name"], "cron");
-        assert_eq!(snapshot(&[], |_| false, 0, None)["schedules"]["next"], Value::Null);
-        assert_eq!(snapshot(&[], |_| false, 0, None)["hook"]["publicUrl"], Value::Null);
-    }
-
-    #[test]
-    fn only_a_deferral_still_in_the_future_counts() {
-        let held = Schedule { deferred_until: at(5_000), ..cron("held", 9_000) };
-        let lapsed = Schedule { deferred_until: at(500), ..cron("lapsed", 9_000) };
-        let snap = snapshot(&[held, lapsed], |_| false, 1_000, None);
-        assert_eq!(snap["schedules"]["deferredCount"], 1);
-        assert_eq!(snap["schedules"]["deferred"], json!([{ "name": "held", "until": 5_000 }]));
-    }
-
-    #[test]
-    fn the_time_written_is_not_part_of_what_is_compared() {
-        let rows = [cron("a", 2_000)];
-        let (first, later) = (snapshot(&rows, |_| false, 1_000, None), snapshot(&rows, |_| false, 7_000, None));
-        assert_eq!(stable_text(&first), stable_text(&later));
-        assert!(!stable_text(&first).contains("writtenAt"));
-        assert_ne!(stable_text(&first), stable_text(&snapshot(&[cron("a", 3_000)], |_| false, 1_000, None)));
     }
 }

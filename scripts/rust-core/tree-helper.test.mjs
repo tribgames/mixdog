@@ -4,9 +4,11 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { helperTest } from './lib/tree-helper-gate.mjs';
 import { endTree, outcomeOf, runTree, spawnTree } from './lib/process-tree.mjs';
 import { assertTreeEnded, leakGuard } from './lib/process-probe.mjs';
+
+const test = helperTest();
 
 const PROBE = new URL('./lib/process-probe.mjs', import.meta.url).href;
 const WINDOWS = process.platform === 'win32';

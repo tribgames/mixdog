@@ -38,6 +38,9 @@ pub struct Recorder {
     pub on_cancel: Mutex<Option<CancelHook>>,
     /// Run inside `cut_new_tasks`, on the caller's thread; the cut is kept out of `events` so their order stays what the tests read.
     pub on_cut: Mutex<Option<Box<dyn FnMut() + Send>>>,
+    /// Runs inside the stop step, after publishing the simulated manager result.
+    pub after_managed_drain: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    pub managed_drain: super::ManagedDrain,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -126,8 +129,15 @@ impl CorePort for Recorder {
     fn close_ext_host(&self) {
         self.note("close_ext_host");
     }
-    fn close_data_handles(&self) {
+    fn close_data_handles(&self, drain: &super::ManagedDrain) {
         self.note("close_data_handles");
+        if let Some(&outcome) = self.managed_drain.get() {
+            let _ = drain.set(outcome);
+        }
+        let after = lock(&self.after_managed_drain).take();
+        if let Some(after) = after {
+            after();
+        }
     }
 }
 

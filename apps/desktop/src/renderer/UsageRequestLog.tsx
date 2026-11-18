@@ -15,7 +15,7 @@ import { OpenSelect } from './OpenSelect';
 import { modelDisplayName } from './provider-display';
 import { record, rows } from './record-utils';
 import { type SidebarReferenceKey, useSidebarReferences } from './sidebar-reference-cache';
-import { usageMoney, usageProviderLabel } from './usage-format';
+import { usageMoney, usageNumber, usageProviderLabel } from './usage-format';
 import {
   localDayKey,
   periodLabel,
@@ -79,6 +79,27 @@ function requestTime(ts: number, today: string): string {
 function requestCost(row: Row): string {
   if (statsPlan(String(row.provider || ''), String(row.kind || '')) === 'local') return t('Local');
   return row.costUsd == null ? '—' : usageMoney(row.costUsd);
+}
+
+function RequestTokens({ row }: { row: Row }) {
+  const input = usageNumber(row.input);
+  const read = usageNumber(row.cacheRead);
+  const write = usageNumber(row.cacheWrite);
+  const prompt = input !== null && read !== null && write !== null ? input + read + write : null;
+  const hit = read !== null && prompt !== null && prompt > 0 ? `${Math.round((read / prompt) * 100)}%` : '—';
+  const output = `${t('Output')}: ${statsTokens(row.output)}`;
+  const detail = [
+    `${t('Input')}: ${statsTokens(row.input)}`,
+    `${t('Cache read')}: ${statsTokens(row.cacheRead)}`,
+    `${t('Cache write')}: ${statsTokens(row.cacheWrite)}`,
+    `${t('Cache hit rate')}: ${hit}`,
+    output,
+  ].join(' · ');
+  return (
+    <td className="request-log-num" title={detail}>
+      {row.tokens == null && row.output != null ? output : statsTokens(row.tokens)}
+    </td>
+  );
 }
 
 function requestDuration(ms: number): string {
@@ -296,7 +317,7 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
                       </>
                     )}
                   </td>
-                  <td className="request-log-num">{statsTokens(row.tokens)}</td>
+                  <RequestTokens row={row} />
                   <td
                     className="request-log-num"
                     title={

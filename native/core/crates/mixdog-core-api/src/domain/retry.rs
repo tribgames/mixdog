@@ -265,17 +265,17 @@ pub struct RetryPolicy {
     /// Node `retryPolicy.contentFilterRetryable`: a response the provider's content filter stopped is replayed by the
     /// agent loop under the `transport` row, with a guidance notice for the model. False by default.
     pub content_filter_retryable: bool,
+    /// A stream cut by its transport after the response was accepted, with nothing shown and no tool call started, that
+    /// spent the `midstream` row goes on to the loop's `transport` row, and each of those replays is a new send that runs
+    /// the provider's rows again. Node's Anthropic stream ladder ends such a cut without marking its recovery exhausted
+    /// (`_classifyMidstreamSse` returns no classifier once its budget is spent), so `sendWithRecovery` replays it under
+    /// `TRANSPORT_RETRY_BACKOFF_MS`; a provider that marks its spent ladder (the Chat Completions send) does not. False by
+    /// default.
+    pub stream_cut_loop_replay: bool,
 }
 
 const fn secs(s: u64) -> Duration {
     Duration::from_secs(s)
-}
-
-/// The recovery ladder: 15, 30 and 60 s, or the steps of `MIXDOG_RECOVERY_RETRY_BACKOFF_MS` (comma-separated
-/// milliseconds, Node's `retryLadderFromEnv`: a step that is no non-negative number is dropped, and a value with no
-/// step left is ignored). A longer wait is opt-in (B-11).
-fn recovery_steps() -> Vec<Duration> {
-    recovery_steps_from(std::env::var("MIXDOG_RECOVERY_RETRY_BACKOFF_MS").ok().as_deref())
 }
 
 fn recovery_steps_from(raw: Option<&str>) -> Vec<Duration> {
@@ -288,62 +288,6 @@ fn recovery_steps_from(raw: Option<&str>) -> Vec<Duration> {
         })
         .unwrap_or_default();
     if given.is_empty() { vec![secs(15), secs(30), secs(60)] } else { given }
-}
-
-impl RetryPolicy {
-    /// Defaults for a provider without a profile: Codex request/stream rows
-    /// (4 and 5 retries, exponential 200 ms, ±10 %) and today's session
-    /// ladders (PW §4.2) as the transport, connection and recovery rows (recovery is 15, 30, 60 s: B-11);
-    /// every row waits advice in full.
-    pub fn codex_default() -> Self {
-        let exp = |max_retries| {
-            RetryRow::single(RetrySchedule {
-                max_retries,
-                backoff: Backoff::Exponential {
-                    base: Duration::from_millis(200),
-                },
-                jitter: Jitter::symmetric(0.1),
-                advice: AdviceRule::honored_in_full(),
-            })
-        };
-        let ladder = |steps: Vec<Duration>| {
-            RetryRow::single(RetrySchedule {
-                max_retries: steps.len() as u32,
-                backoff: Backoff::Ladder(steps),
-                jitter: Jitter::symmetric(0.1),
-                advice: AdviceRule::honored_in_full(),
-            })
-        };
-        let mut connection = vec![secs(5), secs(10), secs(20), secs(40)];
-        connection.extend(std::iter::repeat_n(secs(60), 9));
-        Self {
-            request: exp(4),
-            midstream: exp(5),
-            transport: ladder(vec![secs(5), secs(15), secs(30)]),
-            connection: ladder(connection),
-            recovery: Some(ladder(recovery_steps())),
-            status: StatusRules {
-                retry_429: true,
-                retry_529: true,
-                ..StatusRules::default()
-            },
-            overload: OverloadRule::default(),
-            honor_should_retry_true: false,
-            final_on_exhaust: false,
-            empty_response_reasks: None,
-            content_filter_retryable: false,
-        }
-    }
-
-    pub fn row(&self, class: RetryClass) -> Option<&RetryRow> {
-        match class {
-            RetryClass::Request => Some(&self.request),
-            RetryClass::Midstream => Some(&self.midstream),
-            RetryClass::Transport => Some(&self.transport),
-            RetryClass::Connection => Some(&self.connection),
-            RetryClass::Recovery => self.recovery.as_ref(),
-        }
-    }
 }
 
 /// What one schedule has used so far.
@@ -364,6 +308,7 @@ pub struct RetryState {
     model: String,
     base: ScheduleCount,
     by_kind: Vec<(ErrorKind, ScheduleCount)>,
+    elapsed: Duration,
     consecutive_overloads: u32,
 }
 
@@ -374,6 +319,7 @@ impl RetryState {
             model: model.into(),
             base: ScheduleCount::default(),
             by_kind: Vec::new(),
+            elapsed: Duration::ZERO,
             consecutive_overloads: 0,
         }
     }
@@ -388,6 +334,16 @@ impl RetryState {
 
     pub fn consecutive_overloads(&self) -> u32 {
         self.consecutive_overloads
+    }
+
+    /// Use the logical send's elapsed time for an existing time budget, without charging it as a retry of this row.
+    pub fn at_elapsed(&self, elapsed: Duration) -> Self {
+        Self { elapsed, ..self.clone() }
+    }
+
+    pub fn budget_used(&self, kind: Option<ErrorKind>) -> ScheduleCount {
+        let count = self.count(kind);
+        ScheduleCount { waited: count.waited.max(self.elapsed), ..count }
     }
 
     /// Counts of the row's schedule (`None`) or of a kind's schedule.
@@ -508,5 +464,69 @@ mod recovery_ladder_tests {
             recovery_steps_from(Some("0, 1000,x,-5,2500")),
             vec![Duration::ZERO, secs(1), Duration::from_millis(2500)]
         );
+    }
+}
+
+
+/// The recovery ladder: 15, 30 and 60 s, or the steps of `MIXDOG_RECOVERY_RETRY_BACKOFF_MS` (comma-separated
+/// milliseconds, Node's `retryLadderFromEnv`: a step that is no non-negative number is dropped, and a value with no
+/// step left is ignored). A longer wait is opt-in (B-11).
+fn recovery_steps() -> Vec<Duration> {
+    recovery_steps_from(std::env::var("MIXDOG_RECOVERY_RETRY_BACKOFF_MS").ok().as_deref())
+}
+impl RetryPolicy {
+    /// Defaults for a provider without a profile: Codex request/stream rows
+    /// (4 and 5 retries, exponential 200 ms, ±10 %) and today's session
+    /// ladders (PW §4.2) as the transport, connection and recovery rows (recovery is 15, 30, 60 s: B-11);
+    /// every row waits advice in full.
+    pub fn codex_default() -> Self {
+        let exp = |max_retries| {
+            RetryRow::single(RetrySchedule {
+                max_retries,
+                backoff: Backoff::Exponential {
+                    base: Duration::from_millis(200),
+                },
+                jitter: Jitter::symmetric(0.1),
+                advice: AdviceRule::honored_in_full(),
+            })
+        };
+        let ladder = |steps: Vec<Duration>| {
+            RetryRow::single(RetrySchedule {
+                max_retries: steps.len() as u32,
+                backoff: Backoff::Ladder(steps),
+                jitter: Jitter::symmetric(0.1),
+                advice: AdviceRule::honored_in_full(),
+            })
+        };
+        let mut connection = vec![secs(5), secs(10), secs(20), secs(40)];
+        connection.extend(std::iter::repeat_n(secs(60), 9));
+        Self {
+            request: exp(4),
+            midstream: exp(5),
+            transport: ladder(vec![secs(5), secs(15), secs(30)]),
+            connection: ladder(connection),
+            recovery: Some(ladder(recovery_steps())),
+            status: StatusRules {
+                retry_429: true,
+                retry_529: true,
+                ..StatusRules::default()
+            },
+            overload: OverloadRule::default(),
+            honor_should_retry_true: false,
+            final_on_exhaust: false,
+            empty_response_reasks: None,
+            content_filter_retryable: false,
+            stream_cut_loop_replay: false,
+        }
+    }
+
+    pub fn row(&self, class: RetryClass) -> Option<&RetryRow> {
+        match class {
+            RetryClass::Request => Some(&self.request),
+            RetryClass::Midstream => Some(&self.midstream),
+            RetryClass::Transport => Some(&self.transport),
+            RetryClass::Connection => Some(&self.connection),
+            RetryClass::Recovery => self.recovery.as_ref(),
+        }
     }
 }

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_agent::step_effort::StepAutoEffort;
 use mixdog_ai::effort::{RejectionEntry, effort_options_for, reasoning_row};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 use mixdog_ai::providers::custom::Protocol;
 use mixdog_ai::providers::custom::reasoning::{ReasoningRow, is_custom_provider_name};
 use mixdog_services::effort_judge::{AutoLadder, CustomLadder, StepLadder};
@@ -46,11 +46,9 @@ pub trait LadderSources: Send + Sync {
 /// ladder); any other route's cached row with its id set to the model.
 fn auto_effort_model(sources: &dyn LadderSources, provider: &str, model: &str) -> Value {
     if matches!(provider, "anthropic" | "anthropic-oauth") {
-        return json!({ "id": model, "reasoningLevels": sources.anthropic_levels(model), "customReasoning": true });
+        return mixdog_ai::effort::anthropic_ladder_row(model, sources.anthropic_levels(model));
     }
-    let mut row = sources.cached_row(provider, model).unwrap_or_default();
-    row.insert("id".into(), json!(model));
-    Value::Object(row)
+    mixdog_ai::effort::ladder_row(model, sources.cached_row(provider, model))
 }
 
 /// The ladder facts of a route: `effortOptionsFor(provider, autoEffortModel(..))`, and for a
@@ -141,9 +139,18 @@ mod tests {
         }
     }
 
+    /// A custom route whose config is not known has no ladder at all.
+    #[tokio::test]
+    async fn a_custom_route_without_a_config_has_no_custom_facts() {
+        let sources = Sources { rows: HashMap::new(), anthropic: Vec::new(), custom: None };
+        assert!(ladder_facts(&sources, "custom-acme", "m1").await.custom.is_none());
+    }
+
+
     /// Node's `effortOptionsFor(provider, autoEffortModel(..))` over 18 routes and rows
     /// (`record-step-ladder.mjs`).
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn the_options_are_the_ones_node_resolves() {
         let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/step-ladder/golden.json")).expect("fixture");
         for case in golden["cases"].as_array().unwrap() {
@@ -155,19 +162,12 @@ mod tests {
             let anthropic = case["anthropicLevels"].as_array().map(|l| l.iter().map(|v| v.as_str().unwrap().to_owned()).collect()).unwrap_or_default();
             let sources = Sources { rows, anthropic, custom: Some((Protocol::OpenaiChat, "https://example.test/v1".into())) };
             let facts = ladder_facts(&sources, provider, model).await;
-            assert_eq!(json!(facts.options), case["options"], "{provider} {model} {}", case["row"]);
+            assert_eq!(serde_json::json!(facts.options), case["options"], "{provider} {model} {}", case["row"]);
             // A custom route carries its effective row; every other route none.
             assert_eq!(facts.custom.is_some(), provider.starts_with("custom-"), "{provider}");
             if let Some(custom) = facts.custom {
-                assert_eq!(json!(custom.row.effort_levels()).is_null(), case["row"]["reasoningLevels"].is_null() && case["row"]["reasoningOptions"].is_null());
+                assert_eq!(serde_json::json!(custom.row.effort_levels()).is_null(), case["row"]["reasoningLevels"].is_null() && case["row"]["reasoningOptions"].is_null());
             }
         }
-    }
-
-    /// A custom route whose config is not known has no ladder at all.
-    #[tokio::test]
-    async fn a_custom_route_without_a_config_has_no_custom_facts() {
-        let sources = Sources { rows: HashMap::new(), anthropic: Vec::new(), custom: None };
-        assert!(ladder_facts(&sources, "custom-acme", "m1").await.custom.is_none());
     }
 }

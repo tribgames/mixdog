@@ -196,6 +196,7 @@ impl HostRuntime for LiveHostRuntime {
                     closed: header.get("closed") == Some(&Value::Bool(true)),
                     owner_session_id: text(&header, "ownerSessionId"),
                     parent_session_id: text(&header, "parentSessionId"),
+                    owner: text(&header, "owner"),
                     id,
                 })
             })

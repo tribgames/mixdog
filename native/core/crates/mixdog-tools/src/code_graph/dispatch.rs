@@ -91,6 +91,16 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
     // The parent scope matters only when the answer's routing hangs off it: federation
     // membership or sentinel-free aggregate anchor resolution.
     let plan = plan_federation(&args, &base, base_project_root.as_ref(), has_file_arg, has_aggregate, env);
+    if args.node_offset.is_some() {
+        if args.mode != "callers" || args.depth.unwrap_or(1.0) < 2.0 || args.user_limit() != Some(1)
+            || args.symbol_list().len() != 1 || args.file_list().len() > 1
+        {
+            return Err("code_graph: node_offset requires transitive callers, one symbol, at most one file, and limit:1".to_owned());
+        }
+        if plan.active && plan.files.is_empty() && plan.roots.len() > 1 {
+            return Err("code_graph: set cwd to one project to recover a caller entry".to_owned());
+        }
+    }
     if plan.active || (has_aggregate && base_project_root.is_none()) {
         dependency_roots.push(base.clone());
     }
@@ -136,16 +146,24 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
         [one] => Some(abs_from(&base, one)).filter(|p| p.is_file()),
         _ => None,
     };
-    // A graph whose source reads found a file changed is dropped and the call runs once more on a fresh build.
+    // A source read that finds a file changed marks that generation stale; the call then runs once more on the next
+    // generation, which re-reads the file. Nothing discards the parsed records of the files that did not change.
     let mut attempt = 0;
-    let (graph, section, warnings) = loop {
-    let graph = match single_file.as_ref().filter(|_| mode == "symbols") {
+    let (_graph, section, warnings) = loop {
+    let (graph, one_file) = match single_file.as_ref().filter(|_| mode == "symbols") {
         Some(file) => match Graph::build_single(&root, file)? {
-            Some(g) => Lease::alone(std::sync::Arc::new(g)),
-            None => env.cache.graph(&root, excluded)?,
+            Some(g) => (Lease::alone(std::sync::Arc::new(g)), true),
+            None => (env.cache.graph(&root, excluded)?, false),
         },
-        None => env.cache.graph(&root, excluded)?,
+        None => (env.cache.graph(&root, excluded)?, false),
     };
+    if !graph.verify_records() {
+        if attempt == 0 {
+            attempt = 1;
+            continue;
+        }
+        return Err("code_graph: could not verify the current project sources; run it again".to_owned());
+    }
 
     // `runCodeGraphWork`: `symbols[]` and `files[]` fan out into `# <mode> <item>` sections.
     let mode = if mode == "symbols" && args.body == Some(true) && !args.symbol_list().is_empty() {
@@ -157,7 +175,7 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
     let warnings = std::cell::RefCell::new(Warnings::default());
     // A mode's failure fails the call; inside a fan-out it is that section's `Error:` body (`_fanoutSections`).
     let raw = |a: &Args| -> Result<Section, String> {
-        warnings.borrow_mut().collect(mode, a.file.as_deref(), &base, &root, &graph);
+        warnings.borrow_mut().collect(one_file, &root, &graph);
         answer(mode, a, &base, default_cwd, &root, &graph, a.file.as_deref()).map(Section::whole)
     };
     let caught = |section: Result<Section, String>| section.unwrap_or_else(|e| Section::whole(format!("Error: {e}")));
@@ -196,8 +214,7 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
         one(&args)
     }?;
     let warnings = warnings.into_inner();
-    if graph.source_stale() {
-        env.cache.drop_held(&root);
+    if graph.source_stale() || !graph.resolver_inputs_current() {
         if attempt == 0 {
             attempt = 1;
             continue;
@@ -209,7 +226,7 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
     break (graph, section, warnings);
     };
     // Node marks the call incomplete once a graph holds an unindexed file (`collectGraphParseWarnings`).
-    let complete = section.complete && !graph.truncated && warnings.is_empty();
+    let complete = section.complete && warnings.is_empty();
     let error = is_error_body(&section.text);
     Ok(Answer { text: section.text, dependency_roots: Some(dependency_roots), complete, error, warnings })
 }

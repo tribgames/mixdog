@@ -84,7 +84,7 @@ async function migrateLegacyPetSetting(api: PetApi): Promise<void> {
     return;
   }
   if (stored === null) return;
-  if (stored === 'on' && api.setDesktopPetEnabled) setConfig(await api.setDesktopPetEnabled(true));
+  if (stored === 'on' && api.setDesktopPetEnabled) await setDesktopPetEnabled(true);
   window.localStorage.removeItem(LEGACY_BUDDY_KEY);
 }
 
@@ -93,12 +93,27 @@ function start() {
   const api = petApi();
   if (!api?.getDesktopPetConfig) return;
   started = true;
-  api.subscribeDesktopPetConfig?.(setConfig);
+  const initial = config;
+  let legacyPending = true;
+  api.subscribeDesktopPetConfig?.((next) => {
+    setConfig(next);
+    if (legacyPending) {
+      // A confirmed edit supersedes the old mascot flag, including on next launch.
+      try {
+        window.localStorage.removeItem(LEGACY_BUDDY_KEY);
+        legacyPending = false;
+      } catch {
+        // Storage may be unavailable in this window.
+      }
+    }
+  });
   void api
     .getDesktopPetConfig()
-    .then((value) => {
+    .then(async (value) => {
+      if (config !== initial) return;
       setConfig(value);
-      return migrateLegacyPetSetting(api);
+      await migrateLegacyPetSetting(api);
+      legacyPending = false;
     })
     .catch(() => {});
 }
@@ -118,24 +133,29 @@ export function useDesktopPetConfig(): DesktopPetConfig | null {
   );
 }
 
-export async function setDesktopPetEnabled(enabled: boolean): Promise<void> {
+async function changeConfig(action: (api: PetApi) => Promise<DesktopPetConfig>): Promise<void> {
   const api = petApi();
-  if (api?.setDesktopPetEnabled) setConfig(await api.setDesktopPetEnabled(enabled));
+  if (!api) throw new Error('Desktop overlay settings unavailable');
+  const before = config;
+  const answer = await action(api);
+  // A config push from main (possibly for a newer menu action) takes precedence.
+  if (config === before) setConfig(answer);
 }
 
-export async function setDesktopPetOption(name: DesktopPetOption, value: boolean): Promise<void> {
-  const api = petApi();
-  if (api?.setDesktopPetOption) setConfig(await api.setDesktopPetOption(name, value));
+export function setDesktopPetEnabled(enabled: boolean): Promise<void> {
+  return changeConfig((api) => api.setDesktopPetEnabled!(enabled));
 }
 
-export async function setDesktopPetScale(scale: number): Promise<void> {
-  const api = petApi();
-  if (api?.setDesktopPetScale) setConfig(await api.setDesktopPetScale(scale));
+export function setDesktopPetOption(name: DesktopPetOption, value: boolean): Promise<void> {
+  return changeConfig((api) => api.setDesktopPetOption!(name, value));
 }
 
-export async function resetDesktopPetPosition(): Promise<void> {
-  const api = petApi();
-  if (api?.resetDesktopPetPosition) setConfig(await api.resetDesktopPetPosition());
+export function setDesktopPetScale(scale: number): Promise<void> {
+  return changeConfig((api) => api.setDesktopPetScale!(scale));
+}
+
+export function resetDesktopPetPosition(): Promise<void> {
+  return changeConfig((api) => api.resetDesktopPetPosition!());
 }
 
 /** Test seam: forget the cached setting. */

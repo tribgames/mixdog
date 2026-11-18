@@ -110,6 +110,84 @@ struct Cell {
     height: u32,
 }
 
+#[cfg(test)]
+mod tests {
+    use mixdog_fsio::Unlaned;
+    use mixdog_office_base::write_note::NoWriteNote;
+
+    use super::*;
+
+    fn flat_png(width: u32, height: u32, shade: u8) -> String {
+        let image = Image::from_raw(width, height, 3, &vec![shade; (width * height * 3) as usize]).expect("raw image");
+        STANDARD.encode(image.to_png().expect("png"))
+    }
+
+    fn page(number: u32, width: u32, height: u32) -> Value {
+        json!({ "page": number, "data": flat_png(width, height, 200), "mimeType": "image/png" })
+    }
+
+    #[test]
+    fn a_page_set_is_sorted_and_flattened() {
+        let images = vec![
+            json!({ "page": 0, "pageImages": [page(3, 4, 4), page(1, 4, 4)] }),
+            page(2, 4, 4),
+            json!({ "page": 5 }),
+            json!({ "data": "AAAA" }),
+            json!({ "page": 4, "pageImages": [], "data": "AAAA" }),
+        ];
+        let order: Vec<f64> = page_images(&images).iter().map(|page| to_number_of(page.get("page"))).collect();
+        assert_eq!(order, [1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn base64_is_read_as_node_reads_it() {
+        assert_eq!(decode_base64("aGk="), b"hi");
+        assert_eq!(decode_base64("aGk"), b"hi");
+        assert_eq!(decode_base64("a G\nk="), b"hi");
+        assert_eq!(decode_base64("-_-_"), decode_base64("+/+/"));
+        assert_eq!(decode_base64(""), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn the_grid_has_two_three_or_four_columns() {
+        let columns: Vec<u32> = [2, 4, 5, 9, 10, 13].into_iter().map(columns_for).collect();
+        assert_eq!(columns, [2, 2, 3, 3, 4, 4]);
+    }
+
+    #[test]
+    fn a_cell_height_rounds_half_up() {
+        assert_eq!(js_round(2.5), 3);
+        assert_eq!(js_round(2.4999), 2);
+    }
+
+
+    #[test]
+    fn the_sheet_lies_beside_the_deck() {
+        let sep = if cfg!(windows) { '\\' } else { '/' };
+        assert_eq!(sheet_path("deck.pdf"), "deck.mixdog-contact.png");
+        assert_eq!(sheet_path("/work/out/deck.v2.pdf"), format!("{sep}work{sep}out{sep}deck.v2.mixdog-contact.png"));
+        assert_eq!(sheet_path("/deck"), format!("{sep}deck.mixdog-contact.png"));
+        assert_eq!(sheet_path("/work/.hidden"), format!("{sep}work{sep}.hidden.mixdog-contact.png"));
+        assert_eq!(sheet_path("a/b/deck.pptx"), format!("a{sep}b{sep}deck.mixdog-contact.png"));
+    }
+    #[test]
+    fn fewer_than_two_pages_make_no_sheet() {
+        let registry = Registry::new();
+        let none = write_contact_sheet(&Unlaned, &registry, &NoWriteNote, &[page(1, 4, 4)], "unused.pdf", DEFAULT_WIDTH);
+        assert_eq!(none, Ok(None));
+        let none = write_contact_sheet(&Unlaned, &registry, &NoWriteNote, &[], "unused.pdf", DEFAULT_WIDTH);
+        assert_eq!(none, Ok(None));
+    }
+    #[test]
+    fn a_page_that_does_not_decode_fails_the_sheet() {
+        let registry = Registry::new();
+        let bad = json!({ "page": 2, "data": "AAAA" });
+        let failed = write_contact_sheet(&Unlaned, &registry, &NoWriteNote, &[page(1, 4, 4), bad], "unused.pdf", DEFAULT_WIDTH);
+        assert!(failed.is_err());
+    }
+}
+
+
 /// Writes the contact sheet of `images` beside `output` as `<stem>.mixdog-contact.png`, the file reported to `note`
 /// first. `Ok(None)` for fewer than two pages; an error when a page does not decode, the labels cannot be set or the
 /// file is not written (the review then goes without a sheet).
@@ -167,7 +245,6 @@ pub fn write_contact_sheet<P: WriteProof>(
         data: STANDARD.encode(&data),
     }))
 }
-
 /// `join(dirname(output), `${basename(output, extname(output))}.mixdog-contact.png`)`.
 fn sheet_path(output: &str) -> String {
     let style = Style::host();
@@ -186,82 +263,4 @@ fn sheet_path(output: &str) -> String {
     let file = format!("{stem}.mixdog-contact.png");
     let joined = if directory.ends_with(is_separator) { format!("{directory}{file}") } else { format!("{directory}/{file}") };
     nodepath::normalize(style, &joined)
-}
-
-#[cfg(test)]
-mod tests {
-    use mixdog_fsio::Unlaned;
-    use mixdog_office_base::write_note::NoWriteNote;
-
-    use super::*;
-
-    fn flat_png(width: u32, height: u32, shade: u8) -> String {
-        let image = Image::from_raw(width, height, 3, &vec![shade; (width * height * 3) as usize]).expect("raw image");
-        STANDARD.encode(image.to_png().expect("png"))
-    }
-
-    fn page(number: u32, width: u32, height: u32) -> Value {
-        json!({ "page": number, "data": flat_png(width, height, 200), "mimeType": "image/png" })
-    }
-
-    #[test]
-    fn a_page_set_is_sorted_and_flattened() {
-        let images = vec![
-            json!({ "page": 0, "pageImages": [page(3, 4, 4), page(1, 4, 4)] }),
-            page(2, 4, 4),
-            json!({ "page": 5 }),
-            json!({ "data": "AAAA" }),
-            json!({ "page": 4, "pageImages": [], "data": "AAAA" }),
-        ];
-        let order: Vec<f64> = page_images(&images).iter().map(|page| to_number_of(page.get("page"))).collect();
-        assert_eq!(order, [1.0, 2.0, 3.0, 4.0]);
-    }
-
-    #[test]
-    fn base64_is_read_as_node_reads_it() {
-        assert_eq!(decode_base64("aGk="), b"hi");
-        assert_eq!(decode_base64("aGk"), b"hi");
-        assert_eq!(decode_base64("a G\nk="), b"hi");
-        assert_eq!(decode_base64("-_-_"), decode_base64("+/+/"));
-        assert_eq!(decode_base64(""), Vec::<u8>::new());
-    }
-
-    #[test]
-    fn the_sheet_lies_beside_the_deck() {
-        let sep = if cfg!(windows) { '\\' } else { '/' };
-        assert_eq!(sheet_path("deck.pdf"), "deck.mixdog-contact.png");
-        assert_eq!(sheet_path("/work/out/deck.v2.pdf"), format!("{sep}work{sep}out{sep}deck.v2.mixdog-contact.png"));
-        assert_eq!(sheet_path("/deck"), format!("{sep}deck.mixdog-contact.png"));
-        assert_eq!(sheet_path("/work/.hidden"), format!("{sep}work{sep}.hidden.mixdog-contact.png"));
-        assert_eq!(sheet_path("a/b/deck.pptx"), format!("a{sep}b{sep}deck.mixdog-contact.png"));
-    }
-
-    #[test]
-    fn fewer_than_two_pages_make_no_sheet() {
-        let registry = Registry::new();
-        let none = write_contact_sheet(&Unlaned, &registry, &NoWriteNote, &[page(1, 4, 4)], "unused.pdf", DEFAULT_WIDTH);
-        assert_eq!(none, Ok(None));
-        let none = write_contact_sheet(&Unlaned, &registry, &NoWriteNote, &[], "unused.pdf", DEFAULT_WIDTH);
-        assert_eq!(none, Ok(None));
-    }
-
-    #[test]
-    fn a_page_that_does_not_decode_fails_the_sheet() {
-        let registry = Registry::new();
-        let bad = json!({ "page": 2, "data": "AAAA" });
-        let failed = write_contact_sheet(&Unlaned, &registry, &NoWriteNote, &[page(1, 4, 4), bad], "unused.pdf", DEFAULT_WIDTH);
-        assert!(failed.is_err());
-    }
-
-    #[test]
-    fn the_grid_has_two_three_or_four_columns() {
-        let columns: Vec<u32> = [2, 4, 5, 9, 10, 13].into_iter().map(columns_for).collect();
-        assert_eq!(columns, [2, 2, 3, 3, 4, 4]);
-    }
-
-    #[test]
-    fn a_cell_height_rounds_half_up() {
-        assert_eq!(js_round(2.5), 3);
-        assert_eq!(js_round(2.4999), 2);
-    }
 }

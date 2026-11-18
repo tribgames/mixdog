@@ -97,8 +97,34 @@ pub fn encode_usage_id(id: &str) -> Vec<u8> {
     }
 }
 
+/// The rates key that holds one request's 1-hour cache-write token count.
+const CACHE_1H_KEY: &str = "\"cacheWrite1hTokens\":";
+
+/// Splits a rates snapshot (compact JSON object text, as its producer serialized it) into the snapshot without its
+/// `cacheWrite1hTokens` member and that member's value. The member is cut from the text itself, so every other member
+/// keeps its place and spelling: the route of a record whose rates differ only by the count is the route of one without it.
+pub fn split_cache_1h(rates: &str) -> (std::borrow::Cow<'_, str>, Option<f64>) {
+    let Some(start) = rates.find(CACHE_1H_KEY) else { return (std::borrow::Cow::Borrowed(rates), None) };
+    let value_start = start + CACHE_1H_KEY.len();
+    let value_end = rates[value_start..].find([',', '}']).map_or(rates.len(), |at| value_start + at);
+    let tokens = rates[value_start..value_end].trim().parse::<f64>().ok();
+    // The member and one separator: the comma before it, or (first member) the one after it.
+    let (cut_from, cut_to) = if rates[..start].ends_with(',') {
+        (start - 1, value_end)
+    } else if rates[value_end..].starts_with(',') {
+        (start, value_end + 1)
+    } else {
+        (start, value_end)
+    };
+    let mut out = String::with_capacity(rates.len());
+    out.push_str(&rates[..cut_from]);
+    out.push_str(&rates[cut_to..]);
+    (std::borrow::Cow::Owned(out), tokens)
+}
+
 /// A request's route signature: `[provider, model, kind, sourceType, costSource, rates,
-/// origin, rank, account?]`.
+/// origin, rank, account?]`. The rates leave out the request's 1-hour cache-write count ([`split_cache_1h`]), which is
+/// the record's own (`usage_event_cache_1h`).
 pub fn route_signature(row: &UsageRecord) -> Result<String> {
     let mut parts = vec![
         Value::from(row.provider.as_str()),
@@ -106,7 +132,7 @@ pub fn route_signature(row: &UsageRecord) -> Result<String> {
         Value::from(row.kind.as_str()),
         Value::from(row.source_type.as_str()),
         Value::from(row.cost_source.as_str()),
-        row.rates.as_deref().map_or(Value::Null, Value::from),
+        row.rates.as_deref().map_or(Value::Null, |rates| Value::from(split_cache_1h(rates).0.as_ref())),
         Value::from(row.origin.as_str()),
         Value::from(rank_of(row)),
     ];
@@ -203,6 +229,10 @@ fn insert_event(tx: &Transaction, row: &UsageRecord) -> Result<bool> {
                 None::<f64>,
                 elapsed
             ])?;
+    }
+    if let Some(tokens) = row.rates.as_deref().and_then(|rates| split_cache_1h(rates).1).filter(|tokens| *tokens != 0.0) {
+        tx.prepare_cached("INSERT OR REPLACE INTO usage_event_cache_1h VALUES (?1, ?2)")?
+            .execute(params![id, tokens])?;
     }
     if let Some(ttft) = row.ttft_ms {
         tx.prepare_cached("INSERT INTO usage_request_first_output VALUES (?1, ?2)")?

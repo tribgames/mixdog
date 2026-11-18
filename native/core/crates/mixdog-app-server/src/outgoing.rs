@@ -34,6 +34,8 @@ use mixdog_core_api::HostError;
 use mixdog_core_api::ServerRequestSink;
 use mixdog_core_api::host::LEASE_LAPSED;
 use mixdog_core_api::host::NOT_CLAIMED;
+use mixdog_core_api::host::NO_CLAIMANT;
+use mixdog_core_api::host::TIMED_OUT;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::FeedId;
 use mixdog_core_api::ids::HostId;
@@ -274,6 +276,13 @@ impl Outgoing {
         let Some(pending) = shard.get_mut(id) else {
             return;
         };
+        // Paired phones receive session marks, never the PC's browser card. An undelivered
+        // request also cannot be answered through owner_for_response.
+        if pending.req.method == mixdog_core_api::domain::approval::ApprovalKind::Browser.method()
+            && conn.session().is_some_and(|session| session.origin == mixdog_protocol::Origin::Relay)
+        {
+            return;
+        }
         if pending.delivered.contains(&conn.id)
             || !conn.is_eligible(&pending.thread_feed, &pending.surface_feed)
         {
@@ -356,6 +365,16 @@ impl Outgoing {
         lock(&self.hosts).iter().any(|claim| claim.conn.id == id)
     }
 
+    /// Whether `id` is the connection the visualize role is served by now (the latest claim that declared it, as `claimant`
+    /// picks it).
+    pub(crate) fn is_visualize_claimant(&self, id: ConnectionId) -> bool {
+        lock(&self.hosts)
+            .iter()
+            .rev()
+            .find(|claim| claim.takes(HostCapability::Visualize, None))
+            .is_some_and(|claim| claim.conn.id == id)
+    }
+
     fn next_host_id(&self) -> RequestId {
         RequestId::String(format!(
             "host-{}",
@@ -373,7 +392,7 @@ impl Outgoing {
                 .ok_or_else(|| desktop_host_unavailable("noClaimant"));
         }
         let hosts = lock(&self.hosts);
-        match hosts.iter().rev().find(|claim| claim.takes(capability, method)) {
+        match select(&hosts, capability, method) {
             Some(claim) => Ok(Arc::clone(&claim.conn)),
             None => Err(no_claim(&hosts, capability)),
         }
@@ -382,6 +401,11 @@ impl Outgoing {
     /// Whether `id` is the connection `capability` is served by now (the latest claim that declared it), as `claimant` picks it.
     pub fn serves_capability(&self, id: ConnectionId, capability: HostCapability) -> bool {
         self.claimant(capability, None).is_ok_and(|conn| conn.id == id)
+    }
+
+    /// Whether `id` is the connection a `method` request of `capability` is dispatched to now, as `claimant` picks it.
+    pub fn serves_method_of(&self, id: ConnectionId, capability: HostCapability, method: Method) -> bool {
+        self.claimant(capability, Some(method)).is_ok_and(|conn| conn.id == id)
     }
 
     /// One request to `claimant`, answered or failed as its connection ends. The wait ends at
@@ -400,9 +424,11 @@ impl Outgoing {
         cancel: Option<&CancellationToken>,
     ) -> Result<Value, HostError> {
         let id = self.next_host_id();
+        // A claimant already closed at the register or the send was never handed the request: that is `noClaimant`. Only a loss after
+        // the frame went out is `claimantClosed` / `timedOut`, which say the command may have run (`lost_after_dispatch`).
         let reply = claimant
             .register_host_request(id.clone(), method)
-            .ok_or_else(|| HostError::from(desktop_host_unavailable("claimantClosed")))?;
+            .ok_or_else(|| HostError::from(desktop_host_unavailable(NO_CLAIMANT)))?;
         let _forget = ForgetOnDrop {
             conn: Arc::clone(&claimant),
             id: id.clone(),
@@ -411,7 +437,7 @@ impl Outgoing {
         claimant
             .sink
             .send_control(request_frame(id, method.as_str(), params))
-            .map_err(|_| HostError::from(desktop_host_unavailable("claimantClosed")))?;
+            .map_err(|_| HostError::from(desktop_host_unavailable(NO_CLAIMANT)))?;
         let scope = match cancel {
             Some(cancel) => Scope::new().cancel(cancel),
             None => Scope::new(),
@@ -430,14 +456,14 @@ impl Outgoing {
                 Err(desktop_host_unavailable("claimantClosed").into())
             }
             Scoped::Cancelled => Err(desktop_host_unavailable("cancelled").into()),
-            Scoped::DeadlineExceeded => Err(desktop_host_unavailable("timedOut").into()),
+            Scoped::DeadlineExceeded => Err(desktop_host_unavailable(TIMED_OUT).into()),
         }
     }
 
     /// The claim now serving `capability`, with its connection.
     fn current_claim(&self, capability: HostCapability, method: Method) -> Result<(mixdog_core_api::HostClaim, Arc<Connection>), CoreError> {
         let hosts = lock(&self.hosts);
-        match hosts.iter().rev().find(|claim| claim.takes(capability, Some(method))) {
+        match select(&hosts, capability, Some(method)) {
             Some(claim) => {
                 let identity = mixdog_core_api::HostClaim {
                     host: claim.host.clone(),
@@ -449,6 +475,12 @@ impl Outgoing {
             None => Err(no_claim(&hosts, capability)),
         }
     }
+}
+
+/// The claim a request of `capability` (and, for a `method`, one that takes it) is dispatched to: the latest. Dispatch and the
+/// claim generation a request is stamped with select through this alone, so they cannot diverge.
+fn select(hosts: &[Claim], capability: HostCapability, method: Option<Method>) -> Option<&Claim> {
+    hosts.iter().rev().find(|claim| claim.takes(capability, method))
 }
 
 /// Why no claim takes a request: none serves the capability (`noClaimant`), or some do and none lists the method.
@@ -583,6 +615,13 @@ impl HostChannel for Outgoing {
         self.claimant(capability, Some(method)).is_ok()
     }
 
+    fn claim_generation(&self, capability: HostCapability, method: Method) -> Option<u64> {
+        if capability == HostCapability::ModelProxy {
+            return None;
+        }
+        select(&lock(&self.hosts), capability, Some(method)).map(|claim| claim.generation)
+    }
+
     async fn request(
         &self,
         capability: HostCapability,
@@ -623,6 +662,48 @@ impl HostChannel for Outgoing {
         params: Value,
         on_event: &mut (dyn FnMut(Value) + Send),
     ) -> Result<Value, HostError> {
+        self.streamed(capability, method, params, on_event, None).await
+    }
+
+    async fn request_streamed_duplex(
+        &self,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+        on_event: &mut (dyn FnMut(Value) + Send),
+        back_method: Method,
+        back: tokio::sync::mpsc::UnboundedReceiver<Value>,
+    ) -> Result<Value, HostError> {
+        self.streamed(capability, method, params, on_event, Some((back_method, back))).await
+    }
+
+    fn stream_event(&self, from: ConnectionId, request: &Value, event: Value) -> bool {
+        let Ok(id) = serde_json::from_value::<RequestId>(request.clone()) else {
+            return false;
+        };
+        self.connection(from)
+            .is_some_and(|conn| conn.host_stream_event(&id, event))
+    }
+
+    fn stream_alive(&self, from: ConnectionId, request: &Value) -> bool {
+        let Ok(id) = serde_json::from_value::<RequestId>(request.clone()) else {
+            return false;
+        };
+        self.connection(from).is_some_and(|conn| conn.host_stream_alive(&id))
+    }
+}
+
+impl Outgoing {
+    /// A streamed request ([`HostChannel::request_streamed`]); with `back`, each value it yields goes to the same claimant as
+    /// the notification it names, stamped with this request's id ([`HostChannel::request_streamed_duplex`]).
+    async fn streamed(
+        &self,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+        on_event: &mut (dyn FnMut(Value) + Send),
+        mut back: Option<(Method, tokio::sync::mpsc::UnboundedReceiver<Value>)>,
+    ) -> Result<Value, HostError> {
         let claimant = self.claimant(capability, Some(method))?;
         let id = self.next_host_id();
         let mut stream = claimant
@@ -633,6 +714,7 @@ impl HostChannel for Outgoing {
             id: id.clone(),
         };
         let request_id = id.clone();
+        let back_id = serde_json::to_value(&id).unwrap_or(Value::Null);
         claimant
             .sink
             .send_control(request_frame(id, method.as_str(), params))
@@ -647,7 +729,35 @@ impl HostChannel for Outgoing {
         let mut claimed = false;
         loop {
             let window = lease.map(|lease| if claimed { lease.renew } else { lease.claim });
-            match Scope::new().deadline(window.map(|window| Instant::now() + window)).run(stream.recv()).await {
+            let received = Scope::new().deadline(window.map(|window| Instant::now() + window)).run(stream.recv());
+            let mut received = std::pin::pin!(received);
+            // What the caller says to the claimant meanwhile goes out at once, to this claimant alone; it renews nothing.
+            let received = loop {
+                let next = std::future::poll_fn(|cx| {
+                    if let std::task::Poll::Ready(got) = std::future::Future::poll(received.as_mut(), cx) {
+                        return std::task::Poll::Ready(Ok(got));
+                    }
+                    match back.as_mut().map(|(_, rx)| rx.poll_recv(cx)) {
+                        Some(std::task::Poll::Ready(said)) => std::task::Poll::Ready(Err(said)),
+                        _ => std::task::Poll::Pending,
+                    }
+                })
+                .await;
+                match next {
+                    Ok(got) => break got,
+                    Err(Some(mut said)) => {
+                        let Some((back_method, _)) = &back else { continue };
+                        if let Value::Object(fields) = &mut said {
+                            fields.insert("requestId".to_owned(), back_id.clone());
+                        }
+                        // A closed claimant ends the request on the stream itself.
+                        let _ = claimant.sink.send_control(notification_frame(back_method.as_str(), said));
+                    }
+                    // The caller has nothing more to say.
+                    Err(None) => back = None,
+                }
+            };
+            match received {
                 Scoped::Done(Some(Streamed::Event(event))) => {
                     claimed = true;
                     on_event(event);
@@ -668,21 +778,6 @@ impl HostChannel for Outgoing {
                 Scoped::Cancelled => return Err(desktop_host_unavailable("cancelled").into()),
             }
         }
-    }
-
-    fn stream_event(&self, from: ConnectionId, request: &Value, event: Value) -> bool {
-        let Ok(id) = serde_json::from_value::<RequestId>(request.clone()) else {
-            return false;
-        };
-        self.connection(from)
-            .is_some_and(|conn| conn.host_stream_event(&id, event))
-    }
-
-    fn stream_alive(&self, from: ConnectionId, request: &Value) -> bool {
-        let Ok(id) = serde_json::from_value::<RequestId>(request.clone()) else {
-            return false;
-        };
-        self.connection(from).is_some_and(|conn| conn.host_stream_alive(&id))
     }
 }
 

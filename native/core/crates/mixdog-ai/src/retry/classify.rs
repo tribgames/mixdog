@@ -219,7 +219,7 @@ pub fn kind_of(facts: &Facts<'_>) -> ErrorKind {
             .is_some_and(|c| c.eq_ignore_ascii_case(OPENROUTER_IN_FLIGHT_BUDGET))
             && facts
                 .retry_after
-                .is_none_or(|advice| advice <= IN_FLIGHT_BUDGET_MAX_ADVICE);
+                .is_some_and(|advice| advice <= IN_FLIGHT_BUDGET_MAX_ADVICE);
         if in_flight {
             ErrorKind::Transient
         } else {

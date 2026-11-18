@@ -37,8 +37,6 @@ export function bindScrollProgress(scroller: HTMLElement, hosts?: string): () =>
       target.style.setProperty(MAX, String(max));
     }
   };
-  // Only the frame callback clears `frame`: a direct write (resize) must not
-  // orphan a pending frame that the unbind could then no longer cancel.
   const onFrame = (): void => {
     frame = 0;
     write();
@@ -48,8 +46,10 @@ export function bindScrollProgress(scroller: HTMLElement, hosts?: string): () =>
   };
   // Content growing without a scroll event (rows arriving, a palette
   // filtering) changes the scrollable distance: watch the scroller and the
-  // boxes it holds.
-  const resize = new ResizeObserver(write);
+  // boxes it holds. The observer only schedules the frame's write: styles
+  // written from inside its callback made the browser lay the frame out again
+  // (and report an undelivered resize loop) on every row a reply grew by.
+  const resize = new ResizeObserver(schedule);
   const watched = new Set<Element>();
   const watch = (): void => {
     for (const child of scroller.children) {

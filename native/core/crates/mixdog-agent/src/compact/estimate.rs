@@ -437,6 +437,19 @@ impl MessageMeter<'_> {
         messages.iter().map(|m| self.message(m)).sum()
     }
 
+    /// Native search results can put schemas on the wire even when their text is just a stub.
+    /// These are loaded schemas in a result, not deferred definitions in the request reserve.
+    pub(super) fn compact_message(&self, message: &AgentMessage) -> u64 {
+        let schemas = message.message.native_tool_search.as_ref()
+            .and_then(|payload| payload.get("openaiTools"))
+            .filter(|tools| non_empty_array(tools).is_some());
+        self.message(message) + schemas.map_or(0, |tools| estimate_tokens(&mixdog_js::json_stringify(tools)))
+    }
+
+    pub(super) fn compact_messages(&self, messages: &[AgentMessage]) -> u64 {
+        messages.iter().map(|message| self.compact_message(message)).sum()
+    }
+
     /// `textPdfAllowanceDiscount`: how far the native-PDF meter overstates `messages` for a provider that takes PDFs as text.
     pub fn text_pdf_discount(&self, messages: &[AgentMessage]) -> u64 {
         messages

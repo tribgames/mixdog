@@ -1,6 +1,10 @@
 //! A failed `host/browser/*` call, mapped from the JSON-RPC error's `data.code` (`BROWSER_ENGINE_ERR_*`).
 
 use std::fmt;
+use std::future::Future;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use mixdog_app_protocol::v2::browser_engine::BROWSER_ENGINE_ERR_DIALOG_BLOCKING;
 use mixdog_app_protocol::v2::browser_engine::BROWSER_ENGINE_ERR_FAILED;
@@ -18,8 +22,29 @@ use mixdog_app_protocol::v2::browser_engine::BrowserUserInputErrorData;
 use mixdog_app_protocol::v2::browser_engine::PageFacts;
 use mixdog_core_api::error::CoreError;
 use mixdog_core_api::host::HostError;
+use mixdog_core_api::host::lost_after_dispatch;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+
+tokio::task_local! {
+    /// The loss latch of the command being run ([`track_connection_loss`]).
+    static LOST: Arc<AtomicBool>;
+}
+
+/// Records, for the command running on this task, that a request of it was handed to the host and its connection was lost before
+/// the answer. Called where the loss is produced (the host lane, the typed host boundary), so a layer that swallows or words the
+/// error afterwards cannot erase the fact. Outside a command (a background task) it records nothing.
+pub fn note_connection_lost() {
+    let _ = LOST.try_with(|lost| lost.store(true, Ordering::SeqCst));
+}
+
+/// Runs one command's work with a fresh latch and answers whether a loss was noted during it: the latch is per command, never
+/// time-based.
+pub async fn track_connection_loss<F: Future>(work: F) -> (F::Output, bool) {
+    let lost = Arc::new(AtomicBool::new(false));
+    let output = LOST.scope(lost.clone(), work).await;
+    (output, lost.load(Ordering::SeqCst))
+}
 
 /// Why a host call produced no result. The variants named after a JSON-RPC code carry what that code's `data` carries.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,6 +67,9 @@ pub enum HostCallError {
     Cancelled,
     /// No host serves the lane (none claimed, or it closed before answering).
     Unavailable { detail: String },
+    /// The request was handed to the host and its connection was lost before the answer (`lost_after_dispatch`): the
+    /// command may have run. Typed where it is known, never read back from text.
+    ConnectionLost,
 }
 
 fn data_as<T: DeserializeOwned>(data: Option<&Value>) -> Option<T> {
@@ -96,7 +124,7 @@ impl HostCallError {
                 value(serde_json::to_value(BrowserRefusedErrorData { reason: reason.clone() })),
             )),
             Self::Failed { message } => Some((BROWSER_ENGINE_ERR_FAILED, message.clone(), None)),
-            Self::Cancelled | Self::Unavailable { .. } => None,
+            Self::Cancelled | Self::Unavailable { .. } | Self::ConnectionLost => None,
         }
     }
 }
@@ -106,6 +134,7 @@ impl From<HostError> for HostCallError {
         match error {
             HostError::Rpc { code, message, data } => Self::from_rpc(code, &message, data.as_ref()),
             HostError::Core(CoreError::CapabilityUnavailable { detail, .. }) if &*detail == "cancelled" => Self::Cancelled,
+            HostError::Core(CoreError::CapabilityUnavailable { detail, .. }) if lost_after_dispatch(&detail) => Self::ConnectionLost,
             HostError::Core(CoreError::CapabilityUnavailable { detail, .. }) => Self::Unavailable { detail: detail.to_string() },
             HostError::Core(other) => Self::Unavailable { detail: format!("{other:?}") },
         }
@@ -124,11 +153,10 @@ impl fmt::Display for HostCallError {
             Self::Failed { message } => out.write_str(message),
             Self::Cancelled => out.write_str("cancelled"),
             Self::Unavailable { detail } => write!(out, "the browser host is unavailable: {detail}"),
+            Self::ConnectionLost => out.write_str("the browser host connection was lost after the command was sent"),
         }
     }
 }
-
-impl std::error::Error for HostCallError {}
 
 #[cfg(test)]
 mod tests {
@@ -190,4 +218,30 @@ mod tests {
         let rpc = HostError::Rpc { code: -32011, message: String::new(), data: None };
         assert_eq!(HostCallError::from(rpc), HostCallError::PageGone);
     }
+
+    /// The latch is per command: a loss noted during one run is not seen by the next, and a note outside any command records nothing.
+    #[tokio::test]
+    async fn the_loss_latch_belongs_to_one_command() {
+        note_connection_lost();
+        let (_, first) = track_connection_loss(async { note_connection_lost() }).await;
+        let (_, second) = track_connection_loss(async {}).await;
+        assert!(first);
+        assert!(!second);
+    }
+
+    /// A loss after the hand-over is typed as such; a method the claimant does not serve, no claimant, and a host's own message
+    /// that merely reads like a loss are not.
+    #[test]
+    fn only_a_loss_after_the_hand_over_is_a_connection_loss() {
+        let unavailable = |detail: &str| HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: detail.into() });
+        assert_eq!(HostCallError::from(unavailable("claimantClosed")), HostCallError::ConnectionLost);
+        assert_eq!(HostCallError::from(unavailable("timedOut")), HostCallError::ConnectionLost);
+        assert_eq!(HostCallError::from(unavailable("unsupportedMethod")), HostCallError::Unavailable { detail: "unsupportedMethod".into() });
+        assert_eq!(HostCallError::from(unavailable("noClaimant")), HostCallError::Unavailable { detail: "noClaimant".into() });
+        let thrown = HostCallError::Failed { message: "the browser host is unavailable: claimantClosed".into() };
+        assert_ne!(thrown, HostCallError::ConnectionLost);
+    }
 }
+
+
+impl std::error::Error for HostCallError {}

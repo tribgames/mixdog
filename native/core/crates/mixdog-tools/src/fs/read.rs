@@ -37,7 +37,6 @@ use super::read_batch::*;
 use super::read_legacy;
 use super::read_paths;
 use super::read_state::*;
-use super::search::GLOB_ACCUM_CAP;
 use super::search::glob_files;
 
 const READ_SPEC: &str = include_str!("specs/read.json");
@@ -112,6 +111,7 @@ impl ReadTool {
 struct Entry {
     path: String,
     offset: u64,
+    tail: Option<u64>,
     limit: u64,
     ranged: bool,
     /// The window is the guard's default, not one the caller named (`BEntry::injected`).
@@ -137,13 +137,16 @@ struct Body {
     rich: bool,
     /// An answer Node's caller takes for a failed call (the notebook extractor's `Error:` strings).
     error: bool,
+    incomplete: bool,
     observed: Option<Observed>,
 }
 
 impl Body {
     fn text(s: impl Into<String>) -> Self {
+        let text = s.into();
         Self {
-            parts: vec![ToolPart::Text(s.into())],
+            incomplete: text_incomplete(&text),
+            parts: vec![ToolPart::Text(text)],
             ..Self::default()
         }
     }
@@ -153,17 +156,21 @@ impl Body {
             _ => "",
         }
     }
+    fn numbered(text: String, observed: Option<Observed>, mode: Mode) -> Self {
+        let incomplete = super::read_batch::text_incomplete(&text);
+        let out = if mode.raw() || matches!(mode, Mode::Child { .. }) { text } else { rows_for_model(&text) };
+        Self { observed, incomplete, ..Self::text(out) }
+    }
     fn failed(&self) -> bool {
         is_error_text(self.first_text())
     }
 }
 
-/// How a window is read: alone (`raw` keeps its numbered rows, as a nested read does; `suppress`
-/// never answers `[file unchanged]`), or as one child of a batch under its share of the output
-/// budget.
+/// How a window is read: alone (`raw` keeps its numbered rows, as a nested read does), or as one
+/// child of a batch under its share of the output budget.
 #[derive(Clone, Copy)]
 enum Mode {
-    Single { max_output: usize, raw: bool, suppress: bool },
+    Single { max_output: usize, raw: bool },
     Child { max_output: usize },
 }
 
@@ -171,12 +178,6 @@ impl Mode {
     fn max_output(self) -> usize {
         match self {
             Self::Single { max_output, .. } | Self::Child { max_output } => max_output,
-        }
-    }
-    fn suppress(self) -> bool {
-        match self {
-            Self::Single { suppress, .. } => suppress,
-            Self::Child { .. } => true,
         }
     }
     fn raw(self) -> bool {
@@ -193,8 +194,6 @@ struct Public {
     entries: Vec<BEntry>,
     /// Distinct files past the per-call cap, named to the caller.
     skipped: Vec<String>,
-    /// `pages` as given: `parsePagesArg` refuses one that is not a string.
-    pages: Option<JsonValue>,
 }
 
 const WINDOW_RANGE_TEXT: &str = "offset must be an integer >= 1 and limit an integer from 1 to 100000";
@@ -246,6 +245,7 @@ fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
         return Err(range());
     }
     let mut entries = Vec::new();
+    let pages = args.get("pages").cloned();
     for (index, target) in targets.iter().enumerate() {
         let shape = || bad("file_path", "target", format!("read target {} must be a path string or {{file_path, offset?, limit?, tail?}}", index + 1));
         let (path, offset, limit, tail) = match target {
@@ -273,7 +273,7 @@ fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
             let Some(n) = as_int(tail).filter(|n| (1..=MAX_WINDOW).contains(n)) else {
                 return Err(bad("tail", "range", format!("read target {} tail must be an integer from 1 to {MAX_WINDOW}", index + 1)));
             };
-            entries.push(BEntry { path: path.to_owned(), offset: Some(0.0), limit: Some(n as f64), tail: Some(n as u64), ..BEntry::default() });
+            entries.push(BEntry { path: path.to_owned(), offset: Some(0.0), limit: Some(n as f64), tail: Some(n as u64), pages: pages.clone(), ..BEntry::default() });
             continue;
         }
         let named = |own: Option<&JsonValue>, key: &str, unset: bool| {
@@ -285,7 +285,7 @@ fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
         let Some((offset, limit)) = valid_window(offset, limit) else {
             return Err(bad("offset", "range", format!("read target {} {WINDOW_RANGE_TEXT}", index + 1)));
         };
-        entries.push(BEntry { path: path.to_owned(), offset: Some(offset as f64), limit: Some(limit as f64), injected, ..BEntry::default() });
+        entries.push(BEntry { path: path.to_owned(), offset: Some(offset as f64), limit: Some(limit as f64), injected, pages: pages.clone(), ..BEntry::default() });
     }
     // The cap counts distinct files, not windows; files past it are named to the caller.
     let mut kept: Vec<String> = Vec::new();
@@ -307,7 +307,7 @@ fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
         e.mode = arg_str(args, "mode").map(str::to_owned);
         e.n = args.get("n").filter(|v| !v.is_null()).cloned();
     }
-    Ok(Public { single: !batch, entries, skipped, pages: args.get("pages").cloned() })
+    Ok(Public { single: !batch, entries, skipped })
 }
 
 #[async_trait]
@@ -327,45 +327,59 @@ impl Tool for ReadTool {
             return self.call_legacy(ctx, args).await;
         }
         let mut public = parse_public(&args)?;
-        // A tail is read off the path as the caller wrote it, before a `path:line` coordinate is taken off it.
         for e in &mut public.entries {
-            let raw = e.path.clone();
-            if !public.single || !(has_glob_magic(&raw) && !exists(ctx, &raw).await) {
-                self.resolve_tail(ctx, e, &raw).await;
+            let path = normalize_input_path(&e.path);
+            if let Some((file, start, end)) = line_coordinate(ctx, &path).await? {
+                if e.injected && windows_colon_coordinate(&path) {
+                    e.offset = Some((start - 1) as f64);
+                    e.limit = Some((end.unwrap_or(start) - start + 1) as f64);
+                    e.injected = false;
+                }
+                e.path = file;
             }
-        }
-        for e in &mut public.entries {
-            e.path = strip_line_coordinate(ctx, &e.path).await?;
         }
         if let Some(state) = &self.state {
             state.ensure_scope(&scope_of(ctx)).await;
         }
         if public.single {
             let e = public.entries.remove(0);
-            return self.run_top(ctx, e, 1, public.pages.as_ref()).await;
+            return self.run_top(ctx, e, 1).await;
         }
         let results = self.pipeline(ctx, public.entries, true, output_max_bytes(), true, 1).await?;
         if args.get("reject_partial") == Some(&JsonValue::Bool(true)) && is_rejected(&results) {
-            return text_output(rejected(&results));
+            return incomplete_text_output(rejected(&results));
         }
-        if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
-            return Ok(ToolOutput { parts: render_rich(&results), ..ToolOutput::default() });
-        }
-        let mut text = render_text(&results);
+        let mut parts = if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
+            render_rich(&results)
+        } else {
+            vec![ToolPart::Text(rows_for_model(&render_text(&results)))]
+        };
         if !public.skipped.is_empty() {
-            text.push_str(&format!(
-                "\n[skipped {} more file(s) over the per-call limit: {} — read them in another call]",
+            let note = format!(
+                "[skipped {} more file(s) over the per-call limit: {} — read them in another call]",
                 public.skipped.len(),
                 public.skipped.join(", ")
-            ));
+            );
+            if let [ToolPart::Text(text)] = parts.as_mut_slice() {
+                text.push('\n');
+                text.push_str(&note);
+            } else {
+                parts.push(ToolPart::Text(note));
+            }
         }
-        Ok(ToolOutput { parts: vec![ToolPart::Text(rows_for_model(&text))], ..ToolOutput::default() })
+        let complete = public.skipped.is_empty() && !is_incomplete(&results);
+        Ok(ToolOutput { parts, meta: (!complete).then(|| serde_json::json!({ "complete": false })), ..ToolOutput::default() })
     }
 }
 
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 fn text_output(text: String) -> ToolOutcome {
     Ok(ToolOutput { parts: vec![ToolPart::Text(text)], ..ToolOutput::default() })
+}
+
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError and exact filesystem-tool error contract")]
+fn incomplete_text_output(text: String) -> ToolOutcome {
+    Ok(ToolOutput { parts: vec![ToolPart::Text(text)], meta: Some(serde_json::json!({ "complete": false })), ..ToolOutput::default() })
 }
 
 /// `normalizeInputPath`: trimmed, control characters dropped, `~` expanded, NFC.
@@ -381,7 +395,7 @@ pub(crate) fn normalize_input_path(p: &str) -> String {
 }
 
 /// `hasLineCoordinate`: the path names a `#L5` / `:5-7` coordinate.
-fn has_line_coordinate(path: &str) -> bool {
+pub(super) fn has_line_coordinate(path: &str) -> bool {
     static COORD: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     COORD.get_or_init(|| regex::Regex::new(r"(?i)(?:#L\d+|:\d+(?:-\d+)?(?::|$))").expect("a fixed pattern")).is_match(path)
 }
@@ -414,7 +428,7 @@ impl ReadTool {
         }
         match map.get("path").cloned() {
             Some(JsonValue::String(raw)) => {
-                let mut be = BEntry {
+                let be = BEntry {
                     path: raw,
                     mode: map.get("mode").and_then(JsonValue::as_str).map(str::to_owned),
                     n: map.get("n").filter(|v| !v.is_null()).cloned(),
@@ -423,13 +437,10 @@ impl ReadTool {
                     full: map.get("full").and_then(JsonValue::as_bool),
                     tail: map.get("tail").and_then(js_tail),
                     injected,
+                    pages: map.get("pages").cloned(),
                     ..BEntry::default()
                 };
-                if be.tail.is_some() && !(has_glob_magic(&be.path) && !exists(ctx, &be.path).await) {
-                    let raw = be.path.clone();
-                    self.resolve_tail(ctx, &mut be, &raw).await;
-                }
-                self.run_top(ctx, be, 0, map.get("pages")).await
+                self.run_top(ctx, be, 0).await
             }
             Some(JsonValue::Array(items)) => self.legacy_batch(ctx, &map, &items, injected).await,
             other => {
@@ -476,7 +487,7 @@ impl ReadTool {
                 }
                 path = stripped;
             }
-            let mut entry = BEntry {
+            let entry = BEntry {
                 path,
                 mode,
                 n: pick("n").cloned(),
@@ -487,46 +498,19 @@ impl ReadTool {
                 injected,
                 ..BEntry::default()
             };
-            self.resolve_tail(ctx, &mut entry, raw_path).await;
             entries.push(entry);
         }
         let results = self.pipeline(ctx, entries, object, output_max_bytes(), true, 0).await?;
         if map.get("reject_partial") == Some(&JsonValue::Bool(true)) && is_rejected(&results) {
-            return text_output(rejected(&results));
+            return incomplete_text_output(rejected(&results));
         }
-        if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
-            return Ok(ToolOutput { parts: render_rich(&results), ..ToolOutput::default() });
-        }
-        text_output(rows_for_model(&render_text(&results)))
-    }
-
-    /// `resolveTailRecord`: a `tail: N` entry becomes the window it names, read off `raw` (the path as the caller wrote it).
-    /// Up to the in-memory cap the file's lines are counted and the entry is an ordinary window; past it the entry is a
-    /// from-the-end glance, which never reads the middle of the file. A path that is no file keeps the first window, which
-    /// the ordinary read reports.
-    async fn resolve_tail(&self, ctx: &ToolContext, be: &mut BEntry, raw: &str) {
-        let Some(tail) = be.tail.take() else { return };
-        let named = normalize_input_path(raw);
-        let found = match resolve_path(&ctx.cwd, &named) {
-            Ok(abs) => match ctx.files.stat(ctx.io.interactive, abs.clone()).await {
-                Ok(st) if matches!(st.kind, EntryKind::File) => Some((abs, st.len)),
-                _ => None,
-            },
-            Err(_) => None,
+        let parts = if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
+            render_rich(&results)
+        } else {
+            vec![ToolPart::Text(rows_for_model(&render_text(&results)))]
         };
-        let total = match &found {
-            Some((_, size)) if *size > MAX_FILE_BYTES => {
-                be.mode = Some("tail".to_owned());
-                be.n = Some(JsonValue::from(tail.min(TAIL_MODE_LINES_MAX)));
-                be.offset = None;
-                be.limit = None;
-                return;
-            }
-            Some((abs, size)) => count_logical_lines(ctx, abs, &named, *size).await.ok(),
-            None => None,
-        };
-        be.offset = Some(total.map_or(0, |total| total.saturating_sub(tail)) as f64);
-        be.limit = Some(tail as f64);
+        let meta = is_incomplete(&results).then(|| serde_json::json!({ "complete": false }));
+        Ok(ToolOutput { parts, meta, ..ToolOutput::default() })
     }
 
     /// `isWSL`, once: the environment, else the kernel's `/proc/version`.
@@ -562,7 +546,9 @@ impl ReadTool {
         for key in ["path", "file_path"] {
             let Some(JsonValue::String(value)) = map.get(key) else { continue };
             let value = value.clone();
-            if !value.trim().contains(|c: char| c == ',' || mixdog_js::is_js_space(c)) || exists(ctx, &normalize_input_path(&value)).await {
+            let named = normalize_input_path(&value);
+            if !value.trim().contains(|c: char| c == ',' || mixdog_js::is_js_space(c))
+                || !path_is_absent(ctx, &named).await? {
                 continue;
             }
             let pieces: Vec<String> = value.split(|c: char| c == ',' || mixdog_js::is_js_space(c)).filter(|p| !p.is_empty()).map(str::to_owned).collect();
@@ -571,7 +557,7 @@ impl ReadTool {
             }
             let mut all_exist = true;
             for piece in &pieces {
-                all_exist &= exists(ctx, &normalize_input_path(piece)).await;
+                all_exist &= exists(ctx, &normalize_input_path(piece)).await?;
             }
             if !all_exist {
                 continue;
@@ -613,13 +599,10 @@ impl ReadTool {
     /// `executeHexTool` over a file read whole: the numbered text a mode answers with.
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn glance_text(&self, ctx: &ToolContext, path: &str, mode: &str, n: Option<&JsonValue>, offset: Option<f64>, seen: &mut Option<Observed>) -> Result<String, ToolError> {
-        if let Some(reason) = path_string_guard(path) {
-            return Ok(format!("Error: {reason}: {}", super::patch_guard::normalize_output_path(path)));
-        }
-        let abs = resolve_path(&ctx.cwd, path)?;
-        if let Some(reason) = path_string_guard(&fwd(abs.as_path())) {
-            return Ok(format!("Error: {reason}: {}", fwd(abs.as_path())));
-        }
+        let abs = match read_target(ctx, path).await? {
+            Ok(abs) => abs,
+            Err(refusal) => return Ok(refusal),
+        };
         let shown = display_path(abs.as_path(), &ctx.cwd);
         let named = path.replace('\\', "/");
         let stat = match guarded(ctx, "read", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
@@ -637,7 +620,7 @@ impl ReadTool {
             }
             _ => {}
         }
-        let key_path = fwd(abs.as_path());
+        let key_path = super::read_state::canonical_key(&fwd(abs.as_path()));
         let version = FileVersion::of(&stat);
         let mut observe = |meta: SnapshotMeta| {
             *seen = version.map(|v| Observed { path: key_path.clone(), version: v, meta });
@@ -706,8 +689,11 @@ impl ReadTool {
         observe: &mut (dyn FnMut(SnapshotMeta) + Send),
     ) -> Result<String, ToolError> {
         const CHUNK: u64 = 1024 * 1024;
-        const TAIL_WINDOW_CAP: u64 = 4 * 1024 * 1024;
         let head = read_range(ctx, abs, shown, 0, size.min(64 * 1024)).await?;
+        if mode == "tail" {
+            let requested = read_legacy::mode_count(n, 20, 1, i64::MAX) as u64;
+            return self.large_tail(ctx, (abs, shown, named), size, requested, &head, output_max_bytes()).await;
+        }
         let tail = if size > head.len() as u64 && size > 4096 { read_range(ctx, abs, shown, size - 4096, 4096).await? } else { Vec::new() };
         let utf16 = utf16_bom(&head).is_some();
         if !utf16 && (head.contains(&0) || tail.contains(&0)) {
@@ -760,20 +746,6 @@ impl ReadTool {
                 }
                 Ok(out)
             }
-            "tail" => {
-                let target = read_legacy::mode_count(n, 20, 1, 2000) as usize;
-                let mut window = size.min(4096.max(target as u64 * 256));
-                let buf = loop {
-                    let buf = read_range(ctx, abs, shown, size - window, window).await?;
-                    let line_feeds = buf.iter().filter(|b| **b == b'\n').count();
-                    if window >= size || line_feeds > target || window >= TAIL_WINDOW_CAP {
-                        break buf;
-                    }
-                    window = size.min(TAIL_WINDOW_CAP).min(window * 2);
-                };
-                let (lines, _, capped) = read_legacy::large_tail_lines(&buf, size, target, TAIL_WINDOW_CAP);
-                Ok(read_legacy::large_tail_text(&lines, capped, TAIL_WINDOW_CAP, &clip_line))
-            }
             "count" => Ok(format!("lines\t{}\twords\t-\tbytes\t{size}\t(words skipped: file > cap)", count_lines().await?)),
             _ => {
                 let limit = read_legacy::mode_count(n, 200, 1, 1000) as usize;
@@ -823,7 +795,11 @@ impl ReadTool {
             Some(similar) => format!(" Did you mean \"{}\"?", named(&fwd(similar.as_path()))),
             None => String::new(),
         };
-        let mut siblings: Vec<String> = match abs.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf())) {
+        let parent = match abs.as_path().parent() {
+            Some(parent) => read_target(ctx, &fwd(parent)).await.ok().and_then(Result::ok),
+            None => None,
+        };
+        let mut siblings: Vec<String> = match parent {
             Some(parent) => match ctx.files.list_dir(ctx.io.interactive, parent).await {
                 Ok(entries) => entries
                     .iter()
@@ -846,19 +822,23 @@ fn scope_of(ctx: &ToolContext) -> String {
 }
 
 const GLOB_CAP_NOTE: &str = "[glob expansion capped at 10 files (newest first); narrow the pattern for the rest]";
+const GLOB_PARTIAL_NOTE: &str = "[glob search incomplete; showing only the files found so far — narrow the pattern to finish]";
+
+fn survey_notes(capped: bool, partial: bool) -> impl Iterator<Item = &'static str> {
+    [partial.then_some(GLOB_PARTIAL_NOTE), capped.then_some(GLOB_CAP_NOTE)].into_iter().flatten()
+}
 
 /// The aggregate of a glob survey: the batch, then the cap note when more files matched.
-fn survey_parts(results: &[Resolved], capped: bool) -> Vec<ToolPart> {
+fn survey_parts(results: &[Resolved], capped: bool, partial: bool) -> Vec<ToolPart> {
     if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
         let mut parts = render_rich(results);
-        if capped {
-            parts.push(ToolPart::Text(GLOB_CAP_NOTE.to_owned()));
-        }
+        parts.extend(survey_notes(capped, partial).map(|note| ToolPart::Text(note.to_owned())));
         return parts;
     }
     let mut text = render_text(results);
-    if capped {
-        text.push_str(&format!("\n{GLOB_CAP_NOTE}"));
+    for note in survey_notes(capped, partial) {
+        text.push('\n');
+        text.push_str(note);
     }
     vec![ToolPart::Text(rows_for_model(&text))]
 }
@@ -879,19 +859,22 @@ fn read_failure(err: &FsError, abs: &AbsPath, shown: &str) -> ToolError {
     fs_failure_worded(err, shown, format!("Error: {message}"))
 }
 
-/// The lines `countLogicalLinesBytesSync` counts: the newlines, and a last line without one.
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-async fn count_logical_lines(ctx: &ToolContext, abs: &AbsPath, shown: &str, size: u64) -> Result<u64, ToolError> {
-    const CHUNK: u64 = 1024 * 1024;
-    let (mut at, mut lines, mut last) = (0_u64, 0_u64, None);
-    while at < size {
-        let chunk = read_range(ctx, abs, shown, at, CHUNK.min(size - at)).await?;
-        let Some(&end) = chunk.last() else { break };
-        lines += chunk.iter().filter(|b| **b == b'\n').count() as u64;
-        last = Some(end);
-        at += chunk.len() as u64;
+pub(super) async fn read_target(ctx: &ToolContext, raw: &str) -> Result<Result<AbsPath, String>, ToolError> {
+    if url_as_path(raw) {
+        return Ok(Err(URL_AS_PATH.to_owned()));
     }
-    Ok(lines + u64::from(last.is_some_and(|b| b != b'\n')))
+    if let Some(reason) = path_string_guard(raw) {
+        return Ok(Err(format!("Error: {reason}: {}", super::patch_guard::normalize_output_path(raw))));
+    }
+    let abs = resolve_path(&ctx.cwd, raw)?;
+    if let Some(reason) = path_string_guard(&fwd(abs.as_path())) {
+        return Ok(Err(format!("Error: {reason}: {}", fwd(abs.as_path()))));
+    }
+    if let Some(refusal) = super::common::symlink_refusal(ctx, &abs, raw).await? {
+        return Ok(Err(refusal));
+    }
+    Ok(Ok(abs))
 }
 
 /// `Math.trunc(Number(tail))` of a legacy `path` call's `tail`: a number, or the text of one.
@@ -904,16 +887,35 @@ fn js_tail(v: &JsonValue) -> Option<u64> {
     n.is_finite().then(|| n.trunc().max(0.0) as u64)
 }
 
-async fn exists(ctx: &ToolContext, raw: &str) -> bool {
-    let Ok(abs) = resolve_path(&ctx.cwd, raw) else { return false };
-    ctx.files.stat(ctx.io.interactive, abs).await.is_ok()
+#[allow(clippy::result_large_err, reason = "preserve the filesystem-tool error contract")]
+async fn exists(ctx: &ToolContext, raw: &str) -> Result<bool, ToolError> {
+    if raw.trim().is_empty() {
+        return Ok(false);
+    }
+    let Ok(abs) = read_target(ctx, raw).await? else { return Ok(false) };
+    Ok(guarded(ctx, "read", ctx.files.stat(ctx.io.interactive, abs)).await?.is_ok())
 }
 
-/// `normaliseReadLineWindowArgs`' path half: `file.rs:12` / `file.rs#L12-20` names `file.rs` when
-/// only that exists. The window itself is already explicit.
-#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-async fn strip_line_coordinate(ctx: &ToolContext, raw: &str) -> Result<String, ToolError> {
-    Ok(line_coordinate(ctx, raw).await?.map_or_else(|| raw.to_owned(), |c| c.0))
+#[allow(clippy::result_large_err, reason = "preserve the filesystem-tool error contract")]
+async fn path_is_absent(ctx: &ToolContext, raw: &str) -> Result<bool, ToolError> {
+    let Ok(abs) = read_target(ctx, raw).await? else { return Ok(false) };
+    let stat = guarded(ctx, "read", ctx.files.stat(ctx.io.interactive, abs)).await?;
+    Ok(stat.is_err_and(|e| matches!(e.kind, FsErrorKind::NotFound | FsErrorKind::NotADirectory)
+        || (cfg!(windows) && matches!(e.kind, FsErrorKind::Io { os_code: Some(123 | 161 | 267) }))))
+}
+
+#[allow(clippy::result_large_err, reason = "preserve the filesystem-tool error contract")]
+async fn expand_glob(ctx: &ToolContext, raw: &str) -> Result<bool, ToolError> {
+    let raw = normalize_input_path(raw);
+    if !has_glob_magic(&raw) {
+        return Ok(false);
+    }
+    path_is_absent(ctx, &raw).await
+}
+
+fn windows_colon_coordinate(path: &str) -> bool {
+    cfg!(windows) && read_paths::has_unsafe_win32_component(path)
+        && !read_paths::is_unc_path(path) && !read_paths::is_windows_device_path(path)
 }
 
 /// `resolveExistingPathLineCoordinate` / `normaliseReadLineWindowArgs`: `file.rs:12-20` names
@@ -926,10 +928,19 @@ async fn line_coordinate(ctx: &ToolContext, raw: &str) -> Result<Option<(String,
     let hash = HASH.get_or_init(|| regex::Regex::new(r"(?i)^(.+?)#L(\d+)(?:-L?(\d+))?(?:\b.*)?$").expect("a fixed pattern"));
     let colon = COLON.get_or_init(|| regex::Regex::new(r"^(.+):(\d+)(?:-(\d+))?(?::.*)?$").expect("a fixed pattern"));
     let text = raw.trim();
-    let Some(m) = hash.captures(text).or_else(|| colon.captures(text)) else { return Ok(None) };
+    let hash_match = hash.captures(text);
+    let windows_colon = hash_match.is_none() && windows_colon_coordinate(text);
+    // Windows treats extra colons as stream syntax, not as part of the file we can probe.
+    static WIN_COLON: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let colon = if windows_colon {
+        WIN_COLON.get_or_init(|| regex::Regex::new(r"^(.+):([0-9]+)(?:-([0-9]+))?$").expect("a fixed pattern"))
+    } else {
+        colon
+    };
+    let Some(m) = hash_match.or_else(|| colon.captures(text)) else { return Ok(None) };
     let positive = |s: &str| s.parse::<u64>().ok().filter(|n| *n > 0);
     let Some(line_no) = positive(&m[2]) else { return Ok(None) };
-    if m[1].is_empty() || exists(ctx, raw).await || !exists(ctx, &m[1]).await {
+    if m[1].is_empty() || (!windows_colon && !path_is_absent(ctx, raw).await?) || !exists(ctx, &m[1]).await? {
         return Ok(None);
     }
     let end = m.get(3).and_then(|e| positive(e.as_str()));
@@ -947,8 +958,8 @@ type Pipeline<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Ve
 /// What a glob that names nothing real expands to.
 #[allow(clippy::large_enum_variant, reason = "private survey retains its full BEntry by value; avoid a new per-read heap allocation solely for lint")]
 enum Survey {
-    /// Several files: a batch of them, and whether more matched than the cap.
-    Many(Vec<Resolved>, bool),
+    /// Expanded files and any bounds on the selection.
+    Many { results: Vec<Resolved>, capped: bool, partial: bool },
     /// One file: Node's one-element `path` array is a plain string, so it is read alone.
     One(BEntry),
 }
@@ -976,7 +987,8 @@ impl ReadTool {
             return Err(fail(ToolErrorCode::Failed { reason: reason.clone() }, reason));
         }
         self.record(ctx, body.observed.as_ref());
-        Ok(ToolOutput { parts: body.parts, ..ToolOutput::default() })
+        let meta = body.incomplete.then(|| serde_json::json!({ "complete": false }));
+        Ok(ToolOutput { parts: body.parts, meta, ..ToolOutput::default() })
     }
 
     fn record(&self, ctx: &ToolContext, seen: Option<&Observed>) {
@@ -1019,12 +1031,13 @@ impl ReadTool {
         let full = be.full == Some(true);
         Ok(Plan::Window(Entry {
             path,
+            tail: be.tail,
             offset: match offset {
                 Some(n) if n.is_finite() && n > 0.0 => n.trunc() as u64,
                 _ => 0,
             },
             limit: limit_arg(limit, if full { u64::MAX } else { 2000 }),
-            ranged: offset.is_some() || limit.is_some(),
+            ranged: be.tail.is_some() || offset.is_some() || limit.is_some(),
             injected,
             full,
             base: 0,
@@ -1033,27 +1046,30 @@ impl ReadTool {
 
     /// One top-level read of `be`, or the survey of a glob that names no real file.
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-    async fn run_top(&self, ctx: &ToolContext, be: BEntry, base: u64, pages: Option<&JsonValue>) -> ToolOutcome {
-        if has_glob_magic(&be.path) && !exists(ctx, &be.path).await {
+    async fn run_top(&self, ctx: &ToolContext, be: BEntry, base: u64) -> ToolOutcome {
+        if expand_glob(ctx, &be.path).await? {
             match self.survey(ctx, &be, base, SURVEY_BUDGET, true).await? {
-                Some(Survey::Many(results, capped)) => {
-                    return Ok(ToolOutput { parts: survey_parts(&results, capped), ..ToolOutput::default() });
+                Some(Survey::Many { results, capped, partial }) => {
+                    let complete = !capped && !partial && !is_incomplete(&results);
+                    return Ok(ToolOutput {
+                        parts: survey_parts(&results, capped, partial),
+                        meta: (!complete).then(|| serde_json::json!({ "complete": false })),
+                        ..ToolOutput::default()
+                    });
                 }
-                Some(Survey::One(mut one)) => {
-                    let raw = one.path.clone();
-                    self.resolve_tail(ctx, &mut one, &raw).await;
-                    let mode = Mode::Single { max_output: SURVEY_BUDGET, raw: false, suppress: false };
-                    return self.run_plan(ctx, &one, base, pages, mode).await;
+                Some(Survey::One(one)) => {
+                    let mode = Mode::Single { max_output: SURVEY_BUDGET, raw: false };
+                    return self.run_plan(ctx, &one, base, mode).await;
                 }
                 None => {}
             }
         }
-        let mode = Mode::Single { max_output: output_max_bytes(), raw: false, suppress: false };
-        self.run_plan(ctx, &be, base, pages, mode).await
+        let mode = Mode::Single { max_output: output_max_bytes(), raw: false };
+        self.run_plan(ctx, &be, base, mode).await
     }
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-    async fn run_plan(&self, ctx: &ToolContext, be: &BEntry, base: u64, pages: Option<&JsonValue>, mode: Mode) -> ToolOutcome {
+    async fn run_plan(&self, ctx: &ToolContext, be: &BEntry, base: u64, mode: Mode) -> ToolOutcome {
         match self.plan(ctx, be).await? {
             // A refused path (none, a URL) is an `Error:` answer, a failed call to Node's caller (classifyResultKind).
             Plan::Text(text) => Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text)),
@@ -1061,11 +1077,11 @@ impl ReadTool {
                 let mut seen = None;
                 let text = self.glance_text(ctx, &path, &mode, n.as_ref(), offset, &mut seen).await?;
                 self.record(ctx, seen.as_ref());
-                text_output(rows_for_model(&text))
+                if text_incomplete(&text) { incomplete_text_output(rows_for_model(&text)) } else { text_output(rows_for_model(&text)) }
             }
             Plan::Window(mut e) => {
                 e.base = base;
-                self.single(ctx, &e, pages, mode).await
+                self.single(ctx, &e, be.pages.as_ref(), mode).await
             }
         }
     }
@@ -1075,11 +1091,15 @@ impl ReadTool {
     /// `None` when it matches nothing, so the raw pattern gets the single-read answer.
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn survey(&self, ctx: &ToolContext, be: &BEntry, base: u64, cap: usize, record: bool) -> Result<Option<Survey>, ToolError> {
-        let (root, pattern) = split_glob(&be.path);
-        let root = resolve_path(&ctx.cwd, &root)?;
-        let (mut files, _, _, _) = glob_files(ctx, &root, &[pattern], false, Some(GLOB_ACCUM_CAP)).await?;
+        let (root, pattern) = split_glob(&normalize_input_path(&be.path));
+        let root = match read_target(ctx, &root).await? {
+            Ok(root) => root,
+            Err(text) => return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text)),
+        };
+        let (mut files, complete, inventory_capped, _, _) = glob_files(ctx, &root, &[pattern], false, None, true).await?;
+        let partial = !complete || inventory_capped;
         if files.is_empty() {
-            return Ok(None);
+            return Ok(partial.then(|| Survey::Many { results: Vec::new(), capped: false, partial }));
         }
         files.sort_by(|a, b| b.1.unwrap_or(0).cmp(&a.1.unwrap_or(0)).then_with(|| a.0.cmp(&b.0)));
         let capped = files.len() > GLOB_SURVEY_FILES;
@@ -1097,18 +1117,18 @@ impl ReadTool {
                 offset: be.offset,
                 limit: Some(limit),
                 full: be.full,
+                tail: be.tail,
+                pages: be.pages.clone(),
                 // The survey's own limit is no window the caller named (B-1).
                 injected: be.injected || (be.offset.is_none() && be.limit.is_none()),
                 ..BEntry::default()
             })
             .collect();
-        if entries.len() == 1 {
-            // Node re-enters the read with the call's own arguments, so a lone match keeps the call's tail.
-            let mut one = entries.remove(0);
-            one.tail = be.tail;
-            return Ok(Some(Survey::One(one)));
+        if entries.len() == 1 && !partial {
+            return Ok(Some(Survey::One(entries.remove(0))));
         }
-        Ok(Some(Survey::Many(self.pipeline(ctx, entries, false, cap, record, base).await?, capped)))
+        let results = self.pipeline(ctx, entries, false, cap, record, base).await?;
+        Ok(Some(Survey::Many { results, capped, partial }))
     }
 
     /// The batch machinery (`executeBatchRead`): shape the entries, split the output budget over
@@ -1140,27 +1160,11 @@ impl ReadTool {
             } else {
                 slots.iter().map(|s| s.path.as_str()).collect()
             };
-            let mut needs = Vec::with_capacity(firsts.len());
-            for i in &firsts {
-                let slot = &slots[*i];
-                if slot.path.is_empty() {
-                    needs.push(0.0);
-                    continue;
-                }
-                let size = match resolve_path(&ctx.cwd, &slot.path) {
-                    Ok(abs) => match ctx.files.stat(ctx.io.interactive, abs).await {
-                        Ok(st) if matches!(st.kind, EntryKind::File) => Some(st.len),
-                        _ => None,
-                    },
-                    Err(_) => None,
-                };
-                let limit = match slot.union {
-                    Some((_, limit)) => limit,
-                    None => slot.limit.filter(|l| l.is_finite() && *l > 0.0).map_or(0, |l| l.trunc() as u64),
-                };
-                needs.push(estimate_bytes(size, limit));
-            }
-            let allocated = allocate_budgets(&needs, body_budget(&header_paths, cap));
+            // The budget is over the bytes the requested windows actually render, never an estimate from file size
+            // or the span between windows. Every distinct read is rendered once against the whole call budget; only
+            // when the sum passes it are the larger ones rendered again inside their water-filled share, so what a
+            // short window leaves goes to the others and each overflowing window ends on a complete line.
+            let total = body_budget(&header_paths, cap);
             let window_offset = |s: &BEntry| if s.is_full_mode() { s.line_window().0 } else { 0 };
             let mut order: Vec<usize> = (0..firsts.len()).collect();
             order.sort_by(|a, b| {
@@ -1168,19 +1172,51 @@ impl ReadTool {
                 x.path.cmp(&y.path).then(window_offset(x).cmp(&window_offset(y))).then(a.cmp(b))
             });
             let mut bodies: Vec<Option<(CBody, Option<Observed>)>> = vec![None; firsts.len()];
-            for at in order {
+            let mut rendered = vec![0.0_f64; firsts.len()];
+            let first_cap = output_max_bytes().min(total as usize).max(256);
+            let mut caps = vec![first_cap; firsts.len()];
+            // Nothing is recorded while the budgets are still being settled: a read's snapshot must come from the
+            // rendering that is delivered, so a smaller second rendering never leaves the first one's claim behind.
+            for &at in &order {
                 let slot = &slots[firsts[at]];
                 if slot.path.is_empty() {
                     bodies[at] = Some((CBody::Str("Error: path is required.".to_owned()), None));
                     continue;
                 }
-                let budget = allocated[at].max(256.0) as usize;
                 // An object batch holds what its reads saw until the windows are cut back out.
-                let (body, seen) = self.child(ctx, &slot.child(), base, output_max_bytes().min(budget), object, record).await?;
-                if !object && record {
-                    self.record(ctx, seen.as_ref());
-                }
+                let (body, seen) = self.child(ctx, &slot.child(), base, first_cap, object, false).await?;
+                rendered[at] = match &body {
+                    CBody::Str(s) | CBody::Nested { text: s, .. } => s.len() as f64,
+                    CBody::Rich { .. } => 0.0,
+                };
                 bodies[at] = Some((body, seen));
+            }
+            if rendered.iter().sum::<f64>() > total {
+                let shares = allocate_budgets(&rendered, total);
+                for &at in &order {
+                    if rendered[at] <= shares[at] {
+                        continue;
+                    }
+                    let slot = &slots[firsts[at]];
+                    let share = (shares[at].max(256.0) as usize).min(first_cap);
+                    caps[at] = share;
+                    bodies[at] = Some(self.child(ctx, &slot.child(), base, share, object, false).await?);
+                }
+            }
+            if !object && record {
+                for &at in &order {
+                    let slot = &slots[firsts[at]];
+                    if slot.path.is_empty() {
+                        continue;
+                    }
+                    if expand_glob(ctx, &slot.path).await? {
+                        // A nested glob survey records the reads it delivers: render it once more at its final budget
+                        // with recording on, so it is recorded once, from what is delivered.
+                        bodies[at] = Some(self.child(ctx, &slot.child(), base, caps[at], false, true).await?);
+                    } else if let Some((_, seen)) = &bodies[at] {
+                        self.record(ctx, seen.as_ref());
+                    }
+                }
             }
             let resolved: Vec<Resolved> = slots
                 .iter()
@@ -1198,16 +1234,25 @@ impl ReadTool {
                             };
                             CBody::Str(slice_read_body(s, off, lim, base))
                         }
+                        // A window read on its own that the budget cut short names what is missing and the call for it.
+                        CBody::Str(s) if slot.tail.is_none() && slot.is_full_mode() && !slot.implicit() && slot.full != Some(true) => {
+                            let (off, end) = slot.line_window();
+                            match end.and_then(|end| cap_remaining(s, off, end - off, base)) {
+                                Some(note) => CBody::Str(format!("{s}\n{note}")),
+                                None => body,
+                            }
+                        }
                         _ => body,
                     };
                     let source = if object { &slots[firsts[producer]] } else { slot };
                     let path = if source.path.is_empty() { "(missing-path)".to_owned() } else { shown(&source.path) };
+                    let huge_tail = slot.tail.filter(|_| matches!(&body, CBody::Str(s) if s.starts_with("... [tail of ")));
                     Resolved {
                         path,
                         body,
                         producer,
-                        mode: slot.mode.clone().unwrap_or_else(|| "full".to_owned()),
-                        n: slot.n.as_ref().map(js_str),
+                        mode: huge_tail.map_or_else(|| slot.mode.clone().unwrap_or_else(|| "full".to_owned()), |_| "tail".to_owned()),
+                        n: huge_tail.map(|n| n.min(TAIL_MODE_LINES_MAX).to_string()).or_else(|| slot.n.as_ref().map(js_str)),
                     }
                 })
                 .collect();
@@ -1272,21 +1317,23 @@ impl ReadTool {
     /// entry's text, never aborting the batch. `defer` is an object batch, which records later.
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn child(&self, ctx: &ToolContext, be: &BEntry, base: u64, max_output: usize, defer: bool, record: bool) -> Result<(CBody, Option<Observed>), ToolError> {
-        if has_glob_magic(&be.path) && !exists(ctx, &be.path).await {
+        if expand_glob(ctx, &be.path).await? {
             // What a nested glob's reads saw is dropped by an object batch, as Node's is.
             match self.survey(ctx, be, base, max_output.min(SURVEY_BUDGET), record && !defer).await? {
-                Some(Survey::Many(results, capped)) => {
+                Some(Survey::Many { results, capped, partial }) => {
+                    let incomplete = capped || partial || is_incomplete(&results);
                     if results.iter().any(|r| matches!(r.body, CBody::Rich { .. })) {
-                        return Ok((CBody::Rich { parts: survey_parts(&results, capped), failed: false }, None));
+                        return Ok((CBody::Rich { parts: survey_parts(&results, capped, partial), failed: false, incomplete }, None));
                     }
                     let mut text = render_text(&results);
-                    if capped {
-                        text.push_str(&format!("\n{GLOB_CAP_NOTE}"));
+                    for note in survey_notes(capped, partial) {
+                        text.push('\n');
+                        text.push_str(note);
                     }
-                    return Ok((CBody::Str(text), None));
+                    return Ok((CBody::Nested { text, incomplete }, None));
                 }
                 Some(Survey::One(one)) => {
-                    let mode = Mode::Single { max_output: max_output.min(SURVEY_BUDGET), raw: true, suppress: true };
+                    let mode = Mode::Single { max_output: max_output.min(SURVEY_BUDGET), raw: true };
                     let (body, seen) = self.child_plan(ctx, &one, base, mode).await?;
                     if record && !defer {
                         self.record(ctx, seen.as_ref());
@@ -1323,20 +1370,20 @@ impl ReadTool {
             }
             Plan::Window(mut e) => {
                 e.base = base;
-                self.child_read(ctx, &e, mode).await
+                self.child_read(ctx, &e, be.pages.as_ref(), mode).await
             }
         }
     }
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-    async fn child_read(&self, ctx: &ToolContext, e: &Entry, mode: Mode) -> Result<(CBody, Option<Observed>), ToolError> {
-        match self.read_one(ctx, e, None, mode).await {
+    async fn child_read(&self, ctx: &ToolContext, e: &Entry, pages: Option<&JsonValue>, mode: Mode) -> Result<(CBody, Option<Observed>), ToolError> {
+        match self.read_one(ctx, e, pages, mode).await {
             Ok(body) => {
                 let plain = body.parts.len() == 1 && matches!(body.parts[0], ToolPart::Text(_));
                 let seen = body.observed.clone();
                 if body.rich || !plain {
                     let failed = body.failed();
-                    Ok((CBody::Rich { parts: body.parts, failed }, seen))
+                    Ok((CBody::Rich { parts: body.parts, failed, incomplete: false }, seen))
                 } else {
                     Ok((CBody::Str(body.first_text().to_owned()), seen))
                 }
@@ -1349,14 +1396,10 @@ impl ReadTool {
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn read_one(&self, ctx: &ToolContext, e: &Entry, pages: Option<&JsonValue>, mode: Mode) -> Result<Body, ToolError> {
         let raw = e.path.trim();
-        if let Some(reason) = path_string_guard(raw) {
-            return Ok(Body::text(format!("Error: {reason}: {}", super::patch_guard::normalize_output_path(raw))));
-        }
-        let abs = resolve_path(&ctx.cwd, raw)?;
-        // The path as resolved against the working directory meets the same refusals.
-        if let Some(reason) = path_string_guard(&fwd(abs.as_path())) {
-            return Ok(Body::text(format!("Error: {reason}: {}", fwd(abs.as_path()))));
-        }
+        let abs = match read_target(ctx, raw).await? {
+            Ok(abs) => abs,
+            Err(refusal) => return Ok(Body::text(refusal)),
+        };
         let shown = display_path(abs.as_path(), &ctx.cwd);
         let stat = match guarded(ctx, "read", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
             Ok(s) => s,
@@ -1383,21 +1426,25 @@ impl ReadTool {
         if is_notebook(&stat, raw) {
             return self.notebook(ctx, e, &abs, stat.len, matches!(mode, Mode::Child { .. })).await;
         }
-        let key_path = fwd(abs.as_path());
+        let key_path = super::read_state::canonical_key(&fwd(abs.as_path()));
         let version = FileVersion::of(&stat);
-        let scope =self.state.as_ref().map(|_| scope_of(ctx));
         let cacheable = stat.len <= CACHEABLE_BYTES;
-        // A file this session has just edited, and read before the edit, is not sent again.
-        if let (Some(state), Some(v), false, true) = (&self.state, version, mode.suppress(), cacheable)
-            && let Some(snap) = state.snapshot(scope.as_deref(), &key_path)
-            && is_mutation_source(&snap.source) && snap.body_delivered == Some(true) && same_version(&v, &snap.version) && covers_full_file(&snap) {
-            return Ok(Body::text(format!("[file unchanged: {shown}]")));
-        }
+        // Decided departure from Node (`read-single-fast-paths.mjs`): an explicit read returns the requested body, never a
+        // `[file unchanged]` stub. A hash proves the file is unchanged, not that an earlier body is still in the model's
+        // context (compaction, rewind, repair, offload, a sub-agent). The edit-safety snapshots are still recorded below.
         // Node answers an image before any size cap: by its extension, or for a path with none, by
         // its signature (a stored attachment).
         if matches!(stat.kind, EntryKind::File) {
             let by_extension = image_ext(raw);
-            if by_extension.is_some() || (std::path::Path::new(raw).extension().is_none() && stat.len >= 5) {
+            // A path with no extension is an image only by its signature, which its first [`IMAGE_SIGNATURE_BYTES`] hold: they
+            // are read first, and the whole file only once they name an image (the signature of the whole is theirs).
+            let signed = by_extension.is_none() && std::path::Path::new(raw).extension().is_none() && stat.len >= 5 && {
+                match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset: 0, max_len: Some(IMAGE_SIGNATURE_BYTES) })).await? {
+                    Ok(b) => sniffed_image(&b.bytes).is_some(),
+                    Err(err) => return Err(fs_failure(&err, &shown)),
+                }
+            };
+            if by_extension.is_some() || signed {
                 let bytes = match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await? {
                     Ok(b) => b.bytes,
                     Err(err) => return Err(fs_failure(&err, &shown)),
@@ -1414,11 +1461,15 @@ impl ReadTool {
             let head = read_range(ctx, &abs, &shown, 0, stat.len.min(64 * 1024)).await?;
             return match document_kind(&head, raw) {
                 Some(document) => self.document(ctx, &abs, &stat, document, &head, pages, mode).await,
+                None if e.tail.is_some() => {
+                    let tail = e.tail.expect("tail branch");
+                    self.large_tail(ctx, (&abs, &shown, raw), stat.len, tail, &head, mode.max_output()).await.map(Body::text)
+                }
                 None => self.read_huge(ctx, e, &abs, &shown, &stat, version, mode, head).await,
             };
         }
         let window_key = |v: u64| if e.ranged { v.to_string() } else { "d".to_owned() };
-        let cache_key = version.map(|v| {
+        let cache_key = version.filter(|_| e.tail.is_none()).map(|v| {
             format!(
                 "read|{key_path}|{}|{}|{}|{}|{}|{}|base:{}|budget:{}",
                 v.mtime_ms,
@@ -1446,19 +1497,9 @@ impl ReadTool {
         if let (Some(state), Some(key), Some(v), true) = (&self.state, &cache_key, version, cacheable)
             && let Some(hit) = state.cache_get(key) {
             if hit.prefix_hash == hash_bytes(&bytes) {
-                let session = state.snapshot(scope.as_deref(), &key_path);
-                let body_sent = session.as_ref().is_some_and(|s| {
-                    same_version(&v, &s.version)
-                        && (s.source.starts_with("read") || (is_mutation_source(&s.source) && s.body_delivered == Some(true)))
-                        && covers_full_file(s)
-                });
                 let meta = hit.meta.clone().unwrap_or_else(|| SnapshotMeta::new("read_cached"));
                 let seen = Observed { path: key_path.clone(), version: v, meta };
-                if !is_error_text(&hit.value) && body_sent && !mode.suppress() {
-                    return Ok(Body { observed: Some(seen), ..Body::text(format!("[file unchanged: {shown}]")) });
-                }
-                let text = if mode.raw() { hit.value } else { rows_for_model(&hit.value) };
-                return Ok(Body { observed: Some(seen), ..Body::text(text) });
+                return Ok(Body::numbered(hit.value, Some(seen), mode));
             }
             state.invalidate(&[key_path.as_str()]);
         }
@@ -1481,13 +1522,24 @@ impl ReadTool {
             ReadText::Text { text, utf16 } => (text, utf16),
         };
         let (text, utf16) = text;
+        // Count the same decoded rows we render, using the very same read. An I/O failure cannot become a head window.
+        let tail_window = e.tail.map(|tail| Entry {
+            path: String::new(),
+            tail: None,
+            offset: (text.lines().count() as u64).saturating_sub(tail),
+            limit: tail,
+            ranged: true,
+            injected: e.injected,
+            full: e.full,
+            base: e.base,
+        });
+        let e = tail_window.as_ref().unwrap_or(e);
         // A call with no window over the output cap is answered by the smart elision of the file's head and tail.
         if !utf16 && !e.ranged && !e.full && stat.len >= output_max_bytes() as u64
             && let Some((out, ranges, total)) = smart_stream_summary(&text, stat.len) {
             let meta = SnapshotMeta { ranges: Some(ranges), file_line_count: Some(total), ..SnapshotMeta::new("read_smart_stream") };
             cache(&out, &meta);
-            let out = if mode.raw() || matches!(mode, Mode::Child { .. }) { out } else { rows_for_model(&out) };
-            return Ok(Body { observed: observe(meta), ..Body::text(out) });
+            return Ok(Body::numbered(out, observe(meta), mode));
         }
         // A batch child streams its window, as does any file over 128 KiB; a UTF-16 body is always
         // decoded whole and read buffered, with its total in the footer.
@@ -1521,8 +1573,35 @@ impl ReadTool {
             (out, meta)
         };
         cache(&numbered, &meta);
-        let out = if mode.raw() || matches!(mode, Mode::Child { .. }) { numbered } else { rows_for_model(&numbered) };
-        Ok(Body { observed: observe(meta), ..Body::text(out) })
+        Ok(Body::numbered(numbered, observe(meta), mode))
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve the filesystem-tool error contract")]
+    #[allow(clippy::too_many_arguments)]
+    async fn large_tail(&self, ctx: &ToolContext, (abs, shown, named): (&AbsPath, &str, &str), size: u64, requested: u64, head: &[u8], max_output: usize) -> Result<String, ToolError> {
+        const TAIL_WINDOW_CAP: u64 = 4 * 1024 * 1024;
+        if utf16_bom(head).is_some() {
+            return Ok(format!("Error: UTF-16 file too large for this mode ({size} bytes exceeds {MAX_FILE_BYTES}-byte cap): {}", fwd(abs.as_path())));
+        }
+        let target = requested.clamp(1, TAIL_MODE_LINES_MAX) as usize;
+        let mut window = size.min(4096.max(target as u64 * 256));
+        let buf = loop {
+            let buf = read_range(ctx, abs, shown, size - window, window).await?;
+            if buf.len() as u64 != window {
+                return Err(fail(ToolErrorCode::Failed { reason: "tail range changed while reading".into() }, "Error: file size changed while reading its tail; retry the read".to_owned()));
+            }
+            if head.contains(&0) || buf.contains(&0) {
+                return Ok(format!("Error: file appears to be binary (contains null bytes): {named}"));
+            }
+            if window >= size || buf.iter().filter(|b| **b == b'\n').count() > target || window >= TAIL_WINDOW_CAP {
+                break buf;
+            }
+            window = size.min(TAIL_WINDOW_CAP).min(window * 2);
+        };
+        let (lines, approximate) = read_legacy::large_tail_lines(&buf, size, target);
+        let line_cap = (requested > target as u64 && (approximate || lines.len() == target)).then_some(target);
+        let window_cap = (approximate && lines.len() < target).then_some(TAIL_WINDOW_CAP);
+        Ok(read_legacy::large_tail_text(&lines, line_cap, window_cap, max_output, &clip_line))
     }
 
     /// A file past the 10 MiB buffered cap that is no document, read with its window (`head` is its first 64 KiB): a
@@ -1541,7 +1620,7 @@ impl ReadTool {
         mode: Mode,
         head: Vec<u8>,
     ) -> Result<Body, ToolError> {
-        let key_path = fwd(abs.as_path());
+        let key_path = super::read_state::canonical_key(&fwd(abs.as_path()));
         if utf16_bom(&head).is_some() {
             let text = format!(
                 "Error: UTF-16 file size {} bytes exceeds {MAX_FILE_BYTES} bytes; utf16 ranged reads are bounded — convert to UTF-8 or narrow the range.",
@@ -1598,8 +1677,7 @@ impl ReadTool {
             Vec::new()
         };
         let meta = SnapshotMeta { ranges: Some(ranges), ..SnapshotMeta::new("read") };
-        let out = if mode.raw() || matches!(mode, Mode::Child { .. }) { numbered } else { rows_for_model(&numbered) };
-        Ok(Body { observed: observe(meta), ..Body::text(out) })
+        Ok(Body::numbered(numbered, observe(meta), mode))
     }
 
     /// One extension-pool call over `abs`: its result and the bytes it streamed (its chunks in order), or why it failed.
@@ -1706,7 +1784,7 @@ impl ReadTool {
                     if page_count == 1 { "" } else { "s" }
                 )));
             }
-            return self.pdf_page_range(ctx, abs, page_count, (from as u64, to.min(page_count as f64) as u64), None, text_only).await;
+            return self.pdf_page_range(ctx, abs, page_count, (from as u64, to.min(page_count as f64) as u64), None, false).await;
         }
         if page_count > PDF_WHOLE_READ_MAX_PAGES {
             let note = format!(
@@ -2074,14 +2152,11 @@ impl ReadTool {
         let answer = Self::not_found_hint(ctx, abs).await;
         // A path that looks like several joined ones is not a basename to locate: the array hint wins
         // (`finalizeReadFamilyEnoentTail`).
-        let trimmed = mixdog_js::js_trim(raw);
-        let joined = trimmed.split(|c: char| c == ',' || mixdog_js::is_js_space(c)).filter(|s| !s.is_empty()).count() >= 2
-            && trimmed.contains(|c: char| c == ',' || mixdog_js::is_js_space(c));
-        if !joined {
+        if !super::not_found::joined_list(raw) {
             return answer;
         }
         let bare = answer.strip_suffix(&format!(" {FIND_NUDGE}")).unwrap_or(&answer);
-        format!("{bare} To pass several paths, send an array (path[]), not a comma- or space-joined string.")
+        format!("{bare}{}", super::not_found::MULTI_PATH)
     }
 
     async fn not_found_hint(ctx: &ToolContext, abs: &AbsPath) -> String {
@@ -2117,6 +2192,7 @@ impl ReadTool {
 
     async fn similar_sibling(ctx: &ToolContext, abs: &AbsPath) -> Option<AbsPath> {
         let parent = AbsPath::new(abs.as_path().parent()?.to_path_buf())?;
+        let parent = read_target(ctx, &fwd(parent.as_path())).await.ok()?.ok()?;
         let entries = ctx.files.list_dir(ctx.io.interactive, parent).await.ok()?;
         let base = abs.as_path().file_name()?.to_string_lossy().into_owned();
         let stem = abs.as_path().file_stem()?.to_string_lossy().into_owned();
@@ -2140,10 +2216,11 @@ impl ReadTool {
         target: &str,
         missing: &AbsPath,
     ) -> (Vec<AbsPath>, bool) {
+        let Ok(Ok(root)) = read_target(ctx, &fwd(ctx.cwd.as_path())).await else { return (Vec::new(), false) };
         let mut walk = ctx.files.walk(
             ctx.io.maintenance,
             WalkRequest {
-                root: ctx.cwd.clone(),
+                root,
                 recursive: true,
                 include_hidden: false,
                 respect_ignore: true,
@@ -2314,8 +2391,12 @@ fn image_ext(raw: &str) -> Option<&'static str> {
     }
 }
 
+/// The bytes [`sniffed_image`] reads: the longest signature it checks (WebP's `RIFF....WEBP`).
+const IMAGE_SIGNATURE_BYTES: u64 = 12;
+
 /// The image type of a path with no extension, by its signature (`SNIFFED_IMAGE_TYPES`).
 fn sniffed_image(head: &[u8]) -> Option<&'static str> {
+    // Every signature below lies within the first `IMAGE_SIGNATURE_BYTES`.
     if head.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
         Some("image/png")
     } else if head.starts_with(&[0xFF, 0xD8, 0xFF]) {
@@ -2527,8 +2608,10 @@ fn buffered_window(text: &str, e: &Entry, shown: &str, file_size: u64, max: usiz
         return (rendered, facts(total, sliced.len() as u64, false));
     }
     let (out, footer, shown_lines, capped) = if rendered.len() > max {
-        let slice = byte_prefix(&rendered, max).to_owned();
-        let shown_lines = slice.matches('\n').count() as u64;
+        // Only complete rows are delivered: the prefix ends at its last row break, so a row is never cut mid-line.
+        let cut = byte_prefix(&rendered, max);
+        let slice = cut.rfind('\n').map_or_else(String::new, |i| cut[..i].to_owned());
+        let shown_lines = if slice.is_empty() { 0 } else { slice.matches('\n').count() as u64 + 1 };
         let emitted_end = offset + shown_lines;
         let next = (emitted_end < total).then_some(emitted_end + base);
         (slice, window_marker("lines", offset + 1, emitted_end, Some(total), next, Some(max)), shown_lines, true)
@@ -2674,6 +2757,11 @@ impl Collector {
             && let Some(rest) = line.strip_prefix('\u{feff}') {
             line = rest.to_owned();
         }
+        // A line past a full window is what makes the window continue; the window alone cannot say.
+        if self.collected.len() as u64 >= self.limit {
+            self.stopped_at_limit = true;
+            return;
+        }
         let row = render_read_line(self.line_idx + 1, &line);
         self.bytes += row.len() + 1;
         if self.bytes > self.body_bytes {
@@ -2686,9 +2774,6 @@ impl Collector {
         }
         self.last_emitted = self.line_idx + 1;
         self.line_idx += 1;
-        if self.collected.len() as u64 >= self.limit {
-            self.stopped_at_limit = true;
-        }
     }
 
     fn finish(self) -> (String, WindowFacts) {
@@ -2698,12 +2783,13 @@ impl Collector {
             let next = if self.last_emitted == 0 { offset } else { self.last_emitted } + self.base;
             let of_file = if self.file_size > 0 { format!("{} KB file", (self.file_size as f64 / 1024.0).round().max(1.0) as u64) } else { String::new() };
             out.push_str(&format!("\n\n{}", cap_marker(&format_cap_size(self.max_output), &of_file, Some(next), "")));
-        } else if self.stopped_at_limit {
+        } else if self.collected.len() as u64 >= self.limit && !self.collected.is_empty() {
             let shown = self.collected.len() as u64;
+            let next = self.stopped_at_limit.then_some(offset + shown + self.base);
             out.push_str(&format!(
                 "{}{}",
                 if out.is_empty() { "" } else { "\n" },
-                window_marker("lines", offset + 1, offset + shown, None, Some(offset + shown + self.base), None)
+                window_marker("lines", offset + 1, offset + shown, None, next, None)
             ));
         } else if out.is_empty() && offset >= self.line_idx {
             out = format!("(no lines in range; file has {} lines)", self.line_idx);
@@ -2777,7 +2863,21 @@ fn split_glob(raw: &str) -> (String, String) {
     let first = parts.iter().position(|p| has_glob_magic(p)).unwrap_or(parts.len());
     let base = parts[..first].join("/");
     let pattern = parts[first..].join("/");
-    (if base.is_empty() { ".".to_owned() } else { base }, pattern)
+    let base = if base.is_empty() {
+        if norm.starts_with('/') { "/".to_owned() } else { ".".to_owned() }
+    } else if cfg!(windows) && base.ends_with(':') {
+        format!("{base}/")
+    } else {
+        base
+    };
+    (base, pattern)
+}
+
+#[cfg(all(test, unix))]
+#[test]
+fn a_root_glob_keeps_its_absolute_base() {
+    assert_eq!(split_glob("/*.txt"), ("/".to_owned(), "*.txt".to_owned()));
+    assert_eq!(split_glob("*.txt"), (".".to_owned(), "*.txt".to_owned()));
 }
 
 /// Node's `Buffer.from(text, 'base64')`: the standard and URL-safe alphabets, every other character (line breaks

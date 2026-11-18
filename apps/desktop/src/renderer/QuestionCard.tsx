@@ -156,13 +156,13 @@ export function QuestionCard({
           return;
         }
         if (typeof accepted === 'boolean') return;
-        setError(t('Mixdog could not record this decision. Please try again.'));
+        setError(t('This decision could not be saved. Please try again.'));
       } catch (reason) {
         const detail = reason instanceof Error ? reason.message : String(reason || '');
         setError(
           detail
-            ? t('Mixdog could not record this decision: {{detail}}', { detail })
-            : t('Mixdog could not record this decision. Please try again.')
+            ? t('This decision could not be saved: {{detail}}', { detail })
+            : t('This decision could not be saved. Please try again.')
         );
       }
       resolvingRef.current = false;

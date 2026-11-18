@@ -17,3 +17,10 @@ mixdog-tui-style = { workspace = true }
 mixdog-view-model = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }

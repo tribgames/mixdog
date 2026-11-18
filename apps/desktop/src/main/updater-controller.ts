@@ -3,6 +3,7 @@ import type { DesktopUpdaterState } from '../shared/contract';
 type UpdaterState = DesktopUpdaterState;
 
 export type UpdaterReadyRecord = { version: string };
+export type AutoUpdatePreference = boolean | undefined;
 
 type UpdaterService = {
   checkForUpdates(): Promise<{ isUpdateAvailable?: boolean; updateInfo?: { version?: string } } | null | undefined>;
@@ -31,6 +32,7 @@ export function startUnattendedInstall(
     retryMs?: number;
     /** Runs `retry` after `ms`; returns the cancel. */
     schedule?: (retry: () => void, ms: number) => () => void;
+    allowed?: () => Promise<AutoUpdatePreference>;
     log?: (message: string, data?: object) => void;
   } = {}
 ): () => void {
@@ -50,8 +52,18 @@ export function startUnattendedInstall(
     cancelRetry = null;
     if (stopped || running || controller.getState().status !== 'ready') return;
     running = true;
-    controller
-      .install()
+    void (async () => {
+      if (options.allowed && (await options.allowed()) !== true) return false;
+      if (stopped || controller.getState().status !== 'ready') return false;
+      await controller.install();
+      return true;
+    })()
+      .then((attempted) => {
+        const after = controller.getState();
+        if (attempted && !stopped && after.status === 'ready' && after.busyTasks !== undefined) {
+          cancelRetry = schedule(attempt, retryMs);
+        }
+      })
       .catch((error: unknown) => {
         options.log?.('updater unattended install failed', {
           message: error instanceof Error ? error.message : String(error),
@@ -59,10 +71,6 @@ export function startUnattendedInstall(
       })
       .finally(() => {
         running = false;
-        const after = controller.getState();
-        if (!stopped && !cancelRetry && after.status === 'ready' && after.busyTasks !== undefined) {
-          cancelRetry = schedule(attempt, retryMs);
-        }
       });
   };
   const unsubscribe = controller.subscribe((next) => {
@@ -85,6 +93,7 @@ export function createUpdaterController(input: {
   service: UpdaterService;
   persistence: UpdaterPersistence;
   stop: () => Promise<void>;
+  automaticAllowed?: () => Promise<AutoUpdatePreference>;
   /** The local core (LR §5.4). `running` is the work running now; `hold`
    *  defers new work and reports what runs in one step (0 = idle, the hold
    *  stays; a count = busy, the hold is released); `release` undoes a hold or
@@ -102,6 +111,7 @@ export function createUpdaterController(input: {
 }) {
   let state: UpdaterState = input.enabled ? { status: 'idle' } : { status: 'disabled' };
   let pending: Promise<UpdaterState> | undefined;
+  let manualRequested = false;
   let installing = false;
   const listeners = new Set<(state: UpdaterState) => void>();
   const scheduleInstall =
@@ -119,31 +129,62 @@ export function createUpdaterController(input: {
     return state;
   };
 
-  const check = (): Promise<UpdaterState> => {
-    if (!input.enabled) return Promise.resolve(state);
+  const check = (automatic = false): Promise<UpdaterState> => {
+    if (!input.enabled || installing) return Promise.resolve(state);
+    if (!automatic) manualRequested = true;
     if (pending) return pending;
-    const readyAtStart = state.status === 'ready' ? state : undefined;
+    const before = state;
+    const readyAtStart = before.status === 'ready' ? before : undefined;
+    let replacing = false;
+    const preference = async (): Promise<AutoUpdatePreference> => {
+      if (manualRequested || !input.automaticAllowed) return true;
+      const saved = await input.automaticAllowed();
+      // A manual check can join while the automatic preference read is pending.
+      return manualRequested ? true : saved;
+    };
+    const pendingVersion = async () => {
+      const record = await input.persistence.get();
+      return record?.version !== input.currentVersion ? record?.version : undefined;
+    };
 
-    pending = (async () => {
+    pending = Promise.resolve().then(async () => {
+      const initial = await preference();
+      if (!manualRequested && initial === false) return state;
+      if (!manualRequested && initial === undefined && (readyAtStart || !(await pendingVersion()))) {
+        if (!manualRequested) return state;
+      }
+      if (installing) return state;
       // A downloaded target can become stale while the app stays open across
       // rapid releases. Keep it installable during the recheck, then replace
       // it only when the feed points at a different version.
       if (!readyAtStart) transition({ status: 'checking' });
       const result = await input.service.checkForUpdates();
-      const version = result?.updateInfo?.version;
-      if (!result?.isUpdateAvailable || !version || version === input.currentVersion) {
+      if (installing) return state;
+      const version = result?.isUpdateAvailable ? result.updateInfo?.version : undefined;
+      if (version && readyAtStart?.version === version) return state;
+
+      // A missing preference may recover an already recorded download, but cannot
+      // authorize replacing it with another release or clearing the record.
+      const current = await preference();
+      const recover =
+        current === undefined && !readyAtStart && version !== undefined && version === (await pendingVersion());
+      if (installing) return state;
+      if (!manualRequested && current !== true && !recover) {
+        return state.status === 'checking' ? transition(before) : state;
+      }
+      if (!version || version === input.currentVersion) {
         await input.persistence.clear();
         return transition({ status: 'up-to-date' });
       }
-      if (readyAtStart?.version === version) return readyAtStart;
 
+      replacing = true;
       transition({ status: 'downloading', version });
       await input.service.downloadUpdate();
       await input.persistence.set({ version });
       return transition({ status: 'ready', version });
-    })()
+    })
       .catch((error: unknown) => {
-        if (readyAtStart) {
+        if (readyAtStart && !replacing) {
           input.log?.('updater ready recheck failed', {
             message: error instanceof Error ? error.message : String(error),
           });
@@ -153,6 +194,7 @@ export function createUpdaterController(input: {
       })
       .finally(() => {
         pending = undefined;
+        manualRequested = false;
       });
     return pending;
   };
@@ -225,7 +267,7 @@ export function createUpdaterController(input: {
     async start(): Promise<UpdaterState> {
       const ready = await input.persistence.get();
       if (ready?.version === input.currentVersion) await input.persistence.clear();
-      return check();
+      return check(true);
     },
     check,
     confirmBusy,

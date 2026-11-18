@@ -36,14 +36,6 @@ const OPTIONS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.
 const PID: u32 = 4242;
 const INSTANCE: &str = "run-a";
 
-pub(crate) async fn within<T>(work: impl Future<Output = T>) -> T {
-    mixdog_rt::time::timeout(Duration::from_secs(5), work).await.expect("timed out")
-}
-
-fn io_lane() -> DurabilityIo {
-    mixdog_rt::testing::tokens().durability_io
-}
-
 // ----- the server's ssh side -------------------------------------------------------------------
 
 /// A core's `/health` on a loopback port.
@@ -114,7 +106,8 @@ fn report() -> RemoteReport {
         version_dir: "/home/me/.mixdog/v".to_owned(),
         installed: true,
         discovery: Some(RemoteDiscovery {
-            rpc_port: Some(41_001),
+            rpc_port: Some(46_001),
+            ssh_rpc_port: Some(41_001),
             control_port: 41_002,
             token: "secret-token".to_owned(),
             pid: PID,
@@ -312,132 +305,12 @@ pub(crate) struct Rig {
     _dir: tempfile::TempDir,
 }
 
-pub(crate) async fn rig() -> Rig {
-    let dir = tempfile::tempdir().unwrap();
-    let paths = ConnectionsPaths::new(Path::new(dir.path()));
-    let hosts = Arc::new(SshHostStore::load(&paths, io_lane()).await);
-    let store = Arc::new(PortForwardStore::new(&paths, io_lane()));
-    let transport = Arc::new(FakeTransport {
-        companion: serve_health().await,
-        bootstraps: AtomicUsize::new(0),
-        logins: Mutex::new(Vec::new()),
-        forces: Mutex::new(Vec::new()),
-        tunnels: Mutex::new(Vec::new()),
-        refusing: AtomicBool::new(false),
-    });
-    let net = Arc::new(MockNetwork::default());
-    let seen = Arc::new(Mutex::new(Vec::new()));
-    let forwards = Arc::new(ForwardTunnels::default());
-    let contexts = Arc::new(Mutex::new(Vec::new()));
-    let diagnostics = Arc::new(Diagnostics::new());
-    let dialer = Arc::new(FakeDialer {
-        transport: transport.clone(),
-        net: net.clone(),
-        seen: seen.clone(),
-        forwards: forwards.clone(),
-        contexts: contexts.clone(),
-        diagnostics: diagnostics.clone(),
-    });
-    let (started, local_calls) = mpsc::unbounded_channel();
-    let host = Arc::new(FakeHost::default());
-    let pool = LinkPool::with_dialer(dialer, Platform::Linux, None, hosts.clone(), store, Arc::new(FakeLocal(started)), host.clone());
-    Rig { pool, hosts, host, diagnostics, contexts, transport, net, seen, forwards, local_calls, _dir: dir }
-}
-
 fn spec() -> LinkSpec {
     LinkSpec { id: "box".to_owned(), name: "Box".to_owned(), target: parse_ssh_target("me@server").unwrap() }
 }
 
-/// The server's side of `initialize`: the request's params, and the open connection.
-async fn handshake(net: &MockNetwork, instance: &str) -> (MockConn, Value) {
-    let options: Value = serde_json::from_str(OPTIONS).unwrap();
-    let conn = within(net.accept()).await;
-    let init: Value = serde_json::from_str(&within(conn.next_sent()).await).unwrap();
-    let mut result = options["initializeResult"].clone();
-    result["serverInstanceId"] = json!(instance);
-    conn.server_send(&json!({ "id": init["id"], "result": result }));
-    within(conn.next_sent()).await; // initialized
-    (conn, init["params"].clone())
-}
-
-pub(crate) async fn open_link(rig: &Rig) -> (Arc<ServerLink>, MockConn, Value) {
-    let (link, (conn, params)) = within(async { tokio::join!(rig.pool.open(spec(), AttemptContext::default(), None), handshake(&rig.net, "s1")) }).await;
-    (link.unwrap(), conn, params)
-}
-
-async fn view_until(link: &ServerLink, wanted: impl Fn(&LinkState) -> bool) {
-    let mut view = link.view();
-    within(async {
-        loop {
-            let reached = wanted(&view.borrow().state);
-            if reached {
-                return;
-            }
-            view.changed().await.unwrap();
-        }
-    })
-    .await;
-}
-
 fn count(counter: &AtomicUsize) -> usize {
     counter.load(Ordering::SeqCst)
-}
-
-/// The next frame the client sent that is a call or notification of `method`.
-async fn frame_of(conn: &MockConn, method: &str) -> Value {
-    within(async {
-        loop {
-            let frame: Value = serde_json::from_str(&conn.next_sent().await).unwrap();
-            if frame["method"] == method {
-                return frame;
-            }
-        }
-    })
-    .await
-}
-
-// ----- cases -----------------------------------------------------------------------------------
-
-#[tokio::test]
-async fn a_link_opens_names_the_desktop_core_and_reports_its_view() {
-    let rig = rig().await;
-    let mut attached = rig.pool.on_attach();
-    let (link, _conn, init) = open_link(&rig).await;
-    assert_eq!(init["clientInfo"]["name"], "mixdog-desktop-core");
-    assert_eq!(init["clientInfo"]["kind"], "desktop");
-    assert_eq!(init["clientInfo"]["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(init["capabilities"]["approvalsInbox"], true);
-    assert_eq!(init["capabilities"]["modelProxy"], true);
-    // This PC's desktop answers the server's `host/*` requests through this PC's core.
-    assert_eq!(init["capabilities"]["host"]["notifications"], true);
-    assert_eq!(init["capabilities"]["host"]["windows"], true);
-    assert_eq!((link.id(), link.name(), link.target().display.as_str()), ("box", "Box", "me@server"));
-    assert_eq!(link.view().borrow().state, LinkState::Connected);
-    assert_eq!(link.view().borrow().model_login, ModelLogin::Pc);
-    assert_eq!(within(attached.recv()).await.unwrap(), "box");
-    let endpoint = link.endpoint().unwrap();
-    assert_eq!((endpoint.url.as_str(), endpoint.token.as_str(), endpoint.cwd.as_str()), ("ws://127.0.0.1:50001/rpc", "secret-token", "/home/me"));
-    assert!(Arc::ptr_eq(&rig.pool.get("box").unwrap(), &link));
-    assert_eq!(rig.pool.list().len(), 1);
-}
-
-#[tokio::test]
-async fn open_dedupes() {
-    let rig = rig().await;
-    let (first, second, _) = within(async {
-        tokio::join!(
-            rig.pool.open(spec(), AttemptContext::default(), None),
-            rig.pool.open(spec(), AttemptContext::default(), None),
-            handshake(&rig.net, "s1")
-        )
-    })
-    .await;
-    let (first, second) = (first.unwrap(), second.unwrap());
-    assert!(Arc::ptr_eq(&first, &second));
-    assert_eq!(count(&rig.transport.bootstraps), 1);
-    // An attached link is handed back as it is.
-    assert!(Arc::ptr_eq(&rig.pool.open(spec(), AttemptContext::default(), None).await.unwrap(), &first));
-    assert_eq!((count(&rig.transport.bootstraps), rig.pool.list().len(), rig.net.opened()), (1, 1, 1));
 }
 
 #[test]
@@ -445,189 +318,12 @@ fn version_refusal_codes() {
     let refused = |reason: &str| ClientError::VersionRefused { reason: reason.to_owned(), server_version: "2.0.0".to_owned(), client_version: String::new() };
     let Some(ConnectError::Bootstrap(outdated)) = version_refusal(&refused("clientOutdated"), "me@server") else { panic!("not a refusal") };
     assert_eq!(outdated.code, "client-outdated");
-    assert_eq!(outdated.message, "This Mixdog (unknown) is older than the core on me@server (2.0.0). Update Mixdog on this PC.");
+    assert_eq!(outdated.message, "This app (unknown) is older than the version on me@server (2.0.0). Update the app on this PC, then reconnect.");
     let Some(ConnectError::Bootstrap(mismatch)) = version_refusal(&refused("serverOutdated"), "me@server") else { panic!("not a refusal") };
     assert_eq!(mismatch.code, "protocol-mismatch");
-    assert!(mismatch.message.starts_with("The Mixdog core on me@server (2.0.0) is incompatible with this desktop (unknown)."), "{}", mismatch.message);
+    assert!(mismatch.message.starts_with("The version running on me@server (2.0.0) does not match this app (unknown)."), "{}", mismatch.message);
     assert!(outdated.is_terminal() && mismatch.is_terminal());
     assert!(version_refusal(&ClientError::ConnectionLost, "me@server").is_none());
-}
-
-#[tokio::test]
-async fn a_version_refusal_at_open_stops_the_link_with_its_code_and_lets_go_of_the_tunnel() {
-    for (reason, code) in [("clientOutdated", "client-outdated"), ("serverOutdated", "protocol-mismatch")] {
-        let rig = rig().await;
-        let refusing = async {
-            let conn = within(rig.net.accept()).await;
-            let init: Value = serde_json::from_str(&within(conn.next_sent()).await).unwrap();
-            conn.server_send(&json!({ "id": init["id"], "error": { "code": -32600, "message": "v", "data": { "reason": reason, "serverVersion": "2.0.0", "clientVersion": "1.4.6" } } }));
-            conn.server_close(4002, "version");
-        };
-        let (opened, ()) = within(async { tokio::join!(rig.pool.open(spec(), AttemptContext::default(), None), refusing) }).await;
-        let Err(ConnectError::Bootstrap(error)) = opened else { panic!("expected a bootstrap refusal") };
-        assert_eq!(error.code, code);
-        assert!(rig.pool.get("box").is_none());
-        assert_eq!(rig.transport.tunnels.lock().unwrap()[0].stops.load(Ordering::SeqCst), 1);
-    }
-}
-
-#[tokio::test]
-async fn a_dropped_connection_shows_reconnecting_and_attaches_again_through_a_re_read_server() {
-    let rig = rig().await;
-    let mut attached = rig.pool.on_attach();
-    let (link, conn, _) = open_link(&rig).await;
-    within(attached.recv()).await.unwrap();
-    assert_eq!(count(&rig.transport.bootstraps), 1);
-    conn.server_close(1006, "gone");
-    view_until(&link, |state| matches!(state, LinkState::Reconnecting { attempt: 1, .. })).await;
-    let (_again, params) = handshake(&rig.net, "s2").await;
-    assert_eq!(params["clientInfo"]["name"], "mixdog-desktop-core");
-    view_until(&link, |state| *state == LinkState::Connected).await;
-    assert_eq!(within(attached.recv()).await.unwrap(), "box");
-    // The second dial re-read the server and used the tunnel's local end with the core's token.
-    assert_eq!(count(&rig.transport.bootstraps), 2);
-    let seen = rig.seen.lock().unwrap().clone();
-    assert_eq!(seen, vec![WsEndpoint { port: 50_001, token: "secret-token".to_owned() }; 2]);
-}
-
-#[tokio::test]
-async fn model_login_switch_revokes() {
-    let mut rig = rig().await;
-    let (link, conn, _) = open_link(&rig).await;
-    let mut calls = link.model_calls();
-    conn.server_send(&json!({ "id": "r1", "method": "model/proxy/execute", "params": { "call": { "method": "providerConfig" } } }));
-    within(rig.local_calls.recv()).await.unwrap();
-    assert_eq!(link.relay.running(), 1);
-    // The claim: this PC took the request up.
-    assert_eq!(frame_of(&conn, "model/proxy/heartbeat").await["params"]["requestIds"], json!(["r1"]));
-
-    link.apply_model_login(ModelLogin::Server).await.unwrap();
-
-    let settled = within(calls.recv()).await.unwrap();
-    assert_eq!(settled.outcome, CallOutcome::Abandoned);
-    assert_eq!(link.relay.running(), 0);
-    assert_eq!(link.model_login(), ModelLogin::Server);
-    assert_eq!(link.view().borrow().model_login, ModelLogin::Server);
-    // The new session stops the older daemon even while it is busy, and starts it in the new mode.
-    assert_eq!(rig.transport.logins.lock().unwrap().clone(), vec![None, Some(SshModelLogin::Server)]);
-    assert_eq!(rig.transport.forces.lock().unwrap().clone(), vec![false, true]);
-    assert_eq!(rig.transport.tunnels.lock().unwrap()[0].stops.load(Ordering::SeqCst), 1);
-    // A server on its own logins takes nothing of this PC's.
-    conn.server_send(&json!({ "id": "r2", "method": "model/proxy/execute", "params": { "call": { "method": "providerConfig" } } }));
-    for _ in 0..50 {
-        tokio::task::yield_now().await;
-    }
-    assert_eq!(link.relay.running(), 0);
-    assert!(rig.local_calls.try_recv().is_err());
-    // Saying the login it already has is nothing to do.
-    link.apply_model_login(ModelLogin::Server).await.unwrap();
-    assert_eq!(count(&rig.transport.bootstraps), 2);
-}
-
-#[tokio::test]
-async fn model_login_switch_redials_under_the_settings_saved_now() {
-    let rig = rig().await;
-    let record = rig.hosts.ensure_for_target("me@server", "Box").unwrap();
-    let record = rig.hosts.save(SshHostRecord { id: "box".to_owned(), ..record }).await.unwrap();
-    let (link, _conn, _) = open_link(&rig).await;
-    // The settings change (a key file and the login) is saved, then applied to the attached link.
-    rig.hosts.update_settings(&record.id, &json!({ "modelLogin": "server", "identityFile": "/keys/new" })).await.unwrap();
-
-    link.apply_model_login(ModelLogin::Server).await.unwrap();
-
-    let contexts = rig.contexts.lock().unwrap_or_else(PoisonError::into_inner).clone();
-    assert_eq!(contexts.len(), 2);
-    let redial = contexts[1].settings.clone().expect("the saved settings");
-    assert_eq!(redial.identity_file.as_deref(), Some("/keys/new"));
-    // Batch mode: the redial may not prompt.
-    assert!(contexts[1].askpass.is_none());
-}
-
-#[tokio::test]
-async fn close_stops_tunnel_and_forwards() {
-    let rig = rig().await;
-    let (link, conn, _) = open_link(&rig).await;
-    let forwarded = within(link.ports().forward(8080, None)).await.unwrap();
-    assert_eq!(forwarded.remote_port, 8080);
-    assert_eq!(rig.forwards.0.lock().unwrap().len(), 1);
-
-    rig.pool.close("box").await;
-
-    assert!(rig.pool.get("box").is_none());
-    assert_eq!(rig.transport.tunnels.lock().unwrap()[0].stops.load(Ordering::SeqCst), 1);
-    assert!(matches!(*rig.forwards.0.lock().unwrap()[0].state.borrow(), TunnelState::Stopped { .. }));
-    assert_eq!(conn.client_close(), Some(1000));
-    assert!(link.ports().forward(8081, None).await.is_err(), "a closed window refuses new forwards");
-    // Closing again, or an unknown id, is nothing to do.
-    rig.pool.close("box").await;
-    rig.pool.close("other").await;
-    assert_eq!(rig.transport.tunnels.lock().unwrap()[0].stops.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
-async fn a_close_while_opening_cancels_the_attempt() {
-    let rig = rig().await;
-    let closing = async {
-        // The attempt is waiting for the server to answer `initialize`.
-        let _conn = within(rig.net.accept()).await;
-        rig.pool.close("box").await;
-    };
-    let (opened, ()) = within(async { tokio::join!(rig.pool.open(spec(), AttemptContext::default(), None), closing) }).await;
-    let Err(ConnectError::Ssh(error)) = opened else { panic!("expected the closed error") };
-    assert_eq!(error.message, "The connection to Box was closed.");
-    assert!(rig.pool.get("box").is_none());
-}
-
-#[tokio::test]
-async fn a_failed_ssh_dial_is_reported_as_it_is_and_nothing_stays_open() {
-    let rig = rig().await;
-    // Nothing answers /health through the tunnel: a transient failure of the dial itself.
-    let silent = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-    let silent_port = silent.local_addr().unwrap().port();
-    drop(silent);
-    let lonely = Arc::new(FakeTransport {
-        companion: silent_port,
-        bootstraps: AtomicUsize::new(0),
-        logins: Mutex::new(Vec::new()),
-        forces: Mutex::new(Vec::new()),
-        tunnels: Mutex::new(Vec::new()),
-        refusing: AtomicBool::new(false),
-    });
-    let dialer = Arc::new(FakeDialer {
-        transport: lonely.clone(),
-        net: rig.net.clone(),
-        seen: rig.seen.clone(),
-        forwards: rig.forwards.clone(),
-        contexts: rig.contexts.clone(),
-        diagnostics: rig.diagnostics.clone(),
-    });
-    let paths = ConnectionsPaths::new(rig._dir.path());
-    let hosts = Arc::new(SshHostStore::load(&paths, io_lane()).await);
-    let pool = LinkPool::with_dialer(
-        dialer,
-        Platform::Linux,
-        None,
-        hosts,
-        Arc::new(PortForwardStore::new(&paths, io_lane())),
-        Arc::new(FakeLocal(mpsc::unbounded_channel().0)),
-        Arc::new(FakeHost::default()),
-    );
-    let Err(ConnectError::Ssh(error)) = within(pool.open(spec(), AttemptContext::default(), None)).await else { panic!("expected an ssh failure") };
-    assert!(error.message.contains("does not answer through the ssh tunnel"), "{}", error.message);
-    assert!(pool.list().is_empty());
-    assert_eq!(rig.net.opened(), 0);
-    assert_eq!(lonely.tunnels.lock().unwrap()[0].stops.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
-async fn power_pauses_and_wakes_every_link() {
-    let rig = rig().await;
-    let (link, _conn, _) = open_link(&rig).await;
-    rig.pool.power(LinkPower::Suspend).await;
-    assert_eq!(link.view().borrow().state, LinkState::Paused);
-    rig.pool.power(LinkPower::Resume).await;
-    assert_eq!(link.view().borrow().state, LinkState::Connected);
-    assert!(link.view().borrow().rtt_ms.is_some(), "the wake probed the link");
 }
 
 #[test]
@@ -689,6 +385,343 @@ fn a_model_call_failure_is_a_sign_in_one_only_when_this_pcs_login_was_refused() 
     assert!(!is_sign_in_failure(&answered));
 }
 
+#[test]
+fn the_first_frame_of_the_ports_feed_is_the_ports_section_or_nothing() {
+    let section = json!({ "section": "ports", "revision": 1, "value": [{ "port": 3000, "addresses": [], "process": null, "pid": null }] });
+    let other = json!({ "section": "hosts", "revision": 1, "value": [] });
+    let listed = ports_snapshot(Some(&json!({ "feedId": "ports", "state": { "sections": [other, section] } })));
+    assert_eq!(listed.iter().map(|port| port.port).collect::<Vec<_>>(), [3000]);
+    assert!(ports_snapshot(Some(&json!({ "feedId": "ports", "state": { "sections": [] } }))).is_empty());
+    assert!(ports_snapshot(None).is_empty());
+}
+
+#[test]
+fn a_host_request_names_the_capability_of_its_holder() {
+    assert_eq!(host_capability("host.windows"), Some(HostCapability::Windows));
+    assert_eq!(host_capability("host.browserEngine"), Some(HostCapability::BrowserEngine));
+    assert_eq!(host_capability("host.systemProxy"), Some(HostCapability::SystemProxy));
+    assert_eq!(host_capability("modelProxy"), None);
+    assert_eq!(host_capability("host.unknown"), None);
+}
+
+// ----- the user's reconnect --------------------------------------------------------------------
+
+struct Helper;
+
+impl AskpassEnv for Helper {
+    fn env(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
+    fn closed(&self) -> bool {
+        false
+    }
+    fn control_dir(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+}
+
+fn identity_settings(file: &str) -> HostSettings {
+    HostSettings { identity_file: Some(file.to_owned()), ..HostSettings::default() }
+}
+
+pub(crate) fn stop_session(link: &ServerLink) {
+    let error = SessionError::Connect(SshError::new("Host key verification failed.", FailureClass::Terminal).into());
+    link.under.session().fail(error);
+}
+
+fn kept_settings(link: &ServerLink) -> Option<HostSettings> {
+    locked(&link.under.bound).context.settings.clone()
+}
+
+
+pub(crate) async fn within<T>(work: impl Future<Output = T>) -> T {
+    mixdog_rt::time::timeout(Duration::from_secs(5), work).await.expect("timed out")
+}
+fn io_lane() -> DurabilityIo {
+    mixdog_rt::testing::tokens().durability_io
+}
+pub(crate) async fn rig() -> Rig {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = ConnectionsPaths::new(Path::new(dir.path()));
+    let hosts = Arc::new(SshHostStore::load(&paths, io_lane()).await);
+    let store = Arc::new(PortForwardStore::new(&paths, io_lane()));
+    let transport = Arc::new(FakeTransport {
+        companion: serve_health().await,
+        bootstraps: AtomicUsize::new(0),
+        logins: Mutex::new(Vec::new()),
+        forces: Mutex::new(Vec::new()),
+        tunnels: Mutex::new(Vec::new()),
+        refusing: AtomicBool::new(false),
+    });
+    let net = Arc::new(MockNetwork::default());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let forwards = Arc::new(ForwardTunnels::default());
+    let contexts = Arc::new(Mutex::new(Vec::new()));
+    let diagnostics = Arc::new(Diagnostics::new());
+    let dialer = Arc::new(FakeDialer {
+        transport: transport.clone(),
+        net: net.clone(),
+        seen: seen.clone(),
+        forwards: forwards.clone(),
+        contexts: contexts.clone(),
+        diagnostics: diagnostics.clone(),
+    });
+    let (started, local_calls) = mpsc::unbounded_channel();
+    let host = Arc::new(FakeHost::default());
+    let pool = LinkPool::with_dialer(dialer, Platform::Linux, None, hosts.clone(), store, Arc::new(FakeLocal(started)), host.clone());
+    Rig { pool, hosts, host, diagnostics, contexts, transport, net, seen, forwards, local_calls, _dir: dir }
+}
+/// The server's side of `initialize`: the request's params, and the open connection.
+async fn handshake(net: &MockNetwork, instance: &str) -> (MockConn, Value) {
+    let options: Value = serde_json::from_str(OPTIONS).unwrap();
+    let conn = within(net.accept()).await;
+    let init: Value = serde_json::from_str(&within(conn.next_sent()).await).unwrap();
+    let mut result = options["initializeResult"].clone();
+    result["serverInstanceId"] = json!(instance);
+    conn.server_send(&json!({ "id": init["id"], "result": result }));
+    within(conn.next_sent()).await; // initialized
+    (conn, init["params"].clone())
+}
+pub(crate) async fn open_link(rig: &Rig) -> (Arc<ServerLink>, MockConn, Value) {
+    let (link, (conn, params)) = within(async { tokio::join!(rig.pool.open(spec(), AttemptContext::default(), None), handshake(&rig.net, "s1")) }).await;
+    (link.unwrap(), conn, params)
+}
+async fn view_until(link: &ServerLink, wanted: impl Fn(&LinkState) -> bool) {
+    let mut view = link.view();
+    within(async {
+        loop {
+            let reached = wanted(&view.borrow().state);
+            if reached {
+                return;
+            }
+            view.changed().await.unwrap();
+        }
+    })
+    .await;
+}
+/// The next frame the client sent that is a call or notification of `method`.
+async fn frame_of(conn: &MockConn, method: &str) -> Value {
+    within(async {
+        loop {
+            let frame: Value = serde_json::from_str(&conn.next_sent().await).unwrap();
+            if frame["method"] == method {
+                return frame;
+            }
+        }
+    })
+    .await
+}
+// ----- cases -----------------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_link_opens_names_the_desktop_core_and_reports_its_view() {
+    let rig = rig().await;
+    let mut attached = rig.pool.on_attach();
+    let (link, _conn, init) = open_link(&rig).await;
+    assert_eq!(init["clientInfo"]["name"], "mixdog-desktop-core");
+    assert_eq!(init["clientInfo"]["kind"], "desktop");
+    assert_eq!(init["clientInfo"]["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(init["capabilities"]["approvalsInbox"], true);
+    assert_eq!(init["capabilities"]["modelProxy"], true);
+    // This PC's desktop answers the server's `host/*` requests through this PC's core.
+    assert_eq!(init["capabilities"]["host"]["notifications"], true);
+    assert_eq!(init["capabilities"]["host"]["windows"], true);
+    assert_eq!((link.id(), link.name(), link.target().display.as_str()), ("box", "Box", "me@server"));
+    assert_eq!(link.view().borrow().state, LinkState::Connected);
+    assert_eq!(link.view().borrow().model_login, ModelLogin::Pc);
+    assert_eq!(within(attached.recv()).await.unwrap(), "box");
+    let endpoint = link.endpoint().unwrap();
+    assert_eq!((endpoint.url.as_str(), endpoint.token.as_str(), endpoint.cwd.as_str()), ("ws://127.0.0.1:50001/rpc", "secret-token", "/home/me"));
+    assert!(Arc::ptr_eq(&rig.pool.get("box").unwrap(), &link));
+    assert_eq!(rig.pool.list().len(), 1);
+}
+#[tokio::test]
+async fn open_dedupes() {
+    let rig = rig().await;
+    let (first, second, _) = within(async {
+        tokio::join!(
+            rig.pool.open(spec(), AttemptContext::default(), None),
+            rig.pool.open(spec(), AttemptContext::default(), None),
+            handshake(&rig.net, "s1")
+        )
+    })
+    .await;
+    let (first, second) = (first.unwrap(), second.unwrap());
+    assert!(Arc::ptr_eq(&first, &second));
+    assert_eq!(count(&rig.transport.bootstraps), 1);
+    // An attached link is handed back as it is.
+    assert!(Arc::ptr_eq(&rig.pool.open(spec(), AttemptContext::default(), None).await.unwrap(), &first));
+    assert_eq!((count(&rig.transport.bootstraps), rig.pool.list().len(), rig.net.opened()), (1, 1, 1));
+}
+#[tokio::test]
+async fn a_version_refusal_at_open_stops_the_link_with_its_code_and_lets_go_of_the_tunnel() {
+    for (reason, code) in [("clientOutdated", "client-outdated"), ("serverOutdated", "protocol-mismatch")] {
+        let rig = rig().await;
+        let refusing = async {
+            let conn = within(rig.net.accept()).await;
+            let init: Value = serde_json::from_str(&within(conn.next_sent()).await).unwrap();
+            conn.server_send(&json!({ "id": init["id"], "error": { "code": -32600, "message": "v", "data": { "reason": reason, "serverVersion": "2.0.0", "clientVersion": "1.4.6" } } }));
+            conn.server_close(4002, "version");
+        };
+        let (opened, ()) = within(async { tokio::join!(rig.pool.open(spec(), AttemptContext::default(), None), refusing) }).await;
+        let Err(ConnectError::Bootstrap(error)) = opened else { panic!("expected a bootstrap refusal") };
+        assert_eq!(error.code, code);
+        assert!(rig.pool.get("box").is_none());
+        assert_eq!(rig.transport.tunnels.lock().unwrap()[0].stops.load(Ordering::SeqCst), 1);
+    }
+}
+#[tokio::test]
+async fn a_dropped_connection_shows_reconnecting_and_attaches_again_through_a_re_read_server() {
+    let rig = rig().await;
+    let mut attached = rig.pool.on_attach();
+    let (link, conn, _) = open_link(&rig).await;
+    within(attached.recv()).await.unwrap();
+    assert_eq!(count(&rig.transport.bootstraps), 1);
+    conn.server_close(1006, "gone");
+    view_until(&link, |state| matches!(state, LinkState::Reconnecting { attempt: 1, .. })).await;
+    let (_again, params) = handshake(&rig.net, "s2").await;
+    assert_eq!(params["clientInfo"]["name"], "mixdog-desktop-core");
+    view_until(&link, |state| *state == LinkState::Connected).await;
+    assert_eq!(within(attached.recv()).await.unwrap(), "box");
+    // The second dial re-read the server and used the tunnel's local end with the core's token.
+    assert_eq!(count(&rig.transport.bootstraps), 2);
+    let seen = rig.seen.lock().unwrap().clone();
+    assert_eq!(seen, vec![WsEndpoint { port: 50_001, token: "secret-token".to_owned() }; 2]);
+}
+#[tokio::test]
+async fn model_login_switch_revokes() {
+    let mut rig = rig().await;
+    let (link, conn, _) = open_link(&rig).await;
+    let mut calls = link.model_calls();
+    conn.server_send(&json!({ "id": "r1", "method": "model/proxy/execute", "params": { "call": { "method": "providerConfig" } } }));
+    within(rig.local_calls.recv()).await.unwrap();
+    assert_eq!(link.relay.running(), 1);
+    // The claim: this PC took the request up.
+    assert_eq!(frame_of(&conn, "model/proxy/heartbeat").await["params"]["requestIds"], json!(["r1"]));
+
+    link.apply_model_login(ModelLogin::Server).await.unwrap();
+
+    let settled = within(calls.recv()).await.unwrap();
+    assert_eq!(settled.outcome, CallOutcome::Abandoned);
+    assert_eq!(link.relay.running(), 0);
+    assert_eq!(link.model_login(), ModelLogin::Server);
+    assert_eq!(link.view().borrow().model_login, ModelLogin::Server);
+    // The new session stops the older daemon even while it is busy, and starts it in the new mode.
+    assert_eq!(rig.transport.logins.lock().unwrap().clone(), vec![None, Some(SshModelLogin::Server)]);
+    assert_eq!(rig.transport.forces.lock().unwrap().clone(), vec![false, true]);
+    assert_eq!(rig.transport.tunnels.lock().unwrap()[0].stops.load(Ordering::SeqCst), 1);
+    // A server on its own logins takes nothing of this PC's.
+    conn.server_send(&json!({ "id": "r2", "method": "model/proxy/execute", "params": { "call": { "method": "providerConfig" } } }));
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(link.relay.running(), 0);
+    assert!(rig.local_calls.try_recv().is_err());
+    // Saying the login it already has is nothing to do.
+    link.apply_model_login(ModelLogin::Server).await.unwrap();
+    assert_eq!(count(&rig.transport.bootstraps), 2);
+}
+#[tokio::test]
+async fn model_login_switch_redials_under_the_settings_saved_now() {
+    let rig = rig().await;
+    let record = rig.hosts.ensure_for_target("me@server", "Box").unwrap();
+    let record = rig.hosts.save(SshHostRecord { id: "box".to_owned(), ..record }).await.unwrap();
+    let (link, _conn, _) = open_link(&rig).await;
+    // The settings change (a key file and the login) is saved, then applied to the attached link.
+    rig.hosts.update_settings(&record.id, &json!({ "modelLogin": "server", "identityFile": "/keys/new" })).await.unwrap();
+
+    link.apply_model_login(ModelLogin::Server).await.unwrap();
+
+    let contexts = rig.contexts.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    assert_eq!(contexts.len(), 2);
+    let redial = contexts[1].settings.clone().expect("the saved settings");
+    assert_eq!(redial.identity_file.as_deref(), Some("/keys/new"));
+    // Batch mode: the redial may not prompt.
+    assert!(contexts[1].askpass.is_none());
+}
+#[tokio::test]
+async fn close_stops_tunnel_and_forwards() {
+    let rig = rig().await;
+    let (link, conn, _) = open_link(&rig).await;
+    let forwarded = within(link.ports().forward(8080, None)).await.unwrap();
+    assert_eq!(forwarded.remote_port, 8080);
+    assert_eq!(rig.forwards.0.lock().unwrap().len(), 1);
+
+    rig.pool.close("box").await;
+
+    assert!(rig.pool.get("box").is_none());
+    assert_eq!(rig.transport.tunnels.lock().unwrap()[0].stops.load(Ordering::SeqCst), 1);
+    assert!(matches!(*rig.forwards.0.lock().unwrap()[0].state.borrow(), TunnelState::Stopped { .. }));
+    assert_eq!(conn.client_close(), Some(1000));
+    assert!(link.ports().forward(8081, None).await.is_err(), "a closed window refuses new forwards");
+    // Closing again, or an unknown id, is nothing to do.
+    rig.pool.close("box").await;
+    rig.pool.close("other").await;
+    assert_eq!(rig.transport.tunnels.lock().unwrap()[0].stops.load(Ordering::SeqCst), 1);
+}
+#[tokio::test]
+async fn a_close_while_opening_cancels_the_attempt() {
+    let rig = rig().await;
+    let closing = async {
+        // The attempt is waiting for the server to answer `initialize`.
+        let _conn = within(rig.net.accept()).await;
+        rig.pool.close("box").await;
+    };
+    let (opened, ()) = within(async { tokio::join!(rig.pool.open(spec(), AttemptContext::default(), None), closing) }).await;
+    let Err(ConnectError::Ssh(error)) = opened else { panic!("expected the closed error") };
+    assert_eq!(error.message, "The connection to Box was closed.");
+    assert!(rig.pool.get("box").is_none());
+}
+#[tokio::test]
+async fn a_failed_ssh_dial_is_reported_as_it_is_and_nothing_stays_open() {
+    let rig = rig().await;
+    // Nothing answers /health through the tunnel: a transient failure of the dial itself.
+    let silent = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let silent_port = silent.local_addr().unwrap().port();
+    drop(silent);
+    let lonely = Arc::new(FakeTransport {
+        companion: silent_port,
+        bootstraps: AtomicUsize::new(0),
+        logins: Mutex::new(Vec::new()),
+        forces: Mutex::new(Vec::new()),
+        tunnels: Mutex::new(Vec::new()),
+        refusing: AtomicBool::new(false),
+    });
+    let dialer = Arc::new(FakeDialer {
+        transport: lonely.clone(),
+        net: rig.net.clone(),
+        seen: rig.seen.clone(),
+        forwards: rig.forwards.clone(),
+        contexts: rig.contexts.clone(),
+        diagnostics: rig.diagnostics.clone(),
+    });
+    let paths = ConnectionsPaths::new(rig._dir.path());
+    let hosts = Arc::new(SshHostStore::load(&paths, io_lane()).await);
+    let pool = LinkPool::with_dialer(
+        dialer,
+        Platform::Linux,
+        None,
+        hosts,
+        Arc::new(PortForwardStore::new(&paths, io_lane())),
+        Arc::new(FakeLocal(mpsc::unbounded_channel().0)),
+        Arc::new(FakeHost::default()),
+    );
+    let Err(ConnectError::Ssh(error)) = within(pool.open(spec(), AttemptContext::default(), None)).await else { panic!("expected an ssh failure") };
+    assert!(error.message.contains("did not respond over SSH"), "{}", error.message);
+    assert!(pool.list().is_empty());
+    assert_eq!(rig.net.opened(), 0);
+    assert_eq!(lonely.tunnels.lock().unwrap()[0].stops.load(Ordering::SeqCst), 1);
+}
+#[tokio::test]
+async fn power_pauses_and_wakes_every_link() {
+    let rig = rig().await;
+    let (link, _conn, _) = open_link(&rig).await;
+    rig.pool.power(LinkPower::Suspend).await;
+    assert_eq!(link.view().borrow().state, LinkState::Paused);
+    rig.pool.power(LinkPower::Resume).await;
+    assert_eq!(link.view().borrow().state, LinkState::Connected);
+    assert!(link.view().borrow().rtt_ms.is_some(), "the wake probed the link");
+}
 // ----- the server's pushes ---------------------------------------------------------------------
 
 #[tokio::test]
@@ -721,17 +754,6 @@ async fn the_servers_listening_ports_reach_the_link_from_the_ports_feed() {
     within(ports.changed()).await.unwrap();
     assert!(ports.borrow().is_empty());
 }
-
-#[test]
-fn the_first_frame_of_the_ports_feed_is_the_ports_section_or_nothing() {
-    let section = json!({ "section": "ports", "revision": 1, "value": [{ "port": 3000, "addresses": [], "process": null, "pid": null }] });
-    let other = json!({ "section": "hosts", "revision": 1, "value": [] });
-    let listed = ports_snapshot(Some(&json!({ "feedId": "ports", "state": { "sections": [other, section] } })));
-    assert_eq!(listed.iter().map(|port| port.port).collect::<Vec<_>>(), [3000]);
-    assert!(ports_snapshot(Some(&json!({ "feedId": "ports", "state": { "sections": [] } }))).is_empty());
-    assert!(ports_snapshot(None).is_empty());
-}
-
 // ----- the server's host requests --------------------------------------------------------------
 
 /// The frame the client sent that answers request `id`.
@@ -746,7 +768,6 @@ async fn answer_of(conn: &MockConn, id: &str) -> Value {
     })
     .await
 }
-
 #[tokio::test]
 async fn the_link_claims_the_host_role_on_every_attach() {
     let rig = rig().await;
@@ -757,7 +778,6 @@ async fn the_link_claims_the_host_role_on_every_attach() {
     let (again, _) = handshake(&rig.net, "s2").await;
     assert_eq!(frame_of(&again, "host/claim").await["params"]["hostId"], "link:box");
 }
-
 #[tokio::test]
 async fn a_host_request_of_the_server_is_answered_by_this_pcs_desktop() {
     let rig = rig().await;
@@ -768,7 +788,6 @@ async fn a_host_request_of_the_server_is_answered_by_this_pcs_desktop() {
     let requests = rig.host.requests.lock().unwrap().clone();
     assert_eq!(requests, vec![(HostCapability::Windows, "host/window/focus".to_owned(), json!({ "connectionId": "local" }))]);
 }
-
 #[tokio::test]
 async fn a_host_request_no_desktop_can_run_is_answered_with_an_error() {
     let rig = rig().await;
@@ -779,7 +798,6 @@ async fn a_host_request_no_desktop_can_run_is_answered_with_an_error() {
     assert_eq!(answer["error"]["code"], -32000);
     assert_eq!(answer["error"]["message"], "This PC's desktop could not run the request.");
 }
-
 #[tokio::test]
 async fn a_host_notification_of_the_server_is_delivered_to_this_pcs_desktop() {
     let rig = rig().await;
@@ -794,16 +812,6 @@ async fn a_host_notification_of_the_server_is_delivered_to_this_pcs_desktop() {
     .await;
     assert_eq!(rig.host.notifications.lock().unwrap().clone(), vec![(HostCapability::Notifications, "host/notification/show".to_owned(), toast)]);
 }
-
-#[test]
-fn a_host_request_names_the_capability_of_its_holder() {
-    assert_eq!(host_capability("host.windows"), Some(HostCapability::Windows));
-    assert_eq!(host_capability("host.browserEngine"), Some(HostCapability::BrowserEngine));
-    assert_eq!(host_capability("host.systemProxy"), Some(HostCapability::SystemProxy));
-    assert_eq!(host_capability("modelProxy"), None);
-    assert_eq!(host_capability("host.unknown"), None);
-}
-
 // ----- the diagnostics ring --------------------------------------------------------------------
 
 #[tokio::test]
@@ -820,7 +828,6 @@ async fn the_links_losses_and_restores_are_written_to_the_servers_diagnostics_ri
     assert!(lines.contains("core-link-lost"), "{lines}");
     assert!(lines.matches("core-link-restored").count() >= 2, "the first attach and the one after the drop: {lines}");
 }
-
 // ----- the logins of the server's own ----------------------------------------------------------
 
 /// A watch whose work records the order it ran in, and what the transport had been asked by then.
@@ -836,7 +843,6 @@ fn recording_watch(link: &ServerLink, rig: &Rig, login: ModelLogin, label: &'sta
         }),
     )
 }
-
 #[tokio::test]
 async fn a_watch_of_the_servers_own_logins_ends_before_the_session_is_replaced_once() {
     let rig = rig().await;
@@ -863,7 +869,6 @@ async fn a_watch_of_the_servers_own_logins_ends_before_the_session_is_replaced_o
     link.apply_model_login(ModelLogin::Server).await.unwrap();
     assert_eq!(ended.lock().unwrap().len(), 2);
 }
-
 #[tokio::test]
 async fn a_close_ends_every_watch_while_the_client_is_attached() {
     let rig = rig().await;
@@ -883,36 +888,6 @@ async fn a_close_ends_every_watch_while_the_client_is_attached() {
     })
     .await;
 }
-
-// ----- the user's reconnect --------------------------------------------------------------------
-
-struct Helper;
-
-impl AskpassEnv for Helper {
-    fn env(&self) -> Vec<(String, String)> {
-        Vec::new()
-    }
-    fn closed(&self) -> bool {
-        false
-    }
-    fn control_dir(&self) -> Option<std::path::PathBuf> {
-        None
-    }
-}
-
-fn identity_settings(file: &str) -> HostSettings {
-    HostSettings { identity_file: Some(file.to_owned()), ..HostSettings::default() }
-}
-
-pub(crate) fn stop_session(link: &ServerLink) {
-    let error = SessionError::Connect(SshError::new("Host key verification failed.", FailureClass::Terminal).into());
-    link.under.session().fail(error);
-}
-
-fn kept_settings(link: &ServerLink) -> Option<HostSettings> {
-    locked(&link.under.bound).context.settings.clone()
-}
-
 #[tokio::test]
 async fn a_new_attempts_askpass_is_applied_to_a_link_that_is_only_down() {
     let rig = rig().await;
@@ -930,7 +905,6 @@ async fn a_new_attempts_askpass_is_applied_to_a_link_that_is_only_down() {
     // The helper belongs to the attempt: later dials of the link run without it.
     assert!(locked(&link.under.bound).context.askpass.is_none());
 }
-
 #[tokio::test]
 async fn a_retry_without_askpass_keeps_the_session_of_a_link_that_is_only_down() {
     let rig = rig().await;
@@ -941,7 +915,6 @@ async fn a_retry_without_askpass_keeps_the_session_of_a_link_that_is_only_down()
     result.unwrap();
     assert_eq!(rig.contexts.lock().unwrap_or_else(PoisonError::into_inner).len(), 1);
 }
-
 #[tokio::test]
 async fn a_stopped_links_attempt_settings_are_kept_only_after_the_dial_worked() {
     let rig = rig().await;
@@ -962,10 +935,43 @@ async fn a_stopped_links_attempt_settings_are_kept_only_after_the_dial_worked() 
     assert!(locked(&link.under.bound).context.askpass.is_none());
     assert!(!link.stopped());
 }
-
 #[tokio::test]
 async fn the_busy_count_is_the_cores_own_health_read() {
     let rig = rig().await;
     let (link, _conn, _) = open_link(&rig).await;
     assert_eq!(within(link.busy_sessions()).await, Some(0));
+}
+#[tokio::test]
+async fn the_ports_panel_of_a_window_works_on_its_pool_link_for_the_window_s_life_and_across_a_reconnect() {
+    let rig = rig().await;
+    let (link, conn, _) = open_link(&rig).await;
+    // The pool finds the link under the id the desktop's window carries (`host/window/open`'s connectionId, the preload's
+    // connection id, the `connectionId` of every connections/ports/* call), and its panel has a list at once.
+    let found = rig.pool.get("box").expect("the window's id is the pool's key");
+    assert!(Arc::ptr_eq(&found, &link));
+    let viewing = {
+        let link = link.clone();
+        tokio::spawn(async move { link.view_ports(true).await })
+    };
+    let request = frame_of(&conn, "system/ports/subscribe").await;
+    conn.server_send(&json!({ "id": request["id"], "result": { "id": "sub-1", "mode": "snapshot", "epoch": "e1", "startSeq": 1 } }));
+    within(viewing).await.unwrap().unwrap();
+    conn.server_send(&json!({ "method": "feed/snapshot", "params": { "feedId": "ports", "state": { "sections": [
+        { "section": "ports", "revision": 1, "value": [{ "port": 8099, "addresses": ["127.0.0.1"], "process": "node", "pid": 7 }] }
+    ] } }, "feed": { "id": "ports", "epoch": "e1", "seq": 0 } }));
+    within(async {
+        while link.ports().list().detected.as_deref().is_none_or(|ports| ports.iter().all(|port| port.port != 8099)) {
+            mixdog_rt::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    assert_eq!(link.ports().list().detected.unwrap().iter().map(|port| port.port).collect::<Vec<_>>(), [8099]);
+    assert_eq!(within(link.ports().forward(8099, None)).await.unwrap().remote_port, 8099);
+    // The connection drops and comes back: the same link, the same panel, forwards still accepted.
+    conn.server_close(1006, "gone");
+    view_until(&link, |state| matches!(state, LinkState::Reconnecting { .. })).await;
+    let _again = handshake(&rig.net, "s2").await;
+    view_until(&link, |state| *state == LinkState::Connected).await;
+    assert!(Arc::ptr_eq(&rig.pool.get("box").expect("still pooled"), &link));
+    assert_eq!(within(link.ports().forward(8100, None)).await.unwrap().remote_port, 8100);
 }

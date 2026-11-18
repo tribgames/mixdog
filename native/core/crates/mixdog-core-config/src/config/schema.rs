@@ -195,10 +195,11 @@ pub(crate) fn accepts(kind: Kind, value: &Value) -> bool {
 }
 
 /// `markdownDefaultViewSetting` (workspace-config.ts): the Markdown default view as stored.
-pub(crate) fn markdown_view(value: &Value) -> Value {
+pub(crate) fn markdown_view(value: &Value) -> &'static str {
     match value.as_str() {
-        Some(view @ ("rich" | "source")) => Value::from(view),
-        _ => Value::from("preview"),
+        Some("rich") => "rich",
+        Some("source") => "source",
+        _ => "preview",
     }
 }
 

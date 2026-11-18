@@ -117,6 +117,12 @@ windows-sys = { version = "0.60", features = [
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# The core's crates are built here against the same patched sources as in their own workspace (`native/core/Cargo.toml`
+# `[patch.crates-io]`): `mixdog-js` calls what only the vendored `icu_collator` and `regress` have.
+[patch.crates-io]
+icu_collator = { path = "../core/vendor/icu_collator" }
+regress = { path = "../core/vendor/regress" }
+
 [profile.release]
 opt-level = 3
 lto = true

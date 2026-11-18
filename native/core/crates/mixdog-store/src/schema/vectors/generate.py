@@ -147,6 +147,10 @@ RECORDS = [
     ("draft", {"k": "draft", "rid": "run_2", "body": {"inline": {"text": "partial ", "tools": False}}}),
     ("draft_reset", {"k": "draft", "rid": "run_2", "body": {"inline": {
         "reset": True, "text": "the code is [redacted]", "reasoning": "", "calls": [], "results": []}}}),
+    ("work_stop_stopped", {"k": "work_stop", "sid": "stop_1", "phase": "stopped", "at": 1793306570800, "body": {"inline": {
+        "work": ["q_1"], "queues": ["q_1"], "submissions": ["sub_1"], "turn": "run_3", "disposition": "handedBack",
+        "restore": {"text": "follow up", "ids": ["sub_1"], "device": "desktop-1"}}}}),
+    ("work_stop_settled", {"k": "work_stop", "sid": "stop_1", "phase": "settled", "at": 1793306570900}),
     ("checkpoint", {"k": "checkpoint", "state": {"inline": {
         "log_id": LOG_ID, "covers_ordinal": 12, "history_rev": 1, "rows": 8, "visible_rows": 7,
         "context": {"ordinal": 6, "file_no": 0, "offset": 2048},

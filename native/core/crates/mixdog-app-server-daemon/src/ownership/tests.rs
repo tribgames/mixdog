@@ -15,9 +15,8 @@ use crate::verdict::GateStep;
 use crate::verdict::tests::FakeTable;
 use crate::verdict::tests::TempData;
 
-/// The lock between processes, replayed from `fixtures/owner-lock/golden.json` (Node's real `acquireDaemonOwnerLock` in real
-/// child processes, recorded by benchmarks/rust-core/recorders/record-owner-lock.mjs). The contenders are this test binary run
-/// again on `contender_child_process`; each ends when the test kills it, when its stdin closes (the parent is gone) or by itself.
+/// The lock between processes. The contenders are this test binary run again on `contender_child_process`; each ends when the test
+/// kills it, when its stdin closes (the parent is gone) or by itself.
 #[allow(clippy::disallowed_types, reason = "the contenders are real child processes")]
 mod across_processes {
     use std::io::BufRead as _;
@@ -36,10 +35,6 @@ mod across_processes {
     use super::*;
 
     const CHILD_DIR: &str = "MIXDOG_OWNER_LOCK_CONTENDER_DATA_DIR";
-
-    fn golden() -> Value {
-        serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/owner-lock/golden.json")).unwrap()
-    }
 
     /// The other process: tries the lock, says whether it got it and keeps whatever it got until stdin closes. Without
     /// `CHILD_DIR` (every normal run) it does nothing.
@@ -129,55 +124,58 @@ mod across_processes {
         contenders.iter_mut().map(|c| c.verdict()["held"] == true).filter(|held| *held).count()
     }
 
+
+
+
+
+
+
+
+
     #[test]
     fn a_held_lock_refuses_every_other_process_and_a_killed_holder_frees_it_at_once() {
-        let golden = &golden()["refuseAndKill"];
         let temp = TempData::new();
         let mut holder = Contender::start(&temp.data());
-        assert_eq!(holder.verdict(), golden["holder"]);
-        assert_eq!(held(&acquire(&temp.data())), golden["thisProcess"]);
+        assert_eq!(holder.verdict(), json!({ "held": true }));
+        assert_eq!(held(&acquire(&temp.data())), json!({ "held": false }));
         let mut second = Contender::start(&temp.data());
-        assert_eq!(second.verdict(), golden["secondContender"]);
+        assert_eq!(second.verdict(), json!({ "held": false }));
         holder.kill();
         // No stale period and no probe: the kernel released the lock with the process.
-        assert_eq!(held(&acquire(&temp.data())), golden["afterKill"]);
+        assert_eq!(held(&acquire(&temp.data())), json!({ "held": true }));
     }
 
     #[test]
     fn the_holder_reading_its_own_lock_file_keeps_the_lock() {
-        let golden = &golden()["holderReads"];
         let temp = TempData::new();
         let owned = acquire(&temp.data());
-        assert_eq!(held(&owned), golden["holder"]);
+        assert_eq!(held(&owned), json!({ "held": true }));
         let owned = owned.unwrap();
-        // A hosted Read tool opens, reads and closes any file of the data dir. (Windows refuses the read of a locked range.)
-        std::fs::read(temp.data().join(LOCK_FILE)).expect("a held lock file can be read, as Node's can");
+        // A hosted Read tool opens, reads and closes any file of the data dir.
+        std::fs::read(temp.data().join(LOCK_FILE)).expect("a held lock file can be read");
         drop(std::fs::OpenOptions::new().read(true).write(true).open(temp.data().join(LOCK_FILE)).unwrap());
-        assert_eq!(Contender::start(&temp.data()).verdict(), golden["contender"]);
-        assert_eq!(owned.revalidate().is_ok(), golden["intact"]);
+        assert_eq!(Contender::start(&temp.data()).verdict(), json!({ "held": false }));
+        assert!(owned.revalidate().is_ok());
     }
 
     #[test]
     fn simultaneous_acquisitions_leave_exactly_one_holder() {
-        let golden = &golden()["simultaneous"];
         let temp = TempData::new();
-        let mut racers: Vec<Contender> = (0..golden["racers"].as_u64().unwrap()).map(|_| Contender::start(&temp.data())).collect();
-        assert_eq!(held_count(&mut racers), golden["held"]);
+        let mut racers: Vec<Contender> = (0..4).map(|_| Contender::start(&temp.data())).collect();
+        assert_eq!(held_count(&mut racers), 1);
     }
 
     #[test]
     fn racing_acquisitions_on_an_existing_lock_file_leave_exactly_one_holder() {
-        let golden = &golden()["racingExisting"];
         let temp = TempData::new();
         std::fs::create_dir_all(temp.data()).unwrap();
         std::fs::write(temp.data().join(LOCK_FILE), "").unwrap();
-        let mut racers: Vec<Contender> = (0..golden["racers"].as_u64().unwrap()).map(|_| Contender::start(&temp.data())).collect();
-        assert_eq!(held_count(&mut racers), golden["held"]);
+        let mut racers: Vec<Contender> = (0..4).map(|_| Contender::start(&temp.data())).collect();
+        assert_eq!(held_count(&mut racers), 1);
     }
 
     #[test]
     fn data_dirs_whose_lock_files_hold_equal_bytes_are_locked_independently() {
-        let golden = &golden()["equalBytes"];
         for seed in ["empty", "copied"] {
             let (first, second) = (TempData::new(), TempData::new());
             if seed == "empty" {
@@ -187,15 +185,16 @@ mod across_processes {
                 }
             }
             let mut holder = Contender::start(&first.data());
-            assert_eq!(holder.verdict(), golden[seed]["holder"], "{seed}");
+            assert_eq!(holder.verdict(), json!({ "held": true }), "{seed}");
             if seed == "copied" {
                 std::fs::create_dir_all(second.data()).unwrap();
                 std::fs::copy(first.data().join(LOCK_FILE), second.data().join(LOCK_FILE)).unwrap();
             }
-            assert_eq!(held(&acquire(&second.data())), golden[seed]["otherDir"], "{seed}: the other data dir's holder does not block this one");
+            assert_eq!(held(&acquire(&second.data())), json!({ "held": true }), "{seed}: the other data dir's holder does not block this one");
         }
     }
 }
+
 
 #[test]
 fn one_core_per_data_dir() {
@@ -311,3 +310,11 @@ fn gate_8_unix_renamed_data_dir_fences_and_new_core_works_in_a_new_inode() {
     assert!(!temp.data().join("old-core-write").exists());
     assert_eq!(old.revalidate(), Err(FenceReason::DataDirReplaced));
 }
+
+
+    
+    
+    
+    
+    
+    

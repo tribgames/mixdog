@@ -89,12 +89,12 @@ impl WinProcess {
         Ok(())
     }
 
-    pub(crate) fn wait(&mut self) -> io::Result<ExitStatus> {
+    pub(crate) fn wait(&self) -> io::Result<ExitStatus> {
         Ok(self.wait_for(INFINITE)?.expect("an infinite wait ends with the process"))
     }
 
     /// The exit status if the process has ended.
-    pub(crate) fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+    pub(crate) fn try_wait(&self) -> io::Result<Option<ExitStatus>> {
         self.wait_for(0)
     }
 

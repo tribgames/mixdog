@@ -1,4 +1,0 @@
-# t15-tui: reduced by the wire audit (t19). Everything else in this fragment is applied (members, lock entries, entry calls mixdog_repl::run / run_tui in mixdog-entry/src/interactive.rs, validateOnly in route set, statusline_port reading MIXDOG_CONFIG_DIR, getSettingsSnapshot voice member, has_action in mixdog-session-view).
-
-## Still open
-- mixdog-workspace-hack: run the refresh once for the members mixdog-tui and mixdog-repl.

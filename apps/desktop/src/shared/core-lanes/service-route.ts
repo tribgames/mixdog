@@ -142,7 +142,6 @@ const SINGLE: Readonly<Record<string, Single>> = {
   abortSession: ([threadId, options]) =>
     one('turn/interrupt', given({ threadId, restorePrompt: options?.restorePrompt, submissionId: options?.submissionId }), 'interrupt'),
   listProviderModels: ([options]) => one('model/list', given({ force: options?.force, refresh: options?.refresh, quick: options?.quick })),
-  setFast: ([on, threadId]) => one('fast/set', given({ threadId, on }), 'snapshot'),
 };
 
 // `agentRoomAction(action, args)`: Node's `AgentRooms` methods take positional arguments, the core's `input` is one
@@ -163,6 +162,7 @@ const ROOM_ACTIONS: Readonly<Record<string, (args: readonly any[]) => ServiceReq
  *  reads from the core (`thread/read`). */
 export const SERVICE_NOT_ROUTED = [
   'setModelRoute',
+  'setFast',
   'getQuotaAutoResume',
   'resolveToolApprovalForSession',
   'invokeCapability',
@@ -217,7 +217,16 @@ export interface FollowingClient {
     readonly restoresStarted: number;
     readonly connection: number;
   };
+  /** The client's fold store. Its `threads` map (the library's `ProtocolClient.store`) lists the threads the client holds a
+   *  fold of, whoever subscribed them (a `thread/resume` or the attach of a `thread/start`); read at run time, since the
+   *  connection's own store type does not declare it. */
+  readonly store?: unknown;
 }
+
+/** How long a thread the client follows without the lane wanting it (a new thread's attach, a resume made to answer an
+ *  approval or read a state) may stay subscribed before the lane lets it go. A followed thread is kept loaded in the core, off
+ *  its idle eviction; Codex unloads an unsubscribed thread after 60 s (`thread_unload_delay`). */
+export const STRAY_FOLLOW_RELEASE_MS = 60_000;
 
 /** What the lane needs from the desktop's protocol connection (`ProtocolConnection` of main/protocol/connection.ts), declared
  *  here so the shared lane imports nothing from main. */
@@ -244,6 +253,12 @@ const reportedFailure = (failures: number): boolean => failures === 3 || (failur
 export type ScheduleRetry = (run: () => void, ms: number) => () => void;
 const scheduleTimer: ScheduleRetry = (run, ms) => {
   const timer = setTimeout(run, ms);
+  return () => clearTimeout(timer);
+};
+/** The stray sweep's timer: it never holds the process open by itself. */
+const scheduleSweep: ScheduleRetry = (run, ms) => {
+  const timer = setTimeout(run, ms);
+  (timer as { unref?: () => void }).unref?.();
   return () => clearTimeout(timer);
 };
 /** A visible thread's failed request is sent again after this, doubled per failure in a row up to the cap: the rate is
@@ -311,11 +326,14 @@ export function createServiceLane({
   protocol,
   snapshot,
   schedule = scheduleTimer,
+  sweep = scheduleSweep,
   report = (line) => console.error(line),
 }: {
   protocol: ServiceProtocol;
   snapshot(): SessionSnapshot;
   schedule?: ScheduleRetry;
+  /** The stray follows' sweep timer, apart from the retries' (`STRAY_FOLLOW_RELEASE_MS`). */
+  sweep?: ScheduleRetry;
   report?: FollowReport;
 }): ServiceLane {
   const answered = (reply: Promise<unknown>, threadId: unknown): Promise<unknown> =>
@@ -549,10 +567,47 @@ export function createServiceLane({
   const offStore = protocol.onStoreChange?.((change) => {
     if (change.type === 'subscription' && change.feedId !== undefined) wake(change.feedId);
   });
+  // Folds the lane never made and nothing wants: released once they have stayed unwanted for `STRAY_FOLLOW_RELEASE_MS`, so a
+  // window open for hours does not keep every thread it ever touched loaded in the core. A thread that becomes wanted is
+  // the lane's again (its convergence resumes it).
+  const strays = new Map<string, number>();
+  let cancelSweep: (() => void) | undefined;
+  const sweepStrays = (): void => {
+    cancelSweep = undefined;
+    if (disposed) return;
+    const client = protocol.client?.() ?? null;
+    const threads = (client?.store as { readonly threads?: { keys(): Iterable<string> } } | null | undefined)?.threads;
+    const held = new Set<string>(threads ? [...threads.keys()] : []);
+    const now = Date.now();
+    for (const threadId of [...strays.keys()]) if (!held.has(threadId)) strays.delete(threadId);
+    for (const threadId of held) {
+      if (desired.has(threadId) || follows.has(threadId)) {
+        strays.delete(threadId);
+        continue;
+      }
+      const since = strays.get(threadId);
+      if (since === undefined) {
+        strays.set(threadId, now);
+        continue;
+      }
+      if (now - since < STRAY_FOLLOW_RELEASE_MS) continue;
+      strays.delete(threadId);
+      void protocol
+        .unsubscribeThread(threadId)
+        .catch(() => undefined)
+        .then(() => {
+          // Wanted while the release was in flight: the convergence brings it back.
+          if (desired.has(threadId)) wake(threadId);
+        });
+    }
+    cancelSweep = sweep(sweepStrays, STRAY_FOLLOW_RELEASE_MS / 2);
+  };
+  cancelSweep = sweep(sweepStrays, STRAY_FOLLOW_RELEASE_MS / 2);
   return {
     dispose() {
       if (disposed) return;
       disposed = true;
+      cancelSweep?.();
       offReplaced?.();
       offEvents();
       offStore?.();

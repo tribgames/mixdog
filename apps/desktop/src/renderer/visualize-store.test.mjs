@@ -653,6 +653,92 @@ test('a held (mid-turn) push leaves the panel as it is; the turn end shows it', 
   }
 });
 
+test('a snapshot read is authoritative about holds: held stays held with its state withheld, a release it shows is released', () => {
+  const shown = { sessionId: 'away', tabs: [tab], active: 'v1' };
+  applyVisualizeEvent({ sessionId: 'away', state: shown });
+  const middle = { ...shown, tabs: [tab, { id: 'v2', label: 'b.html', revision: 0, panes: [] }] };
+  applyVisualizeEvent({ sessionId: 'away', state: middle, held: true, heldSince: 70 });
+  const before = visualizeStateFor('away');
+  // A re-read during the ongoing turn (a wake, a resync hint, a recovered part sequence): still held, nothing shown of the turn.
+  resyncVisualizeStates([{ ...middle, held: true, heldSince: 70 }]);
+  assert.equal(visualizeHeldSince('away'), 70, 'the turn is still held');
+  assert.equal(visualizeStateFor('away'), before, 'its intermediate state is withheld as a held event withholds it');
+  // The release was missed while away: the core's current state is not held.
+  resyncVisualizeStates([{ ...middle, active: 'v2' }]);
+  assert.equal(visualizeHeldSince('away'), null, 'a state that does not say held is not held');
+  assert.deepEqual(visualizeStateFor('away').tabs.map((entry) => entry.id), ['v1', 'v2']);
+});
+
+test('the initial read applies holds as a re-read does: a held turn is withheld, and a snapshot that introduces a hold notifies', () => {
+  const shown = { sessionId: 'boot', tabs: [tab], active: 'v1' };
+  const seen = [];
+  const unsubscribe = subscribe(() => seen.push(visualizeHeldSince('boot')));
+  // The first read of a window that loads during a held turn: nothing of the turn is displayed.
+  hydrateVisualizeStates([{ ...shown, held: true, heldSince: 9 }]);
+  assert.equal(visualizeHeldSince('boot'), 9);
+  assert.equal(visualizeStateFor('boot').tabs.length, 0, 'the intermediate state is not displayed');
+  assert.deepEqual(seen, [9], 'subscribers were told of the hold');
+  // A re-read that still says held keeps it and displays nothing; one that says released shows the state.
+  resyncVisualizeStates([{ ...shown, held: true, heldSince: 9 }]);
+  assert.equal(visualizeStateFor('boot').tabs.length, 0);
+  resyncVisualizeStates([shown]);
+  unsubscribe();
+  assert.equal(visualizeHeldSince('boot'), null);
+  assert.equal(visualizeStateFor('boot').tabs.length, 1);
+  // A re-read that introduces a hold on a displayed session notifies, though nothing was held before.
+  const notes = [];
+  const stop = subscribe(() => notes.push(visualizeHeldSince('boot')));
+  resyncVisualizeStates([{ ...shown, held: true, heldSince: 11 }]);
+  stop();
+  assert.deepEqual(notes, [11]);
+  resyncVisualizeStates([]);
+});
+
+test('a snapshot read is a complete replacement: a session it does not list (its last tab closed) is cleared', () => {
+  const emptied = [];
+  const stop = onVisualizeEmptied((id) => emptied.push(id));
+  try {
+    applyVisualizeEvent({ sessionId: 'gone', state: { sessionId: 'gone', tabs: [tab], active: 'v1' } });
+    assert.ok(visualizeStateFor('gone'));
+    resyncVisualizeStates([]);
+    assert.equal(visualizeStateFor('gone').tabs.length, 0, 'the phone does not keep the session');
+    assert.ok(emptied.includes('gone'), 'and the panel it showed is cleared');
+  } finally {
+    stop();
+  }
+});
+
+test('a wake on a connection that stayed up and a reconnect both end in a read that releases the turn', async () => {
+  const states = [{ sessionId: 'wake', tabs: [tab], active: 'v1' }];
+  const previousWindow = globalThis.window;
+  const listeners = new Map();
+  let reads = 0;
+  globalThis.window = {
+    mixdogDesktop: {
+      onVisualizeChanged: () => () => undefined,
+      visualizeState: async () => (reads++, states),
+    },
+    addEventListener: (type, listener) => listeners.set(type, listener),
+    removeEventListener: () => undefined,
+  };
+  try {
+    const stop = subscribe(() => undefined);
+    stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (const event of ['mixdog:remote-state-gap', 'mixdog:remote-reconnected']) {
+      applyVisualizeEvent({ sessionId: 'wake', state: states[0], held: true, heldSince: 5 });
+      assert.equal(visualizeHeldSince('wake'), 5);
+      const before = reads;
+      listeners.get(event)();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(reads, before + 1, `${event} re-reads the state`);
+      assert.equal(visualizeHeldSince('wake'), null, `${event}: the turn is released`);
+    }
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});
+
 test('the turn end lifts the hold even when its final state changes nothing', () => {
   const shown = { sessionId: 'same', tabs: [tab], active: 'v1' };
   applyVisualizeEvent({ sessionId: 'same', state: shown });

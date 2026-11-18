@@ -301,22 +301,18 @@ test('a start call publishes its blank snapshot as the window shell snapshot', a
   assert.equal(sessionLanesOf(ctx).shell.get().cwd, 'T');
 });
 
-test('a converted document PDF in a server window is the hosts ranged mixdog-media URL too, never read here', async () => {
+test('a document preview is the hosts to convert and register in a server window too, never converted or read here', async () => {
   const asked = [];
-  const host = { previewProjectFile: async (...args) => (asked.push(args), { url: 'mixdog-media://preview/t/a.pdf', kind: 'pdf', mime: 'application/pdf', mtimeMs: 1, size: 3 }) };
+  const reply = { url: 'mixdog-media://preview/t/a.pdf', kind: 'pdf', mime: 'application/pdf', format: 'docx', mtimeMs: 1, size: 3 };
+  const host = { previewConvertedDocument: async (...args) => (asked.push(args), reply) };
   await inServerWindow(async () => {
-    const client = fakeClient((method) => {
-      if (method === 'project/directory') return { path: '/srv/proj', standalone: false };
-      if (method === 'document/preview') return { path: '/cache/docs/a.pdf', format: 'docx', mtimeMs: 1, size: 3 };
-      return {};
-    });
+    const client = fakeClient(() => ({}));
     const connection = createRendererConnection({ open: async () => client });
     await connection.start();
     const api = createFilesApi(createDirectContext(connection), { host });
-    const preview = await api.previewDocumentFile('proj', 'a.docx');
-    assert.equal(preview.url, 'mixdog-media://preview/t/a.pdf');
-    assert.deepEqual(asked, [['/cache/docs', 'a.pdf']]);
-    assert.equal(client.calls.some((c) => c.method === 'projectFs/previewRange'), false);
+    assert.deepEqual(await api.previewDocumentFile('proj', 'a.docx'), reply);
+    assert.deepEqual(asked, [['proj', 'a.docx', undefined]]);
+    assert.equal(client.calls.some((c) => c.method === 'document/preview' || c.method === 'projectFs/previewRange'), false);
   });
 });
 
@@ -344,21 +340,17 @@ test('a 1 MiB text opens in one call and a 10 MB text in five', async () => {
   }
 });
 
-test('a converted document PDF in a PC window is the hosts ranged mixdog-media URL, read by nothing here', async () => {
+test('a document preview in a PC window is the hosts conversion with the file token passed on', async () => {
   const asked = [];
-  const host = { previewProjectFile: async (...args) => (asked.push(args), { url: 'mixdog-media://preview/t/a.pdf', kind: 'pdf', mime: 'application/pdf', mtimeMs: 1, size: 3 }) };
-  const client = fakeClient((method) => {
-    if (method === 'project/directory') return { path: 'F:/proj', standalone: false };
-    if (method === 'document/preview') return { path: 'C:/cache/a.pdf', format: 'docx', mtimeMs: 1, size: 3 };
-    return {};
-  });
+  const reply = { url: 'mixdog-media://preview/t/a.pdf', kind: 'pdf', mime: 'application/pdf', format: 'docx', mtimeMs: 1, size: 3 };
+  const host = { previewConvertedDocument: async (...args) => (asked.push(args), reply) };
+  const client = fakeClient(() => ({}));
   const connection = createRendererConnection({ open: async () => client });
   await connection.start();
   const api = createFilesApi(createDirectContext(connection), { host });
-  const preview = await api.previewDocumentFile('proj', 'a.docx');
-  assert.equal(preview.url, 'mixdog-media://preview/t/a.pdf');
-  assert.deepEqual(asked, [['C:/cache', 'a.pdf']]);
-  assert.equal(client.calls.some((c) => c.method === 'projectFs/previewRange'), false);
+  assert.deepEqual(await api.previewDocumentFile('proj', 'a.docx', 'tok'), reply);
+  assert.deepEqual(asked, [['proj', 'a.docx', 'tok']]);
+  assert.equal(client.calls.some((c) => c.method === 'document/preview'), false);
 });
 
 test('entry operations in a standalone folder go to the core with the folder as root, trash included', async () => {

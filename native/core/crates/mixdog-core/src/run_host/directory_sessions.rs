@@ -21,6 +21,7 @@ use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_rooms::rooms::RoomError;
 use mixdog_core_rooms::rooms::sessions::SessionOps;
 use mixdog_core_session::session::SessionDirectory;
+use mixdog_core_session::session::archive_trees::Mark;
 use mixdog_core_session::session::thread_settings::ArchiveStamps;
 
 fn port(error: impl std::fmt::Debug) -> RoomError {
@@ -89,11 +90,12 @@ impl DirectorySessions {
     pub async fn import_node_hidden(&self, data_dir: std::path::PathBuf, io: mixdog_rt::InteractiveIo) -> Result<usize, CoreError> {
         mixdog_core_session::session::node_hidden::import_node_hidden(data_dir, io, |row| async move {
             let Ok(Some(header)) = self.header(&row.id).await else { return };
-            if header.get("archivedAt").and_then(Value::as_f64).is_some_and(|at| at > 0.0) {
+            // A session archived already (or restored since, through the archive authority) is left as it is.
+            if self.directory.archive_state(&row.id, &header).entry.is_some() {
                 return;
             }
-            let at = row.at_ms.unwrap_or_else(|| self.directory.deps().clock.now_ms());
-            let _ = self.patch(&row.id, Map::from_iter([("archivedAt".to_owned(), json!(at))])).await;
+            let at = row.at_ms.unwrap_or_else(|| self.directory.deps().clock.now_ms()) as f64;
+            let _ = self.directory.mark_archived(&row.id, &header, Mark::Archive(Box::new(move || at))).await;
         })
         .await
     }
@@ -119,6 +121,21 @@ impl DirectorySessions {
     /// a mark already in the asked state is left as it is, a new one is stamped now on the runtime's clock, a cleared one is removed.
     /// An archive stamp never repeats (`Math.max(Date.now(), lastArchiveStamp + 1)`); a retirement is `Date.now()` as it is.
     async fn mark(&self, session_id: &str, key: &str, on: bool) -> Result<(), RoomError> {
+        // The archive mark is the archive authority's: one commit, decided against the state it resolves.
+        if key == "archivedAt" {
+            let Some(header) = self.header(session_id).await? else { return Ok(()) };
+            let mark = if on {
+                let (stamps, now) = (self.stamps.clone(), self.directory.deps().clock.now_ms());
+                Mark::Archive(Box::new(move || stamps.take(now) as f64))
+            } else {
+                Mark::Restore
+            };
+            let changed = self.directory.mark_archived(session_id, &header, mark).await.map_err(port)?;
+            if changed && !on && !mixdog_store::agent_mode::agent_id_of_home_session(session_id).is_empty() {
+                self.directory.publish_restored_row(&ThreadId::from(session_id)).await;
+            }
+            return Ok(());
+        }
         if self.stamped(session_id, key).await? == on {
             return Ok(());
         }
@@ -329,9 +346,13 @@ mod tests {
         for id in ["room_a", "room_b", "room_c"] {
             sessions.create(id, &json!({})).await.unwrap();
         }
+        // The stamp as the archive authority resolves it.
         let stamp = |id: &'static str| {
             let sessions = &sessions;
-            async move { sessions.header(id).await.unwrap().unwrap().get("archivedAt").cloned() }
+            async move {
+                let header = sessions.header(id).await.unwrap().unwrap();
+                sessions.directory.archive_state(id, &header).archived_at.map(|at| json!(at as i64))
+            }
         };
         sessions.set_archived("room_a", true).await.unwrap();
         sessions.set_archived("room_b", true).await.unwrap();
@@ -429,3 +450,4 @@ mod tests {
         );
     }
 }
+

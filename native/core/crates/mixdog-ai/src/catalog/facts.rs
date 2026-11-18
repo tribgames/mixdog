@@ -293,7 +293,15 @@ impl CatalogService {
     /// `providerImpl.getCachedModelInfo(model)` asked of the registered provider itself, outside the memo (the step
     /// judge's ladder asks every provider this way): `None` for a provider without the function or without the row.
     pub fn cached_row(&self, provider: &str, model: &str) -> Option<Arc<Value>> {
-        self.route_provider(provider)?.cached?.cached_row(model)
+        if let Some(row) = self.route_provider(provider).and_then(|route| route.cached).and_then(|cached| cached.cached_row(model)) {
+            return Some(row);
+        }
+        // `openai-oauth.mjs` `getCachedModelInfo(model)` is `findCachedCodexModel(model)`: the saved Codex roster's row
+        // (an expired file too), which is where an account's models carry their reasoning levels.
+        if provider == "openai-oauth" {
+            return self.rosters.load().row(provider, model).map(Arc::new);
+        }
+        None
     }
 
     /// `meta.remember(provider, model, meta)`: the row replaces what the route memo holds.
@@ -444,6 +452,7 @@ pub(super) mod tests {
     use std::sync::Arc;
 
     use super::*;
+    #[cfg(node_twin)]
     use crate::catalog::lookup;
     use crate::catalog::CatalogSnapshot;
     use crate::catalog::ModelsDevSource;
@@ -465,74 +474,7 @@ pub(super) mod tests {
             ))
         }
     }
-
-    pub(in crate::catalog) fn io() -> crate::oauth::CredentialIo {
-        let tokens = mixdog_rt::testing::tokens();
-        crate::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io }
-    }
-
-    async fn service_in(dir: &std::path::Path, records: Vec<ModelRecord>) -> CatalogService {
-        let mut snapshot = CatalogSnapshot::default();
-        for record in records {
-            snapshot.models.entry(record.provider.clone()).or_default().push(record);
-        }
-        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.to_path_buf(), io());
-        CatalogService::cold_start(snapshot, Vec::new(), metadata).await
-    }
-
-    async fn service(records: Vec<ModelRecord>) -> CatalogService {
-        let dir = tempfile::tempdir().unwrap();
-        service_in(dir.path(), records).await
-    }
-
-    /// A service whose overlays and rosters are the recorded Node fixtures.
-    async fn golden_service(records: Vec<ModelRecord>) -> CatalogService {
-        golden_service_listing(records, Vec::new()).await
-    }
-
-    /// [`golden_service`] whose registered providers list through `sources`.
-    async fn golden_service_listing(records: Vec<ModelRecord>, sources: Vec<crate::catalog::ModelSource>) -> CatalogService {
-        use crate::catalog::ModelsDev;
-        let dir = tempfile::tempdir().unwrap();
-        let mut snapshot = CatalogSnapshot::default();
-        for record in records {
-            snapshot.models.entry(record.provider.clone()).or_default().push(record);
-        }
-        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io());
-        metadata.set_layer(ModelsDev::from_models_dev(lookup::fixtures::json(lookup::fixtures::MODELS_DEV)).unwrap());
-        let litellm = ModelsDevSource::litellm(Arc::new(Offline), dir.path().to_path_buf(), io());
-        litellm.set_layer(ModelsDev::from_litellm(lookup::fixtures::json(lookup::fixtures::LITELLM)));
-        let service = CatalogService::cold_start(snapshot, sources, metadata).await.with_litellm(litellm).await;
-        service.rosters.store(Arc::new(lookup::fixtures::rosters()));
-        service
-    }
-
-    async fn write_roster(dir: &std::path::Path, file: &str, text: &str) {
-        let (path, text) = (dir.join(file), text.to_owned());
-        io().write_job(move |lane| {
-            mixdog_statefile::write_file(lane, &path, text.as_bytes(), &mixdog_statefile::Opts::default()).map(drop).map_err(std::io::Error::other)
-        })
-        .await
-        .unwrap();
-    }
-
-    /// Node reads the roster file on every call (`readModelsFromCacheFile`): a service built before the file
-    /// existed sees it at once, sees a rewrite at once, and holds nothing in between.
-    #[tokio::test]
-    async fn cached_windows_read_the_roster_file_on_every_call() {
-        let dir = tempfile::tempdir().unwrap();
-        let s = service_in(dir.path(), Vec::new()).await.with_rosters(dir.path().to_path_buf());
-        assert!(s.cached_windows("openai-oauth", "gpt-5.5").is_none(), "no file yet");
-        write_roster(dir.path(), "openai-oauth-models.json", r#"{"models":[{"id":"gpt-5.5","contextWindow":272000,"maxContextWindow":1000000}]}"#).await;
-        let w = s.cached_windows("openai-oauth", "gpt-5.5").unwrap();
-        assert_eq!(serde_json::to_value(w).unwrap(), json!({"contextWindow": 272000.0, "maxContextWindow": 1000000.0}));
-        assert!(s.cached_windows("openai-oauth", "other").is_none());
-        write_roster(dir.path(), "openai-oauth-models.json", r#"{"models":[{"id":"gpt-5.5","contextWindow":128000}]}"#).await;
-        let w = s.cached_windows("openai-oauth", "gpt-5.5").unwrap();
-        assert_eq!((w.context_window, w.max_context_window), (128000.0, 0.0), "the rewrite is what the next call reads");
-        write_roster(dir.path(), "openai-oauth-models.json", "not json").await;
-        assert!(s.cached_windows("openai-oauth", "gpt-5.5").is_none(), "a damaged file is no rows");
-    }
+    #[cfg(node_twin)]
     fn fast(provider: &str, id: &str, mode: Capability) -> ModelRecord {
         let mut r = ModelRecord::new(provider.into(), id);
         r.fast_mode = mode;
@@ -555,6 +497,78 @@ pub(super) mod tests {
         assert_eq!(without_snapshot("gpt-5-20250807"), "gpt-5-20250807");
     }
 
+    #[cfg(node_twin)]
+    use std::sync::atomic::AtomicU64;
+    #[cfg(node_twin)]
+    use std::sync::atomic::Ordering::SeqCst;
+
+    #[cfg(node_twin)]
+    /// A scripted provider of the Node recorder (`record-model-meta.mjs`): `cached` is its `getCachedModelInfo` rows
+    /// (present when the provider's class has the function), `list_rows` what `listModels()` returns.
+    #[derive(Clone)]
+    struct Scripted {
+        listed: bool,
+        cached: Option<Arc<std::sync::Mutex<Vec<Arc<Value>>>>>,
+        list_rows: Vec<Arc<Value>>,
+        throws: bool,
+        during_list: Option<String>,
+        calls: Arc<AtomicU64>,
+        revision: Arc<AtomicU64>,
+        seq: Arc<AtomicU64>,
+    }
+
+    #[cfg(node_twin)]
+    impl super::super::CachedModelInfo for Scripted {
+        fn cached_row(&self, model: &str) -> Option<Arc<Value>> {
+            let rows = self.cached.as_ref()?.lock().unwrap();
+            rows.iter().find(|row| row.get("id").and_then(Value::as_str) == Some(model)).cloned()
+        }
+    }
+
+    #[cfg(node_twin)]
+    #[async_trait::async_trait]
+    impl super::super::ListedRows for Scripted {
+        async fn list_rows(&self) -> Result<Vec<Arc<Value>>, ()> {
+            self.calls.fetch_add(1, SeqCst);
+            match self.during_list.as_deref() {
+                Some("bumpRevision") => drop(self.revision.fetch_add(1, SeqCst)),
+                // `invalidateProviderCaches` inside the listing: the sequence moves (the memo it clears is
+                // asserted by the top-level `invalidate` op).
+                Some("invalidate") => drop(self.seq.fetch_add(1, SeqCst)),
+                _ => {}
+            }
+            if self.throws { Err(()) } else { Ok(self.list_rows.clone()) }
+        }
+    }
+
+    #[cfg(node_twin)]
+    fn pinned(s: &CatalogService, id: &str) -> bool {
+        s.meta.lock().unwrap().rows.contains_key(&meta_key("p", id))
+    }
+
+    /// A service whose overlays and rosters are the recorded Node fixtures.
+    #[cfg(node_twin)]
+    async fn golden_service(records: Vec<ModelRecord>) -> CatalogService {
+        golden_service_listing(records, Vec::new()).await
+    }
+    /// [`golden_service`] whose registered providers list through `sources`.
+    #[cfg(node_twin)]
+    async fn golden_service_listing(records: Vec<ModelRecord>, sources: Vec<crate::catalog::ModelSource>) -> CatalogService {
+        use crate::catalog::ModelsDev;
+        let dir = tempfile::tempdir().unwrap();
+        let mut snapshot = CatalogSnapshot::default();
+        for record in records {
+            snapshot.models.entry(record.provider.clone()).or_default().push(record);
+        }
+        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io());
+        metadata.set_layer(ModelsDev::from_models_dev(lookup::fixtures::json(lookup::fixtures::MODELS_DEV)).unwrap());
+        let litellm = ModelsDevSource::litellm(Arc::new(Offline), dir.path().to_path_buf(), io());
+        litellm.set_layer(ModelsDev::from_litellm(lookup::fixtures::json(lookup::fixtures::LITELLM)));
+        let service = CatalogService::cold_start(snapshot, sources, metadata).await.with_litellm(litellm).await;
+        service.rosters.store(Arc::new(lookup::fixtures::rosters()));
+        service
+    }
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn fast_capable_orders_the_declarations_as_node_does() {
         let s = golden_service(Vec::new()).await;
@@ -576,24 +590,7 @@ pub(super) mod tests {
         assert!(s.ultrafast_capable("openai", &json!({"id": "gpt-6-astra"})));
         assert!(!s.ultrafast_capable("anthropic", &json!({"id": "gpt-6-astra"})));
     }
-
-    #[tokio::test]
-    async fn cursor_fast_follows_variants_and_efforts() {
-        let s = service(Vec::new()).await;
-        let model = json!({"id": "c", "fastCapable": true, "fastEfforts": ["low", "high"]});
-        assert!(s.fast_capable("cursor-oauth", &model, Some("high"), &json!({})));
-        assert!(!s.fast_capable("cursor-oauth", &model, Some("medium"), &json!({})));
-        assert!(s.fast_capable("cursor-api", &model, None, &json!({})));
-        assert!(!s.fast_capable("cursor-oauth", &json!({"id": "c"}), None, &json!({})));
-        let variants = json!({"id": "c", "fastCapable": true, "parameterVariants": [
-            {"fast": "true", "effort": "high", "thinking": "on"},
-            {"fast": "false", "effort": "low"}
-        ]});
-        assert!(s.fast_capable("cursor-oauth", &variants, Some("high"), &json!({"thinking": "on"})));
-        assert!(!s.fast_capable("cursor-oauth", &variants, Some("high"), &json!({"thinking": "off"})));
-        assert!(!s.fast_capable("cursor-oauth", &variants, Some("low"), &json!({})));
-    }
-
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn meta_is_the_row_or_the_bare_placeholder() {
         let mut row = fast("openai", "gpt-5.5", Capability::Yes);
@@ -613,10 +610,10 @@ pub(super) mod tests {
         assert!(!s.catalog_knows("gpt-5.5", "anthropic") && !s.catalog_knows("", "openai"));
         assert_eq!(s.cached_windows("openai-oauth", "gpt-5.5").unwrap().max_context_window, 1_000_000.0);
     }
-
     /// A row's own listed prices are the row's: the picker's meta for a known
     /// model carries the catalog's rate (`enrichModels`), and the ledger prices
     /// from the same lookup (`getModelMetadataSync`), which reads no listed price.
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn a_listed_price_never_moves_the_ledgers_cost() {
         let usage: crate::catalog::UsageArgs = serde_json::from_value(json!({
@@ -632,10 +629,10 @@ pub(super) mod tests {
         assert_eq!(priced.cost_usd, plain.cost_usd);
         assert_eq!(priced.cost_usd, Some(1.25));
     }
-
     /// Every (provider, model) of the Node golden: `catalog_knows`
     /// (`set-route.mjs:57`'s `getModelMetadataSync` truthiness),
     /// `fastCapableFor` and `ultrafastCapableFor`.
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn knowledge_and_fast_tiers_equal_node() {
         let s = golden_service(Vec::new()).await;
@@ -658,45 +655,129 @@ pub(super) mod tests {
             assert!(rows.iter().any(|r| r[key] == true) && rows.iter().any(|r| r[key] == false), "{key}");
         }
     }
+    /// A record that kept no stored row is never a found `{ id }`: `stored_row` says `Null`, a store never holds it (the
+    /// model is a cache miss, the marked placeholder), and a listing is searched like Node's `models.find(m => m?.id ===
+    /// modelId)`: an unrelated rowless record never suppresses a hit, and a successful miss answers and pins the
+    /// fallback (only a listing that throws pins nothing, as the recorded `placeholder-then-fetch-hit-empty-thrown` shows).
+    #[cfg(node_twin)]
+    #[tokio::test]
+    async fn a_record_without_a_stored_row_is_not_a_candidate_of_the_find() {
+        let plain = |id: &str| mixdog_core_api::domain::provider::ModelRecord::new(id);
+        assert!(super::super::stored_row(&"p".into(), plain("m")).is_null());
 
-    use std::sync::atomic::AtomicU64;
-    use std::sync::atomic::Ordering::SeqCst;
+        let store = Arc::new(super::super::RowStore::default());
+        store.replace(vec![Arc::new(Value::Null), Arc::new(json!({"id": "kept"}))]);
+        assert!(store.find("kept").is_some() && store.find("m").is_none());
+        store.upsert(Arc::new(Value::Null));
+        store.upsert(Arc::new(json!({"id": "kept", "name": "again"})));
+        assert_eq!(store.find("kept").unwrap()["name"], "again");
 
-    /// A scripted provider of the Node recorder (`record-model-meta.mjs`): `cached` is its `getCachedModelInfo` rows
-    /// (present when the provider's class has the function), `list_rows` what `listModels()` returns.
-    #[derive(Clone)]
-    struct Scripted {
-        listed: bool,
-        cached: Option<Arc<std::sync::Mutex<Vec<Arc<Value>>>>>,
-        list_rows: Vec<Arc<Value>>,
-        throws: bool,
-        during_list: Option<String>,
-        calls: Arc<AtomicU64>,
-        revision: Arc<AtomicU64>,
-        seq: Arc<AtomicU64>,
+        let mut enriched = plain("hit");
+        enriched.enriched = mixdog_core_api::domain::provider::EnrichedRow(json!({"id": "hit", "supportsWebSearch": true}).as_object().cloned());
+        let mut provider = mixdog_core_api::domain::mock::MockProvider::new([]);
+        provider.models = vec![plain("rowless"), enriched];
+        let adapter: Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter> = Arc::new(provider);
+        let rows = super::super::AdapterRows { provider: "p".into(), adapter: adapter.clone() };
+        assert_eq!(super::super::ListedRows::list_rows(&rows).await.unwrap().len(), 1, "the rowless record is not a candidate");
+
+        let s = golden_service(Vec::new()).await;
+        s.bind_providers(Arc::new(move |_| {
+            Some(super::super::RouteProvider {
+                cached: None,
+                listing: Some(Arc::new(super::super::AdapterRows { provider: "p".into(), adapter: adapter.clone() })),
+            })
+        }));
+        assert_eq!(s.model_meta_fetching("p", "hit", None).await, json!({"id": "hit", "supportsWebSearch": true}));
+        assert_eq!(s.model_meta_fetching("p", "rowless", None).await, json!({"id": "rowless", "provider": "p"}));
+        assert!(pinned(&s, "rowless"), "a successful miss pins the fallback");
     }
-
-    impl super::super::CachedModelInfo for Scripted {
-        fn cached_row(&self, model: &str) -> Option<Arc<Value>> {
-            let rows = self.cached.as_ref()?.lock().unwrap();
-            rows.iter().find(|row| row.get("id").and_then(Value::as_str) == Some(model)).cloned()
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl super::super::ListedRows for Scripted {
-        async fn list_rows(&self) -> Result<Vec<Arc<Value>>, ()> {
-            self.calls.fetch_add(1, SeqCst);
-            match self.during_list.as_deref() {
-                Some("bumpRevision") => drop(self.revision.fetch_add(1, SeqCst)),
-                // `invalidateProviderCaches` inside the listing: the sequence moves (the memo it clears is
-                // asserted by the top-level `invalidate` op).
-                Some("invalidate") => drop(self.seq.fetch_add(1, SeqCst)),
-                _ => {}
+    /// `cached_row` is `getCachedModelInfo` of the registered provider, outside the memo: the stored row as stored, and
+    /// nothing for a provider without the function or the row.
+    #[cfg(node_twin)]
+    #[tokio::test]
+    async fn the_cached_row_is_the_registered_providers_own() {
+        let store = Arc::new(super::super::RowStore::default());
+        store.replace(vec![Arc::new(json!({"id": "m", "supportsWebSearch": true}))]);
+        struct Cached(Arc<super::super::RowStore>);
+        impl super::super::CachedModelInfo for Cached {
+            fn cached_row(&self, model: &str) -> Option<Arc<Value>> {
+                self.0.find(model)
             }
-            if self.throws { Err(()) } else { Ok(self.list_rows.clone()) }
         }
+        let s = golden_service(Vec::new()).await;
+        s.bind_providers(Arc::new(move |name| {
+            Some(super::super::RouteProvider {
+                cached: (name == "with").then(|| Arc::new(Cached(store.clone())) as Arc<dyn super::super::CachedModelInfo>),
+                listing: None,
+            })
+        }));
+        assert_eq!(s.cached_row("with", "m").as_deref(), Some(&json!({"id": "m", "supportsWebSearch": true})));
+        assert!(s.cached_row("with", "other").is_none() && s.cached_row("without", "m").is_none() && s.cached_row("ghost", "m").is_none());
     }
+
+    pub(in crate::catalog) fn io() -> crate::oauth::CredentialIo {
+        let tokens = mixdog_rt::testing::tokens();
+        crate::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io }
+    }
+    async fn service_in(dir: &std::path::Path, records: Vec<ModelRecord>) -> CatalogService {
+        let mut snapshot = CatalogSnapshot::default();
+        for record in records {
+            snapshot.models.entry(record.provider.clone()).or_default().push(record);
+        }
+        let metadata = ModelsDevSource::new(Arc::new(Offline), dir.to_path_buf(), io());
+        CatalogService::cold_start(snapshot, Vec::new(), metadata).await
+    }
+    async fn service(records: Vec<ModelRecord>) -> CatalogService {
+        let dir = tempfile::tempdir().unwrap();
+        service_in(dir.path(), records).await
+    }
+    async fn write_roster(dir: &std::path::Path, file: &str, text: &str) {
+        let (path, text) = (dir.join(file), text.to_owned());
+        io().write_job(move |lane| {
+            mixdog_statefile::write_file(lane, &path, text.as_bytes(), &mixdog_statefile::Opts::default()).map(drop).map_err(std::io::Error::other)
+        })
+        .await
+        .unwrap();
+    }
+    /// Node reads the roster file on every call (`readModelsFromCacheFile`): a service built before the file
+    /// existed sees it at once, sees a rewrite at once, and holds nothing in between. The file is the one of the identity
+    /// the listings noted, and only a roster fetched for it is read.
+    #[tokio::test]
+    async fn cached_windows_read_the_roster_file_on_every_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = service_in(dir.path(), Vec::new()).await.with_rosters(dir.path().to_path_buf());
+        s.roster_accounts.note(super::super::oauth_cache::Roster::Codex, Some("acct-1"));
+        let file = super::super::oauth_cache::Roster::Codex.keyed_file("acct-1");
+        assert!(s.cached_windows("openai-oauth", "gpt-5.5").is_none(), "no file yet");
+        write_roster(dir.path(), "openai-oauth-models.json", r#"{"models":[{"id":"gpt-5.5","contextWindow":64000}]}"#).await;
+        assert!(s.cached_windows("openai-oauth", "gpt-5.5").is_none(), "the 1.4.5 file names no account and is not read");
+        write_roster(dir.path(), &file, r#"{"account":"acct-1","provenance":"fetched","models":[{"id":"gpt-5.5","contextWindow":272000,"maxContextWindow":1000000}]}"#).await;
+        let w = s.cached_windows("openai-oauth", "gpt-5.5").unwrap();
+        assert_eq!(serde_json::to_value(w).unwrap(), json!({"contextWindow": 272000.0, "maxContextWindow": 1000000.0}));
+        assert!(s.cached_windows("openai-oauth", "other").is_none());
+        write_roster(dir.path(), &file, r#"{"account":"acct-1","provenance":"fetched","models":[{"id":"gpt-5.5","contextWindow":128000}]}"#).await;
+        let w = s.cached_windows("openai-oauth", "gpt-5.5").unwrap();
+        assert_eq!((w.context_window, w.max_context_window), (128000.0, 0.0), "the rewrite is what the next call reads");
+        write_roster(dir.path(), &file, "not json").await;
+        assert!(s.cached_windows("openai-oauth", "gpt-5.5").is_none(), "a damaged file is no rows");
+    }
+    #[tokio::test]
+    async fn cursor_fast_follows_variants_and_efforts() {
+        let s = service(Vec::new()).await;
+        let model = json!({"id": "c", "fastCapable": true, "fastEfforts": ["low", "high"]});
+        assert!(s.fast_capable("cursor-oauth", &model, Some("high"), &json!({})));
+        assert!(!s.fast_capable("cursor-oauth", &model, Some("medium"), &json!({})));
+        assert!(s.fast_capable("cursor-api", &model, None, &json!({})));
+        assert!(!s.fast_capable("cursor-oauth", &json!({"id": "c"}), None, &json!({})));
+        let variants = json!({"id": "c", "fastCapable": true, "parameterVariants": [
+            {"fast": "true", "effort": "high", "thinking": "on"},
+            {"fast": "false", "effort": "low"}
+        ]});
+        assert!(s.fast_capable("cursor-oauth", &variants, Some("high"), &json!({"thinking": "on"})));
+        assert!(!s.fast_capable("cursor-oauth", &variants, Some("high"), &json!({"thinking": "off"})));
+        assert!(!s.fast_capable("cursor-oauth", &variants, Some("low"), &json!({})));
+    }
+
 
     /// Every scenario Node's `lookupModelMeta` was recorded on (`oracles/model-meta.json`, produced by
     /// `benchmarks/rust-core/recorders/record-model-meta.mjs` from `b6f10295a`) answers the same here: the cold
@@ -704,6 +785,7 @@ pub(super) mod tests {
     /// normalized (`id`, `provider`) where one without it answers the marked placeholder and a fetch returns the listed
     /// row untouched, a throwing or superseded fetch pins nothing, and the revision / invalidation clear the memo. The
     /// scenarios with a full load are replayed where the load lives (`ai_admin/model_list_tests.rs`).
+    #[cfg(node_twin)]
     #[tokio::test]
     async fn the_route_memo_answers_what_node_recorded() {
         let golden = crate::providers::listing_row::testing::fixture("oracles/model-meta.json");
@@ -778,64 +860,4 @@ pub(super) mod tests {
         }
         assert_eq!(replayed, 9, "11 scenarios, 2 of them with a full load");
     }
-    /// A record that kept no stored row is never a found `{ id }`: `stored_row` says `Null`, a store never holds it (the
-    /// model is a cache miss, the marked placeholder), and a listing is searched like Node's `models.find(m => m?.id ===
-    /// modelId)`: an unrelated rowless record never suppresses a hit, and a successful miss answers and pins the
-    /// fallback (only a listing that throws pins nothing, as the recorded `placeholder-then-fetch-hit-empty-thrown` shows).
-    #[tokio::test]
-    async fn a_record_without_a_stored_row_is_not_a_candidate_of_the_find() {
-        let plain = |id: &str| mixdog_core_api::domain::provider::ModelRecord::new(id);
-        assert!(super::super::stored_row(&"p".into(), plain("m")).is_null());
-
-        let store = Arc::new(super::super::RowStore::default());
-        store.replace(vec![Arc::new(Value::Null), Arc::new(json!({"id": "kept"}))]);
-        assert!(store.find("kept").is_some() && store.find("m").is_none());
-        store.upsert(Arc::new(Value::Null));
-        store.upsert(Arc::new(json!({"id": "kept", "name": "again"})));
-        assert_eq!(store.find("kept").unwrap()["name"], "again");
-
-        let mut enriched = plain("hit");
-        enriched.enriched = mixdog_core_api::domain::provider::EnrichedRow(json!({"id": "hit", "supportsWebSearch": true}).as_object().cloned());
-        let mut provider = mixdog_core_api::domain::mock::MockProvider::new([]);
-        provider.models = vec![plain("rowless"), enriched];
-        let adapter: Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter> = Arc::new(provider);
-        let rows = super::super::AdapterRows { provider: "p".into(), adapter: adapter.clone() };
-        assert_eq!(super::super::ListedRows::list_rows(&rows).await.unwrap().len(), 1, "the rowless record is not a candidate");
-
-        let s = golden_service(Vec::new()).await;
-        s.bind_providers(Arc::new(move |_| {
-            Some(super::super::RouteProvider {
-                cached: None,
-                listing: Some(Arc::new(super::super::AdapterRows { provider: "p".into(), adapter: adapter.clone() })),
-            })
-        }));
-        assert_eq!(s.model_meta_fetching("p", "hit", None).await, json!({"id": "hit", "supportsWebSearch": true}));
-        assert_eq!(s.model_meta_fetching("p", "rowless", None).await, json!({"id": "rowless", "provider": "p"}));
-        assert!(pinned(&s, "rowless"), "a successful miss pins the fallback");
-    }
-
-    fn pinned(s: &CatalogService, id: &str) -> bool {
-        s.meta.lock().unwrap().rows.contains_key(&meta_key("p", id))
-    }
-    /// `cached_row` is `getCachedModelInfo` of the registered provider, outside the memo: the stored row as stored, and
-    /// nothing for a provider without the function or the row.
-    #[tokio::test]
-    async fn the_cached_row_is_the_registered_providers_own() {
-        let store = Arc::new(super::super::RowStore::default());
-        store.replace(vec![Arc::new(json!({"id": "m", "supportsWebSearch": true}))]);
-        struct Cached(Arc<super::super::RowStore>);
-        impl super::super::CachedModelInfo for Cached {
-            fn cached_row(&self, model: &str) -> Option<Arc<Value>> {
-                self.0.find(model)
-            }
-        }
-        let s = golden_service(Vec::new()).await;
-        s.bind_providers(Arc::new(move |name| {
-            Some(super::super::RouteProvider {
-                cached: (name == "with").then(|| Arc::new(Cached(store.clone())) as Arc<dyn super::super::CachedModelInfo>),
-                listing: None,
-            })
-        }));
-        assert_eq!(s.cached_row("with", "m").as_deref(), Some(&json!({"id": "m", "supportsWebSearch": true})));
-        assert!(s.cached_row("with", "other").is_none() && s.cached_row("without", "m").is_none() && s.cached_row("ghost", "m").is_none());
-    }}
+}

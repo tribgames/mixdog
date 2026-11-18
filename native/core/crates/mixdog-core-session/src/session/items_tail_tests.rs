@@ -414,6 +414,73 @@ async fn a_cursor_naming_an_amended_older_row_and_a_newer_one_picks_the_row_the_
     drop(live);
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_scan_survives_other_writes_but_rejects_unprojected_changes_to_its_own_log() {
+    use mixdog_core_base::support::on_lane_wait;
+
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let threads = Arc::new(
+        StoreThreads::over_data_dir(data.path(), index_over(data.path(), tokens).await, Arc::new(MockOwnership::default()), tokens.maintenance_io)
+            .await.expect("the thread store"),
+    );
+    let scanned = create(&threads, tokens, "scan-turns", plain(40)).await;
+    let other = create(&threads, tokens, "other-turns", plain(1)).await;
+    threads.projected().await;
+    let cancel = CancellationToken::new();
+    let chunk = |after| {
+        let (threads, read_cancel) = (threads.clone(), cancel.clone());
+        on_lane_wait(tokens.interactive_io, &cancel, move |lane| {
+            threads.turn_history_chunk(lane, &ThreadId::from("scan-turns"), after, &read_cancel)
+        })
+    };
+    let first = chunk(None).await.expect("job").expect("read").expect("initial chunk");
+    let (held, release) = threads.hold_index();
+    held.await.expect("index held");
+    on_lane_wait(tokens.durability_io, &cancel, move |lane| {
+        other.lock().expect("log").commit(lane, &[assistant(1, "t0", true)]).expect("unrelated write");
+    }).await.expect("job");
+    let result = chunk(Some(first.next.expect("more history"))).await.expect("job").expect("read");
+    assert!(result.as_ref().is_some_and(|page| !page.records.is_empty()), "the unrelated write must not invalidate this scan");
+    on_lane_wait(tokens.durability_io, &cancel, move |lane| {
+        scanned.lock().expect("log").commit(lane, &[assistant(40, "t0", true)]).expect("same-thread write");
+    }).await.expect("job");
+    let stale = chunk(Some(result.expect("next chunk").next.expect("more history"))).await.expect("job").expect("read");
+    assert!(stale.is_none(), "the old scan cannot continue after a same-thread write");
+    assert!(chunk(None).await.expect("job").expect("read").is_none(), "an unprojected append cannot start a new scan");
+    drop(release);
+    threads.projected().await;
+    let refreshed = chunk(None).await.expect("job").expect("read").expect("new scan");
+    assert_eq!(refreshed.records.first().map(|row| row.iid.as_str()), Some("a40"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelling_a_turn_page_at_the_read_barrier_reports_caller_cancellation() {
+    use mixdog_core_api::ThreadDirectory;
+
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let threads = Arc::new(
+        StoreThreads::over_data_dir(data.path(), index_over(data.path(), tokens).await, Arc::new(MockOwnership::default()), tokens.maintenance_io)
+            .await.expect("the thread store"),
+    );
+    let _log = create(&threads, tokens, "cancel-turns", plain(1)).await;
+    let rig = super::testing::Rig::new();
+    let directory = super::SessionDirectory::new(rig.deps_on(threads.clone()));
+    let (held, release) = threads.hold_index();
+    held.await.expect("index held");
+    for items_view in [false, true] {
+        let req = super::thread_fence_tests::request("thread/turns/list", json!({"threadId": "cancel-turns", "itemsView": items_view}));
+        let cancel = req.ctx.cancel.clone();
+        let mut response = std::pin::pin!(directory.request(req));
+        assert!(futures::poll!(response.as_mut()).is_pending());
+        cancel.cancel();
+        assert!(matches!(futures::poll!(response.as_mut()), std::task::Poll::Ready(Err(CoreError::Cancelled { by })) if by.as_ref() == "caller"));
+    }
+    drop(release);
+    threads.projected().await;
+}
+
 /// [`create`] with the rows committed 100 at a time, as a running session writes them, so the log carries its checkpoints.
 async fn create_long(threads: &Arc<StoreThreads>, tokens: LaneTokens, thread: &str, total: usize) -> Log {
     let (threads, thread) = (threads.clone(), ThreadId::from(thread));

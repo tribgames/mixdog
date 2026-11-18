@@ -520,52 +520,6 @@ async fn revoke_owed_drains_every_pending_key_unless_nothing_can_run() {
 }
 
 #[tokio::test]
-async fn an_unpair_returns_its_answer_then_tries_the_revoke_before_any_delivery_runs() {
-    mixdog_rt::testing::tokens();
-    let installer = FakeInstaller::new(HelperState::Installed, KeyOutcome::Enrolled).with_key(KEY_B, HelperState::NotEnrolled);
-    // The roster owes the removed phone's key (it did so with the removal); B just delivered.
-    let roster = FakeRoster::new(vec![paired("b", KEY_B, false)], Owed { keys: strings(&[KEY_D]), unknown: 0 });
-    let service = PcAccessService::new(installer.clone(), roster.clone());
-    let answer = service.unpair(async { Ok::<_, String>("descriptor") }).await;
-    assert_eq!(answer, Ok("descriptor"));
-    // A delivery queued right behind runs after the revoke, whichever is polled first.
-    assert_eq!(service.delivered(KEY_B).await, Ok(Delivery::Enrolled));
-    assert_eq!(installer.calls(), ["revoke-delegated", "enroll-delegated"]);
-    assert!(roster.owed.lock().unwrap().keys.is_empty());
-}
-
-#[tokio::test]
-async fn a_failed_unpair_tries_no_revoke_and_keeps_the_debt() {
-    mixdog_rt::testing::tokens();
-    let installer = FakeInstaller::new(HelperState::Installed, KeyOutcome::Enrolled);
-    let roster = FakeRoster::new(Vec::new(), Owed { keys: strings(&[KEY_D]), unknown: 0 });
-    let service = PcAccessService::new(installer.clone(), roster.clone());
-    let answer = service.unpair(async { Err::<(), _>("the relay refused".to_string()) }).await;
-    assert_eq!(answer, Err("the relay refused".to_string()));
-    // The queue is free again and the debt is the roster's, untouched.
-    assert_eq!(service.revoke_owed().await, Ok(RevokeOwed::Revoked));
-    assert_eq!(installer.calls(), ["revoke-delegated"]);
-}
-
-#[tokio::test]
-async fn the_runtime_events_enroll_a_delivered_key_and_revoke_what_is_owed() {
-    mixdog_rt::testing::tokens();
-    let installer = FakeInstaller::new(HelperState::Installed, KeyOutcome::Enrolled).with_key(KEY_B, HelperState::NotEnrolled);
-    let roster = FakeRoster::new(vec![paired("b", KEY_B, false)], Owed { keys: strings(&[KEY_D]), unknown: 0 });
-    let service = PcAccessService::new(installer.clone(), roster);
-    service.owed_changed();
-    service.key_delivered(KEY_B);
-    for _ in 0..1000 {
-        if installer.calls().len() >= 2 {
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
-    // Queued in the order they came: the revoke first, then the enroll.
-    assert_eq!(installer.calls(), ["revoke-delegated", "enroll-delegated"]);
-}
-
-#[tokio::test]
 async fn nothing_overlaps_in_the_access_queue() {
     // An install holds the queue (its prompt is open): a delivery waits for it, and then finds the key enrolled.
     let installer = FakeInstaller::holding(HelperState::NotInstalled, KeyOutcome::Installed);
@@ -587,4 +541,49 @@ async fn nothing_overlaps_in_the_access_queue() {
     // The install enrolled it: the delivery finds nothing to do.
     assert_eq!(delivery, Ok(Delivery::Nothing));
     assert!(installer.delegated_enrolls.lock().unwrap().is_empty());
+}
+
+
+#[tokio::test]
+async fn an_unpair_returns_its_answer_then_tries_the_revoke_before_any_delivery_runs() {
+    mixdog_rt::testing::tokens();
+    let installer = FakeInstaller::new(HelperState::Installed, KeyOutcome::Enrolled).with_key(KEY_B, HelperState::NotEnrolled);
+    // The roster owes the removed phone's key (it did so with the removal); B just delivered.
+    let roster = FakeRoster::new(vec![paired("b", KEY_B, false)], Owed { keys: strings(&[KEY_D]), unknown: 0 });
+    let service = PcAccessService::new(installer.clone(), roster.clone());
+    let answer = service.unpair(async { Ok::<_, String>("descriptor") }).await;
+    assert_eq!(answer, Ok("descriptor"));
+    // A delivery queued right behind runs after the revoke, whichever is polled first.
+    assert_eq!(service.delivered(KEY_B).await, Ok(Delivery::Enrolled));
+    assert_eq!(installer.calls(), ["revoke-delegated", "enroll-delegated"]);
+    assert!(roster.owed.lock().unwrap().keys.is_empty());
+}
+#[tokio::test]
+async fn a_failed_unpair_tries_no_revoke_and_keeps_the_debt() {
+    mixdog_rt::testing::tokens();
+    let installer = FakeInstaller::new(HelperState::Installed, KeyOutcome::Enrolled);
+    let roster = FakeRoster::new(Vec::new(), Owed { keys: strings(&[KEY_D]), unknown: 0 });
+    let service = PcAccessService::new(installer.clone(), roster.clone());
+    let answer = service.unpair(async { Err::<(), _>("the relay refused".to_string()) }).await;
+    assert_eq!(answer, Err("the relay refused".to_string()));
+    // The queue is free again and the debt is the roster's, untouched.
+    assert_eq!(service.revoke_owed().await, Ok(RevokeOwed::Revoked));
+    assert_eq!(installer.calls(), ["revoke-delegated"]);
+}
+#[tokio::test]
+async fn the_runtime_events_enroll_a_delivered_key_and_revoke_what_is_owed() {
+    mixdog_rt::testing::tokens();
+    let installer = FakeInstaller::new(HelperState::Installed, KeyOutcome::Enrolled).with_key(KEY_B, HelperState::NotEnrolled);
+    let roster = FakeRoster::new(vec![paired("b", KEY_B, false)], Owed { keys: strings(&[KEY_D]), unknown: 0 });
+    let service = PcAccessService::new(installer.clone(), roster);
+    service.owed_changed();
+    service.key_delivered(KEY_B);
+    for _ in 0..1000 {
+        if installer.calls().len() >= 2 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    // Queued in the order they came: the revoke first, then the enroll.
+    assert_eq!(installer.calls(), ["revoke-delegated", "enroll-delegated"]);
 }

@@ -34,6 +34,56 @@ impl Drop for WriteScope<'_> {
     }
 }
 
+fn stash_ref(reference: &str) -> Result<String, ScmFailure> {
+    let value = reference.trim();
+    let digits = value
+        .strip_prefix("stash@{")
+        .and_then(|rest| rest.strip_suffix('}'));
+    match digits {
+        Some(n) if !n.is_empty() && n.bytes().all(|byte| byte.is_ascii_digit()) => Ok(value.to_owned()),
+        _ => Err(ScmFailure::invalid("ref", "a stash reference like stash@{0}")),
+    }
+}
+
+fn escape_ignore_literal(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if matches!(ch, '*' | '?' | '[' | ']' | '\\') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn append_ignore(path: &Path, pattern: &str) -> Result<(), ScmFailure> {
+    let current = std::fs::read_to_string(path).unwrap_or_default();
+    if current.lines().any(|line| line.trim_end_matches('\r') == pattern) {
+        return Ok(());
+    }
+    let separator = if !current.is_empty() && !current.ends_with('\n') { "\n" } else { "" };
+    std::fs::write(path, format!("{current}{separator}{pattern}\n"))?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stash_refs_are_validated() {
+        assert!(stash_ref("stash@{0}").is_ok());
+        assert!(stash_ref("stash@{x}").is_err());
+        assert!(stash_ref("HEAD").is_err());
+    }
+
+    #[test]
+    fn ignore_patterns_escape_glob_characters() {
+        assert_eq!(escape_ignore_literal("a[1]*.txt"), "a\\[1\\]\\*.txt");
+    }
+}
+
+
 impl Repo {
     pub async fn write_scope(&self) -> Result<WriteScope<'_>, ScmFailure> {
         Ok(WriteScope {
@@ -529,54 +579,5 @@ impl Repo {
         let mut args = vec!["ls-files", "-z"];
         args.extend(extra);
         Ok(nul_records(&self.run(&args).await?).map(str::to_owned).collect())
-    }
-}
-
-fn stash_ref(reference: &str) -> Result<String, ScmFailure> {
-    let value = reference.trim();
-    let digits = value
-        .strip_prefix("stash@{")
-        .and_then(|rest| rest.strip_suffix('}'));
-    match digits {
-        Some(n) if !n.is_empty() && n.bytes().all(|byte| byte.is_ascii_digit()) => Ok(value.to_owned()),
-        _ => Err(ScmFailure::invalid("ref", "a stash reference like stash@{0}")),
-    }
-}
-
-fn escape_ignore_literal(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for ch in value.chars() {
-        if matches!(ch, '*' | '?' | '[' | ']' | '\\') {
-            out.push('\\');
-        }
-        out.push(ch);
-    }
-    out
-}
-
-fn append_ignore(path: &Path, pattern: &str) -> Result<(), ScmFailure> {
-    let current = std::fs::read_to_string(path).unwrap_or_default();
-    if current.lines().any(|line| line.trim_end_matches('\r') == pattern) {
-        return Ok(());
-    }
-    let separator = if !current.is_empty() && !current.ends_with('\n') { "\n" } else { "" };
-    std::fs::write(path, format!("{current}{separator}{pattern}\n"))?;
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stash_refs_are_validated() {
-        assert!(stash_ref("stash@{0}").is_ok());
-        assert!(stash_ref("stash@{x}").is_err());
-        assert!(stash_ref("HEAD").is_err());
-    }
-
-    #[test]
-    fn ignore_patterns_escape_glob_characters() {
-        assert_eq!(escape_ignore_literal("a[1]*.txt"), "a\\[1\\]\\*.txt");
     }
 }

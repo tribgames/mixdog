@@ -93,35 +93,125 @@ fn listed(paths: &[String]) -> String {
 /// The scratch directory, removed when the transaction ends however it ends.
 struct Scratch(PathBuf);
 
-impl Scratch {
-    /// `mkdtemp(<root>/mixdog-commit-<pid>-XXXXXX)`: named for its owner from the moment it
-    /// exists, so a later commit's sweep can tell when the owner is gone.
-    fn create(root: &Path) -> Result<Self, ScmFailure> {
-        const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        loop {
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_nanos());
-            let mut hash = Sha256::new();
-            hash.update(nanos.to_le_bytes());
-            hash.update(NEXT.fetch_add(1, Ordering::Relaxed).to_le_bytes());
-            let suffix: String = hash.finalize().iter().take(6).map(|byte| char::from(ALPHABET[usize::from(*byte) % ALPHABET.len()])).collect();
-            let path = root.join(format!("{COMMIT_SCRATCH_PREFIX}{}-{suffix}", std::process::id()));
-            match std::fs::create_dir(&path) {
-                Ok(()) => return Ok(Self(path)),
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(error) => return Err(error.into()),
-            }
-        }
-    }
-}
-
 impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
+fn not_in_repository(paths: &[String]) -> ScmFailure {
+    ScmFailure::refused(
+        "PATH_UNKNOWN",
+        format!("Not in this repository: {}. Refresh Source Control and try again.", listed(paths)),
+    )
+}
+
+/// git's own rule for "there is a hook here": the file must be executable, not merely present.
+/// Windows has no executable bit, so there presence is the whole test.
+fn executable_hook(path: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selection_is_a_prefix_match_on_path_components() {
+        let prefixes = vec![comparable("src/a")];
+        assert!(within_selection(&prefixes, "src/a"));
+        assert!(within_selection(&prefixes, "src/a/b.txt"));
+        assert!(!within_selection(&prefixes, "src/ab.txt"));
+    }
+
+    #[test]
+    fn option_like_and_traversing_paths_are_refused() {
+        for bad in ["-x", "../x", "a/../b", "/abs", "C:\\x", "a\0b"] {
+            assert!(assert_commit_path(bad).is_err(), "{bad}");
+        }
+        assert!(assert_commit_path("src/ok.rs").is_ok());
+    }
+
+    /// `mkdtemp(<root>/mixdog-commit-<pid>-XXXXXX)`: the owner's pid, then six alphanumerics;
+    /// two scratch directories never share a name, and one is removed when its transaction ends.
+    #[test]
+    fn a_scratch_directory_is_named_for_its_owner_and_removed_with_it() {
+        let root = tempfile::tempdir().unwrap();
+        let (first, second) = (Scratch::create(root.path()).unwrap(), Scratch::create(root.path()).unwrap());
+        assert_ne!(first.0, second.0);
+        let name = first.0.file_name().unwrap().to_str().unwrap().to_owned();
+        let suffix = name.strip_prefix(&format!("mixdog-commit-{}-", std::process::id())).expect("owner pid in the name");
+        assert!(suffix.len() == 6 && suffix.chars().all(|c| c.is_ascii_alphanumeric()), "{name}");
+        assert!(first.0.is_dir());
+        let path = first.0.clone();
+        drop(first);
+        assert!(!path.exists());
+    }
+}
+
+/// Windows spells a canonical path with a verbatim prefix; Node's realpath answers the plain spelling git also uses (a drive path,
+/// or `\\server\share` for `\\?\UNC\server\share`): the one normalization of git_launch.
+fn plain_path(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")).and_then(crate::git_launch::normalize_verbatim) {
+        Some(plain) => PathBuf::from(plain),
+        None => path,
+    }
+}
+
+/// Test-only stand-in for Node's `commitRefreshProbe.betweenReadAndReplace`: the refresh stops here, lock held, until released.
+#[cfg(test)]
+pub(crate) mod commit_gate {
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::Notify;
+
+    type Gate = (Arc<Notify>, Arc<Notify>);
+    static GATES: Mutex<Option<HashMap<PathBuf, Gate>>> = Mutex::new(None);
+
+    /// Arms the gate of one repository's git directory: `(reached, release)`.
+    pub(crate) fn arm(git_dir: &Path) -> Gate {
+        let gate: Gate = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+        GATES.lock().unwrap().get_or_insert_with(HashMap::new).insert(git_dir.to_path_buf(), gate.clone());
+        gate
+    }
+
+    pub(super) async fn between_read_and_replace(git_dir: &Path) {
+        let gate = GATES.lock().unwrap().as_mut().and_then(|gates| gates.remove(git_dir));
+        if let Some((reached, release)) = gate {
+            reached.notify_one();
+            release.notified().await;
+        }
+    }
+}
+
+#[cfg(test)]
+mod plain_path_tests {
+    use super::plain_path;
+    use std::path::PathBuf;
+
+    /// libuv's realpath words `\\?\UNC\server\share\r` as `\\server\share\r` and `\\?\C:\r` as `C:\r`; anything else stays.
+    #[test]
+    fn a_verbatim_path_is_spelled_as_libuv_spells_it() {
+        assert_eq!(plain_path(PathBuf::from(r"\\?\UNC\server\share\repo")), PathBuf::from(r"\\server\share\repo"));
+        assert_eq!(plain_path(PathBuf::from(r"\\?\C:\repo")), PathBuf::from(r"C:\repo"));
+        assert_eq!(plain_path(PathBuf::from(r"\\?\Volume{1}\repo")), PathBuf::from(r"\\?\Volume{1}\repo"));
+    }
+}
+
 
 impl Repo {
     /// Every entry of the user's index: path → "<mode> <object> <stage>".
@@ -826,116 +916,27 @@ impl Repo {
         Ok(())
     }
 }
-fn not_in_repository(paths: &[String]) -> ScmFailure {
-    ScmFailure::refused(
-        "PATH_UNKNOWN",
-        format!("Not in this repository: {}. Refresh Source Control and try again.", listed(paths)),
-    )
-}
 
-/// git's own rule for "there is a hook here": the file must be executable, not merely present.
-/// Windows has no executable bit, so there presence is the whole test.
-fn executable_hook(path: &Path) -> bool {
-    let Ok(meta) = std::fs::metadata(path) else {
-        return false;
-    };
-    if !meta.is_file() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        meta.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(not(unix))]
-    {
-        true
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn selection_is_a_prefix_match_on_path_components() {
-        let prefixes = vec![comparable("src/a")];
-        assert!(within_selection(&prefixes, "src/a"));
-        assert!(within_selection(&prefixes, "src/a/b.txt"));
-        assert!(!within_selection(&prefixes, "src/ab.txt"));
-    }
-
-    #[test]
-    fn option_like_and_traversing_paths_are_refused() {
-        for bad in ["-x", "../x", "a/../b", "/abs", "C:\\x", "a\0b"] {
-            assert!(assert_commit_path(bad).is_err(), "{bad}");
+impl Scratch {
+    /// `mkdtemp(<root>/mixdog-commit-<pid>-XXXXXX)`: named for its owner from the moment it
+    /// exists, so a later commit's sweep can tell when the owner is gone.
+    fn create(root: &Path) -> Result<Self, ScmFailure> {
+        const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        loop {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos());
+            let mut hash = Sha256::new();
+            hash.update(nanos.to_le_bytes());
+            hash.update(NEXT.fetch_add(1, Ordering::Relaxed).to_le_bytes());
+            let suffix: String = hash.finalize().iter().take(6).map(|byte| char::from(ALPHABET[usize::from(*byte) % ALPHABET.len()])).collect();
+            let path = root.join(format!("{COMMIT_SCRATCH_PREFIX}{}-{suffix}", std::process::id()));
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Ok(Self(path)),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error.into()),
+            }
         }
-        assert!(assert_commit_path("src/ok.rs").is_ok());
-    }
-
-    /// `mkdtemp(<root>/mixdog-commit-<pid>-XXXXXX)`: the owner's pid, then six alphanumerics;
-    /// two scratch directories never share a name, and one is removed when its transaction ends.
-    #[test]
-    fn a_scratch_directory_is_named_for_its_owner_and_removed_with_it() {
-        let root = tempfile::tempdir().unwrap();
-        let (first, second) = (Scratch::create(root.path()).unwrap(), Scratch::create(root.path()).unwrap());
-        assert_ne!(first.0, second.0);
-        let name = first.0.file_name().unwrap().to_str().unwrap().to_owned();
-        let suffix = name.strip_prefix(&format!("mixdog-commit-{}-", std::process::id())).expect("owner pid in the name");
-        assert!(suffix.len() == 6 && suffix.chars().all(|c| c.is_ascii_alphanumeric()), "{name}");
-        assert!(first.0.is_dir());
-        let path = first.0.clone();
-        drop(first);
-        assert!(!path.exists());
-    }
-}
-
-/// Windows spells a canonical path with a verbatim prefix; Node's realpath answers the plain spelling git also uses (a drive path,
-/// or `\\server\share` for `\\?\UNC\server\share`): the one normalization of git_launch.
-fn plain_path(path: PathBuf) -> PathBuf {
-    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")).and_then(crate::git_launch::normalize_verbatim) {
-        Some(plain) => PathBuf::from(plain),
-        None => path,
-    }
-}
-
-/// Test-only stand-in for Node's `commitRefreshProbe.betweenReadAndReplace`: the refresh stops here, lock held, until released.
-#[cfg(test)]
-pub(crate) mod commit_gate {
-    use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Mutex};
-    use tokio::sync::Notify;
-
-    type Gate = (Arc<Notify>, Arc<Notify>);
-    static GATES: Mutex<Option<HashMap<PathBuf, Gate>>> = Mutex::new(None);
-
-    /// Arms the gate of one repository's git directory: `(reached, release)`.
-    pub(crate) fn arm(git_dir: &Path) -> Gate {
-        let gate: Gate = (Arc::new(Notify::new()), Arc::new(Notify::new()));
-        GATES.lock().unwrap().get_or_insert_with(HashMap::new).insert(git_dir.to_path_buf(), gate.clone());
-        gate
-    }
-
-    pub(super) async fn between_read_and_replace(git_dir: &Path) {
-        let gate = GATES.lock().unwrap().as_mut().and_then(|gates| gates.remove(git_dir));
-        if let Some((reached, release)) = gate {
-            reached.notify_one();
-            release.notified().await;
-        }
-    }
-}
-
-#[cfg(test)]
-mod plain_path_tests {
-    use super::plain_path;
-    use std::path::PathBuf;
-
-    /// libuv's realpath words `\\?\UNC\server\share\r` as `\\server\share\r` and `\\?\C:\r` as `C:\r`; anything else stays.
-    #[test]
-    fn a_verbatim_path_is_spelled_as_libuv_spells_it() {
-        assert_eq!(plain_path(PathBuf::from(r"\\?\UNC\server\share\repo")), PathBuf::from(r"\\server\share\repo"));
-        assert_eq!(plain_path(PathBuf::from(r"\\?\C:\repo")), PathBuf::from(r"C:\repo"));
-        assert_eq!(plain_path(PathBuf::from(r"\\?\Volume{1}\repo")), PathBuf::from(r"\\?\Volume{1}\repo"));
     }
 }

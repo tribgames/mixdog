@@ -30,9 +30,26 @@ test('the toggle shows the stored setting and nothing until it is read', async (
   assert.equal(isOn(checkbox(dom.document)), true);
 });
 
-test('a setting that cannot be read leaves no toggle', async (t) => {
-  const dom = await mount(t, { getReopenServerWindows: () => Promise.reject(new Error('down')) });
+test('a setting that cannot be read leaves no toggle until a settings announcement reads it', async (t) => {
+  let read = () => Promise.reject(new Error('down'));
+  useConnectionsCore({ getReopenServerWindows: () => read() });
+  const dom = installTestDom(t, DOM);
+  const listeners = new Set();
+  dom.window.mixdogDesktop = {
+    subscribeSettingsChanged: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  await act(async () => dom.root.render(React.createElement(ReopenServerWindowsToggle)));
+  await settle();
   assert.equal(dom.document.querySelector('.mixdog-settings__row'), null);
+  read = () => Promise.resolve(true);
+  await act(async () => {
+    for (const listener of [...listeners]) listener({ scope: 'desktop' });
+  });
+  await settle();
+  assert.equal(isOn(checkbox(dom.document)), true, 'the core\'s answer shows once it arrives');
 });
 
 test('turning it off stores the choice and shows what the core read back', async (t) => {

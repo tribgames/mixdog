@@ -224,3 +224,54 @@ test('scoped_feed_restore_failure_is_a_feed_error', async () => {
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(w.pushes.at(-1), { kind: 'feedError', feedId: 'media:j1', message: 'down' });
 });
+
+test('a first open that fails is opened again by the next call, once for the callers waiting', async () => {
+  let opens = 0;
+  const client = fakeClient();
+  const connection = createRendererConnection({
+    open: async () => {
+      opens += 1;
+      if (opens === 1) throw new Error('the port did not arrive');
+      return client;
+    },
+  });
+  await assert.rejects(connection.start(), /port did not arrive/);
+  assert.equal(connection.status, 'closed');
+  assert.equal(connection.link().closed?.cause, 'failed');
+  assert.match(connection.link().closed?.message ?? '', /port did not arrive/);
+  const [a, b] = await Promise.all([connection.call('thread/read', { threadId: 't' }), connection.call('thread/read', { threadId: 't' })]);
+  assert.deepEqual([a, b], [{ ok: true }, { ok: true }]);
+  assert.equal(opens, 2, 'one new open served both calls');
+  assert.equal(connection.status, 'ready');
+  assert.equal(connection.link().closed, null);
+});
+
+test('a connection the core refused for its version says why, and a call or a reconnect opens it anew', async () => {
+  let opens = 0;
+  const clients = [fakeClient(), fakeClient()];
+  const connection = createRendererConnection({ open: async () => clients[opens++] });
+  await connection.start();
+  clients[0].emit({ type: 'status', status: { state: 'closed', reason: { kind: 'versionRefused', reason: 'clientOutdated', serverVersion: '2', clientVersion: '1' } } });
+  assert.equal(connection.status, 'closed');
+  assert.equal(connection.link().closed?.cause, 'clientOutdated');
+  await connection.reopen();
+  assert.equal(connection.status, 'ready');
+  assert.equal(connection.link().closed, null);
+  clients[1].emit({ type: 'status', status: { state: 'reconnecting', attempt: 3 } });
+  assert.deepEqual(connection.link(), { attempt: 3, closed: null });
+  assert.equal(opens, 2);
+});
+
+test('ports_viewed_before_the_first_open_subscribe_once_it_opens', async () => {
+  const client = fakeClient();
+  let release;
+  const connection = createRendererConnection({ open: () => new Promise((resolve) => (release = () => resolve(client))) });
+  const starting = connection.start();
+  const viewing = connection.viewPorts(win(), true);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(client.calls, []);
+  release();
+  await starting;
+  await viewing;
+  assert.deepEqual(client.calls.map((c) => c.method), ['system/ports/subscribe']);
+});

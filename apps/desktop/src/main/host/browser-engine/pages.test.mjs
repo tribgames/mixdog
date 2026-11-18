@@ -196,6 +196,22 @@ test('list gives every page of the session and the active one', async () => {
   assert.equal(listed.activePageId, 'p1');
 });
 
+test('a tab the user opened is listed shown but under its name, and the agent may close it', async () => {
+  const h = harness({ kind: 'user' });
+  await h.call('resolve', { sessionId: 'sess', background: true });
+  const listed = await h.call('list', { sessionId: 'sess' });
+  // The engine tells the pane's `vN` from a named tab by `tabId`; `background` is only whether the page is hidden.
+  assert.deepEqual(
+    listed.pages.map((p) => [p.pageId, p.tabId, p.background]),
+    [
+      ['p1', 'v1', false],
+      ['p2', 'bg', false],
+    ]
+  );
+  assert.deepEqual(await h.call('close', { pageId: 'p2', reason: 'agent' }), { closed: true, nextActivePageId: 'p1' });
+  assert.ok(h.log.includes('destroy bg'));
+});
+
 test('close destroys a background page and names the page that is active next', async () => {
   const h = harness();
   await h.call('resolve', { sessionId: 'sess', background: true });

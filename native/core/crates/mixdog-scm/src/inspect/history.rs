@@ -17,8 +17,6 @@ use crate::git::RunOptions;
 use crate::git::nul_records;
 use crate::inspect::status::parse_numstat;
 
-pub const DISPLAY_DIFF_ARGS: [&str; 3] = ["--no-ext-diff", "--no-textconv", "--no-color"];
-
 const BRANCH_FORMAT: &str = "--format=%(refname)%00%(refname:short)%00%(HEAD)%00%(upstream:short)\
 %00%(committerdate:iso-strict)%00%(committerdate:relative)%00%(ahead-behind:HEAD)";
 
@@ -350,19 +348,6 @@ pub async fn show(
     })
 }
 
-pub async fn show_diff(
-    git: &Git,
-    cancel: &CancellationToken,
-    cwd: &Path,
-    hash: &str,
-    path: &str,
-) -> Result<String, ScmFailure> {
-    let mut args = vec!["show"];
-    args.extend(DISPLAY_DIFF_ARGS);
-    args.extend(["--format=", "--patch", "--find-renames", "--first-parent", hash, "--", path]);
-    git.read(cancel, cwd, &args).await
-}
-
 /// File content at `rev`, or `None` when it does not exist there.
 pub async fn show_file(
     git: &Git,
@@ -410,66 +395,6 @@ pub async fn uncommitted_base(
     } else {
         empty_tree(git, cancel, cwd).await
     }
-}
-
-/// A patch for a file that is not tracked yet: every line added.
-pub fn untracked_patch(root: &Path, path: &str) -> String {
-    // Node's `join(root, path)` appends: an absolute `path` names a place under the root (`C:\repo\C:\outside\x`), never outside it
-    // (`Path::join` would replace the root).
-    let under_root = PathBuf::from(format!("{}{}{}", root.display(), std::path::MAIN_SEPARATOR, path.trim_start_matches(['/', '\\'])));
-    let Ok(bytes) = std::fs::read(under_root) else {
-        return String::new();
-    };
-    if bytes.is_empty() || bytes.contains(&0) {
-        return String::new();
-    }
-    let text = String::from_utf8_lossy(&bytes);
-    let mut lines: Vec<&str> = text.split('\n').collect();
-    if lines.last() == Some(&"") {
-        lines.pop();
-    }
-    if lines.is_empty() {
-        return String::new();
-    }
-    let mut out = format!(
-        "diff --git a/{path} b/{path}\n--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{} @@\n",
-        lines.len()
-    );
-    for line in lines {
-        out.push('+');
-        out.push_str(line);
-        out.push('\n');
-    }
-    out
-}
-
-pub async fn diff(
-    git: &Git,
-    cancel: &CancellationToken,
-    root: &Path,
-    path: &str,
-    staged: bool,
-    worktree_only: bool,
-    untracked: bool,
-) -> Result<String, ScmFailure> {
-    if untracked {
-        return Ok(untracked_patch(root, path));
-    }
-    let base = if staged {
-        "--cached".to_owned()
-    } else if worktree_only {
-        String::new()
-    } else {
-        // resolveReviewRef(root, 'uncommitted'): the unborn case hashes the empty tree as Node does.
-        crate::phone_review::resolve_review_ref(git, cancel, root, "uncommitted").await?.1
-    };
-    let mut args = vec!["--no-optional-locks", "diff"];
-    args.extend(DISPLAY_DIFF_ARGS);
-    if !base.is_empty() {
-        args.push(&base);
-    }
-    args.extend(["--", path]);
-    git.read(cancel, root, &args).await
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -533,6 +458,7 @@ mod tests {
         assert_eq!(files[1].additions, 3);
     }
 
+
     #[test]
     fn untracked_patch_adds_every_line() {
         let dir = tempfile::tempdir().unwrap();
@@ -555,4 +481,78 @@ mod untracked_join_tests {
         std::fs::write(&secret, "outside\n").unwrap();
         assert_eq!(super::untracked_patch(root.path(), &secret.to_string_lossy()), "");
     }
+}
+
+
+
+pub const DISPLAY_DIFF_ARGS: [&str; 3] = ["--no-ext-diff", "--no-textconv", "--no-color"];
+pub async fn show_diff(
+    git: &Git,
+    cancel: &CancellationToken,
+    cwd: &Path,
+    hash: &str,
+    path: &str,
+) -> Result<String, ScmFailure> {
+    let mut args = vec!["show"];
+    args.extend(DISPLAY_DIFF_ARGS);
+    args.extend(["--format=", "--patch", "--find-renames", "--first-parent", hash, "--", path]);
+    git.read(cancel, cwd, &args).await
+}
+/// A patch for a file that is not tracked yet: every line added.
+pub fn untracked_patch(root: &Path, path: &str) -> String {
+    // Node's `join(root, path)` appends: an absolute `path` names a place under the root (`C:\repo\C:\outside\x`), never outside it
+    // (`Path::join` would replace the root).
+    let under_root = PathBuf::from(format!("{}{}{}", root.display(), std::path::MAIN_SEPARATOR, path.trim_start_matches(['/', '\\'])));
+    let Ok(bytes) = std::fs::read(under_root) else {
+        return String::new();
+    };
+    if bytes.is_empty() || bytes.contains(&0) {
+        return String::new();
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    if lines.last() == Some(&"") {
+        lines.pop();
+    }
+    if lines.is_empty() {
+        return String::new();
+    }
+    let mut out = format!(
+        "diff --git a/{path} b/{path}\n--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{} @@\n",
+        lines.len()
+    );
+    for line in lines {
+        out.push('+');
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+pub async fn diff(
+    git: &Git,
+    cancel: &CancellationToken,
+    root: &Path,
+    path: &str,
+    staged: bool,
+    worktree_only: bool,
+    untracked: bool,
+) -> Result<String, ScmFailure> {
+    if untracked {
+        return Ok(untracked_patch(root, path));
+    }
+    let base = if staged {
+        "--cached".to_owned()
+    } else if worktree_only {
+        String::new()
+    } else {
+        // resolveReviewRef(root, 'uncommitted'): the unborn case hashes the empty tree as Node does.
+        crate::phone_review::resolve_review_ref(git, cancel, root, "uncommitted").await?.1
+    };
+    let mut args = vec!["--no-optional-locks", "diff"];
+    args.extend(DISPLAY_DIFF_ARGS);
+    if !base.is_empty() {
+        args.push(&base);
+    }
+    args.extend(["--", path]);
+    git.read(cancel, root, &args).await
 }

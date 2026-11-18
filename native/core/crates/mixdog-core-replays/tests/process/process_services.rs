@@ -18,7 +18,9 @@ use mixdog_services::local_provider::hugging_face::ReqwestHf;
 use mixdog_services::local_provider::server_process::{LoopbackHealth, SystemLauncher, Timing};
 use mixdog_services::local_provider::{LocalProvider, Parts};
 use mixdog_services::tidy::process::Processes;
-use serde_json::{json, Value};
+use serde_json::json;
+#[cfg(node_twin)]
+use serde_json::Value;
 
 use mixdog_core::run_host::fixture_fs;
 use mixdog_core::run_host::local_models::ManagedLocalModels;
@@ -26,26 +28,9 @@ use mixdog_core::run_host::media::{AttachmentFacts, StoredFacts};
 use mixdog_core::run_host::process::{HostInfo, LocalModels};
 use mixdog_core::run_host::vault::KeychainVault;
 
-const HOST: &str = include_str!("../../../../fixtures/process-services/host.json");
-const SECRETS: &str = include_str!("../../../../fixtures/process-services/secrets.json");
-const LOCAL: &str = include_str!("../../../../fixtures/process-services/local-models.json");
-
+#[cfg(node_twin)]
 fn golden(text: &str) -> Value {
     serde_json::from_str(text).unwrap()
-}
-
-// ---- HostInfo ----------------------------------------------------------------------------
-
-/// `codexUserAgent()`'s `(<os> <release>; <arch>)` for Node's `os.type()`, `os.release()` and
-/// `os.arch()`.
-#[test]
-fn the_host_is_described_in_codexs_vocabulary_as_node_does() {
-    let golden = golden(HOST);
-    for case in golden["cases"].as_array().unwrap() {
-        let text = |key: &str| case[key].as_str().unwrap();
-        let host = HostInfo::from_node(text("type"), text("release"), text("arch"));
-        assert_eq!(format!("{} {}; {}", host.os_type, host.os_release, host.arch), text("platform"), "{case}");
-    }
 }
 
 /// The machine itself: libuv's `os.type()` and `os.release()` and Node's `os.arch()`.
@@ -78,12 +63,20 @@ fn this_machine_is_read_as_libuv_does() {
 /// decrypts for the user who made it, so the tests make theirs with this call at run time.
 #[cfg(windows)]
 mod node_dpapi {
+    #[cfg(node_twin)]
     use std::sync::Arc;
-    use mixdog_services::tidy::process::{Processes, RunOptions};
+    #[cfg(node_twin)]
+    use mixdog_services::tidy::process::Processes;
+    #[cfg(node_twin)]
+    use mixdog_services::tidy::process::RunOptions;
 
+    #[cfg(node_twin)]
     const PREAMBLE: &str = "Add-Type -AssemblyName System.Security -ErrorAction SilentlyContinue; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;";
+    #[cfg(node_twin)]
     const SCOPE: &str = "$scope = [System.Security.Cryptography.DataProtectionScope]::CurrentUser;";
 
+
+    #[cfg(node_twin)]
     async fn powershell(script: &str, input: Option<&str>) -> String {
         let root = std::env::var("SystemRoot").unwrap();
         let exe = std::path::Path::new(&root).join("System32").join("WindowsPowerShell").join("v1.0").join("powershell.exe");
@@ -98,6 +91,7 @@ mod node_dpapi {
         out.stdout
     }
     /// `win32Set`'s encryption: the base64 of the DPAPI blob of the UTF-8 value.
+    #[cfg(node_twin)]
     pub async fn protect(value: &str) -> String {
         use base64::Engine as _;
         let script = format!(
@@ -105,8 +99,8 @@ mod node_dpapi {
         );
         powershell(&script, Some(&base64::engine::general_purpose::STANDARD.encode(value))).await.trim().to_owned()
     }
-
     /// `win32Get`'s decryption of a file's content.
+    #[cfg(node_twin)]
     pub async fn unprotect(file: &str) -> String {
         let script = format!(
             "& {{ {PREAMBLE} $b64 = $args[0]; $enc = [Convert]::FromBase64String($b64); {SCOPE} $dec = [System.Security.Cryptography.ProtectedData]::Unprotect($enc, $null, $scope); [System.Text.Encoding]::UTF8.GetString($dec) }} '{}'",
@@ -114,55 +108,6 @@ mod node_dpapi {
         );
         powershell(&script, None).await.trim().to_owned()
     }
-}
-
-/// A DPAPI file made by Node's DPAPI call is read as Node's `getSecret` reads it. The blob is
-/// made during the run (so it opens for whoever runs the test); the recorded fixture fixes the
-/// file's structure (the blob header) and the value `getSecret` answered.
-#[cfg(windows)]
-#[tokio::test]
-async fn a_dpapi_file_node_wrote_is_read_by_the_vault() {
-    let golden = golden(SECRETS);
-    let dpapi = &golden["dpapi"];
-    let prefix = dpapi["filePrefix"].as_u64().unwrap() as usize;
-    let dir = tempfile::tempdir().unwrap();
-    for case in dpapi["cases"].as_array().unwrap() {
-        let account = case["account"].as_str().unwrap();
-        let file = node_dpapi::protect(case["value"].as_str().unwrap()).await;
-        assert_eq!(&file[..prefix], case["filePrefix"].as_str().unwrap(), "{account}: the blob header");
-        fixture_fs::write(dir.path().join("secrets").join(format!("{account}.dpapi")), &file);
-    }
-    let vault = KeychainVault::open(mixdog_rt::testing::tokens().durability_io, dir.path());
-    for case in dpapi["cases"].as_array().unwrap() {
-        let account = case["account"].as_str().unwrap();
-        assert_eq!(vault.get(account).await.unwrap().as_deref(), case["expected"].as_str(), "{account}");
-        assert!(!vault.is_fallback(account).await.unwrap(), "{account}");
-    }
-    assert_eq!(vault.get("agent.never.apiKey").await.unwrap(), None);
-}
-
-/// What the vault writes is what Node reads: Node's DPAPI call decrypts the account's `.dpapi`
-/// file to the value, the file has the recorded structure, and a delete empties the account.
-#[cfg(windows)]
-#[tokio::test]
-async fn the_vault_stores_the_values_node_stored_in_the_same_file_format() {
-    let golden = golden(SECRETS);
-    let dpapi = &golden["dpapi"];
-    let prefix = dpapi["filePrefix"].as_u64().unwrap() as usize;
-    let dir = tempfile::tempdir().unwrap();
-    let vault = KeychainVault::open(mixdog_rt::testing::tokens().durability_io, dir.path());
-    for case in dpapi["cases"].as_array().unwrap() {
-        let (account, value) = (case["account"].as_str().unwrap(), case["value"].as_str().unwrap());
-        vault.set(account, value).await.unwrap();
-        let file = fixture_fs::read_to_string(dir.path().join("secrets").join(format!("{account}.dpapi"))).unwrap();
-        assert_eq!(&file[..prefix], case["filePrefix"].as_str().unwrap(), "{account}: the blob header");
-        assert_eq!(node_dpapi::unprotect(&file).await, case["expected"].as_str().unwrap(), "{account}: Node's decryption of the vault's file");
-        assert_eq!(vault.get(account).await.unwrap().as_deref(), case["expected"].as_str(), "{account}");
-    }
-    let account = dpapi["cases"][0]["account"].as_str().unwrap();
-    vault.delete(account).await.unwrap();
-    assert_eq!(vault.get(account).await.unwrap(), None);
-    vault.delete(account).await.unwrap();
 }
 struct Failing;
 
@@ -227,77 +172,6 @@ impl AttachmentFacts for NoFacts {
     }
 }
 
-/// A real provider over a data directory that holds the registered-models index Node wrote.
-fn local_models(dir: &std::path::Path, index: Option<&str>) -> (ManagedLocalModels, Arc<LocalProvider>) {
-    if let Some(index) = index {
-        fixture_fs::write(dir.join("local-provider").join("registered-models.json"), index);
-    }
-    let tokens = mixdog_rt::testing::tokens();
-    let manager = mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default());
-    let processes = Processes::new(Arc::new(manager), tokens.durability_io);
-    let provider = LocalProvider::new(Parts {
-        data_dir: dir.to_owned(),
-        fetcher: Arc::new(ReqwestFetcher::default()),
-        launcher: Arc::new(SystemLauncher::new(&processes)),
-        processes,
-        hf_http: Box::new(ReqwestHf::default()),
-        health: Arc::new(LoopbackHealth::default()),
-        timing: Timing::default(),
-        idle_ttl_seconds: None,
-        platform_key: None,
-    });
-    (ManagedLocalModels::new(provider.clone(), Arc::new(NoDocs), Arc::new(NoBlobs), Arc::new(NoFacts)), provider)
-}
-
-/// `localProviderModelEntry(id)`: the bundled manifest and the registered index Node wrote.
-#[tokio::test]
-async fn the_local_entry_is_nodes_catalog_entry() {
-    let golden = golden(LOCAL);
-    let dir = tempfile::tempdir().unwrap();
-    let (models, _provider) = local_models(dir.path(), golden["index"].as_str());
-    for case in golden["entries"].as_array().unwrap() {
-        let id = case["id"].as_str().unwrap();
-        let got = models.entry(id);
-        match case["entry"].as_object() {
-            None => assert!(got.is_none(), "{id:?}"),
-            Some(want) => {
-                let got = got.unwrap_or_else(|| panic!("{id:?} has an entry"));
-                // A registered model without a name prints as `undefined`.
-                assert_eq!(got.name, want["name"].as_str().unwrap_or("undefined"), "{id}");
-                assert_eq!(got.supports_function_calling, want["supportsFunctionCalling"].as_bool(), "{id}");
-            }
-        }
-    }
-}
-
-/// `localModelState(model).capabilities.tools` after the model server's props were recorded.
-#[tokio::test]
-async fn the_runtime_tool_support_is_what_the_loaded_server_reported() {
-    let golden = golden(LOCAL);
-    let dir = tempfile::tempdir().unwrap();
-    let (models, provider) = local_models(dir.path(), None);
-    for load in golden["loads"].as_array().unwrap() {
-        let id = load["id"].as_str().unwrap();
-        provider.catalog.state.record_load(id, &load["props"].as_object().map_or(Value::Null, |_| load["props"].clone()), Some(12.0));
-        assert_eq!(models.runtime_tools(id), load["tools"].as_bool(), "{id}");
-    }
-    let never = &golden["never"];
-    assert!(never["capabilities"].is_null());
-    assert_eq!(models.runtime_tools(never["id"].as_str().unwrap()), None);
-}
-
-/// The managed runtime takes text: a request with no media passes through the media layer
-/// unchanged, whatever session row it is built for.
-#[tokio::test]
-async fn the_media_layer_passes_a_text_request_through() {
-    let dir = tempfile::tempdir().unwrap();
-    let (models, _provider) = local_models(dir.path(), None);
-    let media: Arc<dyn MediaText> = models.media(&json!({"id": "sess_a", "provider": "mixdog-local", "model": "m"}));
-    let messages = vec![Message::new(Role::User, Content::Text("hello".into()))];
-    let prepared = media.prepare_pdf_text(messages.clone()).await.unwrap();
-    assert_eq!(prepared, messages);
-}
-
 // ---- ProcessServices::production -----------------------------------------------------------
 
 struct Offline;
@@ -331,7 +205,7 @@ impl mixdog_core::run_host::process::SessionHeaders for NoHeaders {
 /// installation id, rejections file, local runtime — and passes the root's stores through.
 #[tokio::test]
 async fn the_production_services_are_built_from_the_process_and_the_roots_stores() {
-    use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ListingLookup, ModelsDevSource};
+    use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelsDevSource};
     use mixdog_ai::netproxy::{system::SystemProxy, NetworkProxy};
     use mixdog_ai::oauth::CredentialIo;
     use mixdog_core_api::mock::MockStatePublisher;
@@ -345,13 +219,17 @@ async fn the_production_services_are_built_from_the_process_and_the_roots_stores
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
     let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    // The models.dev table is on disk (what the installed core has) and the network is down.
+    fixture_fs::write(
+        dir.path().join(mixdog_ai::catalog::MODELS_DEV_CACHE_FILE),
+        r#"{"fetchedAt":1,"data":{"opencode-go":{"models":{"glm-5":{"name":"GLM 5","limit":{"context":200000,"output":8000}}}}}}"#,
+    );
     let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
     let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
     let (_, provider) = local_models(&plugin_data, None);
     let services = ProcessServices::production(ProcessInputs {
         config,
         catalog,
-        listing: ListingLookup::new(),
         network: NetworkProxy::new(Arc::new(mixdog_ai::netproxy::route::ProcessEnv), SystemProxy::default()),
         lanes: tokens,
         plugin_data: plugin_data.clone(),
@@ -371,6 +249,10 @@ async fn the_production_services_are_built_from_the_process_and_the_roots_stores
     let host = HostInfo::current().unwrap();
     assert_eq!((services.host.os_type, services.host.os_release, services.host.arch), (host.os_type, host.os_release, host.arch));
     // The id is created in the plugin data directory and the next process reads it back.
+    // The lookup the adapters read is the one the catalog publishes into: what the catalog loaded from disk is there, so a
+    // listing (OpenCode Go's models.dev fallback) is no longer read against an empty table.
+    let rows = services.listing.models_dev_models("opencode-go").expect("the adapters' lookup holds the catalog's models.dev table");
+    assert!(rows.contains_key("glm-5"));
     assert_eq!(services.installation_id.len(), 36);
     assert_eq!(fixture_fs::read_to_string(plugin_data.join("installation_id")).unwrap(), services.installation_id);
     assert!(services.env.var("PATH").is_some() || services.env.var("Path").is_some());
@@ -382,4 +264,145 @@ async fn the_production_services_are_built_from_the_process_and_the_roots_stores
         assert!(fixture_fs::exists(plugin_data.join("secrets").join("agent.sample.apiKey.dpapi")).unwrap());
         assert_eq!(services.vault.get("agent.sample.apiKey").await.unwrap().as_deref(), Some("sk-DUMMY-sample"));
     }
+}
+
+/// A real provider over a data directory that holds the registered-models index Node wrote.
+fn local_models(dir: &std::path::Path, index: Option<&str>) -> (ManagedLocalModels, Arc<LocalProvider>) {
+    if let Some(index) = index {
+        fixture_fs::write(dir.join("local-provider").join("registered-models.json"), index);
+    }
+    let tokens = mixdog_rt::testing::tokens();
+    let manager = mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default());
+    let processes = Processes::new(Arc::new(manager), tokens.durability_io);
+    let provider = LocalProvider::new(Parts {
+        data_dir: dir.to_owned(),
+        fetcher: Arc::new(ReqwestFetcher::default()),
+        launcher: Arc::new(SystemLauncher::new(&processes)),
+        processes,
+        hf_http: Box::new(ReqwestHf::default()),
+        health: Arc::new(LoopbackHealth::default()),
+        timing: Timing::default(),
+        idle_ttl_seconds: None,
+        platform_key: None,
+    });
+    (ManagedLocalModels::new(provider.clone(), Arc::new(NoDocs), Arc::new(NoBlobs), Arc::new(NoFacts)), provider)
+}
+/// The managed runtime takes text: a request with no media passes through the media layer
+/// unchanged, whatever session row it is built for.
+#[tokio::test]
+async fn the_media_layer_passes_a_text_request_through() {
+    let dir = tempfile::tempdir().unwrap();
+    let (models, _provider) = local_models(dir.path(), None);
+    let media: Arc<dyn MediaText> = models.media(&json!({"id": "sess_a", "provider": "mixdog-local", "model": "m"}));
+    let messages = vec![Message::new(Role::User, Content::Text("hello".into()))];
+    let prepared = media.prepare_pdf_text(messages.clone()).await.unwrap();
+    assert_eq!(prepared, messages);
+}
+
+
+#[cfg(node_twin)]
+const HOST: &str = include_str!("../../../../fixtures/process-services/host.json");
+#[cfg(node_twin)]
+const SECRETS: &str = include_str!("../../../../fixtures/process-services/secrets.json");
+#[cfg(node_twin)]
+const LOCAL: &str = include_str!("../../../../fixtures/process-services/local-models.json");
+// ---- HostInfo ----------------------------------------------------------------------------
+
+/// `codexUserAgent()`'s `(<os> <release>; <arch>)` for Node's `os.type()`, `os.release()` and
+/// `os.arch()`.
+#[test]
+#[cfg(node_twin)]
+fn the_host_is_described_in_codexs_vocabulary_as_node_does() {
+    let golden = golden(HOST);
+    for case in golden["cases"].as_array().unwrap() {
+        let text = |key: &str| case[key].as_str().unwrap();
+        let host = HostInfo::from_node(text("type"), text("release"), text("arch"));
+        assert_eq!(format!("{} {}; {}", host.os_type, host.os_release, host.arch), text("platform"), "{case}");
+    }
+}
+/// A DPAPI file made by Node's DPAPI call is read as Node's `getSecret` reads it. The blob is
+/// made during the run (so it opens for whoever runs the test); the recorded fixture fixes the
+/// file's structure (the blob header) and the value `getSecret` answered.
+#[cfg(windows)]
+#[tokio::test]
+#[cfg(node_twin)]
+async fn a_dpapi_file_node_wrote_is_read_by_the_vault() {
+    let golden = golden(SECRETS);
+    let dpapi = &golden["dpapi"];
+    let prefix = dpapi["filePrefix"].as_u64().unwrap() as usize;
+    let dir = tempfile::tempdir().unwrap();
+    for case in dpapi["cases"].as_array().unwrap() {
+        let account = case["account"].as_str().unwrap();
+        let file = node_dpapi::protect(case["value"].as_str().unwrap()).await;
+        assert_eq!(&file[..prefix], case["filePrefix"].as_str().unwrap(), "{account}: the blob header");
+        fixture_fs::write(dir.path().join("secrets").join(format!("{account}.dpapi")), &file);
+    }
+    let vault = KeychainVault::open(mixdog_rt::testing::tokens().durability_io, dir.path());
+    for case in dpapi["cases"].as_array().unwrap() {
+        let account = case["account"].as_str().unwrap();
+        assert_eq!(vault.get(account).await.unwrap().as_deref(), case["expected"].as_str(), "{account}");
+        assert!(!vault.is_fallback(account).await.unwrap(), "{account}");
+    }
+    assert_eq!(vault.get("agent.never.apiKey").await.unwrap(), None);
+}
+/// What the vault writes is what Node reads: Node's DPAPI call decrypts the account's `.dpapi`
+/// file to the value, the file has the recorded structure, and a delete empties the account.
+#[cfg(windows)]
+#[tokio::test]
+#[cfg(node_twin)]
+async fn the_vault_stores_the_values_node_stored_in_the_same_file_format() {
+    let golden = golden(SECRETS);
+    let dpapi = &golden["dpapi"];
+    let prefix = dpapi["filePrefix"].as_u64().unwrap() as usize;
+    let dir = tempfile::tempdir().unwrap();
+    let vault = KeychainVault::open(mixdog_rt::testing::tokens().durability_io, dir.path());
+    for case in dpapi["cases"].as_array().unwrap() {
+        let (account, value) = (case["account"].as_str().unwrap(), case["value"].as_str().unwrap());
+        vault.set(account, value).await.unwrap();
+        let file = fixture_fs::read_to_string(dir.path().join("secrets").join(format!("{account}.dpapi"))).unwrap();
+        assert_eq!(&file[..prefix], case["filePrefix"].as_str().unwrap(), "{account}: the blob header");
+        assert_eq!(node_dpapi::unprotect(&file).await, case["expected"].as_str().unwrap(), "{account}: Node's decryption of the vault's file");
+        assert_eq!(vault.get(account).await.unwrap().as_deref(), case["expected"].as_str(), "{account}");
+    }
+    let account = dpapi["cases"][0]["account"].as_str().unwrap();
+    vault.delete(account).await.unwrap();
+    assert_eq!(vault.get(account).await.unwrap(), None);
+    vault.delete(account).await.unwrap();
+}
+/// `localProviderModelEntry(id)`: the bundled manifest and the registered index Node wrote.
+#[tokio::test]
+#[cfg(node_twin)]
+async fn the_local_entry_is_nodes_catalog_entry() {
+    let golden = golden(LOCAL);
+    let dir = tempfile::tempdir().unwrap();
+    let (models, _provider) = local_models(dir.path(), golden["index"].as_str());
+    for case in golden["entries"].as_array().unwrap() {
+        let id = case["id"].as_str().unwrap();
+        let got = models.entry(id);
+        match case["entry"].as_object() {
+            None => assert!(got.is_none(), "{id:?}"),
+            Some(want) => {
+                let got = got.unwrap_or_else(|| panic!("{id:?} has an entry"));
+                // A registered model without a name prints as `undefined`.
+                assert_eq!(got.name, want["name"].as_str().unwrap_or("undefined"), "{id}");
+                assert_eq!(got.supports_function_calling, want["supportsFunctionCalling"].as_bool(), "{id}");
+            }
+        }
+    }
+}
+/// `localModelState(model).capabilities.tools` after the model server's props were recorded.
+#[tokio::test]
+#[cfg(node_twin)]
+async fn the_runtime_tool_support_is_what_the_loaded_server_reported() {
+    let golden = golden(LOCAL);
+    let dir = tempfile::tempdir().unwrap();
+    let (models, provider) = local_models(dir.path(), None);
+    for load in golden["loads"].as_array().unwrap() {
+        let id = load["id"].as_str().unwrap();
+        provider.catalog.state.record_load(id, &load["props"].as_object().map_or(Value::Null, |_| load["props"].clone()), Some(12.0));
+        assert_eq!(models.runtime_tools(id), load["tools"].as_bool(), "{id}");
+    }
+    let never = &golden["never"];
+    assert!(never["capabilities"].is_null());
+    assert_eq!(models.runtime_tools(never["id"].as_str().unwrap()), None);
 }

@@ -19,6 +19,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
+#[cfg(node_twin)]
 use std::time::Duration;
 
 use mixdog_rt::CancellationToken;
@@ -44,39 +45,9 @@ pub(crate) fn exit_watch_denied() -> bool {
     DENY_EXIT_WATCH.with(std::cell::Cell::get)
 }
 
-/// Runs `job` as a durability-lane job (the inline test backend runs it on this thread).
-pub(crate) fn on_lane<R: Send + 'static>(
-    job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static,
-) -> R {
-    let lanes = mixdog_rt::testing::tokens();
-    tokio::runtime::Builder::new_current_thread()
-        .build()
-        .expect("runtime")
-        .block_on(async {
-            lanes
-                .durability_io
-                .submit(&CancellationToken::new(), job)
-                .expect("lane")
-                .await
-                .expect("job")
-        })
-}
-
 /// A [`Gate`] stepped the way the boot path steps it: each step a durability-lane
 /// job, inline on this thread, so this thread's step hooks still apply.
 pub(crate) struct LaneGate(Option<Gate>);
-
-impl LaneGate {
-    pub(crate) fn step(&mut self) -> Result<GateStep, GateError> {
-        let mut gate = self.0.take().expect("a gate");
-        let (gate, result) = on_lane(move |lane| {
-            let result = gate.step(lane);
-            (gate, result)
-        });
-        self.0 = Some(gate);
-        result
-    }
-}
 
 impl From<Gate> for LaneGate {
     fn from(gate: Gate) -> Self {
@@ -207,142 +178,11 @@ pub(crate) struct SelfChild {
     stderr_closed: mpsc::Receiver<()>,
 }
 
-impl SelfChild {
-    pub(crate) fn spawn(test: &str, env: &[(&str, String)]) -> Self {
-        let mut command = Command::new(std::env::current_exe().expect("test exe"));
-        command
-            .args([
-                "--exact",
-                test,
-                "--ignored",
-                "--nocapture",
-                "--test-threads=1",
-            ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        for (key, value) in env {
-            command.env(key, value);
-        }
-        let mut child = command.spawn().expect("spawn self");
-        let stdin = child.stdin.take();
-        let stdout = child.stdout.take().expect("stdout");
-        let stderr = child.stderr.take().expect("stderr");
-        let output = Arc::new(Mutex::new(String::new()));
-        let (tx, markers) = mpsc::channel();
-        let sink = output.clone();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                sink.lock().expect("output").push_str(&format!("{line}\n"));
-                for (index, part) in line.split("@@").enumerate() {
-                    if index % 2 == 1 && tx.send(part.to_string()).is_err() {
-                        return;
-                    }
-                }
-            }
-        });
-        let (closed, stderr_closed) = mpsc::channel();
-        let sink = output.clone();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                sink.lock()
-                    .expect("output")
-                    .push_str(&format!("[stderr] {line}\n"));
-            }
-            let _ = closed.send(());
-        });
-        Self {
-            child,
-            stdin,
-            markers,
-            output,
-            stderr_closed,
-        }
-    }
-
-    /// What the child wrote, once its stderr closed.
-    pub(crate) fn output(&self) -> String {
-        let _ = self.stderr_closed.recv();
-        self.output.lock().expect("output").clone()
-    }
-
-    pub(crate) fn pid(&self) -> u32 {
-        self.child.id()
-    }
-
-    /// The next marker; `None` once the child's stdout closed.
-    pub(crate) fn next(&self) -> Option<String> {
-        self.markers.recv().ok()
-    }
-
-    pub(crate) fn expect(&self, prefix: &str) -> String {
-        let marker = self
-            .next()
-            .unwrap_or_else(|| panic!("child exited before {prefix}:\n{}", self.output()));
-        marker
-            .strip_prefix(prefix)
-            .unwrap_or_else(|| panic!("expected {prefix}, got {marker}"))
-            .trim()
-            .to_string()
-    }
-
-    /// The next marker within `bound`; `None` on timeout or once stdout closed.
-    pub(crate) fn next_within(&self, bound: Duration) -> Option<String> {
-        self.markers.recv_timeout(bound).ok()
-    }
-
-    pub(crate) fn send(&mut self, line: &str) {
-        let stdin = self.stdin.as_mut().expect("stdin open");
-        writeln!(stdin, "{line}").expect("child stdin");
-        stdin.flush().expect("child stdin");
-    }
-
-    pub(crate) fn close_stdin(&mut self) {
-        self.stdin = None;
-    }
-
-    pub(crate) fn wait(&mut self) -> std::process::ExitStatus {
-        self.close_stdin();
-        self.child.wait().expect("wait child")
-    }
-}
-
 impl Drop for SelfChild {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
-}
-
-/// Child entry: optionally owns a loopback LISTEN socket, then idles until stdin closes.
-#[test]
-#[ignore = "child process entry for other tests"]
-fn idle_child() {
-    if std::env::var_os("MIXDOG_OWN_IDLE_CHILD").is_none() {
-        return;
-    }
-    let listener = std::env::var_os("MIXDOG_OWN_IDLE_LISTEN")
-        .map(|_| TcpListener::bind("127.0.0.1:0").expect("bind"));
-    if let Some(listener) = &listener {
-        marker(&format!(
-            "PORT {}",
-            listener.local_addr().expect("addr").port()
-        ));
-    }
-    marker("READY");
-    let mut sink = Vec::new();
-    let _ = io::stdin().read_to_end(&mut sink);
-}
-
-pub(crate) fn idle_child_process(listen: bool) -> (SelfChild, Option<u16>) {
-    let mut env = vec![("MIXDOG_OWN_IDLE_CHILD", "1".to_string())];
-    if listen {
-        env.push(("MIXDOG_OWN_IDLE_LISTEN", "1".to_string()));
-    }
-    let child = SelfChild::spawn("verdict::tests::idle_child", &env);
-    let port = listen.then(|| child.expect("PORT ").parse().expect("port"));
-    child.expect("READY");
-    (child, port)
 }
 
 // ---------------------------------------------------------------------------
@@ -352,7 +192,7 @@ pub(crate) fn idle_child_process(listen: bool) -> (SelfChild, Option<u16>) {
 fn owner(record: Option<&str>, discovery: Option<&str>, table: &FakeTable) -> Option<Verdict> {
     judge_owner(
         record.map(str::as_bytes),
-        discovery.map(str::as_bytes),
+        discovery.and_then(|text| legacy_discovery(text.as_bytes())),
         table,
         &[],
     )
@@ -436,6 +276,27 @@ fn released_identity_is_not_an_owner() {
     )
     .unwrap();
     assert_eq!(verdict, None);
+}
+
+#[test]
+fn a_retry_without_legacy_discovery_still_fences_its_proven_owner() {
+    let temp = TempData::new();
+    std::fs::create_dir_all(temp.runtime()).unwrap();
+    let discovery = crate::discovery::path(&temp.runtime());
+    std::fs::write(&discovery, format!(r#"{{"pid":{P},"endpoints":{{"session":{{"port":9000}}}}}}"#)).unwrap();
+    let (own, mut gate) = temp.gate(Box::new(FakeTable::default().run(P, 1).listen(P, 9000)));
+    on_lane(move |lane| gate.preserve_discovery(lane).unwrap());
+    drop(own);
+    // The first Rust process published booting and exited without installing B.
+    std::fs::write(discovery, br#"{"pid":123,"core":{"state":"booting"}}"#).unwrap();
+
+    let (_own, mut gate) = temp.gate(Box::new(FakeTable::default().run(P, 1).listen(P, 9000)));
+    assert!(matches!(
+        step_with_exit_watch_denied(&mut gate),
+        Err(GateError::ExitUnwatchable { kind: BlockedKind::WaitExit, process, releasable: false })
+            if process.identity.pid == P
+    ));
+    assert!(temp.file(barrier::CLAIM_LOCK_FILE).is_none());
 }
 
 #[test]
@@ -553,6 +414,177 @@ fn os_table_reports_this_process_and_its_listen_socket() {
 }
 
 #[test]
+fn dir_watch_wakes_on_an_entry_change() {
+    let temp = TempData::new();
+    let own = ownership::acquire(&temp.data()).unwrap();
+    let watch = DirWatch::arm(own.data_dir()).unwrap();
+    temp.write("daemon-owner.json.claim.lock", b"1 2 3\n");
+    assert_eq!(
+        wait::wait(&Interrupt::new().unwrap(), Some(&watch), None).unwrap(),
+        Wake::Changed
+    );
+}
+
+
+/// Runs `job` as a durability-lane job (the inline test backend runs it on this thread).
+pub(crate) fn on_lane<R: Send + 'static>(
+    job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static,
+) -> R {
+    let lanes = mixdog_rt::testing::tokens();
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("runtime")
+        .block_on(async {
+            lanes
+                .durability_io
+                .submit(&CancellationToken::new(), job)
+                .expect("lane")
+                .await
+                .expect("job")
+        })
+}
+impl LaneGate {
+    pub(crate) fn step(&mut self) -> Result<GateStep, GateError> {
+        let mut gate = self.0.take().expect("a gate");
+        let (gate, result) = on_lane(move |lane| {
+            let result = gate.step(lane);
+            (gate, result)
+        });
+        self.0 = Some(gate);
+        result
+    }
+}
+impl SelfChild {
+    pub(crate) fn spawn(test: &str, env: &[(&str, String)]) -> Self {
+        let mut command = Command::new(std::env::current_exe().expect("test exe"));
+        command
+            .args([
+                "--exact",
+                test,
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        let mut child = command.spawn().expect("spawn self");
+        let stdin = child.stdin.take();
+        let stdout = child.stdout.take().expect("stdout");
+        let stderr = child.stderr.take().expect("stderr");
+        let output = Arc::new(Mutex::new(String::new()));
+        let (tx, markers) = mpsc::channel();
+        let sink = output.clone();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                sink.lock().expect("output").push_str(&format!("{line}\n"));
+                for (index, part) in line.split("@@").enumerate() {
+                    if index % 2 == 1 && tx.send(part.to_string()).is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+        let (closed, stderr_closed) = mpsc::channel();
+        let sink = output.clone();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                sink.lock()
+                    .expect("output")
+                    .push_str(&format!("[stderr] {line}\n"));
+            }
+            let _ = closed.send(());
+        });
+        Self {
+            child,
+            stdin,
+            markers,
+            output,
+            stderr_closed,
+        }
+    }
+
+    /// What the child wrote, once its stderr closed.
+    pub(crate) fn output(&self) -> String {
+        let _ = self.stderr_closed.recv();
+        self.output.lock().expect("output").clone()
+    }
+
+    pub(crate) fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// The next marker; `None` once the child's stdout closed.
+    pub(crate) fn next(&self) -> Option<String> {
+        self.markers.recv().ok()
+    }
+
+    pub(crate) fn expect(&self, prefix: &str) -> String {
+        let marker = self
+            .next()
+            .unwrap_or_else(|| panic!("child exited before {prefix}:\n{}", self.output()));
+        marker
+            .strip_prefix(prefix)
+            .unwrap_or_else(|| panic!("expected {prefix}, got {marker}"))
+            .trim()
+            .to_string()
+    }
+
+    /// The next marker within `bound`; `None` on timeout or once stdout closed.
+    #[cfg(node_twin)]
+    pub(crate) fn next_within(&self, bound: Duration) -> Option<String> {
+        self.markers.recv_timeout(bound).ok()
+    }
+
+    #[cfg(node_twin)]
+    pub(crate) fn send(&mut self, line: &str) {
+        let stdin = self.stdin.as_mut().expect("stdin open");
+        writeln!(stdin, "{line}").expect("child stdin");
+        stdin.flush().expect("child stdin");
+    }
+
+    pub(crate) fn close_stdin(&mut self) {
+        self.stdin = None;
+    }
+
+    pub(crate) fn wait(&mut self) -> std::process::ExitStatus {
+        self.close_stdin();
+        self.child.wait().expect("wait child")
+    }
+}
+/// Child entry: optionally owns a loopback LISTEN socket, then idles until stdin closes.
+#[test]
+#[ignore = "child process entry for other tests"]
+fn idle_child() {
+    if std::env::var_os("MIXDOG_OWN_IDLE_CHILD").is_none() {
+        return;
+    }
+    let listener = std::env::var_os("MIXDOG_OWN_IDLE_LISTEN")
+        .map(|_| TcpListener::bind("127.0.0.1:0").expect("bind"));
+    if let Some(listener) = &listener {
+        marker(&format!(
+            "PORT {}",
+            listener.local_addr().expect("addr").port()
+        ));
+    }
+    marker("READY");
+    let mut sink = Vec::new();
+    let _ = io::stdin().read_to_end(&mut sink);
+}
+pub(crate) fn idle_child_process(listen: bool) -> (SelfChild, Option<u16>) {
+    let mut env = vec![("MIXDOG_OWN_IDLE_CHILD", "1".to_string())];
+    if listen {
+        env.push(("MIXDOG_OWN_IDLE_LISTEN", "1".to_string()));
+    }
+    let child = SelfChild::spawn("verdict::tests::idle_child", &env);
+    let port = listen.then(|| child.expect("PORT ").parse().expect("port"));
+    child.expect("READY");
+    (child, port)
+}
+#[test]
 fn exit_watch_confirms_exit_and_interrupt_wakes() {
     let (mut child, _) = idle_child_process(false);
     let process = OsProcessTable
@@ -589,19 +621,6 @@ fn exit_watch_confirms_exit_and_interrupt_wakes() {
         "an exited identity is never watched"
     );
 }
-
-#[test]
-fn dir_watch_wakes_on_an_entry_change() {
-    let temp = TempData::new();
-    let own = ownership::acquire(&temp.data()).unwrap();
-    let watch = DirWatch::arm(own.data_dir()).unwrap();
-    temp.write("daemon-owner.json.claim.lock", b"1 2 3\n");
-    assert_eq!(
-        wait::wait(&Interrupt::new().unwrap(), Some(&watch), None).unwrap(),
-        Wake::Changed
-    );
-}
-
 // ---------------------------------------------------------------------------
 // LR §11.6 pid reuse, on real processes
 // ---------------------------------------------------------------------------
@@ -624,14 +643,14 @@ fn gate_6_record_naming_a_live_unrelated_process_and_a_port_it_does_not_own_is_c
         crate::barrier::barrier_bytes(own.instance_id())
     );
 }
-
 #[test]
 fn gate_6_record_without_liveness_port_is_undecidable_and_release_is_journaled() {
     let (child, _) = idle_child_process(false);
     let temp = TempData::new();
+    let prior = format!(r#"{{"kind":"mixdog-daemon","pid":{}}}"#, child.pid());
     temp.write(
         "daemon-owner.json",
-        format!(r#"{{"kind":"mixdog-daemon","pid":{}}}"#, child.pid()).as_bytes(),
+        prior.as_bytes(),
     );
     let (own, mut gate) = temp.gate(Box::new(OsProcessTable));
     let GateStep::Blocked(blocked) = gate.step().unwrap() else {
@@ -667,10 +686,20 @@ fn gate_6_record_without_liveness_port_is_undecidable_and_release_is_journaled()
     assert_eq!(entry["instanceId"], own.instance_id());
     assert_eq!(entry["processStartMs"], blocked.process.identity.start_ms);
 
+    // The record was displaced, but the permanent barrier did not commit.
+    // The prior record is the only ownership evidence in this directory.
+    drop(blocked);
+    drop(gate);
+    drop(own);
+    temp.write(barrier::PRIOR_RECORD_FILE, prior.as_bytes());
+    temp.write(barrier::RECORD_FILE, &record().to_bytes());
+    let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
+    assert!(matches!(gate.step().unwrap(), GateStep::Blocked(blocked)
+        if blocked.releasable && blocked.process.identity.pid == child.pid()));
+    gate.release(child.pid()).unwrap();
     assert!(matches!(gate.step().unwrap(), GateStep::Clear));
     assert_eq!(temp.file("daemon-owner.json").unwrap(), record().to_bytes());
 }
-
 #[test]
 fn proven_owner_waits_for_its_os_exit_and_cannot_be_released() {
     let (mut child, port) = idle_child_process(true);
@@ -702,7 +731,6 @@ fn proven_owner_waits_for_its_os_exit_and_cannot_be_released() {
     child.wait();
     assert!(matches!(gate.step().unwrap(), GateStep::Clear));
 }
-
 #[test]
 fn a_denied_exit_watch_is_a_typed_failure_never_an_unwakeable_wait() {
     // A proven owner: not releasable, so only its exit could have ended a wait.
@@ -736,7 +764,6 @@ fn a_denied_exit_watch_is_a_typed_failure_never_an_unwakeable_wait() {
         Err(ReleaseError::NotReleasable(_))
     ));
 }
-
 #[test]
 fn a_denied_exit_watch_on_a_releasable_block_still_takes_the_users_release() {
     let (child, _) = idle_child_process(false);

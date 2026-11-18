@@ -319,24 +319,45 @@ impl SetupActions for HookRuleSetup {
     }
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 mod adopt_node_cases;
+#[cfg(test)]
+mod adopt_tests;
+
+#[cfg(test)]
+mod action_tests;
 
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test fixtures are written straight to a temp dir")]
 mod tests {
+    #[cfg(node_twin)]
     use mixdog_protocol::ThreadId;
 
     use super::*;
+    #[cfg(node_twin)]
     use crate::domain_seams::hook_status::HookEventLog;
+    #[cfg(node_twin)]
     use crate::domain_seams::hook_status::HookStatus;
 
+    #[cfg(node_twin)]
     /// The length of the case folder `hook_rules.mjs` recorded in (`<tmp>\hook-rules-golden-xxxxxx\case<n>`).
     /// The event log clips a row at 120 (summary) and 180 (payload) UTF-16 units, so the recorded
     /// rows end where a folder of this length puts the cut (`hooks.`, `(l`); another length cuts
     /// them elsewhere.
     const RECORDED_DATA_DIR_LEN: usize = 86;
 
+    #[test]
+    fn the_rules_file_is_the_environment_override_or_hooks_json() {
+        let none: EnvReader = std::sync::Arc::new(|_| None);
+        assert_eq!(hook_rules_path(&none, Path::new("/d")), Path::new("/d").join("hooks.json"));
+        let blank: EnvReader = std::sync::Arc::new(|_| Some(String::new()));
+        assert_eq!(hook_rules_path(&blank, Path::new("/d")), Path::new("/d").join("hooks.json"));
+        let set: EnvReader = std::sync::Arc::new(|name| (name == "MIXDOG_HOOKS_FILE").then(|| "rules.json".to_owned()));
+        assert!(hook_rules_path(&set, Path::new("/d")).is_absolute());
+    }
+
+    #[cfg(node_twin)]
     /// A fresh folder as long as the recorded one.
     fn recorded_length_dir() -> tempfile::TempDir {
         let base = std::env::temp_dir();
@@ -348,6 +369,8 @@ mod tests {
         tempfile::Builder::new().prefix(&"d".repeat(name - 6)).rand_bytes(6).tempdir_in(&base).unwrap()
     }
 
+
+    #[cfg(node_twin)]
     /// Every step of every recorded case: the receipt text (or the message of the error) and the
     /// hooks file afterwards, as Node's real setup executor over the real rule store produced them;
     /// then the `hook:error` rows the status shows. A case whose error text is the operating
@@ -424,15 +447,5 @@ mod tests {
                 assert_eq!(recent, recorded, "{}: hook:error rows", case["name"]);
             }
         }
-    }
-
-    #[test]
-    fn the_rules_file_is_the_environment_override_or_hooks_json() {
-        let none: EnvReader = std::sync::Arc::new(|_| None);
-        assert_eq!(hook_rules_path(&none, Path::new("/d")), Path::new("/d").join("hooks.json"));
-        let blank: EnvReader = std::sync::Arc::new(|_| Some(String::new()));
-        assert_eq!(hook_rules_path(&blank, Path::new("/d")), Path::new("/d").join("hooks.json"));
-        let set: EnvReader = std::sync::Arc::new(|name| (name == "MIXDOG_HOOKS_FILE").then(|| "rules.json".to_owned()));
-        assert!(hook_rules_path(&set, Path::new("/d")).is_absolute());
     }
 }

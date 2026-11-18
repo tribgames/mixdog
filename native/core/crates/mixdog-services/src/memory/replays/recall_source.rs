@@ -52,36 +52,6 @@ fn grouped_source_rendering_carries_explicit_options_through_flat_multi_session_
     }
 }
 
-#[test]
-fn source_opt_in_keeps_the_body_bound_and_does_not_change_compact_summary_raw_projection() {
-    let g = golden(SET);
-    let name = "source opt-in keeps the body bound and does not change Compact summary/RAW projection (test line 120)";
-    let clock = clock(&g);
-    let renders = case(&g, 5, name).get("renders").as_array();
-    // The recorder's inputs to `compactHandoffRows`: its large raw row (the first render's row) and the raw row.
-    let large = renders[0].get("rows");
-    assert_eq!(renders[0].get("label").as_str(), "large raw body, preserveSource (bound applies)");
-    let raw = Exact::Array(vec![g.get("rows").get("raw").clone()]);
-    for render in renders {
-        let label = render.get("label").as_str();
-        let what = format!("{name}: {label}");
-        let recorded = render.get("rows");
-        let rows = match label {
-            "compact handoff of a large raw row, no bound" | "compact handoff of a raw row" => {
-                let input = if label.contains("large") { large } else { &raw };
-                let projected =
-                    compact_handoff_rows(rows(input).expect("input rows"), 0, &mixdog_js::token_estimate::estimate_tokens);
-                same_rows(&format!("{what}: projected rows"), recorded, &projected);
-                projected
-            }
-            _ => rows(recorded).expect("recorded rows"),
-        };
-        let options = render.try_get("options").unwrap_or(&Exact::Undefined);
-        let text = render_entry_lines(&clock, &rows, &render_options(options));
-        same(&what, render.get("result"), &string(text));
-    }
-}
-
 mod pg {
     use super::*;
     use crate::memory::replays::pg::{insert_entries, memory_db, recall};
@@ -115,11 +85,6 @@ mod pg {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn id_recall_preserves_original_root_member_and_raw_bodies_without_duplicating_named_members() {
-        searches(0, "ID recall preserves original root, member and RAW bodies without duplicating named members (test line 72)").await;
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
     async fn explicit_member_search_and_session_expansion_keep_code_urls_and_tables() {
         searches(1, "explicit member search and session expansion keep code, URLs and tables (test line 79)").await;
     }
@@ -136,5 +101,42 @@ mod pg {
             "an in-window member hit cannot reintroduce the original root body from outside the requested period (test line 100)",
         )
         .await;
+    }
+
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn id_recall_preserves_original_root_member_and_raw_bodies_without_duplicating_named_members() {
+        searches(0, "ID recall preserves original root, member and RAW bodies without duplicating named members (test line 72)").await;
+    }
+}
+
+
+#[test]
+fn source_opt_in_keeps_the_body_bound_and_does_not_change_compact_summary_raw_projection() {
+    let g = golden(SET);
+    let name = "source opt-in keeps the body bound and does not change Compact summary/RAW projection (test line 120)";
+    let clock = clock(&g);
+    let renders = case(&g, 5, name).get("renders").as_array();
+    // The recorder's inputs to `compactHandoffRows`: its large raw row (the first render's row) and the raw row.
+    let large = renders[0].get("rows");
+    assert_eq!(renders[0].get("label").as_str(), "large raw body, preserveSource (bound applies)");
+    let raw = Exact::Array(vec![g.get("rows").get("raw").clone()]);
+    for render in renders {
+        let label = render.get("label").as_str();
+        let what = format!("{name}: {label}");
+        let recorded = render.get("rows");
+        let rows = match label {
+            "compact handoff of a large raw row, no bound" | "compact handoff of a raw row" => {
+                let input = if label.contains("large") { large } else { &raw };
+                let projected =
+                    compact_handoff_rows(rows(input).expect("input rows"), 0, &mixdog_js::token_estimate::estimate_tokens);
+                same_rows(&format!("{what}: projected rows"), recorded, &projected);
+                projected
+            }
+            _ => rows(recorded).expect("recorded rows"),
+        };
+        let options = render.try_get("options").unwrap_or(&Exact::Undefined);
+        let text = render_entry_lines(&clock, &rows, &render_options(options));
+        same(&what, render.get("result"), &string(text));
     }
 }

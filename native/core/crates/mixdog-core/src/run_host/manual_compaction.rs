@@ -151,6 +151,7 @@ fn with_status<R>(snapshot: &ContextSnapshot, session: &Header, messages: &[Agen
         agent_mode: snapshot.agent_mode,
         meter: &meter,
         signer: &signer,
+        env: &mixdog_ai::registry::keys::ProcessEnv,
     };
     f(&input)
 }
@@ -252,6 +253,9 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
         }
         // The next turn's first send tags its cache break.
         working.insert("pendingCacheBreakIntent".into(), json!("manual_compaction"));
+        // The next turn start rebuilds the system text from current sources (`surface_host` `fold_prompt_if_cold`).
+        working.insert("promptFoldPending".into(), json!(true));
+        working.insert("compactionFoldPending".into(), json!(true));
         // The compacted history no longer holds the late-tool announcements nor the settings notices.
         let _ = rearm_late_deferred_tools(&mut working, facts.now as i64);
         rearm_prompt_settings_notice(&mut working);
@@ -267,8 +271,11 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
 }
 
 /// `pruneOffloadSession`'s listing over the thread's tool-result store under `data_dir`.
-pub(crate) async fn offload_candidates(io: &ToolIo, data_dir: &std::path::Path, thread: &ThreadId) -> Vec<std::path::PathBuf> {
-    ToolResultArtifacts::new(*io, data_dir, thread.as_str()).prune_candidates().await
+/// Only the sidecars old at `clock`'s now are listed: a younger one cannot be pruned, and listing it made the open of every
+/// session with a sidecar read the whole model context for nothing.
+pub(crate) async fn offload_candidates(io: &ToolIo, data_dir: &std::path::Path, clock: &dyn Clock, thread: &ThreadId) -> Vec<std::path::PathBuf> {
+    let now = u64::try_from(clock.now_ms()).unwrap_or(0);
+    ToolResultArtifacts::new(*io, data_dir, thread.as_str()).prune_candidates_at(now).await
 }
 
 /// The rest of `pruneOffloadSession` over the thread's tool-result store under `data_dir`, aged at `clock`'s now.
@@ -460,15 +467,25 @@ impl HostManualCompaction {
         }
         let answer = Arc::new(Mutex::new(None));
         let slot = answer.clone();
+        let session = thread.as_str().to_owned();
+        // The books the session's store holds open; with no directory bound yet no session of it is open, and the
+        // header's book is the whole record.
+        let books = self.parts.directory.directory().map(|directory| directory.deps().cache_tail.clone()).unwrap_or_default();
+        let adopted: Vec<_> = mixdog_agent::skill_update::latest_skill_bodies(&facts.compacted)
+            .into_iter().map(|skill| facts.compacted[skill.index].clone()).collect();
         let header: CompactionHeader = Box::new(move |header, appended| {
             let (mut working, result) = committed_header(&facts, header, appended);
             manual_tail(&mut working, facts.now);
+            // The cache owner's evidence belongs to the retired history; the next turn writes the compacted base. The
+            // rewrite rides the committed header, so a book this process never loaded records it too.
+            working.insert("cacheTailBook".into(), books.rebuilt(&session, header.get("cacheTailBook"), facts.now as i64));
             *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result);
             header_change(header, &working)
         });
         let snapshot_ids: Vec<ItemId> = context.iter().map(|(iid, _)| iid.clone()).collect();
         match transcript.commit(thread, snapshot_ids, compaction, header).await? {
             CompactionCommit::Applied => {
+                compactor.adopted(&adopted).await;
                 // `compaction-runner.mjs:699`: `resetReadStateAfterCompaction` once the changed transcript is adopted.
                 self.parts.reuses.compacted(thread.as_str());
                 let result = answer.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
@@ -534,7 +551,7 @@ impl ManualCompaction for HostManualCompaction {
     }
 
     async fn offload_candidates(&self, thread: &ThreadId) -> Vec<std::path::PathBuf> {
-        offload_candidates(&self.parts.io, &self.parts.data_dir, thread).await
+        offload_candidates(&self.parts.io, &self.parts.data_dir, &*self.parts.clock, thread).await
     }
 
     async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: OffloadCopies) {
@@ -567,6 +584,10 @@ impl ManualCompaction for HostManualCompaction {
 
     fn synced_compaction(&self, header: &Header, install: bool) -> Option<Value> {
         self.parts.config.synced_compaction(header, install)
+    }
+
+    fn synced_cache_opts(&self, header: &Header) -> Option<Value> {
+        self.parts.config.synced_cache_opts(header)
     }
 
     fn route_config(&self, header: &Header) -> mixdog_app_protocol::v2::thread::ThreadRoute {

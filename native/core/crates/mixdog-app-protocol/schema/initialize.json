@@ -227,6 +227,12 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "maxUploadInFlightBytes": {
+          "description": "How much base64 payload of `transfer/writeChunk` requests a sender may have sent and not yet had answered, across every file upload on one connection (`4 * ceil(rawChunkLength / 3)` per request; JSON, WebSocket and SSH overhead are not counted, the frame bound covers the request's envelope). A core that states it also applies one upload's chunks in the order they arrive, so a sender may pipeline them. The raw chunk of an upload is `maxBlobPutChunkBytes`. Interactive calls never take part in this window.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
         "orderedQueueBytes": {
           "description": "The ordered class's event room (events never dropped, P §6.5), apart from `queueBytes`: one event of any size enters an empty room; behind it, events queue while the queued bytes stay within this bound, and the connection closes 4000 when the peer has not drained them.",
           "format": "uint64",
@@ -270,6 +276,7 @@
         "maxMediaFrameBytes",
         "maxProcesses",
         "maxSnapshotBytes",
+        "maxUploadInFlightBytes",
         "orderedQueueBytes",
         "queueBytes",
         "ringBytes",
@@ -354,7 +361,7 @@
           "type": "boolean"
         },
         "secretInput": {
-          "description": "A handoff secret typed on the phone (`approval/provideSecret`).",
+          "description": "Legacy flag, always false: handoff secrets must be entered on the PC.",
           "type": "boolean"
         },
         "termSizeOwner": {

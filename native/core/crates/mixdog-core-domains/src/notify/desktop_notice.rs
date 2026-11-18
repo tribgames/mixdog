@@ -20,6 +20,10 @@ use serde_json::{Map, Value, json};
 const SECRET_STORAGE_KEY: &str = "secret-storage";
 const SECRET_STORAGE_CODE: &str = "secret-storage-failed";
 
+fn conversation_save_key(session: &str) -> String {
+    format!("conversation-save:{session}")
+}
+
 pub struct DesktopNotices {
     publisher: Arc<dyn StatePublisher>,
     /// Held across a publication so the section's revisions follow the order of the raises.
@@ -132,9 +136,16 @@ impl DesktopNotices {
         }
     }
 
-    /// `_recordSaveFailure`'s notice (live-state.mjs:101): told once per run, whichever session.
-    pub fn conversation_save_failed(&self) {
-        self.raise("conversation-save", "conversation-save-failed", &[]);
+    /// The notice for a session holding conversation rows the disk does not have: one standing entry per session, told once
+    /// until [`Self::conversation_save_resolved`] withdraws it.
+    pub fn conversation_save_failed(&self, session: &str) {
+        self.raise(&conversation_save_key(session), "conversation-save-failed", &[("session", session)]);
+    }
+
+    /// The session's unsaved rows are acknowledged: its notice leaves the section, so a window that attaches later is not
+    /// shown it. Another session's notice stands.
+    pub fn conversation_save_resolved(&self, session: &str) {
+        self.clear(&conversation_save_key(session));
     }
 
     /// `offloadCopies`'s notice (`node-fix-prune-after-save.patch`): no tool-result file is pruned while the session
@@ -146,13 +157,8 @@ impl DesktopNotices {
 #[cfg(test)]
 mod tests {
     use mixdog_core_api::mock::MockStatePublisher;
-    use mixdog_secrets::{FailureCode, StatusTracker};
 
     use super::*;
-
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/desktop-notice/golden.json")).expect("fixture")
-    }
 
     /// The notices published since `seen` entries.
     fn sets(publisher: &MockStatePublisher, seen: usize) -> Vec<Value> {
@@ -174,37 +180,6 @@ mod tests {
             .collect()
     }
 
-    /// `String(value ?? '')`.
-    fn coerced(value: &Value) -> String {
-        match value {
-            Value::Null => String::new(),
-            Value::String(text) => text.clone(),
-            other => other.to_string(),
-        }
-    }
-
-    /// Every raise and clear of the real host (`fixtures/desktop-notice/golden.json`): what the
-    /// raise answers and which notices reach the section, key dedupe and re-arming included.
-    #[test]
-    fn raising_and_clearing_follow_the_node_host() {
-        let publisher = Arc::new(MockStatePublisher::default());
-        let notices = DesktopNotices::new(publisher.clone());
-        for step in golden()["hostSteps"].as_array().expect("steps") {
-            let seen = publisher.published().len();
-            let args = step["args"].as_array().expect("args");
-            let text = |at: usize| args.get(at).and_then(Value::as_str).unwrap_or_default().to_owned();
-            if step["op"] == "raise" {
-                let params: Vec<(String, String)> =
-                    args.get(2).and_then(Value::as_object).map(|m| m.iter().map(|(k, v)| (k.clone(), coerced(v))).collect()).unwrap_or_default();
-                let refs: Vec<(&str, &str)> = params.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-                assert_eq!(json!(notices.raise(&text(0), &text(1), &refs)), step["returned"], "{step}");
-            } else {
-                notices.clear(&text(0));
-            }
-            assert_eq!(Value::Array(sets(&publisher, seen)), step["delivered"], "{step}");
-        }
-    }
-
     /// A cleared notice leaves the section.
     #[test]
     fn clearing_removes_the_entry_only_when_it_was_raised() {
@@ -219,70 +194,6 @@ mod tests {
         assert_eq!((published[1].0, published[1].1.as_deref(), &published[1].2), (SectionName::Notice, Some("secret-storage"), &SectionChange::Removed));
     }
 
-    /// The keychain's notice through the real status tracker: shown on the first failure that is
-    /// not a "no provider / unreachable" report, once, and again after a clear.
-    #[test]
-    fn the_keychain_raises_what_the_node_holder_raises() {
-        let publisher = Arc::new(MockStatePublisher::default());
-        let notices = DesktopNotices::new(publisher.clone());
-        let tracker = StatusTracker::new(false, notices.secret_storage_failed());
-        for step in golden()["keychainSteps"].as_array().expect("steps") {
-            let seen = publisher.published().len();
-            match step["step"].as_str().expect("name") {
-                "failure" | "second failure" | "failure after ok" | "failure after clear" => tracker.note_failure("storage exploded", FailureCode::Other),
-                "no provider" => tracker.note_failure("no keyring provider on this host", FailureCode::Unavailable),
-                "unreachable" => tracker.note_failure("gdbus gave an unparsable reply", FailureCode::Unreachable),
-                "ok" => tracker.note_ok(),
-                "cleared" => notices.clear("secret-storage"),
-                other => panic!("step {other}"),
-            }
-            assert_eq!(Value::Array(sets(&publisher, seen)), step["delivered"], "{step}");
-        }
-    }
-    fn raisers() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/desktop-notice-raisers/golden.json")).expect("fixture")
-    }
-
-    #[test]
-    fn provider_names_are_nodes() {
-        for row in raisers()["displayNames"].as_array().expect("names") {
-            assert_eq!(json!(provider_display_name(row["id"].as_str().unwrap_or_default())), row["name"], "{row}");
-        }
-    }
-
-    /// `failTurn` of the real turn module: a turn's auth failure raises the provider's notice named
-    /// by its display name; no other failure kind, and no provider, raises one.
-    #[test]
-    fn a_failed_turn_raises_the_sign_in_notice_only_for_auth_as_node_does() {
-        for step in raisers()["providerSteps"].as_array().expect("steps") {
-            assert!(step["threw"].is_null() || step["threw"] == "", "{step}");
-            let kind = match step["failure"].as_str().expect("failure") {
-                "401 auth" => Some("auth"),
-                "403 permission" => Some("permission"),
-                "429 rate limit" => Some("rate_limited"),
-                "500 transient" => Some("transient"),
-                _ => None,
-            };
-            let publisher = Arc::new(MockStatePublisher::default());
-            DesktopNotices::new(publisher.clone()).turn_failed(step["provider"].as_str().expect("provider"), kind);
-            assert_eq!(Value::Array(sets(&publisher, 0)), step["delivered"], "{step}");
-        }
-    }
-
-    /// `_recordSaveFailure`: raised at the first failure, whichever session, never again.
-    #[test]
-    fn a_failed_save_is_told_once_per_run() {
-        let publisher = Arc::new(MockStatePublisher::default());
-        let notices = DesktopNotices::new(publisher.clone());
-        for step in raisers()["saveSteps"].as_array().expect("steps") {
-            let seen = publisher.published().len();
-            if step["step"] != "no id" {
-                notices.conversation_save_failed();
-            }
-            assert_eq!(Value::Array(sets(&publisher, seen)), step["delivered"], "{step}");
-        }
-    }
-
     /// A normal turn end withdraws the provider's notice; the next auth failure shows it again.
     #[test]
     fn a_completed_turn_clears_the_provider_notice() {
@@ -294,5 +205,119 @@ mod tests {
         notices.turn_completed("anthropic-oauth");
         notices.turn_failed("anthropic-oauth", Some("auth"));
         assert_eq!(sets(&publisher, 0).len(), 2);
+    }
+
+
+    /// A key is raised once until it is cleared; an empty key or code raises nothing; params are strings as given.
+    #[test]
+    fn a_notice_is_raised_once_per_key_until_it_is_cleared_and_an_empty_key_or_code_raises_nothing() {
+        let publisher = Arc::new(MockStatePublisher::default());
+        let notices = DesktopNotices::new(publisher.clone());
+        assert!(!notices.raise("", "code", &[]));
+        assert!(!notices.raise("key", "", &[]));
+        assert!(publisher.published().is_empty());
+        assert!(notices.raise("provider-sign-in:anthropic", "provider-sign-in-expired", &[("name", "7"), ("other", "")]));
+        assert_eq!(sets(&publisher, 0), [json!({ "key": "provider-sign-in:anthropic", "code": "provider-sign-in-expired", "params": { "name": "7", "other": "" } })]);
+        assert!(!notices.raise("provider-sign-in:anthropic", "provider-sign-in-expired", &[("name", "again")]), "the same key shows once");
+        assert_eq!(sets(&publisher, 0).len(), 1);
+        notices.clear("never-raised");
+        assert!(notices.raise("secret-storage", "secret-storage-failed", &[]));
+        assert!(!notices.raise("secret-storage", "secret-storage-failed", &[]));
+        notices.clear("secret-storage");
+        assert!(notices.raise("secret-storage", "secret-storage-failed", &[]), "a clear re-arms the key");
+    }
+
+    /// The keychain holder's callback raises the one notice, once, however many failures it reports; a clear re-arms it.
+    #[test]
+    fn the_keychains_failure_callback_raises_one_secret_storage_notice_and_a_clear_re_arms_it() {
+        let publisher = Arc::new(MockStatePublisher::default());
+        let notices = DesktopNotices::new(publisher.clone());
+        let failed = notices.secret_storage_failed();
+        failed();
+        failed();
+        assert_eq!(sets(&publisher, 0), [json!({ "key": "secret-storage", "code": "secret-storage-failed", "params": {} })]);
+        notices.clear("secret-storage");
+        failed();
+        assert_eq!(sets(&publisher, 0).len(), 2);
+    }
+
+    #[test]
+    fn a_provider_shows_its_display_name_by_any_case_an_unknown_id_as_itself_and_none_as_provider() {
+        for (id, name) in [
+            ("anthropic-oauth", "Anthropic OAuth"),
+            ("ANTHROPIC-OAUTH", "Anthropic OAuth"),
+            ("openai", "OpenAI API"),
+            ("gemini-api", "Gemini API"),
+            ("mixdog-local", "Local Provider"),
+            ("default", "Default"),
+            ("my-custom-gateway", "my-custom-gateway"),
+            ("", "Provider"),
+        ] {
+            assert_eq!(provider_display_name(id), name, "{id:?}");
+        }
+    }
+
+    /// Only a turn whose provider refused the sign-in raises the notice, named by the provider's display name; no provider raises none.
+    #[test]
+    fn a_failed_turn_raises_the_sign_in_notice_only_for_an_auth_failure_with_a_provider() {
+        for (provider, name) in [("anthropic-oauth", "Anthropic OAuth"), ("my-custom-gateway", "my-custom-gateway")] {
+            let publisher = Arc::new(MockStatePublisher::default());
+            let notices = DesktopNotices::new(publisher.clone());
+            for kind in [Some("permission"), Some("rate_limited"), Some("transient"), None] {
+                notices.turn_failed(provider, kind);
+            }
+            assert!(sets(&publisher, 0).is_empty(), "{provider}: no other failure raises it");
+            notices.turn_failed(provider, Some("auth"));
+            assert_eq!(sets(&publisher, 0), [json!({ "key": format!("provider-sign-in:{provider}"), "code": "provider-sign-in-expired", "params": { "name": name } })]);
+        }
+        let publisher = Arc::new(MockStatePublisher::default());
+        DesktopNotices::new(publisher.clone()).turn_failed("", Some("auth"));
+        assert!(publisher.published().is_empty());
+    }
+
+    /// A conversation that cannot be saved is told once per session while it stands; one session's resolution leaves the other's
+    /// notice standing, and a resolved one is gone from the standing section (what a window that mounts later reads).
+    #[test]
+    fn a_save_warning_stands_per_session_until_that_session_is_resolved() {
+        let publisher = Arc::new(MockStatePublisher::default());
+        let notices = DesktopNotices::new(publisher.clone());
+        notices.conversation_save_failed("a");
+        notices.conversation_save_failed("a");
+        notices.conversation_save_failed("b");
+        assert_eq!(
+            sets(&publisher, 0),
+            [
+                json!({ "key": "conversation-save:a", "code": "conversation-save-failed", "params": { "session": "a" } }),
+                json!({ "key": "conversation-save:b", "code": "conversation-save-failed", "params": { "session": "b" } }),
+            ]
+        );
+        notices.conversation_save_resolved("b");
+        notices.conversation_save_resolved("b");
+        let mut standing = std::collections::BTreeSet::new();
+        for (_, key, change) in publisher.published() {
+            let key = key.expect("keyed");
+            match change {
+                SectionChange::Set(_) => standing.insert(key),
+                _ => standing.remove(&key),
+            };
+        }
+        assert_eq!(standing.into_iter().collect::<Vec<_>>(), ["conversation-save:a"]);
+        notices.conversation_save_failed("b");
+        assert_eq!(sets(&publisher, 0).len(), 3, "a resolved session raises again when it fails again");
+    }
+
+    /// A connector's expired sign-in is raised under its own key and withdrawn when the sign-in is restored.
+    #[test]
+    fn a_connectors_expired_sign_in_is_raised_once_and_withdrawn_when_restored() {
+        let publisher = Arc::new(MockStatePublisher::default());
+        let notices = DesktopNotices::new(publisher.clone());
+        notices.connector_sign_in_expired("acme");
+        notices.connector_sign_in_expired("acme");
+        assert_eq!(sets(&publisher, 0), [json!({ "key": "connector-sign-in:acme", "code": "connector-sign-in-expired", "params": { "name": "acme" } })]);
+        notices.connector_sign_in_restored("acme");
+        notices.connector_sign_in_expired("acme");
+        assert_eq!(sets(&publisher, 0).len(), 2);
+        notices.connector_sign_in_expired("");
+        assert_eq!(sets(&publisher, 0).len(), 2, "no server, no notice");
     }
 }

@@ -23,7 +23,7 @@ use super::format::clip;
 
 const CACHE_TTL: Duration = Duration::from_secs(30 * 60);
 const NODE_PROVIDER: &str = "native-web-search";
-pub const PROVIDER_UNAVAILABLE: &str =
+const PROVIDER_UNAVAILABLE: &str =
     "web search provider unavailable: open /websearch to choose a web search provider/model";
 
 #[derive(Clone, Debug)]
@@ -67,11 +67,25 @@ pub struct NativeSearchResult {
     pub usage: Option<serde_json::Value>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NativeSearchError {
+    Unavailable(String),
+    Failed(String),
+}
+
+impl NativeSearchError {
+    pub(crate) fn message(&self) -> &str {
+        match self {
+            Self::Unavailable(message) | Self::Failed(message) => message,
+        }
+    }
+}
+
 /// The provider seam (spec P3 "native tool" call). Cancellation = cancel the
 /// provider stream.
 #[async_trait]
 pub trait NativeWebSearch: Send + Sync {
-    async fn search(&self, request: NativeSearchRequest, cancel: CancellationToken) -> Result<NativeSearchResult, String>;
+    async fn search(&self, request: NativeSearchRequest, cancel: CancellationToken) -> Result<NativeSearchResult, NativeSearchError>;
 }
 
 #[derive(Clone, Debug)]
@@ -142,7 +156,7 @@ pub struct SearchArgs {
     pub max_results: usize,
 }
 
-type SearchOutcome = Option<Result<Arc<SearchPayload>, String>>;
+type SearchOutcome = Option<Result<Arc<SearchPayload>, NativeSearchError>>;
 
 struct Flight {
     cancel: CancellationToken,
@@ -316,7 +330,7 @@ impl SearchService {
     /// One query. Identical in-flight searches share one provider call (the first caller's thread
     /// asks it, as the cache key names no thread either); the provider call is cancelled once every
     /// caller waiting on it has left.
-    pub async fn search(&self, args: &SearchArgs, thread: &ThreadId, cancel: &CancellationToken) -> Result<Arc<SearchPayload>, String> {
+    pub async fn search(&self, args: &SearchArgs, thread: &ThreadId, cancel: &CancellationToken) -> Result<Arc<SearchPayload>, NativeSearchError> {
         let key = cache_key(args);
         if let Some(stored) = self.core.cache.get(&key).await
             && let Some(hit) = SearchPayload::from_node(&stored)
@@ -338,18 +352,18 @@ impl SearchService {
             flight: flight.clone(),
         };
         tokio::select! {
-            () = cancel.cancelled() => Err("web search aborted".to_string()),
+            () = cancel.cancelled() => Err(NativeSearchError::Failed("web search aborted".into())),
             result = Self::await_outcome(flight.outcome.clone()) => result,
         }
     }
 
-    async fn await_outcome(mut outcome: tokio::sync::watch::Receiver<SearchOutcome>) -> Result<Arc<SearchPayload>, String> {
+    async fn await_outcome(mut outcome: tokio::sync::watch::Receiver<SearchOutcome>) -> Result<Arc<SearchPayload>, NativeSearchError> {
         loop {
             if let Some(result) = outcome.borrow().clone() {
                 return result;
             }
             if outcome.changed().await.is_err() {
-                return Err("web search aborted".to_string());
+                return Err(NativeSearchError::Failed("web search aborted".into()));
             }
         }
     }
@@ -374,7 +388,7 @@ impl SearchService {
         tokio::spawn(async move {
             let result = async {
                 let Some(provider) = core.provider.clone() else {
-                    return Err(PROVIDER_UNAVAILABLE.to_string());
+                    return Err(NativeSearchError::Unavailable(PROVIDER_UNAVAILABLE.into()));
                 };
                 let started = Instant::now();
                 let found = provider.search(request, flight_cancel).await?;
@@ -424,11 +438,20 @@ fn text_cites_url(text: &str, url: &str) -> bool {
     })
 }
 
+/// `isInvalidWebSearchResult` (`web-search/index.mjs`): a "page not found" / "404 … not found" title is an error page, not a result.
+/// `\b` is ASCII-only and `.` stops at a JS line terminator, as in JavaScript.
+fn is_invalid_result(hit: &SearchHit) -> bool {
+    static NOT_FOUND: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)(?-u:\b)page not found(?-u:\b)|(?-u:\b)404(?-u:\b)[^\n\r\u{2028}\u{2029}]*(?-u:\b)not found(?-u:\b)").expect("static pattern")
+    });
+    NOT_FOUND.is_match(mixdog_js::js_trim(&hit.title))
+}
+
 pub fn format_results(payload: &SearchPayload) -> String {
     const TITLE_CAP: usize = 200;
     const SNIPPET_CAP: usize = 600;
     const ANSWER_CAP: usize = 4000;
-    let results: Vec<&SearchHit> = payload.results.iter().collect();
+    let results: Vec<&SearchHit> = payload.results.iter().filter(|hit| !is_invalid_result(hit)).collect();
     let mut blocks: Vec<String> = Vec::new();
     if !payload.warnings.is_empty() {
         blocks.push(format!("Warnings: {}", payload.warnings.join("; ")));

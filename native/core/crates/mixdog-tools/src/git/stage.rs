@@ -273,41 +273,9 @@ pub(super) struct Snapshot {
 static SNAPSHOTS: Mutex<Vec<(String, Snapshot)>> = Mutex::new(Vec::new());
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-fn new_diff_id(raw_hash: &str) -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    let seed = format!("{raw_hash}:{nanos}:{}:{}", COUNTER.fetch_add(1, Ordering::Relaxed), std::process::id());
-    format!("diff_{}", &digest(&seed)[..20])
-}
-
 pub(super) struct DiffSnapshot {
     pub diff_id: Option<String>,
     pub changes: Vec<Change>,
-}
-
-pub(super) fn create_diff_snapshot(
-    repo: &std::path::Path,
-    scope: &std::path::Path,
-    plan: SnapshotPlan,
-    argv: &[String],
-    raw: &str,
-) -> DiffSnapshot {
-    let (_, changes) = parse_stageable_diff(raw);
-    if changes.is_empty() {
-        return DiffSnapshot { diff_id: None, changes };
-    }
-    let raw_hash = digest(raw);
-    let diff_id = new_diff_id(&raw_hash);
-    let mut store = SNAPSHOTS.lock().expect("snapshots");
-    store.push((
-        diff_id.clone(),
-        Snapshot { repo: repo.to_path_buf(), scope: scope.to_path_buf(), plan, argv: argv.to_vec(), raw_hash },
-    ));
-    while store.len() > SNAPSHOT_LIMIT {
-        store.remove(0);
-    }
-    DiffSnapshot { diff_id: Some(diff_id), changes }
 }
 
 /// A read refreshes the snapshot's place in the bounded store.
@@ -431,6 +399,7 @@ mod tests {
         assert_eq!(build_selected_stage_patch(RAW, &["c9".to_owned()]).missing, ["c9"]);
     }
 
+
     #[test]
     fn snapshots_are_consumed_by_delete_and_matched_by_hash() {
         let plan = SnapshotPlan { cwd: "/r".into(), global_args: vec![], args: vec![] };
@@ -441,4 +410,36 @@ mod tests {
         delete_diff_snapshot(&id);
         assert!(get_diff_snapshot(&id).is_none());
     }
+}
+
+
+fn new_diff_id(raw_hash: &str) -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let seed = format!("{raw_hash}:{nanos}:{}:{}", COUNTER.fetch_add(1, Ordering::Relaxed), std::process::id());
+    format!("diff_{}", &digest(&seed)[..20])
+}
+pub(super) fn create_diff_snapshot(
+    repo: &std::path::Path,
+    scope: &std::path::Path,
+    plan: SnapshotPlan,
+    argv: &[String],
+    raw: &str,
+) -> DiffSnapshot {
+    let (_, changes) = parse_stageable_diff(raw);
+    if changes.is_empty() {
+        return DiffSnapshot { diff_id: None, changes };
+    }
+    let raw_hash = digest(raw);
+    let diff_id = new_diff_id(&raw_hash);
+    let mut store = SNAPSHOTS.lock().expect("snapshots");
+    store.push((
+        diff_id.clone(),
+        Snapshot { repo: repo.to_path_buf(), scope: scope.to_path_buf(), plan, argv: argv.to_vec(), raw_hash },
+    ));
+    while store.len() > SNAPSHOT_LIMIT {
+        store.remove(0);
+    }
+    DiffSnapshot { diff_id: Some(diff_id), changes }
 }

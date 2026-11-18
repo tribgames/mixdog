@@ -61,8 +61,7 @@ pub struct CoreMemoryContext {
 }
 
 impl CoreMemoryContext {
-    /// `opted_out` is `featureEnvOverride('MIXDOG_BOOT_CORE_MEMORY') === false`, asked on every
-    /// load: an explicit opt-out skips only this prompt block, never the recall tools.
+    /// `opted_out` reads the live prompt-injection gate; it does not modify the snapshot.
     pub fn new(lane: DurabilityIo, data_dir: PathBuf, opted_out: Arc<dyn Fn() -> bool + Send + Sync>) -> Self {
         Self { lane, data_dir, opted_out }
     }

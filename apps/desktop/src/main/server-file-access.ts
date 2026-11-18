@@ -9,7 +9,7 @@ import { posix } from 'node:path';
 
 import { mediaResponsePlan } from '../../../relay/lib/media-http.mjs';
 import type { DesktopLocalPathEntry } from '../shared/contract';
-import { SERVER_UPLOAD_CHUNK_BYTES, SERVER_UPLOAD_MAX_BYTES } from '../shared/server-files';
+import { SERVER_UPLOAD_MAX_BYTES } from '../shared/server-files';
 import { filePreviewTypeForPath, type DesktopFilePreviewKind } from '../shared/file-preview';
 import { FILE_PREVIEW_SCHEME } from './file-preview';
 import { requiredString } from './ipc-validation';
@@ -36,7 +36,6 @@ export function serverCoreInvoke(
 
 /** Raw bytes per ranged read (the daemon's own ceiling). */
 const SERVER_READ_CHUNK_BYTES = 4 * 1024 * 1024;
-export { SERVER_UPLOAD_CHUNK_BYTES };
 const MAX_GRANTS = 1_000;
 const MAX_PREVIEWS = 256;
 
@@ -123,28 +122,12 @@ export function serverUploadId(value: unknown): string {
 }
 
 /** The server's answer to `serverUploadBegin`. */
-export function serverUploadBegun(value: unknown): { uploadId: string; chunkBytes: number; maxBytes: number } {
+export function serverUploadBegun(value: unknown): { uploadId: string; maxBytes: number } {
   const begun = serverRecord(value, 'upload id');
   return {
     uploadId: serverUploadId(begun),
-    chunkBytes: serverInteger(begun.chunkBytes, 'the upload chunk size', 1, SERVER_UPLOAD_CHUNK_BYTES),
     maxBytes: serverInteger(begun.maxBytes, 'the upload size limit', 1, SERVER_UPLOAD_MAX_BYTES),
   };
-}
-
-/** The server's acknowledgement of a chunk: exactly the bytes sent, so an
- *  upload always advances or fails. */
-export function serverUploadAck(value: unknown, offset: number, length: number): { received: number } {
-  const expected = offset + length;
-  const received = serverInteger(
-    serverRecord(value, 'chunk acknowledgement').received,
-    'the received byte count',
-    0,
-    Number.MAX_SAFE_INTEGER
-  );
-  if (received !== expected)
-    throw new ServerResponseError(`${received} bytes acknowledged after sending through byte ${expected}`);
-  return { received };
 }
 
 /** The server's answer to `serverUploadCommit`: the one file of `size` bytes. */
@@ -314,6 +297,13 @@ interface ServerPreview {
   mime: string;
   kind: DesktopFilePreviewKind;
   key: string;
+  /** A converted document in the server's cache: converts the source again once the cache evicted the file. */
+  regenerate?: () => Promise<{ path: string; mtimeMs: number; size: number }>;
+  regenerating?: Promise<void>;
+  /** The source revision this token was registered for; only it is regenerated (see file-preview.ts). */
+  version: string;
+  /** Counts the re-pointings: another representation each, so the validator carries it. */
+  generation: number;
 }
 
 interface ProtocolSession {
@@ -350,11 +340,41 @@ export function createServerFilePreviews({ session, invoke }: { session: Protoco
     const token = url.hostname === 'preview' ? url.pathname.replace(/^\/+/, '').split('/', 1)[0] || '' : '';
     const preview = previews.get(token);
     if (!preview) return textResponse(404, 'Not found.');
+    // The size, the validator and the bytes of one answer belong to one generation: whatever the stat says is used only if no
+    // regeneration re-pointed the preview while it was in flight, else it is asked again of the current file. Nothing awaits
+    // between the last stat and the response below.
     let stat: unknown;
-    try {
-      stat = await invoke<unknown>('statProjectFileIn', [preview.root, preview.rel]);
-    } catch {
-      return textResponse(404, 'Not found.');
+    // A moved generation is progress and is followed; only this reader's own regeneration that leaves no servable file is a failure.
+    let regeneratedByThisRead = false;
+    for (;;) {
+      const seen = preview.generation;
+      try {
+        stat = await invoke<unknown>('statProjectFileIn', [preview.root, preview.rel]);
+        if (preview.generation === seen) break;
+      } catch {
+        const regenerate = preview.regenerate;
+        if (!regenerate) return textResponse(404, 'Not found.');
+        // A miss recorded against a file an earlier regeneration already replaced is retried on the current one, not converted
+        // again. Otherwise one conversion however many reads miss together; a failed one answers like a missing file.
+        if (preview.generation === seen) {
+          if (regeneratedByThisRead) return textResponse(404, 'Not found.');
+          regeneratedByThisRead = true;
+          preview.regenerating ??= (async () => {
+            const fresh = await regenerate();
+            if (`${fresh.mtimeMs}:${fresh.size}` !== preview.version) throw new Error('The source changed since this preview.');
+            preview.root = posix.dirname(fresh.path);
+            preview.rel = posix.basename(fresh.path);
+            preview.generation += 1;
+          })().finally(() => {
+            preview.regenerating = undefined;
+          });
+        }
+        try {
+          await preview.regenerating;
+        } catch {
+          return textResponse(404, 'Not found.');
+        }
+      }
     }
     let size: number;
     try {
@@ -365,10 +385,13 @@ export function createServerFilePreviews({ session, invoke }: { session: Protoco
     const plan = mediaResponsePlan({
       size,
       mime: preview.mime,
-      assetId: token,
+      assetId: `${token}.${preview.generation}`,
       variant: 'server',
       rangeHeader: request.headers.get('range'),
       ifNoneMatch: request.headers.get('if-none-match'),
+      ifRange: request.headers.get('if-range'),
+      // A converted preview can be regenerated with other bytes: it is revalidated, never kept as immutable.
+      ...(preview.regenerate ? { cacheControl: 'private, no-cache' } : {}),
     });
     const headers = {
       ...Object.fromEntries(Object.entries(plan.headers).map(([key, value]) => [key, String(value)])),
@@ -397,7 +420,8 @@ export function createServerFilePreviews({ session, invoke }: { session: Protoco
     register(
       root: string,
       rel: string,
-      version: string
+      version: string,
+      options: { regenerate?: () => Promise<{ path: string; mtimeMs: number; size: number }> } = {}
     ): { url: string; kind: DesktopFilePreviewKind; mime: string } | null {
       const type = filePreviewTypeForPath(rel);
       if (!type) return null;
@@ -405,7 +429,7 @@ export function createServerFilePreviews({ session, invoke }: { session: Protoco
       let token = tokensByKey.get(key);
       if (!token || !previews.has(token)) {
         token = randomUUID();
-        previews.set(token, { root, rel, key, ...type });
+        previews.set(token, { root, rel, key, version, generation: 0, ...(options.regenerate ? { regenerate: options.regenerate } : {}), ...type });
         tokensByKey.set(key, token);
         while (previews.size > MAX_PREVIEWS) {
           const oldest = previews.keys().next().value;
@@ -433,29 +457,60 @@ export function createServerFilePreviews({ session, invoke }: { session: Protoco
   };
 }
 
-/** In-memory bytes into the server's upload staging folder, chunk by chunk. */
+/** The calls of the connection's upload coordinator that a producer needs (`ServerUploadCoordinator`). */
+export interface ServerUploads {
+  begin(
+    owner: object,
+    name: string,
+    size: number,
+    scope: string
+  ): Promise<{ uploadId: string; chunkBytes: number; maxBytes: number; inFlightChunks: number }>;
+  write(owner: object, uploadId: string, offset: number, bytes: Uint8Array): Promise<void>;
+  commit(owner: object, uploadId: string): Promise<{ absolutePath: string; name: string; dir: boolean; size: number }>;
+  abort(owner: object, uploadId: string): boolean;
+}
+
+/** In-memory bytes into the server's upload staging folder: chunks are submitted as far as the connection's upload window
+ *  admits, so the staging of a large attachment is paced like every other upload on the connection. */
 export async function uploadServerBytes(
-  invoke: ServerInvoke,
+  uploads: ServerUploads,
+  owner: object,
   bytes: Uint8Array,
   name: string,
   scope: string
 ): Promise<{ absolutePath: string; name: string; dir: boolean; size: number }> {
-  const begun = await invoke<unknown>('serverUploadBegin', [name, bytes.length, scope]);
-  // Any violation after a well-formed id aborts the upload on the server.
-  const uploadId = serverUploadId(begun);
+  const { uploadId, chunkBytes, inFlightChunks } = await uploads.begin(owner, name, bytes.length, scope);
+  const flights = new Set<Promise<void>>();
+  // The first failure ends the staging at once: the coordinator has retired the upload and detached the other producers, so
+  // nothing waits for them.
+  let rejectFailure!: (error: unknown) => void;
+  let hasFailed = false;
+  const failure = new Promise<never>((_resolve, reject) => {
+    rejectFailure = reject;
+  });
+  failure.catch(() => undefined);
+  const failed = (error: unknown): void => {
+    hasFailed = true;
+    rejectFailure(error);
+  };
   try {
-    const { chunkBytes } = serverUploadBegun(begun);
     for (let offset = 0; offset < bytes.length; offset += chunkBytes) {
-      const chunk = Buffer.from(bytes.buffer, bytes.byteOffset + offset, Math.min(chunkBytes, bytes.length - offset));
-      serverUploadAck(
-        await invoke('serverUploadChunk', [uploadId, offset, chunk.toString('base64')]),
-        offset,
-        chunk.length
+      if (hasFailed) await failure;
+      while (flights.size >= inFlightChunks) await Promise.race([...flights, failure]);
+      const chunk = new Uint8Array(bytes.buffer, bytes.byteOffset + offset, Math.min(chunkBytes, bytes.length - offset));
+      const flight: Promise<void> = uploads.write(owner, uploadId, offset, chunk).then(
+        () => void flights.delete(flight),
+        (error: unknown) => {
+          flights.delete(flight);
+          failed(error);
+        }
       );
+      flights.add(flight);
     }
-    return serverUploadedEntry(await invoke('serverUploadCommit', [uploadId]), bytes.length);
+    while (flights.size > 0) await Promise.race([...flights, failure]);
+    return await uploads.commit(owner, uploadId);
   } catch (error) {
-    await invoke('serverUploadAbort', [uploadId]).catch(() => {});
+    uploads.abort(owner, uploadId);
     throw error;
   }
 }

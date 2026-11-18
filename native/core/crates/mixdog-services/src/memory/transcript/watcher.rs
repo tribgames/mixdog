@@ -13,14 +13,14 @@ use mixdog_rt::{CancellationToken, LaneToken};
 use mixdog_statefile::metadata;
 use mixdog_workspace::watcher::{ChangeKind, ChangeSink, FolderWatcher};
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
-use tokio::task::{AbortHandle, JoinHandle};
 
 use super::discovery::{discover_active_transcripts, is_watchable, mtime_ms};
 use super::rows::cwd_from_transcript_path;
 use super::TranscriptIngest;
 use crate::bots::delivery::env::RetryTimer;
-use crate::memory::cycles::requests::{spawn_work, wait};
-use crate::memory::error::{MemoryError, Result};
+use crate::memory::cycles::requests::wait;
+use crate::memory::error::Result;
+use crate::memory::lifecycle::Scope;
 
 const SAFETY_POLL: Duration = Duration::from_secs(5 * 60);
 const DEBOUNCE: Duration = Duration::from_millis(500);
@@ -45,10 +45,12 @@ struct Shared {
     ingest: Arc<TranscriptIngest>,
     /// `consumedMtime`: a file whose mtime was fully consumed is not read again until it changes.
     consumed: Mutex<HashMap<String, f64>>,
-    pending: Mutex<HashMap<String, (u64, AbortHandle)>>,
+    /// The debounce timer waiting for each file, under its number; cancelling it ends the wait (its work then completes, never aborted).
+    pending: Mutex<HashMap<String, (u64, CancellationToken)>>,
     next_timer: Mutex<u64>,
-    /// Every debounce task, sleeping or ingesting: shutdown joins them before the store closes.
-    ingests: Mutex<Vec<JoinHandle<()>>>,
+    /// The watcher's group of the database's owner: the event and sweep tasks and every debounce, sleeping or ingesting. The registry is its only
+    /// bookkeeping (a completed debounce retires with its slot); shutdown waits for the group before the store closes.
+    work: Scope,
     /// Set by `stop` under the `pending` lock: no timer is armed after it.
     closed: AtomicBool,
     timer: Arc<dyn RetryTimer>,
@@ -114,6 +116,8 @@ impl Shared {
         if self.closed.load(Ordering::SeqCst) {
             return;
         }
+        // An inert slot under the lock; the work is installed after the lock is released, so a cut that refuses it destroys nothing under the lock.
+        let Some(reservation) = self.work.reserve() else { return };
         let id = {
             let mut next = self.next_timer.lock().expect("timer ids");
             *next += 1;
@@ -121,8 +125,17 @@ impl Shared {
         };
         let this = Arc::clone(self);
         let timer_key = key.clone();
-        let task = spawn_work("memory-transcript-debounce", async move {
-            wait(this.timer.as_ref(), DEBOUNCE).await;
+        let timer = CancellationToken::new();
+        let waiting = timer.clone();
+        if let Some((_, old)) = pending.insert(key, (id, timer)) {
+            old.cancel();
+        }
+        drop(pending);
+        let _debounce = reservation.activate("memory-transcript-debounce", async move {
+            tokio::select! {
+                () = waiting.cancelled() => return,
+                () = wait(this.timer.as_ref(), DEBOUNCE) => {}
+            }
             {
                 let mut pending = this.pending.lock().expect("pending");
                 if pending.get(&timer_key).is_some_and(|(held, _)| *held == id) {
@@ -131,75 +144,85 @@ impl Shared {
             }
             this.ingest_one(&file).await;
         });
-        if let Some((_, old)) = pending.insert(key, (id, task.abort_handle())) {
-            old.abort();
-        }
-        drop(pending);
-        let mut ingests = self.ingests.lock().expect("ingests");
-        ingests.retain(|task| !task.is_finished());
-        ingests.push(task);
     }
 }
 
-/// A running watcher; [`TranscriptWatcher::stop`] ends it.
+/// A running watcher; [`TranscriptWatcher::stop`] ends it. Its tasks are a group of the database's owner, started only after the handle exists
+/// ([`TranscriptWatcher::new`], then [`TranscriptWatcher::start`]): the owner publishes the handle first, so no task runs that its stop cannot reach.
 pub struct TranscriptWatcher {
     shared: Arc<Shared>,
     folders: Arc<FolderWatcher>,
     stop: CancellationToken,
-    tasks: Mutex<Vec<JoinHandle<()>>>,
 }
 
 /// `startTranscriptWatcher`: resolves after the first active-transcript sweep.
 pub async fn start_transcript_watcher(root: PathBuf, ingest: Arc<TranscriptIngest>, folders: Arc<FolderWatcher>, sink: &TranscriptSink, timer: Arc<dyn RetryTimer>) -> TranscriptWatcher {
-    let shared = Arc::new(Shared {
-        root: root.clone(),
-        ingest,
-        consumed: Mutex::default(),
-        pending: Mutex::default(),
-        next_timer: Mutex::new(0),
-        ingests: Mutex::default(),
-        closed: AtomicBool::new(false),
-        timer,
-    });
-    let stop = CancellationToken::new();
-    let mut tasks = Vec::new();
-    match folders.watch(WATCH_ID, &root, true) {
-        Ok(()) => {
-            log(&format!("[transcript-watch] fs.watch(recursive) active on {}\n", root.display()));
-            let (events, mut changes) = (Arc::clone(&shared), sink.receiver());
-            let stopped = stop.clone();
-            tasks.push(spawn_work("memory-transcript-events", async move {
-                loop {
-                    let paths = tokio::select! {
-                        () = stopped.cancelled() => break,
-                        paths = changes.recv() => match paths { Some(paths) => paths, None => break },
-                    };
-                    for path in paths {
-                        let path = PathBuf::from(path);
-                        let Ok(relative) = path.strip_prefix(&events.root) else { continue };
-                        if is_watchable(&relative.to_string_lossy()) {
-                            events.schedule_ingest(path);
+    let watcher = TranscriptWatcher::new(root, ingest, folders, timer);
+    watcher.start(sink).await;
+    watcher
+}
+
+impl TranscriptWatcher {
+    /// The watcher's handle; nothing runs until [`Self::start`].
+    pub fn new(root: PathBuf, ingest: Arc<TranscriptIngest>, folders: Arc<FolderWatcher>, timer: Arc<dyn RetryTimer>) -> Self {
+        let shared = Arc::new(Shared {
+            root,
+            ingest: ingest.clone(),
+            consumed: Mutex::default(),
+            pending: Mutex::default(),
+            next_timer: Mutex::new(0),
+            work: ingest.db.scope().sub_scope(),
+            closed: AtomicBool::new(false),
+            timer,
+        });
+        Self { shared, folders, stop: CancellationToken::new() }
+    }
+
+    /// The OS watch, the event and sweep tasks, then the first sweep. A watcher already stopped starts nothing.
+    pub async fn start(&self, sink: &TranscriptSink) {
+        let (shared, folders, stop) = (&self.shared, &self.folders, &self.stop);
+        let root = shared.root.clone();
+        let scope = shared.work.clone();
+        if stop.is_cancelled() {
+            return;
+        }
+        match folders.watch(WATCH_ID, &root, true) {
+            Ok(()) => {
+                log(&format!("[transcript-watch] fs.watch(recursive) active on {}\n", root.display()));
+                let (events, mut changes) = (Arc::clone(shared), sink.receiver());
+                let stopped = stop.clone();
+                let _events = scope.spawn("memory-transcript-events", async move {
+                    loop {
+                        let paths = tokio::select! {
+                            () = stopped.cancelled() => break,
+                            paths = changes.recv() => match paths { Some(paths) => paths, None => break },
+                        };
+                        for path in paths {
+                            let path = PathBuf::from(path);
+                            let Ok(relative) = path.strip_prefix(&events.root) else { continue };
+                            if is_watchable(&relative.to_string_lossy()) {
+                                events.schedule_ingest(path);
+                            }
                         }
                     }
-                }
-            }));
-        }
-        Err(error) => log(&format!("[transcript-watch] fs.watch setup failed: {} \u{2014} relying on safety sweep only\n", error.message)),
-    }
-    let (sweeper, stopped) = (Arc::clone(&shared), stop.clone());
-    tasks.push(spawn_work("memory-transcript-sweep", async move {
-        loop {
-            tokio::select! {
-                () = stopped.cancelled() => break,
-                () = wait(sweeper.timer.as_ref(), SAFETY_POLL) => {}
+                });
             }
-            sweeper.safety_sweep().await;
+            Err(error) => log(&format!("[transcript-watch] fs.watch setup failed: {} \u{2014} relying on safety sweep only\n", error.message)),
         }
-    }));
-    // Runtime readiness includes the first sweep: without it a lazily started memory service can
-    // answer recall before the current session's persisted rows exist.
-    shared.safety_sweep().await;
-    TranscriptWatcher { shared, folders, stop, tasks: Mutex::new(tasks) }
+        let (sweeper, stopped) = (Arc::clone(shared), stop.clone());
+        let _sweep = scope.spawn("memory-transcript-sweep", async move {
+            loop {
+                tokio::select! {
+                    () = stopped.cancelled() => break,
+                    () = wait(sweeper.timer.as_ref(), SAFETY_POLL) => {}
+                }
+                sweeper.safety_sweep().await;
+            }
+        });
+        // Runtime readiness includes the first sweep: without it a lazily started memory service can
+        // answer recall before the current session's persisted rows exist.
+        shared.safety_sweep().await;
+    }
 }
 
 /// The channel between the OS watcher's thread and the watcher's event task. Build it first, hand
@@ -242,47 +265,25 @@ impl TranscriptWatcher {
         let mut pending = self.shared.pending.lock().expect("pending");
         self.shared.closed.store(true, Ordering::SeqCst);
         for (_, (_, timer)) in pending.drain() {
-            timer.abort();
+            timer.cancel();
         }
     }
 
-    /// Waits, after [`Self::stop`], for everything the watcher started: first the event and sweep
-    /// tasks (so nothing new is armed), then the timers still waiting, then the ingestions
-    /// running. The caller persists offsets and closes the store only after this returns.
+    /// Waits, after [`Self::stop`], for everything the watcher started: its group is sealed (no timer is armed after `stop`, which set `closed`)
+    /// and the wait is the owner's own idle wait of that group: the event and sweep tasks, the cancelled timers and the ingestions running. The
+    /// caller persists offsets and closes the store only after this returns. A wait abandoned at the stop's deadline leaves them owned, and the
+    /// owner's revocation ends them.
     pub async fn finished(&self) -> Result<()> {
-        // The first failure is kept and returned only after every task has been joined.
-        let mut first: Option<MemoryError> = None;
-        let tasks: Vec<_> = self.tasks.lock().expect("tasks").drain(..).collect();
-        // A wait abandoned at the stop's bound ends what it took; what it had not taken yet is [`Self::abandon`]'s.
-        let _abandoned: Vec<_> = tasks.iter().map(|task| crate::memory::AbortOnDrop(task.abort_handle())).collect();
-        for task in tasks {
-            if let Err(error) = task.await {
-                first.get_or_insert_with(|| MemoryError::Runtime(error.to_string()));
-            }
-        }
         self.close_timers();
-        let ingests: Vec<_> = self.shared.ingests.lock().expect("ingests").drain(..).collect();
-        let _abandoned_ingests: Vec<_> = ingests.iter().map(|task| crate::memory::AbortOnDrop(task.abort_handle())).collect();
-        for task in ingests {
-            // A timer cut short by `stop` is cancelled, not failed.
-            if let Err(error) = task.await
-                && !error.is_cancelled()
-            {
-                first.get_or_insert_with(|| MemoryError::Runtime(error.to_string()));
-            }
-        }
-        first.map_or(Ok(()), Err)
+        self.shared.work.seal();
+        self.shared.work.idle().await;
+        Ok(())
     }
 
-    /// The stop's bound passed: everything the watcher started and [`Self::finished`] had not taken yet (its tasks, the ingestions running) is aborted.
-    pub fn abandon(&self) {
-        self.stop();
-        for task in self.tasks.lock().expect("tasks").drain(..) {
-            task.abort();
-        }
-        for task in self.shared.ingests.lock().expect("ingests").drain(..) {
-            task.abort();
-        }
+    /// The watcher's work still outstanding.
+    #[cfg(test)]
+    pub(crate) fn outstanding(&self) -> usize {
+        self.shared.work.running()
     }
 }
 

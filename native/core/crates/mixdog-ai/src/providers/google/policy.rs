@@ -25,6 +25,8 @@ fn ladder(steps: &[u64]) -> Backoff {
     Backoff::Ladder(steps.iter().copied().map(secs).collect())
 }
 
+pub(super) const GEMINI_RETRY_ADVICE_LIMIT: Duration = secs(300);
+
 /// Gemini API and Vertex AI (`gemini-retry-policy.mjs`): ten attempts opening
 /// the request, then four attempts for a stream that dies after it opened.
 /// A server wait over 300 s ends recovery on both.
@@ -36,7 +38,7 @@ pub fn gemini() -> RetryPolicy {
         jitter: Jitter::symmetric(0.3),
         advice: AdviceRule {
             combine: AdviceCombine::Floor,
-            ceiling: Some(secs(300)),
+            ceiling: Some(GEMINI_RETRY_ADVICE_LIMIT),
             jitter: Jitter {
                 ratio: 0.2,
                 mode: JitterMode::Positive,
@@ -50,7 +52,7 @@ pub fn gemini() -> RetryPolicy {
         backoff: Backoff::Exponential { base: secs(1) },
         jitter: Jitter::NONE,
         advice: AdviceRule {
-            ceiling: Some(secs(300)),
+            ceiling: Some(GEMINI_RETRY_ADVICE_LIMIT),
             ..AdviceRule::honored_in_full()
         },
     });

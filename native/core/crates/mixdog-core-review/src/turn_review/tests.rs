@@ -5,36 +5,47 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+#[cfg(node_twin)]
 use base64::Engine;
+#[cfg(node_twin)]
 use mixdog_core_api::turn_review::AgentReview;
 use mixdog_core_api::turn_review::CallChange;
+#[cfg(node_twin)]
 use mixdog_core_api::turn_review::ChangesRead;
 use mixdog_core_api::turn_review::ReviewContent;
 use mixdog_core_api::turn_review::ReviewRead;
 use mixdog_core_api::turn_review::TurnOpen;
 use mixdog_core_api::turn_review::TurnReviewApi;
+#[cfg(node_twin)]
 use mixdog_core_api::turn_review::TurnToken;
+#[cfg(node_twin)]
 use serde_json::json;
+#[cfg(node_twin)]
 use serde_json::Value;
 
+#[cfg(node_twin)]
 use super::call_diff::measure_call_changes;
 use super::call_diff::patch_header_path_for_resolved;
+#[cfg(node_twin)]
 use super::call_diff::CardDiffs;
+#[cfg(node_twin)]
 use super::call_diff::TrackedChange;
+#[cfg(node_twin)]
 use super::line_diff::unified_hunks_body;
+#[cfg(node_twin)]
 use super::line_diff::Hunk;
+#[cfg(node_twin)]
 use super::line_diff::LineDiffBudget;
+#[cfg(node_twin)]
 use super::line_diff::LineDiffer;
 use super::nodepath;
+#[cfg(node_twin)]
 use super::nodepath::Style;
+#[cfg(node_twin)]
 use super::review_diff;
 use super::testing::review_at;
 
-fn fixture(name: &str) -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/turn-review").join(name);
-    serde_json::from_slice(&std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).unwrap()
-}
-
+#[cfg(node_twin)]
 fn text_of(value: &Value) -> String {
     match value {
         Value::String(text) => text.clone(),
@@ -43,6 +54,7 @@ fn text_of(value: &Value) -> String {
 }
 
 /// The recorder's recipes for inputs too large to keep in the fixture.
+#[cfg(node_twin)]
 fn generate(spec: &Value) -> String {
     if spec["gen"] == "numbered" {
         let n = spec["n"].as_u64().unwrap();
@@ -66,118 +78,24 @@ fn generate(spec: &Value) -> String {
     out
 }
 
+#[cfg(node_twin)]
 trait AsUsize {
     fn as_usize(&self) -> Option<usize>;
 }
 
+#[cfg(node_twin)]
 impl AsUsize for Value {
     fn as_usize(&self) -> Option<usize> {
         self.as_u64().map(|n| n as usize)
     }
 }
 
+#[cfg(node_twin)]
 fn hunk_json(hunk: &Hunk) -> Value {
     json!({"oldStart": hunk.old_start, "oldLines": hunk.old_lines, "newStart": hunk.new_start, "newLines": hunk.new_lines, "lines": hunk.lines})
 }
 
-#[test]
-fn line_diffs_match_node() {
-    let golden = fixture("line-diff.json");
-    let differ = LineDiffer::new();
-    for case in golden["diffs"].as_array().unwrap() {
-        let (old, new) = (text_of(&case["old"]), text_of(&case["new"]));
-        let mut budget = LineDiffBudget::new(10_000_000.0);
-        let set = differ.hunks(&old, &new, &mut budget, [None, None]);
-        let name = &case["name"];
-        assert_eq!(Value::Array(set.hunks.iter().map(hunk_json).collect()), case["hunks"], "{name}");
-        assert_eq!(Value::Bool(set.exact), case["exact"], "{name}");
-        assert_eq!(Value::String(unified_hunks_body("a/f", "b/f", &set.hunks)), case["body"], "{name}");
-    }
-}
-
-#[test]
-fn spent_budget_gives_the_replacement_hunk() {
-    let golden = fixture("line-diff.json");
-    let case = &golden["budgets"][0];
-    let differ = LineDiffer::new();
-    let mut budget = LineDiffBudget::new(case["totalMs"].as_f64().unwrap());
-    for result in case["results"].as_array().unwrap() {
-        let set = differ.hunks(result["old"].as_str().unwrap(), result["new"].as_str().unwrap(), &mut budget, [None, None]);
-        assert_eq!(Value::Array(set.hunks.iter().map(hunk_json).collect()), result["hunks"]);
-        assert_eq!(Value::Bool(set.exact), result["exact"]);
-    }
-}
-
-#[test]
-fn patch_headers_match_node() {
-    let golden = fixture("line-diff.json");
-    for case in golden["headers"].as_array().unwrap() {
-        let hunks = if case["noHunks"] == true {
-            Vec::new()
-        } else {
-            let mut budget = LineDiffBudget::new(10_000_000.0);
-            LineDiffer::new().hunks("a\nb\n", "a\nc\n", &mut budget, [None, None]).hunks.clone()
-        };
-        let body = unified_hunks_body(case["oldHeader"].as_str().unwrap(), case["newHeader"].as_str().unwrap(), &hunks);
-        assert_eq!(Value::String(body), case["body"], "{}", case["oldHeader"]);
-    }
-}
-
-#[test]
-fn review_bounds_match_node() {
-    let golden = fixture("review-diff.json");
-    for case in golden["bound"].as_array().unwrap() {
-        let (patch, truncated) = review_diff::bound_review_patch(case["input"].as_str().unwrap(), case["max"].as_u64().unwrap() as usize);
-        assert_eq!((Value::String(patch), Value::Bool(truncated)), (case["patch"].clone(), case["truncated"].clone()), "{}", case["name"]);
-    }
-    let mut budget = review_diff::ReviewPatchBudget::new(2_000_000);
-    for step in golden["admit"].as_array().unwrap() {
-        assert_eq!(budget.admit(step["bytes"].as_u64().unwrap() as usize), step["admitted"].as_bool().unwrap());
-        assert_eq!(budget.remaining() as u64, step["remaining"].as_u64().unwrap());
-    }
-    for case in golden["filePatch"].as_array().unwrap() {
-        let reply = review_diff::file_patch_reply(case["path"].as_str().unwrap(), case["patch"].as_str().unwrap(), case["max"].as_u64().unwrap() as usize);
-        assert_eq!(Value::Object(reply), case["reply"], "{}", case["name"]);
-    }
-}
-
-#[test]
-fn call_diffs_match_node() {
-    let golden = fixture("call-diff.json");
-    let differ = LineDiffer::new();
-    for case in golden["measure"].as_array().unwrap() {
-        let changes = case["changes"].as_array().unwrap().iter().map(tracked).collect();
-        let mut budget = LineDiffBudget::new(10_000_000.0);
-        let (diff, measured) = measure_call_changes(&differ, changes, &mut budget);
-        assert_eq!(Value::String(diff), case["diff"], "{}", case["name"]);
-        let counts: Vec<Value> = measured.iter().map(|c| json!({"additions": c.additions.unwrap_or(0), "deletions": c.deletions.unwrap_or(0)})).collect();
-        assert_eq!(Value::Array(counts), case["counts"], "{}", case["name"]);
-    }
-}
-
-#[test]
-fn card_registry_is_bounded_oldest_first() {
-    let golden = fixture("call-diff.json");
-    let cards = CardDiffs::default();
-    for i in 0..70 {
-        cards.register(&format!("c{i}"), "d");
-    }
-    let mut taken = Vec::new();
-    for id in ["c0", "c5", "c6", "c69", "c69", "nope", ""] {
-        taken.push(json!({"id": id, "found": cards.take(id).is_some()}));
-    }
-    for i in 0..64 {
-        cards.register(&format!("r{i}"), "x");
-    }
-    cards.register("r10", "again");
-    cards.register("extra", "e");
-    for id in ["r0", "r1", "r10", "extra"] {
-        taken.push(json!({"id": id, "found": cards.take(id).is_some()}));
-    }
-    assert_eq!(Value::Array(taken), golden["registry"]["taken"]);
-    assert_eq!(cards.take("r10"), None);
-}
-
+#[cfg(node_twin)]
 fn content_of(spec: &Value) -> ReviewContent {
     if spec.is_null() {
         return ReviewContent::Absent;
@@ -192,6 +110,7 @@ fn content_of(spec: &Value) -> ReviewContent {
     ReviewContent::Omitted { size: omitted["size"].as_u64().unwrap(), reason: omitted["reason"].as_str().map(str::to_owned) }
 }
 
+#[cfg(node_twin)]
 fn tracked(spec: &Value) -> TrackedChange {
     let display = spec["displayPath"].as_str().unwrap();
     let new_display = spec.get("newDisplayPath").and_then(Value::as_str);
@@ -208,22 +127,6 @@ fn tracked(spec: &Value) -> TrackedChange {
 }
 
 #[test]
-fn node_paths_match_node() {
-    let golden = fixture("nodepath.json");
-    for (key, style) in [("win32", Style::Win32), ("posix", Style::Posix)] {
-        for case in golden[key].as_array().unwrap() {
-            let args: Vec<&str> = case["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()).collect();
-            let got = match case["fn"].as_str().unwrap() {
-                "isAbsolute" => Value::Bool(nodepath::is_absolute(style, args[0])),
-                "resolve" => Value::String(nodepath::resolve(style, &args)),
-                _ => Value::String(nodepath::relative(style, args[0], args[1])),
-            };
-            assert_eq!(got, case["out"], "{key} {}", case["args"]);
-        }
-    }
-}
-
-#[test]
 fn header_paths_are_relative_to_the_base() {
     assert_eq!(patch_header_path_for_resolved("/ws", "/ws/a/b.txt"), "a/b.txt");
 }
@@ -236,6 +139,7 @@ pub(super) fn plain(path: &Path) -> String {
 
 /// The persisted bytes of a session's file in one store directory (`""` = the turn index), clocks
 /// zeroed and the scenario's directories tokenized, as the recorder's `persistedText`.
+#[cfg(node_twin)]
 fn persisted_text(data: &Path, sub: &str, session: &str, ws: &str, data_text: &str) -> Value {
     use sha2::Digest;
     let digest: String = sha2::Sha256::digest(session.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
@@ -245,6 +149,7 @@ fn persisted_text(data: &Path, sub: &str, session: &str, ws: &str, data_text: &s
 }
 
 /// [`persisted_text`]'s normalisation of one file's text.
+#[cfg(node_twin)]
 fn tokenized(text: String, ws: &str, data_text: &str) -> Value {
     let clocks = regex::Regex::new(r#""(at|touched|createdAt|updatedAt|clearedAt|incompleteAt|foldedAt)":[0-9.e+-]+"#).unwrap();
     let mut text = clocks.replace_all(&text, r#""$1":0"#).into_owned();
@@ -261,6 +166,7 @@ fn tokenized(text: String, ws: &str, data_text: &str) -> Value {
 }
 
 /// Node's normalisation of a result: the scenario directories become tokens, clocks zero.
+#[cfg(node_twin)]
 fn normalize(value: &Value, ws: &str, data: &str) -> Value {
     let mut text = value.to_string();
     let parent = Path::new(ws).parent().unwrap().to_string_lossy().into_owned();
@@ -278,10 +184,12 @@ fn normalize(value: &Value, ws: &str, data: &str) -> Value {
     serde_json::from_str(&text).unwrap()
 }
 
+#[cfg(node_twin)]
 fn error_json(error: &mixdog_core_api::turn_review::ReviewError) -> Value {
     json!({"error": {"name": if error.type_error { "TypeError" } else { "Error" }, "message": error.message}})
 }
 
+#[cfg(node_twin)]
 fn wrap(result: Result<serde_json::Map<String, Value>, mixdog_core_api::turn_review::ReviewError>) -> Value {
     match result {
         Ok(reply) => json!({"ok": reply}),
@@ -289,54 +197,35 @@ fn wrap(result: Result<serde_json::Map<String, Value>, mixdog_core_api::turn_rev
     }
 }
 
+#[cfg(node_twin)]
 const SCENARIO_SLICES: usize = 4;
 
+/// Every file under `dir` with its bytes' length and a cheap checksum, for before/after comparison.
+fn tree_listing(dir: &Path) -> Vec<(String, u64, u64)> {
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<(String, u64, u64)>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(base, &path, out);
+            } else {
+                let bytes = std::fs::read(&path).unwrap();
+                let sum = bytes.iter().fold(0u64, |a, b| a.wrapping_mul(31).wrapping_add(*b as u64));
+                out.push((path.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/"), bytes.len() as u64, sum));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out);
+    out.sort();
+    out
+}
+
 /// The recorded scenarios of this platform.
+#[cfg(node_twin)]
 fn platform_scenarios(golden: &Value) -> Vec<&Value> {
     golden.as_array().unwrap().iter().filter(|scenario| scenario["platform"] == std::env::consts::OS.replace("windows", "win32")).collect()
 }
-
-/// Runs the scenarios of this platform whose position is `slice` modulo `SCENARIO_SLICES`.
-async fn scenario_slice(slice: usize) {
-    let golden = fixture("scenarios.json");
-    let mut ran = 0;
-    for (position, scenario) in platform_scenarios(&golden).into_iter().enumerate() {
-        if position % SCENARIO_SLICES != slice {
-            continue;
-        }
-        let name = scenario["name"].as_str().unwrap();
-        run_scenario(name, scenario).await;
-        ran += 1;
-    }
-    assert!(REGISTERED_SCENARIO_SLICES.contains(&slice));
-    assert_eq!(ran, (0..platform_scenarios(&golden).len()).filter(|position| position % SCENARIO_SLICES == slice).count(), "executed scenarios");
-    println!("slice {slice}: {ran} scenarios ran");
-}
-
-macro_rules! registered_scenarios_match_node {
-    ($($name:ident => $slice:expr),* $(,)?) => {
-        const REGISTERED_SCENARIO_SLICES: &[usize] = &[$($slice),*];
-        $(#[tokio::test(flavor = "multi_thread")]
-        async fn $name() { scenario_slice($slice).await; })*
-    };
-}
-registered_scenarios_match_node! {
-    scenarios_match_node_slice_0 => 0,
-    scenarios_match_node_slice_1 => 1,
-    scenarios_match_node_slice_2 => 2,
-    scenarios_match_node_slice_3 => 3,
-}
-
-#[test]
-fn the_slices_run_every_recorded_scenario_of_this_platform_once() {
-    let golden = fixture("scenarios.json");
-    let total = platform_scenarios(&golden).len();
-    assert_eq!(REGISTERED_SCENARIO_SLICES, &(0..SCENARIO_SLICES).collect::<Vec<_>>());
-    let covered: usize = REGISTERED_SCENARIO_SLICES.iter().map(|slice| (0..total).filter(|position| position % SCENARIO_SLICES == *slice).count()).sum();
-    println!("{total} scenarios in {SCENARIO_SLICES} slices");
-    assert_eq!(covered, total);
-}
-
+#[cfg(node_twin)]
 async fn run_scenario(name: &str, scenario: &Value) {
     let dir = tempfile::tempdir().unwrap();
     let base = PathBuf::from(plain(&dir.path().canonicalize().unwrap()));
@@ -539,27 +428,6 @@ async fn run_scenario(name: &str, scenario: &Value) {
     }
     assert_eq!(expected.len(), actual.len(), "{name}: result count");
 }
-
-/// Every file under `dir` with its bytes' length and a cheap checksum, for before/after comparison.
-fn tree_listing(dir: &Path) -> Vec<(String, u64, u64)> {
-    fn walk(base: &Path, dir: &Path, out: &mut Vec<(String, u64, u64)>) {
-        for entry in std::fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                walk(base, &path, out);
-            } else {
-                let bytes = std::fs::read(&path).unwrap();
-                let sum = bytes.iter().fold(0u64, |a, b| a.wrapping_mul(31).wrapping_add(*b as u64));
-                out.push((path.strip_prefix(base).unwrap().to_string_lossy().replace('\\', "/"), bytes.len() as u64, sum));
-            }
-        }
-    }
-    let mut out = Vec::new();
-    walk(dir, dir, &mut out);
-    out.sort();
-    out
-}
-
 /// Where a review starts is recorded where the turn's snapshot is taken: the turn's own tree under its
 /// checkpoint, the thread's first tree for the session, the durable record again after a restart, and
 /// nothing once the thread is forgotten.
@@ -604,7 +472,6 @@ async fn review_starts_are_recorded_at_the_snapshot_and_forgotten_with_the_threa
     TurnReviewApi::forget_session(&review, "s1");
     assert!(bases.base(&thread, ReviewScope::Turn, Some("cp1")).await.is_none() && bases.base(&thread, ReviewScope::Session, None).await.is_none());
 }
-
 /// The baseline tree and tool baselines live in the shadow repository (borrowing the user's
 /// objects through `objects/info/alternates`): the user's `.git` gains no object, no ref and no
 /// index change from a whole turn, its session review and its undo.
@@ -645,4 +512,168 @@ async fn user_repository_is_never_written() {
     let alternates = std::fs::read_to_string(shadows[0].join("objects").join("info").join("alternates")).unwrap();
     assert!(alternates.lines().any(|l| nodepath::resolve_host(&[l]) == nodepath::resolve_host(&[&plain(&ws.join(".git").join("objects"))])), "{alternates}");
     assert!(shadows[0].join("objects").read_dir().unwrap().count() > 2, "the baseline objects are in the shadow repository");
+}
+
+
+#[cfg(node_twin)]
+fn fixture(name: &str) -> Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/turn-review").join(name);
+    serde_json::from_slice(&std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).unwrap()
+}
+#[cfg(node_twin)]
+#[test]
+fn line_diffs_match_node() {
+    let golden = fixture("line-diff.json");
+    let differ = LineDiffer::new();
+    for case in golden["diffs"].as_array().unwrap() {
+        let (old, new) = (text_of(&case["old"]), text_of(&case["new"]));
+        let mut budget = LineDiffBudget::new(10_000_000.0);
+        let set = differ.hunks(&old, &new, &mut budget, [None, None]);
+        let name = &case["name"];
+        assert_eq!(Value::Array(set.hunks.iter().map(hunk_json).collect()), case["hunks"], "{name}");
+        assert_eq!(Value::Bool(set.exact), case["exact"], "{name}");
+        assert_eq!(Value::String(unified_hunks_body("a/f", "b/f", &set.hunks)), case["body"], "{name}");
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn spent_budget_gives_the_replacement_hunk() {
+    let golden = fixture("line-diff.json");
+    let case = &golden["budgets"][0];
+    let differ = LineDiffer::new();
+    let mut budget = LineDiffBudget::new(case["totalMs"].as_f64().unwrap());
+    for result in case["results"].as_array().unwrap() {
+        let set = differ.hunks(result["old"].as_str().unwrap(), result["new"].as_str().unwrap(), &mut budget, [None, None]);
+        assert_eq!(Value::Array(set.hunks.iter().map(hunk_json).collect()), result["hunks"]);
+        assert_eq!(Value::Bool(set.exact), result["exact"]);
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn patch_headers_match_node() {
+    let golden = fixture("line-diff.json");
+    for case in golden["headers"].as_array().unwrap() {
+        let hunks = if case["noHunks"] == true {
+            Vec::new()
+        } else {
+            let mut budget = LineDiffBudget::new(10_000_000.0);
+            LineDiffer::new().hunks("a\nb\n", "a\nc\n", &mut budget, [None, None]).hunks.clone()
+        };
+        let body = unified_hunks_body(case["oldHeader"].as_str().unwrap(), case["newHeader"].as_str().unwrap(), &hunks);
+        assert_eq!(Value::String(body), case["body"], "{}", case["oldHeader"]);
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn review_bounds_match_node() {
+    let golden = fixture("review-diff.json");
+    for case in golden["bound"].as_array().unwrap() {
+        let (patch, truncated) = review_diff::bound_review_patch(case["input"].as_str().unwrap(), case["max"].as_u64().unwrap() as usize);
+        assert_eq!((Value::String(patch), Value::Bool(truncated)), (case["patch"].clone(), case["truncated"].clone()), "{}", case["name"]);
+    }
+    let mut budget = review_diff::ReviewPatchBudget::new(2_000_000);
+    for step in golden["admit"].as_array().unwrap() {
+        assert_eq!(budget.admit(step["bytes"].as_u64().unwrap() as usize), step["admitted"].as_bool().unwrap());
+        assert_eq!(budget.remaining() as u64, step["remaining"].as_u64().unwrap());
+    }
+    for case in golden["filePatch"].as_array().unwrap() {
+        let reply = review_diff::file_patch_reply(case["path"].as_str().unwrap(), case["patch"].as_str().unwrap(), case["max"].as_u64().unwrap() as usize);
+        assert_eq!(Value::Object(reply), case["reply"], "{}", case["name"]);
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn call_diffs_match_node() {
+    let golden = fixture("call-diff.json");
+    let differ = LineDiffer::new();
+    for case in golden["measure"].as_array().unwrap() {
+        let changes = case["changes"].as_array().unwrap().iter().map(tracked).collect();
+        let mut budget = LineDiffBudget::new(10_000_000.0);
+        let (diff, measured) = measure_call_changes(&differ, changes, &mut budget);
+        assert_eq!(Value::String(diff), case["diff"], "{}", case["name"]);
+        let counts: Vec<Value> = measured.iter().map(|c| json!({"additions": c.additions.unwrap_or(0), "deletions": c.deletions.unwrap_or(0)})).collect();
+        assert_eq!(Value::Array(counts), case["counts"], "{}", case["name"]);
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn card_registry_is_bounded_oldest_first() {
+    let golden = fixture("call-diff.json");
+    let cards = CardDiffs::default();
+    for i in 0..70 {
+        cards.register(&format!("c{i}"), "d");
+    }
+    let mut taken = Vec::new();
+    for id in ["c0", "c5", "c6", "c69", "c69", "nope", ""] {
+        taken.push(json!({"id": id, "found": cards.take(id).is_some()}));
+    }
+    for i in 0..64 {
+        cards.register(&format!("r{i}"), "x");
+    }
+    cards.register("r10", "again");
+    cards.register("extra", "e");
+    for id in ["r0", "r1", "r10", "extra"] {
+        taken.push(json!({"id": id, "found": cards.take(id).is_some()}));
+    }
+    assert_eq!(Value::Array(taken), golden["registry"]["taken"]);
+    assert_eq!(cards.take("r10"), None);
+}
+#[cfg(node_twin)]
+#[test]
+fn node_paths_match_node() {
+    let golden = fixture("nodepath.json");
+    for (key, style) in [("win32", Style::Win32), ("posix", Style::Posix)] {
+        for case in golden[key].as_array().unwrap() {
+            let args: Vec<&str> = case["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()).collect();
+            let got = match case["fn"].as_str().unwrap() {
+                "isAbsolute" => Value::Bool(nodepath::is_absolute(style, args[0])),
+                "resolve" => Value::String(nodepath::resolve(style, &args)),
+                _ => Value::String(nodepath::relative(style, args[0], args[1])),
+            };
+            assert_eq!(got, case["out"], "{key} {}", case["args"]);
+        }
+    }
+}
+/// Runs the scenarios of this platform whose position is `slice` modulo `SCENARIO_SLICES`.
+#[cfg(node_twin)]
+async fn scenario_slice(slice: usize) {
+    let golden = fixture("scenarios.json");
+    let mut ran = 0;
+    for (position, scenario) in platform_scenarios(&golden).into_iter().enumerate() {
+        if position % SCENARIO_SLICES != slice {
+            continue;
+        }
+        let name = scenario["name"].as_str().unwrap();
+        run_scenario(name, scenario).await;
+        ran += 1;
+    }
+    assert!(REGISTERED_SCENARIO_SLICES.contains(&slice));
+    assert_eq!(ran, (0..platform_scenarios(&golden).len()).filter(|position| position % SCENARIO_SLICES == slice).count(), "executed scenarios");
+    println!("slice {slice}: {ran} scenarios ran");
+}
+#[cfg(node_twin)]
+macro_rules! registered_scenarios_match_node {
+    ($($name:ident => $slice:expr),* $(,)?) => {
+        const REGISTERED_SCENARIO_SLICES: &[usize] = &[$($slice),*];
+        $(#[tokio::test(flavor = "multi_thread")]
+        async fn $name() { scenario_slice($slice).await; })*
+    };
+}
+#[cfg(node_twin)]
+#[test]
+fn the_slices_run_every_recorded_scenario_of_this_platform_once() {
+    let golden = fixture("scenarios.json");
+    let total = platform_scenarios(&golden).len();
+    assert_eq!(REGISTERED_SCENARIO_SLICES, &(0..SCENARIO_SLICES).collect::<Vec<_>>());
+    let covered: usize = REGISTERED_SCENARIO_SLICES.iter().map(|slice| (0..total).filter(|position| position % SCENARIO_SLICES == *slice).count()).sum();
+    println!("{total} scenarios in {SCENARIO_SLICES} slices");
+    assert_eq!(covered, total);
+}
+
+#[cfg(node_twin)]
+registered_scenarios_match_node! {
+    scenarios_match_node_slice_0 => 0,
+    scenarios_match_node_slice_1 => 1,
+    scenarios_match_node_slice_2 => 2,
+    scenarios_match_node_slice_3 => 3,
 }

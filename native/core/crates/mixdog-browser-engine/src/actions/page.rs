@@ -99,8 +99,6 @@ impl fmt::Display for PageActionError {
     }
 }
 
-impl std::error::Error for PageActionError {}
-
 /// The page a control acts on and how its calls end early.
 #[derive(Clone, Copy)]
 pub struct PageCall<'a> {
@@ -227,8 +225,6 @@ impl fmt::Display for EvaluateError {
         fmt::Display::fmt(&self.error, out)
     }
 }
-
-impl std::error::Error for EvaluateError {}
 
 fn untouched(message: impl Into<String>) -> EvaluateError {
     EvaluateError { error: PageActionError::invalid(message), refs_stale: false }
@@ -714,6 +710,9 @@ async fn end_started_trace(call: &PageCall<'_>, error: PageActionError) -> PageA
     let params = HostBrowserPerformanceParams { page_id: call.page_id.to_owned(), op: BrowserPerformanceOp::Stop, categories: None, export_path: None, save_trace: None };
     match call.host.performance(params, &CancellationToken::new()).await {
         Ok(_) => error,
+        // The connection was lost, in the setup or in the cleanup: that typed cause is the answer, not a wording of it.
+        Err(HostCallError::ConnectionLost) => PageActionError::Host(HostCallError::ConnectionLost),
+        Err(_) if matches!(error, PageActionError::Host(HostCallError::ConnectionLost)) => error,
         Err(cleanup) => PageActionError::Host(HostCallError::Failed {
             message: format!("{error}; trace cleanup also failed ({cleanup}). Run performance with operation:\"stop\" to retry cleanup."),
         }),
@@ -1170,3 +1169,7 @@ mod tests {
         assert!(host.calls().is_empty());
     }
 }
+
+
+impl std::error::Error for PageActionError {}
+impl std::error::Error for EvaluateError {}

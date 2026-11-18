@@ -1,6 +1,4 @@
-//! The cases of `deploy/coturn/reserved-ports.test.mjs` and `stun-probe.test.mjs` against the relay's own subcommands, the
-//! `udp-sink` and `turn-credential` helpers, and (on unix) the cases of `render-turnserver-conf.test.mjs`, which run the
-//! unchanged `render-turnserver-conf.sh` under bash.
+//! The relay's coturn subcommands: reserved-port bookkeeping, the STUN probe, the `udp-sink` and `turn-credential` helpers, and (on unix) the turnserver configuration rendering.
 
 #![allow(
     clippy::disallowed_methods,

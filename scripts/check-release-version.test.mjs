@@ -6,9 +6,11 @@ import test from 'node:test';
 
 import { checkReleaseVersion } from './check-release-version.mjs';
 
-async function tree({ root, desktop, cargo }) {
+async function tree({ root, desktop, cargo, relay = root }) {
   const dir = await mkdtemp(join(tmpdir(), 'release-version-'));
   await mkdir(join(dir, 'apps/desktop'), { recursive: true });
+  await mkdir(join(dir, 'apps/relay'), { recursive: true });
+  await writeFile(join(dir, 'apps/relay/package.json'), JSON.stringify({ version: relay }));
   await mkdir(join(dir, 'native/core'), { recursive: true });
   await writeFile(join(dir, 'package.json'), JSON.stringify({ version: root }));
   await writeFile(join(dir, 'apps/desktop/package.json'), JSON.stringify({ version: desktop }));
@@ -24,6 +26,13 @@ test('a diverged desktop or crate version names where it differs', async () => {
   await assert.rejects(
     checkReleaseVersion(await tree({ root: '1.4.6', desktop: '1.4.5', cargo: '0.0.0' })),
     /apps\/desktop\/package\.json is 1\.4\.5; native\/core\/Cargo\.toml \[workspace\.package\] is 0\.0\.0/,
+  );
+});
+
+test('a stale relay package version is named', async () => {
+  await assert.rejects(
+    checkReleaseVersion(await tree({ root: '1.5.0', desktop: '1.5.0', cargo: '1.5.0', relay: '1.4.5' })),
+    /apps\/relay\/package\.json is 1\.4\.5/,
   );
 });
 

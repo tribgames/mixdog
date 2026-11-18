@@ -308,7 +308,7 @@ pub fn measure_parsed<P: ReadProof>(
     }
     let chain = Chain::new(proof, registry, font);
     if chain.ids().is_empty() {
-        return Err(FontError::Unreadable("no font is registered".to_owned()));
+        return Err(FontError::Unreadable(crate::NO_FONT_REGISTERED.to_owned()));
     }
     if text.is_empty() {
         return Ok(TextMetrics {
@@ -362,7 +362,7 @@ pub fn faces_of<P: ReadProof>(proof: &P, registry: &Registry, font: &str, text: 
     let parsed = crate::css_font::parse(font)?;
     let chain = Chain::new(proof, registry, &parsed);
     if chain.is_empty() {
-        return Err(FontError::Unreadable("no font is registered".to_owned()));
+        return Err(FontError::Unreadable(crate::NO_FONT_REGISTERED.to_owned()));
     }
     Ok(text.chars().map(|character| (character, chain.ids()[chain.slot_for(character)])).collect())
 }

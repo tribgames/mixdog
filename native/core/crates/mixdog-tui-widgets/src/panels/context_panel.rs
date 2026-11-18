@@ -524,6 +524,35 @@ mod tests {
     }
 
     #[test]
+    fn an_inspection_gives_the_hint_whatever_the_type_of_the_detail() {
+        let detail = json!({ "inspection": { "revision": "a", "categories": [], "entries": [] } });
+        let rows: Vec<Value> = Vec::new();
+        let mut props = ContextPanelProps::new(&rows);
+        props.detail = Some(&detail);
+        assert_eq!(panel_description(&props), "Current context snapshot. R refresh \u{b7} Enter inspect.");
+    }
+
+    #[test]
+    fn the_description_collapses_blanks_and_is_cut_to_the_panel() {
+        let rows: Vec<Value> = Vec::new();
+        let mut props = ContextPanelProps::new(&rows);
+        props.columns = 30;
+        props.description = "  one   two\n three ".to_owned();
+        assert_eq!(panel_description(&props), "one two three");
+        props.description = "x".repeat(40);
+        assert_eq!(cells(&panel_description(&props)), 26);
+    }
+
+    #[test]
+    fn a_bar_without_width_is_nothing() {
+        let mut grid = Grid::new(20, 1);
+        let mut painter = Painter::new(&mut grid);
+        assert_eq!(paint_progress_bar(&mut painter, 0, 0, Some(50.0), 100.0, 0), 0);
+        assert!(paint_progress_bar(&mut painter, 0, 0, Some(50.0), 100.0, 4) >= 1);
+    }
+
+
+    #[test]
     fn an_inspection_mounts_the_inspector_and_a_new_revision_starts_it_over() {
         let detail = json!({
             "type": "context",
@@ -551,7 +580,6 @@ mod tests {
         state.sync(&props);
         assert_eq!(state.inspector().category(), "");
     }
-
     #[test]
     fn a_preview_asked_for_before_a_new_revision_does_not_land_in_the_fresh_inspector() {
         let report = |revision: &str| {
@@ -582,33 +610,5 @@ mod tests {
         assert_eq!(state.inspector().preview().map(|preview| preview.text.as_str()), Some("Loading preview\u{2026}"));
         state.finish_inspect(new, InspectOutcome::Answer(Some(json!({ "text": "of revision b" }))));
         assert_eq!(state.inspector().preview().map(|preview| preview.text.as_str()), Some("of revision b"));
-    }
-
-    #[test]
-    fn an_inspection_gives_the_hint_whatever_the_type_of_the_detail() {
-        let detail = json!({ "inspection": { "revision": "a", "categories": [], "entries": [] } });
-        let rows: Vec<Value> = Vec::new();
-        let mut props = ContextPanelProps::new(&rows);
-        props.detail = Some(&detail);
-        assert_eq!(panel_description(&props), "Current context snapshot. R refresh \u{b7} Enter inspect.");
-    }
-
-    #[test]
-    fn the_description_collapses_blanks_and_is_cut_to_the_panel() {
-        let rows: Vec<Value> = Vec::new();
-        let mut props = ContextPanelProps::new(&rows);
-        props.columns = 30;
-        props.description = "  one   two\n three ".to_owned();
-        assert_eq!(panel_description(&props), "one two three");
-        props.description = "x".repeat(40);
-        assert_eq!(cells(&panel_description(&props)), 26);
-    }
-
-    #[test]
-    fn a_bar_without_width_is_nothing() {
-        let mut grid = Grid::new(20, 1);
-        let mut painter = Painter::new(&mut grid);
-        assert_eq!(paint_progress_bar(&mut painter, 0, 0, Some(50.0), 100.0, 0), 0);
-        assert!(paint_progress_bar(&mut painter, 0, 0, Some(50.0), 100.0, 4) >= 1);
     }
 }

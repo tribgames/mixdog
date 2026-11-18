@@ -8,11 +8,10 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use mixdog_rt::TaskClass;
-use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::memory::ingest::embed_flush::{FlushFailure, ROOT_SWEEP_BATCH, RawEmbedFlush, RootFlush, SweepStep};
+use crate::memory::lifecycle::Owned;
 
 /// `DEFAULT_PASS_PAUSE_MS`: the rest between flush passes.
 pub const PASS_PAUSE: Duration = Duration::from_secs(1);
@@ -94,7 +93,8 @@ where
 struct Running {
     generation: u64,
     cancel: CancellationToken,
-    task: JoinHandle<()>,
+    /// The run, work of the database's scope.
+    task: Owned<()>,
 }
 
 #[derive(Default)]
@@ -127,8 +127,8 @@ impl Reindex {
         state.generation += 1;
         let generation = state.generation;
         let cancel = CancellationToken::new();
-        let (this, token) = (self.clone(), cancel.clone());
-        let task = mixdog_rt::spawn("services.memory.reindex", TaskClass::Work, async move {
+        let (this, token, scope) = (self.clone(), cancel.clone(), flush.scope().clone());
+        let task = scope.spawn("services.memory.reindex", async move {
             let ended = async {
                 let flushed = drain_embedding_reindex(|| flush.flush_roots(&token), &token, PASS_PAUSE).await?;
                 if flushed.attempted > 0 {
@@ -158,26 +158,19 @@ impl Reindex {
                 state.running = None;
             }
         });
-        state.running = Some(Running { generation, cancel, task });
+        // Refused by a stopping scope: nothing runs and the slot stays free.
+        if let Some(task) = task {
+            state.running = Some(Running { generation, cancel, task });
+        }
     }
 
-    /// `_stopBackgroundWork`'s reindex part: aborts the run and waits until it has ended.
+    /// `_stopBackgroundWork`'s reindex part: cancels the run and waits until it has ended. A stop abandoned while it waits leaves the run owned by
+    /// the database's scope, whose revocation ends it.
     pub async fn stop(&self) {
         let running = self.state.lock().expect("reindex state").running.take();
         if let Some(Running { cancel, task, .. }) = running {
             cancel.cancel();
-            // A stop abandoned while it waits ends the run it took.
-            let _abandoned = crate::memory::AbortOnDrop(task.abort_handle());
-            let _ = task.await;
-        }
-    }
-
-    /// The stop's bound passed before [`Self::stop`] took the run: it is cancelled and aborted.
-    pub fn abandon(&self) {
-        let running = self.state.lock().expect("reindex state").running.take();
-        if let Some(Running { cancel, task, .. }) = running {
-            cancel.cancel();
-            task.abort();
+            task.await;
         }
     }
 

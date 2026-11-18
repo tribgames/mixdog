@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 // Keep GitHub's "Latest" release on the newest published app release.
 // Run by .github/workflows/latest-guard.yml. When Latest points elsewhere (or
-// nowhere) it is set back with `gh release edit <tag> --latest`, the job
-// summary and an issue describe what was wrong, and the job fails so the
-// drift is visible even though it has been repaired.
+// nowhere) the job summary and an issue describe what was wrong and the job
+// fails. It writes no release: the pointer is repaired by hand.
 
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -51,15 +50,11 @@ export function main(repo = process.env.GITHUB_REPOSITORY) {
     return 0;
   }
 
+  // Report only: which releases the gated publish job made is not in release metadata (any workflow's token is the same bot), so the
+  // guard selects and edits nothing; the maintainer repairs the pointer after reading the issue.
   const problem = `GitHub Latest was \`${actual ?? 'none'}\` but the newest published app release is \`${expected.tag_name}\`.`;
-  gh(['release', 'edit', expected.tag_name, '--repo', repo, '--latest']);
-  const repaired = currentLatestTag(repo);
-  const outcome =
-    repaired === expected.tag_name
-      ? `Set Latest back to \`${expected.tag_name}\`.`
-      : `Could not set Latest to \`${expected.tag_name}\`; it is now \`${repaired ?? 'none'}\`.`;
   const detail =
-    `${problem}\n${outcome}\n\nWorkflow run: ${process.env.GITHUB_SERVER_URL ?? ''}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}\n` +
+    `${problem}\nRepair it by hand with \`gh release edit ${expected.tag_name} --latest\`.\n\nWorkflow run: ${process.env.GITHUB_SERVER_URL ?? ''}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}\n` +
     'Check which release or workflow published a non-app release without `--latest=false` / `make_latest: false`.';
   report(`## Latest release guard\n${detail}`);
   try {

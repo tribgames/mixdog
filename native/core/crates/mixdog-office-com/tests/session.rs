@@ -154,56 +154,6 @@ struct World {
     out: Emitter,
 }
 
-impl World {
-    fn new(name: &str) -> World {
-        let dir = std::env::temp_dir().join(format!("mixdog-office-session-{}-{name}", std::process::id()));
-        let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
-        mixdog_fsio::create_dir_all(&Unlaned, &dir).expect("a scratch directory");
-        let (stdout, stderr) = (Shared::default(), Shared::default());
-        let out = Emitter::new(Box::new(stdout.clone()), Box::new(stderr.clone()));
-        World { platform: Rc::new(FakePlatform::new()), apps: ScriptedApplications::new(), dir, stdout, stderr, out }
-    }
-
-    /// An existing document of the scratch directory; its full path.
-    fn file(&self, name: &str) -> String {
-        let path = self.dir.join(name);
-        mixdog_fsio::write(&Unlaned, &path, b"document").expect("a document");
-        path.to_string_lossy().into_owned()
-    }
-
-    fn path(&self, name: &str) -> String {
-        self.dir.join(name).to_string_lossy().into_owned()
-    }
-
-    fn open(&mut self, request: Json) -> Result<SessionState, String> {
-        let env = Env { platform: &*self.platform, applications: &self.apps };
-        open_session_state(&Unlaned, &env, &mut self.out, &payload::parse_payload(&request.to_string()).expect("a request"))
-    }
-
-    fn answer(&self, state: &mut SessionState) -> String {
-        let env = Env { platform: &*self.platform, applications: &self.apps };
-        let value = open_session_response(state, &env).expect("an answer");
-        emit_json(&value).trim_end().to_owned()
-    }
-
-    fn close(&self, state: &mut SessionState, request: Json) -> (Value, bool) {
-        let env = Env { platform: &*self.platform, applications: &self.apps };
-        let closed = close_session(state, &env, &payload::parse_payload(&request.to_string()).expect("a request")).expect("an answer");
-        (closed.result, closed.closed)
-    }
-
-    /// The application that appears with its first request for it: a new process and its (hidden) window.
-    fn new_process(&self, process_id: i32, name: &'static str, hwnd: i64, class: &'static str, visible: bool) -> impl FnOnce() + 'static {
-        let platform = self.platform.clone();
-        move || {
-            platform.add_process(process_id, name, START_TICKS);
-            let mut window = FakeWindow::new(hwnd, process_id, class, "document");
-            window.visible = visible;
-            platform.add_window(window);
-        }
-    }
-}
-
 impl Drop for World {
     fn drop(&mut self) {
         let _ = mixdog_fsio::remove_dir_all(&Unlaned, &self.dir);
@@ -656,4 +606,55 @@ fn an_application_killed_before_close_leaves_the_state_for_a_retry_and_says_why(
     assert!(text.starts_with("{\"ok\":false,") && text.contains("\"closed\":false"), "{text}");
     assert!(text.contains("\"documentClosed\":false,\"detached\":false,\"applicationQuit\":false,\"applicationRetained\":true,\"processExited\":null"), "{text}");
     assert!(state.document.is_some() && state.app.is_some(), "kept for a retry");
+}
+
+
+impl World {
+    fn new(name: &str) -> World {
+        let dir = std::env::temp_dir().join(format!("mixdog-office-session-{}-{name}", std::process::id()));
+        let _ = mixdog_fsio::remove_dir_all(&Unlaned, &dir);
+        mixdog_fsio::create_dir_all(&Unlaned, &dir).expect("a scratch directory");
+        let (stdout, stderr) = (Shared::default(), Shared::default());
+        let out = Emitter::new(Box::new(stdout.clone()), Box::new(stderr.clone()));
+        World { platform: Rc::new(FakePlatform::new()), apps: ScriptedApplications::new(), dir, stdout, stderr, out }
+    }
+
+    /// An existing document of the scratch directory; its full path.
+    fn file(&self, name: &str) -> String {
+        let path = self.dir.join(name);
+        mixdog_fsio::write(&Unlaned, &path, b"document").expect("a document");
+        path.to_string_lossy().into_owned()
+    }
+
+    fn path(&self, name: &str) -> String {
+        self.dir.join(name).to_string_lossy().into_owned()
+    }
+
+    fn open(&mut self, request: Json) -> Result<SessionState, String> {
+        let env = Env { platform: &*self.platform, applications: &self.apps };
+        open_session_state(&Unlaned, &env, &mut self.out, &payload::parse_payload(&request.to_string()).expect("a request"))
+    }
+
+    fn answer(&self, state: &mut SessionState) -> String {
+        let env = Env { platform: &*self.platform, applications: &self.apps };
+        let value = open_session_response(state, &env).expect("an answer");
+        emit_json(&value).trim_end().to_owned()
+    }
+
+    fn close(&self, state: &mut SessionState, request: Json) -> (Value, bool) {
+        let env = Env { platform: &*self.platform, applications: &self.apps };
+        let closed = close_session(state, &env, &payload::parse_payload(&request.to_string()).expect("a request")).expect("an answer");
+        (closed.result, closed.closed)
+    }
+
+    /// The application that appears with its first request for it: a new process and its (hidden) window.
+    fn new_process(&self, process_id: i32, name: &'static str, hwnd: i64, class: &'static str, visible: bool) -> impl FnOnce() + 'static {
+        let platform = self.platform.clone();
+        move || {
+            platform.add_process(process_id, name, START_TICKS);
+            let mut window = FakeWindow::new(hwnd, process_id, class, "document");
+            window.visible = visible;
+            platform.add_window(window);
+        }
+    }
 }

@@ -23,3 +23,37 @@ async-trait = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "macros", "time"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+fancy-regex = { workspace = true, features = ["probe"] }
+mixdog-agent = { workspace = true, features = ["test-support"] }
+mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support", "virtual-clock"] }
+mixdog-app-server = { workspace = true, features = ["replay-controls"] }
+mixdog-app-server-daemon = { workspace = true, features = ["replay-controls", "test-hooks"] }
+mixdog-browser-engine = { workspace = true, features = ["test-support"] }
+mixdog-core = { workspace = true, features = ["count-work", "replay-bytes", "test-support"] }
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-core-base = { workspace = true, features = ["test-support"] }
+mixdog-core-config = { workspace = true, features = ["count-work"] }
+mixdog-core-domains = { workspace = true, features = ["count-work"] }
+mixdog-core-review = { workspace = true, features = ["test-support"] }
+mixdog-core-rooms = { workspace = true, features = ["test-support"] }
+mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "replay-settled", "test-support", "virtual-clock"] }
+mixdog-exthost = { workspace = true, features = ["test-support"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-launch = { workspace = true, features = ["fake-core"] }
+mixdog-mcp = { workspace = true, features = ["test-support"] }
+mixdog-migrate = { workspace = true, features = ["crash-hook"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
+mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
+mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-services = { workspace = true, features = ["assigned-pg-port", "test-support"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
+mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
+mixdog-tools = { workspace = true, features = ["policy-observer"] }
+mixdog-trace = { workspace = true, features = ["flush-probe"] }
+mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }

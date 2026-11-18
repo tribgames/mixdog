@@ -7,6 +7,7 @@ pub mod context_blobs;
 pub mod ids;
 pub mod model;
 pub mod observe;
+mod pending;
 pub mod restore;
 pub mod listed;
 pub mod source;
@@ -54,6 +55,9 @@ use source::is_session_id;
 
 pub const SESSIONS_DIR: &str = "sessions";
 const CHECKPOINT_DIR: &str = "turn-checkpoints";
+/// `<data>/archive-damage/<id>.json`: what was skipped of a session's compaction archive sidecars
+/// because it could not be read (the session converts and opens without it).
+pub const ARCHIVE_DAMAGE_DIR: &str = "archive-damage";
 /// Shared files under `<D>` that session items read.
 const SHARED_FILES: [&str; 6] = [
     source::LEGACY_SPOOL,
@@ -169,6 +173,33 @@ fn ours(cx: &ItemContext<'_>, item: &ManifestItem, dir: &std::path::Path) -> Res
     Ok(target_origin(dir)?
         == Some((cx.manifest_sha256.to_string(), item.key.as_str().to_string())))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sessions_dir_entries_classify() {
+        assert_eq!(classify("sess_a.json"), Entry::Session("sess_a".into()));
+        assert_eq!(classify("sess_a.log.jsonl"), Entry::Session("sess_a".into()));
+        assert_eq!(classify("sess_a.compaction-archive.jsonl"), Entry::Sidecar("sess_a".into()));
+        assert_eq!(classify("sess_a.json.corrupt-1792542203590"), Entry::SetAside);
+        assert_eq!(classify("sess_a.log.jsonl.torn-1-ab"), Entry::SetAside);
+        assert_eq!(classify("sess_a.log.jsonl.foreign-1793-0a1b2c3d"), Entry::SetAside);
+        assert_eq!(classify("sess_a.json.fa4245bfe458.tmp"), Entry::Tmp);
+        assert_eq!(classify("sess_a.compaction-archive.jsonl.mixdog-tmp-0123abcd"), Entry::Tmp);
+        assert_eq!(classify("sess_a.compaction-archive.pending.mixdog-tmp-0123abcd"), Entry::Tmp);
+        assert_eq!(classify("sess_a.json.bak"), Entry::Unknown);
+        // Only the 8-digit capture temp and the 12-digit save temp are session-directory formats.
+        assert_eq!(classify("sess_a.compaction-archive.jsonl.mixdog-tmp-0123456789abcdef"), Entry::Unknown);
+        assert_eq!(classify("sess_a.json.mixdog-tmp-0123456789abcdef"), Entry::Unknown);
+        assert_eq!(classify("sess_a.compaction-archive.jsonl.mixdog-tmp-0123abc"), Entry::Unknown);
+        assert_eq!(classify("sess_a.json.0123456789abcdef01234567.tmp"), Entry::Unknown);
+    }
+}
+
+#[cfg(test)]
+mod pending_tests;
 
 impl ItemDriver for SessionDriver {
     fn plan(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
@@ -411,6 +442,11 @@ impl ItemDriver for SessionDriver {
             durable::write_synced(&stage.join(format!("{LOG_FILE_PREFIX}{no:06}")), bytes)?;
             all.extend_from_slice(bytes);
         }
+        if !model.archive_damage.is_empty() {
+            let note = serde_json::json!({ "session": id, "skipped": model.archive_damage });
+            let bytes = serde_json::to_vec_pretty(&note).map_err(|e| Blocked::journal(format!("{id}: archive damage note: {e}")))?;
+            durable::publish_file(&cx.roots.data.join(ARCHIVE_DAMAGE_DIR).join(format!("{id}.json")), &bytes)?;
+        }
         Ok(Staged::Output {
             output_sha256: durable::sha256_hex(&all),
             replaced_surrogates: model.replaced_surrogates,
@@ -436,6 +472,8 @@ impl ItemDriver for SessionDriver {
                 path: target,
             });
         }
+        // The migration runs behind a serving core: a session folder appearing is a change of that session's log.
+        let _writing = mixdog_store::log_epoch::writing_dir(&target);
         durable::publish_dir(&cx.stage_dir(item.key.as_str()), &target)
     }
 
@@ -475,7 +513,10 @@ impl ItemDriver for SessionDriver {
         }
         let folded = target::read_session(cx, &target_dir(cx, session_id(item)))
             .map_err(|detail| Blocked::journal(format!("{}: {detail}", item.key.as_str())))?;
-        let refs: BTreeSet<String> = folded.rows.iter().flat_map(|r| r.refs.iter().cloned()).collect();
+        let mut refs: BTreeSet<String> = folded.rows.iter().flat_map(|r| r.refs.iter().cloned()).collect();
+        for (_, entry) in &folded.queue {
+            observe::attachment_refs(entry, &mut refs);
+        }
         let mut dangling = 0;
         for r in refs {
             dangling += u64::from(cx.blob_status(&r)? == BlobStatus::Dangling);
@@ -488,33 +529,14 @@ impl ItemDriver for SessionDriver {
             return Ok(());
         }
         let target = target_dir(cx, session_id(item));
+        let _writing = mixdog_store::log_epoch::writing_dir(&target);
         if durable::exists(&target)? && ours(cx, item, &target)? {
-            durable::remove_dir_all(&target)?;
+            // Keep the origin intact until the entire target is out of view.
+            // An interrupted recursive delete could remove the origin first.
+            let stage = cx.stage_dir(item.key.as_str());
+            durable::create_dir_all(&stage)?;
+            durable::durable_rename(&target, &stage.join("withdrawn"))?;
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sessions_dir_entries_classify() {
-        assert_eq!(classify("sess_a.json"), Entry::Session("sess_a".into()));
-        assert_eq!(classify("sess_a.log.jsonl"), Entry::Session("sess_a".into()));
-        assert_eq!(classify("sess_a.compaction-archive.jsonl"), Entry::Sidecar("sess_a".into()));
-        assert_eq!(classify("sess_a.json.corrupt-1792542203590"), Entry::SetAside);
-        assert_eq!(classify("sess_a.log.jsonl.torn-1-ab"), Entry::SetAside);
-        assert_eq!(classify("sess_a.log.jsonl.foreign-1793-0a1b2c3d"), Entry::SetAside);
-        assert_eq!(classify("sess_a.json.fa4245bfe458.tmp"), Entry::Tmp);
-        assert_eq!(classify("sess_a.compaction-archive.jsonl.mixdog-tmp-0123abcd"), Entry::Tmp);
-        assert_eq!(classify("sess_a.compaction-archive.pending.mixdog-tmp-0123abcd"), Entry::Tmp);
-        assert_eq!(classify("sess_a.json.bak"), Entry::Unknown);
-        // Only the 8-digit capture temp and the 12-digit save temp are session-directory formats.
-        assert_eq!(classify("sess_a.compaction-archive.jsonl.mixdog-tmp-0123456789abcdef"), Entry::Unknown);
-        assert_eq!(classify("sess_a.json.mixdog-tmp-0123456789abcdef"), Entry::Unknown);
-        assert_eq!(classify("sess_a.compaction-archive.jsonl.mixdog-tmp-0123abc"), Entry::Unknown);
-        assert_eq!(classify("sess_a.json.0123456789abcdef01234567.tmp"), Entry::Unknown);
     }
 }

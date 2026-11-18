@@ -563,6 +563,16 @@ impl ConnectorPolicy {
         parse_mcp_tool_name(name)
     }
 
+    /// The identity a remembered approval of the tool `name` is keyed by: the connector's id and
+    /// the server's own tool name, so every account of a connector and a reconnect (which may cut
+    /// the qualified name differently) read the same; a name that is no MCP tool is its own.
+    pub fn identity(&self, name: &str) -> String {
+        match self.split(name) {
+            Some((server, tool)) => format!("mcp__{}__{tool}", connectors::group_id(&server)),
+            None => name.to_owned(),
+        }
+    }
+
     /// The permission `agent` has for the MCP tool `name`; a name that is no MCP tool is `auto`.
     pub fn permission(&self, agent: &str, name: &str) -> Permission {
         let Some((server, tool)) = self.split(name) else { return Permission::Auto };

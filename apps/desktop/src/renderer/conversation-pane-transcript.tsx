@@ -4,6 +4,7 @@ import { useAgentRoom } from './agent-room-store';
 import { MarkdownMentionNamesContext } from './markdown-mentions';
 import { collapseSelectionOnPress, JumpToLatestButton } from './conversation-support';
 import { t } from './i18n';
+import { ImageCheckStatus } from './ImageRefusalActions';
 import {
   MarkdownOpenFileContext,
   MarkdownOpenFolderContext,
@@ -287,6 +288,7 @@ export function ConversationTranscript({
               />
             )}
           </TranscriptRowContexts>
+          {!draftMode && routeSessionId && <ImageCheckStatus key={routeSessionId} sessionId={routeSessionId} />}
         </div>
       </div>
       {itemCount > 0 && <JumpToLatestButton visible={follow.showJump} onJump={timeline.jumpToLatest} />}

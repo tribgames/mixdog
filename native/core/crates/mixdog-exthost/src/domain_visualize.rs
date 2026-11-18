@@ -4,6 +4,7 @@
 //! `host/visualize/command{action, input}`. A paired phone (relay origin) is held to the extra
 //! limits and the narrower answer of `remote-visualize.ts`.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -24,7 +25,12 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
+use crate::PanePages;
+use crate::PaneScope;
+use crate::TabPane;
+use crate::VisualizePanes;
 use crate::host_forward::forward;
+use crate::visualize_panes::MAX_PANES;
 
 const ACTIONS: &str = "visualize command action must be activate, close, version, restore, network, reopen, render, blocked, history, export, or thumbnail.";
 const INLINE_KINDS: [&str; 5] = ["mermaid", "svg", "chart", "html", "markdown"];
@@ -251,13 +257,115 @@ fn thumbnail(value: Option<&Value>) -> Option<String> {
 
 pub struct VisualizeService {
     channel: Arc<dyn HostChannel>,
+    /// The tabs the desktop published, for a paired phone's reads of them.
+    panes: Option<Arc<VisualizePanes>>,
 }
 
 impl VisualizeService {
     /// Commands go to the desktop that claimed the host role and declared `visualize`.
     pub fn new(channel: Arc<dyn HostChannel>) -> Self {
-        Self { channel }
+        Self { channel, panes: None }
     }
+
+    /// A paired phone's reads of the tabs and their panes (`state`, `paneInline`, `paneFile`, `paneRange`, `panePages`).
+    pub fn with_panes(mut self, panes: Arc<VisualizePanes>) -> Self {
+        self.panes = Some(panes);
+        self
+    }
+
+    /// A phone's read of the panel (Node's `visualizeState`, `visualizePaneInline`, `visualizePaneFile`, `visualizePaneRange`,
+    /// `visualizePanePages` of `remote-visualize.ts`), answered from the core's copy of the tabs. A paired phone is the only caller:
+    /// the desktop's own window reads its tabs from the host.
+    async fn pane_read(&self, req: &CoreRequest, action: &str) -> Result<Reply, CoreError> {
+        let unavailable = || refused("The visualize panel is unavailable on this connection.".to_owned());
+        let panes = self.panes.as_ref().ok_or_else(unavailable)?;
+        let fields = req.params.get("input").and_then(Value::as_object).cloned().unwrap_or_default();
+        // `snapshot()`: no host path leaves the core; the phone's adapter shapes the rest (`remoteVisualizeState`).
+        // The page registers or drops the visualize lane (Node's `setRemoteLanes`): it then receives the changes as notifications.
+        if action == "lane" {
+            let mixdog_core_api::call::Caller::Connection(connection) = &req.ctx.caller else { return Err(unavailable()) };
+            let on = fields.get("on").and_then(Value::as_bool).ok_or_else(|| CoreError::InvalidParams { path: "params".into(), expected: "on".into() })?;
+            panes.set_lane(*connection, on).then_some(()).ok_or_else(unavailable)?;
+            return Ok(Reply::Value(json!({})));
+        }
+        if action == "state" {
+            return Ok(Reply::Value(Value::Array(panes.remote_states())));
+        }
+        let bad = |message: String| CoreError::InvalidParams { path: "params".into(), expected: message.into() };
+        let session = required_session_id(fields.get("sessionId")).map_err(bad)?;
+        let tab = required_string(fields.get("tabId"), "visualize tab id", 64).map_err(bad)?;
+        // `tabOf`: the tab must be open before anything else is read.
+        panes.scope(&session, &tab, None).map_err(refused)?;
+        let index = |value: Option<&Value>| -> Result<usize, CoreError> {
+            value.and_then(integer).and_then(|n| usize::try_from(n).ok()).filter(|n| *n < MAX_PANES).ok_or_else(|| bad("pane index is invalid.".to_owned()))
+        };
+        let value = match action {
+            "paneInline" => panes.inline(&session, &tab, index(fields.get("pane"))?).map_err(refused)?,
+            "paneFile" => {
+                let files = panes.files().ok_or_else(unavailable)?;
+                let index = index(fields.get("pane"))?;
+                let scope = panes.scope(&session, &tab, None).map_err(refused)?;
+                // An Office pane is read as its converted PDF (`remote-visualize.ts:156-165`), still named as the pane it is.
+                match scope.panes.get(index).filter(|pane| pane.kind == "document" && !pane.inline).cloned() {
+                    Some(pane) => {
+                        let rel = pane.path.strip_prefix(&pane.root).map_err(|_| refused("This file is not part of the visualize tab.".to_owned()))?.to_string_lossy().replace('\\', "/");
+                        let (converted, _) = converted_scope(panes.pages().ok_or_else(unavailable)?, req, &pane.root, &rel, pane.version).await?;
+                        let mut answer = files.file(req, converted, 0).await?;
+                        answer["kind"] = json!("document");
+                        answer["rel"] = json!(rel);
+                        answer
+                    }
+                    None => files.file(req, scope, index).await?,
+                }
+            }
+            "paneRange" => {
+                let files = panes.files().ok_or_else(unavailable)?;
+                // `rawIndex` (newer clients) names the pane whose root `rel` is under; absent: the live cwd.
+                let scoped = match fields.get("pane") {
+                    None | Some(Value::Null) => None,
+                    other => Some(index(other)?),
+                };
+                let scope = panes.scope(&session, &tab, scoped).map_err(refused)?;
+                let rel = required_string(fields.get("rel"), "relPath", 4_096).map_err(bad)?;
+                let offset = fields.get("offset").and_then(Value::as_u64).ok_or_else(|| bad("offset is invalid.".to_owned()))?;
+                let length = fields.get("length").and_then(Value::as_u64).ok_or_else(|| bad("length is invalid.".to_owned()))?;
+                let rel = rel.replace('\\', "/");
+                match VisualizePanes::document_pane(&scope, &rel) {
+                    Some(pane) => {
+                        let (converted, name) = converted_scope(panes.pages().ok_or_else(unavailable)?, req, &scope.root, &rel, pane.version).await?;
+                        files.range(req, converted, name, offset, length).await?
+                    }
+                    None => files.range(req, scope, rel, offset, length).await?,
+                }
+            }
+            "panePages" => {
+                let pages = panes.pages().ok_or_else(unavailable)?;
+                let (root, rel) = panes.page_target(&session, &tab, index(fields.get("pane"))?).map_err(refused)?;
+                let options = fields.get("options").and_then(Value::as_object).cloned().unwrap_or_default();
+                let sent = json!({ "pages": options.get("pages").cloned(), "maxWidth": options.get("maxWidth").cloned() });
+                pages.pages(req, root, rel, sent).await?
+            }
+            _ => return Err(bad(ACTIONS.to_owned())),
+        };
+        Ok(Reply::Value(value))
+    }
+}
+
+/// The scope a converted document is read under: its PDF as the one pane of its own folder, and the name to read it by.
+async fn converted_scope(pages: &Arc<dyn PanePages>, req: &CoreRequest, root: &Path, rel: &str, version: Option<i64>) -> Result<(PaneScope, String), CoreError> {
+    let pdf = pages.converted(req, root.to_string_lossy().into_owned(), rel.to_owned()).await?;
+    let folder = pdf.parent().map(Path::to_path_buf).ok_or_else(|| refused("The document preview is unavailable.".to_owned()))?;
+    let name = pdf.file_name().map(|name| name.to_string_lossy().into_owned()).ok_or_else(|| refused("The document preview is unavailable.".to_owned()))?;
+    let pane = TabPane { kind: "pdf".to_owned(), path: pdf, root: folder.clone(), inline: false, version };
+    Ok((PaneScope { root: folder, panes: vec![pane] }, name))
+}
+
+/// The actions only a paired phone sends: reads of the panel that are not tab commands.
+const PANE_ACTIONS: [&str; 6] = ["state", "lane", "paneInline", "paneFile", "paneRange", "panePages"];
+
+/// Node's plain `Error` as a phone reads it: a message and no code.
+fn refused(message: String) -> CoreError {
+    CoreError::DomainError { domain: "visualize".into(), code: None, message: Some(message.into()), detail: None }
 }
 
 fn invalid(message: Invalid) -> CoreError {
@@ -275,6 +383,9 @@ impl DomainService for VisualizeService {
             .get("action")
             .and_then(Value::as_str)
             .ok_or_else(|| CoreError::InvalidParams { path: "action".into(), expected: "a string".into() })?;
+        if req.ctx.origin == Origin::Relay && PANE_ACTIONS.contains(&action) {
+            return self.pane_read(&req, action).await;
+        }
         let mut fields = req.params.get("input").and_then(Value::as_object).cloned().unwrap_or_default();
         fields.insert("action".into(), json!(action));
         let valid = required_tab_command(&Value::Object(fields))
@@ -497,6 +608,114 @@ mod tests {
             }
         }
         assert_eq!(channel.sent().len(), 4, "every window command reached the host");
+    }
+
+    /// A phone reads the panel from the core's copy of the tabs (`remote-visualize.ts`): the state without any host path, an inline
+    /// pane's source, Node's refusals for a closed tab, a bad pane index and a pane with no inline content, and none of it for a
+    /// desktop window.
+    #[tokio::test]
+    async fn a_phone_reads_the_tabs_path_free_and_nothing_else_reads_them() {
+        let (service, channel) = rig(json!({}));
+        let panes = Arc::new(VisualizePanes::default());
+        let state = json!({
+            "sessionId": "s1", "active": "t1",
+            "tabs": [{
+                "id": "t1", "label": "A", "remoteLabel": "A", "revision": 1, "cwd": "/work/proj",
+                "panes": [
+                    { "kind": "html", "label": "a.html", "target": "/work/proj/a.html", "path": "/work/proj/a.html", "remoteTarget": "a.html", "url": "http://127.0.0.1:1/x" },
+                    { "kind": "inline", "label": "m", "target": "", "path": "", "remoteTarget": "", "inline": { "kind": "mermaid", "source": "graph TD", "title": "T" } }
+                ]
+            }]
+        });
+        panes.fold(&json!([state]));
+        let service = service.with_panes(panes);
+        let phone = |action: &str, input: Value| request(Origin::Relay, json!({ "action": action, "input": input }));
+        let Reply::Value(states) = service.call(phone("state", json!({}))).await.unwrap() else { panic!("a value reply") };
+        let text = states.to_string();
+        for host_path in ["/work/proj", "cwd", "\"path\"", "\"root\"", "\"target\""] {
+            assert!(!text.contains(host_path), "{host_path} left the core: {text}");
+        }
+        assert_eq!(states[0]["tabs"][0]["panes"][0]["remoteTarget"], "a.html");
+        let Reply::Value(inline) = service.call(phone("paneInline", json!({ "sessionId": "s1", "tabId": "t1", "pane": 1 }))).await.unwrap() else { panic!("a value reply") };
+        assert_eq!(inline, json!({ "kind": "mermaid", "source": "graph TD", "title": "T" }));
+        let message = |error: CoreError| match error {
+            CoreError::DomainError { message, .. } => message.map(|m| m.to_string()).unwrap_or_default(),
+            CoreError::InvalidParams { expected, .. } => expected.to_string(),
+            other => format!("{other:?}"),
+        };
+        let refused = |params: Value| {
+            let call = service.call(phone("paneInline", params));
+            async move { message(call.await.unwrap_err()) }
+        };
+        assert_eq!(refused(json!({ "sessionId": "s1", "tabId": "gone", "pane": 0 })).await, "This visualize tab is closed.");
+        assert_eq!(refused(json!({ "sessionId": "s1", "tabId": "t1", "pane": 0 })).await, "This visualize pane has no inline content.");
+        assert_eq!(refused(json!({ "sessionId": "s1", "tabId": "t1", "pane": 6 })).await, "pane index is invalid.");
+        // Pane files need the workspace's reads, bound by the composition.
+        assert_eq!(
+            message(service.call(phone("paneFile", json!({ "sessionId": "s1", "tabId": "t1", "pane": 0 }))).await.unwrap_err()),
+            "The visualize panel is unavailable on this connection."
+        );
+        // A desktop window is not a phone: the read action is not a tab command for it.
+        assert!(service.call(request(Origin::Local, json!({ "action": "state", "input": {} }))).await.is_err());
+        assert!(channel.sent().is_empty(), "no read reached the desktop host");
+    }
+
+    /// Records what the workspace was asked to read, and stands in for the conversion of an Office file.
+    struct Recorder {
+        seen: std::sync::Mutex<Vec<(PaneScope, String)>>,
+    }
+
+    #[async_trait]
+    impl crate::PaneFiles for Recorder {
+        async fn range(&self, _: &CoreRequest, scope: PaneScope, rel: String, _: u64, _: u64) -> Result<Value, CoreError> {
+            self.seen.lock().unwrap().push((scope, rel));
+            Ok(json!({ "mime": "application/pdf" }))
+        }
+        async fn file(&self, _: &CoreRequest, scope: PaneScope, index: usize) -> Result<Value, CoreError> {
+            self.seen.lock().unwrap().push((scope, index.to_string()));
+            Ok(json!({ "kind": "pdf", "mime": "application/pdf", "rel": "converted.pdf" }))
+        }
+    }
+
+    struct Converts;
+
+    #[async_trait]
+    impl PanePages for Converts {
+        async fn pages(&self, _: &CoreRequest, _: String, _: String, _: Value) -> Result<Value, CoreError> {
+            Ok(json!({}))
+        }
+        async fn converted(&self, _: &CoreRequest, root: String, rel: String) -> Result<std::path::PathBuf, CoreError> {
+            assert_eq!((root.as_str(), rel.as_str()), ("/work/proj", "deck.pptx"), "the conversion is of the pane's own file");
+            Ok(std::path::PathBuf::from("/cache/converted.pdf"))
+        }
+    }
+
+    /// An Office pane is served as its converted PDF (`remote-visualize.ts:156-165`), read from the conversion cache, and still
+    /// answers as the document pane it is; a pane that is not an Office file is read where it is.
+    #[tokio::test]
+    async fn an_office_pane_is_read_as_its_converted_pdf() {
+        let (service, _) = rig(json!({}));
+        let panes = Arc::new(VisualizePanes::default());
+        panes.fold(&json!([{
+            "sessionId": "s1", "active": "t1",
+            "tabs": [{ "id": "t1", "label": "A", "remoteLabel": "A", "revision": 1, "cwd": "/work/proj",
+                "panes": [{ "kind": "document", "label": "d", "target": "/work/proj/deck.pptx", "path": "/work/proj/deck.pptx", "remoteTarget": "deck.pptx" }] }]
+        }]));
+        let recorder = Arc::new(Recorder { seen: std::sync::Mutex::default() });
+        panes.bind_files(recorder.clone());
+        panes.bind_pages(Arc::new(Converts));
+        let service = service.with_panes(panes);
+        let phone = |action: &str, input: Value| request(Origin::Relay, json!({ "action": action, "input": input }));
+
+        let Reply::Value(file) = service.call(phone("paneFile", json!({ "sessionId": "s1", "tabId": "t1", "pane": 0 }))).await.unwrap() else { panic!("a value") };
+        assert_eq!((file["kind"].clone(), file["rel"].clone()), (json!("document"), json!("deck.pptx")));
+        service.call(phone("paneRange", json!({ "sessionId": "s1", "tabId": "t1", "rel": "deck.pptx", "offset": 0, "length": 10 }))).await.unwrap();
+        let seen = recorder.seen.lock().unwrap();
+        for (scope, _) in seen.iter() {
+            assert_eq!(scope.root, std::path::PathBuf::from("/cache"), "read in the conversion's folder");
+            assert_eq!((scope.panes[0].kind.as_str(), scope.panes[0].path.clone()), ("pdf", std::path::PathBuf::from("/cache/converted.pdf")));
+        }
+        assert_eq!(seen[1].1, "converted.pdf", "the range is of the converted file");
     }
 
     #[test]

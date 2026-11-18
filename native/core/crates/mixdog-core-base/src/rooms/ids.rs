@@ -74,6 +74,7 @@ pub fn is_room_thread_session_id(session_id: &str) -> bool {
     room_id_of_session(session_id).is_some() || room_member_of_session(session_id).is_some()
 }
 
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "ids_home_replay.rs"]
 mod home_replay;
@@ -92,6 +93,25 @@ mod tests {
         assert_eq!(agent_id_of_home_session("sess_home_"), None);
         assert_eq!(agent_id_of_home_session("sess_desktop_x"), None);
         assert_eq!(agent_home_session_id(&"a".repeat(201)), None);
+    }
+
+    #[test]
+    fn every_agent_has_its_own_fixed_home_session_that_is_a_valid_session_id() {
+        let lead = agent_home_session_id(MIXY_AGENT_ID).unwrap();
+        assert_eq!(lead, "sess_home_lead");
+        assert_eq!(agent_home_session_id(MIXY_AGENT_ID).as_deref(), Some(lead.as_str()), "the key is fixed");
+        let other = agent_home_session_id("reviewer").unwrap();
+        assert_ne!(lead, other);
+        assert_eq!(agent_id_of_home_session(&other).as_deref(), Some("reviewer"));
+        let pattern = mixdog_js::JsRegex::new_static(SESSION_ID_PATTERN.0, SESSION_ID_PATTERN.1);
+        assert!(pattern.is_match(&lead) && pattern.is_match(&agent_home_session_id("a.b-c").unwrap()));
+    }
+
+    #[test]
+    fn an_ordinary_session_or_room_session_is_not_a_home_thread() {
+        for id in ["sess_abc123", "sess_room_abc123", "sess_rmem_abc123_lead", "lead", "sess_home_Upper"] {
+            assert_eq!(agent_id_of_home_session(id), None, "{id}");
+        }
     }
 
     #[test]

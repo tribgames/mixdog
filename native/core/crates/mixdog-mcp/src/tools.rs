@@ -130,6 +130,13 @@ impl Tool for McpTool {
         &self.spec
     }
 
+    /// Published with the server that holds it: ordinary, shortened, resource and prompt tools alike carry their publisher; a
+    /// resources or prompts request names no tool of the server.
+    fn stored(&self) -> mixdog_core_api::domain::tool::StoredTool {
+        let own = self.entry.feature.is_none().then_some(self.entry.tool.as_str());
+        mixdog_core_api::domain::tool::StoredTool::mcp(self.spec.definition(), self.server.name(), own)
+    }
+
     fn outbound_kind(&self, args: &JsonValue) -> Option<ActionKind> {
         // The server segment as the model sees it in the qualified name.
         let server = self.entry.qualified.split("__").nth(1).unwrap_or_default();
@@ -278,16 +285,11 @@ mod tests {
     use crate::result::OutputPolicy;
     use crate::result::Spiller;
 
-    /// A JSON-RPC error a server answers a call with reaches the model as Node's did: the scenario `MCP tool failures` of
-    /// `fixtures/tool-failures/golden.json` (`record-tool-failures.mjs`), whose server `fx` answers `boom` with code -32603 and the
-    /// message `server exploded`; Node's model was sent the text recorded there for that call.
+    /// A JSON-RPC error a server answers a call with reaches the model as the SDK's thrown error: `Error: MCP error <code>:
+    /// <message>`, here for a server `fx` that answers `boom` with code -32603 and the message `server exploded`.
     #[test]
-    fn a_server_error_reads_as_nodes_thrown_call() {
-        let golden: JsonValue = serde_json::from_str(include_str!("../../../fixtures/tool-failures/golden.json")).unwrap();
-        let scenario = golden["scenarios"].as_array().unwrap().iter().position(|s| s["name"] == "MCP tool failures").unwrap();
-        let calls = golden["scenarios"][scenario]["replies"][0]["calls"].as_array().unwrap();
-        let boom = calls.iter().position(|call| call["name"] == "mcp__fx__boom").unwrap();
-        let node = golden["results"][scenario]["toolMessages"][0][boom].as_str().unwrap();
+    fn a_server_error_reads_as_the_thrown_call() {
+        let expected = "Error: MCP error -32603: server exploded";
         let io = || {
             let tokens = mixdog_rt::testing::tokens();
             McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk }
@@ -295,6 +297,8 @@ mod tests {
         let config = McpServerConfig::from_entry("fx", &json!({ "command": "node" }), &Default::default()).unwrap();
         let server = McpServer::new(config, io(), Spiller::new(std::env::temp_dir(), io().durability), OutputPolicy::default(), None);
         let error = tool_error(&server, CallError::Rpc(RpcError::Server { code: -32603, message: "server exploded".into(), data: None }));
-        assert_eq!(error.message_for_model, node);
+        assert_eq!(error.message_for_model, expected);
     }
 }
+
+

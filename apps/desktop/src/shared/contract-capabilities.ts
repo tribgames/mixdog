@@ -155,6 +155,7 @@ export const DESKTOP_CAPABILITIES = [
   'prepareTranscription',
   'resizeImage',
   'stageAttachmentOriginal',
+  'imageRecovery',
   'setAgentRoute',
   'getWorkflowPack',
   'saveWorkflowPack',
@@ -413,7 +414,7 @@ export interface DesktopAgentPermission {
     | `tool:${string}`;
   mode: 'ask' | 'allow' | 'block';
   rememberable: boolean;
-  /** The allow is every agent's ("Always allow (all conversations)"); turning it
+  /** The allow is every agent's ("Always allow"); turning it
    *  back to asking from any agent's table removes it for all. */
   shared?: boolean;
 }

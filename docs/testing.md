@@ -23,8 +23,10 @@ run by hand where that checkout exists. The lane comes from the file name:
 | `*.electron.test.mjs` | electron | `npm run test:electron` (apps/desktop); needs a real Electron and window-capture surface, never two runs at once |
 
 A file over ~10s alone is renamed `*.slow.test.mjs`; nothing else changes. The
-root slow lane and the desktop fast lane are each split with `--test-shard=N/2`
-(forwarded to `node --test`), one machine per shard.
+desktop fast lane is split three ways with `--test-shard=N/3` (forwarded to
+`node --test`), one machine per shard. The root default lane is sharded the
+same way by `scripts/ci/node-shards.mjs`, which sizes the count from the files
+the lane discovers (one shard per 250 files, at most three; one today).
 
 ## Runner flags
 
@@ -32,10 +34,14 @@ root slow lane and the desktop fast lane are each split with `--test-shard=N/2`
   flags forward to `node --test`. Every run ends with the slowest files.
 - `npm test -- --changed [filter...]` runs only discovered files whose relative
   references (`import … from`, `export … from`, `import()`, `require()`,
-  `new URL(…, import.meta.url)`) reach a file that differs from HEAD, untracked
-  files included. A changed file nothing references that way (a skill's
-  markdown, a path joined at run time) is listed so a path filter can add its
-  tests; the full lanes still gate the push.
+  `new URL(…, import.meta.url)`) reach a repository change, including deletions
+  and untracked files. For computed inputs, put `// @test-input ./relative/path`
+  in the reader; a trailing slash declares a directory's contents. References
+  can cross package boundaries, but test discovery and lanes stay local.
+  Unreached changes in the current scope are listed; if none of the selected
+  tests reaches a change and that list is nonempty, the command exits nonzero.
+  Use a test path filter **without** `--changed` for an undeclared input.
+  The full lanes still gate the push.
 - `node scripts/test-direct.mjs [Node test options] <files...>` takes exact
   paths or globs with no discovery or lane filtering, the same summary and
   full-log reporting, and forwards Node options unchanged (heap limits,
@@ -56,16 +62,313 @@ test-worker budget across the four lanes: up to six workers interactively,
 `MIXDOG_TEST_CONCURRENCY` sets the total. All lanes run, including after one
 fails.
 
+## The Rust core's committed suite and the local-only comparison material
+
+The tests in git say what the product does, with the expectation written in the test (or derived from a stated rule). Whatever
+exists only to compare the Rust core with another implementation — the recorders, data they recorded, and the tests whose
+expected values are that data — is the owner's local-only material. It is not tracked; a clean checkout builds every crate and
+test target and passes the `ci` nextest lane without it.
+
+**Where it lives and how it is ignored.** It sits at the same paths it always had, so its relative paths keep working, and is
+untracked and covered by the "Node-comparison material" block of the root `.gitignore`:
+
+- `native/core/fixtures/` and `benchmarks/rust-core/` (recordings, recorders, manifests);
+- the crate-local recorded data and recorders (`tests/goldens`, `tests/golden`, `src/**/golden`, `oracles`, `testdata`, `vectors`,
+  `tests/recorders`, and the listed `fixtures` directories) named one by one in that block;
+- whole test files whose every test compares with recorded data (listed one by one in that block);
+- `**/node-twin/`: for a file that holds both kinds of test, the comparison tests moved out of it (`<dir>/node-twin/<file>.rs`,
+  or `<file>.<module>.rs` for a nested `mod`).
+
+**How it is compiled in.** The cfg `node_twin` is set by the untracked `native/core/.cargo/local.toml` (`[build] rustflags =
+["--cfg", "node_twin"]`), which `native/core/.cargo/config.toml` includes when present. `cargo-gate.ps1` runs pick it up with no
+environment variable. Local-only code is declared `#[cfg(node_twin)] mod x;` (a whole file) or `#[cfg(node_twin)]
+include!("node-twin/x.rs");` (the items split out of a file, included into the module they came from). Without the cfg rustc never
+looks for the missing file. To work without the material, delete `local.toml`.
+
+**Conventions for the committed tests.**
+
+- A feature's tests live in the module of the code they test (`mod tests` of the file, or a `<feature>_tests.rs` beside it), and
+  in `tests/<feature>.rs` for the crate's public surface; a test names the behaviour (`a_stopped_session_refuses_new_turns`), not
+  an origin.
+- Expectations are written in the test, or derived from a stated rule in a comment; they are not copied from a recording.
+  Inputs are small and committed beside the test.
+- Committed test code, comments and names do not refer to Node, recorders, recordings or parity.
+- A comparison twin of a rewritten test is local-only. It must not reuse the committed test's name in the same module: it lives in
+  `node-twin/` (or a `#[cfg(node_twin)]` module of its own) and its tests carry the suffix `_matches_recording`, so both can be
+  compiled together.
+- A test that needs a machine path, a prebuilt binary, a second volume or a user's data is `#[ignore]`d with its reason and run by
+  the nextest profile that names it (`native/core/.config/nextest.toml`), never by `ci`.
+
+## The Rust core's two test sets
+
+The core (`native/core`) has two sets of tests, and a nextest run names which one it wants.
+
+- **Tracked feature tests** (the committed suite). Every test in git: it says what the product does with the expectation written
+  in the test. A clean checkout builds and runs all of it. This is what CI runs.
+- **Local comparison tests** (`cfg(node_twin)`). The owner's comparison with the old implementation, built on recorded data
+  that is git-ignored. They compile only where `native/core/.cargo/local.toml` exists, so they exist on the owner's machine
+  and nowhere else.
+
+### Running them
+
+Both sets run with `cargo nextest` from `native/core` (`cargo install cargo-nextest`; CI uses 0.9.151, the version
+`.config/nextest.toml` is written for). A machine may have a wrapper that sets the build environment and the cfg; the commands
+below are what it runs.
+
+```sh
+cd native/core
+cargo nextest run --workspace --profile ci            # the tracked feature tests, as CI runs them (no retries)
+cargo nextest run -p <crate>                           # one crate, `default` profile
+cargo nextest run --profile agent --workspace         # `default` without the heavy matrices
+```
+
+- **Tracked set only** (what a clean checkout does): have no `native/core/.cargo/local.toml`. To get this on a machine that has
+  one, move the file away (or build with `CARGO_ENCODED_RUSTFLAGS` unset and no `--cfg node_twin` anywhere); `node_twin` is
+  then off and the comparison tests are not compiled.
+- **With the comparison tests**: create `native/core/.cargo/local.toml` containing `[build]` and
+  `rustflags = ["--cfg", "node_twin"]` (it is git-ignored), with the recorded data in place. `default` and `agent` then
+  include them; `ci` is the same filter and would too, so run `ci` without the file to see what CI sees.
+
+Neither set needs a network. The tracked tests that run `node` need it on the search path, and `mixdog-office`'s
+`tests/pptx_script.rs` also reads `node_modules/pptxgenjs` and `jszip` of the repository root: it returns early (a pass)
+without them, so run `npm ci` at the root before a run you want to count.
+
+### Nextest profiles
+
+The list at the top of `native/core/.config/nextest.toml` is the one place that says where every test runs. In short:
+
+| Profile | Tests | Where |
+| --- | --- | --- |
+| `default` | every test that is not `#[ignore]`d | locally; the merge check |
+| `ci` | `default` with no retries and a log that names slow and failing tests | CI `core-tests` |
+| `agent` | `default` without the heavy real-git and migration matrices | locally |
+| `pg` | `#[ignore]`d composed-core tests of `mixdog-app-server-daemon` (needs Postgres) | CI `core-pg`, locally |
+| `services-pg` | `#[ignore]`d memory tests of `mixdog-services` (needs Postgres) | CI `core-pg`, locally |
+| `services-models`, `migration-corpus`, `office-throughput`, `pwsh-50-mib` | `#[ignore]`d tests that need models, a user's data, LibreOffice or a 414 MiB command | by hand only |
+
+### The Postgres profiles
+
+`pg` and `services-pg` run `#[ignore]`d tests, so they take `--run-ignored only`; they need an unpacked PostgreSQL
+runtime named by `MIXDOG_PG_RUNTIME` (with it unset or broken they fail, they do not skip). The runtime is the asset the
+repository manifest `src/runtime/memory/data/runtime-manifest.json` names for the platform (the one the product downloads).
+
+```sh
+node scripts/ci/provision-pg-runtime.mjs <folder>                 # downloads, hash-checks and unpacks it; prints MIXDOG_PG_RUNTIME=<folder>
+export MIXDOG_PG_RUNTIME=<folder>
+cd native/core
+cargo nextest run --profile services-pg --run-ignored only -p mixdog-services
+cargo nextest run --profile pg --run-ignored only -p mixdog-app-server-daemon
+```
+
+The postmaster refuses to run as root or as an elevated user. Tests of both profiles share the `pg-cluster` group, so the tests
+that start a cluster of their own run one at a time. The daemon's composed tests run their core in a child process under a budget
+of 690 s and are given 720 s by an override in the config.
+
+## Release coverage
+
+Publication is impossible unless every tracked test file and Rust test target ran at least one case on each leg that must run it,
+and every skip a runner reported is an exact reviewed exception, at the exact release commit. `coverage-gate` is a literal hard `needs` of every job that publishes (`release.yml` `publish`, the
+`deploy.yml` publishing jobs, the sink workflows `mobile-android.yml` and `build-runtime.yml`, which are reachable only through
+`workflow_call`). It has no `if`, and nothing reads run history to authorise a release: the gate runs for the resolved SHA on
+every path. **Refresh Runtime Manifest** dispatches from the default branch and runs the full gate. By default it re-smokes
+and verifies the five public runtime pairs without editing them; `force_rebuild` instead takes the gated build and publication
+path. The handoff downloads the worker's manifest by artifact ID and stages the same bytes at
+`src/runtime/memory/data/runtime-manifest.json` in the handoff artifact, without updating a branch.
+
+- **Order of writes.** No release-visible effect (default branch, tags, releases, packages, stores, deploys) happens before evidence; private candidate transport refs are written and cleaned outside it. `deploy.yml`
+  `native-commit` and `prepare-app` make their commits locally and push them only to `refs/mixdog-candidates/<run>/...`, a ref
+  no workflow, release or feed uses as a publication source (`candidate-cleanup` deletes them after a successful release and retains
+  them after failure for retries). Candidate commits and changelog dates derive from the dispatch commit, not the current clock or branch tip. Those refs are pushed before their
+  SHA is gated only because the gate needs a remote ref to check out: they are transport, not release refs. The jobs that
+  write any ref (the three candidate writers and the leased push) are not recognised by their commands: the plan pins each whole by
+  content digest (`plan.json` `wiring.pinnedJobs`), so what they push is a reviewed change. The native workers (`runtime`, `voice`, `graph`) need the native gate and receive the gated
+  SHA as `sha`: each checks out that SHA, asserts HEAD (`.github/actions/assert-sha`), and creates or verifies its tag and draft
+  at it (`target_commitish` is the SHA, never the default branch). `release.yml` `push-release-refs` is the first write of the
+  release: after its gate, one atomic push moves the default branch from the deploy's commit (a lease) to the gated commit and
+  creates the app tag there, and it waits for the prepared-runtime join as well as the gate: no release ref is written before every
+  replacement an exception promises (a case skipped in the gate and run in the Windows package job) has its evidence, and the
+  wiring check requires every leased push to need every job that runs `cli.mjs join`. A release tag is never forced or moved; an
+  existing tag at another commit fails the run. `publish` and `mobile-android` need `push-release-refs`. Every artifact a gate
+  call produces or consumes (manifest, evidence, listings, the core-tests archive, `mixdogd-dev`) is scoped to the run and named by
+  `artifacts.mjs`: kind, the caller's `gate` name and the SHA. A rerun producer replaces its own named artifact; consumers reuse
+  successful producers' artifacts without merging downloads. Distinct calls in one run never share evidence. The join
+  evidence has its one exact name at both ends. A hidden draft is staged from the list of releases (`release-state.mjs`): a public
+  release of the tag is refused, one draft is resumed only if it targets this commit and is then used by its id, only a complete listing
+  that lacks the tag creates one, and a failed lookup stops the run. The macOS notarization submission in `desktop-package.yml` runs
+  before the verdict because the package under test must be notarized to be tested; it publishes nothing.
+- **Inventory.** `cli.mjs inventory` lists test *files and targets*, never cases, from `git ls-files` of the exact commit (HEAD
+  must equal the SHA, tree clean). One convention decides what a test file is: a file named the way its runner discovers tests
+  (Node `*.test.*`, `*.spec.*`, `*-test.mjs`, `*_test.*`; Python `test_*.py`, `*_test.py`; `*.test.sh`). The naming convention is the whole contract:
+  a file named otherwise is not a test file. As a diagnostic only, a tracked JS or Python file not named so that directly imports a
+  test runner (`node:test` by `import`, a side-effect `import`, `require` or `import()` of a literal, `import unittest`/`pytest`,
+  also in `import os, unittest`) is reported unless classified; it removes comments with a regular expression, and it cannot see a
+  runner loaded through a wrapper module, a computed load, or a global test API (`test/example.js`): such a misnamed test is not
+  discovered by any run and not reported. Every Rust package of the tree is read too. A test file is assigned by a route of the plan to the legs
+  that must run it, or carries a reviewed class (`plan.json` `classes`: `fixture`, `helper`, `template`, `vendor`,
+  `non-test-target`, `twin-only` for sources only the owner's `node_twin` build compiles, `not-run-in-ci` for a real test no hosted
+  runner can run (a desktop, a real Office), `not-run-by-decision` for a test a hosted runner could run and that is not wired: it
+  lists what is missing and is the owners' choice, not an impossibility, and `runs-after-packaging` for a test that checks a built
+  package, whose receipt is a join slot the release's join requires before any sink); two classes matching one path are an error. The manifest names every Rust target the
+  manifests declare (crate × target, never a case) of the workspace and of each standalone crate. Reconcile compares them with the
+  targets each build variant's unfiltered `nextest list` shows, and a standalone run's own listing (`run-nextest.mjs --list`, kept
+  in its receipt): a declared target no listing shows has vanished, a listed one no manifest declares is unexplained, an empty or
+  malformed listing is an error, and a target that holds tests needs a pass of its own on its legs, whatever the other targets of
+  its crate did. The comparison is per build variant and per platform of a standalone crate's
+  clauses, never pooled: a target another platform shows does not satisfy one that vanished here, and a target that legitimately
+  does not exist on a platform is declared in `plan.json` `rust.absent` by rule, never inferred from its absence. Each variant's
+  listings are exactly its `all` listing, one per profile the plan names, and a binding of the invocation (the plan's list leg, at
+  the SHA) that made them; anything else is an error. Receipt identities are validated by runner, family and kind: a case record
+  carries the runner's case component, so a file-only record discharges nothing. Any other package, and any `.rs` file no target reaches through `mod`, `#[path]` or `include!`, is an error unless
+  classified. Doctests are a target of their own, run by `run-doctest.mjs` (`cargo test --doc`) in the slot the plan's
+  `rust.doctests` names; a file holding rustdoc blocks with neither is an error. An unassigned test file is an inventory error. A checkout that differs from its commit (a modified,
+  deleted or untracked path) is refused by name before anything is read; locally, commit the intended content first.
+- **Plan.** `scripts/ci/coverage/plan.json` is the reviewed contract: legs (`<os>/<job>/<n>of<m>`, with the workflow, job and
+  slots that must produce a receipt; each slot names its producer, and a child slot the slot whose invocation launches it),
+  routes from globs to the clauses of legs a file must run in (every clause needs one of its legs; a leg with several slots is
+  named as `leg#slot`), join legs (prepared environments only `release.yml` builds), the Rust variants (list leg, test legs,
+  profile legs) and owners. Legs declared and legs observed must be equal both ways; there is no pending producer.
+- **Evidence.** Each leg's runner writes a receipt (`evidence.mjs`, version 2): an envelope (repository, SHA, workflow, run, attempt,
+  leg, OS, slot, parent slot and parent invocation, producer), one terminal record per case the runner reported (and per suite it skipped or failed), and a trailer with
+  the record count and content hash. The SHA is read from the checkout the runner starts in (`git rev-parse HEAD`), never from
+  the environment. Node uses `scripts/ci/skip-reporter.mjs` through `node-runner.mjs` (the synthetic file
+  event is dropped), Python `run-receipt.mjs` with `py-runner.py`, shell suites `run-shell-suite.mjs` (a case is each `ok:`
+  line, failed by a `FAIL:` line of its name), Rust nextest's own JUnit through `run-nextest.mjs` and `adapters.mjs`: an
+  ignored test is an ignore only where nextest itself reported it skipped in a default run, never from a listing, and under
+  `--run-ignored` a skipped testcase is refused. The `upload-evidence` action uploads them; a job with declared legs and no
+  upload step fails the wiring check.
+- **Reconcile.** `cli.mjs reconcile` trusts an artifact only for this repository, workflow, SHA and run. A partial rerun can
+  reuse a successful leg's earlier attempt, but all slots within one leg must come from a single producer attempt. It requires an intact
+  file (trailer and hash), complete, exit status 0, on the platform of the leg it names, in a slot the leg declares, written by
+  the producer the plan names for that slot. A child slot counts only from the children folder of its declared parent slot's
+  receipt, naming that invocation; a top-level slot never from a children folder. It then fails on: a missing leg or
+  slot, an undeclared leg, a reported case whose file or target the inventory does not assign, a failure (a retry is a failure),
+  a report from a leg no clause of its file names, a file or target with no passing case on a leg of one of its clauses
+  (`no-cases`: nothing ran there, or every report was a failure or a skip), and a skip or ignore with no exact exception for that
+  platform. A leg that only skipped a file still counts when every skip is an exception whose `runs` replacement names a slot
+  where that same case passed. A skipped suite has no exception form. Case names come from the runner at run time, so a computed, generated or
+  macro-made name is fine; the Rust listings (`rust-lists-<os>`) only tell which targets exist per build variant and which
+  ignored tests a profile leg runs.
+
+  This does not prove a test body checks anything: a case that returns before its assertion, or a loop that registers nothing,
+  passes as long as the file reported one case that ran. It proves that the leg ran the file and that nothing it reported failed
+  or skipped unreviewed.
+- **Exceptions.** `exceptions.json` holds exact tuples: case identity (as the runner reports it), platform, kind, reason code and
+  text, owner, reason and replacement. Unknown fields are rejected. An exception on Linux does not excuse Windows. A tuple whose
+  skip was not reported by any leg (a deleted file, crate or method, or a skip that became a pass) is stale and fails.
+  The replacement is structured and enforced: `{kind: "runs", in: [leg#slot, ...]}` needs a pass of the same case in one of
+  those slots, `{kind: "parent", parents: [identity, ...]}` a pass of every test that starts it in the same invocation that reported
+  the child; an ignored Rust test a profile leg runs is not credited by the listing: the same case must pass on that profile leg; `{kind: "none", reason}` states
+  that nothing replaces it. A replacement in a join leg is checked by `cli.mjs join` in `release.yml` `prepared-runtime-join`
+  against the gate's manifest of the same commit, before `publish`.
+- **Wiring.** `cli.mjs wiring` parses the workflows against closed lists, not by recognising commands: in every workflow that
+  calls the gate each job is a sink in `plan.json` `sinks` (it must need the gate, and the join where the caller joins, and carry
+  exactly the one reviewed `if`, or none) or a reviewed non-sink in `nonSinks` with a reason, and a job in neither is an error.
+  A caller's `gate` and `joins` inputs must be literals (`release`, `true`), never expressions. No job tolerates its own failure,
+  every job with legs uploads evidence after its last test step and unconditionally. The verdict jobs (`inventory`, `complete`,
+  `prepared-runtime-join`) are pinned whole: their `if`, the exact commands of their deciding steps, no condition,
+  `continue-on-error` or other shell on those steps, and a digest of the job in `plan.json` `wiring.verdictJobs`, so an
+  inserted, removed, reordered or edited step is a reviewed change. Every sink checks out the SHA its gate verified, and is verified
+  against its own named gate job, not any ancestor. Every edge into another workflow is a listed disposition, so a new entry point
+  calling a publishing workflow is an error until reviewed. Matrices are counted only in the two forms the gate uses (axes alone, an
+  `include` list alone); any other form is an error. `latest-guard.yml` reports pointer drift only and writes no release.
+
+`scripts/ci/coverage/coverage.test.mjs` exercises the adversarial cases (a file whose leg ran no case, a skipped suite, an unreviewed
+skip, an unlaunched child slot, a narrowed Rust filter, a removed matrix leg, a disabled job or removed `needs`, Python skip text
+with both quote styles, stale exceptions), each failing closed, and the cases of the reviewed hardening: a child slot credited
+from itself, a sibling or a top-level run, a case reported by the wrong leg, missing or foreign provenance, a dirty checkout, an
+unenforced replacement, and each way of switching off the verdict or moving a release ref before or around the gate.
+
 ## CI coverage
 
-- `release-gate.yml` runs the fast, slow, electron, packaging and
-  `shipped-history` jobs on every push.
+What each part of `release-gate.yml` runs, and when. A push to main and a manual run select everything; a pull request selects
+by changed path (the `changes` job). The `complete` job covers every other job: one whose own `if` selected it must have
+succeeded, so a selected job that ends skipped fails the gate; a job that was not selected may be skipped. Each job's `if` is
+repeated in `complete` and compared by `scripts/ci/release-gate-wiring.test.mjs`, so a job added without its line fails that
+test. A change to `rust-toolchain.toml`, to `release-gate.yml` or to the core's `Cargo.toml`/`Cargo.lock` selects every job that
+consumes it (the test runs the selection over a table of paths).
+
+- **Rust core.** `core-build` compiles the tests once per system (Linux x64, macOS arm64, Windows x64) with
+  `cargo nextest archive` and uploads the archive; it first checks the checkout is clean (no `local.toml`, none of the
+  comparison material), so `node_twin` is off and no comparison test is in the archive. `core-tests` legs download it and run
+  `--profile ci --partition count:k/N` (N from `scripts/ci/core-select.mjs`: one leg per 4,000 tests, at most four). A pull
+  request archives the changed crates and their reverse dependencies; main archives the whole workspace. `core-pg` runs
+  `services-pg` and `pg` from the same archive with the provisioned runtime (Linux always, macOS on main and manual runs, when the
+  archive holds the crate). `core-lint` is clippy of the daemon on each system. `core-real` builds the process-tree helper and
+  runs its suites and the harness suites on every system, and on Linux and macOS also builds the release `mixdogd` and boots it.
+  It runs on a push to main or a manual run whenever the core or `scripts/rust-core` and its neighbours changed (everything, on
+  main). On a pull request it runs only when `scripts/rust-core`, `benchmarks/token-lang`, the harness's Rust-core suites, the
+  toolchain pin, the core's `Cargo.toml`/`Cargo.lock` or the workflow changed, and then it skips the release build and the boot.
+- **Node.** `runtime` (the root default lane, sharded by `scripts/ci/node-shards.mjs`), `runtime-slow` and `runtime-macos`
+  for the root tree; `desktop`, `desktop-tests` (three shards plus Windows) and `desktop-slow`; `relay`, `relay-rust`,
+  `packages`, and the standalone native crates (`patch`, `graph`, `spawn`, `window`, `browser-import`,
+  `secure-desktop`, `computer-backend`).
+- **Guards.** See "What each layer guarantees" below. `--build` in `core-build` and `core-lint` fails a Rust build that has
+  `local.toml` or the material on disk. `core-tests` installs only `pptxgenjs` and `jszip` (`scripts/ci/lock-subset.mjs`) because
+  that is all the tracked Rust tests read from `node_modules`.
+
+### What each layer guarantees
+
+The aim: nothing in the tracked suite may depend on local-only comparison material. Three layers: two guarantee something, the
+third only points.
+
+1. **The clean checkout runs everything (guarantee).** The gate builds and runs every suite on a checkout without `local.toml` and
+   without the material. A test that reads absent material and does not handle it fails there. This is the only layer that sees a
+   path assembled at run time.
+2. **Every invocation proves it ran, and skips are reviewed (guarantee, for what a runner reports as skipped or ignored).** A test
+   that skips instead of failing passes without testing, and a command that never ran, ran nothing or is a leftover passes
+   without testing anything. So every test invocation of the gate leaves a **receipt** (`scripts/ci/receipt.mjs`) and the job
+   ends by naming its receipts to `scripts/ci/check-skips.mjs receipts <file>...`:
+   - the runner creates the file *before* it runs, with a fresh id and `complete: false`, and refuses to start when the file
+     exists (one receipt per invocation, never reused); the reporter appends what each test was (ran, skipped, todo, with its
+     message) and the runner closes it with the totals and the exit status. The check fails a receipt that is missing,
+     unreadable, incomplete, from a run that failed, with **zero tests**, from another system, or whose id another receipt
+     carries. Several commands in one step (the Windows Computer Use suites, `core-real`) have one receipt each.
+   - Node lanes: `scripts/test.mjs` (`npm test`, `test:slow`, `test:electron`, the desktop and relay lanes), the direct runs
+     through `scripts/ci/node-runner.mjs` (`core-real`, `packages/protocol-client`) and `apps/mobile/scripts/run-tests.mjs`
+     (`npm test` and `test:e2e`), selected by `MIXDOG_RECEIPT=<file>`.
+   - A runner a test starts for a suite whose result counts (today `web-push-electron-runtime.slow.test.mjs`, which runs
+     `web-push.test.mjs` under Electron through `node-runner.mjs`) finds `MIXDOG_CHILD_RECEIPTS` and leaves a receipt in
+     `<receipt>.children/`, which the check reads with its parent. Runners that tests start over throw-away fixtures
+     (`scripts/test-runner*.slow.test.mjs`, `gate-local.test.mjs`, `node-runner.test.mjs`, `check-skips.test.mjs`) are deliberately
+     synthetic: `scripts/test.mjs` drops the receipt variable from the tests' environment and only `node-runner.mjs` and the mobile
+     runner look for the children folder, so a fixture's skips never reach a lane.
+   - Standalone Rust (`native/mixdog-{computer,spawn,patch,graph,secure-desktop,window}`, the process-tree helper) runs through
+     `scripts/ci/run-nextest.mjs`, whose receipt records nextest's own JUnit testcases and listing; the workspace partitions and
+     profile legs do the same, and `run-doctest.mjs` records the doctests. The Python `unittest` suites (mobile scripts, the
+     benchmark harness) run through `scripts/ci/run-receipt.mjs` and `py-runner.py`. `check-skips.mjs --strict` accepts no skip at
+     all (the prepared-Windows-runtime step of `desktop-package.yml`: the suite skips without a runtime, which is the failure).
+
+   A skipped or todo Node test, an ignored Rust test and a skipped Python test fails the job unless an exact tuple in
+   `scripts/ci/coverage/exceptions.json` names it (see "Release coverage" above).
+
+   What this does not see: a test that **returns early without reporting a skip** (`if (!existsSync(p)) return;`) counts as a
+   pass and no layer here can see it; the advisory scan `scripts/ci/scan-silent-returns.mjs` points at those shapes. Lanes the gate
+   does not run (the live lane except `packaging-artifact.live.test.mjs`, the `*:integration` harnesses, `test:bench-tools`,
+   `*.electron.test.mjs` off the Windows Computer Use leg) have no receipt. The Node `platforms` of an entry for Linux and macOS
+   are only checked by the gate's own runs on those systems, and a child suite that never started is a missing slot of its declared leg in the release coverage gate.
+3. **A static scan points at likely readers early (advice, not a proof; it never fails the job).**
+   `check-clean-checkout.mjs --readers` in `changes` (`continue-on-error`, hits are warning annotations, like the silent-return
+   scan) tokenizes the tracked JS and TS files and names one that holds a string naming a folder of the material, or that
+   imports, requires, spawns or names a file that does or that a clean checkout does not have (a tracked file `.gitignore` also
+   covers, of any extension), followed until nothing new is found. Imports are resolved as Node does; comments are removed without
+   dropping the code beside them. It reads source text: a path joined from pieces, taken from a variable or the environment is
+   invisible to it, a read it flags may be harmless, and a read guarded by `existsSync` that returns quietly passes it and passes
+   layer 2. It is advice because layer 1 is the guarantee: the same tests run on a clean checkout and fail there, or skip and are
+   reviewed. `check-clean-checkout.mjs --build` (`core-build`, `core-lint`) is a different check: it fails a Rust build that has
+   `local.toml` or the material on disk, by looking at the files themselves.
+- `rust-core-unix.yml` is a manual Linux and macOS run of the daemon's unit tests, the `pg` profile and clippy; `release.yml`
+  re-runs the `k1-lanes` filters when a critical path changed.
 - Built-artifact checks run after their build: `verify:packaging-artifact`
-  (`packaging-artifact.live.test.mjs`) in the desktop build job.
+  (`packaging-artifact.live.test.mjs`) in the desktop build job. A local run
+  needs the same handoff: before packaging, ensure the lane's unpacked output
+  does not exist and record `Date.now()` as `MIXDOG_PACKAGED_BUILD_STARTED_AT`.
+  Set `MIXDOG_PACKAGED_OUTPUT` to the exact Electron Builder output directory
+  name under `apps/desktop/dist` (for example, `win-unpacked` on Windows x64).
+  The smoke rejects a missing handoff or an output created before that build.
 - `npm run typecheck:packages` type-checks `packages/protocol-client` and
   `packages/protocol` (it needs `npm ci --prefix packages/protocol-client`).
-- `npm run test:bench-tools` runs the Windows recorder and harness tests under
-  `benchmarks/` (job objects, PowerShell); the `rust-core-windows` job owns it.
+- `npm run test:bench-tools` runs the recorder and harness tests under
+  `benchmarks/`; they are local-only material (above), so no CI job runs it.
   `core-restart-after-kill.test.mjs` (needs `MIXDOGD_EXE`) and
   `delivery-wait.test.mjs` (needs `MIXDOG_BENCH_TREE`, a checkout of the old
   Node tree) are manual.

@@ -2,17 +2,26 @@
 //! `delegated-approval-host.mjs`: each scripted step's return value and the offers and
 //! withdrawals the fake queues saw, in order.
 
+#[cfg(node_twin)]
 use std::collections::HashMap;
+#[cfg(node_twin)]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(node_twin)]
 use std::sync::{Arc, Mutex};
 
+#[cfg(node_twin)]
 use async_trait::async_trait;
-use serde_json::{Value, json};
+#[cfg(node_twin)]
+use serde_json::Value;
+use serde_json::json;
 
 use mixdog_services::bots::delivery::queue::Handoffs;
 
-use mixdog_core_session::session::delegated_host::{Answer, ApprovalQueue, Delegated, DelegatedApprovalHost, HostHandoffs, QueueHandle, SessionOpener};
+#[cfg(node_twin)]
+use mixdog_core_session::session::delegated_host::{Answer, ApprovalQueue, Delegated, QueueHandle, SessionOpener};
+use mixdog_core_session::session::delegated_host::{DelegatedApprovalHost, HostHandoffs};
 
+#[cfg(node_twin)]
 struct FakeQueue {
     name: String,
     session: String,
@@ -21,15 +30,18 @@ struct FakeQueue {
     labels: Arc<Mutex<Vec<(String, Answer)>>>,
 }
 
+#[cfg(node_twin)]
 fn label_of(labels: &Mutex<Vec<(String, Answer)>>, answer: &Answer) -> Value {
     let labels = labels.lock().unwrap();
     labels.iter().find(|(_, held)| Arc::ptr_eq(held, answer)).map_or(Value::Null, |(label, _)| json!(label))
 }
 
+#[cfg(node_twin)]
 fn shape(labels: &Mutex<Vec<(String, Answer)>>, delegated: &Delegated) -> Value {
     json!({ "id": delegated.id, "sessionId": delegated.session_id, "request": delegated.request, "answer": label_of(labels, &delegated.answer) })
 }
 
+#[cfg(node_twin)]
 impl ApprovalQueue for FakeQueue {
     fn session_id(&self) -> String {
         self.session.clone()
@@ -45,6 +57,7 @@ impl ApprovalQueue for FakeQueue {
     }
 }
 
+#[cfg(node_twin)]
 /// What the opener does when it runs.
 #[derive(Clone)]
 enum OnOpen {
@@ -52,6 +65,7 @@ enum OnOpen {
     Withdraw(String),
 }
 
+#[cfg(node_twin)]
 struct Rig {
     host: Arc<DelegatedApprovalHost>,
     events: Arc<Mutex<Vec<Value>>>,
@@ -61,6 +75,7 @@ struct Rig {
     on_open: Mutex<Option<OnOpen>>,
 }
 
+#[cfg(node_twin)]
 #[async_trait]
 impl SessionOpener for Rig {
     async fn open(&self, session_id: &str) -> Result<(), String> {
@@ -75,7 +90,9 @@ impl SessionOpener for Rig {
     }
 }
 
+#[cfg(node_twin)]
 impl Rig {
+    #[cfg(node_twin)]
     fn register(&self, name: &str, session: &str) {
         let queue = Arc::new(FakeQueue { name: name.into(), session: session.into(), disposed: AtomicBool::new(false), events: self.events.clone(), labels: self.labels.clone() });
         let handle = self.host.register_queue(queue.clone());
@@ -102,6 +119,7 @@ impl Rig {
     }
 }
 
+#[cfg(node_twin)]
 fn rig() -> Arc<Rig> {
     Arc::new(Rig {
         host: DelegatedApprovalHost::new(),
@@ -113,6 +131,7 @@ fn rig() -> Arc<Rig> {
     })
 }
 
+#[cfg(node_twin)]
 fn step(rig: &Arc<Rig>, call: &[Value]) -> Value {
     let text = |at: usize| call[at].as_str().unwrap();
     match text(0) {
@@ -152,6 +171,23 @@ fn step(rig: &Arc<Rig>, call: &[Value]) -> Value {
     Value::Null
 }
 
+/// The report-watch store keeps the host in step through `Handoffs`: a watch added notes its hand-off,
+/// a watch gone ends it for good (the host's scripted steps above are `noteHandoff` / `endHandoff`).
+#[tokio::test]
+async fn the_report_watch_store_notes_and_ends_hand_offs_through_the_adapter() {
+    let host = DelegatedApprovalHost::new();
+    let handoffs = HostHandoffs::new(host.clone());
+    let watch = json!({ "runId": "run1", "taskSessionId": "task", "homeSessionId": "chat", "title": "Bench" });
+    handoffs.note(&watch);
+    assert_eq!(host.handoff_chats_of("task"), vec![("chat".to_owned(), "Bench".to_owned())]);
+    handoffs.end("run1");
+    assert!(host.handoff_chats_of("task").is_empty());
+    handoffs.note(&watch);
+    assert!(host.handoff_chats_of("task").is_empty(), "an ended run is not noted again");
+}
+
+
+#[cfg(node_twin)]
 #[tokio::test]
 async fn every_scripted_step_does_what_the_node_host_did() {
     let golden: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/delegated-host/golden.json"))).unwrap();
@@ -170,19 +206,4 @@ async fn every_scripted_step_does_what_the_node_host_did() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
-/// The report-watch store keeps the host in step through `Handoffs`: a watch added notes its hand-off,
-/// a watch gone ends it for good (the host's scripted steps above are `noteHandoff` / `endHandoff`).
-#[tokio::test]
-async fn the_report_watch_store_notes_and_ends_hand_offs_through_the_adapter() {
-    let host = DelegatedApprovalHost::new();
-    let handoffs = HostHandoffs::new(host.clone());
-    let watch = json!({ "runId": "run1", "taskSessionId": "task", "homeSessionId": "chat", "title": "Bench" });
-    handoffs.note(&watch);
-    assert_eq!(host.handoff_chats_of("task"), vec![("chat".to_owned(), "Bench".to_owned())]);
-    handoffs.end("run1");
-    assert!(host.handoff_chats_of("task").is_empty());
-    handoffs.note(&watch);
-    assert!(host.handoff_chats_of("task").is_empty(), "an ended run is not noted again");
 }

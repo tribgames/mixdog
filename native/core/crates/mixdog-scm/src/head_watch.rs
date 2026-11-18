@@ -159,38 +159,6 @@ fn watch_file(watches: &mut Watches, file: &Path) {
     watches.entry(dir).or_default().insert(name.to_owned());
 }
 
-/// Resolves `cwd`: the checkout holding it and what it has checked out (`last` keeps the answer across a half-written HEAD), or, in
-/// a folder outside any repository, the `.git` of the folder and of each ancestor (`followDotGitsAbove`), each ancestor also
-/// filtered to the name of the ancestor below it, so one that is replaced or appears later is heard through its parent.
-#[allow(clippy::disallowed_methods, reason = "a stat per ancestor, called only inside the lane job or the watcher's own thread")]
-fn resolve(cwd: &Path, last: Option<&Answer>) -> Resolution {
-    let mut watches = Watches::new();
-    if let Some(layout) = layout_above(cwd) {
-        let (head, files) = read_head(&layout);
-        let kept = || last.filter(|last| last.git_dir == layout.git_dir).map(|last| (last.branch.clone(), last.commit.clone()));
-        let (branch, commit) = head.or_else(kept).unwrap_or_default();
-        for file in files.iter().chain([&layout.git_dir]) {
-            watch_file(&mut watches, file);
-        }
-        return Resolution { answer: Some(Answer { git_dir: layout.git_dir, branch, commit }), watches };
-    }
-    let mut below: Option<&Path> = None;
-    for folder in cwd.ancestors() {
-        if folder.is_dir() {
-            let key = mixdog_workspace::pathguard::canonical(folder).unwrap_or_else(|_| folder.to_path_buf());
-            let names = watches.entry(key).or_default();
-            names.insert(".git".into());
-            names.extend(below.and_then(Path::file_name).map(ToOwned::to_owned));
-            // A `.git` folder without HEAD is not a checkout yet: its HEAD appearing is heard.
-            if folder.join(".git").is_dir() {
-                watch_file(&mut watches, &folder.join(".git").join("HEAD"));
-            }
-        }
-        below = Some(folder);
-    }
-    Resolution { answer: None, watches }
-}
-
 /// The watch of one follower's directory: the follower it wakes and the names in the directory it cares about.
 struct Tap {
     core: Arc<Core>,
@@ -246,63 +214,6 @@ struct Core {
     heads: Arc<Heads>,
     folders: Arc<FolderWatcher>,
     inner: Mutex<Inner>,
-}
-
-impl Core {
-    /// Resolves the folder again and brings the watches to what it needs. `true` when the answer differs from the last one, or when
-    /// `lost` (the backend lost events, so every follower reads again). Reads files, on the watcher's thread or a lane.
-    fn sync(self: &Arc<Self>, lost: bool) -> bool {
-        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        if inner.closed {
-            return false;
-        }
-        let mut resolution = resolve(&self.cwd, inner.answer.as_ref());
-        // A watch started after the read may have missed a write in between: read once more, a bounded number of times.
-        for _ in 0..2 {
-            if !self.apply(&mut inner, &resolution.watches, resolution.answer.is_some()) {
-                break;
-            }
-            resolution = resolve(&self.cwd, resolution.answer.as_ref());
-        }
-        let changed = lost || resolution.answer != inner.answer;
-        inner.answer = resolution.answer;
-        changed
-    }
-
-    /// Makes the watches `wanted`: the ones no longer needed are released, the new ones started, a kept one takes its new names.
-    /// `true` when a watch was started.
-    fn apply(self: &Arc<Self>, inner: &mut Inner, wanted: &Watches, in_repository: bool) -> bool {
-        inner.watches.retain(|dir, id| {
-            let kept = wanted.contains_key(dir);
-            if !kept {
-                self.heads.lock().remove(id);
-                self.folders.unwatch(id);
-            }
-            kept
-        });
-        let mut started = false;
-        for (dir, names) in wanted {
-            if let Some(id) = inner.watches.get(dir) {
-                if let Some(tap) = self.heads.lock().get_mut(id) {
-                    tap.names.clone_from(names);
-                }
-                continue;
-            }
-            let id = format!("{WATCH_PREFIX}{}:{}", self.key, dir.display());
-            // The tap is there before the watch, so no event finds the id unknown.
-            self.heads.lock().insert(id.clone(), Tap { core: self.clone(), names: names.clone() });
-            if let Err(error) = self.folders.watch_windowed(&id, dir, false, HEAD_WINDOW_MS) {
-                self.heads.lock().remove(&id);
-                if in_repository {
-                    tracing::warn!(dir = %dir.display(), "the HEAD of a checkout is not followed: {}", error.message);
-                }
-                continue;
-            }
-            inner.watches.insert(dir.clone(), id);
-            started = true;
-        }
-        started
-    }
 }
 
 /// The HEAD watchers of the process.
@@ -401,14 +312,6 @@ mod tests {
         std::fs::rename(dir.join(".git/HEAD.lock"), dir.join(".git/HEAD")).unwrap();
     }
 
-    async fn heard(follow: &mut HeadFollow) -> bool {
-        mixdog_rt::time::timeout(Duration::from_secs(5), follow.moved()).await.unwrap_or(false)
-    }
-
-    async fn silent(follow: &mut HeadFollow) -> bool {
-        !mixdog_rt::time::timeout(Duration::from_millis(800), follow.moved()).await.unwrap_or(false)
-    }
-
     fn git_dir_of(cwd: &Path) -> Option<PathBuf> {
         layout_above(cwd).map(|layout| layout.git_dir)
     }
@@ -461,6 +364,13 @@ mod tests {
         assert_eq!(read_head(&layout).0, Some((None, Some("abcdef0123456789abcdef0123456789abcdef01".to_owned()))));
     }
 
+
+    async fn heard(follow: &mut HeadFollow) -> bool {
+        mixdog_rt::time::timeout(Duration::from_secs(5), follow.moved()).await.unwrap_or(false)
+    }
+    async fn silent(follow: &mut HeadFollow) -> bool {
+        !mixdog_rt::time::timeout(Duration::from_millis(800), follow.moved()).await.unwrap_or(false)
+    }
     #[tokio::test]
     async fn a_switch_done_outside_wakes_the_follower() {
         let dir = checkout("main");
@@ -471,7 +381,6 @@ mod tests {
         std::fs::write(dir.path().join(".git/HEAD"), "0123456789012345678901234567890123456789\n").unwrap();
         assert!(heard(&mut follow).await, "a detach is heard");
     }
-
     #[tokio::test]
     async fn the_wake_comes_within_the_old_debounce_not_the_standard_batch() {
         let dir = checkout("main");
@@ -482,7 +391,6 @@ mod tests {
         assert!(heard(&mut follow).await);
         assert!(started.elapsed() < Duration::from_millis(200), "{:?}", started.elapsed());
     }
-
     #[tokio::test]
     async fn a_write_that_is_not_head_wakes_no_one() {
         let dir = checkout("main");
@@ -494,7 +402,6 @@ mod tests {
         std::fs::write(dir.path().join(".git/refs/heads/main"), "0123456789012345678901234567890123456789\n").unwrap();
         assert!(silent(&mut follow).await);
     }
-
     #[tokio::test]
     async fn a_retargeted_alias_branch_is_heard() {
         let dir = checkout("alias");
@@ -505,7 +412,6 @@ mod tests {
         std::fs::write(&alias, "ref: refs/heads/topic\n").unwrap();
         assert!(heard(&mut follow).await, "HEAD did not change, the symbolic ref it passes through did");
     }
-
     #[tokio::test]
     async fn a_repository_appearing_around_a_folder_that_had_none_is_heard() {
         let outer = tempfile::tempdir().unwrap();
@@ -522,7 +428,6 @@ mod tests {
         switch(&outer.path().join("work"), "ref: refs/heads/topic\n");
         assert!(heard(&mut follow).await);
     }
-
     #[tokio::test]
     async fn a_repository_whose_head_vanishes_is_dropped_and_followed_again_when_it_is_back() {
         let dir = checkout("main");
@@ -535,7 +440,6 @@ mod tests {
         switch(dir.path(), "ref: refs/heads/topic\n");
         assert!(heard(&mut follow).await, "and followed again");
     }
-
     #[tokio::test]
     async fn sessions_of_one_repository_share_their_os_watches_that_end_with_the_last() {
         let dir = checkout("main");
@@ -551,5 +455,94 @@ mod tests {
         drop(second);
         assert!(watchers.heads.lock().is_empty());
         assert_eq!(watchers.folders().unwrap().open_watches(), 0);
+    }
+}
+
+
+/// Resolves `cwd`: the checkout holding it and what it has checked out (`last` keeps the answer across a half-written HEAD), or, in
+/// a folder outside any repository, the `.git` of the folder and of each ancestor (`followDotGitsAbove`), each ancestor also
+/// filtered to the name of the ancestor below it, so one that is replaced or appears later is heard through its parent.
+#[allow(clippy::disallowed_methods, reason = "a stat per ancestor, called only inside the lane job or the watcher's own thread")]
+fn resolve(cwd: &Path, last: Option<&Answer>) -> Resolution {
+    let mut watches = Watches::new();
+    if let Some(layout) = layout_above(cwd) {
+        let (head, files) = read_head(&layout);
+        let kept = || last.filter(|last| last.git_dir == layout.git_dir).map(|last| (last.branch.clone(), last.commit.clone()));
+        let (branch, commit) = head.or_else(kept).unwrap_or_default();
+        for file in files.iter().chain([&layout.git_dir]) {
+            watch_file(&mut watches, file);
+        }
+        return Resolution { answer: Some(Answer { git_dir: layout.git_dir, branch, commit }), watches };
+    }
+    let mut below: Option<&Path> = None;
+    for folder in cwd.ancestors() {
+        if folder.is_dir() {
+            let key = mixdog_workspace::pathguard::canonical(folder).unwrap_or_else(|_| folder.to_path_buf());
+            let names = watches.entry(key).or_default();
+            names.insert(".git".into());
+            names.extend(below.and_then(Path::file_name).map(ToOwned::to_owned));
+            // A `.git` folder without HEAD is not a checkout yet: its HEAD appearing is heard.
+            if folder.join(".git").is_dir() {
+                watch_file(&mut watches, &folder.join(".git").join("HEAD"));
+            }
+        }
+        below = Some(folder);
+    }
+    Resolution { answer: None, watches }
+}
+impl Core {
+    /// Resolves the folder again and brings the watches to what it needs. `true` when the answer differs from the last one, or when
+    /// `lost` (the backend lost events, so every follower reads again). Reads files, on the watcher's thread or a lane.
+    fn sync(self: &Arc<Self>, lost: bool) -> bool {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if inner.closed {
+            return false;
+        }
+        let mut resolution = resolve(&self.cwd, inner.answer.as_ref());
+        // A watch started after the read may have missed a write in between: read once more, a bounded number of times.
+        for _ in 0..2 {
+            if !self.apply(&mut inner, &resolution.watches, resolution.answer.is_some()) {
+                break;
+            }
+            resolution = resolve(&self.cwd, resolution.answer.as_ref());
+        }
+        let changed = lost || resolution.answer != inner.answer;
+        inner.answer = resolution.answer;
+        changed
+    }
+
+    /// Makes the watches `wanted`: the ones no longer needed are released, the new ones started, a kept one takes its new names.
+    /// `true` when a watch was started.
+    fn apply(self: &Arc<Self>, inner: &mut Inner, wanted: &Watches, in_repository: bool) -> bool {
+        inner.watches.retain(|dir, id| {
+            let kept = wanted.contains_key(dir);
+            if !kept {
+                self.heads.lock().remove(id);
+                self.folders.unwatch(id);
+            }
+            kept
+        });
+        let mut started = false;
+        for (dir, names) in wanted {
+            if let Some(id) = inner.watches.get(dir) {
+                if let Some(tap) = self.heads.lock().get_mut(id) {
+                    tap.names.clone_from(names);
+                }
+                continue;
+            }
+            let id = format!("{WATCH_PREFIX}{}:{}", self.key, dir.display());
+            // The tap is there before the watch, so no event finds the id unknown.
+            self.heads.lock().insert(id.clone(), Tap { core: self.clone(), names: names.clone() });
+            if let Err(error) = self.folders.watch_windowed(&id, dir, false, HEAD_WINDOW_MS) {
+                self.heads.lock().remove(&id);
+                if in_repository {
+                    tracing::warn!(dir = %dir.display(), "the HEAD of a checkout is not followed: {}", error.message);
+                }
+                continue;
+            }
+            inner.watches.insert(dir.clone(), id);
+            started = true;
+        }
+        started
     }
 }

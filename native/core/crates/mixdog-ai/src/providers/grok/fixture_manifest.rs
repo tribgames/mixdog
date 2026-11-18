@@ -1,18 +1,25 @@
 //! The manifest of a recorded fixture set (`native/core/fixtures/<set>/MANIFEST.json`) read as the pre-review gate reads it:
 //! an exact recording of Node b6f10295a, and every file listed there is the file the test reads, byte for byte.
 
+#[cfg(node_twin)]
 use std::path::Path;
 
+#[cfg(node_twin)]
 use serde_json::Value;
+#[cfg(node_twin)]
 use sha2::Digest;
+#[cfg(node_twin)]
 use sha2::Sha256;
 
+#[cfg(node_twin)]
 pub const NODE_COMMIT: &str = "b6f10295a2f698afc85332467192de28500bd146";
 
+#[cfg(node_twin)]
 pub fn sha256(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
+#[cfg(node_twin)]
 /// The paths of every file under `dir` but its MANIFEST.json, `/`-separated, sorted as the recorders' `walkFiles` sorts.
 fn files_under(dir: &Path) -> Vec<String> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
@@ -32,6 +39,7 @@ fn files_under(dir: &Path) -> Vec<String> {
     out
 }
 
+#[cfg(node_twin)]
 /// Panics unless `dir`'s MANIFEST.json records an exact recording of the Node commit by `recorder` (a path from the
 /// repository root, whose content hash the manifest names), and lists exactly the files the directory holds, each with
 /// its size and sha256: an extra, missing or changed file, or a changed recorder, fails.

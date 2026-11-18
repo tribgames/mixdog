@@ -89,10 +89,17 @@ mod tests {
         assert!(matches!(service.notify(Method("computer/pointerReleased"), params, ConnectionId(1)), Admit::Accepted));
     }
 
+    #[tokio::test]
+    async fn a_request_of_the_notification_is_refused() {
+        let (service, _, _) = service();
+        let request = CoreRequest { method: Method("computer/pointerReleased"), params: json!({"sessionThreadId": "t1"}), op: None, ctx: CallContext::internal("test") };
+        assert!(matches!(service.call(request).await, Err(CoreError::InvalidParams { .. })));
+    }
+
+
     async fn quiet(receive: &mut mpsc::UnboundedReceiver<String>) -> bool {
         mixdog_rt::time::timeout(Duration::from_millis(150), receive.recv()).await.is_err()
     }
-
     #[tokio::test]
     async fn the_notification_ends_a_held_sessions_pointer_and_only_that_one() {
         let (service, hold, mut released) = service();
@@ -105,7 +112,6 @@ mod tests {
         notify(&service, json!({"sessionThreadId": "t1"}));
         assert!(quiet(&mut released).await, "t1 is no longer held");
     }
-
     #[tokio::test]
     async fn a_malformed_notification_or_no_helper_is_taken_and_ignored() {
         let (service, hold, mut released) = service();
@@ -115,12 +121,5 @@ mod tests {
         }
         assert!(quiet(&mut released).await);
         notify(&ComputerPointerService::new(None), json!({"sessionThreadId": "t1"}));
-    }
-
-    #[tokio::test]
-    async fn a_request_of_the_notification_is_refused() {
-        let (service, _, _) = service();
-        let request = CoreRequest { method: Method("computer/pointerReleased"), params: json!({"sessionThreadId": "t1"}), op: None, ctx: CallContext::internal("test") };
-        assert!(matches!(service.call(request).await, Err(CoreError::InvalidParams { .. })));
     }
 }

@@ -23,17 +23,43 @@ impl<T> SessionGoals for T where
 pub const CONTINUATION_MODE: &str = mixdog_protocol::message_class::GOAL_CONTINUATION_SOURCE;
 const CLOSEOUT_MODE: &str = mixdog_protocol::message_class::GOAL_CLOSEOUT_SOURCE;
 
+/// How a continuation decision a test holds ends ([`decision_hold`]).
+#[cfg(any(test, feature = "test-support"))]
+#[cfg_attr(not(test), allow(dead_code, reason = "armed by this crate's unit tests; compiled for test-support so the decision behaves as in a test build"))]
+pub(crate) enum DecisionFault {
+    /// The Goal runtime's decision failed (read as none).
+    Fail,
+    /// The decision's task panics.
+    Panic,
+}
+
+/// The continuation decisions a test holds, by session: `arrived` is told, then the decision ends as `go` says (a dropped `go`
+/// lets it run as usual).
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) static DECISION_HOLDS: std::sync::Mutex<Vec<(String, tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<DecisionFault>)>> =
+    std::sync::Mutex::new(Vec::new());
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) async fn decision_hold(thread: &str) -> Option<DecisionFault> {
+    let held = {
+        let mut holds = DECISION_HOLDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        holds.iter().position(|(at, _, _)| at == thread).map(|at| holds.remove(at))
+    };
+    let (_, arrived, go) = held?;
+    let _ = arrived.send(());
+    go.await.ok()
+}
+
 /// The `goalContinuation` inputs of the facade (`goal-facade-api.mjs`): the session's todo list
 /// as the Goal's block, and whether the session waits on an agent or an awaited background
 /// shell job (`awaitingBackgroundWork`).
 pub async fn continuation_input(
     todos: &dyn mixdog_tools::state::todo::TodoStore,
     work: &dyn mixdog_core_run::run_host::guards::RunningWork,
-    cycles: &mixdog_core_run::run_host::guards::UserCycles,
     thread: &mixdog_protocol::ThreadId,
 ) -> mixdog_core_goal::goal::ContinuationInput {
     let todo = todos.read(thread).await.context_block("Todo list for this Goal:", true);
-    let awaiting_work = mixdog_core_run::run_host::guards::awaiting_background_work(work, cycles, thread.as_str()).await;
+    let awaiting_work = mixdog_core_run::run_host::guards::awaiting_background_work(work, thread.as_str()).await;
     mixdog_core_goal::goal::ContinuationInput { awaiting_work, todo }
 }
 
@@ -41,40 +67,6 @@ pub async fn continuation_input(
 /// rules again. A failure never breaks the session.
 pub fn mark_goal_reminder(goals: &dyn SessionGoals, thread: &mixdog_protocol::ThreadId) {
     let _ = goals.reset_continuation_rules(thread);
-}
-
-/// A Goal refusal as the wire carries it: Node's plain `Error`, its message the whole answer.
-pub fn failure(error: &mixdog_core_goal::goal::GoalError) -> mixdog_core_api::error::CoreError {
-    mixdog_core_api::error::CoreError::DomainError {
-        domain: "goal".into(),
-        code: error.code.map(Into::into),
-        message: Some(error.message.as_str().into()),
-        detail: None,
-    }
-}
-
-/// `goalControl(args)` for the three `thread/goal/*` methods: `set` carries the request (a
-/// `/goal` command string or a request object), `clear` is the `clear` action, `control` is its
-/// action over its args.
-pub fn control_request(method: &str, params: &Value) -> Result<Value, mixdog_core_api::error::CoreError> {
-    use mixdog_app_protocol::v2::thread::{ThreadGoalControlParams, ThreadGoalSetParams};
-    let bad = |expected: &str| mixdog_core_api::error::CoreError::InvalidParams { path: "params".into(), expected: expected.into() };
-    match method {
-        "thread/goal/set" => {
-            let set: ThreadGoalSetParams = serde_json::from_value(params.clone()).map_err(|_| bad("ThreadGoalSetParams"))?;
-            Ok(set.goal)
-        }
-        "thread/goal/clear" => Ok(json!({ "action": "clear" })),
-        _ => {
-            let control: ThreadGoalControlParams = serde_json::from_value(params.clone()).map_err(|_| bad("ThreadGoalControlParams"))?;
-            let mut request = match control.args {
-                Some(Value::Object(args)) => args,
-                _ => serde_json::Map::new(),
-            };
-            request.insert("action".into(), Value::String(control.action));
-            Ok(Value::Object(request))
-        }
-    }
 }
 
 /// What the lane watches of the Goal between changes (`goal-continuation.mjs`'s observed
@@ -288,4 +280,38 @@ pub fn settle_detail(status: &str, error: Option<&mixdog_protocol::TurnError>, a
         "toolCalls": tool_calls,
         "preserveGoalState": false,
     })
+}
+
+
+/// A Goal refusal as the wire carries it: Node's plain `Error`, its message the whole answer.
+pub fn failure(error: &mixdog_core_goal::goal::GoalError) -> mixdog_core_api::error::CoreError {
+    mixdog_core_api::error::CoreError::DomainError {
+        domain: "goal".into(),
+        code: error.code.map(Into::into),
+        message: Some(error.message.as_str().into()),
+        detail: None,
+    }
+}
+/// `goalControl(args)` for the three `thread/goal/*` methods: `set` carries the request (a
+/// `/goal` command string or a request object), `clear` is the `clear` action, `control` is its
+/// action over its args.
+pub fn control_request(method: &str, params: &Value) -> Result<Value, mixdog_core_api::error::CoreError> {
+    use mixdog_app_protocol::v2::thread::{ThreadGoalControlParams, ThreadGoalSetParams};
+    let bad = |expected: &str| mixdog_core_api::error::CoreError::InvalidParams { path: "params".into(), expected: expected.into() };
+    match method {
+        "thread/goal/set" => {
+            let set: ThreadGoalSetParams = serde_json::from_value(params.clone()).map_err(|_| bad("ThreadGoalSetParams"))?;
+            Ok(set.goal)
+        }
+        "thread/goal/clear" => Ok(json!({ "action": "clear" })),
+        _ => {
+            let control: ThreadGoalControlParams = serde_json::from_value(params.clone()).map_err(|_| bad("ThreadGoalControlParams"))?;
+            let mut request = match control.args {
+                Some(Value::Object(args)) => args,
+                _ => serde_json::Map::new(),
+            };
+            request.insert("action".into(), Value::String(control.action));
+            Ok(Value::Object(request))
+        }
+    }
 }

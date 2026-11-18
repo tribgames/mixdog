@@ -94,21 +94,6 @@ pub fn context_status_of(status: &Value) -> ContextStatus {
     }
 }
 
-/// `timestampMs(value)`: a positive number or a date string as epoch ms, else 0.
-fn timestamp_ms(value: Option<&Value>) -> f64 {
-    let value = match value {
-        None | Some(Value::Null) => return 0.0,
-        Some(Value::String(text)) if text.is_empty() => return 0.0,
-        Some(value) => value,
-    };
-    let n = mixdog_js::to_number(value);
-    if n.is_finite() && n > 0.0 {
-        return n;
-    }
-    let parsed = mixdog_js::time::date_parse(&value_to_string(value));
-    if parsed.is_finite() && parsed > 0.0 { parsed } else { 0.0 }
-}
-
 /// `promptContentText(content)`: the text a message carries; `text_of_part` answers the text of an attachment
 /// reference part (`None` for any other part).
 pub fn prompt_content_text(content: &Value, text_of_part: &dyn Fn(&Value) -> Option<String>) -> String {
@@ -160,19 +145,6 @@ fn has_model_visible_conversation(messages: &[Value], text_of_part: &dyn Fn(&Val
     })
 }
 
-/// `sessionActivityTimestamp(session, fallback)`: when the session was last active (0: no model-visible conversation):
-/// the latest of its own activity (`lastUsedAt`, else `updatedAt`, else the fallback) and the last successful cache
-/// warm (`warm_use_at`, 0 when none). Idleness is measured from the last time the cached prompt was used, and a warm
-/// that read the cache without writing used it; the session's own timestamps are never moved.
-pub fn session_activity_timestamp(session: &Value, fallback: f64, warm_use_at: f64, text_of_part: &dyn Fn(&Value) -> Option<String>) -> f64 {
-    let messages: &[Value] = session.get("messages").and_then(Value::as_array).map_or(&[], Vec::as_slice);
-    if !has_model_visible_conversation(messages, text_of_part) {
-        return 0.0;
-    }
-    let own = [timestamp_ms(session.get("lastUsedAt")), timestamp_ms(session.get("updatedAt")), fallback.max(0.0)].into_iter().find(|n| *n != 0.0).unwrap_or(0.0);
-    own.max(warm_use_at)
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -221,6 +193,7 @@ mod tests {
         assert_eq!(context_status_of(&Value::Null), ContextStatus::default());
     }
 
+
     #[test]
     fn activity_is_the_latest_use_of_a_session_with_a_visible_conversation() {
         let no_attachments = |_: &Value| -> Option<String> { None };
@@ -235,4 +208,32 @@ mod tests {
         assert_eq!(prompt_content_text(&by_attachment["messages"][0]["content"], &|part: &Value| part.get("ref").map(|_| "attached".to_owned())), "attached\n[Image]");
         assert_eq!(prompt_content_text(&json!(7), &no_attachments), "7");
     }
+}
+
+
+/// `timestampMs(value)`: a positive number or a date string as epoch ms, else 0.
+fn timestamp_ms(value: Option<&Value>) -> f64 {
+    let value = match value {
+        None | Some(Value::Null) => return 0.0,
+        Some(Value::String(text)) if text.is_empty() => return 0.0,
+        Some(value) => value,
+    };
+    let n = mixdog_js::to_number(value);
+    if n.is_finite() && n > 0.0 {
+        return n;
+    }
+    let parsed = mixdog_js::time::date_parse(&value_to_string(value));
+    if parsed.is_finite() && parsed > 0.0 { parsed } else { 0.0 }
+}
+/// `sessionActivityTimestamp(session, fallback)`: when the session was last active (0: no model-visible conversation):
+/// the latest of its own activity (`lastUsedAt`, else `updatedAt`, else the fallback) and the last successful cache
+/// warm (`warm_use_at`, 0 when none). Idleness is measured from the last time the cached prompt was used, and a warm
+/// that read the cache without writing used it; the session's own timestamps are never moved.
+pub fn session_activity_timestamp(session: &Value, fallback: f64, warm_use_at: f64, text_of_part: &dyn Fn(&Value) -> Option<String>) -> f64 {
+    let messages: &[Value] = session.get("messages").and_then(Value::as_array).map_or(&[], Vec::as_slice);
+    if !has_model_visible_conversation(messages, text_of_part) {
+        return 0.0;
+    }
+    let own = [timestamp_ms(session.get("lastUsedAt")), timestamp_ms(session.get("updatedAt")), fallback.max(0.0)].into_iter().find(|n| *n != 0.0).unwrap_or(0.0);
+    own.max(warm_use_at)
 }

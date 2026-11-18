@@ -8,13 +8,16 @@ on:
         required: false
         type: string
         default: ""
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Expected release tag; blank uses the configured tag"
-        required: false
-        default: ""
-
+      sha:
+        description: "The gated commit every job checks out and the release and its tag are made at"
+        required: true
+        type: string
+    outputs:
+      # The voice runtime manifest this run leaves as the artifact voice-runtime-manifest-<run> for Deploy's prepare-app to
+      # merge into the bundled one (scripts/sync-voice-runtime-manifest.mjs): nothing here writes a branch.
+      bundled_manifest:
+        description: "true when the bundled manifest needs the artifact this run left"
+        value: ${{ jobs.plan.outputs.sync_needed }}
 permissions:
   contents: write
 
@@ -38,8 +41,11 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ inputs.sha }}
           fetch-depth: 0
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.sha }}
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -60,11 +66,25 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
+      # The release's tag, when it exists, names the gated commit; a tag is never moved, so a release made at another commit is not
+      # extended with assets of this one.
+      - name: Require the tag to name the gated commit when it exists
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+          SHA: ${{ inputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REMOTE=$(git ls-remote --tags "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${TAG}" | awk 'NR == 1 { print $1 }')
+          if [[ -n "$REMOTE" && "$REMOTE" != "$SHA" ]]; then
+            echo "::error::${TAG} names ${REMOTE}, not the gated commit ${SHA}"
+            exit 1
+          fi
       - name: Create or resume hidden draft
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ needs.plan.outputs.tag }}
-          target_commitish: ${{ github.event.repository.default_branch }}
+          target_commitish: ${{ inputs.sha }}
           name: Voice Runtime ${{ needs.plan.outputs.version }}
           draft: true
           prerelease: false
@@ -83,6 +103,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.sha }}
 
       - name: Install Vulkan SDK
         if: matrix.os == 'win32'
@@ -172,6 +194,7 @@ jobs:
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ needs.plan.outputs.tag }}
+          target_commitish: ${{ inputs.sha }}
           draft: true
           make_latest: false
           files: |
@@ -189,7 +212,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ inputs.sha }}
           fetch-depth: 0
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -206,6 +229,7 @@ jobs:
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ needs.plan.outputs.tag }}
+          target_commitish: ${{ inputs.sha }}
           draft: true
           make_latest: false
           files: src/runtime/channels/data/voice-runtime-manifest.json
@@ -223,7 +247,8 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: voice-runtime-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          name: voice-runtime-manifest-${{ github.run_id }}
+          overwrite: true
           path: dist/voice-runtime-manifest.json
           if-no-files-found: error
 
@@ -236,7 +261,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ inputs.sha }}
 
       - name: Download published manifest
         env:
@@ -249,7 +274,8 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: voice-runtime-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          name: voice-runtime-manifest-${{ github.run_id }}
+          overwrite: true
           path: dist/voice-runtime-manifest.json
           if-no-files-found: error
 
@@ -264,67 +290,7 @@ jobs:
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ needs.plan.outputs.tag }}
+          target_commitish: ${{ inputs.sha }}
           draft: false
           prerelease: false
           make_latest: false
-
-  sync:
-    name: sync-bundled-manifest
-    needs: [plan, manifest, recover-manifest, publish]
-    if: >-
-      ${{
-        always()
-        && needs.plan.result == 'success'
-        && needs.plan.outputs.sync_needed == 'true'
-        && (
-          (
-            needs.plan.outputs.build_needed == 'true'
-            && needs.manifest.result == 'success'
-            && needs.publish.result == 'success'
-          )
-          || (
-            needs.plan.outputs.build_needed == 'false'
-            && needs.recover-manifest.result == 'success'
-          )
-        )
-      }}
-    runs-on: ubuntu-22.04
-    timeout-minutes: 15
-    concurrency:
-      group: runtime-manifest-sync
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 0
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: voice-runtime-manifest-${{ github.run_id }}-${{ github.run_attempt }}
-          path: dist
-
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: "22"
-
-      - name: Merge voice runtime fields without overwriting model metadata
-        run: node scripts/sync-voice-runtime-manifest.mjs
-
-      - name: Commit synchronized manifest
-        env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
-        run: |
-          set -euo pipefail
-          MANIFEST=src/runtime/channels/data/voice-runtime-manifest.json
-          if git diff --quiet -- "$MANIFEST"; then
-            echo "Bundled voice runtime manifest is already current."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$MANIFEST"
-          git commit -m "chore(voice): sync runtime manifest for ${RELEASE_TAG}"
-          git pull --rebase origin "$DEFAULT_BRANCH"
-          git push origin "HEAD:${DEFAULT_BRANCH}"

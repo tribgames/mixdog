@@ -119,6 +119,7 @@ mod pg {
         replay(0, "all generated categories age uniformly; unknown is null").await;
     }
 
+
     #[tokio::test(flavor = "current_thread")]
     async fn case_folding_string_and_non_finite_timestamps_future_last_seen() {
         replay(1, "case folding, string and non-finite timestamps, future last-seen").await;

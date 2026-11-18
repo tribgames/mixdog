@@ -24,3 +24,10 @@ mixdog-office-base = { workspace = true, features = ["test-support"] }
 base64 = { workspace = true }
 tempfile = { workspace = true }
 mixdog-office-author = { workspace = true }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (<build-tools>\unify-test-features.py).
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+mixdog-office-com = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }

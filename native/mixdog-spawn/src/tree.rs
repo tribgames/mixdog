@@ -44,7 +44,7 @@ const KILL_ROUNDS: usize = 3;
 
 /// A process as one table read named it: the pid and the start token that tells it from a later
 /// process holding the same pid.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct Identity {
     pub(crate) pid: u32,
     pub(crate) token: String,
@@ -162,6 +162,10 @@ pub(crate) trait Signals: Send + Sync {
     fn group(&self, pgid: u32, signal: Signal) -> bool;
     /// The same for one process.
     fn process(&self, pid: u32, signal: Signal) -> bool;
+    /// Shutdown may signal an individual only through a stable OS handle.
+    fn kill_identified(&self, _target: &Identity) -> bool {
+        false
+    }
     /// Completes with `true` when one of `watched` has ended (or is no longer the process that was
     /// seen). `false` at once when exit events cannot be had: the caller looks again later.
     async fn exited(&self, watched: &[Identity]) -> bool;
@@ -212,10 +216,54 @@ struct Tracker {
     /// The root's start token, taken while it was known ours.
     root_token: Option<String>,
     tracked: Vec<Identity>,
+    shutdown_tracked: HashSet<Identity>,
     candidates: Vec<Candidate>,
 }
 
 impl Tracker {
+    fn absorb_shutdown(&mut self, table: &Table, pinned: bool, reader: &impl Reader) {
+        let mut seeds = Vec::new();
+        if pinned {
+            seeds.push(self.root);
+            seeds.extend(table.procs.iter().filter(|proc| proc.pgid == self.root).map(|proc| proc.pid));
+        }
+        seeds.extend(self.shutdown_tracked.iter().filter_map(|identity| {
+            (table.row(identity.pid).relation(identity) == Relation::Same).then_some(identity.pid)
+        }));
+        let mut seen = HashSet::new();
+        while let Some(pid) = seeds.pop() {
+            if !seen.insert(pid) {
+                continue;
+            }
+            if pinned && pid == self.root {
+                seeds.extend(table.children(pid));
+                continue;
+            }
+            let Some(token) = table.token(pid) else { continue };
+            let identity = Identity { pid, token: token.to_owned() };
+            // The table is not atomic. Before trusting a parent link, make
+            // sure the parent still has the identity in the captured table.
+            if !table.children(pid).is_empty()
+                && matches!(reader.row(pid), Ok(row) if row.relation(&identity) == Relation::Same)
+            {
+                seeds.extend(table.children(pid));
+            }
+            self.shutdown_tracked.insert(identity);
+        }
+    }
+
+    fn shutdown_members(&self) -> impl Iterator<Item = &Identity> {
+        self.tracked.iter().chain(self.shutdown_tracked.iter())
+    }
+
+    fn shutdown_candidates_gone(&self, row: impl Fn(u32) -> Row) -> bool {
+        self.candidates.iter().all(|candidate| match row(candidate.pid) {
+            Row::Absent => candidate.token.is_some(),
+            Row::Readable(proc) => candidate.token.as_deref() != Some(proc.token.as_str()),
+            Row::Unreadable => false,
+        })
+    }
+
     /// While the root is unreaped, the lifecycle evidence is the ownership proof and its row is not
     /// consulted: a child that has not been waited for keeps its pid (a zombie holds it), so the pid
     /// cannot have been reused and cannot name anyone but our root, whether its row reads, is absent
@@ -369,7 +417,13 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
             signals,
             clock,
             root,
-            tracker: Mutex::new(Tracker { root, root_token, tracked: Vec::new(), candidates: Vec::new() }),
+            tracker: Mutex::new(Tracker {
+                root,
+                root_token,
+                tracked: Vec::new(),
+                shutdown_tracked: HashSet::new(),
+                candidates: Vec::new(),
+            }),
             reaped: AtomicBool::new(false),
             live: Mutex::new(Vec::new()),
         }
@@ -414,6 +468,62 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
     /// it signals nothing and proves nothing about ownership.
     pub(crate) fn group_may_be_occupied(&self) -> bool {
         self.signals.group(self.root, Signal::Probe)
+    }
+
+    /// The caller holds the reap lock and started the leader with `setsid`.
+    /// Another session cannot join this group, and the unreaped PID cannot
+    /// be reused. Neither guarantee depends on a process-table read.
+    pub(crate) fn shutdown_private_group(&self) {
+        if let Ok(table) = self.reader.table() {
+            self.tracker().absorb_shutdown(&table, true, &self.reader);
+        }
+        self.signals.group(self.root, Signal::Kill);
+    }
+
+    /// A numeric group probe also finds zombies. An authoritative live table
+    /// can show that a record no longer needs to be retained for that group.
+    pub(crate) fn group_has_live_members(&self) -> bool {
+        self.group_may_be_occupied() && match self.reader.table() {
+            Ok(table) => !table.complete() || table.procs.iter().any(|proc| proc.pgid == self.root),
+            Err(_) => true,
+        }
+    }
+
+    pub(crate) fn shutdown_survivor_confirmed(&self) -> bool {
+        self.tracker().shutdown_tracked.iter().any(|identity| self.is_same(identity))
+    }
+
+    pub(crate) fn shutdown_idle(&self) -> bool {
+        if !self.reaped.load(Ordering::Acquire) || self.group_has_live_members() {
+            return false;
+        }
+        let tracker = self.tracker();
+        let gone = tracker.shutdown_members().all(|identity| {
+            matches!(self.reader.row(identity.pid), Ok(row) if matches!(row.relation(identity), Relation::Absent | Relation::Different))
+        });
+        gone && tracker.shutdown_candidates_gone(|pid| self.reader.row(pid).unwrap_or(Row::Unreadable))
+    }
+
+    pub(crate) async fn shutdown_descendants(&self) {
+        if self.shutdown_idle() {
+            return;
+        }
+        for _ in 0..KILL_ROUNDS {
+            let Ok(table) = self.reader.table() else {
+                return;
+            };
+            let targets = {
+                let mut tracker = self.tracker();
+                tracker.absorb_shutdown(&table, false, &self.reader);
+                tracker.shutdown_tracked.iter().filter(|identity| {
+                    table.row(identity.pid).relation(identity) == Relation::Same
+                }).cloned().collect::<Vec<_>>()
+            };
+            if !targets.iter().fold(false, |sent, target| self.signals.kill_identified(target) || sent) {
+                return;
+            }
+            self.clock.sleep(GROUP_FORCED_WAIT).await;
+        }
     }
 
     /// A tree kill of the group while the command still runs, or while the group is still ours. The
@@ -655,6 +765,11 @@ mod tests {
             self.send("pid", pid, signal, &self.pid_probes, &self.asked[1])
         }
 
+        fn kill_identified(&self, target: &Identity) -> bool {
+            push(&self.log, json!({"op": "kill_identified", "id": target.pid}));
+            false
+        }
+
         async fn exited(&self, _watched: &[Identity]) -> bool {
             self.exits
         }
@@ -685,6 +800,73 @@ mod tests {
     type Scripted = Tree<ScriptedReader, ScriptedSignals, ScriptedClock>;
 
     const ROOT: u32 = 5100;
+
+    #[tokio::test]
+    async fn shutdown_neither_signals_a_reused_group_nor_forgets_an_escaped_descendant() {
+        let log = Log::default();
+        let tables = json!([
+            [
+                {"pid": ROOT, "ppid": 1, "pgid": ROOT, "token": "leader"},
+                {"pid": 5200, "ppid": ROOT, "pgid": 5200, "token": "descendant"}
+            ],
+            [
+                {"pid": 5200, "ppid": 1, "pgid": 5200, "token": "descendant"},
+                {"pid": 5300, "ppid": 1, "pgid": ROOT, "token": "unverified"}
+            ],
+            [
+                {"pid": 5200, "ppid": 1, "pgid": 5200, "token": "descendant"}
+            ]
+        ]);
+        let tree = Tree::new(
+            ScriptedReader::new(&tables, &log),
+            ScriptedSignals::new(&log).probes(&json!([true, false]), &json!([true])),
+            ScriptedClock::new(&log),
+            ROOT,
+            Some("leader".to_owned()),
+        );
+        tree.shutdown_private_group();
+        tree.root_reaped();
+        tree.shutdown_descendants().await;
+        assert!(!tree.shutdown_idle(), "an empty group does not retire a known live escapee");
+        assert!(tree.shutdown_survivor_confirmed());
+        let log = log.lock().unwrap();
+        let sent: Vec<_> = log.iter().filter(|event| event["op"] == "kill" && event["signal"] != json!(0)).collect();
+        assert_eq!(sent, vec![&json!({"op": "kill", "target": "group", "id": ROOT, "signal": "SIGKILL"})]);
+        let identified: Vec<_> = log.iter().filter(|event| event["op"] == "kill_identified").collect();
+        assert_eq!(identified, vec![&json!({"op": "kill_identified", "id": 5200})]);
+    }
+
+    #[test]
+    fn shutdown_signals_the_pinned_private_group_without_a_process_table() {
+        let log = Log::default();
+        let tree = Tree::new(
+            ScriptedReader::new(&json!([{"error": "unreadable"}]), &log),
+            ScriptedSignals::new(&log),
+            ScriptedClock::new(&log),
+            ROOT,
+            None,
+        );
+        tree.shutdown_private_group();
+        assert_eq!(*log.lock().unwrap(), vec![
+            json!({"op": "read"}),
+            json!({"op": "kill", "target": "group", "id": ROOT, "signal": "SIGKILL"})
+        ]);
+        assert!(!tree.shutdown_survivor_confirmed(), "unknown is not a confirmed survivor");
+    }
+
+    #[test]
+    fn a_zombie_only_group_does_not_pin_the_shutdown_record() {
+        let log = Log::default();
+        let tree = Tree::new(
+            ScriptedReader::new(&json!([[]]), &log),
+            ScriptedSignals::new(&log),
+            ScriptedClock::new(&log),
+            ROOT,
+            None,
+        );
+        tree.root_reaped();
+        assert!(tree.shutdown_idle());
+    }
 
     /// The tree of a scenario after the post-exit look that found its survivors (the first table), with the
     /// log emptied there: what follows is what `killShellDescendants` / `waitForShellDescendants` did.

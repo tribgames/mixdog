@@ -98,16 +98,7 @@ impl ServicesToolModulesHost {
         host
     }
 
-    async fn prepare_local_provider(&self) -> Result<(), String> {
-        let (_, done) = self
-            .parts
-            .local_provider
-            .start_installation("runtime", None)
-            .map_err(|error| error.to_string())?;
-        wait(done).await.map(drop)
-    }
-
-    async fn prepare_tidy(&self, engines: Option<&[String]>) {
+    async fn prepare_tidy(&self, engines: Option<&[String]>) -> Result<Value, String> {
         // Per-engine failures land in the install job, not in an error: the feature still
         // installs and the card reports what did not.
         run_core_install(
@@ -122,7 +113,7 @@ impl ServicesToolModulesHost {
                 only: engines.map(<[String]>::to_vec),
             },
         )
-        .await;
+        .await
     }
 }
 
@@ -179,35 +170,40 @@ impl ToolModulesHost for ServicesToolModulesHost {
         &self,
         name: &str,
         engines: Option<&[String]>,
-    ) -> Result<(), String> {
+    ) -> Result<Option<Value>, String> {
         match name {
             "memory" => {
-                let embedder = self.parts.embedder.as_ref().ok_or("the ONNX runtime is not supported on this platform")?;
+                // The keyword index does not need the semantic embedder.
+                let Some(embedder) = self.parts.embedder.as_ref() else {
+                    return Ok(None);
+                };
                 embedder.install(None, &self.cancel).await.map_err(|error| error.to_string())?;
-                embedder.warmup().await.map(drop)
+                embedder.warmup().await.map(|_| None)
             }
             "office" => {
                 self.parts.effects.prepare_office_fonts().await;
-                Ok(())
+                Ok(None)
             }
-            "tidy" => {
-                self.prepare_tidy(engines).await;
-                Ok(())
-            }
-            "localProvider" => self.prepare_local_provider().await,
+            "tidy" => self.prepare_tidy(engines).await.map(Some),
             // Downloads the judge model (verified per file) unless it is current.
             "autoEffort" => self
                 .parts
                 .judge
                 .install(&self.parts.judge_manifest, None, &self.cancel)
                 .await
+                .map(|_| None)
                 .map_err(|error| error.to_string()),
-            _ => Ok(()),
+            _ => Ok(None),
         }
     }
 
     async fn stop_local_provider_server(&self) {
         self.parts.local_provider.stop().await;
+    }
+
+    async fn prepare_local_provider(&self, epoch: u64) -> Result<(), String> {
+        let (_, done) = self.parts.local_provider.start_runtime_installation(Some(epoch));
+        wait(done).await.map(drop)
     }
 
     async fn sync_local_provider_registry(&self, enabled: bool) {

@@ -136,6 +136,17 @@ fn repeated_overload_falls_back_or_ends_the_send() {
     ));
 }
 
+/// A fallback another ladder already decided (the PC's, in the model-proxy client mode) is taken as it stands, whatever this
+/// policy's own overload rule says.
+#[test]
+fn a_fallback_named_by_the_failure_switches_the_model() {
+    let policy = RetryPolicy::codex_default();
+    let mut overloaded = failure(ErrorKind::Overloaded, Some(529));
+    assert!(!matches!(verdict(&overloaded, &policy, &request()), Verdict::Fallback { .. }));
+    overloaded.fallback_model = Some("other".into());
+    assert_eq!(verdict(&overloaded, &policy, &request()), Verdict::Fallback { model: "other".into() });
+}
+
 #[test]
 fn should_retry_header_decides_only_where_the_policy_says() {
     let mut policy = RetryPolicy::codex_default();

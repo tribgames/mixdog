@@ -171,205 +171,6 @@ pub struct BrowserApprovals {
     files: Arc<dyn FilePort>,
 }
 
-impl BrowserApprovals {
-    pub fn new(store: Arc<dyn GrantStore>, context: Arc<dyn ApprovalContext>, files: Arc<dyn FilePort>) -> Arc<Self> {
-        Arc::new(Self { store, context, files })
-    }
-
-    /// The scopes a card of a step every kind of which can be remembered offers.
-    fn offered(facts: &SessionFacts) -> Vec<ApprovalRemember> {
-        let session = facts.life.is_some().then_some(ApprovalRemember::Session);
-        std::iter::once(ApprovalRemember::Once).chain(session).chain([ApprovalRemember::Always]).collect()
-    }
-
-    /// Whether the step runs, is refused or asks (`approval-dialog.ts`). The saved modes are read straight from the store, so no
-    /// line is written for a kind of a step that asks or for a step the option lets through where a block refuses it: the one
-    /// audit line per kind is written for the verdict the step ends in, and a failed write never decides it. A payment, an operator
-    /// `confirm` and a step with no kind that can be remembered ask once.
-    async fn judge(&self, facts: &SessionFacts, grants: &SessionGrants, settings: PolicySettings, prompt: &BrowserApprovalPrompt, kinds: &[ActionKind]) -> Verdict {
-        // A payment is a floor: no allowance, no option and no block is read for it.
-        // A step with a kind that always asks reads no allowance either (only "Allow all actions" reads its blocks).
-        let rememberable = !kinds.is_empty() && kinds.len() == prompt.kinds.len();
-        if prompt.payment || (!rememberable && !settings.allow_all_actions) {
-            return Verdict::Ask { remember: vec![ApprovalRemember::Once] };
-        }
-        let agent = facts.agent_id.as_str();
-        let (mut every_allowed, mut blocked) = (true, false);
-        for kind in kinds {
-            match self.store.mode_for(agent, &GrantKey::Kind(*kind), false).await {
-                Ok(PermissionMode::Allow) => {}
-                Ok(PermissionMode::Block) => {
-                    every_allowed = false;
-                    blocked = true;
-                }
-                Ok(_) => every_allowed = false,
-                // A store that cannot be read: not an allowance, and a block (a step must not act on a permission it could not read).
-                Err(_) => {
-                    every_allowed = false;
-                    blocked = true;
-                }
-            }
-        }
-        if settings.allow_all_actions {
-            if blocked {
-                self.audit(agent, kinds, "blocked").await;
-                return Verdict::Refuse;
-            }
-            self.audit(agent, kinds, DEV_ALLOW_ALL_DECISION).await;
-            return Verdict::Run;
-        }
-        if every_allowed {
-            self.audit(agent, kinds, "remembered").await;
-            return Verdict::Run;
-        }
-        // This session's own allowance for every kind of the step, bound to its life mark; a block still wins.
-        if !blocked && facts.life.as_deref().is_some_and(|life| kinds.iter().all(|kind| grants.has(agent, &GrantKey::Kind(*kind), life))) {
-            self.audit(agent, kinds, SESSION_REMEMBERED_DECISION).await;
-            return Verdict::Run;
-        }
-        Verdict::Ask { remember: Self::offered(facts) }
-    }
-
-    async fn audit(&self, agent: &str, kinds: &[ActionKind], decision: &str) {
-        for kind in kinds {
-            let entry = AuditEntry {
-                agent_id: agent.to_owned(),
-                kind: "outbound".to_owned(),
-                action: kind_name(*kind).to_owned(),
-                tool: TOOL.to_owned(),
-                decision: decision.to_owned(),
-                ..AuditEntry::default()
-            };
-            // A failed audit never decides the approval it describes.
-            let _ = self.store.record_audit(entry).await;
-        }
-    }
-
-    async fn canonical(&self, root: &Path) -> PathBuf {
-        self.files.stat(root).await.canonical.unwrap_or_else(|| root.to_path_buf())
-    }
-
-    /// The card the person is shown (`DesktopBrowserApprovalPrompt`).
-    async fn card(&self, id: &str, agent: &str, prompt: &BrowserApprovalPrompt, requester: &Requester, remember: Option<BrowserApprovalRemember>) -> CardPrompt {
-        let upload = !prompt.files.is_empty();
-        let mut files = prompt.files.clone();
-        if upload {
-            let cwd = match &requester.cwd {
-                Some(cwd) => Some(self.canonical(Path::new(cwd)).await),
-                None => None,
-            };
-            let downloads = match dirs::download_dir() {
-                Some(dir) => Some(self.canonical(&dir).await),
-                None => None,
-            };
-            mark_outside(&mut files, cwd.as_deref(), downloads.as_deref());
-        }
-        CardPrompt {
-            id: id.to_owned(),
-            action: prompt.action.clone(),
-            url: redact_url(&prompt.url),
-            session_id: prompt.session_id.clone(),
-            surface_session_id: None,
-            agent_id: Some(agent.to_owned()),
-            requester: if requester.name.is_empty() { agent.to_owned() } else { requester.name.clone() },
-            target: prompt.target.clone(),
-            paths: prompt.paths.clone(),
-            origin: upload.then(|| origin_of_url(&prompt.url)),
-            receiver_origin: upload.then(|| prompt.receiver_origin.clone()),
-            files: upload.then_some(files),
-            remember,
-            payment: prompt.payment.then_some(true),
-        }
-    }
-
-    /// Raises the card and settles what its answer stores.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation")]
-    async fn raise(&self, thread: &ThreadId, facts: &SessionFacts, grants: &SessionGrants, prompt: &BrowserApprovalPrompt, kinds: &[ActionKind], remember: Vec<ApprovalRemember>) -> Result<ApprovalAnswer, ToolError> {
-        let agent = facts.agent_id.as_str();
-        let scoped = call_approvals();
-        let (gate, call_id): (Arc<dyn ApprovalGate>, Option<ToolCallId>) = match scoped {
-            Some(approvals) => (approvals.gate, Some(approvals.call_id)),
-            None => match self.context.session_gate(thread) {
-                Some(gate) => (gate, None),
-                None => return Err(unavailable("approvals", NO_APPROVAL_SURFACE)),
-            },
-        };
-        let grantable = remember.len() > 1;
-        // "For this session" answers as such only where it was offered (the session has a life mark); else it is a single allow.
-        let session_offered = remember.contains(&ApprovalRemember::Session);
-        let requester = mixdog_rt::time::timeout(REQUESTER_TIMEOUT, self.context.requester(thread)).await.unwrap_or_default();
-        let id = uuid::Uuid::new_v4().to_string();
-        let offer = grantable.then(|| BrowserApprovalRemember { kinds: prompt.kinds.clone(), session: facts.life.is_some().then_some(true) });
-        let card = self.card(&id, agent, prompt, &requester, offer).await;
-        let ask = ApprovalAsk {
-            kind: ApprovalKind::Browser,
-            call_id,
-            tool: Some(TOOL.to_owned()),
-            action_kind: kinds.first().copied(),
-            reason: None,
-            payload: json!({ "action": prompt.action, "request": serde_json::to_value(card).unwrap_or(Value::Null) }),
-            remember: remember.into_iter().filter(|scope| *scope != ApprovalRemember::Once).collect(),
-            expires_after: None,
-        };
-        // The card holds the human-only lock for its whole life: it ends with the answer, the run or the future.
-        let hold = self.context.hold_card(&id, thread);
-        let resolution = gate.request(ask).await;
-        drop(hold);
-        let (answer, device) = match resolution {
-            ApprovalResolution::Decided { decision, device, .. } if decision.approved => {
-                let scope = match decision.remember {
-                    Some(ApprovalRemember::Session) if session_offered => Remember::Session,
-                    Some(ApprovalRemember::Agent | ApprovalRemember::Always) if grantable => Remember::Always,
-                    _ => Remember::Once,
-                };
-                (ApprovalAnswer::Allow { remember: scope }, device)
-            }
-            ApprovalResolution::Decided { decision, device, .. } => (ApprovalAnswer::Deny { reason: note_of(decision.reason.as_deref()) }, device),
-            ApprovalResolution::TimedOut { .. } | ApprovalResolution::Withdrawn { .. } => (ApprovalAnswer::Deny { reason: String::new() }, String::new()),
-            ApprovalResolution::Unavailable { .. } => (ApprovalAnswer::Deny { reason: NO_APPROVAL_SURFACE.to_owned() }, String::new()),
-            // The run was stopped while the card waited: nobody answered.
-            ApprovalResolution::Interrupted { .. } | ApprovalResolution::Cancelled { .. } => return Err(cancelled()),
-        };
-        if grantable {
-            self.settle(thread, agent, (facts, grants), kinds, &answer, &device).await;
-        }
-        Ok(answer)
-    }
-
-    /// What an answer stores: the audit line, the session's allowance, the saved allow.
-    async fn settle(&self, thread: &ThreadId, agent: &str, context: (&SessionFacts, &SessionGrants), kinds: &[ActionKind], answer: &ApprovalAnswer, device: &str) {
-        let (facts, grants) = context;
-        let remember = match answer {
-            ApprovalAnswer::Deny { .. } => return self.audit(agent, kinds, "deny").await,
-            ApprovalAnswer::Allow { remember } => *remember,
-        };
-        self.audit(agent, kinds, "approve").await;
-        match remember {
-            Remember::Once => {}
-            Remember::Session => {
-                if let Some(life) = facts.life.as_deref() {
-                    let stored: Vec<bool> = kinds.iter().map(|kind| grants.grant(agent, &GrantKey::Kind(*kind), life)).collect();
-                    if stored.iter().all(|stored| *stored) {
-                        self.audit(agent, kinds, "session-granted").await;
-                    }
-                }
-            }
-            Remember::Always => {
-                let mut saved = true;
-                for kind in kinds {
-                    // Not saved (the store is unreachable): this step ran once and the next asks again.
-                    saved &= matches!(self.store.grant(agent, &GrantKey::Kind(*kind), ApprovalRemember::Agent, device).await, Ok(true));
-                }
-                if saved {
-                    self.audit(agent, kinds, "granted").await;
-                } else {
-                    self.context.save_failed(thread).await;
-                }
-            }
-        }
-    }
-}
-
 #[async_trait]
 impl ApprovalPort for BrowserApprovals {
     async fn ask(&self, prompt: BrowserApprovalPrompt) -> Result<ApprovalAnswer, ToolError> {
@@ -1121,5 +922,205 @@ mod tests {
         flaky.fail_grant.store(false, Ordering::SeqCst);
         let _ = rig.ask(step(MARKETER, &[Submit]), decided(true, Some(ApprovalRemember::Always), None)).await;
         assert_eq!(rig.ctx.save_failures.load(Ordering::SeqCst), 1, "a saved allow tells nobody");
+    }
+}
+
+
+impl BrowserApprovals {
+    pub fn new(store: Arc<dyn GrantStore>, context: Arc<dyn ApprovalContext>, files: Arc<dyn FilePort>) -> Arc<Self> {
+        Arc::new(Self { store, context, files })
+    }
+
+    /// The scopes a card of a step every kind of which can be remembered offers.
+    fn offered(facts: &SessionFacts) -> Vec<ApprovalRemember> {
+        let session = facts.life.is_some().then_some(ApprovalRemember::Session);
+        std::iter::once(ApprovalRemember::Once).chain(session).chain([ApprovalRemember::Always]).collect()
+    }
+
+    /// Whether the step runs, is refused or asks (`approval-dialog.ts`). The saved modes are read straight from the store, so no
+    /// line is written for a kind of a step that asks or for a step the option lets through where a block refuses it: the one
+    /// audit line per kind is written for the verdict the step ends in, and a failed write never decides it. A payment, an operator
+    /// `confirm` and a step with no kind that can be remembered ask once.
+    async fn judge(&self, facts: &SessionFacts, grants: &SessionGrants, settings: PolicySettings, prompt: &BrowserApprovalPrompt, kinds: &[ActionKind]) -> Verdict {
+        // A payment is a floor: no allowance, no option and no block is read for it.
+        // A step with a kind that always asks reads no allowance either (only "Allow all actions" reads its blocks).
+        let rememberable = !kinds.is_empty() && kinds.len() == prompt.kinds.len();
+        if prompt.payment || (!rememberable && !settings.allow_all_actions) {
+            return Verdict::Ask { remember: vec![ApprovalRemember::Once] };
+        }
+        let agent = facts.agent_id.as_str();
+        let (mut every_allowed, mut blocked) = (true, false);
+        for kind in kinds {
+            match self.store.mode_for(agent, &GrantKey::Kind(*kind), false).await {
+                Ok(PermissionMode::Allow) => {}
+                Ok(PermissionMode::Block) => {
+                    every_allowed = false;
+                    blocked = true;
+                }
+                Ok(_) => every_allowed = false,
+                // A store that cannot be read: not an allowance, and a block (a step must not act on a permission it could not read).
+                Err(_) => {
+                    every_allowed = false;
+                    blocked = true;
+                }
+            }
+        }
+        if settings.allow_all_actions {
+            if blocked {
+                self.audit(agent, kinds, "blocked").await;
+                return Verdict::Refuse;
+            }
+            self.audit(agent, kinds, DEV_ALLOW_ALL_DECISION).await;
+            return Verdict::Run;
+        }
+        if every_allowed {
+            self.audit(agent, kinds, "remembered").await;
+            return Verdict::Run;
+        }
+        // This session's own allowance for every kind of the step, bound to its life mark; a block still wins.
+        if !blocked && facts.life.as_deref().is_some_and(|life| kinds.iter().all(|kind| grants.has(agent, &GrantKey::Kind(*kind), life))) {
+            self.audit(agent, kinds, SESSION_REMEMBERED_DECISION).await;
+            return Verdict::Run;
+        }
+        Verdict::Ask { remember: Self::offered(facts) }
+    }
+
+    async fn audit(&self, agent: &str, kinds: &[ActionKind], decision: &str) {
+        for kind in kinds {
+            let entry = AuditEntry {
+                agent_id: agent.to_owned(),
+                kind: "outbound".to_owned(),
+                action: kind_name(*kind).to_owned(),
+                tool: TOOL.to_owned(),
+                decision: decision.to_owned(),
+                ..AuditEntry::default()
+            };
+            // A failed audit never decides the approval it describes.
+            let _ = self.store.record_audit(entry).await;
+        }
+    }
+
+    async fn canonical(&self, root: &Path) -> PathBuf {
+        self.files.stat(root).await.canonical.unwrap_or_else(|| root.to_path_buf())
+    }
+
+    /// The card the person is shown (`DesktopBrowserApprovalPrompt`).
+    async fn card(&self, id: &str, agent: &str, prompt: &BrowserApprovalPrompt, requester: &Requester, remember: Option<BrowserApprovalRemember>) -> CardPrompt {
+        let upload = !prompt.files.is_empty();
+        let mut files = prompt.files.clone();
+        if upload {
+            let cwd = match &requester.cwd {
+                Some(cwd) => Some(self.canonical(Path::new(cwd)).await),
+                None => None,
+            };
+            let downloads = match dirs::download_dir() {
+                Some(dir) => Some(self.canonical(&dir).await),
+                None => None,
+            };
+            mark_outside(&mut files, cwd.as_deref(), downloads.as_deref());
+        }
+        CardPrompt {
+            id: id.to_owned(),
+            action: prompt.action.clone(),
+            url: redact_url(&prompt.url),
+            session_id: prompt.session_id.clone(),
+            surface_session_id: None,
+            agent_id: Some(agent.to_owned()),
+            requester: if requester.name.is_empty() { agent.to_owned() } else { requester.name.clone() },
+            target: prompt.target.clone(),
+            paths: prompt.paths.clone(),
+            origin: upload.then(|| origin_of_url(&prompt.url)),
+            receiver_origin: upload.then(|| prompt.receiver_origin.clone()),
+            files: upload.then_some(files),
+            remember,
+            payment: prompt.payment.then_some(true),
+        }
+    }
+
+    /// Raises the card and settles what its answer stores.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation")]
+    async fn raise(&self, thread: &ThreadId, facts: &SessionFacts, grants: &SessionGrants, prompt: &BrowserApprovalPrompt, kinds: &[ActionKind], remember: Vec<ApprovalRemember>) -> Result<ApprovalAnswer, ToolError> {
+        let agent = facts.agent_id.as_str();
+        let scoped = call_approvals();
+        let (gate, call_id): (Arc<dyn ApprovalGate>, Option<ToolCallId>) = match scoped {
+            Some(approvals) => (approvals.gate, Some(approvals.call_id)),
+            None => match self.context.session_gate(thread) {
+                Some(gate) => (gate, None),
+                None => return Err(unavailable("approvals", NO_APPROVAL_SURFACE)),
+            },
+        };
+        let grantable = remember.len() > 1;
+        // "For this session" answers as such only where it was offered (the session has a life mark); else it is a single allow.
+        let session_offered = remember.contains(&ApprovalRemember::Session);
+        let requester = mixdog_rt::time::timeout(REQUESTER_TIMEOUT, self.context.requester(thread)).await.unwrap_or_default();
+        let id = uuid::Uuid::new_v4().to_string();
+        let offer = grantable.then(|| BrowserApprovalRemember { kinds: prompt.kinds.clone(), session: facts.life.is_some().then_some(true) });
+        let card = self.card(&id, agent, prompt, &requester, offer).await;
+        let ask = ApprovalAsk {
+            kind: ApprovalKind::Browser,
+            call_id,
+            tool: Some(TOOL.to_owned()),
+            action_kind: kinds.first().copied(),
+            reason: None,
+            payload: json!({ "action": prompt.action, "request": serde_json::to_value(card).unwrap_or(Value::Null) }),
+            remember: remember.into_iter().filter(|scope| *scope != ApprovalRemember::Once).collect(),
+            expires_after: None,
+        };
+        // The card holds the human-only lock for its whole life: it ends with the answer, the run or the future.
+        let hold = self.context.hold_card(&id, thread);
+        let resolution = gate.request(ask).await;
+        drop(hold);
+        let (answer, device) = match resolution {
+            ApprovalResolution::Decided { decision, device, .. } if decision.approved => {
+                let scope = match decision.remember {
+                    Some(ApprovalRemember::Session) if session_offered => Remember::Session,
+                    Some(ApprovalRemember::Agent | ApprovalRemember::Always) if grantable => Remember::Always,
+                    _ => Remember::Once,
+                };
+                (ApprovalAnswer::Allow { remember: scope }, device)
+            }
+            ApprovalResolution::Decided { decision, device, .. } => (ApprovalAnswer::Deny { reason: note_of(decision.reason.as_deref()) }, device),
+            ApprovalResolution::TimedOut { .. } | ApprovalResolution::Withdrawn { .. } => (ApprovalAnswer::Deny { reason: String::new() }, String::new()),
+            ApprovalResolution::Unavailable { .. } => (ApprovalAnswer::Deny { reason: NO_APPROVAL_SURFACE.to_owned() }, String::new()),
+            // The run was stopped while the card waited: nobody answered.
+            ApprovalResolution::Interrupted { .. } | ApprovalResolution::Cancelled { .. } => return Err(cancelled()),
+        };
+        if grantable {
+            self.settle(thread, agent, (facts, grants), kinds, &answer, &device).await;
+        }
+        Ok(answer)
+    }
+
+    /// What an answer stores: the audit line, the session's allowance, the saved allow.
+    async fn settle(&self, thread: &ThreadId, agent: &str, context: (&SessionFacts, &SessionGrants), kinds: &[ActionKind], answer: &ApprovalAnswer, device: &str) {
+        let (facts, grants) = context;
+        let remember = match answer {
+            ApprovalAnswer::Deny { .. } => return self.audit(agent, kinds, "deny").await,
+            ApprovalAnswer::Allow { remember } => *remember,
+        };
+        self.audit(agent, kinds, "approve").await;
+        match remember {
+            Remember::Once => {}
+            Remember::Session => {
+                if let Some(life) = facts.life.as_deref() {
+                    let stored: Vec<bool> = kinds.iter().map(|kind| grants.grant(agent, &GrantKey::Kind(*kind), life)).collect();
+                    if stored.iter().all(|stored| *stored) {
+                        self.audit(agent, kinds, "session-granted").await;
+                    }
+                }
+            }
+            Remember::Always => {
+                let mut saved = true;
+                for kind in kinds {
+                    // Not saved (the store is unreachable): this step ran once and the next asks again.
+                    saved &= matches!(self.store.grant(agent, &GrantKey::Kind(*kind), ApprovalRemember::Agent, device).await, Ok(true));
+                }
+                if saved {
+                    self.audit(agent, kinds, "granted").await;
+                } else {
+                    self.context.save_failed(thread).await;
+                }
+            }
+        }
     }
 }

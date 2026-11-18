@@ -102,6 +102,33 @@ impl Dialer for LateDialer {
     async fn dial(&self, peer_id: &str) -> Result<Box<dyn Upstream>, DialError> {
         self.0.get().ok_or(DialError)?.dial(peer_id).await
     }
+
+    async fn dial_open(&self, peer_id: &str, generation: u64) -> Result<Box<dyn Upstream>, DialError> {
+        self.0.get().ok_or(DialError)?.dial_open(peer_id, generation).await
+    }
+}
+
+/// Visualize changes to the phones that view the session: one `visualize/changed` notification per payload on each connection's control
+/// queue, the connections chosen once for the whole change so a phone has all of an event's parts or none.
+pub struct VisualizeNotifications {
+    pub notifier: Arc<dyn mixdog_core_api::ConnectionNotifier>,
+    pub registry: Arc<DeviceRegistry>,
+}
+
+impl mixdog_exthost::VisualizePush for VisualizeNotifications {
+    fn push(&self, _session_id: &str, everyone: bool, payloads: Vec<serde_json::Value>) {
+        for connection in self.registry.visualize_connections(everyone) {
+            for payload in &payloads {
+                if self.notifier.notify(ConnectionId(connection), mixdog_core_api::ids::Method("visualize/changed"), payload.clone()).is_err() {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn set_lane(&self, connection: ConnectionId, on: bool) {
+        self.registry.set_visualize_lane(connection.0, on);
+    }
 }
 
 /// What the runtime tells the desktop beyond the `remote` section. An accepted controller key
@@ -196,12 +223,6 @@ impl RemoteEvents for SectionEvents {
 }
 
 /// `os.hostname()`.
-#[cfg(windows)]
-fn host_name() -> String {
-    std::env::var("COMPUTERNAME").unwrap_or_default()
-}
-
-/// `os.hostname()`.
 #[cfg(unix)]
 fn host_name() -> String {
     let mut buffer = [0u8; 256];
@@ -231,6 +252,8 @@ pub fn resolve_relay_url(raw: Option<&str>) -> Result<Option<String>, String> {
 pub struct RemoteInputs {
     /// The remote-access files directory (`<data>/remote`, where the migration puts 1.4.5's).
     pub dir: PathBuf,
+    /// A 1.4.5 activation stamp moved into `remote.activatedAt` by profile migration.
+    pub migrated_activation: bool,
     /// `MIXDOG_RELAY_URL` as read from the environment.
     pub relay_env: Option<String>,
     /// `(version, build)` of this install.
@@ -248,33 +271,6 @@ pub struct BuiltRemote {
     pub registry: Arc<DeviceRegistry>,
     /// Where the services that hold a device's state bind their cleanup for an unpair.
     pub events: Arc<SectionEvents>,
-}
-
-/// §F steps 1 and 2. `Err` is the relay URL's sentence (`MIXDOG_RELAY_URL is invalid`, …).
-pub fn build_remote(inputs: RemoteInputs) -> Result<BuiltRemote, String> {
-    let relay_url = resolve_relay_url(inputs.relay_env.as_deref())?;
-    let registry = Arc::new(DeviceRegistry::default());
-    let events = Arc::new(SectionEvents::new());
-    let section = Arc::new(RemoteSection::new(inputs.publisher, RemoteSectionValue::default()));
-    let settings = Arc::new(AccessSettings::new(inputs.dir.clone(), Arc::new(host_name)));
-    let runtime = RemoteRuntime::new(
-        RuntimeConfig {
-            dir: inputs.dir,
-            relay_url,
-            app_version: Some(inputs.app_version),
-            durability: inputs.durability,
-            dialer: inputs.dialer,
-            registry: registry.clone(),
-            section,
-            settings,
-            link: LegLink::default(),
-            events: events.clone(),
-        },
-        Box::new(|wiring: PairWiring| {
-            Box::new(ComposedPairCodeEffects::new(wiring.publish, mixdog_rt::ticker().clone(), wiring.on_tick, wiring.leg))
-        }),
-    );
-    Ok(BuiltRemote { runtime: Arc::new(runtime), registry, events })
 }
 
 /// `CoreHandle::connection_opened` for the paired-device registry: a client that connected from
@@ -301,59 +297,6 @@ pub fn register_local(registry: &DeviceRegistry, connection: ConnectionId, origi
 /// its handshake. A local client, whatever device name or kind it states, and a peer whose pairing ended have none.
 pub fn phone_credential(registry: Arc<DeviceRegistry>) -> Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync> {
     Arc::new(move |connection| registry.describe(connection.0).map(|described| described.credential).filter(|credential| !credential.is_empty()))
-}
-
-/// The services that hold a paired device's state, as `remote-relay.ts` `revokeClient` reaches them: the one-file grants, the
-/// transfers of the device's connections and its notification preferences.
-pub struct PairedDeviceCleanup {
-    pub grants: Arc<mixdog_workspace::grants::GrantStore>,
-    pub registry: Arc<DeviceRegistry>,
-    /// Ends the transfers a connection (named by its id) owns.
-    pub end_transfers: Arc<dyn Fn(&str) + Send + Sync>,
-    /// Ends every phone download (the relay closed).
-    pub end_downloads: Arc<dyn Fn() + Send + Sync>,
-    pub config: mixdog_core_config::config::Config,
-    /// The live view, once built (it is composed after this cleanup is bound): an unpair ends the device's browser streams, the
-    /// relay's close every phone's.
-    pub live_view: Arc<std::sync::OnceLock<std::sync::Weak<crate::live_view::LiveViewService>>>,
-}
-
-impl PairedDeviceCleanup {
-    fn live_view(&self) -> Option<Arc<crate::live_view::LiveViewService>> {
-        self.live_view.get().and_then(std::sync::Weak::upgrade)
-    }
-}
-
-impl DeviceCleanup for PairedDeviceCleanup {
-    fn unpaired(&self, credential_id: &str) {
-        self.grants.revoke_device(credential_id);
-        let live_view = self.live_view();
-        for connection in self.registry.connections_of(credential_id) {
-            (self.end_transfers)(&connection.to_string());
-            if let Some(live_view) = &live_view {
-                live_view.unpaired(ConnectionId(connection));
-            }
-        }
-    }
-
-    fn relay_closed(&self) {
-        (self.end_downloads)();
-        self.grants.relay_closed();
-        if let Some(live_view) = self.live_view() {
-            live_view.relay_closed();
-        }
-    }
-
-    fn forgotten<'a>(&'a self, credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
-        Box::pin(async move {
-            // `removeDevice`: this PC's own entry stays, and a device with none stored has nothing to drop.
-            let Some(Value::Object(mut devices)) = self.config.get("notifications.devices") else { return };
-            if credential_id == "pc" || devices.shift_remove(credential_id).is_none() {
-                return;
-            }
-            let _ = self.config.write("notifications.devices", Value::Object(devices), mixdog_protocol::ConfigWriteMode::Replace).await;
-        })
-    }
 }
 
 /// Whether a connection is revoked for the screen for its lifetime: a relay peer that was live at an unpair of its device, or admitted
@@ -389,6 +332,7 @@ mod e2e;
 #[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[derive(Default)]
     struct Seen(Mutex<Vec<(SectionName, Option<String>)>>);
@@ -429,45 +373,33 @@ mod tests {
         assert!(LateDialer::default().dial("peer").await.is_err());
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_runtime_starts_with_the_relay_off() {
-        let dir = tempfile::tempdir().unwrap();
-        let publisher = Arc::new(LatePublisher::default());
-        let built = build_remote(RemoteInputs {
-            dir: dir.path().to_path_buf(),
-            relay_env: Some("off".into()),
-            app_version: ("1.0.0".into(), None),
-            durability: mixdog_rt::testing::tokens().durability_io,
-            dialer: Arc::new(LateDialer::default()),
-            publisher: publisher.clone(),
-        })
-        .unwrap();
-        let seen = Arc::new(Seen::default());
-        publisher.bind(seen.clone());
-        built.runtime.prepare().await.unwrap();
-        built.runtime.start(false).await.unwrap();
-        assert!(seen.0.lock().unwrap().iter().any(|(section, _)| *section == SectionName::Remote));
-    }
-
     #[test]
-    fn the_relay_url_resolves_as_the_desktop_resolves_it() {
-        for case in crate::domain_seams::golden()["remote"]["relayUrl"].as_array().unwrap() {
-            let resolved = resolve_relay_url(case["env"].as_str());
-            match case["error"].as_str() {
-                Some(error) => assert_eq!(resolved, Err(error.to_owned()), "{}", case["env"]),
-                None => assert_eq!(resolved, Ok(case["url"].as_str().map(str::to_owned)), "{}", case["env"]),
-            }
+    fn the_relay_url_resolves_to_the_default_off_a_normalized_url_or_the_refusal() {
+        const DEFAULT: &str = "wss://192-255-139-161.sslip.io/";
+        const SCHEME: &str = "MIXDOG_RELAY_URL must use wss://; ws:// is allowed only for loopback development.";
+        const CREDENTIALS: &str = "MIXDOG_RELAY_URL must not contain credentials.";
+        let cases: [(Option<&str>, Result<Option<&str>, &str>); 17] = [
+            (None, Ok(Some(DEFAULT))),
+            (Some(""), Ok(Some(DEFAULT))),
+            (Some("   "), Ok(Some(DEFAULT))),
+            (Some("0"), Ok(None)),
+            (Some("false"), Ok(None)),
+            (Some("OFF"), Ok(None)),
+            (Some(" Off "), Ok(None)),
+            (Some("wss://relay.example"), Ok(Some("wss://relay.example/"))),
+            (Some(" wss://relay.example/path?x=1 "), Ok(Some("wss://relay.example/path?x=1"))),
+            (Some("ws://127.0.0.1:9800"), Ok(Some("ws://127.0.0.1:9800/"))),
+            (Some("ws://localhost"), Ok(Some("ws://localhost/"))),
+            (Some("ws://[::1]:9"), Ok(Some("ws://[::1]:9/"))),
+            (Some("ws://relay.example"), Err(SCHEME)),
+            (Some("https://relay.example"), Err(SCHEME)),
+            (Some("not a url"), Err("MIXDOG_RELAY_URL is invalid.")),
+            (Some("wss://user:pw@relay.example"), Err(CREDENTIALS)),
+            (Some("wss://u@relay.example"), Err(CREDENTIALS)),
+        ];
+        for (env, expected) in cases {
+            assert_eq!(resolve_relay_url(env), expected.map(|url| url.map(str::to_owned)).map_err(str::to_owned), "{env:?}");
         }
-    }
-
-    /// Node's `os.hostname()` is the machine's `COMPUTERNAME` on Windows, as recorded there.
-    #[cfg(windows)]
-    #[test]
-    fn the_host_name_is_the_one_nodes_os_hostname_returns() {
-        let recorded = &crate::domain_seams::golden()["remote"]["hostName"];
-        assert_eq!(recorded["platform"], "win32");
-        assert_eq!(recorded["hostname"], recorded["computerName"]);
-        assert_eq!(host_name(), std::env::var("COMPUTERNAME").unwrap());
     }
 
     fn settings_view(view: &mixdog_remote::access::SettingsView) -> Value {
@@ -489,20 +421,46 @@ mod tests {
         RENAMED.iter().find(|(_, to)| *to == ours).map_or(ours, |(from, _)| from).to_owned()
     }
 
-    /// Node's settings store over the recorded folders: the switch follows the activation files,
+    /// The settings store over 1.4.5 folders: the switch follows the activation files,
     /// the name falls back to the default, and what is not the right type is ignored.
     #[test]
-    fn the_access_settings_read_as_nodes_store_reads_them() {
-        for case in crate::domain_seams::golden()["remote"]["settings"]["reads"].as_array().unwrap() {
+    fn the_access_settings_read_the_switch_from_the_activation_files_and_ignore_what_is_not_the_right_type() {
+        let view = |enabled: bool, name: &str| json!({ "enabled": enabled, "name": name, "defaultName": "HOST-FIXED" });
+        let long_name = "n".repeat(100);
+        let reads = [
+            json!({"name": "fresh", "files": {}, "view": view(false, "HOST-FIXED"), "disabled": false, "after": []}),
+            json!({"name": "activated", "files": {"remote-activated.json": r#"{"activatedAt":1}"#}, "view": view(true, "HOST-FIXED"), "disabled": false,
+                   "after": ["remote-activated.json"]}),
+            json!({"name": "migrated", "migrated": true, "files": {}, "view": view(true, "HOST-FIXED"), "disabled": false, "after": []}),
+            json!({"name": "migrated-switched-off", "migrated": true, "files": {"remote-access-settings.json": r#"{"enabled":false}"#},
+                   "view": view(false, "HOST-FIXED"), "disabled": true, "after": ["remote-access-settings.json"]}),
+            json!({"name": "legacy-evidence", "files": {"relay-device.json": "{}"}, "view": view(true, "HOST-FIXED"), "disabled": false,
+                   "after": ["relay-device.json", "remote-activated.json"]}),
+            json!({"name": "trust-evidence", "files": {"remote-client-trust.json": "{}"}, "view": view(true, "HOST-FIXED"), "disabled": false,
+                   "after": ["remote-activated.json", "remote-client-trust.json"]}),
+            json!({"name": "switched-off", "files": {"remote-activated.json": "{}", "remote-access-settings.json": r#"{"enabled":false}"#},
+                   "view": view(false, "HOST-FIXED"), "disabled": true, "after": ["remote-access-settings.json", "remote-activated.json"]}),
+            json!({"name": "named", "files": {"remote-access-settings.json": r#"{"name":"My PC","enabled":true}"#}, "view": view(true, "My PC"), "disabled": false,
+                   "after": ["remote-access-settings.json"]}),
+            json!({"name": "empty-name", "files": {"remote-access-settings.json": r#"{"name":""}"#}, "view": view(false, "HOST-FIXED"), "disabled": false,
+                   "after": ["remote-access-settings.json"]}),
+            json!({"name": "long-name-kept", "files": {"remote-access-settings.json": format!(r#"{{"name":"{long_name}"}}"#)}, "view": view(false, &long_name),
+                   "disabled": false, "after": ["remote-access-settings.json"]}),
+            json!({"name": "damaged", "files": {"remote-access-settings.json": "{broken"}, "view": view(false, "HOST-FIXED"), "disabled": false,
+                   "after": ["remote-access-settings.json"]}),
+            json!({"name": "wrong-types", "files": {"remote-access-settings.json": r#"{"enabled":"yes","name":5}"#}, "view": view(false, "HOST-FIXED"), "disabled": false,
+                   "after": ["remote-access-settings.json"]}),
+        ];
+        for case in &reads {
             let dir = tempfile::tempdir().unwrap();
             for (rel, text) in case["files"].as_object().unwrap() {
                 std::fs::write(dir.path().join(in_remote_folder(rel)), text.as_str().unwrap()).unwrap();
             }
-            let settings = fixed_name_settings(dir.path());
+            let settings = fixed_name_settings(dir.path()).with_migrated_activation(case["migrated"] == true);
             let name = &case["name"];
             assert_eq!(settings_view(&settings.read()), case["view"], "{name}");
             assert_eq!(settings.disabled(), case["disabled"].as_bool().unwrap(), "{name}");
-            assert_eq!(serde_json::to_value(settings.device_aliases()).unwrap(), case["aliases"], "{name}");
+            assert_eq!(serde_json::to_value(settings.device_aliases()).unwrap(), json!({}), "{name}");
             let mut listed: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|entry| as_node_named(&entry.unwrap().file_name().to_string_lossy())).collect();
             listed.sort();
             assert_eq!(serde_json::to_value(listed).unwrap(), case["after"], "{name}");
@@ -510,10 +468,24 @@ mod tests {
     }
 
     #[test]
-    fn the_access_settings_change_as_nodes_store_changes_them() {
+    fn the_access_settings_change_trims_and_caps_what_is_set_and_drops_what_is_emptied() {
+        let view = |enabled: bool, name: &str| json!({ "enabled": enabled, "name": name, "defaultName": "HOST-FIXED" });
+        let (long_name, capped_name) = ("x".repeat(70), "x".repeat(64));
+        let (long_alias, capped_alias) = ("a".repeat(90), "a".repeat(80));
+        let mutations = [
+            json!({"op": "setEnabled", "args": [true], "result": view(true, "HOST-FIXED"), "file": {"enabled": true}}),
+            json!({"op": "setName", "args": ["  My Desk  "], "result": view(true, "My Desk"), "file": {"enabled": true, "name": "My Desk"}}),
+            json!({"op": "setName", "args": [long_name], "result": view(true, &capped_name), "file": {"enabled": true, "name": capped_name}}),
+            json!({"op": "setName", "args": [""], "result": view(true, "HOST-FIXED"), "file": {"enabled": true}}),
+            json!({"op": "setDeviceAlias", "args": ["c1", "  Phone  "], "result": {"c1": "Phone"}, "file": {"enabled": true, "deviceAliases": {"c1": "Phone"}}}),
+            json!({"op": "setDeviceAlias", "args": ["c2", long_alias], "result": {"c1": "Phone", "c2": capped_alias},
+                   "file": {"enabled": true, "deviceAliases": {"c1": "Phone", "c2": capped_alias}}}),
+            json!({"op": "setDeviceAlias", "args": ["c1", ""], "result": {"c2": capped_alias}, "file": {"enabled": true, "deviceAliases": {"c2": capped_alias}}}),
+            json!({"op": "setEnabled", "args": [false], "result": view(false, "HOST-FIXED"), "file": {"enabled": false, "deviceAliases": {"c2": capped_alias}}}),
+        ];
         let dir = tempfile::tempdir().unwrap();
         let settings = fixed_name_settings(dir.path());
-        for step in crate::domain_seams::golden()["remote"]["settings"]["mutations"].as_array().unwrap() {
+        for step in &mutations {
             let args = step["args"].as_array().unwrap();
             let shown = match step["op"].as_str().unwrap() {
                 "setEnabled" => settings_view(&settings.set_enabled(args[0].as_bool().unwrap()).unwrap()),
@@ -526,15 +498,59 @@ mod tests {
         }
     }
 
-    /// Node's pair-code manager replayed through the composed effects: the frames sent to the
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_runtime_starts_with_the_relay_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let publisher = Arc::new(LatePublisher::default());
+        let built = build_remote(RemoteInputs {
+            dir: dir.path().to_path_buf(),
+            migrated_activation: false,
+            relay_env: Some("off".into()),
+            app_version: ("1.0.0".into(), None),
+            durability: mixdog_rt::testing::tokens().durability_io,
+            dialer: Arc::new(LateDialer::default()),
+            publisher: publisher.clone(),
+        })
+        .unwrap();
+        let seen = Arc::new(Seen::default());
+        publisher.bind(seen.clone());
+        built.runtime.prepare().await.unwrap();
+        built.runtime.start(false).await.unwrap();
+        assert!(seen.0.lock().unwrap().iter().any(|(section, _)| *section == SectionName::Remote));
+    }
+    /// The host name on Windows is the machine's `COMPUTERNAME`.
+    #[cfg(windows)]
+    #[test]
+    fn the_host_name_is_the_computer_name() {
+        assert_eq!(host_name(), std::env::var("COMPUTERNAME").unwrap());
+    }
+    /// The pair-code manager driven through the composed effects: the frames sent to the
     /// relay leg and the code the screen sees after each step.
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_pair_code_effects_send_and_show_what_nodes_manager_does() {
+    async fn the_pair_code_effects_send_the_request_and_show_the_issued_code() {
         use mixdog_remote::pair_code::PairCode;
-        use serde_json::json;
-        let golden = crate::domain_seams::golden();
-        let pair = &golden["remote"]["pairCode"];
-        let host = pair["hostName"].as_str().unwrap();
+        let request = json!([{"type": "pair-code-request", "lease": "$last", "name": "PC-FIXED"}]);
+        let clear = json!([{"type": "pair-code-clear"}]);
+        let steps = [
+            json!({"op": "ensure", "at": 0, "result": null, "sent": request}),
+            json!({"op": "ensure", "at": 1000, "result": null, "sent": []}),
+            json!({"op": "issued", "at": 2000, "envelope": {"ok": true, "code": "123456", "expiresInMs": 600000, "lease": "$last"}, "result": null, "sent": []}),
+            json!({"op": "ensure", "at": 3000, "result": {"code": "123456", "expiresAt": 302000}, "sent": []}),
+            json!({"op": "used", "at": 4000, "envelope": {"lease": "$other"}, "result": null, "sent": []}),
+            json!({"op": "ensure", "at": 4001, "result": {"code": "123456", "expiresAt": 302000}, "sent": []}),
+            json!({"op": "used", "at": 5000, "envelope": {"lease": "$last"}, "result": null, "sent": []}),
+            json!({"op": "ensure", "at": 5001, "result": null, "sent": request}),
+            json!({"op": "issued", "at": 6000, "envelope": {"ok": true, "code": "654321", "expiresInMs": 100000, "lease": "$other"}, "result": null, "sent": []}),
+            json!({"op": "issued", "at": 6100, "envelope": {"ok": true, "code": "654321", "expiresInMs": 100000, "lease": "$last"}, "result": null, "sent": []}),
+            json!({"op": "ensure", "at": 6500, "result": {"code": "654321", "expiresAt": 106100}, "sent": []}),
+            json!({"op": "ensure", "at": 106100, "result": null, "sent": request}),
+            json!({"op": "release", "at": 107000, "result": null, "sent": clear}),
+            json!({"op": "release", "at": 108000, "result": null, "sent": []}),
+            json!({"op": "ensure", "at": 109000, "result": null, "sent": request}),
+            json!({"op": "connected", "at": 109100, "result": null, "sent": request}),
+        ];
+        let host = "PC-FIXED";
         let sent: Arc<Mutex<Vec<Value>>> = Arc::default();
         let leg = sent.clone();
         // The core ticker needs the executors installed.
@@ -549,8 +565,9 @@ mod tests {
             }),
         );
         let mut code = PairCode::new();
+        let owner = mixdog_remote::pair_code::PairOwner { id: 1, alive: mixdog_rt::CancellationToken::new() };
         let mut last_lease = String::new();
-        for step in pair["steps"].as_array().unwrap() {
+        for step in &steps {
             let at = step["at"].as_u64().unwrap();
             sent.lock().unwrap().clear();
             let envelope = step["envelope"].as_object().map(|envelope| {
@@ -560,11 +577,11 @@ mod tests {
                 Value::Object(envelope)
             });
             match step["op"].as_str().unwrap() {
-                "ensure" => code.want(&mut effects, host, at),
+                "ensure" => code.want(&mut effects, host, at, &owner).unwrap(),
                 "issued" => code.on_issued(&mut effects, envelope.as_ref().unwrap(), at),
                 "used" => code.on_used(&mut effects, envelope.as_ref().unwrap()),
-                "release" => code.release(&mut effects),
-                _ => code.on_connected(&mut effects, host),
+                "release" => code.release(&mut effects, 1),
+                _ => code.on_connected(&mut effects, host, at),
             }
             let frames: Vec<Value> = sent
                 .lock()
@@ -573,7 +590,7 @@ mod tests {
                 .map(|frame| {
                     let mut frame = frame.clone();
                     if let Some(lease) = frame.get("lease").and_then(Value::as_str).map(str::to_owned) {
-                        assert_eq!((lease.len(), lease.bytes().all(|b| b.is_ascii_hexdigit())), (pair["defaultLease"]["length"].as_u64().unwrap() as usize, pair["defaultLease"]["hex"].as_bool().unwrap()));
+                        assert_eq!((lease.len(), lease.bytes().all(|b| b.is_ascii_hexdigit())), (32, true));
                         last_lease = lease;
                         frame["lease"] = json!("$last");
                     }
@@ -586,5 +603,91 @@ mod tests {
                 assert_eq!(shown, step["result"], "ensure at {at}");
             }
         }
+    }
+}
+
+
+/// `os.hostname()`.
+#[cfg(windows)]
+fn host_name() -> String {
+    std::env::var("COMPUTERNAME").unwrap_or_default()
+}
+/// §F steps 1 and 2. `Err` is the relay URL's sentence (`MIXDOG_RELAY_URL is invalid`, …).
+pub fn build_remote(inputs: RemoteInputs) -> Result<BuiltRemote, String> {
+    let relay_url = resolve_relay_url(inputs.relay_env.as_deref())?;
+    let registry = Arc::new(DeviceRegistry::default());
+    let events = Arc::new(SectionEvents::new());
+    let section = Arc::new(RemoteSection::new(inputs.publisher, RemoteSectionValue::default()));
+    let settings = Arc::new(
+        AccessSettings::new(inputs.dir.clone(), Arc::new(host_name))
+            .with_migrated_activation(inputs.migrated_activation),
+    );
+    let runtime = RemoteRuntime::new(
+        RuntimeConfig {
+            dir: inputs.dir,
+            relay_url,
+            app_version: Some(inputs.app_version),
+            durability: inputs.durability,
+            dialer: inputs.dialer,
+            registry: registry.clone(),
+            section,
+            settings,
+            link: LegLink::default(),
+            events: events.clone(),
+        },
+        Box::new(|wiring: PairWiring| {
+            Box::new(ComposedPairCodeEffects::new(wiring.publish, mixdog_rt::ticker().clone(), wiring.on_tick, wiring.leg))
+        }),
+    );
+    Ok(BuiltRemote { runtime: Arc::new(runtime), registry, events })
+}
+/// The services that hold a paired device's state, as `remote-relay.ts` `revokeClient` reaches them: the one-file grants, the
+/// transfers of the device's connections and its notification preferences.
+pub struct PairedDeviceCleanup {
+    pub grants: Arc<mixdog_workspace::grants::GrantStore>,
+    pub registry: Arc<DeviceRegistry>,
+    /// Ends the transfers a connection (named by its id) owns.
+    pub end_transfers: Arc<dyn Fn(&str) + Send + Sync>,
+    /// Ends every phone download (the relay closed).
+    pub end_downloads: Arc<dyn Fn() + Send + Sync>,
+    pub config: mixdog_core_config::config::Config,
+    /// The live view, once built (it is composed after this cleanup is bound): an unpair ends the device's browser streams, the
+    /// relay's close every phone's.
+    pub live_view: Arc<std::sync::OnceLock<std::sync::Weak<crate::live_view::LiveViewService>>>,
+}
+impl PairedDeviceCleanup {
+    fn live_view(&self) -> Option<Arc<crate::live_view::LiveViewService>> {
+        self.live_view.get().and_then(std::sync::Weak::upgrade)
+    }
+}
+impl DeviceCleanup for PairedDeviceCleanup {
+    fn unpaired(&self, credential_id: &str) {
+        self.grants.revoke_device(credential_id);
+        let live_view = self.live_view();
+        for connection in self.registry.connections_of(credential_id) {
+            (self.end_transfers)(&connection.to_string());
+            if let Some(live_view) = &live_view {
+                live_view.unpaired(ConnectionId(connection));
+            }
+        }
+    }
+
+    fn relay_closed(&self) {
+        (self.end_downloads)();
+        self.grants.relay_closed();
+        if let Some(live_view) = self.live_view() {
+            live_view.relay_closed();
+        }
+    }
+
+    fn forgotten<'a>(&'a self, credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            // `removeDevice`: this PC's own entry stays, and a device with none stored has nothing to drop.
+            let Some(Value::Object(mut devices)) = self.config.get("notifications.devices") else { return };
+            if credential_id == "pc" || devices.shift_remove(credential_id).is_none() {
+                return;
+            }
+            let _ = self.config.write("notifications.devices", Value::Object(devices), mixdog_protocol::ConfigWriteMode::Replace).await;
+        })
     }
 }

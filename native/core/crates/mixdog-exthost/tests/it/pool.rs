@@ -32,35 +32,6 @@ use serde_json::json;
 
 type Stream = Box<dyn EventSource<ExtFrame>>;
 
-/// The pool over the real Rust worker (`ext_worker_dev`: the document, pdf and image methods of `mixdogd ext-worker`).
-fn real_worker_config() -> ExtHostConfig {
-    let mut real = config(1, &[]);
-    real.program = super::composer_resize::worker_binary();
-    real
-}
-
-/// The fake browser started in `mode` (`endpoint`, `silent` or `stderr-closed`), the last two recording their pid in `pid_file`.
-fn fake_browser(mode: &str, pid_file: Option<&Path>) -> (PathBuf, Vec<std::ffi::OsString>) {
-    let mut args = vec![mode.into()];
-    args.extend(pid_file.map(|file| file.as_os_str().to_owned()));
-    (env!("CARGO_BIN_EXE_ext_fake_browser").into(), args)
-}
-
-fn config(workers: usize, extra: &[&str]) -> ExtHostConfig {
-    ExtHostConfig {
-        program: env!("CARGO_BIN_EXE_ext_fake_worker").into(),
-        args: extra.iter().map(Into::into).collect(),
-        workers,
-        pending_cap: 64,
-        spawn_io: mixdog_rt::testing::tokens().spawn_io,
-        render_browser: RenderBrowserConfig {
-            command: Some(fake_browser("endpoint", None)),
-            profile_root: std::env::temp_dir().join("mixdog-exthost-tests"),
-            no_sandbox: false,
-        },
-    }
-}
-
 fn call(thread: &str, method: &str, params: Value) -> ExtCall {
     ExtCall {
         thread: ThreadId::from(thread),
@@ -93,158 +64,11 @@ async fn run(pool: &ExtHostPool, call: ExtCall) -> Value {
     finish(&mut stream).await.1.expect("call succeeds")
 }
 
-async fn until(pool: &ExtHostPool, what: &str, ready: impl Fn(&[mixdog_core_api::domain::ext::ExtWorkerStatus]) -> bool) {
-    within(async {
-        while !ready(&pool.status()) {
-            mixdog_rt::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await;
-    let _ = what;
-}
-
 fn busy(status: &[mixdog_core_api::domain::ext::ExtWorkerStatus]) -> usize {
     status
         .iter()
         .filter(|s| matches!(s.state, ExtWorkerState::Busy { .. }))
         .count()
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn satisfies_the_pool_contract() {
-    let mut config = config(2, &[]);
-    config.pending_cap = 4;
-    let pool = ExtHostPool::new(config).unwrap();
-    within(check_ext_pool(&pool, call("t", "echo", json!({"x": 1})), 4)).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn echoes_params_and_approved_paths() {
-    let pool = ExtHostPool::new(config(1, &[])).unwrap();
-    assert_eq!(run(&pool, call("t", "echo", json!({"a": [1, "two", null]}))).await, json!({"a": [1, "two", null]}));
-    let dir = AbsPath::new(std::env::temp_dir()).unwrap();
-    let mut with_paths = call("t", "approved", json!(null));
-    with_paths.paths = vec![dir.clone()];
-    assert_eq!(
-        run(&pool, with_paths).await,
-        json!([dir.as_path().to_string_lossy()])
-    );
-    let mut unknown = pool.call(call("t", "no-such-method", json!(null))).unwrap();
-    let (_, outcome) = finish(&mut unknown).await;
-    assert!(matches!(outcome, Err(ExtError::Failed { code, .. }) if code == "unknown_method"));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_full_chunk_window_stalls_only_its_own_call() {
-    let pool = ExtHostPool::new(config(2, &[])).unwrap();
-    let size = 3 * 1024 * 1024;
-    let mut big = pool.call(call("a", "chunks", json!({"bytes": size, "fill": 9}))).unwrap();
-    // Another call completes while the big call's window is exhausted and unread.
-    assert_eq!(run(&pool, call("b", "echo", json!(42))).await, json!(42));
-    // Status is published after the dispatcher sees b finish.
-    until(&pool, "b released", |s| busy(s) == 1).await;
-    let (bytes, outcome) = finish(&mut big).await;
-    assert_eq!(bytes.len(), size);
-    assert!(bytes.iter().all(|b| *b == 9));
-    assert_eq!(outcome.unwrap(), json!({"sent": size}));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn one_thread_cannot_take_more_than_its_share_and_cancel_releases_the_worker() {
-    // W = 2 gives a per-thread cap of 1.
-    let pool = ExtHostPool::new(config(2, &[])).unwrap();
-    let first = pool.call(call("a", "hold", json!(null))).unwrap();
-    until(&pool, "first holds a worker", |s| busy(s) == 1).await;
-    let mut second = pool.call(call("a", "echo", json!("second"))).unwrap();
-    // Thread b is served meanwhile.
-    assert_eq!(run(&pool, call("b", "echo", json!("b"))).await, json!("b"));
-    assert!(
-        mixdog_rt::time::timeout(Duration::from_millis(200), second.next()).await.is_err(),
-        "a's second call waits behind its first"
-    );
-    drop(first); // cancel: the worker answers, its slot frees
-    let (_, outcome) = finish(&mut second).await;
-    assert_eq!(outcome.unwrap(), json!("second"));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_worker_stuck_in_sync_code_keeps_its_slot_until_stopped() {
-    let pool = ExtHostPool::new(config(1, &[])).unwrap();
-    let spinning = pool.call(call("a", "spin", json!(null))).unwrap();
-    until(&pool, "spin starts", |s| busy(s) == 1).await;
-    let worker = pool.status()[0].id;
-    drop(spinning); // the caller walks away; cancel is sent but the worker cannot see it
-    let mut waiting = pool.call(call("b", "echo", json!("after"))).unwrap();
-    assert!(
-        mixdog_rt::time::timeout(Duration::from_millis(300), waiting.next()).await.is_err(),
-        "the slot is held until the cancel's grace has passed (a_parser_that_ignores_the_cancel_is_ended_after_the_grace)"
-    );
-    assert_eq!(busy(&pool.status()), 1);
-    pool.stop_worker(worker).unwrap();
-    // A replacement worker serves the call that was waiting.
-    assert_eq!(finish(&mut waiting).await.1.unwrap(), json!("after"));
-    assert!(matches!(pool.stop_worker(ExtWorkerId(999)), Err(ExtError::UnknownWorker)));
-}
-
-/// A parser that never looks at the cancel (the PDF read after its 60,000 ms deadline drops the call): the process is ended
-/// once `CANCEL_GRACE` has passed, with nobody stopping the worker, and the next call (the only worker is the parser's) is
-/// answered by a fresh worker: that answer is the fact this waits on, and the parser's process is gone by then. The grace
-/// is the pool's own seam (`ExtHostPool::with_grace`): it ends only when this test releases it, the test's one explicit
-/// advance of the grace; before that the parser is found alive and the next call unanswered.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_parser_that_ignores_the_cancel_is_ended_after_the_grace() {
-    let asked = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
-    let (release, released) = tokio::sync::watch::channel(false);
-    let grace: mixdog_exthost::GraceWait = {
-        let asked = asked.clone();
-        std::sync::Arc::new(move || {
-            asked.add_permits(1);
-            let mut released = released.clone();
-            Box::pin(async move {
-                let _ = released.wait_for(|r| *r).await;
-            })
-        })
-    };
-    let pool = ExtHostPool::with_grace(config(1, &[]), grace).unwrap();
-    let pid_file = pid_file("ignores-cancel");
-    let spinning = pool.call(call("a", "spinWithPid", json!({"pidFile": pid_file}))).unwrap();
-    let parser = helper_pid(&pid_file).await;
-    let _ = std::fs::remove_file(&pid_file);
-    drop(spinning);
-    let mut waiting = pool.call(call("b", "echo", json!("after"))).unwrap();
-    // The pool has asked for the grace of the dropped call: the cancel is sent and the end of the grace is awaited.
-    asked.acquire().await.expect("the pool asks for the grace").forget();
-    assert!(alive(parser).await, "the parser is still running before its grace has ended");
-    assert!(tokio::time::timeout(Duration::ZERO, waiting.next()).await.is_err(), "the slot is held until the grace has ended");
-    release.send(true).unwrap();
-    let (_, outcome) = finish(&mut waiting).await;
-    assert_eq!(outcome.unwrap(), json!("after"), "a fresh worker serves the next call");
-    assert!(!alive(parser).await, "the parser process is gone");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn stopping_a_worker_ends_its_call_as_stopped() {
-    let pool = ExtHostPool::new(config(2, &[])).unwrap();
-    let mut spinning = pool.call(call("a", "spin", json!(null))).unwrap();
-    until(&pool, "spin starts", |s| busy(s) == 1).await;
-    let worker = pool.status()[0].id;
-    // The other worker keeps serving while the first is stuck.
-    assert_eq!(run(&pool, call("b", "echo", json!(7))).await, json!(7));
-    pool.stop_worker(worker).unwrap();
-    let (_, outcome) = finish(&mut spinning).await;
-    assert!(matches!(outcome, Err(ExtError::HostExited { exit: ExtExit::Stopped })));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_crash_ends_only_its_own_call() {
-    let pool = ExtHostPool::new(config(2, &[])).unwrap();
-    let other = pool.call(call("b", "hold", json!(null))).unwrap();
-    until(&pool, "hold starts", |s| busy(s) == 1).await;
-    let mut crashing = pool.call(call("a", "crash", json!(null))).unwrap();
-    let (_, outcome) = finish(&mut crashing).await;
-    assert!(matches!(outcome, Err(ExtError::HostExited { exit: ExtExit::Code(3) })));
-    assert_eq!(run(&pool, call("a", "echo", json!(1))).await, json!(1));
-    drop(other);
 }
 
 /// Whether `pid` is a live process.
@@ -285,6 +109,222 @@ fn process_exists(pid: u32) -> bool {
     }
 }
 
+/// The flat-colour PNG (stored zlib blocks) `record_image.mjs` builds, so the read goldens can be
+/// replayed from their recipe.
+#[cfg(node_twin)]
+fn flat_png(width: u32, height: u32, rgb: [u8; 3]) -> Vec<u8> {
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = 0xffff_ffff_u32;
+        for &b in bytes {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 { 0xedb8_8320 ^ (crc >> 1) } else { crc >> 1 };
+            }
+        }
+        !crc
+    }
+    fn chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let body = [&kind[..], data].concat();
+        [(data.len() as u32).to_be_bytes().to_vec(), body.clone(), crc32(&body).to_be_bytes().to_vec()].concat()
+    }
+    let mut row = vec![0u8];
+    for _ in 0..width {
+        row.extend_from_slice(&rgb);
+    }
+    let raw: Vec<u8> = (0..height).flat_map(|_| row.clone()).collect();
+    let (mut a, mut b) = (1u32, 0u32);
+    for &x in &raw {
+        a = (a + u32::from(x)) % 65521;
+        b = (b + a) % 65521;
+    }
+    let mut zlib = vec![0x78, 0x01];
+    let blocks: Vec<&[u8]> = raw.chunks(65535).collect();
+    for (i, part) in blocks.iter().enumerate() {
+        zlib.push(u8::from(i + 1 == blocks.len()));
+        zlib.extend_from_slice(&(part.len() as u16).to_le_bytes());
+        zlib.extend_from_slice(&(!(part.len() as u16)).to_le_bytes());
+        zlib.extend_from_slice(part);
+    }
+    zlib.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    let mut ihdr = [width.to_be_bytes(), height.to_be_bytes()].concat();
+    ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+    [
+        vec![0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+        chunk(b"IHDR", &ihdr),
+        chunk(b"IDAT", &zlib),
+        chunk(b"IEND", &[]),
+    ]
+    .concat()
+}
+
+#[test]
+fn worker_count_follows_the_cores_and_the_setting() {
+    assert_eq!(worker_count(None, 1), 1);
+    assert_eq!(worker_count(None, 8), 2);
+    assert_eq!(worker_count(None, 64), 4);
+    assert_eq!(worker_count(Some(0), 8), 1);
+    assert_eq!(worker_count(Some(99), 8), 8);
+    assert_eq!(worker_count(Some(3), 8), 3);
+}
+
+/// The fake browser started in `mode` (`endpoint`, `silent` or `stderr-closed`), the last two recording their pid in `pid_file`.
+fn fake_browser(mode: &str, pid_file: Option<&Path>) -> (PathBuf, Vec<std::ffi::OsString>) {
+    let mut args = vec![mode.into()];
+    args.extend(pid_file.map(|file| file.as_os_str().to_owned()));
+    (env!("CARGO_BIN_EXE_ext_fake_browser").into(), args)
+}
+fn config(workers: usize, extra: &[&str]) -> ExtHostConfig {
+    ExtHostConfig {
+        program: env!("CARGO_BIN_EXE_ext_fake_worker").into(),
+        args: extra.iter().map(Into::into).collect(),
+        workers,
+        pending_cap: 64,
+        spawn_io: mixdog_rt::testing::tokens().spawn_io,
+        render_browser: RenderBrowserConfig {
+            command: Some(fake_browser("endpoint", None)),
+            profile_root: std::env::temp_dir().join("mixdog-exthost-tests"),
+            no_sandbox: false,
+        },
+    }
+}
+async fn until(pool: &ExtHostPool, what: &str, ready: impl Fn(&[mixdog_core_api::domain::ext::ExtWorkerStatus]) -> bool) {
+    within(async {
+        while !ready(&pool.status()) {
+            mixdog_rt::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    let _ = what;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn satisfies_the_pool_contract() {
+    let mut config = config(2, &[]);
+    config.pending_cap = 4;
+    let pool = ExtHostPool::new(config).unwrap();
+    within(check_ext_pool(&pool, call("t", "echo", json!({"x": 1})), 4)).await;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn echoes_params_and_approved_paths() {
+    let pool = ExtHostPool::new(config(1, &[])).unwrap();
+    assert_eq!(run(&pool, call("t", "echo", json!({"a": [1, "two", null]}))).await, json!({"a": [1, "two", null]}));
+    let dir = AbsPath::new(std::env::temp_dir()).unwrap();
+    let mut with_paths = call("t", "approved", json!(null));
+    with_paths.paths = vec![dir.clone()];
+    assert_eq!(
+        run(&pool, with_paths).await,
+        json!([dir.as_path().to_string_lossy()])
+    );
+    let mut unknown = pool.call(call("t", "no-such-method", json!(null))).unwrap();
+    let (_, outcome) = finish(&mut unknown).await;
+    assert!(matches!(outcome, Err(ExtError::Failed { code, .. }) if code == "unknown_method"));
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_full_chunk_window_stalls_only_its_own_call() {
+    let pool = ExtHostPool::new(config(2, &[])).unwrap();
+    let size = 3 * 1024 * 1024;
+    let mut big = pool.call(call("a", "chunks", json!({"bytes": size, "fill": 9}))).unwrap();
+    // Another call completes while the big call's window is exhausted and unread.
+    assert_eq!(run(&pool, call("b", "echo", json!(42))).await, json!(42));
+    // Status is published after the dispatcher sees b finish.
+    until(&pool, "b released", |s| busy(s) == 1).await;
+    let (bytes, outcome) = finish(&mut big).await;
+    assert_eq!(bytes.len(), size);
+    assert!(bytes.iter().all(|b| *b == 9));
+    assert_eq!(outcome.unwrap(), json!({"sent": size}));
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_thread_cannot_take_more_than_its_share_and_cancel_releases_the_worker() {
+    // W = 2 gives a per-thread cap of 1.
+    let pool = ExtHostPool::new(config(2, &[])).unwrap();
+    let first = pool.call(call("a", "hold", json!(null))).unwrap();
+    until(&pool, "first holds a worker", |s| busy(s) == 1).await;
+    let mut second = pool.call(call("a", "echo", json!("second"))).unwrap();
+    // Thread b is served meanwhile.
+    assert_eq!(run(&pool, call("b", "echo", json!("b"))).await, json!("b"));
+    assert!(
+        mixdog_rt::time::timeout(Duration::from_millis(200), second.next()).await.is_err(),
+        "a's second call waits behind its first"
+    );
+    drop(first); // cancel: the worker answers, its slot frees
+    let (_, outcome) = finish(&mut second).await;
+    assert_eq!(outcome.unwrap(), json!("second"));
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_worker_stuck_in_sync_code_keeps_its_slot_until_stopped() {
+    let pool = ExtHostPool::new(config(1, &[])).unwrap();
+    let spinning = pool.call(call("a", "spin", json!(null))).unwrap();
+    until(&pool, "spin starts", |s| busy(s) == 1).await;
+    let worker = pool.status()[0].id;
+    drop(spinning); // the caller walks away; cancel is sent but the worker cannot see it
+    let mut waiting = pool.call(call("b", "echo", json!("after"))).unwrap();
+    assert!(
+        mixdog_rt::time::timeout(Duration::from_millis(300), waiting.next()).await.is_err(),
+        "the slot is held until the cancel's grace has passed (a_parser_that_ignores_the_cancel_is_ended_after_the_grace)"
+    );
+    assert_eq!(busy(&pool.status()), 1);
+    pool.stop_worker(worker).unwrap();
+    // A replacement worker serves the call that was waiting.
+    assert_eq!(finish(&mut waiting).await.1.unwrap(), json!("after"));
+    assert!(matches!(pool.stop_worker(ExtWorkerId(999)), Err(ExtError::UnknownWorker)));
+}
+/// A parser that never looks at the cancel (the PDF read after its 60,000 ms deadline drops the call): the process is ended
+/// once `CANCEL_GRACE` has passed, with nobody stopping the worker, and the next call (the only worker is the parser's) is
+/// answered by a fresh worker: that answer is the fact this waits on, and the parser's process is gone by then. The grace
+/// is the pool's own seam (`ExtHostPool::with_grace`): it ends only when this test releases it, the test's one explicit
+/// advance of the grace; before that the parser is found alive and the next call unanswered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_parser_that_ignores_the_cancel_is_ended_after_the_grace() {
+    let asked = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
+    let (release, released) = tokio::sync::watch::channel(false);
+    let grace: mixdog_exthost::GraceWait = {
+        let asked = asked.clone();
+        std::sync::Arc::new(move || {
+            asked.add_permits(1);
+            let mut released = released.clone();
+            Box::pin(async move {
+                let _ = released.wait_for(|r| *r).await;
+            })
+        })
+    };
+    let pool = ExtHostPool::with_grace(config(1, &[]), grace).unwrap();
+    let pid_file = pid_file("ignores-cancel");
+    let spinning = pool.call(call("a", "spinWithPid", json!({"pidFile": pid_file}))).unwrap();
+    let parser = helper_pid(&pid_file).await;
+    let _ = std::fs::remove_file(&pid_file);
+    drop(spinning);
+    let mut waiting = pool.call(call("b", "echo", json!("after"))).unwrap();
+    // The pool has asked for the grace of the dropped call: the cancel is sent and the end of the grace is awaited.
+    asked.acquire().await.expect("the pool asks for the grace").forget();
+    assert!(alive(parser).await, "the parser is still running before its grace has ended");
+    assert!(tokio::time::timeout(Duration::ZERO, waiting.next()).await.is_err(), "the slot is held until the grace has ended");
+    release.send(true).unwrap();
+    let (_, outcome) = finish(&mut waiting).await;
+    assert_eq!(outcome.unwrap(), json!("after"), "a fresh worker serves the next call");
+    assert!(!alive(parser).await, "the parser process is gone");
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stopping_a_worker_ends_its_call_as_stopped() {
+    let pool = ExtHostPool::new(config(2, &[])).unwrap();
+    let mut spinning = pool.call(call("a", "spin", json!(null))).unwrap();
+    until(&pool, "spin starts", |s| busy(s) == 1).await;
+    let worker = pool.status()[0].id;
+    // The other worker keeps serving while the first is stuck.
+    assert_eq!(run(&pool, call("b", "echo", json!(7))).await, json!(7));
+    pool.stop_worker(worker).unwrap();
+    let (_, outcome) = finish(&mut spinning).await;
+    assert!(matches!(outcome, Err(ExtError::HostExited { exit: ExtExit::Stopped })));
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_crash_ends_only_its_own_call() {
+    let pool = ExtHostPool::new(config(2, &[])).unwrap();
+    let other = pool.call(call("b", "hold", json!(null))).unwrap();
+    until(&pool, "hold starts", |s| busy(s) == 1).await;
+    let mut crashing = pool.call(call("a", "crash", json!(null))).unwrap();
+    let (_, outcome) = finish(&mut crashing).await;
+    assert!(matches!(outcome, Err(ExtError::HostExited { exit: ExtExit::Code(3) })));
+    assert_eq!(run(&pool, call("a", "echo", json!(1))).await, json!(1));
+    drop(other);
+}
 /// Reads the helper pid a scripted worker recorded, and waits for that process to be gone: the
 /// exit is observed before the group is killed, so it may need a moment to go.
 async fn helper_is_gone(pid_file: &Path) {
@@ -297,11 +337,9 @@ async fn helper_is_gone(pid_file: &Path) {
     })
     .await;
 }
-
 fn pid_file(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("exthost-helper-{label}-{}.pid", std::process::id()))
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_crashed_worker_takes_its_helper_processes_with_it() {
     let pool = ExtHostPool::new(config(1, &[])).unwrap();
@@ -313,7 +351,6 @@ async fn a_crashed_worker_takes_its_helper_processes_with_it() {
     assert!(matches!(outcome, Err(ExtError::HostExited { exit: ExtExit::Code(3) })), "{outcome:?}");
     helper_is_gone(&pid_file).await;
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_worker_that_exits_normally_takes_its_lingering_helper_with_it() {
     let pool = ExtHostPool::new(config(1, &[])).unwrap();
@@ -323,7 +360,6 @@ async fn a_worker_that_exits_normally_takes_its_lingering_helper_with_it() {
     until(&pool, "worker exited", |s| s.is_empty()).await;
     helper_is_gone(&pid_file).await;
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_chunk_beyond_the_window_terminates_the_worker() {
     let pool = ExtHostPool::new(config(1, &["overrun"])).unwrap();
@@ -337,7 +373,6 @@ async fn a_chunk_beyond_the_window_terminates_the_worker() {
     let (_, outcome) = finish(&mut greedy).await;
     assert!(matches!(outcome, Err(ExtError::HostExited { .. })), "{outcome:?}");
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_thread_that_reports_state_stays_on_its_worker() {
     let pool = ExtHostPool::new(config(2, &[])).unwrap();
@@ -354,7 +389,6 @@ async fn a_thread_that_reports_state_stays_on_its_worker() {
     assert_eq!(run(&pool, call("t", "whoami", json!({"pin": false}))).await, pid);
     assert_ne!(run(&pool, call("t", "whoami", json!({"pin": false}))).await, pid, "released: back to the lowest idle worker");
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn workers_share_one_render_browser() {
     let pool = ExtHostPool::new(config(2, &[])).unwrap();
@@ -366,7 +400,6 @@ async fn workers_share_one_render_browser() {
     assert!(ws.starts_with("ws://127.0.0.1:9222/devtools/browser/fake-"), "{ws}");
     assert_eq!(a, b, "one browser, one endpoint");
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_missing_worker_program_answers_unavailable() {
     let mut config = config(1, &[]);
@@ -376,7 +409,6 @@ async fn a_missing_worker_program_answers_unavailable() {
     let (_, outcome) = finish(&mut stream).await;
     assert!(matches!(outcome, Err(ExtError::Unavailable { .. })));
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn close_ends_every_worker() {
     let pool = ExtHostPool::new(config(2, &[])).unwrap();
@@ -391,7 +423,6 @@ async fn close_ends_every_worker() {
         Ok(mut stream) => assert!(matches!(finish(&mut stream).await.1, Err(ExtError::Unavailable { .. }))),
     }
 }
-
 /// `pid_file`'s helper pid, once the scripted worker has written it. The wait is on the wall clock and ends the test by name: a
 /// script that never starts (a missing file, no runtime) would otherwise leave it waiting for ever.
 async fn helper_pid(pid_file: &Path) -> u32 {
@@ -406,7 +437,6 @@ async fn helper_pid(pid_file: &Path) -> u32 {
         mixdog_rt::time::sleep(Duration::from_millis(10)).await;
     }
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn close_with_busy_workers_leaves_no_process_behind() {
     let pool = ExtHostPool::new(config(2, &[])).unwrap();
@@ -444,7 +474,6 @@ async fn close_with_busy_workers_leaves_no_process_behind() {
         assert!(matches!(outcome, Err(ExtError::HostExited { exit: ExtExit::Code(0) })), "{outcome:?}");
     }
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn close_ends_a_browser_that_never_publishes_its_endpoint() {
     let pid_file = pid_file("silent-browser");
@@ -463,7 +492,6 @@ async fn close_ends_a_browser_that_never_publishes_its_endpoint() {
     let (_, outcome) = finish(&mut waiting).await;
     assert!(matches!(outcome, Err(ExtError::HostExited { .. })), "{outcome:?}");
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn close_racing_a_failed_endpoint_channel_still_waits_for_the_browser() {
     // The browser closes its stderr (the endpoint channel fails) and stays alive, while `close`
@@ -482,7 +510,6 @@ async fn close_racing_a_failed_endpoint_channel_still_waits_for_the_browser() {
         assert!(!alive(browser).await, "round {round}: the browser is gone when close returns");
     }
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_render_browser_serves_the_endpoint_trait_object_the_web_renderer_holds() {
     let pool = ExtHostPool::new(config(1, &[])).unwrap();
@@ -495,7 +522,6 @@ async fn the_render_browser_serves_the_endpoint_trait_object_the_web_renderer_ho
     within(pool.close()).await;
     assert!(endpoint.lease().await.is_err());
 }
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_public_render_browser_is_the_one_the_workers_use() {
     let pool = ExtHostPool::new(config(1, &[])).unwrap();
@@ -507,6 +533,8 @@ async fn the_public_render_browser_is_the_one_the_workers_use() {
     assert!(handle.endpoint().await.is_err(), "after close no browser is launched");
 }
 
+
+#[cfg(node_twin)]
 /// Node's own extraction, recorded by `benchmarks/rust-core/recorders/record-media-text.mjs`: the text
 /// of each attached-document format, `null` for a file with no text form, and the fixed text for a
 /// PDF the parser rejects. The real worker must answer every case exactly as Node did.
@@ -583,54 +611,7 @@ async fn document_text_equals_nodes_recorded_extraction_for_every_format_error_a
     assert!(!by_name("unreadable-truncated")["rejected"].as_str().unwrap().is_empty());
     within(pool.close()).await;
 }
-
-/// The flat-colour PNG (stored zlib blocks) `record_image.mjs` builds, so the read goldens can be
-/// replayed from their recipe.
-fn flat_png(width: u32, height: u32, rgb: [u8; 3]) -> Vec<u8> {
-    fn crc32(bytes: &[u8]) -> u32 {
-        let mut crc = 0xffff_ffff_u32;
-        for &b in bytes {
-            crc ^= u32::from(b);
-            for _ in 0..8 {
-                crc = if crc & 1 == 1 { 0xedb8_8320 ^ (crc >> 1) } else { crc >> 1 };
-            }
-        }
-        !crc
-    }
-    fn chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
-        let body = [&kind[..], data].concat();
-        [(data.len() as u32).to_be_bytes().to_vec(), body.clone(), crc32(&body).to_be_bytes().to_vec()].concat()
-    }
-    let mut row = vec![0u8];
-    for _ in 0..width {
-        row.extend_from_slice(&rgb);
-    }
-    let raw: Vec<u8> = (0..height).flat_map(|_| row.clone()).collect();
-    let (mut a, mut b) = (1u32, 0u32);
-    for &x in &raw {
-        a = (a + u32::from(x)) % 65521;
-        b = (b + a) % 65521;
-    }
-    let mut zlib = vec![0x78, 0x01];
-    let blocks: Vec<&[u8]> = raw.chunks(65535).collect();
-    for (i, part) in blocks.iter().enumerate() {
-        zlib.push(u8::from(i + 1 == blocks.len()));
-        zlib.extend_from_slice(&(part.len() as u16).to_le_bytes());
-        zlib.extend_from_slice(&(!(part.len() as u16)).to_le_bytes());
-        zlib.extend_from_slice(part);
-    }
-    zlib.extend_from_slice(&((b << 16) | a).to_be_bytes());
-    let mut ihdr = [width.to_be_bytes(), height.to_be_bytes()].concat();
-    ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
-    [
-        vec![0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
-        chunk(b"IHDR", &ihdr),
-        chunk(b"IDAT", &zlib),
-        chunk(b"IEND", &[]),
-    ]
-    .concat()
-}
-
+#[cfg(node_twin)]
 /// The image calls over the real Rust worker: `read_resize` replays Node's recorded `read` results
 /// (`mixdog-tools/src/fs/golden/image_cases.json`): mime and both sizes exact, the answer decoding at the displayed size; and
 /// every op the compaction codec needs round-trips a png, a jpeg and a webp to Node's sizes. The encoder is the Rust one, so the
@@ -740,12 +721,10 @@ async fn image_codec_answers_nodes_sharp_shapes_for_png_jpeg_and_webp() {
     assert!(matches!(within(codec.probe(jpeg)).await, Err(CodecError::Environment(Some(_)))));
 }
 
-#[test]
-fn worker_count_follows_the_cores_and_the_setting() {
-    assert_eq!(worker_count(None, 1), 1);
-    assert_eq!(worker_count(None, 8), 2);
-    assert_eq!(worker_count(None, 64), 4);
-    assert_eq!(worker_count(Some(0), 8), 1);
-    assert_eq!(worker_count(Some(99), 8), 8);
-    assert_eq!(worker_count(Some(3), 8), 3);
+#[cfg(node_twin)]
+/// The pool over the real Rust worker (`ext_worker_dev`: the document, pdf and image methods of `mixdogd ext-worker`).
+fn real_worker_config() -> ExtHostConfig {
+    let mut real = config(1, &[]);
+    real.program = super::composer_resize::worker_binary();
+    real
 }

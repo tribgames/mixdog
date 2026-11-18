@@ -8,20 +8,29 @@
 //! `catalogError.errorKind` is compared whole, so a case where the typed mapping and Node's verdict
 //! differ fails here unless it is listed in `KNOWN_DIFFERENCES`.
 
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::DeliveryState;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ErrorKind;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ProviderError;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::provider::TransportFault;
+#[cfg(node_twin)]
 use mixdog_protocol::ProviderId;
+#[cfg(node_twin)]
 use serde_json::Value;
 
+#[cfg(node_twin)]
 use super::failures::CatalogFailureStore;
+#[cfg(node_twin)]
 use super::store::deadline_error;
+#[cfg(node_twin)]
 use crate::retry::classify::Facts;
+#[cfg(node_twin)]
 use crate::retry::classify::kind_of;
 
-const GOLDEN: &str = include_str!("../../../../fixtures/catalog-errors/golden.json");
-
+#[cfg(node_twin)]
 /// Cases where Node's kind is derived from the MESSAGE TEXT of an untyped error, which no Rust
 /// boundary produces: a Rust adapter always has the status and the provider's code of a refused
 /// listing (so "maximum context length exceeded" arrives as a 400 with `context_length_exceeded`,
@@ -30,6 +39,7 @@ const GOLDEN: &str = include_str!("../../../../fixtures/catalog-errors/golden.js
 /// Node's kind). Recorded in decisions.md.
 const KNOWN_DIFFERENCES: [(&str, &str, &str); 1] = [("message-only wordings", "gemini", "context_overflow")];
 
+#[cfg(node_twin)]
 /// The error a Rust boundary would raise for the failure Node's recording was made from.
 fn rust_error(provider: &str, raw: &Value, message: String) -> ProviderError {
     let status = raw["status"].as_u64().filter(|status| *status > 0).map(|status| status as u16);
@@ -52,6 +62,22 @@ fn rust_error(provider: &str, raw: &Value, message: String) -> ProviderError {
     error
 }
 
+#[cfg(node_twin)]
+#[test]
+fn an_account_change_clears_every_failure() {
+    let store = CatalogFailureStore::default();
+    let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
+    error.message = "expired".into();
+    store.record("openai", &error);
+    store.record("xai", &error);
+    store.clear();
+    assert!(store.failure("openai").is_none() && store.failure("xai").is_none());
+}
+
+
+#[cfg(node_twin)]
+const GOLDEN: &str = include_str!("../../../../fixtures/catalog-errors/golden.json");
+#[cfg(node_twin)]
 #[test]
 fn the_held_failures_are_nodes_for_every_scenario() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
@@ -90,15 +116,4 @@ fn the_held_failures_are_nodes_for_every_scenario() {
         }
     }
     assert!(compared >= 30, "the golden compares many kinds ({compared})");
-}
-
-#[test]
-fn an_account_change_clears_every_failure() {
-    let store = CatalogFailureStore::default();
-    let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
-    error.message = "expired".into();
-    store.record("openai", &error);
-    store.record("xai", &error);
-    store.clear();
-    assert!(store.failure("openai").is_none() && store.failure("xai").is_none());
 }

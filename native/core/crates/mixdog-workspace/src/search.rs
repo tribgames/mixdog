@@ -5,11 +5,11 @@
 //! stops without publishing.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
@@ -56,13 +56,22 @@ struct Index {
     files: Vec<String>,
     /// Folders the scan cap left unvisited (empty when the whole tree was walked).
     pending: Vec<Pending>,
-    stale: AtomicBool,
     /// Every path beyond the index containing the needle, from a walk that finished: any query
     /// containing the needle is answered from it without walking again.
     beyond: Mutex<Option<(String, Vec<String>)>>,
 }
 
-type IndexKey = (PathBuf, bool);
+type IndexKey = (PathBuf, bool, usize);
+
+fn index_key(root: &Path, config: &SessionConfig) -> IndexKey {
+    (comparable(root), config.include_ignored, config.scan_cap.unwrap_or(INDEX_MAX_ENTRIES).max(1))
+}
+
+#[derive(Default)]
+struct IndexSlot {
+    building: tokio::sync::Mutex<()>,
+    current: Mutex<Option<(Arc<()>, Arc<Index>)>>,
+}
 
 struct Session {
     id: String,
@@ -77,7 +86,7 @@ pub struct SearchSessions {
     feeds: Arc<dyn ScopedFeeds>,
     watcher: Arc<FolderWatcher>,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
-    indexes: Mutex<HashMap<IndexKey, Arc<Index>>>,
+    indexes: Mutex<HashMap<IndexKey, Arc<IndexSlot>>>,
 }
 
 /// The watch id a session uses to learn that a root changed.
@@ -108,7 +117,12 @@ impl SearchSessions {
             }
         }
         for (i, root) in config.roots.iter().enumerate() {
-            self.watcher.watch(&index_watch_id(session_id, i), root, true)?;
+            if let Err(error) = self.watcher.watch(&index_watch_id(session_id, i), root, true) {
+                for prior in 0..i {
+                    self.watcher.unwatch(&index_watch_id(session_id, prior));
+                }
+                return Err(error);
+            }
         }
         let publisher = Arc::new(Publisher::create(
             self.feeds.as_ref(),
@@ -147,57 +161,85 @@ impl SearchSessions {
     }
 
     pub fn stop(&self, session_id: &str) {
-        let Some(session) = self.sessions.lock().expect("search sessions").remove(session_id) else { return };
-        session.generation.fetch_add(1, Ordering::SeqCst);
-        session.cancel.cancel();
+        let session = {
+            let mut sessions = self.sessions.lock().expect("search sessions");
+            let Some(session) = sessions.remove(session_id) else { return };
+            session.generation.fetch_add(1, Ordering::SeqCst);
+            session.cancel.cancel();
+            let live: HashSet<_> = sessions.values()
+                .flat_map(|s| s.config.roots.iter().map(|r| index_key(r, &s.config)))
+                .collect();
+            self.indexes.lock().expect("search indexes").retain(|key, _| live.contains(key));
+            session
+        };
         for i in 0..session.config.roots.len() {
             self.watcher.unwatch(&index_watch_id(session_id, i));
         }
         session.publisher.close();
-        let live: Vec<IndexKey> = self
-            .sessions
-            .lock()
-            .expect("search sessions")
-            .values()
-            .flat_map(|s| s.config.roots.iter().map(|r| (comparable(r), s.config.include_ignored)).collect::<Vec<_>>())
-            .collect();
-        self.indexes.lock().expect("search indexes").retain(|key, _| live.contains(key));
     }
 
-    /// The watcher saw a change under a root of `session_id`.
-    pub fn invalidate(&self, session_id: &str, root: usize) {
-        let sessions = self.sessions.lock().expect("search sessions");
-        let Some(session) = sessions.get(session_id) else { return };
-        let Some(path) = session.config.roots.get(root) else { return };
-        let key = (comparable(path), session.config.include_ignored);
-        if let Some(index) = self.indexes.lock().expect("search indexes").get(&key) {
-            index.stale.store(true, Ordering::SeqCst);
-        }
-    }
-
-    /// Open indexes (a stopped session frees its own).
+    /// Index slots for watched roots (freed when the last matching session stops).
     pub fn index_count(&self) -> usize {
         self.indexes.lock().expect("search indexes").len()
     }
 
-    async fn index_for(&self, session: &Session, generation: u64, root: &Path) -> WsResult<Option<Arc<Index>>> {
-        let key = (comparable(root), session.config.include_ignored);
-        if let Some(index) = self.indexes.lock().expect("search indexes").get(&key)
-            && !index.stale.load(Ordering::SeqCst) {
-            return Ok(Some(index.clone()));
-        }
-        let (walk_root, include_ignored) = (root.to_path_buf(), session.config.include_ignored);
+    async fn index_for(&self, session: &Session, generation: u64, root_no: usize, root: &Path) -> WsResult<Option<Arc<Index>>> {
+        let walk_root = root.to_path_buf();
         let watch = SessionStop { generation, session_generation: session.generation.clone() };
-        let scan_cap = session.config.scan_cap.unwrap_or(INDEX_MAX_ENTRIES).max(1);
-        let (files, pending) = run(self.lanes.maintenance, &session.cancel, move || {
-            index_paths(&walk_root, include_ignored, scan_cap, &|| watch.superseded())
-        })
-        .await?;
+        self.index_with(session, generation, root_no, root, |include_ignored, scan_cap| async move {
+            run(self.lanes.maintenance, &session.cancel, move || {
+                index_paths(&walk_root, include_ignored, scan_cap, &|| watch.superseded())
+            }).await
+        }).await
+    }
+
+    async fn index_with<F>(
+        &self,
+        session: &Session,
+        generation: u64,
+        root_no: usize,
+        root: &Path,
+        walk: impl FnOnce(bool, usize) -> F,
+    ) -> WsResult<Option<Arc<Index>>>
+    where
+        F: std::future::Future<Output = WsResult<(Vec<String>, Vec<Pending>)>> + Send,
+    {
+        let key = index_key(root, &session.config);
+        let (_, include_ignored, scan_cap) = key;
+        let slot = {
+            let mut indexes = self.indexes.lock().expect("search indexes");
+            if session.generation.load(Ordering::SeqCst) != generation {
+                return Ok(None);
+            }
+            indexes.entry(key).or_default().clone()
+        };
+        let _build = slot.building.lock().await;
         if session.generation.load(Ordering::SeqCst) != generation {
             return Ok(None);
         }
-        let index = Arc::new(Index { files, pending, stale: AtomicBool::new(false), beyond: Mutex::new(None) });
-        self.indexes.lock().expect("search indexes").insert(key, index.clone());
+        let watch_id = index_watch_id(&session.id, root_no);
+        let coverage = self.watcher.coverage(&watch_id);
+        {
+            let mut current = slot.current.lock().expect("index state");
+            if let Some((built_under, index)) = &*current
+                && coverage.as_ref().is_some_and(|now| Arc::ptr_eq(now, built_under))
+            {
+                return Ok(Some(index.clone()));
+            }
+            *current = None;
+        }
+        let (files, pending) = walk(include_ignored, scan_cap).await?;
+        if session.generation.load(Ordering::SeqCst) != generation {
+            return Ok(None);
+        }
+        let index = Arc::new(Index { files, pending, beyond: Mutex::new(None) });
+        if let (Some(before), Some(after)) = (coverage, self.watcher.coverage(&watch_id))
+            && Arc::ptr_eq(&before, &after)
+        {
+            *slot.current.lock().expect("index state") = Some((before, index.clone()));
+        }
+        // This query gets one walk even on a busy tree. A walk invalidated while
+        // it was running must not become the next query's cached view.
         Ok(Some(index))
     }
 
@@ -225,8 +267,8 @@ impl SearchSessions {
 
     async fn search(&self, session: &Arc<Session>, generation: u64, query: String, lone: bool) -> WsResult<()> {
         let mut scored_roots = Vec::new();
-        for root in session.config.roots.iter().filter(|_| !lone) {
-            let Some(index) = self.index_for(session, generation, root).await? else { return Ok(()) };
+        for (root_no, root) in session.config.roots.iter().enumerate().filter(|_| !lone) {
+            let Some(index) = self.index_for(session, generation, root_no, root).await? else { return Ok(()) };
             // The cap keeps the cached index small, not the search narrow: a typed query also
             // walks the folders the cap left over, keeping only what matches.
             let extra = if index.pending.is_empty() || normalize_query(&query).is_empty() {
@@ -314,7 +356,7 @@ mod tests {
         };
         let publisher = sessions.start("s", config).unwrap();
         let session = sessions.sessions.lock().unwrap().get("s").cloned().unwrap();
-        let index = sessions.index_for(&session, 0, &root).await.unwrap().unwrap();
+        let index = sessions.index_for(&session, 0, 0, &root).await.unwrap().unwrap();
         assert!(!index.pending.is_empty(), "the cap must leave folders unvisited");
         assert!(!index.files.iter().any(|f| f.contains("needle-file")));
         sessions.search(&session, 0, "needle-file".into(), false).await.unwrap();
@@ -358,7 +400,7 @@ mod tests {
         };
         let publisher = sessions.start("s", config).unwrap();
         let session = sessions.sessions.lock().unwrap().get("s").cloned().unwrap();
-        let index = sessions.index_for(&session, 0, &root).await.unwrap().unwrap();
+        let index = sessions.index_for(&session, 0, 0, &root).await.unwrap().unwrap();
         assert!(index.files.iter().any(|f| f == "top-file.txt"), "{:?}", index.files);
         sessions.search(&session, 0, "top-file".into(), false).await.unwrap();
         // The answer still comes (what the index holds), and the cut-short walk is not cached
@@ -391,6 +433,67 @@ mod tests {
         assert_eq!(publisher.state()["files"], serde_json::json!([]));
         sessions.search(&session, 0, "\u{fffd}".into(), false).await.unwrap();
         assert!(publisher.state()["files"].to_string().contains("a\u{fffd}.txt"), "{}", publisher.state());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn overlapping_searches_share_the_walk_and_a_reopen_sees_invalidated_files() {
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = Lanes {
+            interactive: tokens.interactive_io,
+            durability: tokens.durability_io,
+            maintenance: tokens.maintenance_io,
+            cpu_bulk: tokens.cpu_bulk,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::pathguard::canonical(dir.path()).unwrap();
+        std::fs::write(root.join("before.txt"), "").unwrap();
+        let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
+        let sessions = SearchSessions::new(lanes, feeds, Arc::new(FolderWatcher::new(Arc::new(Null)).unwrap()));
+        let config = SessionConfig { roots: vec![root.clone()], limit: None, include_ignored: false, include_directories: false, consumer: None, scan_cap: None, beyond_budget: None };
+        let session = |id: &str| sessions.sessions.lock().unwrap().get(id).cloned().unwrap();
+        sessions.start("first", config.clone()).unwrap();
+        sessions.start("peer", config.clone()).unwrap();
+        let (first, peer) = (session("first"), session("peer"));
+        let (a, b) = tokio::join!(sessions.index_for(&first, 0, 0, &root), sessions.index_for(&peer, 0, 0, &root));
+        let (a, b) = (a.unwrap().unwrap(), b.unwrap().unwrap());
+        assert!(Arc::ptr_eq(&a, &b), "both searches use the same completed walk");
+        sessions.stop("first");
+        sessions.start("unchanged", config.clone()).unwrap();
+        let reopened = sessions.index_for(&session("unchanged"), 0, 0, &root).await.unwrap().unwrap();
+        assert!(Arc::ptr_eq(&reopened, &b), "the peer kept the unchanged index watched");
+
+        sessions.stop("unchanged");
+        std::fs::rename(root.join("before.txt"), root.join("after.txt")).unwrap();
+        // Only the old subscriber owns the queued event; its replacement has not subscribed yet.
+        crate::watcher::queue_test_change(&sessions.watcher, root.join("after.txt"));
+        let publisher = sessions.start("changed", config).unwrap();
+        sessions.stop("peer");
+        let changed = session("changed");
+        sessions.search(&changed, 0, "after".into(), false).await.unwrap();
+        let files = publisher.state()["files"].to_string();
+        assert!(files.contains("after.txt"), "{files}");
+        sessions.search(&changed, 0, "before".into(), false).await.unwrap();
+        assert_eq!(publisher.state()["files"], json!([]));
+
+        crate::watcher::queue_test_change(&sessions.watcher, root.join("after.txt"));
+        let built_during_changes = sessions.index_with(&changed, 0, 0, &root, |_, _| async {
+            crate::watcher::queue_test_change(&sessions.watcher, root.join("after.txt"));
+            crate::watcher::queue_test_change(&sessions.watcher, root.join("after.txt"));
+            Ok((vec!["during.txt".to_owned()], Vec::new()))
+        }).await.unwrap().unwrap();
+        assert_eq!(built_during_changes.files, ["during.txt"], "the query gets an answer without retrying");
+        let next = sessions.index_for(&changed, 0, 0, &root).await.unwrap().unwrap();
+        assert!(next.files.iter().any(|f| f == "after.txt"), "the invalidated walk was not cached");
+
+        // Losing the backend watch must bypass the old index even without a file-change batch.
+        sessions.watcher.unwatch(&index_watch_id("changed", 0));
+        std::fs::rename(root.join("after.txt"), root.join("unwatched.txt")).unwrap();
+        sessions.search(&changed, 0, "unwatched".into(), false).await.unwrap();
+        assert!(publisher.state()["files"].to_string().contains("unwatched.txt"));
+        std::fs::rename(root.join("unwatched.txt"), root.join("moved-again.txt")).unwrap();
+        sessions.search(&changed, 0, "moved-again".into(), false).await.unwrap();
+        assert!(publisher.state()["files"].to_string().contains("moved-again.txt"));
+        sessions.stop("changed");
     }
 
     // Current-thread runtime: the 30 launched tasks cannot start before the test first awaits, so

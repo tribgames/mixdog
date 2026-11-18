@@ -5,6 +5,8 @@
 import type { ProtocolClient, SessionFold } from '../../../../../packages/protocol-client/src/index.ts';
 import type { DesktopProtocolStatus, DesktopSectionChange, DesktopSectionsSnapshot } from '../../shared/contract-sections.ts';
 import { isScopedSectionFeed, SECTION_NAMES } from '../../shared/contract-sections.ts';
+import type { DesktopCoreLink } from '../../shared/contract-sections.ts';
+import { closedLink, linkOfStatus, UP } from './link-state.ts';
 import { scopedSectionChanges, type ScopedFeedRoute } from '../../shared/core-lanes/scoped-sections.ts';
 import { LOGIN_CANCEL_METHODS, LOGIN_START_METHODS, loginFeedId, loginUpdateOf } from '../../shared/core-lanes/login-feed.ts';
 import type {
@@ -83,6 +85,11 @@ export type RendererConnection = Pick<
   onReopening(listener: () => void): () => void;
   /** Replaces how a request leaves (see Sender). */
   setSender(send: Sender): void;
+  /** How far the connection is from up (the ladder's attempt) and, once it is closed, why. */
+  link(): DesktopCoreLink;
+  /** Called after every change of `status` or `link`, whatever caused it (the ladder, a reopen, a failed open): the one source of
+   *  what the window shows of the connection. */
+  onState(listener: () => void): () => void;
 };
 
 export function createRendererConnection({ open, send: initialSend, log }: RendererConnectionOptions): RendererConnection {
@@ -94,6 +101,10 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
   const storeListeners = new Set<(change: ConnectionStoreChange) => void>();
   const replacedListeners = new Set<() => void>();
   const reopeningListeners = new Set<() => void>();
+  const stateListeners = new Set<() => void>();
+  const publishState = (): void => {
+    for (const listener of [...stateListeners]) listener();
+  };
   const fsWatches = new Map<string, { window: RendererWindow; params: { watchId: string } & Record<string, unknown> }>();
   const loginFeeds = new Map<string, LoginFeedState>();
   // Scoped feeds that carry sections (`media:<jobId>`), by feed id: who watches them and the sections each holds. The
@@ -102,15 +113,17 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
   let raw: ProtocolClient<SessionFold> | null = null;
   let client: ConnectionClient | null = null;
   let status: DesktopProtocolStatus = 'reconnecting';
+  let link: DesktopCoreLink = UP;
   let unsubscribeClient: (() => void) | null = null;
   let unsubscribeStore: (() => void) | null = null;
   let closedByOwner = false;
+  /** Whether a client was ever open: before that, the window is waiting for its first open. */
+  let everOpened = false;
   // The newest start or reopen owns the client: every handler of a client checks it still holds its number.
   let epoch = 0;
   let newest: Promise<void> | null = null;
   let inflight: Promise<void> | null = null;
   let lastActivityAt = Number.NEGATIVE_INFINITY;
-  let everOpened = false;
   let syncedSettled = true;
   let resolveSynced!: () => void;
   let rejectSynced!: (error: unknown) => void;
@@ -135,10 +148,9 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
   };
   const settleSynced = (error?: unknown): void => {
     syncedSettled = true;
-    if (error === undefined) {
-      everOpened = true;
-      resolveSynced();
-    } else rejectSynced(error);
+    if (error === undefined) resolveSynced();
+    else rejectSynced(error);
+    publishState();
   };
   pendingSync();
 
@@ -146,9 +158,14 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
     if (!client) throw new Error('The core connection is not open.');
     return client;
   };
-  /** A request made before the first connection is open waits for that handshake and fails with its error. */
+  /** A request made while the connection is not open waits for the open in flight and fails with its error; with none in flight
+   *  (the first open failed, or the connection ended for good) it opens the connection anew, once for every caller waiting. */
   const connectedAfterFirstOpen = async (): Promise<ConnectionClient> => {
-    if (!client && !everOpened && !closedByOwner) await synced;
+    if ((!client || status === 'closed') && !closedByOwner) {
+      // The open in flight settles `synced` (a close ends it too); with none in flight the connection is opened anew.
+      if (inflight) await synced;
+      else await connection.ensureOpen();
+    }
     return connected();
   };
   /** A request to the open client, through the sender. */
@@ -260,6 +277,8 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
     else portViewers.delete(window);
     const isViewed = portViewers.size > 0;
     if (isViewed === wasViewed) return;
+    // Before the first open (the window renders while it opens) the request waits for the open in flight; after it, as before.
+    if (!client && !everOpened && inflight) await synced.catch(() => undefined);
     await withDirectErrors(connected().call(isViewed ? 'system/ports/subscribe' : 'system/ports/unsubscribe', {}));
   };
 
@@ -288,6 +307,7 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
     }
     raw = opened;
     client = loose;
+    everOpened = true;
     status = toStatus(loose.status.state);
     const owns = (): boolean => mine === epoch && client === loose;
     unsubscribeStore = loose.store.subscribe((change) => {
@@ -302,8 +322,10 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
         const next = toStatus((event as { status: { state: string } }).status.state);
         const wasReady = status === 'ready';
         status = next;
+        link = linkOfStatus((event as { status: { state: string; attempt?: number; reason?: unknown } }).status);
         if (next === 'ready' && !wasReady) restoreScopedFeeds(loose);
         if (next !== 'ready') for (const [flowId, feed] of loginFeeds) loseLoginFeed(flowId, feed);
+        publishState();
       } else if (event.type === 'notification') {
         const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
         const login = loginUpdateOf(method, params);
@@ -331,6 +353,7 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
     } catch (error) {
       if (mine !== epoch) return supersededBy();
       await release('closed');
+      link = closedLink(error);
       throw error;
     }
   };
@@ -368,8 +391,10 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
       pendingSync();
       const run = (async (): Promise<void> => {
         await release('reconnecting');
+        link = UP;
         if (mine !== epoch) return supersededBy();
         for (const listener of [...reopeningListeners]) listener();
+        publishState();
         try {
           await connect(mine);
         } catch (error) {
@@ -384,6 +409,10 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
       newest = run;
       return track(run);
     },
+    onState(listener) {
+      stateListeners.add(listener);
+      return () => void stateListeners.delete(listener);
+    },
     onReopening(listener) {
       reopeningListeners.add(listener);
       return () => void reopeningListeners.delete(listener);
@@ -393,12 +422,12 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
       return () => void replacedListeners.delete(listener);
     },
     snapshot(): DesktopSectionsSnapshot {
-      if (!client) return { status, entries: [] };
+      if (!client) return { status, link, entries: [] };
       const { store } = client;
       // The store folds no scoped feed: what the watched feeds hold is part of the window's state, so a mirror replaced
       // from this snapshot keeps it (the main connection put it into the replace itself).
       const held = [...feedWatches.values()].flatMap((route) => [...route.held.values()]);
-      return { status, entries: [...SECTION_NAMES.flatMap((name) => store.sections(name)), ...held], epoch: store.appFeed()?.epoch };
+      return { status, link, entries: [...SECTION_NAMES.flatMap((name) => store.sections(name)), ...held], epoch: store.appFeed()?.epoch };
     },
     attach(window) {
       windows.add(window);
@@ -453,6 +482,7 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
     },
     client: () => client,
     protocolClient: () => raw,
+    link: () => link,
     setSender(send) {
       sender = send;
     },
@@ -493,6 +523,7 @@ export function createRendererConnection({ open, send: initialSend, log }: Rende
       loginFeeds.clear();
       replacedListeners.clear();
       reopeningListeners.clear();
+      stateListeners.clear();
       storeListeners.clear();
       closedByOwner = true;
       epoch += 1;

@@ -109,7 +109,7 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
             "qa" => self.qa(handle, args, cwd, false).await,
             "validate" => Ok(validate(inspect, handle, args).await?),
             "render" => Ok(AuthorHost::render(self.author, handle, args, Path::new(cwd)).await?),
-            "save" => self.save(handle).await,
+            "save" => self.save(handle, args, signal).await,
             "finalize" => self.finalize(handle, args, cwd).await,
             "close" => self.close(handle, args.get("save") == Some(&Value::Bool(true)), signal).await,
             _ => {

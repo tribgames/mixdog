@@ -275,7 +275,7 @@ impl InflightMeter {
     }
 
     fn sub(&self, size: usize) {
-        let _ = self.bytes.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |held| Some(held.saturating_sub(size)));
+        let _ = self.bytes.try_update(Ordering::SeqCst, Ordering::SeqCst, |held| Some(held.saturating_sub(size)));
     }
 }
 
@@ -341,7 +341,7 @@ impl Release {
         if state.leg.epoch.load(Ordering::SeqCst) != state.epoch || state.released.swap(true, Ordering::SeqCst) {
             return;
         }
-        let _ = state.leg.pending.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |held| Some(held.saturating_sub(state.size)));
+        let _ = state.leg.pending.try_update(Ordering::SeqCst, Ordering::SeqCst, |held| Some(held.saturating_sub(state.size)));
         state.leg.meter.sub(state.size);
     }
 }

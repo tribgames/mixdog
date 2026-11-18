@@ -75,6 +75,12 @@ impl RetryDecider for StandardRetryDecider {
                 return stop(Verdict::Surface);
             }
         }
+        if let Some(model) = &error.fallback_model {
+            return Decision {
+                verdict: Verdict::Fallback { model: model.to_string() },
+                next: state.after_failure(error.kind),
+            };
+        }
         // Overload: repeated capacity refusals fall back to another model or
         // end the send.
         if error.kind == ErrorKind::Overloaded || status == Some(529) {
@@ -131,7 +137,7 @@ impl RetryDecider for StandardRetryDecider {
             if state.count(Some(error.kind)).retries >= cap {
                 return stop(Verdict::Surface);
             }
-            if let Some(delay) = wait_under(error, &row.schedule, state.count(None), samples) {
+            if let Some(delay) = wait_under(error, &row.schedule, state.budget_used(None), samples) {
                 let counted = KindSchedule {
                     kind: error.kind,
                     schedule: row.schedule.clone(),
@@ -153,12 +159,12 @@ impl RetryDecider for StandardRetryDecider {
         // The row's own schedule governs first; a kind schedule takes what
         // it leaves (a status kept from the row, a spent count or budget).
         if row_retries
-            && let Some(delay) = wait_under(error, &row.schedule, state.count(None), samples)
+            && let Some(delay) = wait_under(error, &row.schedule, state.budget_used(None), samples)
         {
             return retry(delay, None);
         }
         if let Some(entry) = row.kind_schedule(error.kind) {
-            return match wait_under(error, &entry.schedule, state.count(Some(entry.kind)), samples)
+            return match wait_under(error, &entry.schedule, state.budget_used(Some(entry.kind)), samples)
             {
                 Some(delay) => retry(delay, Some(entry)),
                 None => stop(Verdict::Exhausted),

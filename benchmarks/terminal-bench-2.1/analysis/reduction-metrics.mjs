@@ -7,9 +7,16 @@ function finite(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function traceMetric(row, key) {
+  return row?.[key] ?? row?.payload?.[key];
+}
+
 function metric(row, key) {
-  if (row?.[key] != null) return finite(row[key]);
-  return finite(row?.payload?.[key]);
+  return finite(traceMetric(row, key));
+}
+
+export function traceToolResultBytesEstimate(row) {
+  return traceMetric(row, 'result_bytes_est');
 }
 
 function saved(before, after) {
@@ -123,7 +130,7 @@ export function summarizeReductionTraceRows(rows) {
     if (kind === 'tool') {
       summary.activity.toolCalls += 1;
       const name = String(row.tool_name || row.payload?.tool_name || '').toLowerCase();
-      const bytes = metric(row, 'result_bytes_est');
+      const bytes = finite(traceToolResultBytesEstimate(row));
       const key = name || 'unknown';
       summary.toolResults.byTool[key] ??= { results: 0, bytes: 0 };
       const entry = summary.toolResults.byTool[key];

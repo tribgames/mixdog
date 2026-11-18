@@ -51,6 +51,36 @@ async fn frames_travel_both_ways_with_the_pairing_origin() {
 }
 
 #[tokio::test]
+async fn paired_writes_hide_provisioning_state_without_gaps_in_the_app_feed() {
+    use serde_json::{Value, json};
+
+    let hub = hub();
+    let (connection, mut endpoint) = open_relay(&hub, "test-peer".into()).unwrap();
+    let config = json!({ "section": "config", "key": "notifications", "revision": 1, "value": { "devices": {} } });
+    let remote = json!({ "section": "remote", "key": null, "revision": 2, "value": {
+        "info": { "relay": { "token": "test-token" } },
+        "claims": [{ "claimId": "test-claim" }],
+        "pairCode": { "code": "012345" },
+    }});
+    let feed = json!({ "id": "app", "epoch": "test-epoch", "seq": 20 });
+    let next = json!({ "id": "app", "epoch": "test-epoch", "seq": 21 });
+    for (input, expected) in [
+        (
+            json!({ "method": "app/snapshot", "params": { "sections": [config.clone(), remote.clone()] }, "feed": feed.clone() }),
+            json!({ "method": "app/snapshot", "params": { "sections": [config] }, "feed": feed }),
+        ),
+        (
+            json!({ "method": "remote/state/updated", "params": remote, "feed": next.clone() }),
+            json!({ "method": "remote/state/updated", "params": { "section": "remote", "key": null, "revision": 2, "removed": true }, "feed": next }),
+        ),
+    ] {
+        connection.sink.send_control(Bytes::from(serde_json::to_vec(&input).unwrap())).unwrap();
+        let Some(RelayOut::Text(frame)) = endpoint.recv().await else { panic!("expected the filtered feed frame") };
+        assert_eq!(serde_json::from_slice::<Value>(&frame).unwrap(), expected);
+    }
+}
+
+#[tokio::test]
 async fn a_silent_phone_is_pinged_at_relay_level_and_closed() {
     let hub = hub();
     let (connection, mut endpoint) = open_relay(&hub, "phone-1".into()).unwrap();

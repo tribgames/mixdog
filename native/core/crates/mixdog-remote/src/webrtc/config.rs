@@ -230,8 +230,6 @@ impl std::fmt::Display for PeerFault {
     }
 }
 
-impl std::error::Error for PeerFault {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,3 +271,6 @@ mod tests {
         assert!(PeerConfig::new(vec![empty]).validate().is_err());
     }
 }
+
+
+impl std::error::Error for PeerFault {}

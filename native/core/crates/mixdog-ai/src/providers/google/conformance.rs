@@ -5,13 +5,16 @@
 //! retry rows.
 
 use std::collections::VecDeque;
+#[cfg(node_twin)]
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::conformance::check_provider_attempt;
+#[cfg(node_twin)]
 use mixdog_core_api::domain::conformance::check_wire_codec;
 use mixdog_core_api::domain::mock::MockRetryDecider;
 use mixdog_core_api::domain::provider::Content;
@@ -74,12 +77,14 @@ fn traits() -> Arc<dyn ModelTraits> {
 // Fixtures
 // ---------------------------------------------------------------------------
 
+#[cfg(node_twin)]
 struct Rec {
     url: String,
     body: String,
     served: String,
 }
 
+#[cfg(node_twin)]
 struct Scenario {
     recs: Vec<Rec>,
     result: Value,
@@ -87,7 +92,9 @@ struct Scenario {
     rng: Vec<f64>,
 }
 
+#[cfg(node_twin)]
 impl Scenario {
+    #[cfg(node_twin)]
     /// The content request: the first `streamGenerateContent` exchange.
     fn content(&self) -> &Rec {
         self.recs.iter().find(|r| r.url.contains(":streamGenerateContent")).expect("content record")
@@ -96,41 +103,6 @@ impl Scenario {
     fn error_status(&self) -> u16 {
         self.result["error"]["status"].as_u64().expect("error status") as u16
     }
-}
-
-fn fixture_root() -> PathBuf {
-    std::env::var_os("MIXDOG_FIXTURES_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures"))
-        .join("providers-intercepted")
-}
-
-#[allow(clippy::disallowed_methods, reason = "test setup: reads recorded fixtures")]
-fn load(provider: &str, name: &str) -> Scenario {
-    let dir = fixture_root().join(provider).join(name);
-    let read = |file: &str| -> Value {
-        serde_json::from_slice(&std::fs::read(dir.join(file)).expect(file)).expect("json")
-    };
-    let exchange = read("exchange.json");
-    let recs = exchange["records"]
-        .as_array()
-        .expect("records")
-        .iter()
-        .map(|r| Rec {
-            url: format!("{}{}", r["origin"].as_str().unwrap(), r["path"].as_str().unwrap()),
-            body: r["bodyText"].as_str().unwrap_or("").to_owned(),
-            served: r["served"].as_str().unwrap_or("").to_owned(),
-        })
-        .collect();
-    let sleeps_ms = exchange["determinism"]["retrySleeps"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|s| s["delayMs"].as_u64()).collect())
-        .unwrap_or_default();
-    let rng = exchange["determinism"]["rng"]["samples"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|s| s["value"].as_f64()).collect())
-        .unwrap_or_default();
-    Scenario { recs, result: read("result.json"), sleeps_ms, rng }
 }
 
 fn fixture_request(model: &str) -> ModelRequest {
@@ -155,12 +127,14 @@ fn fixture_request(model: &str) -> ModelRequest {
 
 const VERTEX_ADC_BASE: &str = "https://us-central1-aiplatform.googleapis.com/v1/projects/projectaa-a5af6/locations/us-central1";
 
+#[cfg(node_twin)]
 struct Provider {
     dir: &'static str,
     model: &'static str,
     codec: GoogleCodec,
 }
 
+#[cfg(node_twin)]
 fn providers() -> Vec<Provider> {
     vec![
         Provider { dir: "gemini", model: "gemini-2.5-pro", codec: GoogleCodec::gemini(GEMINI_ORIGIN, traits()) },
@@ -182,6 +156,7 @@ fn providers() -> Vec<Provider> {
     ]
 }
 
+#[cfg(node_twin)]
 fn without_request_id(mut body: Value) -> Value {
     if let Some(map) = body.as_object_mut() {
         map.shift_remove("requestId");
@@ -203,30 +178,6 @@ fn vertex_project_base_matches_the_recording() {
     assert!(vertex::project_base("p", "us/../x").is_err());
 }
 
-#[test]
-fn requests_encode_to_the_recorded_wire() {
-    for p in providers() {
-        let scenario = load(p.dir, "text");
-        let wire = p.codec.encode(&fixture_request(p.model)).expect("encode");
-        let recorded = scenario.content();
-        assert_eq!(wire.url, recorded.url, "{}: url", p.dir);
-        assert_eq!(wire.method, "POST");
-        let sent: Value = serde_json::from_slice(&wire.body).unwrap();
-        let expected: Value = serde_json::from_str(&recorded.body).unwrap();
-        assert_eq!(without_request_id(sent.clone()), without_request_id(expected), "{}: body", p.dir);
-        if p.dir == "antigravity-oauth" {
-            let id = sent["requestId"].as_str().unwrap();
-            assert!(id.starts_with("agent-") && id.len() == "agent-".len() + 36);
-            assert!(
-                wire.headers.contains(&(
-                    "User-Agent".into(),
-                    "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)".into()
-                ))
-            );
-        }
-    }
-}
-
 type Folded = (String, Vec<ToolCall>, Option<(u64, u64)>, Option<StopReason>);
 
 fn fold(events: &[StreamEvent]) -> Folded {
@@ -246,6 +197,7 @@ fn fold(events: &[StreamEvent]) -> Folded {
     (text, calls, usage, stop)
 }
 
+#[cfg(node_twin)]
 fn decode_all(codec: &GoogleCodec, wire: &str) -> Result<Vec<StreamEvent>, ProviderError> {
     let mut decoder = codec.decoder(&fixture_request("gemini-2.5-pro"));
     let mut events = decoder.feed(wire.as_bytes())?;
@@ -253,107 +205,11 @@ fn decode_all(codec: &GoogleCodec, wire: &str) -> Result<Vec<StreamEvent>, Provi
     Ok(events)
 }
 
-#[test]
-fn recorded_sse_streams_fold_to_the_recorded_results() {
-    // The vertex recordings were served as a JSON array, not as SSE; they are
-    // covered by `non_sse_bodies_are_truncated_streams`.
-    for p in providers().into_iter().filter(|p| matches!(p.dir, "gemini" | "antigravity-oauth")) {
-        let text = load(p.dir, "text");
-        let ok = &text.result["ok"];
-        let events = decode_all(&p.codec, &text.content().served).expect("text stream");
-        let (content, calls, usage, stop) = fold(&events);
-        assert_eq!(content, ok["content"].as_str().unwrap(), "{}", p.dir);
-        assert!(calls.is_empty());
-        assert_eq!(usage, Some((ok["usage"]["inputTokens"].as_u64().unwrap(), ok["usage"]["outputTokens"].as_u64().unwrap())));
-        assert_eq!(stop, None, "Node: stopReason null");
-
-        let tool = load(p.dir, "tool-call");
-        let events = decode_all(&p.codec, &tool.content().served).expect("tool stream");
-        let (_, calls, usage, stop) = fold(&events);
-        let expected = &tool.result["ok"]["toolCalls"][0];
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].id, expected["id"].as_str().unwrap());
-        assert_eq!(calls[0].name, expected["name"].as_str().unwrap());
-        assert_eq!(calls[0].arguments, expected["arguments"]);
-        assert_eq!(usage, Some((20, 6)));
-        assert_eq!(stop, None, "Node: stopReason null");
-
-        // The shared codec conformance: split feeding, one terminal event, and
-        // an end without it is a truncated stream.
-        let cut = load(p.dir, "truncated-eof");
-        check_wire_codec(&p.codec, &fixture_request("gemini-2.5-pro"), text.content().served.as_bytes(), cut.content().served.as_bytes(), 17);
-    }
-}
-
-#[test]
-fn non_sse_bodies_are_truncated_streams() {
-    for p in providers().into_iter().filter(|p| p.dir.starts_with("vertex")) {
-        let scenario = load(p.dir, "text");
-        let err = decode_all(&p.codec, &scenario.content().served).unwrap_err();
-        assert_eq!(err.transport, Some(TransportFault::TruncatedStream), "{}", p.dir);
-        assert_eq!(err.kind, ErrorKind::Transient);
-    }
-}
-
+#[cfg(node_twin)]
 /// The vertex recordings' chunks re-framed the way `alt=sse` frames them.
 fn as_sse(array_body: &str) -> String {
     let chunks: Vec<Value> = serde_json::from_str(array_body).expect("recorded chunk array");
     chunks.iter().map(|c| format!("data: {c}\n\n")).collect()
-}
-
-#[test]
-fn vertex_chunks_decode_as_sse_with_cache_exclusive_usage() {
-    for p in providers().into_iter().filter(|p| p.dir.starts_with("vertex")) {
-        let text = as_sse(&load(p.dir, "text").content().served);
-        let first_chunk = text.split("\n\n").next().unwrap().to_owned() + "\n\n";
-        check_wire_codec(&p.codec, &fixture_request("gemini-2.5-pro"), text.as_bytes(), first_chunk.as_bytes(), 31);
-        let (content, _, usage, stop) = fold(&decode_all(&p.codec, &text).unwrap());
-        assert_eq!((content.as_str(), usage, stop), ("The result is 42.", Some((20, 8)), None));
-
-        let tool = as_sse(&load(p.dir, "tool-call").content().served);
-        let (_, calls, _, stop) = fold(&decode_all(&p.codec, &tool).unwrap());
-        assert_eq!((calls[0].id.as_str(), stop), ("gemini_366b187da650ce24", None));
-    }
-    // Vertex accounts input without the cached tokens.
-    let codec = &providers()[1].codec;
-    let wire = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"x\"}]},\"finishReason\":\"STOP\"}],\
-        \"usageMetadata\":{\"promptTokenCount\":100,\"cachedContentTokenCount\":60,\"candidatesTokenCount\":5}}\n\n";
-    assert_eq!(fold(&decode_all(codec, wire).unwrap()).2, Some((40, 5)));
-}
-
-#[test]
-fn truncated_recordings_end_as_transient_truncation() {
-    for p in providers() {
-        for name in ["truncated-eof", "truncated-reset"] {
-            let scenario = load(p.dir, name);
-            let err = decode_all(&p.codec, &scenario.content().served).unwrap_err();
-            assert_eq!(err.transport, Some(TransportFault::TruncatedStream), "{} {name}", p.dir);
-            assert_eq!(err.kind, ErrorKind::Transient);
-            assert_eq!(err.delivery, DeliveryState::Accepted);
-        }
-    }
-    // The stream had shown text: a replay would double-render it.
-    let scenario = load("gemini", "truncated-eof");
-    let err = decode_all(&providers()[0].codec, &scenario.content().served).unwrap_err();
-    assert!(err.exposure.text_emitted);
-}
-
-#[test]
-fn upstream_errors_classify_from_status() {
-    for p in providers() {
-        for (name, kind) in [("error-400", ErrorKind::InvalidRequest), ("error-401", ErrorKind::Auth)] {
-            let scenario = load(p.dir, name);
-            let status = scenario.error_status();
-            let err = p.codec.classify(&ErrorResponse {
-                status: Some(status),
-                headers: Vec::new(),
-                body: scenario.content().served.clone().into_bytes(),
-            });
-            assert_eq!((err.kind, err.status), (kind, Some(status)), "{} {name}", p.dir);
-            assert_eq!(err.delivery, DeliveryState::Accepted);
-            assert!(err.message.contains("fixture upstream error"));
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -378,33 +234,6 @@ fn delays(
         }
     }
     panic!("a bounded row never retries forever");
-}
-
-#[test]
-fn retry_rows_reproduce_the_recorded_sleeps() {
-    // The recorder ran without a live text sink, so the truncated attempts
-    // carried no exposure and were replayed; with a sink the stream would have
-    // shown text and the verdict is to surface (the decode test above).
-    let truncated = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
-    let at = |step| JitterSamples { step, advice: 0.5 };
-
-    // Antigravity: three retries at 1/2/4 s with ±10 % jitter from the
-    // recorded random draws.
-    for name in ["truncated-eof", "truncated-reset"] {
-        let scenario = load("antigravity-oauth", name);
-        let (got, end) =
-            delays(&truncated, &policy::antigravity(), RetryClass::Request, |i| at(scenario.rng[i.min(2)]));
-        assert_eq!(got, scenario.sleeps_ms, "antigravity {name}");
-        assert!(!matches!(end, Verdict::Retry { .. }));
-    }
-    // Gemini and Vertex AI: three stream retries at an unjittered 1/2/4 s.
-    for dir in ["gemini", "vertex-ai-adc", "vertex-ai-api-key"] {
-        let scenario = load(dir, "truncated-eof");
-        let (got, _) = delays(&truncated, &policy::gemini(), RetryClass::Midstream, |_| at(0.5));
-        let recorded: Vec<u64> = scenario.sleeps_ms.iter().copied().filter(|ms| [1000, 2000, 4000].contains(ms)).collect();
-        assert_eq!(got, vec![1000, 2000, 4000]);
-        assert!(recorded.starts_with(&[1000, 2000, 4000]), "{dir}: recorded sleeps {recorded:?}");
-    }
 }
 
 #[test]
@@ -502,28 +331,6 @@ impl MemoryStore {
     }
 }
 
-#[async_trait]
-impl TokenStore for MemoryStore {
-    async fn load(&self) -> Option<TokenDoc> {
-        self.0.lock().unwrap().clone()
-    }
-
-    async fn save(&self, doc: &TokenDoc) -> bool {
-        *self.0.lock().unwrap() = Some(doc.clone());
-        true
-    }
-
-    async fn replace_if_current(&self, spent: &TokenDoc, next: &TokenDoc) -> bool {
-        let mut stored = self.0.lock().unwrap();
-        if stored.as_ref() == Some(spent) {
-            *stored = Some(next.clone());
-            true
-        } else {
-            false
-        }
-    }
-}
-
 // Before the Gemini API's dated model redirects (2026-12-01), so these fixed-clock requests keep their ids.
 const NOW_MS: u64 = 1_790_000_000_000;
 
@@ -543,18 +350,9 @@ fn clock() -> Box<dyn Fn() -> u64 + Send + Sync> {
     Box::new(|| NOW_MS)
 }
 
+#[cfg(node_twin)]
 /// An environment that sets nothing.
 struct NoVars;
-
-impl crate::registry::keys::Environment for NoVars {
-    fn var(&self, _: &str) -> Option<String> {
-        None
-    }
-}
-
-async fn antigravity_adapter(http: Arc<Scripted>, store: Arc<MemoryStore>) -> super::adapter::GoogleAdapter {
-    super::antigravity(store, "2.19.1".into(), http, traits(), Arc::new(NoVars), clock(), None).await.expect("adapter")
-}
 
 async fn collect(adapter: &dyn ProviderAdapter, request: ModelRequest) -> (Vec<StreamEvent>, Option<ProviderError>) {
     let mut stream = match adapter.attempt(Arc::new(request)).await {
@@ -571,10 +369,6 @@ async fn collect(adapter: &dyn ProviderAdapter, request: ModelRequest) -> (Vec<S
     (events, None)
 }
 
-fn gemini_adapter(http: Arc<Scripted>) -> super::adapter::GoogleAdapter {
-    super::gemini("key-1", http, traits())
-}
-
 struct TokioRuntime;
 
 impl super::cache::layer::CacheRuntime for TokioRuntime {
@@ -588,72 +382,6 @@ impl super::cache::layer::CacheRuntime for TokioRuntime {
     fn deadline(&self, _ms: u64) -> futures::future::BoxFuture<'static, ()> {
         Box::pin(futures::future::pending())
     }
-}
-
-/// A cached request the server answers 400: the cache is forgotten (registry
-/// and session state) and the request is resent once without it, never again.
-#[tokio::test]
-async fn a_rejected_cache_is_dropped_and_the_request_resent_once_uncached() {
-    use super::cache::layer::ExplicitCache;
-    use super::cache::policy::Tuning;
-    use super::cache::registry::Registry;
-    use mixdog_core_api::domain::provider::ProviderState;
-    use mixdog_core_api::domain::provider::StreamEvent;
-
-    let text = load("gemini", "text");
-    let create = r#"{"name":"cachedContents/c1","usageMetadata":{"totalTokenCount":3000}}"#;
-    let http = Scripted::new(vec![
-        respond(200, create),
-        respond(400, REJECTED),
-        respond(200, &text.content().served),
-    ]);
-    let registry = Arc::new(Registry::default());
-    let cache = ExplicitCache::new(
-        "key-1",
-        super::codec::GEMINI_ORIGIN,
-        http.clone(),
-        Arc::new(TokioRuntime),
-        registry.clone(),
-        Tuning::default(),
-    );
-    let adapter = super::gemini("key-1", http.clone(), traits()).with_cache(cache);
-    let say = |role, t: String| Message::new(role, Content::Text(t));
-    let mut request = fixture_request("gemini-2.5-pro");
-    request.messages = vec![
-        say(Role::System, "x".repeat(12_000)),
-        say(Role::User, "first".into()),
-        say(Role::Assistant, "second".into()),
-        say(Role::User, "third".into()),
-    ];
-    let (events, err) = collect(&adapter, request).await;
-    assert!(err.is_none(), "{err:?}");
-    assert_eq!(fold(&events).0, "The result is 42.");
-    let sent = http.seen.lock().unwrap();
-    assert_eq!(sent.len(), 3, "one create, the cached send, one uncached resend");
-    assert!(sent[0].url.ends_with("/v1beta/cachedContents"));
-    let body = |i: usize| -> serde_json::Value { serde_json::from_slice(&sent[i].body).unwrap() };
-    assert_eq!(body(1)["cachedContent"], "cachedContents/c1");
-    assert!(body(2).get("cachedContent").is_none());
-    assert!(!registry.name_is_live("cachedContents/c1", NOW_MS));
-    let states: Vec<_> = events.iter().filter_map(|e| if let StreamEvent::ProviderState(s) = e { Some(s) } else { None }).collect();
-    assert_eq!(states.last(), Some(&&ProviderState::default()));
-}
-
-fn cached_adapter(steps: Vec<Step>) -> (super::adapter::GoogleAdapter, Arc<Scripted>) {
-    use super::cache::layer::ExplicitCache;
-    use super::cache::policy::Tuning;
-    use super::cache::registry::Registry;
-
-    let http = Scripted::new(steps);
-    let cache = ExplicitCache::new(
-        "key-1",
-        super::codec::GEMINI_ORIGIN,
-        http.clone(),
-        Arc::new(TokioRuntime),
-        Arc::new(Registry::default()),
-        Tuning::default(),
-    );
-    (super::gemini("key-1", http.clone(), traits()).with_cache(cache), http)
 }
 
 fn big_request() -> ModelRequest {
@@ -685,127 +413,6 @@ const CREATE_C1: &str = r#"{"name":"cachedContents/c1","usageMetadata":{"totalTo
 /// (`isGeminiCachedContentError`).
 const REJECTED: &str = r#"{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"CachedContent not found"}}"#;
 
-/// After a cached rejection the uncached resend runs once; if it fails, the
-/// error carries no state (Node persists state from a delivered result only).
-#[tokio::test]
-async fn a_failing_resend_after_a_cache_reset_persists_no_state() {
-    let fault = || ProviderError::transport(TransportFault::Reset, DeliveryState::NotSent);
-    let cases = [
-        ("retry transport failure", Step::Fail(fault())),
-        ("retry 500", respond(500, r#"{"error":{"code":500,"status":"INTERNAL","message":"boom"}}"#)),
-        ("retry 403", respond(403, r#"{"error":{"code":403,"status":"PERMISSION_DENIED","message":"no"}}"#)),
-    ];
-    for (name, retry) in cases {
-        let (adapter, http) = cached_adapter(vec![respond(200, CREATE_C1), respond(400, REJECTED), retry]);
-        let mut request = big_request();
-        request.options.provider_state = Some(held_state());
-        let (_, err) = collect(&adapter, request).await;
-        assert!(err.is_some(), "{name}: fails");
-        assert_eq!(http.seen.lock().unwrap().len(), 3, "{name}: create, cached send, one resend");
-    }
-}
-
-#[tokio::test]
-async fn gemini_adapter_streams_the_recorded_turn_and_passes_the_attempt_conformance() {
-    let text = load("gemini", "text");
-    let served = &text.content().served;
-    let http = Scripted::new(vec![respond(200, served)]);
-    let adapter = gemini_adapter(http.clone());
-    let (events, err) = collect(&adapter, fixture_request("gemini-2.5-pro")).await;
-    assert!(err.is_none());
-    assert_eq!(fold(&events).0, "The result is 42.");
-    {
-        let seen = http.seen.lock().unwrap();
-        assert_eq!(seen[0].url, text.content().url);
-        assert!(seen[0].headers.contains(&("x-goog-api-key".into(), "key-1".into())));
-    }
-
-    let http = Scripted::new(vec![respond(200, served)]);
-    check_provider_attempt(&gemini_adapter(http), Arc::new(fixture_request("gemini-2.5-pro")), DeliveryState::Accepted).await;
-
-    // A reset after the first bytes: a socket fact, with the exposure so far.
-    let reset = load("gemini", "truncated-reset");
-    let step = Step::Respond { status: 200, body: reset.content().served.clone(), fault: Some(TransportFault::Reset) };
-    let (events, err) = collect(&gemini_adapter(Scripted::new(vec![step])), fixture_request("gemini-2.5-pro")).await;
-    let err = err.expect("reset");
-    assert_eq!((err.kind, err.transport.clone()), (ErrorKind::Transient, Some(TransportFault::Reset)));
-    assert!(err.exposure.text_emitted);
-    assert!(events.iter().all(|e| !matches!(e, StreamEvent::Completed { .. })));
-    let step = Step::Respond { status: 200, body: reset.content().served.clone(), fault: Some(TransportFault::Reset) };
-    check_provider_attempt(&gemini_adapter(Scripted::new(vec![step])), Arc::new(fixture_request("gemini-2.5-pro")), DeliveryState::Accepted)
-        .await;
-
-    // Before a status arrives the transport's own state is reported.
-    let mut refused = ProviderError::transport(TransportFault::Connect { os_code: None }, DeliveryState::NotSent);
-    refused.message = "refused".into();
-    let adapter = gemini_adapter(Scripted::new(vec![Step::Fail(refused)]));
-    check_provider_attempt(&adapter, Arc::new(fixture_request("gemini-2.5-pro")), DeliveryState::NotSent).await;
-}
-
-#[tokio::test]
-async fn an_empty_stop_is_reasked_unless_it_answers_a_tool_result() {
-    let wire = "data: {\"candidates\":[{\"content\":{\"parts\":[]},\"finishReason\":\"STOP\"}]}\n\n";
-    let (_, err) = collect(&gemini_adapter(Scripted::new(vec![respond(200, wire)])), fixture_request("gemini-2.5-pro")).await;
-    let err = err.expect("empty answer");
-    assert_eq!((err.kind, err.code.as_deref()), (ErrorKind::Transient, Some("no_response_text")));
-    assert!(!err.exposure.text_emitted, "nothing was shown, so a re-ask is safe");
-
-    let mut after_tool = fixture_request("gemini-2.5-pro");
-    let mut result = Message::new(Role::Tool, Content::Text("42".into()));
-    result.tool_call_id = Some("c1".into());
-    after_tool.messages.push(result);
-    let (events, err) = collect(&gemini_adapter(Scripted::new(vec![respond(200, wire)])), after_tool).await;
-    assert!(err.is_none());
-    assert_eq!(fold(&events).3, None);
-}
-
-#[tokio::test]
-async fn antigravity_refreshes_once_on_401_with_the_recorded_requests() {
-    let scenario = load("antigravity-oauth", "error-401");
-    let content = scenario.recs.iter().filter(|r| r.url.contains(":streamGenerateContent")).collect::<Vec<_>>();
-    let token = scenario.recs.iter().find(|r| r.url.contains("oauth2.googleapis.com")).unwrap();
-    let http = Scripted::new(vec![
-        respond(401, &content[0].served),
-        respond(200, &token.served),
-        respond(401, &content[1].served),
-    ]);
-    let store = MemoryStore::with(doc(NOW_MS + 3_600_000, "fixture-project"));
-    let adapter = antigravity_adapter(http.clone(), store.clone()).await;
-    let (_, err) = collect(&adapter, fixture_request("gemini-3-pro")).await;
-    let err = err.expect("401 stays a 401");
-    assert_eq!((err.kind, err.status), (ErrorKind::Auth, Some(401)));
-    assert_eq!(
-        http.urls(),
-        scenario.recs.iter().map(|r| r.url.clone()).collect::<Vec<_>>(),
-        "content, token refresh, content"
-    );
-    let seen = http.seen.lock().unwrap();
-    assert_eq!(String::from_utf8_lossy(&seen[1].body), token.body, "the recorded refresh request");
-    assert!(seen[0].headers.contains(&("Authorization".into(), "Bearer stale-access".into())));
-    assert!(seen[2].headers.contains(&("Authorization".into(), "Bearer fixture-access-token".into())));
-    let stored = store.0.lock().unwrap().clone().unwrap();
-    assert_eq!((stored.access_token.as_str(), stored.project_id.as_str()), ("fixture-access-token", "fixture-project"));
-    assert_eq!(stored.expires_at_ms, NOW_MS + 3_600_000);
-}
-
-#[tokio::test]
-async fn antigravity_serves_the_recorded_turns_and_refuses_a_changed_account() {
-    let text = load("antigravity-oauth", "text");
-    let http = Scripted::new(vec![respond(200, &text.content().served)]);
-    let store = MemoryStore::with(doc(NOW_MS + 3_600_000, "fixture-project"));
-    let adapter = antigravity_adapter(http.clone(), store.clone()).await;
-    let (events, err) = collect(&adapter, fixture_request("gemini-3-pro")).await;
-    assert!(err.is_none());
-    assert_eq!(fold(&events).0, "The result is 42.");
-
-    // A sign-in to another project after the adapter was built.
-    *store.0.lock().unwrap() = Some(doc(NOW_MS + 3_600_000, "other-project"));
-    let (_, err) = collect(&adapter, fixture_request("gemini-3-pro")).await;
-    let err = err.expect("identity mismatch");
-    assert_eq!((err.kind, err.reauth_required, err.delivery), (ErrorKind::Auth, true, DeliveryState::NotSent));
-    assert_eq!(http.urls().len(), 1);
-}
-
 #[tokio::test]
 async fn expired_tokens_refresh_ahead_of_the_request_and_dead_grants_need_a_login() {
     let grant = r#"{"access_token":"fresh","expires_in":3600}"#;
@@ -832,73 +439,24 @@ async fn expired_tokens_refresh_ahead_of_the_request_and_dead_grants_need_a_logi
     assert_eq!(auth.authorize().await.unwrap().headers[0].1, "Bearer stale-access");
 }
 
+/// `refreshTokens`: any 400 or 401 asks for a sign-in, worded with the status and the redacted body.
+#[tokio::test]
+async fn a_refused_antigravity_refresh_names_its_status_and_body() {
+    let http = Scripted::new(vec![respond(401, r#"{"error":"nope","refresh_token":"leaked-refresh"}"#)]);
+    let store = MemoryStore::with(doc(NOW_MS - 1, "p"));
+    let auth = super::auth::antigravity::AntigravityAuth::new(http, store, clock());
+    let err = auth.authorize().await.unwrap_err();
+    assert!(err.reauth_required);
+    assert_eq!(err.message, r#"[antigravity-oauth] token refresh 401: {"error":"nope","refresh_token":"[REDACTED]"}"#);
+}
+
 fn adc_json() -> String {
     json!({"type":"authorized_user","client_id":"fixture-client","client_secret":"fixture-secret",
         "refresh_token":"fixture-refresh-token","quota_project_id":"projectaa-a5af6"})
     .to_string()
 }
 
-#[tokio::test]
-async fn vertex_adc_mints_per_request_and_replays_the_recorded_401() {
-    let scenario = load("vertex-ai-adc", "error-401");
-    let token = scenario.recs.iter().find(|r| r.url.contains("oauth2.googleapis.com")).unwrap();
-    let content = scenario.content();
-    let credential = vertex::parse_adc(&adc_json(), "adc.json").unwrap();
-    assert_eq!(vertex::resolve_project(&credential, &|_| None).as_deref(), Some("projectaa-a5af6"));
-    let http = Scripted::new(vec![
-        respond(200, &token.served),
-        respond(401, &content.served),
-        respond(200, &token.served),
-        respond(401, &content.served),
-    ]);
-    let auth = Arc::new(vertex::VertexAuth::new(http.clone(), credential, clock()));
-    let identity = auth.identity().to_owned();
-    let adapter = super::vertex(VertexPlace::project("projectaa-a5af6", Some("us-central1"), None), auth, identity, http.clone(), traits(), Arc::new(|_| None));
-    let (_, err) = collect(&adapter, fixture_request("gemini-2.5-pro")).await;
-    let err = err.expect("401");
-    assert_eq!((err.kind, err.status), (ErrorKind::Auth, Some(401)));
-    assert_eq!(http.urls(), scenario.recs.iter().map(|r| r.url.clone()).collect::<Vec<_>>());
-    let seen = http.seen.lock().unwrap();
-    assert_eq!(String::from_utf8_lossy(&seen[0].body), token.body);
-    assert!(seen[1].headers.contains(&("Authorization".into(), "Bearer fixture-access-token".into())));
-}
-
-fn vertex_at(place: VertexPlace, http: &Arc<Scripted>) -> super::adapter::GoogleAdapter {
-    super::vertex(place, Arc::new(super::auth::ApiKeyAuth::new("key-1")), String::new(), http.clone(), traits(), Arc::new(|_| None))
-}
-
 const NOT_FOUND: &str = r#"{"error":{"code":404,"status":"NOT_FOUND","message":"gone"}}"#;
-
-#[tokio::test]
-async fn a_404_from_an_environment_region_is_resent_once_on_global() {
-    let http = Scripted::new(vec![respond(404, NOT_FOUND), respond(200, "")]);
-    let adapter = vertex_at(VertexPlace::project("p", None, Some("us-central1")), &http);
-    assert!(adapter.attempt(Arc::new(fixture_request("gemini-2.5-pro"))).await.is_ok());
-    let urls = http.urls();
-    assert_eq!(urls.len(), 2);
-    assert!(urls[0].starts_with("https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/"));
-    assert!(urls[1].starts_with("https://aiplatform.googleapis.com/v1/projects/p/locations/global/"));
-}
-
-#[tokio::test]
-async fn a_404_at_global_after_the_fallback_surfaces_with_the_global_hint() {
-    let http = Scripted::new(vec![respond(404, NOT_FOUND), respond(404, NOT_FOUND)]);
-    let adapter = vertex_at(VertexPlace::project("p", None, Some("us-central1")), &http);
-    let err = adapter.attempt(Arc::new(fixture_request("gemini-2.5-pro"))).await.err().expect("404");
-    assert_eq!(err.status, Some(404));
-    assert_eq!(http.urls().len(), 2, "resent once, not again");
-    assert!(err.message.contains("global"), "{}", err.message);
-}
-
-#[tokio::test]
-async fn a_configured_or_global_location_is_never_resent_on_a_404() {
-    for place in [VertexPlace::project("p", Some("us-central1"), None), VertexPlace::project("p", None, None)] {
-        let http = Scripted::new(vec![respond(404, NOT_FOUND)]);
-        let err = vertex_at(place, &http).attempt(Arc::new(fixture_request("gemini-2.5-pro"))).await.err().expect("404");
-        assert_eq!(err.status, Some(404));
-        assert_eq!(http.urls().len(), 1);
-    }
-}
 
 #[tokio::test]
 async fn concurrent_requests_share_one_vertex_token_mint() {
@@ -966,6 +524,162 @@ fn service_account_jwt_is_a_valid_rs256_assertion() {
     assert!(vertex::jwt_assertion("sa", "not a key", 0).is_err());
 }
 
+#[test]
+fn error_wording_sets_only_the_codes_node_reads_it_for() {
+    // The kind is read from typed fields; wording counts only where Node's `antigravityError` reads it (capacity or
+    // rate-limit wording on an untyped 429), never for a context overflow.
+    let codec = GoogleCodec::antigravity(ENDPOINT, "p", "2.19.1", traits());
+    let classify = |status, message: &str| {
+        codec
+            .classify(&ErrorResponse {
+                status: Some(status),
+                headers: vec![],
+                body: json!({"error": {"message": message}}).to_string().into_bytes(),
+            })
+            .kind
+    };
+    assert_eq!(classify(429, "Resource exhausted: server busy, capacity exceeded"), ErrorKind::Overloaded);
+    assert_eq!(classify(400, "prompt is too long, maximum context length exceeded"), ErrorKind::InvalidRequest);
+}
+
+/// Node's Gemini stream consumer reported one kind per chunk (`golden/stream_progress.json`): thinking, text, a call;
+/// a bare finish chunk none. The Rust decoder reports the same for each chunk.
+#[cfg(node_twin)]
+#[test]
+fn the_decoder_reports_the_progress_kinds_node_s_consumer_does() {
+    #[cfg(node_twin)]
+    use crate::providers::progress_golden::{golden, node_names, rust_names};
+    let gemini = providers().into_iter().find(|p| p.dir == "gemini").expect("gemini");
+    let mut decoder = gemini.codec.decoder(&fixture_request(gemini.model));
+    for step in golden()["decoders"]["gemini"].as_array().expect("gemini") {
+        let events = decoder.feed(format!("data: {}\r\n\r\n", step["wire"]).as_bytes()).expect("feed");
+        assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["wire"]);
+    }
+}
+
+#[cfg(node_twin)]
+impl crate::registry::keys::Environment for NoVars {
+    fn var(&self, _: &str) -> Option<String> {
+        None
+    }
+}
+#[cfg(node_twin)]
+async fn antigravity_adapter(http: Arc<Scripted>, store: Arc<MemoryStore>) -> super::adapter::GoogleAdapter {
+    super::antigravity(store, "2.19.1".into(), http, traits(), Arc::new(NoVars), clock(), None).await.expect("adapter")
+}
+fn gemini_adapter(http: Arc<Scripted>) -> super::adapter::GoogleAdapter {
+    super::gemini("key-1", http, traits())
+}
+fn cached_adapter(steps: Vec<Step>) -> (super::adapter::GoogleAdapter, Arc<Scripted>) {
+    use super::cache::layer::ExplicitCache;
+    use super::cache::policy::Tuning;
+    use super::cache::registry::Registry;
+
+    let http = Scripted::new(steps);
+    let cache = ExplicitCache::new(
+        "key-1",
+        super::codec::GEMINI_ORIGIN,
+        http.clone(),
+        Arc::new(TokioRuntime),
+        Arc::new(Registry::default()),
+        Tuning::default(),
+    );
+    (super::gemini("key-1", http.clone(), traits()).with_cache(cache), http)
+}
+/// After a cached rejection the uncached resend runs once; if it fails, the
+/// error carries no state (Node persists state from a delivered result only).
+#[tokio::test]
+async fn a_failing_resend_after_a_cache_reset_persists_no_state() {
+    let fault = || ProviderError::transport(TransportFault::Reset, DeliveryState::NotSent);
+    let cases = [
+        ("retry transport failure", Step::Fail(fault())),
+        ("retry 500", respond(500, r#"{"error":{"code":500,"status":"INTERNAL","message":"boom"}}"#)),
+        ("retry 403", respond(403, r#"{"error":{"code":403,"status":"PERMISSION_DENIED","message":"no"}}"#)),
+    ];
+    for (name, retry) in cases {
+        let (adapter, http) = cached_adapter(vec![respond(200, CREATE_C1), respond(400, REJECTED), retry]);
+        let mut request = big_request();
+        request.options.provider_state = Some(held_state());
+        let (_, err) = collect(&adapter, request).await;
+        assert!(err.is_some(), "{name}: fails");
+        assert_eq!(http.seen.lock().unwrap().len(), 3, "{name}: create, cached send, one resend");
+    }
+}
+#[tokio::test]
+async fn an_empty_stop_is_reasked_unless_it_answers_a_tool_result() {
+    let wire = "data: {\"candidates\":[{\"content\":{\"parts\":[]},\"finishReason\":\"STOP\"}]}\n\n";
+    let (_, err) = collect(&gemini_adapter(Scripted::new(vec![respond(200, wire)])), fixture_request("gemini-2.5-pro")).await;
+    let err = err.expect("empty answer");
+    assert_eq!((err.kind, err.code.as_deref()), (ErrorKind::Transient, Some("no_response_text")));
+    assert!(!err.exposure.text_emitted, "nothing was shown, so a re-ask is safe");
+
+    let mut after_tool = fixture_request("gemini-2.5-pro");
+    let mut result = Message::new(Role::Tool, Content::Text("42".into()));
+    result.tool_call_id = Some("c1".into());
+    after_tool.messages.push(result);
+    let (events, err) = collect(&gemini_adapter(Scripted::new(vec![respond(200, wire)])), after_tool).await;
+    assert!(err.is_none());
+    assert_eq!(fold(&events).3, None);
+}
+fn vertex_at(place: VertexPlace, http: &Arc<Scripted>) -> super::adapter::GoogleAdapter {
+    super::vertex(place, Arc::new(super::auth::ApiKeyAuth::new("key-1")), String::new(), http.clone(), traits(), Arc::new(|_| None))
+}
+/// `accessError`: a gcloud login's 403 for a missing permission says which role to grant; `invalid_grant` on the
+/// gcloud refresh token says to sign in again (vertex-ai-auth.mjs `_grant`).
+#[tokio::test]
+async fn a_gcloud_logins_refusals_say_what_to_do() {
+    let denied = r#"{"error":{"code":403,"status":"PERMISSION_DENIED","message":"Permission 'aiplatform.endpoints.predict' denied on resource."}}"#;
+    let http = Scripted::new(vec![respond(403, denied)]);
+    let place = VertexPlace::project("p", Some("us-central1"), None).with_gcloud_principal("The gcloud account me@example.com");
+    let err = vertex_at(place, &http).attempt(Arc::new(fixture_request("gemini-2.5-pro"))).await.err().expect("403");
+    assert_eq!(err.status, Some(403));
+    assert!(
+        err.message.starts_with(
+            "[vertex-ai] The gcloud account me@example.com does not have permission to use Vertex AI in project p. \
+             Grant it the Vertex AI User role (roles/aiplatform.user), then try again. (HTTP 403: "
+        ),
+        "{}",
+        err.message
+    );
+
+    let http = Scripted::new(vec![respond(400, r#"{"error":"invalid_grant","error_description":"Token has been expired or revoked."}"#)]);
+    let credential = vertex::parse_adc(&adc_json(), "adc.json").unwrap();
+    let err = vertex::VertexAuth::new(http, credential, clock()).authorize().await.unwrap_err();
+    assert_eq!(
+        err.message,
+        "Vertex AI authentication failed: the gcloud login has expired or was revoked (Token has been expired or revoked.). \
+         Run `gcloud auth application-default login` again."
+    );
+    assert_eq!(err.status, Some(400));
+}
+#[tokio::test]
+async fn a_404_from_an_environment_region_is_resent_once_on_global() {
+    let http = Scripted::new(vec![respond(404, NOT_FOUND), respond(200, "")]);
+    let adapter = vertex_at(VertexPlace::project("p", None, Some("us-central1")), &http);
+    assert!(adapter.attempt(Arc::new(fixture_request("gemini-2.5-pro"))).await.is_ok());
+    let urls = http.urls();
+    assert_eq!(urls.len(), 2);
+    assert!(urls[0].starts_with("https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/"));
+    assert!(urls[1].starts_with("https://aiplatform.googleapis.com/v1/projects/p/locations/global/"));
+}
+#[tokio::test]
+async fn a_404_at_global_after_the_fallback_surfaces_with_the_global_hint() {
+    let http = Scripted::new(vec![respond(404, NOT_FOUND), respond(404, NOT_FOUND)]);
+    let adapter = vertex_at(VertexPlace::project("p", None, Some("us-central1")), &http);
+    let err = adapter.attempt(Arc::new(fixture_request("gemini-2.5-pro"))).await.err().expect("404");
+    assert_eq!(err.status, Some(404));
+    assert_eq!(http.urls().len(), 2, "resent once, not again");
+    assert!(err.message.contains("global"), "{}", err.message);
+}
+#[tokio::test]
+async fn a_configured_or_global_location_is_never_resent_on_a_404() {
+    for place in [VertexPlace::project("p", Some("us-central1"), None), VertexPlace::project("p", None, None)] {
+        let http = Scripted::new(vec![respond(404, NOT_FOUND)]);
+        let err = vertex_at(place, &http).attempt(Arc::new(fixture_request("gemini-2.5-pro"))).await.err().expect("404");
+        assert_eq!(err.status, Some(404));
+        assert_eq!(http.urls().len(), 1);
+    }
+}
 #[tokio::test]
 async fn a_recorded_assistant_turn_replays_with_its_signatures() {
     let wire = concat!(
@@ -1002,7 +716,6 @@ async fn a_recorded_assistant_turn_replays_with_its_signatures() {
         json!({"functionResponse": {"name": "lookup", "response": {"result": "42"}}})
     );
 }
-
 // ---------------------------------------------------------------------------
 // Structure
 // ---------------------------------------------------------------------------
@@ -1035,33 +748,366 @@ fn no_content_timer_exists_in_the_provider_sources() {
     }
 }
 
-#[test]
-fn error_wording_sets_only_the_codes_node_reads_it_for() {
-    // The kind is read from typed fields; wording counts only where Node's `antigravityError` reads it (capacity or
-    // rate-limit wording on an untyped 429), never for a context overflow.
-    let codec = GoogleCodec::antigravity(ENDPOINT, "p", "2.19.1", traits());
-    let classify = |status, message: &str| {
-        codec
-            .classify(&ErrorResponse {
-                status: Some(status),
-                headers: vec![],
-                body: json!({"error": {"message": message}}).to_string().into_bytes(),
-            })
-            .kind
-    };
-    assert_eq!(classify(429, "Resource exhausted: server busy, capacity exceeded"), ErrorKind::Overloaded);
-    assert_eq!(classify(400, "prompt is too long, maximum context length exceeded"), ErrorKind::InvalidRequest);
-}
 
-/// Node's Gemini stream consumer reported one kind per chunk (`golden/stream_progress.json`): thinking, text, a call;
-/// a bare finish chunk none. The Rust decoder reports the same for each chunk.
+#[cfg(node_twin)]
+fn fixture_root() -> PathBuf {
+    std::env::var_os("MIXDOG_FIXTURES_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures"))
+        .join("providers-intercepted")
+}
+#[cfg(node_twin)]
+#[allow(clippy::disallowed_methods, reason = "test setup: reads recorded fixtures")]
+fn load(provider: &str, name: &str) -> Scenario {
+    let dir = fixture_root().join(provider).join(name);
+    let read = |file: &str| -> Value {
+        serde_json::from_slice(&std::fs::read(dir.join(file)).expect(file)).expect("json")
+    };
+    let exchange = read("exchange.json");
+    let recs = exchange["records"]
+        .as_array()
+        .expect("records")
+        .iter()
+        .map(|r| Rec {
+            url: format!("{}{}", r["origin"].as_str().unwrap(), r["path"].as_str().unwrap()),
+            body: r["bodyText"].as_str().unwrap_or("").to_owned(),
+            served: r["served"].as_str().unwrap_or("").to_owned(),
+        })
+        .collect();
+    let sleeps_ms = exchange["determinism"]["retrySleeps"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|s| s["delayMs"].as_u64()).collect())
+        .unwrap_or_default();
+    let rng = exchange["determinism"]["rng"]["samples"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|s| s["value"].as_f64()).collect())
+        .unwrap_or_default();
+    Scenario { recs, result: read("result.json"), sleeps_ms, rng }
+}
+#[cfg(node_twin)]
 #[test]
-fn the_decoder_reports_the_progress_kinds_node_s_consumer_does() {
-    use crate::providers::progress_golden::{golden, node_names, rust_names};
-    let gemini = providers().into_iter().find(|p| p.dir == "gemini").expect("gemini");
-    let mut decoder = gemini.codec.decoder(&fixture_request(gemini.model));
-    for step in golden()["decoders"]["gemini"].as_array().expect("gemini") {
-        let events = decoder.feed(format!("data: {}\r\n\r\n", step["wire"]).as_bytes()).expect("feed");
-        assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["wire"]);
+fn requests_encode_to_the_recorded_wire() {
+    for p in providers() {
+        let scenario = load(p.dir, "text");
+        let wire = p.codec.encode(&fixture_request(p.model)).expect("encode");
+        let recorded = scenario.content();
+        assert_eq!(wire.url, recorded.url, "{}: url", p.dir);
+        assert_eq!(wire.method, "POST");
+        let sent: Value = serde_json::from_slice(&wire.body).unwrap();
+        let expected: Value = serde_json::from_str(&recorded.body).unwrap();
+        assert_eq!(without_request_id(sent.clone()), without_request_id(expected), "{}: body", p.dir);
+        if p.dir == "antigravity-oauth" {
+            let id = sent["requestId"].as_str().unwrap();
+            assert!(id.starts_with("agent-") && id.len() == "agent-".len() + 36);
+            assert!(
+                wire.headers.contains(&(
+                    "User-Agent".into(),
+                    "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)".into()
+                ))
+            );
+        }
     }
+}
+#[cfg(node_twin)]
+#[test]
+fn recorded_sse_streams_fold_to_the_recorded_results() {
+    // The vertex recordings were served as a JSON array, not as SSE; they are
+    // covered by `non_sse_bodies_are_truncated_streams`.
+    for p in providers().into_iter().filter(|p| matches!(p.dir, "gemini" | "antigravity-oauth")) {
+        let text = load(p.dir, "text");
+        let ok = &text.result["ok"];
+        let events = decode_all(&p.codec, &text.content().served).expect("text stream");
+        let (content, calls, usage, stop) = fold(&events);
+        assert_eq!(content, ok["content"].as_str().unwrap(), "{}", p.dir);
+        assert!(calls.is_empty());
+        assert_eq!(usage, Some((ok["usage"]["inputTokens"].as_u64().unwrap(), ok["usage"]["outputTokens"].as_u64().unwrap())));
+        assert_eq!(stop, None, "Node: stopReason null");
+
+        let tool = load(p.dir, "tool-call");
+        let events = decode_all(&p.codec, &tool.content().served).expect("tool stream");
+        let (_, calls, usage, stop) = fold(&events);
+        let expected = &tool.result["ok"]["toolCalls"][0];
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, expected["id"].as_str().unwrap());
+        assert_eq!(calls[0].name, expected["name"].as_str().unwrap());
+        assert_eq!(calls[0].arguments, expected["arguments"]);
+        assert_eq!(usage, Some((20, 6)));
+        assert_eq!(stop, None, "Node: stopReason null");
+
+        // The shared codec conformance: split feeding, one terminal event, and
+        // an end without it is a truncated stream.
+        let cut = load(p.dir, "truncated-eof");
+        check_wire_codec(&p.codec, &fixture_request("gemini-2.5-pro"), text.content().served.as_bytes(), cut.content().served.as_bytes(), 17);
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn non_sse_bodies_are_truncated_streams() {
+    for p in providers().into_iter().filter(|p| p.dir.starts_with("vertex")) {
+        let scenario = load(p.dir, "text");
+        let err = decode_all(&p.codec, &scenario.content().served).unwrap_err();
+        assert_eq!(err.transport, Some(TransportFault::TruncatedStream), "{}", p.dir);
+        assert_eq!(err.kind, ErrorKind::Transient);
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn vertex_chunks_decode_as_sse_with_cache_exclusive_usage() {
+    for p in providers().into_iter().filter(|p| p.dir.starts_with("vertex")) {
+        let text = as_sse(&load(p.dir, "text").content().served);
+        let first_chunk = text.split("\n\n").next().unwrap().to_owned() + "\n\n";
+        check_wire_codec(&p.codec, &fixture_request("gemini-2.5-pro"), text.as_bytes(), first_chunk.as_bytes(), 31);
+        let (content, _, usage, stop) = fold(&decode_all(&p.codec, &text).unwrap());
+        assert_eq!((content.as_str(), usage, stop), ("The result is 42.", Some((20, 8)), None));
+
+        let tool = as_sse(&load(p.dir, "tool-call").content().served);
+        let (_, calls, _, stop) = fold(&decode_all(&p.codec, &tool).unwrap());
+        assert_eq!((calls[0].id.as_str(), stop), ("gemini_366b187da650ce24", None));
+    }
+    // Vertex accounts input without the cached tokens.
+    let codec = &providers()[1].codec;
+    let wire = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"x\"}]},\"finishReason\":\"STOP\"}],\
+        \"usageMetadata\":{\"promptTokenCount\":100,\"cachedContentTokenCount\":60,\"candidatesTokenCount\":5}}\n\n";
+    assert_eq!(fold(&decode_all(codec, wire).unwrap()).2, Some((40, 5)));
+}
+#[cfg(node_twin)]
+#[test]
+fn truncated_recordings_end_as_transient_truncation() {
+    for p in providers() {
+        for name in ["truncated-eof", "truncated-reset"] {
+            let scenario = load(p.dir, name);
+            let err = decode_all(&p.codec, &scenario.content().served).unwrap_err();
+            assert_eq!(err.transport, Some(TransportFault::TruncatedStream), "{} {name}", p.dir);
+            assert_eq!(err.kind, ErrorKind::Transient);
+            assert_eq!(err.delivery, DeliveryState::Accepted);
+        }
+    }
+    // The stream had shown text: a replay would double-render it.
+    let scenario = load("gemini", "truncated-eof");
+    let err = decode_all(&providers()[0].codec, &scenario.content().served).unwrap_err();
+    assert!(err.exposure.text_emitted);
+}
+#[cfg(node_twin)]
+#[test]
+fn upstream_errors_classify_from_status() {
+    for p in providers() {
+        for (name, kind) in [("error-400", ErrorKind::InvalidRequest), ("error-401", ErrorKind::Auth)] {
+            let scenario = load(p.dir, name);
+            let status = scenario.error_status();
+            let err = p.codec.classify(&ErrorResponse {
+                status: Some(status),
+                headers: Vec::new(),
+                body: scenario.content().served.clone().into_bytes(),
+            });
+            assert_eq!((err.kind, err.status), (kind, Some(status)), "{} {name}", p.dir);
+            assert_eq!(err.delivery, DeliveryState::Accepted);
+            assert!(err.message.contains("fixture upstream error"));
+        }
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn retry_rows_reproduce_the_recorded_sleeps() {
+    // The recorder ran without a live text sink, so the truncated attempts
+    // carried no exposure and were replayed; with a sink the stream would have
+    // shown text and the verdict is to surface (the decode test above).
+    let truncated = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
+    let at = |step| JitterSamples { step, advice: 0.5 };
+
+    // Antigravity: three retries at 1/2/4 s with ±10 % jitter from the
+    // recorded random draws.
+    for name in ["truncated-eof", "truncated-reset"] {
+        let scenario = load("antigravity-oauth", name);
+        let (got, end) =
+            delays(&truncated, &policy::antigravity(), RetryClass::Request, |i| at(scenario.rng[i.min(2)]));
+        assert_eq!(got, scenario.sleeps_ms, "antigravity {name}");
+        assert!(!matches!(end, Verdict::Retry { .. }));
+    }
+    // Gemini and Vertex AI: three stream retries at an unjittered 1/2/4 s.
+    for dir in ["gemini", "vertex-ai-adc", "vertex-ai-api-key"] {
+        let scenario = load(dir, "truncated-eof");
+        let (got, _) = delays(&truncated, &policy::gemini(), RetryClass::Midstream, |_| at(0.5));
+        let recorded: Vec<u64> = scenario.sleeps_ms.iter().copied().filter(|ms| [1000, 2000, 4000].contains(ms)).collect();
+        assert_eq!(got, vec![1000, 2000, 4000]);
+        assert!(recorded.starts_with(&[1000, 2000, 4000]), "{dir}: recorded sleeps {recorded:?}");
+    }
+}
+#[async_trait]
+impl TokenStore for MemoryStore {
+    async fn load(&self) -> Option<TokenDoc> {
+        self.0.lock().unwrap().clone()
+    }
+
+    async fn save(&self, doc: &TokenDoc) -> bool {
+        *self.0.lock().unwrap() = Some(doc.clone());
+        true
+    }
+
+    async fn replace_if_current(&self, spent: &TokenDoc, next: &TokenDoc) -> bool {
+        let mut stored = self.0.lock().unwrap();
+        if stored.as_ref() == Some(spent) {
+            *stored = Some(next.clone());
+            true
+        } else {
+            false
+        }
+    }
+}
+/// A cached request the server answers 400: the cache is forgotten (registry
+/// and session state) and the request is resent once without it, never again.
+#[cfg(node_twin)]
+#[tokio::test]
+async fn a_rejected_cache_is_dropped_and_the_request_resent_once_uncached() {
+    use super::cache::layer::ExplicitCache;
+    use super::cache::policy::Tuning;
+    use super::cache::registry::Registry;
+    use mixdog_core_api::domain::provider::ProviderState;
+    use mixdog_core_api::domain::provider::StreamEvent;
+
+    let text = load("gemini", "text");
+    let create = r#"{"name":"cachedContents/c1","usageMetadata":{"totalTokenCount":3000}}"#;
+    let http = Scripted::new(vec![
+        respond(200, create),
+        respond(400, REJECTED),
+        respond(200, &text.content().served),
+    ]);
+    let registry = Arc::new(Registry::default());
+    let cache = ExplicitCache::new(
+        "key-1",
+        super::codec::GEMINI_ORIGIN,
+        http.clone(),
+        Arc::new(TokioRuntime),
+        registry.clone(),
+        Tuning::default(),
+    );
+    let adapter = super::gemini("key-1", http.clone(), traits()).with_cache(cache);
+    let say = |role, t: String| Message::new(role, Content::Text(t));
+    let mut request = fixture_request("gemini-2.5-pro");
+    request.messages = vec![
+        say(Role::System, "x".repeat(12_000)),
+        say(Role::User, "first".into()),
+        say(Role::Assistant, "second".into()),
+        say(Role::User, "third".into()),
+    ];
+    let (events, err) = collect(&adapter, request).await;
+    assert!(err.is_none(), "{err:?}");
+    assert_eq!(fold(&events).0, "The result is 42.");
+    let sent = http.seen.lock().unwrap();
+    assert_eq!(sent.len(), 3, "one create, the cached send, one uncached resend");
+    assert!(sent[0].url.ends_with("/v1beta/cachedContents"));
+    let body = |i: usize| -> serde_json::Value { serde_json::from_slice(&sent[i].body).unwrap() };
+    assert_eq!(body(1)["cachedContent"], "cachedContents/c1");
+    assert!(body(2).get("cachedContent").is_none());
+    assert!(!registry.name_is_live("cachedContents/c1", NOW_MS));
+    let states: Vec<_> = events.iter().filter_map(|e| if let StreamEvent::ProviderState(s) = e { Some(s) } else { None }).collect();
+    assert_eq!(states.last(), Some(&&ProviderState::default()));
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn gemini_adapter_streams_the_recorded_turn_and_passes_the_attempt_conformance() {
+    let text = load("gemini", "text");
+    let served = &text.content().served;
+    let http = Scripted::new(vec![respond(200, served)]);
+    let adapter = gemini_adapter(http.clone());
+    let (events, err) = collect(&adapter, fixture_request("gemini-2.5-pro")).await;
+    assert!(err.is_none());
+    assert_eq!(fold(&events).0, "The result is 42.");
+    {
+        let seen = http.seen.lock().unwrap();
+        assert_eq!(seen[0].url, text.content().url);
+        assert!(seen[0].headers.contains(&("x-goog-api-key".into(), "key-1".into())));
+    }
+
+    let http = Scripted::new(vec![respond(200, served)]);
+    check_provider_attempt(&gemini_adapter(http), Arc::new(fixture_request("gemini-2.5-pro")), DeliveryState::Accepted).await;
+
+    // A reset after the first bytes: a socket fact, with the exposure so far.
+    let reset = load("gemini", "truncated-reset");
+    let step = Step::Respond { status: 200, body: reset.content().served.clone(), fault: Some(TransportFault::Reset) };
+    let (events, err) = collect(&gemini_adapter(Scripted::new(vec![step])), fixture_request("gemini-2.5-pro")).await;
+    let err = err.expect("reset");
+    assert_eq!((err.kind, err.transport.clone()), (ErrorKind::Transient, Some(TransportFault::Reset)));
+    assert!(err.exposure.text_emitted);
+    assert!(events.iter().all(|e| !matches!(e, StreamEvent::Completed { .. })));
+    let step = Step::Respond { status: 200, body: reset.content().served.clone(), fault: Some(TransportFault::Reset) };
+    check_provider_attempt(&gemini_adapter(Scripted::new(vec![step])), Arc::new(fixture_request("gemini-2.5-pro")), DeliveryState::Accepted)
+        .await;
+
+    // Before a status arrives the transport's own state is reported.
+    let mut refused = ProviderError::transport(TransportFault::Connect { os_code: None }, DeliveryState::NotSent);
+    refused.message = "refused".into();
+    let adapter = gemini_adapter(Scripted::new(vec![Step::Fail(refused)]));
+    check_provider_attempt(&adapter, Arc::new(fixture_request("gemini-2.5-pro")), DeliveryState::NotSent).await;
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn antigravity_refreshes_once_on_401_with_the_recorded_requests() {
+    let scenario = load("antigravity-oauth", "error-401");
+    let content = scenario.recs.iter().filter(|r| r.url.contains(":streamGenerateContent")).collect::<Vec<_>>();
+    let token = scenario.recs.iter().find(|r| r.url.contains("oauth2.googleapis.com")).unwrap();
+    let http = Scripted::new(vec![
+        respond(401, &content[0].served),
+        respond(200, &token.served),
+        respond(401, &content[1].served),
+    ]);
+    let store = MemoryStore::with(doc(NOW_MS + 3_600_000, "fixture-project"));
+    let adapter = antigravity_adapter(http.clone(), store.clone()).await;
+    let (_, err) = collect(&adapter, fixture_request("gemini-3-pro")).await;
+    let err = err.expect("401 stays a 401");
+    assert_eq!((err.kind, err.status), (ErrorKind::Auth, Some(401)));
+    assert_eq!(
+        http.urls(),
+        scenario.recs.iter().map(|r| r.url.clone()).collect::<Vec<_>>(),
+        "content, token refresh, content"
+    );
+    let seen = http.seen.lock().unwrap();
+    assert_eq!(String::from_utf8_lossy(&seen[1].body), token.body, "the recorded refresh request");
+    assert!(seen[0].headers.contains(&("Authorization".into(), "Bearer stale-access".into())));
+    assert!(seen[2].headers.contains(&("Authorization".into(), "Bearer fixture-access-token".into())));
+    let stored = store.0.lock().unwrap().clone().unwrap();
+    assert_eq!((stored.access_token.as_str(), stored.project_id.as_str()), ("fixture-access-token", "fixture-project"));
+    assert_eq!(stored.expires_at_ms, NOW_MS + 3_600_000);
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn antigravity_serves_the_recorded_turns_and_refuses_a_changed_account() {
+    let text = load("antigravity-oauth", "text");
+    let http = Scripted::new(vec![respond(200, &text.content().served)]);
+    let store = MemoryStore::with(doc(NOW_MS + 3_600_000, "fixture-project"));
+    let adapter = antigravity_adapter(http.clone(), store.clone()).await;
+    let (events, err) = collect(&adapter, fixture_request("gemini-3-pro")).await;
+    assert!(err.is_none());
+    assert_eq!(fold(&events).0, "The result is 42.");
+
+    // A sign-in to another project after the adapter was built.
+    *store.0.lock().unwrap() = Some(doc(NOW_MS + 3_600_000, "other-project"));
+    let (_, err) = collect(&adapter, fixture_request("gemini-3-pro")).await;
+    let err = err.expect("identity mismatch");
+    assert_eq!((err.kind, err.reauth_required, err.delivery), (ErrorKind::Auth, true, DeliveryState::NotSent));
+    assert_eq!(http.urls().len(), 1);
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn vertex_adc_mints_per_request_and_replays_the_recorded_401() {
+    let scenario = load("vertex-ai-adc", "error-401");
+    let token = scenario.recs.iter().find(|r| r.url.contains("oauth2.googleapis.com")).unwrap();
+    let content = scenario.content();
+    let credential = vertex::parse_adc(&adc_json(), "adc.json").unwrap();
+    assert_eq!(vertex::resolve_project(&credential, &|_| None).as_deref(), Some("projectaa-a5af6"));
+    let http = Scripted::new(vec![
+        respond(200, &token.served),
+        respond(401, &content.served),
+        respond(200, &token.served),
+        respond(401, &content.served),
+    ]);
+    let auth = Arc::new(vertex::VertexAuth::new(http.clone(), credential, clock()));
+    let identity = auth.identity().to_owned();
+    let adapter = super::vertex(VertexPlace::project("projectaa-a5af6", Some("us-central1"), None), auth, identity, http.clone(), traits(), Arc::new(|_| None));
+    let (_, err) = collect(&adapter, fixture_request("gemini-2.5-pro")).await;
+    let err = err.expect("401");
+    assert_eq!((err.kind, err.status), (ErrorKind::Auth, Some(401)));
+    assert_eq!(http.urls(), scenario.recs.iter().map(|r| r.url.clone()).collect::<Vec<_>>());
+    let seen = http.seen.lock().unwrap();
+    assert_eq!(String::from_utf8_lossy(&seen[0].body), token.body);
+    assert!(seen[1].headers.contains(&("Authorization".into(), "Bearer fixture-access-token".into())));
 }

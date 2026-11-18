@@ -1,5 +1,4 @@
-// Outlives the import dialog: remembers the latest finished import job until the
-// user dismisses it, and registers the projects a finished import brought in.
+// Outlives the dialog: keeps each finished import until dismissed, newest first on reopen.
 import type { DesktopApi } from '../shared/contract';
 import { isConversationImportJobActive, type ConversationImportJob } from '../shared/contract-import';
 import { IMPORT_CATALOGS_CHANGED_EVENT } from './import-conversation-events';
@@ -8,8 +7,9 @@ import { isKnownProject } from './settings/import-conversations-model';
 type StoreApi = Partial<Pick<DesktopApi, 'subscribeConversationImportProgress' | 'listProjects' | 'addProject'>>;
 
 function createImportJobStore(getApi: () => StoreApi | undefined) {
-  let finished: ConversationImportJob | null = null;
+  const finished = new Map<string, ConversationImportJob>();
   const handled = new Set<string>();
+  const acknowledged = new Set<string>();
   const listeners = new Set<() => void>();
   let unsubscribe: (() => void) | undefined;
   const emit = () => {
@@ -38,9 +38,13 @@ function createImportJobStore(getApi: () => StoreApi | undefined) {
 
   function observe(api: StoreApi, job: ConversationImportJob) {
     if (isConversationImportJobActive(job)) return;
-    if (finished?.jobId === job.jobId && finished.seq > job.seq) return;
-    finished = job;
-    emit();
+    const previous = finished.get(job.jobId);
+    if (previous && previous.seq >= job.seq) return;
+    if (!acknowledged.has(job.jobId)) {
+      finished.delete(job.jobId);
+      finished.set(job.jobId, job);
+      emit();
+    }
     if (handled.has(job.jobId)) return;
     handled.add(job.jobId);
     void registerProjects(api, job);
@@ -53,12 +57,13 @@ function createImportJobStore(getApi: () => StoreApi | undefined) {
       if (unsubscribe || !api?.subscribeConversationImportProgress) return;
       unsubscribe = api.subscribeConversationImportProgress((job) => observe(api, job));
     },
-    get: () => finished,
-    /** Drops the finished job (if it is that one) once the user has seen it. */
+    observe,
+    get: () => Array.from(finished.values()).pop() ?? null,
+    /** Drops only the outcome the user has seen. */
     acknowledge(jobId: string) {
-      if (finished?.jobId !== jobId) return;
-      finished = null;
-      emit();
+      // The start response or a reread may have delivered the outcome before the app feed.
+      acknowledged.add(jobId);
+      if (finished.delete(jobId)) emit();
     },
     subscribe(listener: () => void) {
       listeners.add(listener);
@@ -67,8 +72,9 @@ function createImportJobStore(getApi: () => StoreApi | undefined) {
     dispose() {
       unsubscribe?.();
       unsubscribe = undefined;
-      finished = null;
+      finished.clear();
       handled.clear();
+      acknowledged.clear();
     },
   };
 }

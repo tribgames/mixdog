@@ -55,11 +55,6 @@ impl Platform {
 /// wherever Node tested it for truthiness; [`env_set`] and [`env_value`] say that.
 pub type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 
-/// The environment of this process.
-pub fn process_env(name: &str) -> Option<String> {
-    std::env::var_os(name).map(|value| value.to_string_lossy().into_owned())
-}
-
 /// `Boolean(process.env[name])`.
 pub fn env_set(env: Env<'_>, name: &str) -> bool {
     env(name).is_some_and(|value| !value.is_empty())
@@ -272,16 +267,6 @@ pub fn is_wsl(platform: Platform, env: Env<'_>, proc_version: &dyn Fn() -> Optio
     })
 }
 
-/// [`is_wsl`] of this machine, settled once.
-pub fn is_wsl_host() -> bool {
-    static WSL: OnceLock<bool> = OnceLock::new();
-    *WSL.get_or_init(|| {
-        is_wsl(Platform::current(), &process_env, &|| {
-            mixdog_fsio::read_to_string(&Unlaned, "/proc/version").ok()
-        })
-    })
-}
-
 // ---- the browser opener --------------------------------------------------------------------------------------------------
 
 /// Whether a browser can plausibly open here: not inside an SSH session, and on Linux outside WSL a `DISPLAY` or
@@ -337,11 +322,6 @@ pub fn open_in_browser_with(runner: &dyn Runner, platform: Platform, env: Env<'_
             return;
         }
     }
-}
-
-/// [`open_in_browser_with`] on this machine.
-pub fn open_in_browser(url: &str) {
-    open_in_browser_with(&SystemRunner, Platform::current(), &process_env, is_wsl_host(), url);
 }
 
 // ---- the folder picker ---------------------------------------------------------------------------------------------------
@@ -403,29 +383,6 @@ fn dialog_command(program: &str, args: &[&str]) -> HelperCommand {
     HelperCommand { capture_stdout: true, timeout: Some(DIALOG_TIMEOUT), ..HelperCommand::new(program, args) }
 }
 
-/// Whether `name` is an executable file in a directory of `PATH` (`which`), best effort.
-pub fn command_exists(name: &str) -> bool {
-    let Some(path) = std::env::var_os("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&path).any(|dir| {
-        let Ok(metadata) = mixdog_fsio::metadata(&Unlaned, dir.join(name)) else {
-            return false;
-        };
-        if !metadata.is_file() {
-            return false;
-        }
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::PermissionsExt::mode(&metadata.permissions()) & 0o111 != 0
-        }
-        #[cfg(not(unix))]
-        {
-            true
-        }
-    })
-}
-
 /// The picker of macOS and of Linux and the other Unixes: `osascript choose folder`, else `zenity` before `kdialog`. A
 /// helper that could not run (started badly, timed out) means no dialog, so the caller types; any other exit without a
 /// path is a cancel.
@@ -461,35 +418,6 @@ pub fn pick_folder_unix(
     FolderPick::chosen(trimmed_path(&outcome))
 }
 
-/// Open the native folder picker and wait for the answer.
-#[cfg(not(windows))]
-pub fn pick_folder(options: &FolderPickOptions) -> FolderPick {
-    pick_folder_unix(&SystemRunner, Platform::current(), options, &command_exists)
-}
-
-/// Open the native folder picker and wait for the answer: the Common Item Dialog on its own apartment thread, owned by
-/// an invisible topmost window placed at the centre of the console (or the foreground window, or the work area), so it is
-/// modal, centred and not left on another monitor.
-#[cfg(windows)]
-pub fn pick_folder(options: &FolderPickOptions) -> FolderPick {
-    let title = options
-        .title
-        .clone()
-        .filter(|title| !title.is_empty())
-        .unwrap_or_else(|| DEFAULT_FOLDER_TITLE.to_owned());
-    let initial = windows_dialog::initial_folder(&options.initial_path);
-    match thread::Builder::new()
-        .name("mixdog-folder-dialog".to_owned())
-        .spawn(move || windows_dialog::pick(&title, &initial))
-        .map(thread::JoinHandle::join)
-    {
-        Ok(Ok(Ok(selected))) => FolderPick::chosen(selected),
-        // The dialog could not be created or shown (the script of Node would have failed without printing a path), or
-        // its thread could not be started.
-        _ => FolderPick::unavailable(),
-    }
-}
-
 #[cfg(windows)]
 mod windows_dialog {
     use std::ffi::c_void;
@@ -515,17 +443,6 @@ mod windows_dialog {
 
     /// `HRESULT_FROM_WIN32(ERROR_CANCELLED)`: the user closed the dialog.
     const CANCELLED: HRESULT = HRESULT(0x8007_04C7_u32 as i32);
-
-    /// The absolute folder the dialog opens in: the given path, else the current directory, made absolute (best effort).
-    pub fn initial_folder(initial_path: &str) -> String {
-        let trimmed = mixdog_js::js_trim(initial_path);
-        let base = if trimmed.is_empty() {
-            std::env::current_dir().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default()
-        } else {
-            trimmed.to_owned()
-        };
-        std::path::absolute(&base).map(|path| path.to_string_lossy().into_owned()).unwrap_or(base)
-    }
 
     /// The centre of the console window, else of the foreground window, else of the primary work area.
     fn owner_center() -> (i32, i32) {
@@ -630,6 +547,18 @@ mod windows_dialog {
         unsafe { CoTaskMemFree(Some(name.0 as *const c_void)) };
         let path = mixdog_js::js_trim(&path);
         Ok((!path.is_empty()).then(|| path.to_owned()))
+    }
+
+
+    /// The absolute folder the dialog opens in: the given path, else the current directory, made absolute (best effort).
+    pub fn initial_folder(initial_path: &str) -> String {
+        let trimmed = mixdog_js::js_trim(initial_path);
+        let base = if trimmed.is_empty() {
+            std::env::current_dir().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default()
+        } else {
+            trimmed.to_owned()
+        };
+        std::path::absolute(&base).map(|path| path.to_string_lossy().into_owned()).unwrap_or(base)
     }
 }
 
@@ -807,5 +736,73 @@ mod tests {
         assert!(Outcome::NotFound.not_found());
         assert_eq!(exited(0, "ab").stdout(), b"ab");
         assert_eq!(Outcome::Overflow.stdout(), b"");
+    }
+}
+
+
+/// The environment of this process.
+pub fn process_env(name: &str) -> Option<String> {
+    std::env::var_os(name).map(|value| value.to_string_lossy().into_owned())
+}
+/// [`is_wsl`] of this machine, settled once.
+pub fn is_wsl_host() -> bool {
+    static WSL: OnceLock<bool> = OnceLock::new();
+    *WSL.get_or_init(|| {
+        is_wsl(Platform::current(), &process_env, &|| {
+            mixdog_fsio::read_to_string(&Unlaned, "/proc/version").ok()
+        })
+    })
+}
+/// [`open_in_browser_with`] on this machine.
+pub fn open_in_browser(url: &str) {
+    open_in_browser_with(&SystemRunner, Platform::current(), &process_env, is_wsl_host(), url);
+}
+/// Whether `name` is an executable file in a directory of `PATH` (`which`), best effort.
+pub fn command_exists(name: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path).any(|dir| {
+        let Ok(metadata) = mixdog_fsio::metadata(&Unlaned, dir.join(name)) else {
+            return false;
+        };
+        if !metadata.is_file() {
+            return false;
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::PermissionsExt::mode(&metadata.permissions()) & 0o111 != 0
+        }
+        #[cfg(not(unix))]
+        {
+            true
+        }
+    })
+}
+/// Open the native folder picker and wait for the answer.
+#[cfg(not(windows))]
+pub fn pick_folder(options: &FolderPickOptions) -> FolderPick {
+    pick_folder_unix(&SystemRunner, Platform::current(), options, &command_exists)
+}
+/// Open the native folder picker and wait for the answer: the Common Item Dialog on its own apartment thread, owned by
+/// an invisible topmost window placed at the centre of the console (or the foreground window, or the work area), so it is
+/// modal, centred and not left on another monitor.
+#[cfg(windows)]
+pub fn pick_folder(options: &FolderPickOptions) -> FolderPick {
+    let title = options
+        .title
+        .clone()
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| DEFAULT_FOLDER_TITLE.to_owned());
+    let initial = windows_dialog::initial_folder(&options.initial_path);
+    match thread::Builder::new()
+        .name("mixdog-folder-dialog".to_owned())
+        .spawn(move || windows_dialog::pick(&title, &initial))
+        .map(thread::JoinHandle::join)
+    {
+        Ok(Ok(Ok(selected))) => FolderPick::chosen(selected),
+        // The dialog could not be created or shown (the script of Node would have failed without printing a path), or
+        // its thread could not be started.
+        _ => FolderPick::unavailable(),
     }
 }

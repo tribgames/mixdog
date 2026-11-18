@@ -95,30 +95,12 @@ pub struct TextRegion<'a> {
     pub r_at: [i8; 4],
 }
 
-/// How far the decoded size change moves the reference (T.88 6.4.11: half of it, as floor(RDW / 2)): the arithmetic
-/// coded decoder shifts the change by 1, the Huffman coded one by 2.
-#[derive(Debug, Clone, Copy)]
-enum ReferenceShift {
-    Arithmetic,
-    Huffman,
-}
-
-impl ReferenceShift {
-    fn apply(self, delta: i32) -> i32 {
-        match self {
-            ReferenceShift::Arithmetic => delta >> 1,
-            ReferenceShift::Huffman => delta >> 2,
-        }
-    }
-}
-
 /// The part of a region the refinement of a symbol (T.88 6.4.11) gives: its bitmap, or none at all.
 fn refined_symbol(
     original: &Symbol,
     r_template: u8,
     r_at: [i8; 4],
     deltas: [i32; 4],
-    shift: ReferenceShift,
     decoder: &mut ArithDecoder,
     cx: &mut [ArithCx],
 ) -> Result<Option<Symbol>, Failure> {
@@ -146,8 +128,9 @@ fn refined_symbol(
         template: r_template,
         tpgron: false,
         reference,
-        dx: shift.apply(rdw).wrapping_add(rdx),
-        dy: shift.apply(rdh).wrapping_add(rdy),
+        // T.88 6.4.11: the reference moves by half the change of size, rounded down, plus the offset coded.
+        dx: (rdw >> 1).wrapping_add(rdx),
+        dy: (rdh >> 1).wrapping_add(rdy),
         at: r_at,
     };
     Ok(region.decode(decoder, cx).map(Symbol::Bitmap))
@@ -251,7 +234,6 @@ impl TextRegion<'_> {
                         self.r_template,
                         self.r_at,
                         deltas,
-                        ReferenceShift::Arithmetic,
                         decoder,
                         gr_cx,
                     ) {
@@ -330,7 +312,6 @@ impl TextRegion<'_> {
                         self.r_template,
                         self.r_at,
                         [rdw, rdh, rdx, rdy],
-                        ReferenceShift::Huffman,
                         &mut decoder,
                         gr_cx,
                     )

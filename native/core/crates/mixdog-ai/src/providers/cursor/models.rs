@@ -351,25 +351,95 @@ pub fn decode_available_models(bytes: &[u8]) -> Result<Vec<CursorModel>, PbError
             }
         }
     }
-    // Auto is always listed, first: a fixed entry when the server lists none
-    // (`withCanonicalAutoModels`), so a saved `auto` route keeps resolving.
-    if !models.iter().any(|m| m.id == "auto") {
-        models.insert(0, CursorModel {
-            id: "auto".to_owned(),
-            name: "Auto".to_owned(),
-            description: String::new(),
-            context_window: DEFAULT_CONTEXT_WINDOW,
-            max_context_window: 0,
-            supports_max_mode: false,
-            supports_non_max_mode: false,
-            supports_vision: false,
-            supports_reasoning: false,
-            definitions: Vec::new(),
-            variants: Vec::new(),
-            aliases: Vec::new(),
-        });
-    }
+    with_auto_first(&mut models);
     Ok(models)
+}
+
+fn plain_model(id: &str, name: &str, context_window: u64, reasoning: bool) -> CursorModel {
+    CursorModel {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        description: String::new(),
+        context_window,
+        max_context_window: 0,
+        supports_max_mode: false,
+        supports_non_max_mode: false,
+        supports_vision: false,
+        supports_reasoning: reasoning,
+        definitions: Vec::new(),
+        variants: Vec::new(),
+        aliases: Vec::new(),
+    }
+}
+
+/// Auto is always listed, first: a fixed entry when the server lists none
+/// (`withCanonicalAutoModels`), so a saved `auto` route keeps resolving.
+fn with_auto_first(models: &mut Vec<CursorModel>) {
+    // An empty catalog stays empty: it is the sign that discovery failed.
+    if !models.is_empty() && !models.iter().any(|m| m.id == "auto") {
+        models.insert(0, plain_model("auto", "Auto", DEFAULT_CONTEXT_WINDOW, false));
+    }
+}
+
+/// Rows of a legacy `GetUsableModelsResponse` (`normalizeModels`): plain rows by id, no windows.
+pub fn decode_usable_models(bytes: &[u8]) -> Result<Vec<CursorModel>, PbError> {
+    let mut models: Vec<CursorModel> = Vec::new();
+    let mut r = Reader::new(bytes);
+    while let Some((n, v)) = r.next_field()? {
+        if n != 1 {
+            continue;
+        }
+        let (mut raw_id, mut thinking) = (String::new(), false);
+        let (mut display_id, mut display, mut short) = (String::new(), String::new(), String::new());
+        let mut aliases: Vec<String> = Vec::new();
+        let mut f = Reader::new(v.bytes());
+        while let Some((k, x)) = f.next_field()? {
+            match k {
+                1 => raw_id = js_trim(&x.text()).to_owned(),
+                2 => thinking = true,
+                3 => display_id = x.text(),
+                4 => display = x.text(),
+                5 => short = x.text(),
+                6 => aliases.push(x.text()),
+                _ => {}
+            }
+        }
+        if raw_id.is_empty() {
+            continue;
+        }
+        let id = canonical_model_id(&raw_id);
+        let name = [display, short, display_id, aliases.into_iter().next().unwrap_or_default()]
+            .into_iter()
+            .find(|s| !s.is_empty())
+            .unwrap_or_else(|| id.clone());
+        let name = if is_auto_model_id(&raw_id) { "Auto".to_owned() } else { name };
+        let row = plain_model(&id, &name, 0, thinking);
+        match models.iter().position(|m| m.id == id) {
+            Some(at) => models[at] = row,
+            None => models.push(row),
+        }
+    }
+    models.sort_by(|a, b| a.id.to_lowercase().cmp(&b.id.to_lowercase()).then_with(|| a.id.cmp(&b.id)));
+    with_auto_first(&mut models);
+    Ok(models)
+}
+
+/// The static list answered when Cursor's catalog could not be read (`FALLBACK_MODELS`); never cached.
+pub fn fallback_models() -> Vec<CursorModel> {
+    let mut models: Vec<CursorModel> = [
+        ("composer-2.5", "Composer 2.5", false, 200_000),
+        ("claude-fable-5-1-high", "Claude Fable 5.1", true, 200_000),
+        ("claude-opus-5-high", "Claude Opus 5", true, 200_000),
+        ("claude-sonnet-5-medium", "Claude Sonnet 5", true, 200_000),
+        ("gpt-5.6-sol-medium", "GPT-5.6 Sol", true, 272_000),
+        ("gemini-3.8-flash-high", "Gemini 3.8 Flash", true, 1_000_000),
+        ("grok-4.6-high", "Grok 4.6", true, 128_000),
+    ]
+    .into_iter()
+    .map(|(id, name, reasoning, window)| plain_model(id, name, window, reasoning))
+    .collect();
+    with_auto_first(&mut models);
+    models
 }
 
 // ---------------------------------------------------------------------------

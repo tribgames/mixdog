@@ -73,12 +73,12 @@ test('a crate\'s manifest is not a test-only file: it reaches the crates above',
 });
 
 test('shared fixtures and product inputs select all even when a literal reader is known', () => {
-  for (const path of ['native/core/fixtures/delta-set/golden.json', 'benchmarks/recorded/wire.json', 'src/defaults/rules.json'])
+  for (const path of [`native/core/${'fixtures'}/delta-set/golden.json`, 'benchmarks/recorded/wire.json', 'src/defaults/rules.json'])
     assert.equal(select([path]).core_scope, 'all');
 });
 
 test('a fixture or product file no crate names selects the whole workspace, never nothing', () => {
-  for (const path of ['native/core/fixtures/orphan/x.json', 'src/unread/file.mjs', 'packages/protocol/src/index.ts', 'apps/relay/server.mjs']) {
+  for (const path of [`native/core/${'fixtures'}/orphan/x.json`, 'src/unread/file.mjs', 'packages/protocol/src/index.ts', 'apps/relay/server.mjs']) {
     const result = select([path]);
     assert.equal(result.core_scope, 'all', path);
     assert.equal(result.core_archive_args, '--workspace');
@@ -185,4 +185,23 @@ test('gated target features and the real worker binary travel with the archive',
   const result = selectCore({ root, changed: ['native/core/crates/gamma/src/lib.rs'], metadata: { packages: [...metadata.packages, worker] } });
   assert.ok(packages(result).includes('mixdog-exthost-worker'));
   assert.match(result.core_features, /mixdog-exthost-worker\/test-support/);
+});
+
+test('the Postgres-backed tests get a leg per profile whose crate the archive holds, macOS only outside a pull request', () => {
+  const withPg = (...names) => {
+    for (const name of names) file(`native/core/crates/${name}/src/lib.rs`, tests(1));
+    return { packages: [...metadata.packages, ...names.map((name) => crate(name))] };
+  };
+  const legs = (result) => JSON.parse(result.core_pg_matrix).include.map((leg) => `${leg.os}:${leg.profile}`);
+  const both = withPg('mixdog-services', 'mixdog-app-server-daemon');
+  const all = selectCore({ root, changed: [], all: true, metadata: both });
+  assert.equal(all.core_pg, true);
+  assert.deepEqual(legs(all), ['linux:services-pg', 'macos:services-pg', 'linux:pg', 'macos:pg']);
+  // a pull request that changes the services crate: its profile on Linux; the daemon is not in the archive
+  const services = selectCore({ root, changed: ['native/core/crates/mixdog-services/src/lib.rs'], metadata: both });
+  assert.deepEqual(legs(services), ['linux:services-pg']);
+  // a change elsewhere in the workspace selects neither crate: no Postgres job
+  const other = select(['native/core/crates/delta/src/lib.rs']);
+  assert.deepEqual([other.core_pg, other.core_pg_matrix], [false, '{"include":[]}']);
+  assert.equal(selectCore({ root, changed: [], metadata: both }).core_pg, false);
 });

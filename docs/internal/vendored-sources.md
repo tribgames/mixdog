@@ -2,7 +2,7 @@
 
 What third-party source, data and licence text is in the tree (or was fetched for it), where it came from, and whether it
 came over the network on 2026-11-15 without the owner's approval. Facts are read from the tree, its provenance files, the
-Cargo registry cache timestamps and the audit of the Codex session (`D:/mixdog-build/mig/results/codex-audit/`). The owner
+Cargo registry cache timestamps and the audit of the Codex session (`<build-root>/mig/results/codex-audit/`). The owner
 decision of 2026-11-15 (downloaded sources approved only for the parts in use) was applied: see "Trim" below; the table
 keeps its original facts and each row says what became of it. Licence texts are in `LICENSES/` (new files marked below).
 
@@ -62,8 +62,7 @@ offline recorder/extractor scripts (`extract-js-date-display.py`, `record-radix.
 data category, collation, currency, units, break iterators, transliteration, converters, normalisation, ...) and the item
 bytes. The extractor reads 1,471 of them: `zone/<locale>.res` (display names) and `zone/pool.res`, the root-level
 `<locale>.res` files (numbering-system defaults) and `pool.res`, `zoneinfo64.res`, `timezoneTypes.res`, `metaZones.res`,
-`numberingSystems.res`, `metadata.res` and `keyTypeData.res`. `reduce-icu-data.py` (beside the extractor in
-`benchmarks/rust-core/recorders/`) copies exactly those items byte for byte into a package of the same layout and compresses
+`numberingSystems.res`, `metadata.res` and `keyTypeData.res`. `reduce-icu-data.py` (beside the extractor, outside the tracked tree) copies exactly those items byte for byte into a package of the same layout and compresses
 it: package 31,896,432 B -> 6,467,360 B, bz2 11,111,695 B -> 1,716,387 B (9,395,308 B less), no download. The selection is
 the extractor's own predicate, checked by running the extractor on the reduced file in a scratch tree: it produced
 `icu77-date-names.json.gz` and `icu77-locale.json` with the same sha256 as the files in the tree, so the build and every test
@@ -78,11 +77,11 @@ Nothing in use was removed if these pass unchanged:
 - `cargo build -p mixdog-js -p mixdog-migrate` (the vendored `icu_collator` still loads)
 - `cargo nextest run -p mixdog-xlsx-formula` and `cargo nextest run -p mixdog-fonts` (the formulajs, jStat, bessel ports and `unicode-script`; none of their files changed)
 - `cargo test --manifest-path native/core/vendor/icu_collator/Cargo.toml` (the vendored crate's own tests, kept)
-- `python -I benchmarks/rust-core/recorders/extract-js-date-display.py` in a copy of the tree reproduces the two embedded data files (sha256 above)
+- The extractor and reducer scripts are not part of the tracked tree, so the tree alone cannot re-derive the data. What it can check: the sha256 of `date_string/data/icu77-date-names.json.gz` and `default_locale/data/icu77-locale.json` equal `dataSha256` and `localeDataSha256` in `date_string/data/PROVENANCE.json` (sha256 above), and the `mixdog-js` tests above read those bytes.
 
 ## Inspection files outside the tree
 
-`D:/mixdog-build/mig/results/fonts-phase2-source/`: 33 files, 769,983 bytes, upstream `@napi-rs/canvas` 1.0.11 (tag v1.0.11,
+`<build-root>/mig/results/fonts-phase2-source/`: 33 files, 769,983 bytes, upstream `@napi-rs/canvas` 1.0.11 (tag v1.0.11,
 tree adce718ec8ff82f9e896875752fd621c46b1c04e), Skia 95ee33d7ec7791ab9c071675710a14fe6408ae4f, FreeType, HarfBuzz and ICU files
 and their licences, fetched from GitHub 2026-11-15 09:53 to 10:04 for the fonts phase 2 design (`source-hashes.json` lists them).
 Downloaded without the owner's approval (yes). They are not part of the product and not in the repository; the owner decides

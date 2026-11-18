@@ -50,31 +50,8 @@ test('every file the adapter glob matches yields an adapter, in file-name order'
   }
 });
 
-// Names the shim calls that no adapter claims yet: push, visualize, browser-remote, and `invokeCapability` for a capability outside
-// the worktree and review groups. A call to one rejects with UnclaimedNodeMethodError. Claiming one removes it here.
-const UNCLAIMED_ON_THIS_LINE = [
-  'browserRemoteTabOpen',
-  'pushPublicKey',
-  'registerPushSubscription',
-  'removePushSubscription',
-  'browserRemoteStream',
-  'browserRemoteStreamAck',
-  'browserRemoteControl',
-  'browserReleasePage',
-  'invokeCapability',
-  'visualizeState',
-  'visualizePaneInline',
-  'visualizeCommand',
-  'visualizePanePages',
-  'visualizeExport',
-  'browserRemoteTabs',
-  'browserRemoteTabClose',
-  'browserHistorySearch',
-  'browserCredentialSuggestions',
-  'browserCredentialFill',
-  'browserProfileImportSources',
-  'browserProfileImportStart',
-];
+// Names the shim calls that no adapter claims yet. A call to one rejects with UnclaimedNodeMethodError. Claiming one removes it here.
+const UNCLAIMED_ON_THIS_LINE = [];
 
 test('the router builds over the bundled table, which holds every request name the shim can call', async () => {
   const { createProtocolRouter } = await import('./remote-shim-protocol.ts');

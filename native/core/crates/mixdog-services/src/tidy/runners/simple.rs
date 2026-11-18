@@ -312,12 +312,19 @@ impl Runner for Rustfmt {
         if !r.error.is_empty() {
             return spawn_failure("rustfmt", &r);
         }
-        let parsed = parse_rustfmt_check(&r.stdout, &req.cwd);
+        let mut parsed = parse_rustfmt_check(&r.stdout, &req.cwd);
         if parsed.changed_files.is_empty() && !r.stderr.is_empty() {
             let from_err = parse_rustfmt_check(&r.stderr, &req.cwd);
             if !from_err.changed_files.is_empty() {
-                return from_err;
+                parsed = from_err;
             }
+        }
+        // Exit 1 is "would reformat". Anything else, or exit 1 with no diff to show or with an
+        // `error:` line, means a file was not read, parsed or formatted: it was not checked.
+        let errored = r.stderr.lines().any(|l| l.starts_with("error"));
+        if r.code > 1 || (r.code == 1 && (parsed.changed_files.is_empty() || errored)) {
+            let failed = engine_failure("rustfmt", r.code, &r.stderr);
+            return RunnerResult { diagnostics: parsed.diagnostics, changed_files: parsed.changed_files, ..failed };
         }
         let t = if parsed.changed_files.is_empty() { tail600(&r.stderr) } else { String::new() };
         parsed.with_stderr(t)
@@ -339,6 +346,8 @@ pub fn parse_ruff_json(stdout: &str, cwd: &Path) -> Vec<Diagnostic> {
         .iter()
         .map(|row| {
             let code = row.get("code").and_then(Value::as_str).filter(|c| !c.is_empty()).unwrap_or("ruff");
+            // `ruff check --fix` applies safe fixes only; an unsafe or display-only fix is not one apply makes.
+            let applicability = row.pointer("/fix/applicability").and_then(Value::as_str).unwrap_or("");
             diagnostic(DiagnosticInit {
                 file: &to_rel(cwd, s(row, "filename")),
                 line: number(row.pointer("/location/row")),
@@ -346,7 +355,7 @@ pub fn parse_ruff_json(stdout: &str, cwd: &Path) -> Vec<Diagnostic> {
                 code,
                 message: s(row, "message"),
                 severity: "error",
-                fixable: row.get("fix").is_some_and(|f| !f.is_null()),
+                fixable: applicability == "safe",
             })
         })
         .collect()
@@ -370,6 +379,10 @@ impl Runner for Ruff {
             return spawn_failure("ruff", &lint);
         }
         let format = run_chunked(req, &args_with(req, &["format", "--check"]), &req.files, false).await;
+        // Ruff exits 2 when it could not run (invalid config, unreadable file); 1 is "found something".
+        if lint.code > 1 || format.code > 1 {
+            return engine_failure("ruff", lint.code.max(format.code), &format!("{}\n{}", lint.stderr, format.stderr));
+        }
         RunnerResult {
             diagnostics: parse_ruff_json(&lint.stdout, &req.cwd),
             changed_files: parse_ruff_format_check(&format.stdout, &req.cwd),
@@ -479,6 +492,16 @@ mod tests {
     }
 
     #[test]
+    fn ruff_marks_only_safe_fixes_fixable_because_apply_makes_no_other() {
+        let row = |code: &str, fix: &str| format!(r#"{{"filename":"/r/a.py","code":"{code}","message":"m","location":{{"row":1,"column":1}},"fix":{fix}}}"#);
+        let json = format!("[{},{},{},{}]", row("F401", r#"{"applicability":"safe","edits":[]}"#), row("F841", r#"{"applicability":"unsafe","edits":[]}"#), row("X1", r#"{"applicability":"display_only","edits":[]}"#), row("E501", "null"));
+        let flags: Vec<bool> = parse_ruff_json(&json, cwd()).iter().map(|d| d.fixable).collect();
+        assert_eq!(flags, [true, false, false, false]);
+    }
+
+    struct Replies(crate::tidy::process::ProcessResult);
+
+    #[test]
     fn clang_format_violations_carry_positions_and_severity() {
         let out = parse_clang_format_dry_run("src/a.c:3:5: error: code should be clang-formatted [-Wclang-format-violations]\nsrc/a.c:9:1: warning: x\nbad", cwd());
         assert_eq!(out.changed_files, ["src/a.c"]);
@@ -500,10 +523,30 @@ mod tests {
     fn shellcheck_ruff_and_mago_json_map_to_diagnostics() {
         let sc = parse_shellcheck_json(r#"[{"file":"/r/a.sh","line":3,"column":2,"code":2086,"level":"info","message":"Quote"}]"#, cwd());
         assert_eq!((sc[0].code.as_str(), sc[0].severity.as_str(), sc[0].file.as_str()), ("SC2086", "info", "a.sh"));
-        let ruff = parse_ruff_json(r#"[{"filename":"/r/a.py","code":"F401","message":"unused","location":{"row":1,"column":8},"fix":{"edits":[]}}]"#, cwd());
+        let ruff = parse_ruff_json(r#"[{"filename":"/r/a.py","code":"F401","message":"unused","location":{"row":1,"column":8},"fix":{"applicability":"safe","edits":[]}}]"#, cwd());
         assert_eq!((ruff[0].code.as_str(), ruff[0].line, ruff[0].col, ruff[0].fixable), ("F401", 1, 8, true));
         let mago = parse_mago_lint_json(r#"{"issues":[{"level":"Warning","code":"x","message":"m","annotations":[{"span":{"file_id":{"name":"/r/a.php"},"start":{"line":4}}}],"edits":[1]}]}"#, cwd());
         assert_eq!((mago[0].file.as_str(), mago[0].line, mago[0].severity.as_str(), mago[0].fixable), ("a.php", 5, "warning", true));
         assert!(parse_mago_lint_json("", cwd()).is_empty());
+    }
+
+
+    #[async_trait]
+    impl Spawn for Replies {
+        async fn run(&self, _: &str, _: &[String], _: &Path, _: std::time::Duration, _: Option<&tokio_util::sync::CancellationToken>, _: Option<&std::collections::HashMap<String, String>>, _: Option<Vec<u8>>) -> crate::tidy::process::ProcessResult {
+            self.0.clone()
+        }
+    }
+    #[tokio::test]
+    async fn rustfmt_that_could_not_read_a_file_fails_instead_of_reporting_it_clean() {
+        let reply = |code: i32, stderr: &str| {
+            let spawn = std::sync::Arc::new(Replies(crate::tidy::process::ProcessResult { code, stderr: stderr.into(), ..Default::default() }));
+            RunRequest::new(cwd(), "rustfmt", vec!["bad.rs".into()], spawn, mixdog_rt::testing::tokens().durability_io)
+        };
+        let unreadable = Rustfmt.check(&reply(101, "error: couldn't read `bad.rs`: stream did not contain valid UTF-8")).await;
+        assert!(unreadable.error.as_deref().is_some_and(|e| e.contains("valid UTF-8")) && unreadable.files_checked.is_none());
+        let unparsable = Rustfmt.check(&reply(1, "error: this file contains an unclosed delimiter")).await;
+        assert!(unparsable.error.is_some());
+        assert!(Rustfmt.check(&reply(0, "")).await.error.is_none());
     }
 }

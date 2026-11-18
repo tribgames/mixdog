@@ -16,6 +16,7 @@ import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { customProviderDisplayNames, resolveProviderDisplayName } from './model-catalog';
 import { modelDisplayName } from './provider-display';
+import { usageModelId, usageModelKey, usageTierBadge } from './usage-model-tier';
 import { record, rows } from './record-utils';
 import { useMediaBand } from './use-responsive-shell-bands';
 import { type SidebarReferenceKey, useSidebarReferences } from './sidebar-reference-cache';
@@ -123,17 +124,19 @@ function TokenMix({ totals, loading }: { totals: Row; loading: boolean }) {
   );
 }
 
-/** A model's name; its Fast-mode calls are a row of their own, marked in the app's Fast accent. */
-export function UsageModelName({ model, provider, fast }: { model: string; provider: string; fast: boolean }) {
-  const name = modelDisplayName(model, provider);
-  // The name alone truncates on a phone, so the Fast marker always stays readable.
+type ModelNameProps = { row: Row; provider: string };
+
+export function UsageModelName({ row, provider }: ModelNameProps) {
+  const name = modelDisplayName(usageModelId(row), provider);
+  const badge = usageTierBadge(row);
+  // The name alone truncates on a phone, so the tier marker stays readable.
   return (
     <span className="usage-model-label">
       <span className="usage-model-name">{name}</span>
-      {fast && (
+      {badge && (
         <span className="usage-model-fast">
           {' · '}
-          <span className="model-route-label-fast">{t('Fast')}</span>
+          <span className={badge.className}>{badge.label}</span>
         </span>
       )}
     </span>
@@ -144,12 +147,12 @@ export function UsageModelName({ model, provider, fast }: { model: string; provi
 const PHONE_TABLE_QUERY = '(max-width: 680px)';
 
 /** A model row's name cell. On a phone the name truncates, so a tap (or Enter/Space) unclips it in place. */
-export function ModelNameCell({ model, provider, fast }: { model: string; provider: string; fast: boolean }) {
+export function ModelNameCell({ row, provider }: ModelNameProps) {
   const [expanded, setExpanded] = useState(false);
   const phone = useMediaBand(PHONE_TABLE_QUERY);
-  const name = <UsageModelName model={model} provider={provider} fast={fast} />;
+  const name = <UsageModelName row={row} provider={provider} />;
   return (
-    <td className="stats-model-cell" title={usageModelTitle(model, provider, fast)} data-expanded={expanded}>
+    <td className="stats-model-cell" title={usageModelTitle(row, provider)} data-expanded={expanded}>
       {phone ? (
         <button
           type="button"
@@ -166,8 +169,11 @@ export function ModelNameCell({ model, provider, fast }: { model: string; provid
   );
 }
 
-export const usageModelTitle = (model: string, provider: string, fast: boolean) =>
-  fast ? `${modelDisplayName(model, provider)} · ${t('Fast')}` : modelDisplayName(model, provider);
+export function usageModelTitle(row: Row, provider: string) {
+  const name = modelDisplayName(usageModelId(row), provider);
+  const badge = usageTierBadge(row);
+  return badge ? `${name} · ${badge.label}` : name;
+}
 
 export function RouteCells({ route, costValue, speed }: { route: Row; costValue?: string; speed?: boolean }) {
   const incomplete = statsNumber(route.unmeasuredTurns) > 0;
@@ -444,17 +450,13 @@ export function UsageStatsBody({
                   <RouteCells route={provider} speed />
                 </tr>
                 {open &&
-                  models.map((model) => {
-                    const name = String(model.model || '');
-                    const fast = model.fast === true;
-                    return (
-                      <tr className="stats-model-row" key={fast ? `${name}\u0000fast` : name}>
-                        <ModelNameCell model={name} provider={id} fast={fast} />
-                        <td className="stats-share-cell" />
-                        <RouteCells route={model} speed />
-                      </tr>
-                    );
-                  })}
+                  models.map((model) => (
+                    <tr className="stats-model-row" key={usageModelKey(model)}>
+                      <ModelNameCell row={model} provider={id} />
+                      <td className="stats-share-cell" />
+                      <RouteCells route={model} speed />
+                    </tr>
+                  ))}
               </tbody>
             );
           })}

@@ -1,13 +1,12 @@
-//! The `export` source of `transfer/beginRead`: a PNG or PDF of a visualize pane, rendered by
+//! The `export` source of `transfer/authorizeRead`: a PNG or PDF of a visualize pane, rendered by
 //! the desktop host into a temp file and handed to the asking device as its download.
 //!
 //! Node: `visualizeExport` (`apps/desktop/src/main/remote-visualize.ts:315-338`) validates the
 //! tab command (`requiredVisualizeTabCommand`, format `png`/`pdf` only), asks the host to render
 //! it (`hostRequest('visualizeExport')`, main's `exportForDevice`), then `registerExport`
 //! (`file-downloads.ts:913-931`) accepts only a file inside a `mixdog-visualize-export-*` folder,
-//! names it `sanitizedFileName(basename)` and types it by the format. The transfer opens the file
-//! at once, so the one-device export id and its 10-minute redeem window of the two-step Node flow
-//! have nothing left to guard; the export's folder is removed when the transfer ends.
+//! names it `sanitizedFileName(basename)` and types it by the format. The download grant owns
+//! the rendered file until redemption, then the device's scoped transfer owns it.
 
 #[allow(clippy::disallowed_types, reason = "the open file a transfer source hands over")]
 use std::fs::File;

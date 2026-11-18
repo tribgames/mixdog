@@ -1,5 +1,5 @@
-//! Terminal output on the terminal lane reaches the relay marked droppable, as Node's `termData` did (remote-relay-push-lanes.ts:85,
-//! recorded in apps/mobile/fixtures/terminal-lane-reach: every termData envelope `droppable: true`): the relay may skip it for a phone
+//! Terminal output on the terminal lane reaches the relay marked droppable: every terminal-data envelope has
+//! `droppable: true`, so the relay may skip it for a phone
 //! that cannot take it instead of cutting the phone's leg. Every other frame, a tab's own feed included, is not droppable. The phone is
 //! paired over a real E2EE channel through a scripted relay; the core's side of the bridge is the test's.
 

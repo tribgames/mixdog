@@ -42,8 +42,6 @@ impl fmt::Display for ClipboardError {
     }
 }
 
-impl std::error::Error for ClipboardError {}
-
 /// Neither Linux clipboard reader is installed.
 pub fn no_clipboard_reader_error() -> ClipboardError {
     ClipboardError(format!("no clipboard reader is installed; {LINUX_CLIPBOARD_HINT}"))
@@ -204,3 +202,6 @@ mod tests {
         assert_eq!((x11.program.as_str(), x11.args), ("xclip", vec!["-selection".to_owned(), "clipboard".to_owned()]));
     }
 }
+
+
+impl std::error::Error for ClipboardError {}

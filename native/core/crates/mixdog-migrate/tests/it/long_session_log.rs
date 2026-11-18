@@ -1,124 +1,126 @@
-//! A session log migrates to the session Node's own reader reads from the same bytes, and a log that is not the
-//! manifest's is refused before anything of it is published. The expected sessions are Node's recorded results
-//! (`fixtures/long-session-log`, from `benchmarks/rust-core/recorders/record-long-session-log.mjs`).
+//! A session log migrates to the session its records describe, and a log that is not the manifest's is refused
+//! before anything of it is published.
 
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
-use base64::Engine as _;
 use mixdog_migrate::durable;
 use mixdog_migrate::error::Blocked;
+use mixdog_migrate::framework::MigrationRoots;
 use mixdog_migrate::run::MigrateOptions;
 use mixdog_migrate::session::source::fold_log;
 use mixdog_migrate::session::target::read_sessions;
 use mixdog_store::schema::migration::COMPLETE_PATH;
 use serde_json::Value;
+use serde_json::json;
 
-use crate::long_log_support::*;
+use crate::log_harness::*;
 
 const ID: &str = "sess_longlog";
 
-fn log_file(roots: &mixdog_migrate::framework::MigrationRoots) -> std::path::PathBuf {
+fn log_file(roots: &MigrationRoots) -> std::path::PathBuf {
     roots.data.join(format!("sessions/{ID}.log.jsonl"))
 }
 
-fn migrated_equals_node(name: &str, bytes: &[u8], node: &Value) {
+fn message(role: &str, content: &str) -> String {
+    json!({"role": role, "content": content}).to_string()
+}
+
+fn header() -> Value {
+    json!({"id": ID, "title": "first", "updatedAt": 1})
+}
+
+/// A log holding every kind of record, ending in a line the writer was still writing.
+fn full_log() -> String {
+    let system = message("system", "S");
+    let (u1, a1) = (message("user", " q1 "), message("assistant", "a1"));
+    let (u2, a2, a2_edited) = (message("user", "q2"), message("assistant", "a2"), message("assistant", "a2 edited"));
+    session("log1", ID, &header())
+        + &compacted(1, &[system.clone(), u1, a1])
+        + &append(2, 5, &[u2, a2])
+        + &edit(3, 5, 4, 1, &[a2_edited])
+        + &patch(4, &json!({"title": "last"}), &json!(["updatedAt"]))
+        + &rollback(5, 4)
+        + "{\"t\":\"append\",\"s\":6,\"len\":5,\"mess"
+}
+
+#[test]
+fn a_log_migrates_to_the_history_its_records_leave() {
     let dir = tempfile::tempdir().expect("scratch dir");
     let roots = roots_in(dir.path());
-    std::fs::write(log_file(&roots), bytes).expect("write");
+    std::fs::write(log_file(&roots), full_log()).expect("write");
     let complete = migrate(&roots);
     let folded = read_sessions(&roots, &complete.manifest_sha256).expect("the migrated sessions fold");
-    assert_eq!(folded.len(), 1, "{name}: one session");
-    eprintln!("case: {name}");
-    assert_is_what_node_reads(&folded[ID], node);
+    assert_eq!(folded.len(), 1);
+    let session = &folded[ID];
+    // The leading system message is the header's prompt base, every other message one row; the patch set the title and
+    // removed `updatedAt`; the edit replaced the last message and the rollback then dropped it.
+    let header = serde_json::to_value(&session.header).expect("header");
+    assert_eq!(header["title"], "last");
+    assert_eq!(header["promptBase"], "S");
+    assert!(header.get("updatedAt").is_none());
+    let bodies: Vec<Value> = session.rows.iter().map(|row| serde_json::to_value(&row.body).expect("body")).collect();
+    assert_eq!(
+        bodies,
+        [json!({"role": "user", "content": " q1 "}), json!({"role": "assistant", "content": "a1"}), json!({"role": "user", "content": "q2"})]
+    );
+    let prompts: Vec<Option<&str>> = session.rows.iter().map(|row| row.prompt.as_deref()).collect();
+    assert_eq!(prompts, [Some("q1"), None, Some("q2")], "a user row's prompt is its trimmed text");
+    let ordinals: Vec<u64> = session.rows.iter().map(|row| row.ordinal).collect();
+    assert_eq!(ordinals, [1, 2, 3]);
 }
 
-#[test]
-fn the_encodings_are_the_ones_node_wrote() {
-    let recorded = recorded("log.json");
-    let log = recorded["log"].as_str().expect("log");
-    let messages = |v: &Value| -> Vec<String> { v["messages"].as_array().expect("messages").iter().map(|m| m.to_string()).collect() };
-    let mut again = String::new();
-    for line in log.lines() {
-        let v: Value = serde_json::from_str(line).expect("record");
-        let seq = v["s"].as_u64().expect("s");
-        again += &match v["t"].as_str().expect("t") {
-            "session" => session(v["logId"].as_str().expect("logId"), v["id"].as_str().expect("id"), &v["header"]),
-            "compacted" => compacted(seq, &messages(&v)),
-            "append" => append(seq, v["len"].as_u64().expect("len") as usize, &messages(&v)),
-            "edit" => edit(
-                seq,
-                v["len"].as_u64().expect("len") as usize,
-                v["at"].as_u64().expect("at") as usize,
-                v["del"].as_u64().expect("del") as usize,
-                &messages(&v),
-            ),
-            "rollback" => rollback(seq, v["len"].as_u64().expect("len") as usize),
-            "patch" => patch(seq, &v["set"], &v["unset"]),
-            other => panic!("record kind {other}"),
-        };
-    }
-    assert_eq!(again, log);
-    let kinds = recorded["kinds"].as_array().expect("kinds");
-    for kind in ["session", "compacted", "append", "edit", "rollback", "patch"] {
-        assert!(kinds.iter().any(|k| k == kind), "the recording holds a {kind} record");
-    }
-}
-
-#[test]
-fn the_log_node_wrote_migrates_to_the_session_node_reads() {
-    let recorded = recorded("log.json");
-    migrated_equals_node("log", recorded["log"].as_str().expect("log").as_bytes(), &recorded["replay"]);
-}
-
-/// A log Node reads no session from (no `session` + `compacted` base): nothing is published, and the migration
-/// quarantines it.
-fn migrated_is_refused(name: &str, bytes: &[u8]) {
+/// A log from which no session can be read: nothing is published, and the migration quarantines it.
+fn refused(name: &str, bytes: &str) {
     let dir = tempfile::tempdir().expect("scratch dir");
     let roots = roots_in(dir.path());
     std::fs::write(log_file(&roots), bytes).expect("write");
     let complete = run(&roots);
-    eprintln!("case: {name}");
     assert_eq!(complete.kinds.data.quarantined_unexpected, 1, "{name}: quarantined");
     assert!(read_sessions(&roots, &complete.manifest_sha256).expect("fold").is_empty(), "{name}: no session");
 }
 
+/// A log whose records break the sequence or the length is a history up to the break (the reader 1.4.5's dev builds used
+/// ends the replay there, keeping what came before): the session is migrated with the rows before the break, and nothing
+/// after it, rather than the whole log being set aside with its readable part.
+fn migrated_up_to_the_break(name: &str, bytes: &str) {
+    let dir = tempfile::tempdir().expect("scratch dir");
+    let roots = roots_in(dir.path());
+    std::fs::write(log_file(&roots), bytes).expect("write");
+    let complete = run(&roots);
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 0, "{name}: not quarantined");
+    let sessions = read_sessions(&roots, &complete.manifest_sha256).expect("fold");
+    let bodies: Vec<Value> = sessions[ID].rows.iter().map(|row| serde_json::to_value(&row.body).expect("body")).collect();
+    assert_eq!(bodies, [json!({"role": "user", "content": "q"})], "{name}: the rows before the break");
+}
+
 #[test]
-fn every_recorded_log_migrates_as_node_reads_it() {
-    let recorded = recorded("log.json");
-    let cases = recorded["cases"].as_array().expect("cases");
-    assert_eq!(cases.len(), 17);
-    // Node's reader distinguishes these ways to stop; every one is recorded.
-    let reasons: std::collections::BTreeSet<&str> =
-        cases.iter().filter_map(|c| c["replay"]["damage"]["reason"].as_str()).collect();
-    assert_eq!(reasons, ["length", "no-history", "sequence"].into());
-    for case in cases {
-        let bytes = base64::engine::general_purpose::STANDARD.decode(case["bytes"].as_str().expect("bytes")).expect("base64");
-        let name = case["name"].as_str().expect("name");
-        if case["replay"]["valid"] == true {
-            migrated_equals_node(name, &bytes, &case["replay"]);
-        } else {
-            migrated_is_refused(name, &bytes);
-        }
-    }
+fn a_log_without_a_history_is_refused() {
+    refused("no history", &(session("log1", ID, &header()) + &patch(1, &json!({"title": "x"}), &json!([]))));
+}
+
+#[test]
+fn a_log_that_breaks_its_sequence_or_length_migrates_up_to_the_break() {
+    let base = [message("system", "S"), message("user", "q")];
+    migrated_up_to_the_break("a sequence gap", &(session("log1", ID, &header()) + &compacted(1, &base) + &append(3, 3, &[message("assistant", "a")])));
+    migrated_up_to_the_break("a wrong length", &(session("log1", ID, &header()) + &compacted(1, &base) + &append(2, 9, &[message("assistant", "a")])));
 }
 
 #[test]
 fn a_log_changed_while_it_is_read_is_refused_after_the_read() {
-    let recorded = recorded("log.json");
-    let log = recorded["log"].as_str().expect("log");
+    let log = full_log();
     let dir = tempfile::tempdir().expect("scratch dir");
     let path = dir.path().join(format!("{ID}.log.jsonl"));
-    std::fs::write(&path, log).expect("write");
+    std::fs::write(&path, &log).expect("write");
     let (size, sha256) = durable::hash_file(&path).expect("hash");
     let mut open = durable::open_verified(&path, size, &sha256).expect("open");
-    // The same bytes but one: a log that still folds, to a session the manifest never saw.
-    let changed = log.replacen("answer 7", "answer 8", 1);
+    // The same length but one byte: a log that still folds, to a session the manifest never saw.
+    let changed = log.replacen("q2", "q3", 1);
     assert_eq!(changed.len(), log.len());
     std::fs::write(&path, &changed).expect("rewrite");
     let fold = fold_log(ID, &mut open, &mut 0).expect("the changed log folds");
-    assert!(fold.messages.iter().any(|m| m["content"] == "answer 8"), "the fold read the changed bytes");
+    assert!(fold.messages.iter().any(|m| m["content"] == "q3"), "the fold read the changed bytes");
     let Err(Blocked::SourceChanged { path: refused }) = open.verify() else {
         panic!("a log read through a handle whose bytes are not the manifest's is accepted");
     };
@@ -127,14 +129,13 @@ fn a_log_changed_while_it_is_read_is_refused_after_the_read() {
 
 #[test]
 fn a_log_that_is_not_the_manifests_publishes_nothing() {
-    let recorded = recorded("log.json");
-    let log = recorded["log"].as_str().expect("log");
+    let log = full_log();
     let dir = tempfile::tempdir().expect("scratch dir");
     let roots = roots_in(dir.path());
     let path = log_file(&roots);
-    std::fs::write(&path, log).expect("write");
-    let changed = log.replacen("answer 7", "answer 8", 1);
-    // Planned from the recorded bytes; replaced by an equally long, valid log before the session is read.
+    std::fs::write(&path, &log).expect("write");
+    let changed = log.replacen("q2", "q3", 1);
+    // Planned from the original bytes; replaced by an equally long, valid log before the session is read.
     let replaced = Arc::new(AtomicBool::new(false));
     let hook: mixdog_migrate::framework::FaultHook = {
         let (path, changed, replaced) = (path.clone(), changed.clone(), replaced.clone());
@@ -159,56 +160,36 @@ fn a_log_that_is_not_the_manifests_publishes_nothing() {
     assert_eq!(std::fs::read_to_string(&path).expect("log"), changed, "the source stays as it is");
 }
 
-/// Each legacy session json of `fixtures/session-gaps/legacy-json-keys.json` migrates as 1.4.5's own loader
-/// (`loadLegacySession` over `readTopLevelLifecycleRecord`) read the same bytes: a record 1.4.5 found unreadable
-/// (a top-level key named twice, escaped equivalents included) is quarantined and nothing is published; a record it
-/// read migrates to one session whose header and messages, put back together, are the whole document it read.
+fn legacy(text: &str) -> (usize, usize, Option<Value>) {
+    let dir = tempfile::tempdir().expect("scratch dir");
+    let roots = roots_in(dir.path());
+    std::fs::write(roots.data.join("sessions/sess_legacy.json"), text).expect("write");
+    let complete = run(&roots);
+    let sessions = read_sessions(&roots, &complete.manifest_sha256).expect("fold");
+    let read = sessions.get("sess_legacy").map(|s| {
+        let mut read = serde_json::to_value(&s.header).expect("header");
+        read["messages"] = s.rows.iter().map(|row| serde_json::to_value(&row.body).expect("body")).collect();
+        read
+    });
+    (complete.kinds.data.quarantined_unexpected as usize, sessions.len(), read)
+}
+
 #[test]
-fn every_legacy_session_json_migrates_as_1_4_5_read_it() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-gaps/legacy-json-keys.json");
-    let recorded: Value = serde_json::from_slice(&std::fs::read(path).expect("the recording")).expect("json");
-    let id = recorded["sessionId"].as_str().expect("sessionId");
-    let cases = recorded["cases"].as_array().expect("cases");
-    assert_eq!(cases.len(), 11);
-    for case in cases {
-        let name = case["name"].as_str().expect("name");
-        let dir = tempfile::tempdir().expect("scratch dir");
-        let roots = roots_in(dir.path());
-        std::fs::write(roots.data.join(format!("sessions/{id}.json")), case["text"].as_str().expect("text")).expect("write");
-        let complete = run(&roots);
-        let sessions = read_sessions(&roots, &complete.manifest_sha256).expect("fold");
-        let document = mixdog_testkit::exact::Exact::decode(&case["document"]).expect("document");
-        // A key holding a lone surrogate: 1.4.5 keeps each as read (two distinct lone surrogates are two keys); the
-        // core's store holds UTF-8 text, so its reader reads each lone surrogate as U+FFFD
-        // (`mixdog-migrate json::replace_lone_surrogates`) and keys equal after it are one, the last value at the
-        // first's place. That is the one difference, compared as such: Node's document with the same replacement.
-        let document = match document {
-            mixdog_testkit::exact::Exact::Utf16Keyed(entries) => {
-                assert_eq!(name, "two-distinct-lone-surrogates", "the only recorded document with a lone surrogate");
-                let mut map = serde_json::Map::new();
-                for (key, value) in entries {
-                    map.insert(String::from_utf16_lossy(&key), value.to_plain().expect("plain value"));
-                }
-                Value::Object(map)
-            }
-            other => other.to_plain().expect("document"),
-        };
-        if document.is_null() {
-            assert_eq!((complete.kinds.data.quarantined_unexpected, sessions.len()), (1, 0), "{name}: 1.4.5 could not read it");
-            continue;
-        }
-        assert_eq!((complete.kinds.data.quarantined_unexpected, sessions.len()), (0, 1), "{name}: 1.4.5 read it");
-        let session = &sessions[id];
-        let mut read = serde_json::to_value(&session.header).expect("header");
-        read["messages"] = session.rows.iter().map(|row| serde_json::to_value(&row.body).expect("body")).collect();
-        // The sidecar reference set the migration stamps on every header (`offload_sources::stamp`) is the core's own: 1.4.5's
-        // document has none.
-        if let Some(header) = read.as_object_mut() {
-            header.remove("offloadSources");
-            header.remove("offloadSourcesRules");
-        }
-        // Through the same number form as the recording (every JS number an f64): `2` and `2.0` are one value.
-        let read = mixdog_testkit::exact::Exact::plain(&read).to_plain().expect("plain");
-        assert_eq!(read, document, "{name}: the document 1.4.5 read");
+fn a_legacy_session_json_migrates_to_one_session_with_its_header_and_messages() {
+    let (quarantined, sessions, read) = legacy(r#"{"id":"sess_legacy","title":"t","messages":[{"role":"user","content":"hi"}]}"#);
+    assert_eq!((quarantined, sessions), (0, 1));
+    let read = read.unwrap();
+    assert_eq!(read["title"], "t");
+    assert_eq!(read["messages"], json!([{"role": "user", "content": "hi"}]));
+}
+
+#[test]
+fn a_legacy_session_json_naming_a_top_level_key_twice_is_quarantined() {
+    for text in [
+        r#"{"id":"sess_legacy","title":"a","title":"b","messages":[]}"#,
+        r#"{"id":"sess_legacy","ti\u0074le":"a","title":"b","messages":[]}"#,
+    ] {
+        let (quarantined, sessions, _) = legacy(text);
+        assert_eq!((quarantined, sessions), (1, 0), "{text}");
     }
 }

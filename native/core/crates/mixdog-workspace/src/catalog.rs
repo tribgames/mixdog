@@ -13,7 +13,7 @@ use mixdog_store::registry::Registry;
 use mixdog_store::registry::ensure_project_id_marker;
 use mixdog_store::state::CoreState;
 use mixdog_store::state::OpRow;
-use mixdog_store::state::OpRowState;
+use mixdog_core_base::ops::{OpState, PayloadDigest, set_op_row_outcome};
 use mixdog_store::state::ProjectRow;
 use serde_json::Value;
 use serde_json::json;
@@ -35,6 +35,7 @@ pub struct OpRecord {
     pub scope: String,
     pub op_id: String,
     pub row: OpRow,
+    pub audience: PayloadDigest,
 }
 
 pub struct Catalog {
@@ -136,9 +137,8 @@ fn joined(rows: Vec<ProjectRow>, entries: &[ProjectEntry]) -> (Vec<ProjectRow>, 
 }
 
 fn finish(mut op: OpRecord, outcome: &Value) -> OpRecord {
-    op.row.state = OpRowState::Applied;
-    op.row.outcome = Some(outcome.to_string());
-    op.row.completed_at = Some(now_ms());
+    let applied = OpState::Applied { seq: None, result: Some(outcome.clone()) };
+    set_op_row_outcome(&mut op.row, Some(&op.audience), &applied, now_ms());
     op
 }
 

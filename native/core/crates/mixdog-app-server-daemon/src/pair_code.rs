@@ -43,6 +43,10 @@ impl PairCodeEffects for ComposedPairCodeEffects {
         (self.sink)(code);
     }
 
+    fn now_ms(&self) -> u64 {
+        mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+    }
+
     fn wake_at(&mut self, at_ms: u64) {
         if let Some(earlier) = self.armed.take() {
             let _ = earlier.cancel();

@@ -59,7 +59,16 @@ pub fn eligible(error: &ProviderError) -> bool {
         Some(TransportFault::WsClose { code: Some(code) }) => *code == MESSAGE_TOO_BIG || TRANSIENT_CLOSES.contains(code),
         Some(TransportFault::WsClose { code: None }) => true,
         Some(_) => true,
-        None => false,
+        // No status and no transport fault: the typed classifiers of `TRANSPORT_FALLBACK_CLASSIFIERS`: a stall or a
+        // first-byte timeout, and a `response.failed` that names a dropped link or an expired sign-in.
+        None => {
+            error.timeout_phase.is_some()
+                || error.timed_out
+                || matches!(
+                    error.code.as_deref().map(str::to_ascii_lowercase).as_deref(),
+                    Some("estreamstall" | "stream_disconnected" | "network_error" | "auth_expired" | "auth_context_expired")
+                )
+        }
     }
 }
 

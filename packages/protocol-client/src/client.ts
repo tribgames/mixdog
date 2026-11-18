@@ -23,6 +23,7 @@ import type {
   ProtocolClient,
   RequestClass,
   RequestId,
+  ResumeOptions,
   ResumeWindow,
   SectionEntry,
   SectionUpdate,
@@ -36,11 +37,14 @@ import type {
   TransportSink,
   TransportWriter,
   SentClaim,
+  StreamPosition,
 } from './api.ts';
-import type { OpStatusEntry } from '@mixdog/protocol';
+import type { FeedHeadsResponse, OpStatusEntry } from '@mixdog/protocol';
 import { DEFAULT_LADDER, WIRE } from './api.ts';
 import { isOfferedRequest, isScopedMethod, isSectionMethod, methodInfo } from './method-table.ts';
 import { createLinkLog } from './link-log.mjs';
+import { DEFAULT_REQUEST_TIMEOUT_MS } from './request-limits.ts';
+import { LinkHealth } from './health.ts';
 
 // ───────────────────────────── pure helpers ─────────────────────────────
 
@@ -92,7 +96,13 @@ const toB64 = (b: Uint8Array): string => {
 export class ClientFailure extends Error implements ClientError {
   readonly detail: ClientErrorDetail;
   constructor(detail: ClientErrorDetail) {
-    super(detail.kind === 'rpc' ? `${detail.code} ${detail.reason ?? ''} ${detail.message}${refusedArgument(detail.data)}` : detail.kind);
+    super(
+      detail.kind === 'rpc'
+        ? `${detail.code} ${detail.reason ?? ''} ${detail.message}${refusedArgument(detail.data)}`
+        : detail.kind === 'requestTimeout'
+          ? `The core did not answer ${detail.method} in time.`
+          : detail.kind
+    );
     this.name = 'ClientError';
     this.detail = detail;
   }
@@ -151,7 +161,7 @@ class Store implements FoldStore<Json> {
     return () => void this.listeners.delete(listener);
   }
   emit(c: StoreChange): void {
-    for (const l of [...this.listeners]) l(c);
+    isolated(this.listeners, c);
   }
   applySection(u: SectionUpdate): void {
     if (putSection(this.sectionMap, u)) this.emit({ type: 'section', section: u.section, key: u.key ?? null });
@@ -204,6 +214,16 @@ interface Unanswered {
   readonly resolve: (v: Json) => void;
   readonly reject: (e: ClientFailure) => void;
 }
+/** The refusals of a restore that mean the feed itself is gone (a retry cannot change them). */
+const FEED_GONE: ReadonlySet<string> = new Set(['threadNotFound', 'storeDamaged', 'permissionDenied', 'capabilityUnavailable', 'methodNotFound', 'invalidParams']);
+/** What one call's time limit knows of the call (`Engine.bounded`). */
+interface CallLimit {
+  readonly method: string;
+  /** The limit passed and the caller was told. */
+  expired: boolean;
+  /** Its request is out (written, not refused). */
+  sent: boolean;
+}
 /** A `thread/start` of a control thread: the client keeps the subscription its reply gave. */
 const startsControlThread = (method: string, params: unknown): boolean =>
   method === 'thread/start' && (params as { kind?: unknown } | null)?.kind === 'control';
@@ -217,6 +237,18 @@ const INTERNAL: MethodInfo = { class: 'C0', mutation: false, opScope: () => unde
 const READ_C1: MethodInfo = { class: 'C1', mutation: false, opScope: () => undefined };
 const classes = (): Record<RequestClass, number> => ({ C0: 0, C1: 0, C2: 0, C3: 0 });
 const jsonKey = (id: RequestId): string => JSON.stringify(id);
+/** The order of feed epochs as this realm first received them, across every client it makes (`StreamPosition.order`). */
+let feedEpochOrder = 0;
+/** Whether a resume in `held` shows everything one in `asked` would. */
+const windowCovers = (held: ResumeWindow, asked: ResumeWindow): boolean => {
+  if ('none' in asked) return true;
+  if ('lastItems' in held && 'lastItems' in asked) return held.lastItems >= asked.lastItems;
+  if ('lastTurns' in held && 'lastTurns' in asked) return held.lastTurns >= asked.lastTurns;
+  return false;
+};
+const retainWindow = (asked: ResumeWindow, held: ResumeWindow | undefined): ResumeWindow =>
+  held && windowCovers(held, asked) ? held : asked;
+const FEED_REQUEST_DEADLINE_MS = 10_000;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const validFeed = (f: unknown): boolean =>
   f === undefined ||
@@ -225,6 +257,16 @@ const validFeed = (f: unknown): boolean =>
 /** The first position a frame stands for: a coalesced frame (`feed.from`, announced with `feedRanges`) covers `from..=seq`. */
 const firstOf = (f: FeedStamp): number => f.from ?? f.seq;
 const validErrorBody = (e: unknown): boolean => isObject(e) && typeof e.code === 'number' && typeof e.message === 'string';
+/** Delivers `value` to every listener: one that throws is reported and the others still hear it (a listener owns its failure). */
+function isolated<T>(listeners: ReadonlySet<(value: T) => void>, value: T): void {
+  for (const listener of [...listeners]) {
+    try {
+      listener(value);
+    } catch (error) {
+      console.error('A listener of the core connection threw:', error);
+    }
+  }
+}
 function drain<V>(m: Map<unknown, V>): V[] {
   const all = [...m.values()];
   m.clear();
@@ -241,8 +283,12 @@ class Engine implements ProtocolClient<Json> {
   private nextRequestId = 1;
   private readonly pending = new Map<RequestId, Pending>();
   private generation = 0;
+  /** How many pending requests are the health machine's own probes. */
+  private probesOut = 0;
   private readonly listeners = new Set<(e: ClientEvent) => void>();
   private readonly subs = new Map<string, ResumeWindow>();
+  /** A refused restore can drop the subscription without dropping the reader's requested window. */
+  private readonly lostWindows = new Map<string, ResumeWindow>();
   /** Threads this client started as `kind: "control"` (the reply to `thread/start` subscribed this connection to them): resumed
    *  after each reconnect like `subs`, but never folded (their frames are not tracked), until `unsubscribeThread` or lost. */
   private readonly held = new Map<string, ResumeWindow>();
@@ -253,8 +299,20 @@ class Engine implements ProtocolClient<Json> {
   /** The number of restores (`restoreThread`) started on this client, of any thread. */
   private restoreStarts = 0;
   private appSubscribed = false;
+  /** The latest `thread/resume` this client sent of each thread whose snapshot is not folded yet (a replay's reply folds nothing, so
+   *  it leaves no entry): a caller that only needs the thread followed joins it instead of sending a second resume, which would replace
+   *  the first subscription and have the core encode the whole snapshot again. */
+  private readonly resuming = new Map<string, { reply: Promise<ThreadResumeResponse>; window: ResumeWindow; sent: Promise<void>; token?: number }>();
+  private readonly awaitingSnapshot = new Set<string>();
+  /** The window each thread's folded state (the one in `store.threads`) was built from. A reply that acknowledges a larger window
+   *  is not that state until its snapshot is folded, so a resume after a disconnect claims this window, never the acknowledged one. */
+  private readonly foldedWindow = new Map<string, ResumeWindow>();
+  /** The window a subscription token's snapshot will fold in. */
+  private readonly tokenWindow = new Map<number, ResumeWindow>();
+  /** The feeds whose resume cursor the core refused (`cursorInvalidated`): attached whole until one is answered. */
+  private readonly cursorReset = new Set<string>();
   private readonly serverRequests = new Map<string, ServerRequest>();
-  private readonly recv = new Map<string, { epoch: string; seq: number }>();
+  private readonly recv = new Map<string, { epoch: string; seq: number; order: number }>();
   /** Orders connection-scoped notifications. */
   private chain: Promise<void> = Promise.resolve();
   /** Orders the folds of one feed. */
@@ -289,6 +347,21 @@ class Engine implements ProtocolClient<Json> {
   constructor(options: ConnectOptions<Json>) {
     this.o = options;
     this.diag = createLinkLog(options.onDiagnostic);
+    this.health = new LinkHealth(
+      {
+        ready: () => this.status.state === 'ready' && this.writer !== null,
+        pending: () => this.pending.size - this.probesOut,
+        connection: () => this.connSeq,
+        probe: (sent) => this.probe(sent),
+        // The transport's own receive chain: authentication and assembly already accepted.
+        settle: async () => {
+          await this.writer?.settled?.();
+        },
+        drop: (reason) => this.dropLink(1000, reason),
+        diag: (event, fields) => this.diag(event, { linkSeq: this.connSeq, ...fields }),
+      },
+      this.o.health
+    );
     this.reducer = options.threadReducer;
     this.budgetMs = options.turn?.budgetMs ?? 8;
     this.now = options.turn?.now ?? (() => performance.now());
@@ -312,18 +385,53 @@ class Engine implements ProtocolClient<Json> {
   // ── lifecycle ──
 
   async start(): Promise<void> {
-    await this.openTransport();
-    try {
-      await this.handshake();
-    } catch (e) {
-      this.writer?.close(1000, 'handshake failed');
-      this.writer = null;
-      throw e;
+    // The ladder's own steps and delays, before the first ready connection: a refusal that only a new version fixes ends it.
+    const until = this.o.firstConnectDeadlineMs === undefined ? undefined : Date.now() + this.o.firstConnectDeadlineMs;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.establish(this.o.firstConnectDeadlineMs);
+        break;
+      } catch (e) {
+        this.writer?.close(1000, 'handshake failed');
+        this.writer = null;
+        const delay = ladderDelay(attempt, this.o.random(), this.o.ladder);
+        if (detailOf(e).kind === 'versionRefused' ||
+            (!this.o.keepTryingFirstConnect && (until === undefined || Date.now() + delay >= until))) throw e;
+        await this.o.clock.sleep(delay);
+      }
     }
     this.everReady = true;
     this.readyAt = Date.now();
     this.setStatus({ state: 'ready', serverInstanceId: this.server.serverInstanceId });
     this.diag('link-open', { linkSeq: this.connSeq });
+  }
+
+  /** One attempt at a connection: the dial, then the handshake inside `ms` when it is given (a transport that is accepted
+   *  but never answers `initialize` ends the attempt, not the wait). The dial has no limit here: it ends by its connector,
+   *  which is what knows why a dial is slow (a launcher waits for a core that says it is starting, and fails when that core
+   *  ends or is blocked), so a core that takes long to start is not reported as one that did not answer. The abandoned
+   *  attempt can no longer deliver anything. */
+  private async establish(ms: number | undefined): Promise<void> {
+    await this.openTransport();
+    const attempt = this.handshake();
+    if (ms === undefined) return attempt;
+    attempt.catch(() => {});
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        this.connSeq++;
+        const w = this.writer;
+        this.writer = null;
+        w?.close(1000, 'connect timed out');
+        for (const p of drain(this.pending)) p.reject(fail({ kind: 'connectionLost' }));
+        reject(fail({ kind: 'requestTimeout', method: 'initialize', sent: true }));
+      }, Math.max(0, ms));
+    });
+    try {
+      await Promise.race([attempt, expired]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async openTransport(): Promise<void> {
@@ -333,6 +441,9 @@ class Engine implements ProtocolClient<Json> {
       frame: (t) => {
         if (conn === this.connSeq) this.onFrame(t);
       },
+      progress: () => {
+        if (conn === this.connSeq) this.health.progress();
+      },
       closed: (code, reason) => {
         if (conn !== this.connSeq) return;
         if (this.writer === null) early = { code, reason };
@@ -340,6 +451,11 @@ class Engine implements ProtocolClient<Json> {
       },
     };
     const w = await this.o.connector.open(this.o.target, sink);
+    if (conn !== this.connSeq) {
+      // The attempt was abandoned while the dial was still out: its late socket is closed, never adopted.
+      w.close(1000, 'abandoned');
+      throw fail({ kind: 'connectionLost' });
+    }
     if (early) throw fail({ kind: 'connectionLost' });
     this.writer = w;
   }
@@ -369,8 +485,12 @@ class Engine implements ProtocolClient<Json> {
 
   private onClosed(): void {
     this.writer = null;
+    this.health.stop();
     this.generation++;
     this.recv.clear();
+    this.awaitingSnapshot.clear();
+    this.resuming.clear();
+    this.tokenWindow.clear();
     const dropped = [...this.serverRequests.values()];
     this.serverRequests.clear();
     for (const r of dropped) this.touchSurface(r);
@@ -443,30 +563,65 @@ class Engine implements ProtocolClient<Json> {
     }));
   }
 
-  /** An rpc error drops the subscription; the end of the connection is the ladder's business. */
+  /** A subscription's restore after a reconnect, until the core answers it. Only a refusal that says the feed is gone ends it
+   *  (the returned detail); the end of the connection is the ladder's business (`'ended'`). A cursor the core no longer honours
+   *  is dropped and the feed is attached whole. Transient refusals are retried on this leg before recycling it. */
+  private async restoreRun(feedId: string, resume: () => Promise<unknown>, held: () => boolean): Promise<'done' | 'ended' | ClientErrorDetail> {
+    const generation = this.generation;
+    for (let attempt = 0; generation === this.generation && !this.terminal && held(); attempt++) {
+      try {
+        await resume();
+        if (generation !== this.generation) return 'ended';
+        this.cursorReset.delete(feedId);
+        return 'done';
+      } catch (e) {
+        const d = detailOf(e);
+        if (generation !== this.generation || !held()) return 'ended';
+        if (d.kind !== 'rpc') {
+          // The peer may still attach a request whose answer we never saw. Do not race it with another attach on this link.
+          if (!isConnectionEnd(d)) this.dropLink(1000, 'feed restore failed');
+          return 'ended';
+        }
+        if (d.reason !== undefined && FEED_GONE.has(d.reason)) return d;
+        if (d.reason === 'cursorInvalidated' && !this.cursorReset.has(feedId)) this.cursorReset.add(feedId);
+        else if (attempt >= 2) {
+          this.dropLink(1000, 'feed restore refused');
+          return 'ended';
+        }
+        await this.o.clock.sleep(ladderDelay(attempt, this.o.random(), this.o.ladder));
+      }
+    }
+    return 'ended';
+  }
+
   private async restoreThread(threadId: string, window: ResumeWindow): Promise<'restored' | 'lost' | 'failed'> {
+    const generation = this.generation;
     const mine = {};
     this.restoring.set(threadId, mine);
     this.restoreStarts += 1;
     const settled = (): void => {
       if (this.restoring.get(threadId) === mine) this.restoring.delete(threadId);
     };
-    try {
-      await this.run('thread/resume', this.resumeParams(threadId, window), INTERNAL, (r) => this.attached(threadId, r));
-      settled();
+    const outcome = await this.restoreRun(
+      threadId,
+      () => this.requestResume(threadId, window, undefined, true),
+      () => this.subs.get(threadId) === window
+    );
+    settled();
+    const followed = this.subs.get(threadId);
+    if (generation === this.generation && followed && (outcome === 'done' || followed !== window)) {
       this.store.emit({ type: 'subscription', feedId: threadId, state: 'restored' });
       return 'restored';
-    } catch (e) {
-      settled();
-      const d = detailOf(e);
-      if (d.kind !== 'rpc') return 'failed';
-      this.subs.delete(threadId);
-      this.subToken.delete(threadId);
-      this.store.threads.delete(threadId);
-      this.emit({ type: 'subscriptionLost', threadId, error: d });
-      this.store.emit({ type: 'subscription', feedId: threadId, state: 'lost', error: d });
-      return 'lost';
     }
+    if (typeof outcome === 'string' || generation !== this.generation || followed !== window) return 'failed';
+    this.lostWindows.set(threadId, window);
+    this.subs.delete(threadId);
+    this.subToken.delete(threadId);
+    this.store.threads.delete(threadId);
+    this.foldedWindow.delete(threadId);
+    this.emit({ type: 'subscriptionLost', threadId, error: outcome });
+    this.store.emit({ type: 'subscription', feedId: threadId, state: 'lost', error: outcome });
+    return 'lost';
   }
   /** A control thread the core no longer has (restarted, or swept during a long disconnect) is dropped from `held`; the end of the
    *  connection leaves it held for the next reconnect. */
@@ -476,13 +631,14 @@ class Engine implements ProtocolClient<Json> {
     const entry = { done: undefined as unknown as Promise<ClientErrorDetail | undefined>, end };
     const resume = (async (): Promise<ClientErrorDetail | undefined> => {
       try {
-        await this.run('thread/resume', { threadId, window } as unknown as Json, INTERNAL);
-        return undefined;
-      } catch (e) {
-        const d = detailOf(e);
-        if (d.kind !== 'rpc' || this.held.get(threadId) !== window) return undefined;
+        const outcome = await this.restoreRun(
+          threadId,
+          () => this.requestResume(threadId, window, undefined, true),
+          () => this.held.get(threadId) === window
+        );
+        if (outcome === 'done' || outcome === 'ended' || this.held.get(threadId) !== window) return undefined;
         this.held.delete(threadId);
-        return d;
+        return outcome;
       } finally {
         if (this.heldRestoring.get(threadId) === entry) this.heldRestoring.delete(threadId);
       }
@@ -504,26 +660,31 @@ class Engine implements ProtocolClient<Json> {
     }
   }
   private async restoreApp(): Promise<boolean> {
-    try {
-      await this.run('app/subscribe', this.appParams(), INTERNAL, (r) => {
-        this.attached(WIRE.appFeedId, r);
-        this.completeAnnouncements();
-      });
+    const outcome = await this.restoreRun(
+      WIRE.appFeedId,
+      () =>
+        this.bounded('app/subscribe', FEED_REQUEST_DEADLINE_MS, null, (limit) =>
+          this.run('app/subscribe', this.appParams(), INTERNAL, (r) => {
+            this.attached(WIRE.appFeedId, r);
+            this.completeAnnouncements();
+          }, true, undefined, limit)),
+      () => this.appSubscribed
+    );
+    if (outcome === 'done') {
       this.store.emit({ type: 'subscription', feedId: WIRE.appFeedId, state: 'restored' });
       return true;
-    } catch (e) {
-      const d = detailOf(e);
-      if (d.kind !== 'rpc') return false;
-      this.appSubscribed = false;
-      this.subToken.delete(WIRE.appFeedId);
-      this.emit({ type: 'subscriptionLost', threadId: WIRE.appFeedId, error: d });
-      this.store.emit({ type: 'subscription', feedId: WIRE.appFeedId, state: 'lost', error: d });
-      return false;
     }
+    if (outcome === 'ended') return false;
+    this.appSubscribed = false;
+    this.subToken.delete(WIRE.appFeedId);
+    this.emit({ type: 'subscriptionLost', threadId: WIRE.appFeedId, error: outcome });
+    this.store.emit({ type: 'subscription', feedId: WIRE.appFeedId, state: 'lost', error: outcome });
+    return false;
   }
 
   private terminate(detail: ClientErrorDetail): void {
     this.terminal = detail;
+    this.health.stop();
     for (const p of drain(this.pending)) p.reject(fail(detail));
     for (const u of [...this.unanswered.values()]) u.reject(fail(detail));
     this.unanswered.clear();
@@ -546,7 +707,16 @@ class Engine implements ProtocolClient<Json> {
   private send(frame: Record<string, unknown>, sent?: SentClaim): void {
     const w = this.writer;
     if (!w) throw fail({ kind: 'connectionLost' });
-    w.send(JSON.stringify(frame), sent);
+    const text = JSON.stringify(frame);
+    // The peer closes the connection (1009) on a text frame over its inbound limit, dropping every subscription and
+    // everything the host holds; a frame it would refuse is never put on the wire. `server` is unset for `initialize` itself.
+    const limit = this.server?.limits?.maxInboundFrameBytes;
+    // A UTF-8 character is at most 3 bytes per UTF-16 unit, so a short enough text needs no encoding to be measured.
+    if (limit !== undefined && text.length * 3 > limit) {
+      const bytes = new TextEncoder().encode(text).byteLength;
+      if (bytes > limit) throw fail({ kind: 'protocolViolation', what: `frame of ${bytes} bytes is over maxInboundFrameBytes ${limit}` });
+    }
+    w.send(text, sent);
   }
 
   private rpc(method: string, params: Json | undefined, cls?: RequestClass, sync?: (v: Json) => void, sent?: SentClaim): Promise<Json> {
@@ -555,6 +725,7 @@ class Engine implements ProtocolClient<Json> {
       try {
         this.pending.set(id, { cls, resolve, reject, ...(sync ? { sync } : {}) });
         this.send(params === undefined ? { id, method } : { id, method, params }, sent);
+        this.health.requestsChanged();
       } catch (e) {
         this.pending.delete(id);
         reject(e);
@@ -563,7 +734,7 @@ class Engine implements ProtocolClient<Json> {
   }
 
   private emit(e: ClientEvent): void {
-    for (const l of [...this.listeners]) l(e);
+    isolated(this.listeners, e);
   }
   on(listener: (e: ClientEvent) => void): () => void {
     this.listeners.add(listener);
@@ -574,11 +745,44 @@ class Engine implements ProtocolClient<Json> {
   private violation(code: number, what: string, category = what): void {
     this.emit({ type: 'protocolViolation', what });
     this.diag('link-violation', { linkSeq: this.connSeq, code, category });
-    this.writer?.close(code, what);
+    this.dropLink(code, what);
+  }
+
+  /** Ends this connection from this side and goes on to the ladder. A transport that closes the socket when asked need not report
+   *  it back (a window's port does not), so the end is taken here; the transport's own report, if one comes, is of the old
+   *  connection and is ignored. */
+  private dropLink(code: number, reason: string): void {
+    const w = this.writer;
+    if (!w) return;
+    this.connSeq++;
+    w.close(code, reason);
+    this.onClosed();
+  }
+
+  /** The question the core answers at once: any answer, an error included, is progress from it. */
+  private probe(sent: SentClaim): void {
+    this.probesOut++;
+    this.rpc('thread/unsubscribe', { threadId: 'link-check' } as unknown as Json, 'C0', undefined, sent)
+      .catch(() => {})
+      .finally(() => this.probesOut--);
+  }
+
+  /** THE RULE of a sent request: once sent it stays pending for as long as the connection is demonstrably alive; its age never fails
+   *  it. What fails it is the connection, and `health.ts` is the one machine that decides a silent one is dead (see its header for
+   *  the cycle, what counts as proof of life, and the limit of the rule). Its drop rejects the pending requests as `connectionLost`
+   *  (`onClosed`) and sends mutations through the reconciliation (`run`, `settle`), so a reconnect never runs one again. */
+  private readonly health: LinkHealth;
+
+  /** Whether the core is alive: a fresh probe and observation window begin now, and the answer is the health machine's verdict,
+   *  which drops the link when the window passes with no progress from the core (a link that died unseen, as after a machine's
+   *  sleep). Whatever state an earlier cycle held is void. False when there was no ready connection. */
+  checkLink(): Promise<boolean> {
+    return this.health.check();
   }
 
   private onFrame(text: string): void {
     this.turnStart = this.now();
+    this.health.progress();
     // RFC 6455: 1007 for a payload that does not decode, 1002 for a sequence violation.
     let m: Record<string, unknown>;
     try {
@@ -596,6 +800,7 @@ class Engine implements ProtocolClient<Json> {
     if (!p) return this.violation(1002, 'response to unknown request');
     if ('error' in m && !validErrorBody(m.error)) return this.violation(1007, 'bad error body'); // stays pending: the close settles it
     this.pending.delete(m.id as RequestId);
+    this.health.requestsChanged();
     if ('error' in m) {
       const err = m.error as JsonRpcErrorBody;
       if (err.code !== -32001) this.countResponse(p.cls);
@@ -635,6 +840,10 @@ class Engine implements ProtocolClient<Json> {
   pendingServerRequests(): readonly ServerRequest[] {
     return [...this.serverRequests.values()];
   }
+  feedPosition(feedId: string): StreamPosition | undefined {
+    const position = this.recv.get(feedId);
+    return position ? { epoch: position.epoch, seq: position.seq, order: position.order } : undefined;
+  }
   respond(id: RequestId, answer: ServerRequestAnswer): void {
     this.send({ id, ...answer });
   }
@@ -663,15 +872,25 @@ class Engine implements ProtocolClient<Json> {
     this.threadLastEvent.set(f.id, this.feedEvents);
     this.pulse();
     const tracked = f.id === WIRE.appFeedId ? this.appSubscribed : this.subs.has(f.id);
-    if (!tracked) return;
+    if (!tracked && !this.held.has(f.id)) return;
     const snapshot = n.method === WIRE.threadSnapshot || n.method === WIRE.appSnapshot;
     const cur = this.recv.get(f.id);
     if (!snapshot && (!cur || cur.epoch !== f.epoch || firstOf(f) !== cur.seq + 1)) {
       return this.violation(1002, `feed gap on ${f.id}`, 'feed gap');
     }
-    this.recv.set(f.id, { epoch: f.epoch, seq: f.seq });
+    const order = this.received(f.id, f.epoch, f.seq);
+    if (snapshot) this.awaitingSnapshot.delete(f.id);
+    if (!tracked) return; // Held control threads participate in continuity but do not need a fold.
     const tok = this.subToken.get(f.id);
-    this.feedChains.set(f.id, (this.feedChains.get(f.id) ?? Promise.resolve()).then(() => this.fold(n, f, snapshot, gen, tok)));
+    this.feedChains.set(f.id, (this.feedChains.get(f.id) ?? Promise.resolve()).then(() => this.fold(n, f, snapshot, gen, tok, order)));
+  }
+
+  /** Records the position received on `feedId`; its epoch's order is a new one the first time the epoch is seen. */
+  private received(feedId: string, epoch: string, seq: number): number {
+    const cur = this.recv.get(feedId);
+    const order = cur?.epoch === epoch ? cur.order : ++feedEpochOrder;
+    this.recv.set(feedId, { epoch, seq, order });
+    return order;
   }
 
   /** A scoped feed has no store: its notifications are events. The first one seen (or `feed/snapshot`) sets the position; after that
@@ -681,7 +900,8 @@ class Engine implements ProtocolClient<Json> {
     if (n.method !== 'feed/snapshot' && cur && (cur.epoch !== f.epoch || firstOf(f) !== cur.seq + 1)) {
       return this.violation(1002, `feed gap on ${f.id}`, 'feed gap');
     }
-    this.recv.set(f.id, { epoch: f.epoch, seq: f.seq });
+    this.received(f.id, f.epoch, f.seq);
+    if (n.method === 'feed/snapshot') this.awaitingSnapshot.delete(f.id);
     this.feedChains.set(
       f.id,
       (this.feedChains.get(f.id) ?? Promise.resolve()).then(async () => {
@@ -722,7 +942,7 @@ class Engine implements ProtocolClient<Json> {
     return gen === this.generation && this.subToken.get(feedId) === tok;
   }
 
-  private async fold(n: JsonRpcNotification, f: FeedStamp, snapshot: boolean, gen: number, tok: number | undefined): Promise<void> {
+  private async fold(n: JsonRpcNotification, f: FeedStamp, snapshot: boolean, gen: number, tok: number | undefined, order: number): Promise<void> {
     if (snapshot && f.id === WIRE.appFeedId) return this.foldAppSnapshot(n, f, gen, tok);
     const failed: ClientErrorDetail[] = [];
     let resolved: JsonRpcNotification;
@@ -752,7 +972,14 @@ class Engine implements ProtocolClient<Json> {
     // The awaits above leave microtask gaps in which an unsubscribe or a resubscribe can run: the identity is checked again here,
     // in the same synchronous block as the swap, so an abandoned fold can never commit.
     if (!this.current(f.id, gen, tok)) return;
-    this.store.threads.set(f.id, { feed: f, state });
+    this.store.threads.set(f.id, { feed: f, order, state });
+    if (snapshot) {
+      const built = tok === undefined ? undefined : this.tokenWindow.get(tok);
+      if (built) this.foldedWindow.set(f.id, built);
+      else this.foldedWindow.delete(f.id);
+      if (tok !== undefined) this.tokenWindow.delete(tok);
+    }
+    if (snapshot && this.resuming.get(f.id)?.token === tok) this.resuming.delete(f.id);
     this.store.emit({ type: 'thread', threadId: f.id });
   }
 
@@ -865,34 +1092,96 @@ class Engine implements ProtocolClient<Json> {
     return v;
   }
 
-  private resumeParams(threadId: string, window: ResumeWindow): Json {
-    const prev = this.store.threads.get(threadId);
-    const prevWindow = this.subs.get(threadId);
-    const resumeFrom = prev && prevWindow ? { epoch: prev.feed.epoch, seq: prev.feed.seq, window: prevWindow } : undefined;
+  private resumeParams(threadId: string, window: ResumeWindow, snapshot: boolean): Json {
+    const prev = snapshot ? undefined : this.store.threads.get(threadId);
+    const prevWindow = this.foldedWindow.get(threadId);
+    const resumeFrom = prev && prevWindow && !this.cursorReset.has(threadId) ? { epoch: prev.feed.epoch, seq: prev.feed.seq, window: prevWindow } : undefined;
     return { threadId, window, ...(resumeFrom ? { resumeFrom } : {}) } as unknown as Json;
   }
   private appParams(): Json {
-    const a = this.store.app;
+    const a = this.cursorReset.has(WIRE.appFeedId) ? undefined : this.store.app;
     return (a ? { resumeFrom: { epoch: a.epoch, seq: a.seq } } : {}) as unknown as Json;
   }
-  private attached(feedId: string, r: Json): void {
+  private attached(feedId: string, r: Json, window?: ResumeWindow): void {
     const s = (r as unknown as ThreadResumeResponse).subscription;
     // A reply that arrives after its feed already ran past the position it names is a stale read: it resets nothing, so the
     // events already folded stay in order and no gap is seen (the transcript is the feed's, not the reply's).
     const ahead = this.recv.get(feedId);
     if (ahead && ahead.epoch === s.epoch && ahead.seq >= s.startSeq) return;
-    this.recv.set(feedId, { epoch: s.epoch, seq: s.startSeq - 1 });
+    this.received(feedId, s.epoch, s.startSeq - 1);
+    if (s.mode === 'snapshot') this.awaitingSnapshot.add(feedId);
+    else this.awaitingSnapshot.delete(feedId);
     if (feedId === WIRE.appFeedId) this.store.liveSeq = s.liveSeq ?? s.startSeq;
-    this.subToken.set(feedId, ++this.tokenSeq);
+    const token = ++this.tokenSeq;
+    this.subToken.set(feedId, token);
+    if (window) this.tokenWindow.set(token, window);
   }
 
-  async resumeThread(threadId: string, window: ResumeWindow, options?: Pick<CallOptions, 'sent'>): Promise<ThreadResumeResponse> {
-    const params = this.resumeParams(threadId, window);
-    const r = await this.run('thread/resume', params, INTERNAL, (v) => {
-      this.attached(threadId, v);
-      this.subs.set(threadId, window);
-    }, false, options?.sent);
-    return r as unknown as ThreadResumeResponse;
+  resumeThread(threadId: string, window: ResumeWindow, options?: ResumeOptions): Promise<ThreadResumeResponse> {
+    return this.requestResume(threadId, window, options);
+  }
+
+  private requestResume(threadId: string, window: ResumeWindow, options?: ResumeOptions, restoring = false): Promise<ThreadResumeResponse> {
+    const current = this.resuming.get(threadId);
+    if (!restoring) {
+      const requested = current?.window ?? this.subs.get(threadId) ?? this.lostWindows.get(threadId) ?? this.foldedWindow.get(threadId);
+      if (options?.follow && requested && !('none' in requested) && !windowCovers(window, requested)) window = requested;
+      window = retainWindow(window, this.lostWindows.get(threadId));
+      window = retainWindow(window, this.foldedWindow.get(threadId));
+      window = retainWindow(window, this.subs.get(threadId));
+      window = retainWindow(window, current?.window);
+    }
+    const pending = options?.force ? undefined : current;
+    // A join never yields less than was asked: only a resume whose window holds the asked one answers it.
+    if (pending && windowCovers(pending.window, window) && (options?.join || windowCovers(window, pending.window))) {
+      // The joiner's frame is the one in flight: it has left when that one has.
+      options?.sent?.(pending.sent);
+      return pending.reply;
+    }
+    const params = this.resumeParams(threadId, window, options?.force === true && this.awaitingSnapshot.has(threadId));
+    let departed!: (sent: Promise<void>) => void;
+    const sent = new Promise<void>((resolve) => (departed = resolve));
+    void sent.catch(() => undefined);
+    const generation = this.generation;
+    const start = async (limit?: CallLimit): Promise<ThreadResumeResponse> => {
+      // Register the shared request before any transport can answer it.
+      await Promise.resolve();
+      if (restoring && generation !== this.generation) throw fail({ kind: 'connectionLost' });
+      return await this.run('thread/resume', params, INTERNAL, (v) => {
+        this.attached(threadId, v, window);
+        if (!restoring) {
+          this.subs.set(threadId, retainWindow(window, this.subs.get(threadId)));
+          this.lostWindows.delete(threadId);
+        }
+        const token = this.subToken.get(threadId);
+        if (token !== undefined) entry.token = token;
+      }, restoring, (frame) => {
+        departed(frame);
+        options?.sent?.(frame);
+      }, limit) as unknown as ThreadResumeResponse;
+    };
+    const reply = this.bounded('thread/resume', restoring ? FEED_REQUEST_DEADLINE_MS : options?.timeoutMs, null, start);
+    const entry: { reply: Promise<ThreadResumeResponse>; window: ResumeWindow; sent: Promise<void>; token?: number } = { reply, window, sent };
+    this.resuming.set(threadId, entry);
+    const settled = (folds: boolean): void => {
+      // A held control thread is never folded: nothing later ends its entry but its reply.
+      if ((!folds || this.held.has(threadId)) && this.resuming.get(threadId) === entry) this.resuming.delete(threadId);
+    };
+    reply.then((r) => settled(r.subscription.mode === 'snapshot'), () => settled(false));
+    return reply;
+  }
+  async confirmFeeds(feedIds: readonly string[]): Promise<boolean> {
+    const generation = this.generation;
+    // Positions received while the request was out count too. A relay pong says nothing about these heads.
+    const { feedIds: active, positions } = await this.bounded('feed/heads', FEED_REQUEST_DEADLINE_MS, null, (limit) =>
+      this.run('feed/heads', {}, INTERNAL, undefined, true, undefined, limit)) as unknown as FeedHeadsResponse;
+    if (generation !== this.generation || !active || active.length !== positions.length) return false;
+    const live = new Set(active);
+    return feedIds.every((id) => live.has(id)) && positions.every((head, i) => {
+      const id = active[i]!;
+      const received = this.recv.get(id);
+      return head !== null && !this.awaitingSnapshot.has(id) && received?.epoch === head.epoch && received.seq >= head.seq;
+    });
   }
   /** Whether this client follows `threadId` (a `thread/resume` it sent was answered; it resumes the thread again after each
    *  reconnect, until `unsubscribeThread` or `subscriptionLost`); whether its resume of the thread after a reconnect is in
@@ -922,10 +1211,14 @@ class Engine implements ProtocolClient<Json> {
   }
   async unsubscribeThread(threadId: string, options?: Pick<CallOptions, 'sent'>): Promise<void> {
     this.subs.delete(threadId);
+    this.lostWindows.delete(threadId);
     this.releaseHeld(threadId);
     this.subToken.delete(threadId);
     this.recv.delete(threadId);
+    this.awaitingSnapshot.delete(threadId);
+    this.resuming.delete(threadId);
     this.store.threads.delete(threadId);
+    this.foldedWindow.delete(threadId);
     this.feedChains.delete(threadId);
     await this.run('thread/unsubscribe', { threadId }, INTERNAL, undefined, false, options?.sent);
   }
@@ -946,7 +1239,43 @@ class Engine implements ProtocolClient<Json> {
       const given = (p as { opId?: string } | null)?.opId;
       p = { ...(p as object), opId: options?.opId ?? given ?? (this.o.newOpId ?? (() => uuidv7(Date.now())))() } as Json;
     }
-    return this.run(method, p, info, startsControlThread(method, p) ? (v) => void this.holdStarted(v, true) : undefined, false, options?.sent) as Promise<never>;
+    const opId = info.mutation ? (p as { opId: string }).opId : null;
+    const feedId = (p as { feedId?: string } | null)?.feedId;
+    const sync = startsControlThread(method, p)
+      ? (v: Json) => void this.holdStarted(v, true)
+      : method === 'feed/subscribe' && feedId
+        ? (v: Json) => this.attached(feedId, v)
+        : method === 'feed/unsubscribe' && feedId
+          ? () => {
+              this.recv.delete(feedId);
+              this.awaitingSnapshot.delete(feedId);
+              this.subToken.delete(feedId);
+            }
+          : undefined;
+    return this.bounded(method, options?.timeoutMs, opId, (limit) => this.run(method, p, info, sync, false, options?.sent, limit)) as Promise<never>;
+  }
+
+  /** The time a call may take before it is sent (the wait for a ready connection, for a held thread's resume): `requestTimeoutMs`,
+   *  120 s by default. A call that expires before it is sent fails and is never sent afterwards. Once sent, a request is bounded by
+   *  the connection's health, not by its age (`health.ts`): the default limit stops at the send. Only a deadline the caller passes
+   *  on purpose (`CallOptions.timeoutMs`) also bounds a sent request; the request stays pending then, so a late answer still does
+   *  what it carries (a resume attaches its feed), and a mutation that was out may have run: it fails as `opOutcomeUnknown`. */
+  private bounded<T>(method: string, timeoutMs: number | undefined, opId: string | null, start: (limit: CallLimit) => Promise<T>): Promise<T> {
+    const limit: CallLimit = { method, expired: false, sent: false };
+    const explicit = timeoutMs !== undefined;
+    const ms = timeoutMs ?? this.o.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (limit.sent && !explicit) return;
+        limit.expired = true;
+        const cause: ClientErrorDetail = { kind: 'requestTimeout', method, sent: limit.sent };
+        reject(fail(opId !== null && limit.sent ? { kind: 'opOutcomeUnknown', opId, state: 'statusFailed', cause } : cause));
+      }, ms);
+      start(limit).then(
+        (value) => (clearTimeout(timer), resolve(value)),
+        (error) => (clearTimeout(timer), reject(error))
+      );
+    });
   }
 
   /** The one way a control thread becomes held, whichever way its start was confirmed. `subscribed`: the reply itself subscribed this
@@ -957,6 +1286,7 @@ class Engine implements ProtocolClient<Json> {
     if (typeof id !== 'string') return Promise.resolve(reply);
     const window: ResumeWindow = { none: true };
     this.held.set(id, window);
+    if (subscribed) this.attached(id, reply);
     return subscribed ? Promise.resolve(reply) : this.restoreHeld(id, window).then(() => reply);
   }
 
@@ -968,10 +1298,11 @@ class Engine implements ProtocolClient<Json> {
     this.heldRestoring.delete(threadId);
   }
   /** `stay` calls (stub resolution inside the fold) never wait for a reconnect: they reject `connectionLost` instead. */
-  private async run(method: string, params: Json, info: MethodInfo, sync?: (v: Json) => void, stay = false, onSent?: SentClaim): Promise<Json> {
+  private async run(method: string, params: Json, info: MethodInfo, sync?: (v: Json) => void, stay = false, onSent?: SentClaim, limit?: CallLimit): Promise<Json> {
+    const generation = this.generation;
     for (;;) {
       if (stay) {
-        if (this.status.state !== 'ready') throw fail({ kind: 'connectionLost' });
+        if (this.status.state !== 'ready' || generation !== this.generation) throw fail({ kind: 'connectionLost' });
       } else {
         await this.whenReady();
         // A request naming a held control thread leaves only once that thread is subscribed again on this connection. A resume the
@@ -984,13 +1315,22 @@ class Engine implements ProtocolClient<Json> {
           continue;
         }
       }
+      // The caller was told it failed: a request that never left does not leave now.
+      if (limit?.expired) throw fail({ kind: 'requestTimeout', method, sent: false });
+      const sentGeneration = this.generation;
       const sent: SentAt = { all: this.responses, byClass: { ...this.classResponses }, feed: this.feedEvents };
       try {
+        if (limit) limit.sent = true;
         return await this.rpc(method, params, info.class, sync, onSent);
       } catch (e) {
         const d = detailOf(e);
         if (d.kind === 'rpc' && d.code === -32001) {
+          // Refused before it ran: it has not been out.
+          if (limit) limit.sent = false;
           await this.awaitRetryTrigger(d, sent);
+          if (sentGeneration !== this.generation && (method === 'feed/subscribe' || method === 'feed/unsubscribe')) {
+            throw fail({ kind: 'connectionLost' });
+          }
           continue;
         }
         if (d.kind === 'connectionLost' && info.mutation) return this.awaitReconcile(method, params, info);
@@ -1103,7 +1443,10 @@ class Engine implements ProtocolClient<Json> {
       const params = { digest: blob.digest, offset, length: Math.min(page, blob.bytes - offset) };
       let r: Json;
       try {
-        r = await this.run('blob/read', params, READ_C1, undefined, stay, offset === 0 ? sent : undefined);
+        const first = offset === 0 ? sent : undefined;
+        r = stay
+          ? await this.run('blob/read', params, READ_C1, undefined, true, first)
+          : await this.bounded('blob/read', undefined, null, (limit) => this.run('blob/read', params, READ_C1, undefined, false, first, limit));
       } catch (e) {
         throw blobError(e);
       }
@@ -1124,7 +1467,7 @@ class Engine implements ProtocolClient<Json> {
     return this.readPages(ref.blob, false, options?.sent);
   }
 
-  async putBlob(bytes: Uint8Array, mediaType: string, options?: Pick<CallOptions, 'sent'>): Promise<BlobRef> {
+  async putBlob(bytes: Uint8Array, mediaType: string, options?: Pick<CallOptions, 'sent'> & { onChunkAccepted?(): void }): Promise<BlobRef> {
     const digest = `sha256:${[...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as DigestInput))].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
     const chunk = this.server.limits.maxBlobPutChunkBytes;
     let offset = 0;
@@ -1132,7 +1475,9 @@ class Engine implements ProtocolClient<Json> {
       // The upload is one message: it has left when its last chunk has (Node sends a large message as one application frame split into records,
       // and the call's send completes after the last record, shared/remote-transport.ts splitRemoteTransportPayload / remote-shim-calls.ts:148).
       const last = offset + chunk >= bytes.length;
-      await this.run('blob/put', { digest, offset, bytesB64: toB64(bytes.subarray(offset, offset + chunk)) }, READ_C1, undefined, false, last ? options?.sent : undefined);
+      const chunkParams = { digest, offset, bytesB64: toB64(bytes.subarray(offset, offset + chunk)) };
+      await this.bounded('blob/put', undefined, null, (limit) => this.run('blob/put', chunkParams, READ_C1, undefined, false, last ? options?.sent : undefined, limit));
+      options?.onChunkAccepted?.();
       offset += chunk;
     } while (offset < bytes.length);
     return { blob: { digest, bytes: bytes.length, mediaType } };

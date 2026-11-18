@@ -57,7 +57,7 @@ use crate::connect::{Connect, ServerWindows, EPHEMERAL_ID};
 use crate::diagnostics_ops::{Asker, DiagnosticsOps};
 use crate::host_list_ops::{HostLinks, HostList};
 use crate::host_store::SshHostStore;
-use crate::link::{LinkPool, LinkSpec, ServerLink};
+use crate::link::{LinkOpen, LinkPool, LinkSpec, ServerLink};
 use crate::link_machine::{LinkViewState, ModelLogin};
 use crate::model_proxy_relay::{LocalModelProxy, ProxyEventSink};
 use crate::notifier::{NotifyPrefs, NotifySink, NotifyTexts, ServerNotifier, WindowFocusSource};
@@ -138,7 +138,7 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[async_trait]
 pub trait WindowHost: Send + Sync {
     /// Opens (or focuses) the window of the server; the error is the text the dialog shows.
-    async fn open(&self, connection_id: &str, name: &str) -> Result<(), String>;
+    async fn open(&self, connection_id: &str, name: &str, window_token: &str) -> Result<bool, String>;
     /// Closes the window of the server (nothing when it has none).
     async fn close(&self, connection_id: &str);
     /// Shows and focuses this PC's main window.
@@ -165,16 +165,17 @@ impl HostChannelWindows {
 
 #[async_trait]
 impl WindowHost for HostChannelWindows {
-    async fn open(&self, connection_id: &str, name: &str) -> Result<(), String> {
+    async fn open(&self, connection_id: &str, name: &str, window_token: &str) -> Result<bool, String> {
         let params = serde_json::to_value(HostWindowOpenParams {
             connection_id: connection_id.to_owned(),
             kind: HostWindowKind::Ssh,
             name: name.to_owned(),
+            window_token: Some(window_token.to_owned()),
         })
         .map_err(|error| error.to_string())?;
         let answer = self.host.request(HostCapability::Windows, Method("host/window/open"), params).await.map_err(host_failure)?;
         match serde_json::from_value::<HostWindowOpenResult>(answer) {
-            Ok(result) if result.opened => Ok(()),
+            Ok(result) if result.opened => Ok(result.created.unwrap_or(false)),
             Ok(_) => Err("The server window could not be opened.".to_owned()),
             Err(error) => Err(error.to_string()),
         }
@@ -200,34 +201,52 @@ impl WindowHost for HostChannelWindows {
 pub struct ServerWindowOpener {
     windows: Arc<dyn WindowHost>,
     store: Arc<WindowRestoreStore>,
+    links: Arc<dyn Links>,
+    leases: Mutex<HashMap<String, WindowLease>>,
+}
+
+#[derive(Clone)]
+struct WindowLease {
+    token: String,
+    link: Arc<dyn ServiceLink>,
 }
 
 impl ServerWindowOpener {
-    pub fn new(windows: Arc<dyn WindowHost>, store: Arc<WindowRestoreStore>) -> Self {
-        Self { windows, store }
+    pub fn new(windows: Arc<dyn WindowHost>, store: Arc<WindowRestoreStore>, links: Arc<dyn Links>) -> Self {
+        Self { windows, store, links, leases: Mutex::new(HashMap::new()) }
     }
 
-    async fn show(&self, id: &str, name: &str) -> Result<(), String> {
-        self.windows.open(id, name).await?;
-        if id != EPHEMERAL_ID
-            && let Err(error) = self.store.remember(id).await {
-            tracing::warn!("[connections] the server window could not be remembered: {error}");
-        }
-        Ok(())
+    async fn show(&self, id: &str, name: &str) -> Result<bool, String> {
+        let link = self.links.get(id).ok_or_else(|| "The server is no longer connected.".to_owned())?;
+        let token = uuid::Uuid::new_v4().to_string();
+        let created = self.windows.open(id, name, &token).await?;
+        locked(&self.leases).insert(id.to_owned(), WindowLease { token, link });
+        Ok(created)
     }
 }
 
 #[async_trait]
 impl ServerWindows for ServerWindowOpener {
-    async fn open(&self, id: &str, name: &str) -> Result<(), String> {
+    async fn open(&self, id: &str, name: &str) -> Result<bool, String> {
         self.show(id, name).await
+    }
+
+    async fn rollback(&self, id: &str) {
+        locked(&self.leases).remove(id);
+        self.windows.close(id).await;
+    }
+
+    async fn remember(&self, id: &str) {
+        if let Err(error) = self.store.remember(id).await {
+            tracing::warn!("[connections] the server window could not be remembered: {error}");
+        }
     }
 }
 
 #[async_trait]
 impl RestoreWindows for ServerWindowOpener {
     async fn open(&self, connection_id: &str, name: &str) -> Result<(), String> {
-        self.show(connection_id, name).await
+        self.show(connection_id, name).await.map(|_| ())
     }
 }
 
@@ -283,9 +302,9 @@ pub trait ServiceLink: Send + Sync {
 pub trait Links: Send + Sync {
     fn get(&self, id: &str) -> Option<Arc<dyn ServiceLink>>;
     fn list(&self) -> Vec<Arc<dyn ServiceLink>>;
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<(), ConnectError>;
-    /// Detaches the link.
-    async fn close(&self, id: &str);
+    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<LinkOpen, ConnectError>;
+    async fn rollback(&self, id: &str, token: u64);
+    async fn close_identity(&self, id: &str, identity: usize);
     async fn close_all(&self);
     async fn power(&self, event: PowerEvent);
     /// Changes after every open and close that went through the handle.
@@ -409,8 +428,8 @@ impl PoolHandle {
         Arc::new(PoolLink { link, watchers: self.watchers.clone() })
     }
 
-    async fn open_link(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<(), ConnectError> {
-        let opened = ServerLinks::open(&self.pool, spec, context, progress).await;
+    async fn open_link(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>, cancel: Option<&CancellationToken>) -> Result<LinkOpen, ConnectError> {
+        let opened = ServerLinks::open(&self.pool, spec, context, progress, cancel).await;
         self.announce();
         opened
     }
@@ -426,12 +445,17 @@ impl Links for PoolHandle {
         self.pool.list().into_iter().map(|link| self.service_link(link)).collect()
     }
 
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<(), ConnectError> {
-        self.open_link(spec, context, progress).await
+    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<LinkOpen, ConnectError> {
+        self.open_link(spec, context, progress, None).await
     }
 
-    async fn close(&self, id: &str) {
-        self.pool.close(id).await;
+    async fn rollback(&self, id: &str, token: u64) {
+        self.pool.rollback(id, token).await;
+        self.announce();
+    }
+
+    async fn close_identity(&self, id: &str, identity: usize) {
+        self.pool.close_identity(id, identity).await;
         self.announce();
     }
 
@@ -465,14 +489,18 @@ impl ServerLinks for PoolHandle {
         ServerLinks::is_open(&self.pool, id)
     }
 
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<(), ConnectError> {
-        self.open_link(spec, context, progress).await
+    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>, cancel: Option<&CancellationToken>) -> Result<LinkOpen, ConnectError> {
+        self.open_link(spec, context, progress, cancel).await
     }
 
     async fn close(&self, id: &str) {
         self.pool.close(id).await;
         self.windows.close(id).await;
         self.announce();
+    }
+
+    async fn rollback(&self, id: &str, token: u64) {
+        Links::rollback(self, id, token).await;
     }
 }
 
@@ -488,8 +516,12 @@ struct RestoreOpen(Arc<dyn Links>);
 
 #[async_trait]
 impl RestoreLinks for RestoreOpen {
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<(), ConnectError> {
+    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>) -> Result<LinkOpen, ConnectError> {
         self.0.open(spec, context, progress).await
+    }
+
+    async fn rollback(&self, id: &str, token: u64) {
+        self.0.rollback(id, token).await;
     }
 }
 
@@ -504,6 +536,10 @@ struct Forward(Arc<dyn ProxyEventSink>);
 impl ProxyEvents for Forward {
     fn emit(&self, event: ProxyEvent) {
         self.0.event(event);
+    }
+
+    fn owner(&self) -> Option<Arc<mixdog_core_domains::domains::ai_admin::model_proxy::OwnerLink>> {
+        self.0.owner()
     }
 }
 
@@ -624,6 +660,7 @@ pub fn ssh_config_hosts(env: &SshEnv) -> Vec<SshConfigHost> {
 
 /// Everything the service works over; each module is built once by the composition root over the same stores and pool.
 pub struct ConnectionsDeps {
+    pub opener: Arc<ServerWindowOpener>,
     pub hosts: Arc<SshHostStore>,
     pub remote_hosts: Arc<RemoteHostStore>,
     pub window_restore: Arc<WindowRestoreStore>,
@@ -692,7 +729,7 @@ pub struct ConnectionsService {
 impl ConnectionsService {
     /// Starts the service and the tasks that follow the links and the logins. Must be called inside a tokio runtime.
     pub fn new(deps: ConnectionsDeps) -> Self {
-        let opener = Arc::new(ServerWindowOpener::new(deps.windows.clone(), deps.window_restore.clone()));
+        let opener = deps.opener.clone();
         let state = State { restore_due: true, ..State::default() };
         let inner = Arc::new(Inner { deps, opener, state: Mutex::new(state) });
         let tasks = vec![spawn_links(&inner), spawn_login_updates(&inner)];
@@ -904,13 +941,36 @@ impl Inner {
             state.grace = None;
             state.restore_due = true;
         }
+        locked(&self.opener.leases).clear();
         self.deps.links.close_all().await;
     }
 
     fn window_closed(self: &Arc<Self>, params: HostWindowClosedParams) {
         let inner = self.clone();
         drop(mixdog_rt::spawn("connections-window-closed", TaskClass::Control, async move {
-            inner.deps.links.close(&params.connection_id).await;
+            let id = &params.connection_id;
+            let Some(token) = params.window_token else { return };
+            let key = if id == EPHEMERAL_ID {
+                EPHEMERAL_ID.to_owned()
+            } else if let Some(link) = inner.deps.links.get(id) {
+                link.target().key()
+            } else if let Some(lease) = locked(&inner.opener.leases).get(id) {
+                lease.link.target().key()
+            } else {
+                return;
+            };
+            let _turn = inner.deps.hosts.turn(&key).await;
+            let lease = {
+                let mut leases = locked(&inner.opener.leases);
+                if !leases.get(id).is_some_and(|lease| lease.token == token) {
+                    return;
+                }
+                leases.remove(id).expect("matched lease")
+            };
+            if inner.deps.links.get(id).is_some_and(|link| link.identity() != lease.link.identity()) {
+                return;
+            }
+            inner.deps.links.close_identity(id, lease.link.identity()).await;
             // A window the user closed is not reopened at the next launch; one that closed because the app quits is.
             if params.by_user
                 && let Err(error) = inner.deps.window_restore.forget(&params.connection_id).await {
@@ -1041,9 +1101,11 @@ impl Inner {
             "connections/ssh/forget" => {
                 let params: ConnectionsIdParams = decode(&req)?;
                 self.allow(&req, None)?;
-                deps.host_list.forget(&params.id).await.map_err(attempt_failure)?;
-                deps.logins.forget_host(&params.id);
-                empty()
+                let result = deps.host_list.forget(&params.id).await.map_err(attempt_failure)?;
+                if matches!(result, mixdog_app_protocol::v2::connections::SshForgetResult::Done(_)) {
+                    deps.logins.forget_host(&params.id);
+                }
+                value(result)
             }
             "connections/ssh/open" => {
                 let params: ConnectionsIdParams = decode(&req)?;
@@ -1082,8 +1144,11 @@ impl Inner {
                 let params: SshCleanupParams = decode(&req)?;
                 self.allow(&req, None)?;
                 let caller = caller_of(&req)?;
-                let sink = self.cleanup_sink(caller, &params.id);
-                value(deps.cleanup.cleanup(caller, &params.id, params.request, sink).await.map_err(attempt_failure)?)
+                let result = match params.target.as_deref().filter(|_| params.id.is_empty()) {
+                    Some(target) => deps.cleanup.cleanup_target(caller, target, params.request, self.cleanup_sink(caller, target)).await,
+                    None => deps.cleanup.cleanup(caller, &params.id, params.request, self.cleanup_sink(caller, &params.id)).await,
+                };
+                value(result.map_err(attempt_failure)?)
             }
             "connections/ssh/updateSettings" => {
                 let params: SshUpdateSettingsParams = decode(&req)?;

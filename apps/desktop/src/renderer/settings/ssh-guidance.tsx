@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { DesktopSshAgentStatus, DesktopSshFailure } from '../../shared/contract-ssh';
 import { t } from '../i18n';
 import { Steps } from './connection-dialogs';
+import { sshMessageText } from './ssh-message-text';
 import { AddressRow } from './pair-code';
 
 export type GuidanceFailure = Exclude<
@@ -88,9 +89,9 @@ function sshMissingGuidance(command: string | null): Guidance {
     title: t('OpenSSH is not installed'),
     description: command
       ? t(
-          'Mixdog connects with the OpenSSH client of Windows. Run the command below in an administrator PowerShell, then try again.'
+          'The app connects with the OpenSSH client of Windows. Run the command below in an administrator PowerShell, then try again.'
         )
-      : t('Mixdog connects with the OpenSSH client. Install it with your system’s package manager, then try again.'),
+      : t('The app connects with the OpenSSH client. Install it with your system’s package manager, then try again.'),
     body: command ? commandBlock(command) : null,
   };
 }
@@ -113,17 +114,17 @@ type MessageFailure = Extract<GuidanceFailure, { message: string }>;
 /** The title and text of every failure whose only detail is the error message shown beneath them. */
 const MESSAGE_GUIDANCE: Record<MessageFailure['kind'], (name: string) => Omit<Guidance, 'body'>> = {
   'unsupported-platform': (name) => ({
-    title: t('This server can’t run Mixdog'),
-    description: t('{{name}} uses a system Mixdog does not support yet.', { name }),
+    title: t('The app can’t run on this server'),
+    description: t('{{name}} runs a system the app does not support yet.', { name }),
   }),
   'install-failed': (name) => ({
     title: t('The installation failed'),
-    description: t('Mixdog could not be installed on {{name}}. Check the details below, then try again.', { name }),
+    description: t('The app could not be installed on {{name}}. Check the details below, then try again.', { name }),
   }),
   'protocol-mismatch': (name) => ({
-    title: t('The Mixdog version on the server doesn’t match'),
+    title: t('The version on the server doesn’t match this app'),
     description: t(
-      'Connecting again installs the matching version on {{name}}. If this keeps happening, use “Clean up Mixdog on the server…” in Settings → Connections, then connect again.',
+      'Connecting again installs the matching version on {{name}}. If this keeps happening, choose “Clean up the server…”, then connect again.',
       { name }
     ),
   }),
@@ -134,50 +135,50 @@ const MESSAGE_GUIDANCE: Record<MessageFailure['kind'], (name: string) => Omit<Gu
   'remote-shell': (name) => ({
     title: t('The server’s login shell interferes'),
     description: t(
-      '{{name}} printed something unexpected when Mixdog logged in, or its home folder could not be used. Remove any output from the login scripts (such as .bashrc) that runs in non-interactive sessions, then try again.',
+      '{{name}} printed something unexpected when the app logged in, or its home folder could not be used. Remove any output from the login scripts (such as .bashrc) that runs in non-interactive sessions, then try again.',
       { name }
     ),
   }),
   'port-unavailable': (name) => ({
     title: t('The server has no free port'),
-    description: t('Mixdog could not open its port on {{name}}. Check the details below, then try again.', { name }),
+    description: t('The app could not open a port on {{name}}. Check the details below, then try again.', { name }),
   }),
   'deps-install': (name) => ({
-    title: t('The server couldn’t install what Mixdog needs'),
+    title: t('The server couldn’t install what the app needs'),
     description: t(
       '{{name}} needs npm and access to the npm registry or GitHub to install it. Check the details below, then try again.',
       { name }
     ),
   }),
   'daemon-stop': (name) => ({
-    title: t('The old Mixdog could not be stopped'),
-    description: t('Mixdog on {{name}} did not stop. Check the details below, then try again.', { name }),
+    title: t('The older version could not be stopped'),
+    description: t('The app on {{name}} did not stop. Check the details below, then try again.', { name }),
   }),
   'daemon-replace': (name) => ({
-    title: t('Mixdog could not be replaced'),
+    title: t('The older version could not be replaced'),
     description: t(
-      'The Mixdog on {{name}} could not be replaced with this version. Check the details below, then try again.',
+      'The version running on {{name}} could not be replaced with this one. Check the details below, then try again.',
       { name }
     ),
   }),
   'daemon-unmanaged': (name) => ({
-    title: t('Mixdog on the server was started by someone else'),
+    title: t('The app on the server was started by someone else'),
     description: t(
-      'A Mixdog that was not started from this app is running on {{name}}. It was left running; Mixdog will not stop it for you. Stop it yourself on the server, or use that Mixdog directly, then try again.',
+      'A copy of the app that was not started from this app is running on {{name}}. It was left running; this app will not stop it for you. Stop it yourself on the server, or use it directly, then try again.',
       { name }
     ),
   }),
   'daemon-data-in-use': (name) => ({
-    title: t('The server’s Mixdog data is in use'),
+    title: t('The app’s data on the server is in use'),
     description: t(
-      'Another Mixdog on {{name}} is using the same data folder. It was left running. Close it on the server, then try again.',
+      'Another copy of the app on {{name}} is using the same data folder. It was left running. Close it on the server, then try again.',
       { name }
     ),
   }),
   'daemon-unproven': (name) => ({
-    title: t('This Mixdog can’t be confirmed'),
+    title: t('The program on the server can’t be confirmed'),
     description: t(
-      'The process on {{name}} could not be confirmed as Mixdog, so it was left alone. Check the details below.',
+      'The process on {{name}} could not be confirmed as this app’s, so it was left alone. Check the details below.',
       { name }
     ),
   }),
@@ -212,7 +213,7 @@ export function guidance(failure: GuidanceFailure, name: string): Guidance {
       return {
         title: t('Another installation is running'),
         description: t(
-          'Mixdog is already being installed on {{name}} by another connection. Wait a moment, then try again.',
+          'The app is already being installed on {{name}} by another connection. Wait a moment, then try again.',
           { name }
         ),
         body: null,
@@ -233,6 +234,6 @@ export function guidance(failure: GuidanceFailure, name: string): Guidance {
         body: commandBlock(failure.command),
       };
     default:
-      return { ...MESSAGE_GUIDANCE[failure.kind](name), body: rawMessage(failure.message) };
+      return { ...MESSAGE_GUIDANCE[failure.kind](name), body: rawMessage(sshMessageText(failure.notice, failure.message)) };
   }
 }

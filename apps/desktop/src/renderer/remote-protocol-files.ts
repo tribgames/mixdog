@@ -7,12 +7,15 @@
 // for every adapter alike, as Node's was: nothing here queues.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import {
+  FileDownloadError,
   FILE_DOWNLOAD_MAX_BYTES,
   FILE_DOWNLOAD_PURPOSES,
   FILE_DOWNLOAD_RANGE_MAX_BYTES,
+  type FileDownloadChunk,
   type FileDownloadPurpose,
 } from '../shared/file-downloads';
 import { requiredString } from '../shared/remote-arguments';
+import { VISUALIZE_EXPORT_ID_PREFIX } from '../shared/visualize';
 import {
   fileSearchLimit,
   hostDirectoryPath,
@@ -28,6 +31,7 @@ import {
 } from '../shared/remote-files-arguments';
 import { projectSummaries } from '../main/protocol/service-route';
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
+import { phoneTransferCall } from './remote-transfer-call';
 
 type Client = ProtocolClient<SessionFold>;
 type Params = Record<string, unknown>;
@@ -35,6 +39,9 @@ type Params = Record<string, unknown>;
 const DESKTOP_UNAVAILABLE = 'The desktop app is unavailable on this connection.';
 // 60 000 code points are at most 360 000 bytes on the wire (a control character escapes to six), under a connection's 512 KiB per answer.
 const READ_WINDOW_CHARS = 60_000;
+// A multiple of three, so full pages can be concatenated as base64 without intermediate padding.
+// At this size even the base64 reply plus its envelope fits in a 256 KiB control frame.
+const DOWNLOAD_RPC_PAGE_BYTES = 180 * 1024;
 const FILE_CHANGED = 'File changed on disk. Reload or keep your edits before saving.';
 
 /** What a domain failure was to Node's page: the error's text, and its `code` when Node's error had one (a system error's
@@ -60,15 +67,18 @@ export function failure(error: unknown): unknown {
   return rebuilt;
 }
 
-export const rpc = async (host: PhoneProtocolHost, method: string, params: Params): Promise<any> => {
+const rpcClient = async (client: Client, method: string, params: Params): Promise<any> => {
   try {
     // `nodeErrors` (projectFs calls only; the other methods' params are closed): this is the phone's call, so an entry beyond its project is
     // answered as Node's plain `Error`, not the core's permission refusal.
-    return await (host.client().call as (m: string, p: unknown) => Promise<unknown>)(method, method.startsWith('projectFs/') ? { ...params, nodeErrors: true } : params);
+    return await phoneTransferCall(client, method, method.startsWith('projectFs/') ? { ...params, nodeErrors: true } : params);
   } catch (error) {
     throw failure(error);
   }
 };
+
+export const rpc = async (host: PhoneProtocolHost, method: string, params: Params): Promise<any> =>
+  rpcClient(host.client(), method, params);
 
 /** `remoteFileTarget`: a one-file permission names the file by its token (the core redeems it), else a project and a path in it. */
 function fileTarget(projectPath: unknown, relPath: unknown, accessToken: unknown): Params {
@@ -134,7 +144,21 @@ type DownloadRequest = { sessionId: string; purpose: FileDownloadPurpose } & (
   | { kind: 'link'; itemId: string; href: string }
   | { kind: 'attachment'; attachmentId: string }
   | { kind: 'folder'; path: string }
+  | { kind: 'export'; input: Params }
 );
+
+/** The render a visualize export names (remote-protocol-visualize.ts `visualizeExport`): the core's `export` transfer source draws it
+ *  when the download is authorized. */
+function exportInput(exportId: unknown): Params {
+  if (typeof exportId !== 'string' || !exportId.startsWith(VISUALIZE_EXPORT_ID_PREFIX)) throw new TypeError('download source is invalid.');
+  let named: unknown;
+  try {
+    named = JSON.parse(exportId.slice(VISUALIZE_EXPORT_ID_PREFIX.length));
+  } catch {
+    throw new TypeError('download source is invalid.');
+  }
+  return plainRecord(named, 'download source');
+}
 
 function downloadRequest(value: unknown): DownloadRequest {
   const request = plainRecord(value, 'download request');
@@ -154,6 +178,7 @@ function downloadRequest(value: unknown): DownloadRequest {
     if (typeof source.attachmentId !== 'string' || !ATTACHMENT_ID.test(source.attachmentId)) throw new TypeError('attachment id is invalid.');
     return { kind: 'attachment', sessionId, attachmentId: source.attachmentId, purpose };
   }
+  if (source.kind === 'export') return { kind: 'export', sessionId, input: exportInput(source.exportId), purpose };
   if (source.kind === 'session' || source.kind === 'folder') return { kind: source.kind, sessionId, path: requiredText(source.path, 'path', 4_096), purpose };
   if (source.kind === 'media') {
     const assetId = requiredText(source.assetId, 'asset id', 128);
@@ -178,15 +203,42 @@ function authorizeDownload(host: PhoneProtocolHost, value: unknown): Promise<unk
             ? { kind: 'attachment', attachmentId: request.attachmentId }
             : request.kind === 'folder'
               ? { kind: 'folder', path: request.path }
-              : { kind: 'sessionFile', path: request.path };
+              : request.kind === 'export'
+                ? { kind: 'export', input: request.input }
+                : { kind: 'sessionFile', path: request.path };
   return rpc(host, 'transfer/authorizeRead', { sessionId: request.sessionId, source, purpose: request.purpose });
 }
-function downloadRange(transferId: unknown, offset: unknown, length: unknown, version: unknown): Params {
+
+function downloadRange(transferId: unknown, offset: unknown, length: unknown, version: unknown) {
   const id = downloadId(transferId, 'transfer id');
   if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset > FILE_DOWNLOAD_MAX_BYTES) throw new TypeError('offset is invalid.');
   if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 1 || length > FILE_DOWNLOAD_RANGE_MAX_BYTES) throw new TypeError('length is invalid.');
   if (typeof version !== 'string' || !DOWNLOAD_VERSION.test(version)) throw new TypeError('version is invalid.');
   return { transferId: id, offset, length, version };
+}
+
+/** Keep the save sink's range contract while keeping every core reply bounded.
+ * The core checks the same transfer owner and version on each page. */
+async function readDownloadRange(host: PhoneProtocolHost, request: ReturnType<typeof downloadRange>): Promise<FileDownloadChunk> {
+  const client = host.client();
+  if (request.length <= DOWNLOAD_RPC_PAGE_BYTES) return rpcClient(client, 'transfer/readRange', request);
+  const parts: string[] = [];
+  let read = 0;
+  let eof = false;
+  while (read < request.length && !eof) {
+    const offset = request.offset + read;
+    const length = Math.min(DOWNLOAD_RPC_PAGE_BYTES, request.length - read);
+    const page: FileDownloadChunk = await rpcClient(client, 'transfer/readRange', { ...request, offset, length });
+    if (page.transferId !== request.transferId || page.offset !== offset || page.version !== request.version ||
+        !Number.isSafeInteger(page.length) || page.length < 0 || page.length > length || (page.length !== length && !page.eof)) {
+      throw new FileDownloadError('changed', 'The file changed on the host.');
+    }
+    host.transferProgress?.();
+    parts.push(page.data);
+    read += page.length;
+    eof = page.eof;
+  }
+  return { ...request, length: read, eof, data: parts.join('') };
 }
 
 let nextSearch = 1;
@@ -314,9 +366,10 @@ export const adapter: PhoneProtocolAdapter = {
     // ── a paired phone's downloads: a grant that expires, then the transfer it is consumed into ──
     fileDownloadAuthorize: ([request], host) => authorizeDownload(host, request),
     fileDownloadBegin: ([grantId], host) => rpc(host, 'transfer/redeemGrant', { grantId: downloadId(grantId, 'grant id') }),
-    fileDownloadRange: ([transferId, offset, length, version], host) => rpc(host, 'transfer/readRange', downloadRange(transferId, offset, length, version)),
+    fileDownloadRange: ([transferId, offset, length, version], host) => readDownloadRange(host, downloadRange(transferId, offset, length, version)),
     fileDownloadFinish: ([transferId], host) => rpc(host, 'transfer/finishRead', { transferId: downloadId(transferId, 'transfer id') }),
-    fileDownloadAbort: ([id], host) => rpc(host, 'transfer/endRead', { transferId: downloadId(id, 'download id') }).then((answer: { ended: boolean }) => answer.ended),
+    fileDownloadAbort: ([id], host) =>
+      rpc(host, 'transfer/endRead', { transferId: downloadId(id, 'download id') }).then((answer: { ended: boolean }) => answer.ended),
     // ── the editor's own storage ──
     readEditorSettings: ([projectPath, relPath, workspaceFile], host) => {
       const root = requiredString(projectPath, 'projectPath');

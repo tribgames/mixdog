@@ -95,19 +95,23 @@ export function routeAutoEffortCapable(option: { autoEffortCapable?: boolean } |
 export function useAutoEffortRoute(
   capable: boolean,
   routeAutoEffort: boolean | null | undefined,
-  onChange: (enabled: boolean) => unknown
+  onChange: (enabled: boolean) => unknown,
+  modelKnown = false
 ) {
-  const master = useAutoEffort(capable);
+  const master = useAutoEffort(capable || modelKnown);
+  const masterOn = hostRouteAutoEffort() && masterAutoEffortOn(master);
+  let autoEffort: { enabled: boolean; pending: boolean; unavailable?: boolean } | null = null;
+  if (capable && masterOn) autoEffort = { enabled: routeAutoEffortOn(routeAutoEffort), pending: false };
+  // The core says Auto cannot apply to this model: the sheet says so instead of
+  // offering a setting that would do nothing, and the level in force stays shown.
+  else if (modelKnown && !capable && masterOn) autoEffort = { enabled: false, pending: false, unavailable: true };
   return {
-    autoEffort:
-      capable && hostRouteAutoEffort() && masterAutoEffortOn(master)
-        ? { enabled: routeAutoEffortOn(routeAutoEffort), pending: false }
-        : null,
+    autoEffort,
     onChangeAutoEffort: (enabled: boolean) => {
       void onChange(enabled);
     },
     onOpenSheet: () => {
-      if (capable) void refreshAutoEffort();
+      if (capable || modelKnown) void refreshAutoEffort();
     },
   };
 }

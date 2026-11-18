@@ -34,7 +34,11 @@ impl AgentRegistry {
                 })
                 .collect()
         };
-        let (workers, leads) = (stored(false), stored(true));
+        let workers = stored(false);
+        // The Leads' rows: those of the Lead index (`lead-workers.json`'s place, `lead_row.rs`), then a migrated header row of a
+        // Lead the index holds nothing of.
+        let mut leads: Vec<Value> = state.lead_rows.values().flatten().map(|row| Value::Object(row.clone())).collect();
+        leads.extend(stored(true).into_iter().filter(|row| !state.lead_rows.contains_key(&clean(row.get("sessionId")))));
         let tombstones: Vec<Value> = state.stored_tombstones(now).iter().map(|row| Value::Object(row.clone())).collect();
         (json!({ "workers": workers, "tombstones": tombstones }), json!({ "workers": leads }))
     }

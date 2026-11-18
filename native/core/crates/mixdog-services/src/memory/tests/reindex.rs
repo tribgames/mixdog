@@ -11,23 +11,13 @@ use tokio_util::sync::CancellationToken;
 
 use crate::memory::embed::engine::EmbedConfig;
 use crate::memory::embed::provider::EmbeddingProvider;
-use crate::memory::ingest::embed_flush::{FlushFailure, RawEmbedFlush, ROOT_EMBED_SWEEP_META_KEY, RootFlush, SweepStep, root_embed_text, start_root_embed_sweep};
+use crate::memory::ingest::embed_flush::{FlushFailure, RawEmbedFlush, ROOT_EMBED_SWEEP_META_KEY, RootFlush, SweepStep, start_root_embed_sweep};
+#[cfg(node_twin)]
+use crate::memory::ingest::embed_flush::root_embed_text;
 use crate::memory::pg::db::Schema;
 use crate::memory::reindex::{PASS_PAUSE, ROOT_SWEEP_PAUSE, ReindexSummary, SweepSummary, drain_embedding_reindex, run_root_embed_sweep};
 use crate::memory::schema::ensure_memory_schema;
 use crate::memory::tests::support::TestPg;
-
-const ROOT_TEXT: &str = include_str!("../../../../../fixtures/tools/memory/root-embed-text/golden.json");
-
-#[test]
-fn root_embed_text_matches_node() {
-    let golden: Value = serde_json::from_str(ROOT_TEXT).expect("golden");
-    for case in golden["cases"].as_array().expect("cases") {
-        let field = |name: &str| case[name].as_str();
-        let got = root_embed_text(field("element"), field("summary"), field("role"), field("content"));
-        assert_eq!(got, case["text"].as_str().expect("text"), "{}", case["name"]);
-    }
-}
 
 fn secs(seconds: &[u64]) -> Vec<Duration> {
     seconds.iter().copied().map(Duration::from_secs).collect()
@@ -193,4 +183,18 @@ async fn roots_get_vectors_and_the_sweep_replaces_old_ones_then_finishes() {
     let state: Value = db.query("SELECT value FROM meta WHERE key = $1", &[&ROOT_EMBED_SWEEP_META_KEY]).await.expect("meta")[0].get(0);
     assert_eq!(state, json!({ "cursor": a.min(b), "done": true }));
     assert_eq!(flush.sweep_root_text(8, &cancel).await.expect("again"), SweepStep { claimed: 0, replaced: 0, done: true });
+}
+
+
+#[cfg(node_twin)]
+const ROOT_TEXT: &str = include_str!("../../../../../fixtures/tools/memory/root-embed-text/golden.json");
+#[cfg(node_twin)]
+#[test]
+fn root_embed_text_matches_node() {
+    let golden: Value = serde_json::from_str(ROOT_TEXT).expect("golden");
+    for case in golden["cases"].as_array().expect("cases") {
+        let field = |name: &str| case[name].as_str();
+        let got = root_embed_text(field("element"), field("summary"), field("role"), field("content"));
+        assert_eq!(got, case["text"].as_str().expect("text"), "{}", case["name"]);
+    }
 }

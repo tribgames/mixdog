@@ -2,13 +2,13 @@
 //! container, the probes that tell whether a document is password protected, and the [MS-OFFCRYPTO] decryption of an
 //! encrypted OOXML package (agile and standard encryption).
 //!
-//! - [`cfb`]: the bounded compound-file reader ([MS-CFB]); every refusal has the message Node's reader gave.
+//! - [`cfb`]: the bounded compound-file reader ([MS-CFB]); every refusal has a fixed message.
 //! - [`protection`]: the probes (OOXML `EncryptionInfo` + `EncryptedPackage`, a .doc FIB `fEncrypted`, a .ppt
 //!   `EncryptedSummary` or `Current User` header token) and the readers of the two OOXML streams.
 //! - [`descriptor`]: the agile (XML) and standard (binary) encryption descriptors.
 //! - [`keys`]: the password derivation on its own cancellable thread (two at a time) and the verifier check.
 //! - [`decrypt`]: the HMAC integrity check and the segment decryption of the package.
-//! - [`hashes`]: the hash algorithms a descriptor can name, each as Node's crypto answered for it.
+//! - [`hashes`]: the hash algorithms a descriptor can name, each as OpenSSL 3 answers for it.
 //!
 //! Everything here is blocking: callers run it from a job on an I/O or CPU lane.
 

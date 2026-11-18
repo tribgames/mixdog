@@ -17,19 +17,20 @@ use crate::db::Connection;
 use crate::error::Result;
 use crate::hours::hourly_series;
 use crate::maintenance::cached_rollup;
-use crate::measure::FAST_KEY;
 use crate::measure::Ordered;
+use crate::measure::SpeedTier;
 use crate::measure::amount;
 use crate::measure::is_true;
 use crate::measure::js_number;
 use crate::measure::known_cost_turns;
 use crate::measure::num;
 use crate::measure::round_to;
-use crate::measure::sort_fast_beside_model;
+use crate::measure::sort_model_tiers;
 use crate::measure::trimmed;
 use crate::period::PeriodRequest;
 use crate::period::resolve_usage_stats_period;
 use crate::rollup::RollupQuery;
+use crate::rollup::Hourly;
 use crate::rollup::rollup_usage;
 use crate::time::add_local_days;
 use crate::time::day_key;
@@ -200,7 +201,7 @@ impl Route {
 
 struct ModelBucket {
     model: String,
-    fast: bool,
+    tier: SpeedTier,
     route: Route,
 }
 
@@ -271,7 +272,7 @@ fn fold_route(
     model_id: &str,
     kind: &str,
     usage: &Usage,
-    fast: bool,
+    tier: SpeedTier,
 ) {
     let provider = state.providers.entry(provider_id, || ProviderBucket {
         provider: provider_id.to_string(),
@@ -282,14 +283,10 @@ fn fold_route(
     if !kind.is_empty() && provider.kind.is_empty() {
         provider.kind = kind.to_string();
     }
-    let key = if fast {
-        format!("{model_id}{FAST_KEY}")
-    } else {
-        model_id.to_string()
-    };
+    let key = tier.key(model_id);
     let model = provider.models.entry(&key, || ModelBucket {
         model: model_id.to_string(),
-        fast,
+        tier,
         route: Route::new(),
     });
     let incomplete =
@@ -413,7 +410,7 @@ fn fold_rollup_day(state: &mut State, key: &str, day: &Value, conversation_only:
                 &model_id,
                 &trimmed(raw.get("kind")),
                 &usage,
-                is_true(raw.get("fast")),
+                SpeedTier::from_row(raw),
             );
             add_daily(state, key, &usage, &provider_id);
         }
@@ -661,14 +658,12 @@ fn export_providers(state: &State, total_tokens: f64, model_limit: usize) -> Vec
                 .map(|model| {
                     let mut out = Map::new();
                     out.insert("model".into(), model.model.clone().into());
-                    if model.fast {
-                        out.insert("fast".into(), true.into());
-                    }
+                    model.tier.put_fields(&mut out);
                     out.extend(export_route(&model.route, total_tokens));
                     Value::Object(out)
                 })
                 .collect();
-            sort_fast_beside_model(
+            sort_model_tiers(
                 &mut models,
                 |row| {
                     row.get("model")
@@ -845,9 +840,10 @@ pub fn rollup_query_for(period: Option<&Value>) -> RollupQuery {
     query
 }
 
-/// The snapshot for a rollup document (`{days, hourly?}`).
+/// The snapshot for a rollup document (`{days}`) and the rollup's hourly records.
 pub fn usage_stats_snapshot(
     rollup: &Value,
+    hourly_records: Option<&Hourly>,
     options: &UsageStatsOptions,
     period: Option<&Value>,
     now: i64,
@@ -916,7 +912,7 @@ pub fn usage_stats_snapshot(
             out.insert(
                 "hourly".into(),
                 hourly_series(
-                    rollup.get("hourly"),
+                    hourly_records,
                     window.from_ms,
                     window.to_ms,
                     p.get("endMs")
@@ -1167,28 +1163,34 @@ fn live_since(conn: &Connection) -> Result<Option<f64>> {
     Ok((number != 0.0 && !number.is_nan()).then_some(number))
 }
 
-/// `getUsageStats` over the ledger: resolve the period, roll up, fold. The caller settles its
-/// pending appends first and owns history import and price refresh (both writes).
-pub(crate) fn usage_stats(
-    conn: &Connection,
-    options: &UsageStatsOptions,
-    now: i64,
-) -> Result<Value> {
-    let period = match options.period_request(None) {
-        Some(request) => Some(resolve_usage_stats_period(&request, now)?),
-        None => None,
-    };
-    let query = rollup_query_for(period.as_ref());
-    let rollup = if query.from_ms.is_some() {
-        rollup_usage(conn, &query)?.to_value()
-    } else {
-        cached_rollup(conn, &query, now)?
-    };
-    let mut snapshot = usage_stats_snapshot(&rollup, options, period.as_ref(), now);
-    let live = live_since(conn)?;
-    if let Some(Value::Object(coverage)) = snapshot.get_mut("coverage") {
-        coverage.insert("ledger".into(), true.into());
-        coverage.insert("liveSince".into(), live.map_or(Value::Null, js_number));
+pub(crate) fn stats_period(options: &UsageStatsOptions, now: i64) -> Result<Option<Value>> {
+    options.period_request(None).map(|request| resolve_usage_stats_period(&request, now)).transpose()
+}
+
+/// Everything the statistics need from one SQLite snapshot. Presentation (including the
+/// caller's period, clock, source and model limit) is not part of the shared read.
+pub(crate) struct StatsData {
+    rollup: Value,
+    hourly: Option<Hourly>,
+    live: Option<f64>,
+}
+
+impl StatsData {
+    pub(crate) fn read(conn: &Connection, query: &RollupQuery, now: i64) -> Result<Self> {
+        let (rollup, hourly) = if query.from_ms.is_some() {
+            rollup_usage(conn, query)?.into_parts()
+        } else {
+            cached_rollup(conn, query, now)?
+        };
+        Ok(Self { rollup, hourly, live: live_since(conn)? })
     }
-    Ok(snapshot)
+
+    pub(crate) fn snapshot(&self, options: &UsageStatsOptions, period: Option<&Value>, now: i64) -> Value {
+        let mut snapshot = usage_stats_snapshot(&self.rollup, self.hourly.as_ref(), options, period, now);
+        if let Some(Value::Object(coverage)) = snapshot.get_mut("coverage") {
+            coverage.insert("ledger".into(), true.into());
+            coverage.insert("liveSince".into(), self.live.map_or(Value::Null, js_number));
+        }
+        snapshot
+    }
 }

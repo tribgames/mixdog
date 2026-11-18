@@ -20,6 +20,7 @@ use tokio_util::sync::CancellationToken;
 use crate::error::ScmFailure;
 use crate::repo::on_lane;
 use crate::worktree::errors;
+use crate::worktree::housekeeping::repo_cwd;
 use crate::worktree::manager::Worktrees;
 use crate::worktree::manager::entry_json;
 use crate::worktree::names::managed_root;
@@ -130,12 +131,6 @@ fn write_lease_file(path: &Path, lease: &Lease) -> Result<(), ScmFailure> {
     Ok(())
 }
 
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
-}
-
 fn shared_leases(record: &WorktreeRecord) -> serde_json::Map<String, Value> {
     record
         .extra
@@ -145,6 +140,45 @@ fn shared_leases(record: &WorktreeRecord) -> serde_json::Map<String, Value> {
         .unwrap_or_default()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_pid_is_alive_when_it_is_ours_or_unknown_and_dead_when_proven() {
+        assert!(pid_alive_or_unknown(Some(std::process::id())));
+        assert!(pid_alive_or_unknown(None));
+        let mut child = std::process::Command::new(if cfg!(windows) { "cmd" } else { "true" })
+            .args(if cfg!(windows) { vec!["/c", "exit"] } else { vec![] })
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        assert!(!pid_alive_or_unknown(Some(pid)));
+    }
+
+    #[test]
+    fn leases_round_trip_and_garbage_is_no_lease() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".owners").join("w.json");
+        let lease = Lease {
+            owner: Owner { session_id: "s".into(), runtime_token: "t".into(), pid: Some(7) },
+            entry_id: "w".into(),
+            claimed_at: Some(1),
+        };
+        write_lease_file(&path, &lease).unwrap();
+        assert_eq!(read_lease_file(&path, "w").unwrap(), Some(lease));
+        std::fs::write(&path, b"{ nope").unwrap();
+        assert_eq!(read_lease_file(&path, "w").unwrap(), None);
+    }
+}
+
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
+}
 impl Worktrees {
     pub async fn read_owner_lease(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<Option<Lease>, ScmFailure> {
         let path = lease_path(self.data_dir(), record);
@@ -180,7 +214,7 @@ impl Worktrees {
             .record(cancel, entry_id)
             .await?
             .ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
-        let repo = self.scm().open(Path::new(&found.project_path), cancel).await?;
+        let repo = self.scm().open(&repo_cwd(&found), cancel).await?;
         let _lock = repo.lock_repository().await?;
         let mut current = self
             .record(cancel, entry_id)
@@ -244,7 +278,7 @@ impl Worktrees {
         let holding: Vec<WorktreeRecord> =
             self.all_records(cancel).await?.into_iter().filter(|r| r.shared_session_ids.iter().any(|id| id == session_id)).collect();
         for found in holding {
-            let repo = self.scm().open(Path::new(&found.project_path), cancel).await?;
+            let repo = self.scm().open(&repo_cwd(&found), cancel).await?;
             let _lock = repo.lock_repository().await?;
             let Some(mut current) = self.record(cancel, &found.id).await? else { continue };
             current.shared_session_ids.retain(|id| id != session_id);
@@ -269,7 +303,7 @@ impl Worktrees {
         let Some(found) = self.record(cancel, entry_id).await? else {
             return Ok(json!({ "released": false }));
         };
-        let repo = self.scm().open(Path::new(&found.project_path), cancel).await?;
+        let repo = self.scm().open(&repo_cwd(&found), cancel).await?;
         let _lock = repo.lock_repository().await?;
         let Some(mut current) = self.record(cancel, entry_id).await? else {
             return Ok(json!({ "released": false }));
@@ -308,38 +342,5 @@ impl Worktrees {
             .await?
             .iter()
             .any(|lease| pid_alive_or_unknown(lease.owner.pid)))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_pid_is_alive_when_it_is_ours_or_unknown_and_dead_when_proven() {
-        assert!(pid_alive_or_unknown(Some(std::process::id())));
-        assert!(pid_alive_or_unknown(None));
-        let mut child = std::process::Command::new(if cfg!(windows) { "cmd" } else { "true" })
-            .args(if cfg!(windows) { vec!["/c", "exit"] } else { vec![] })
-            .spawn()
-            .unwrap();
-        let pid = child.id();
-        child.wait().unwrap();
-        assert!(!pid_alive_or_unknown(Some(pid)));
-    }
-
-    #[test]
-    fn leases_round_trip_and_garbage_is_no_lease() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".owners").join("w.json");
-        let lease = Lease {
-            owner: Owner { session_id: "s".into(), runtime_token: "t".into(), pid: Some(7) },
-            entry_id: "w".into(),
-            claimed_at: Some(1),
-        };
-        write_lease_file(&path, &lease).unwrap();
-        assert_eq!(read_lease_file(&path, "w").unwrap(), Some(lease));
-        std::fs::write(&path, b"{ nope").unwrap();
-        assert_eq!(read_lease_file(&path, "w").unwrap(), None);
     }
 }

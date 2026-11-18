@@ -35,6 +35,7 @@ pub struct EndpointRecord {
     pub delivery: Option<String>,
     pub instructions: String,
     pub enabled: bool,
+    #[serde(deserialize_with = "crate::scheduler::model::lead_if_empty")]
     pub owner_agent_id: String,
     pub executor_agent_id: Option<String>,
     pub last_event_at: Option<Ts>,
@@ -128,6 +129,12 @@ pub trait EndpointRecords: WebhookStore {
 #[serde(rename_all = "camelCase")]
 struct DeliveryRow {
     status: String,
+    #[serde(default)]
+    retryable: bool,
+    #[serde(default)]
+    rule_handoff: bool,
+    #[serde(default)]
+    queue_file: Option<String>,
     event: Option<String>,
     error: Option<String>,
     headers_summary: Value,
@@ -136,7 +143,7 @@ struct DeliveryRow {
     updated_at: Ts,
 }
 
-fn endpoint_key(name: &str) -> String {
+pub(crate) fn endpoint_key(name: &str) -> String {
     format!("{ENDPOINT_PREFIX}{name}")
 }
 
@@ -160,8 +167,61 @@ fn read_endpoint(tx: &StateTx<'_>, name: &str) -> Result<Option<EndpointRecord>,
     tx.meta(&endpoint_key(name))?.map(|t| parse(&format!("webhook \"{name}\""), &t)).transpose()
 }
 
-fn write_endpoint(tx: &StateTx<'_>, row: &EndpointRecord) -> Result<(), DbError> {
+pub(crate) fn write_endpoint(tx: &StateTx<'_>, row: &EndpointRecord) -> Result<(), DbError> {
     tx.put_meta(&endpoint_key(&row.name), &encode(row)?)
+}
+
+/// A delivery row of 1.4.5's `webhooks.deliveries` as PostgreSQL's `to_jsonb(row)` writes it, read as the claim the dedup
+/// log holds: the same key and the same row a claim of this id writes.
+pub(crate) struct LegacyDelivery {
+    pub endpoint: String,
+    key: String,
+    row: DeliveryRow,
+}
+
+pub(crate) fn legacy_delivery(text: &str) -> Result<LegacyDelivery, String> {
+    let Value::Object(columns) = serde_json::from_str(text).map_err(|e| format!("delivery row is not JSON: {e}"))? else {
+        return Err("delivery row is not an object".to_owned());
+    };
+    let text_of = |name: &str| columns.get(name).and_then(Value::as_str).filter(|v| !v.is_empty());
+    let (Some(endpoint), Some(id)) = (text_of("endpoint"), text_of("delivery_id")) else {
+        return Err("delivery row has no endpoint or delivery id".to_owned());
+    };
+    let stamp = |name: &str| -> Result<Ts, String> {
+        text_of(name)
+            .ok_or_else(|| format!("delivery \"{endpoint}:{id}\" has no {name}"))?
+            .parse()
+            .map_err(|e| format!("delivery \"{endpoint}:{id}\" {name} is unreadable: {e}"))
+    };
+    let row = DeliveryRow {
+        status: text_of("status").unwrap_or("pending").to_owned(),
+        // Old failed rows do not distinguish an accepted bot run from failed admission.
+        retryable: false,
+        rule_handoff: false,
+        queue_file: None,
+        event: text_of("event").map(str::to_owned),
+        error: text_of("error").map(str::to_owned),
+        headers_summary: columns.get("headers_summary").filter(|v| !v.is_null()).cloned().unwrap_or_else(|| Value::Object(Default::default())),
+        payload_preview: columns.get("payload_preview").and_then(Value::as_str).unwrap_or_default().to_owned(),
+        created_at: stamp("created_at")?,
+        updated_at: stamp("updated_at")?,
+    };
+    Ok(LegacyDelivery { endpoint: endpoint.to_owned(), key: delivery_key(endpoint, id), row })
+}
+
+/// Whether the endpoint a legacy delivery belongs to is in the store: a delivery of an endpoint that was removed since
+/// is not brought back (its log went with it, as `delete` drops them together).
+pub(crate) fn endpoint_present(tx: &StateTx<'_>, name: &str) -> Result<bool, DbError> {
+    Ok(tx.meta(&endpoint_key(name))?.is_some())
+}
+
+/// Writes the claim unless the store already holds one under the key (a delivery since received keeps its own row).
+pub(crate) fn write_delivery_if_absent(tx: &StateTx<'_>, delivery: &LegacyDelivery) -> Result<bool, DbError> {
+    if tx.meta(&delivery.key)?.is_some() {
+        return Ok(false);
+    }
+    tx.put_meta(&delivery.key, &encode(&delivery.row)?)?;
+    Ok(true)
 }
 
 pub struct StateWebhookStore {
@@ -172,6 +232,43 @@ pub struct StateWebhookStore {
 impl StateWebhookStore {
     pub fn new(state: CoreState, clock: Arc<dyn Clock>) -> Self {
         Self { state, clock }
+    }
+
+    /// The reserved file and whether its publication has been acknowledged.
+    pub async fn rule_file(&self, name: &str, id: &str) -> Result<Option<(String, bool)>, String> {
+        read_delivery(&self.state, name, id).await.map(|row| {
+            row.and_then(|row| row.queue_file.map(|file| (file, row.status == "done")))
+        })
+    }
+
+    pub async fn reserve_rule_file(&self, name: &str, id: &str, file: &str) -> Result<(), String> {
+        let (key, file) = (delivery_key(name, id), file.to_owned());
+        self.state.write(move |tx| {
+            let text = tx.meta(&key)?.ok_or_else(|| DbError::Write("webhook delivery lost its claim".into()))?;
+            let mut row: DeliveryRow = parse("webhook delivery", &text)?;
+            row.queue_file = Some(file);
+            row.rule_handoff = true;
+            row.retryable = true;
+            tx.put_meta(&key, &encode(&row)?)
+        }).await.map_err(db)
+    }
+
+    /// Settle the receipt before the file is eligible for execution. Do not recreate a
+    /// deleted endpoint's history if its already accepted queue work gets another tick.
+    pub async fn record_queued_rule(&self, name: &str, id: &str, file: &str) -> Result<(), String> {
+        let (key, file, now) = (delivery_key(name, id), file.to_owned(), self.clock.now());
+        self.state.write(move |tx| {
+            let Some(text) = tx.meta(&key)? else { return Ok(()) };
+            let mut row: DeliveryRow = parse("webhook delivery", &text)?;
+            if row.queue_file.as_deref() != Some(file.as_str()) || row.status == "done" {
+                return Ok(());
+            }
+            row.status = "done".into();
+            row.error = None;
+            row.retryable = false;
+            row.updated_at = now;
+            tx.put_meta(&key, &encode(&row)?)
+        }).await.map_err(db)
     }
 
     /// A delivery's `(status, error)`, for the tests of what a dispatch left behind.
@@ -224,6 +321,11 @@ impl StateWebhookStore {
     }
 }
 
+async fn read_delivery(state: &CoreState, name: &str, id: &str) -> Result<Option<DeliveryRow>, String> {
+    state.meta(&delivery_key(name, id)).await.map_err(db)?
+        .map(|text| parse("webhook delivery", &text).map_err(db)).transpose()
+}
+
 #[async_trait]
 impl WebhookStore for StateWebhookStore {
     async fn load_endpoint(&self, name: &str) -> Result<Option<Endpoint>, String> {
@@ -243,8 +345,11 @@ impl WebhookStore for StateWebhookStore {
 
     async fn claim_delivery(&self, endpoint: &str, delivery_id: &str, claim: Claim<'_>) -> Result<bool, String> {
         let key = delivery_key(endpoint, delivery_id);
-        let row = DeliveryRow {
+        let mut row = DeliveryRow {
             status: claim.status.to_string(),
+            retryable: false,
+            rule_handoff: false,
+            queue_file: None,
             event: claim.event.map(str::to_string),
             error: None,
             headers_summary: claim.headers_summary,
@@ -254,14 +359,41 @@ impl WebhookStore for StateWebhookStore {
         };
         self.state
             .write(move |tx| {
-                if tx.meta(&key)?.is_some() {
-                    return Ok(false);
+                if let Some(text) = tx.meta(&key)? {
+                    let earlier: DeliveryRow = parse("webhook delivery", &text)?;
+                    if !earlier.retryable {
+                        return Ok(false);
+                    }
+                    row.rule_handoff = earlier.rule_handoff;
+                    row.retryable = earlier.rule_handoff;
+                    row.queue_file = earlier.queue_file;
                 }
                 tx.put_meta(&key, &encode(&row)?)?;
                 Ok(true)
             })
             .await
             .map_err(db)
+    }
+
+    async fn fail_handoff(&self, endpoint: &str, delivery_id: &str, error: &str) -> Result<(), String> {
+        let (key, error, now) = (delivery_key(endpoint, delivery_id), error.to_owned(), self.clock.now());
+        self.state.write(move |tx| {
+            let Some(text) = tx.meta(&key)? else { return Ok(()) };
+            let mut row: DeliveryRow = parse("webhook delivery", &text)?;
+            if matches!(row.status.as_str(), "done" | "skipped" | "self-comment-skip") {
+                return Ok(());
+            }
+            row.status = "failed".into();
+            row.error = Some(error);
+            row.retryable = true;
+            row.updated_at = now;
+            tx.put_meta(&key, &encode(&row)?)
+        }).await.map_err(db)
+    }
+
+
+    async fn resuming_rule_handoff(&self, name: &str, id: &str) -> Result<bool, String> {
+        Ok(read_delivery(&self.state, name, id).await?.is_some_and(|row| row.rule_handoff))
     }
 
     async fn update_delivery_status(
@@ -277,7 +409,13 @@ impl WebhookStore for StateWebhookStore {
             .write(move |tx| {
                 let Some(text) = tx.meta(&key)? else { return Ok(()) };
                 let mut row: DeliveryRow = parse("webhook delivery", &text)?;
+                if row.queue_file.is_some() && row.status == "done" {
+                    return Ok(());
+                }
                 row.status = status;
+                if row.status != "pending" {
+                    row.retryable = false;
+                }
                 row.error = error.or(row.error);
                 row.updated_at = now;
                 tx.put_meta(&key, &encode(&row)?)
@@ -480,6 +618,24 @@ mod tests {
         assert_eq!((on.enabled, on.consecutive_failures), (true, 0));
         store.mark_run("gh", RunStamp::Success, Utc::now()).await.unwrap();
         assert!(store.load("gh").await.unwrap().unwrap().last_success_at.is_some());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn only_a_failed_handoff_can_be_claimed_again_not_a_failed_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(dir.path()).await;
+        store.upsert(&def("gh")).await.unwrap();
+        assert!(store.claim_delivery("gh", "d1", claim(None)).await.unwrap());
+        for status in ["received", "pending", "processing", "done", "skipped", "self-comment-skip"] {
+            store.update_delivery_status("gh", "d1", status, None).await.unwrap();
+            assert!(!store.claim_delivery("gh", "d1", claim(None)).await.unwrap(), "{status} is a duplicate");
+        }
+        store.update_delivery_status("gh", "d1", "failed", Some("boom")).await.unwrap();
+        assert!(!store.claim_delivery("gh", "d1", claim(None)).await.unwrap(), "a failed execution was already accepted");
+        store.fail_handoff("gh", "d1", "could not enqueue").await.unwrap();
+        assert!(store.claim_delivery("gh", "d1", claim(None)).await.unwrap(), "a failed handoff can retry");
+        assert_eq!(store.delivery_row("gh", "d1").await, Some(("received".to_string(), None)));
+        assert!(!store.claim_delivery("gh", "d1", claim(None)).await.unwrap(), "and is then a duplicate itself");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

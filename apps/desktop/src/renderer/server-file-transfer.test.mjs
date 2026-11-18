@@ -21,7 +21,7 @@ function fakeUploadApi({ chunkBytes = 4, failAt = -1 } = {}) {
     api: {
       serverUploadBegin: async (name, size, scope) => {
         calls.push(['begin', name, size, scope]);
-        return { uploadId: 'u1', chunkBytes, maxBytes: SERVER_UPLOAD_MAX_BYTES };
+        return { uploadId: 'u1', chunkBytes, maxBytes: SERVER_UPLOAD_MAX_BYTES, inFlightChunks: 1 };
       },
       serverUploadChunk: async (id, offset, bytes) => {
         calls.push(['chunk', id, offset, bytes.length]);
@@ -127,6 +127,106 @@ test('a download steps until done, and a cancelled one is aborted', async () => 
     ServerTransferCancelledError
   );
   assert.deepEqual(calls, [['step', 4], ['abort']]);
+});
+
+// A server that applies chunks in arrival order, answers each after a delay, and counts what is unacknowledged.
+function pipelinedServer({ chunkBytes = 4, inFlightChunks = 3, failAt = -1 } = {}) {
+  const log = [];
+  const state = { active: 0, maxActive: 0, written: [], aborted: false };
+  const api = {
+    serverUploadBegin: async () => ({ uploadId: 'u1', chunkBytes, maxBytes: SERVER_UPLOAD_MAX_BYTES, inFlightChunks }),
+    serverUploadChunk: async (_id, offset, bytes) => {
+      state.active += 1;
+      state.maxActive = Math.max(state.maxActive, state.active);
+      log.push(['send', offset]);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      state.active -= 1;
+      if (offset === failAt) throw new Error('disk full');
+      if (offset !== state.written.length) throw new Error('out of order');
+      state.written.push(...bytes);
+      log.push(['ack', offset]);
+      return { received: offset + bytes.length };
+    },
+    serverUploadCommit: async () => {
+      log.push(['commit', state.active]);
+      return { absolutePath: '/srv/u/a.bin', name: 'a.bin', dir: false, size: state.written.length, accessToken: 't' };
+    },
+    serverUploadAbort: async () => {
+      log.push(['abort', state.active]);
+      state.aborted = true;
+      return true;
+    },
+  };
+  return { api, log, state };
+}
+
+test('a pipelined upload keeps the stated window in flight, stays intact and commits after the last acknowledgement', async () => {
+  const { api, log, state } = pipelinedServer();
+  const bytes = Uint8Array.from({ length: 40 }, (_, i) => i);
+  const progress = [];
+  await uploadFileToServer(api, new File([bytes], 'a.bin'), 's', { onProgress: (sent) => progress.push(sent) });
+  assert.equal(state.maxActive, 3);
+  assert.deepEqual(state.written, [...bytes]);
+  assert.deepEqual(progress, [4, 8, 12, 16, 20, 24, 28, 32, 36, 40]);
+  assert.deepEqual(log.at(-1), ['commit', 0]);
+  assert.deepEqual(log.at(-2), ['ack', 36]);
+});
+
+test('cancelling mid-flight sends nothing more and requests the abort at once, once', async () => {
+  const { api, log, state } = pipelinedServer();
+  const controller = new AbortController();
+  await assert.rejects(
+    uploadFileToServer(api, new File([new Uint8Array(40)], 'a.bin'), 's', {
+      signal: controller.signal,
+      onProgress: () => controller.abort(),
+    }),
+    ServerTransferCancelledError
+  );
+  assert.equal(state.aborted, true);
+  assert.equal(log.filter(([kind]) => kind === 'abort').length, 1);
+  assert.ok(log.filter(([kind]) => kind === 'send').length <= 4, 'only the window and the chunk it freed were sent');
+  assert.ok(!log.some(([kind]) => kind === 'commit'));
+});
+
+test('a cancel returns without waiting for a chunk whose reply never comes, and its late progress is suppressed', async () => {
+  const progress = [];
+  const aborts = [];
+  let releaseHeld;
+  const api = {
+    serverUploadBegin: async () => ({ uploadId: 'u1', chunkBytes: 4, maxBytes: SERVER_UPLOAD_MAX_BYTES, inFlightChunks: 3 }),
+    serverUploadChunk: (_id, offset, bytes) =>
+      new Promise((resolve) => {
+        releaseHeld = () => resolve({ received: offset + bytes.length });
+      }),
+    serverUploadCommit: async () => assert.fail('a cancelled upload never commits'),
+    serverUploadAbort: async (id) => void aborts.push(id),
+  };
+  const controller = new AbortController();
+  const upload = uploadFileToServer(api, new File([new Uint8Array(40)], 'a.bin'), 's', {
+    signal: controller.signal,
+    onProgress: (sent) => progress.push(sent),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  controller.abort();
+  await assert.rejects(upload, ServerTransferCancelledError);
+  assert.deepEqual(aborts, ['u1']);
+  releaseHeld();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(progress, [], 'a reply that comes after the cancel reports nothing');
+});
+
+test('an error on one chunk of the window fails the upload with its own cause and aborts it once', async () => {
+  const { api, log } = pipelinedServer({ failAt: 8 });
+  await assert.rejects(uploadFileToServer(api, new File([new Uint8Array(40)], 'a.bin'), 's'), /disk full/);
+  assert.equal(log.filter(([kind]) => kind === 'abort').length, 1);
+  assert.ok(!log.some(([kind]) => kind === 'commit'));
+});
+
+test('when the last outstanding chunk is the one that fails, its own error is reported, with one abort and no commit', async () => {
+  const { api, log } = pipelinedServer({ failAt: 0 });
+  await assert.rejects(uploadFileToServer(api, new File([new Uint8Array(4)], 'a.bin'), 's'), /disk full/);
+  assert.equal(log.filter(([kind]) => kind === 'abort').length, 1);
+  assert.ok(!log.some(([kind]) => kind === 'commit'));
 });
 
 test('upload scopes are POSIX-safe', () => {

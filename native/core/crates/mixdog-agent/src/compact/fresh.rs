@@ -22,6 +22,7 @@ use super::messages::is_protected_context_ack;
 use super::messages::latest_actual_user_instruction_index;
 use super::messages::pending_task_notification_indexes;
 use super::messages::split_protected_context;
+use super::skills::{CurrentSkills, SkillState, window_marker, window_start};
 use crate::message::AgentMessage;
 use crate::message::Source;
 use crate::project::is_summary_message;
@@ -190,6 +191,7 @@ pub(super) struct Source_ {
     pub(super) previous_summary: Option<AgentMessage>,
     pub(super) previous_ack: Option<AgentMessage>,
     pub(super) live: Vec<AgentMessage>,
+    skill_window_start: usize,
 }
 
 pub(super) async fn split_fresh_source(ctx: &FreshContext<'_>, messages: &[AgentMessage]) -> Source_ {
@@ -203,6 +205,7 @@ pub(super) async fn split_fresh_source(ctx: &FreshContext<'_>, messages: &[Agent
     let mut conversation: Vec<AgentMessage> =
         split.protected_prefix.iter().filter(|m| is_recovery(m)).cloned().collect();
     conversation.extend(split.conversation);
+    let skill_window_start = window_start(&conversation);
     let mut previous_summary = None;
     let mut previous_ack = None;
     for index in (0..conversation.len()).rev() {
@@ -223,11 +226,11 @@ pub(super) async fn split_fresh_source(ctx: &FreshContext<'_>, messages: &[Agent
         } else {
             ctx.attachments.reference_media(&strip_runtime_user_context(m)).await
         };
-        if !is_summary_message(&kept) {
+        if !is_summary_message(&kept) && kept.source != Some(Source::CompactSkillWindow) {
             live.push(kept);
         }
     }
-    Source_ { protected_prefix, previous_summary, previous_ack, live }
+    Source_ { protected_prefix, previous_summary, previous_ack, live, skill_window_start }
 }
 
 fn sha16(text: &str) -> String {
@@ -351,6 +354,7 @@ struct Layout {
 async fn fresh_tail(
     ctx: &FreshContext<'_>,
     source: &Source_,
+    skills: &SkillState<'_>,
     budget_tokens: u64,
     preserve_conversation: bool,
     opts: &FreshOptions,
@@ -368,6 +372,7 @@ async fn fresh_tail(
     let turn_input = latest_user.is_some() || !pending_task_notification_indexes(&source.live).is_empty();
     let continuation = if turn_input && opts.active_turn { active_turn_continuation(&source.live) } else { None };
     let mut volatile = execution.messages;
+    skills.reconcile_tail(&mut volatile);
     if let Some(latest) = &latest_user
         && let Some(index) =
             volatile.iter().rposition(|m| m.role() == Role::User && m.message.content == latest.message.content)
@@ -463,6 +468,7 @@ fn prepend_latest_user_context(message: &AgentMessage, prefix: &str) -> AgentMes
 async fn fresh_layout(
     ctx: &FreshContext<'_>,
     source: &Source_,
+    skills: &SkillState<'_>,
     budget_tokens: u64,
     opts: &FreshOptions,
 ) -> Result<Layout, FreshError> {
@@ -474,7 +480,7 @@ async fn fresh_layout(
     } else {
         source.previous_summary.clone()
     };
-    let tail = fresh_tail(ctx, source, budget_tokens, !replace_conversation, opts).await?;
+    let tail = fresh_tail(ctx, source, skills, budget_tokens, !replace_conversation, opts).await?;
     // Every pass rebuilds the ack; it keeps the previous ack's id so the
     // archive does not count an unchanged ack as dropped.
     let stable_ack = if tail.turn_input && summary.is_some() {
@@ -494,7 +500,7 @@ async fn fresh_layout(
     let mut mandatory = source.protected_prefix.clone();
     mandatory.extend(stable_ack);
     mandatory.extend(tail.volatile.iter().cloned());
-    let mandatory_cost = ctx.tail.meter.messages(&mandatory);
+    let mandatory_cost = ctx.tail.meter.compact_messages(&mandatory);
     Ok(Layout { summary, tail, stable_head, mandatory_cost })
 }
 
@@ -580,13 +586,24 @@ pub async fn fresh_context_compact_messages(
     budget_tokens: u64,
     opts: &FreshOptions,
 ) -> Result<FreshResult, FreshError> {
+    fresh_context_compact_messages_with_skills(ctx, messages, budget_tokens, opts, None).await
+}
+
+pub(super) async fn fresh_context_compact_messages_with_skills(
+    ctx: &FreshContext<'_>,
+    messages: &[AgentMessage],
+    budget_tokens: u64,
+    opts: &FreshOptions,
+    resolver: Option<&dyn CurrentSkills>,
+) -> Result<FreshResult, FreshError> {
     let target = effective_budget(budget_tokens, opts.reserve_tokens)?;
     let base = sanitized(messages);
-    if !opts.force && ctx.tail.meter.messages(&base) <= target {
+    if !opts.force && ctx.tail.meter.compact_messages(&base) <= target {
         return Ok(FreshResult { messages: base, fresh_context: false });
     }
     let mut source = split_fresh_source(ctx, &base).await;
-    let mut layout = fresh_layout(ctx, &source, budget_tokens, opts).await?;
+    let mut skills = SkillState::read(&source.live, resolver, source.skill_window_start, opts.preview).await.map_err(FreshError::Failed)?;
+    let mut layout = fresh_layout(ctx, &source, &skills, budget_tokens, opts).await?;
     let mut budget = fresh_budget(ctx, target, budget_tokens, &layout, opts)?;
     // The latest request is kept verbatim — except its attachments: when they
     // are what does not fit (or the provider already refused the request as
@@ -595,8 +612,10 @@ pub async fn fresh_context_compact_messages(
         && let Some(latest) = latest_actual_user_instruction_index(&source.live)
         && ctx.attachments.has_referencable_media(&source.live[latest])
     {
+        drop(skills);
         source.live[latest] = ctx.attachments.reference_media(&source.live[latest]).await;
-        layout = fresh_layout(ctx, &source, budget_tokens, opts).await?;
+        skills = SkillState::read(&source.live, resolver, source.skill_window_start, opts.preview).await.map_err(FreshError::Failed)?;
+        layout = fresh_layout(ctx, &source, &skills, budget_tokens, opts).await?;
         budget = fresh_budget(ctx, target, budget_tokens, &layout, opts)?;
     }
     assert_mandatory_fits(ctx, budget, layout.mandatory_cost, &layout.summary, opts.context_window, &layout.tail.latest_user)?;
@@ -613,9 +632,22 @@ pub async fn fresh_context_compact_messages(
         )));
     }
     let mut stable = layout.stable_head;
+    let meter = ctx.tail.meter;
+    let marker = window_marker(0);
+    let committed = meter.compact_messages(&stable) + meter.compact_messages(&layout.tail.volatile);
+    let skill_budget = (target / 5).min(25_000).min(budget.saturating_sub(committed));
+    let restored = skills.restore(&source.live, &layout.tail.volatile, skill_budget.saturating_sub(meter.message(&marker)), meter);
+    if !restored.is_empty() {
+        stable.push(marker);
+        stable.extend(restored);
+    }
     stable.extend(layout.tail.volatile);
-    let result = rebase_effort(&base, sanitized(&stable));
-    let final_tokens = ctx.tail.meter.messages(&result);
+    let mut result = sanitized(&stable);
+    if let Some(at) = result.iter().rposition(|m| m.source == Some(Source::CompactSkillWindow)) {
+        result[at] = window_marker(result.len() - at - 1);
+    }
+    let result = rebase_effort(&base, result);
+    let final_tokens = meter.compact_messages(&result);
     if final_tokens > budget {
         return Err(FreshError::Failed(format!(
             "freshContextCompactMessages: compacted result exceeds budget={budget} (result={final_tokens})"

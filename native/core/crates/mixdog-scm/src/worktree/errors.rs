@@ -112,19 +112,6 @@ pub fn busy_with(reason: &str, sessions: Option<Vec<String>>, entry_id: Option<S
     ScmFailure::coded(WORKTREE_BUSY_JOBS, detail)
 }
 
-/// A managed worktree still retains the branch (`delete-branch`): Node's plain
-/// `worktreeError('WORKTREE_BUSY_JOBS', text)`, with no `reason` or other details.
-pub fn branch_retained() -> ScmFailure {
-    coded_text(WORKTREE_BUSY_JOBS, "A managed worktree still retains this branch.")
-}
-
-/// A checkout still holds the branch (`delete-branch`): Node's plain
-/// `worktreeError('WORKTREE_BRANCH_OCCUPIED', text)`, without the branch detail the other
-/// producers attach.
-pub fn branch_checkout_held() -> ScmFailure {
-    coded_text(WORKTREE_BRANCH_OCCUPIED, "Remove or leave the checkout before deleting its branch.")
-}
-
 pub fn confirm_required() -> ScmFailure {
     ScmFailure::coded_plain(WORKTREE_CONFIRM_REQUIRED)
 }
@@ -187,6 +174,38 @@ pub fn unsupported_repo_text(project_path: String, message: &str) -> ScmFailure 
     )
 }
 
+/// A base branch that does not exist (`resolveStartPoint`).
+pub fn base_branch_missing(branch: String) -> ScmFailure {
+    ScmFailure::coded_with_message(
+        WORKTREE_UNSUPPORTED_REPO,
+        DomainErrorDetail::WorktreeUnsupportedRepo {
+            project_path: None,
+            file: None,
+            line: None,
+            rel: None,
+            base_branch: Some(branch.clone()),
+            branch: None,
+        },
+        format!("Base branch {branch} does not exist."),
+    )
+}
+
+/// `settleSessionAttempts`: an earlier attempt of the session that blocks a new creation.
+pub fn session_attempt_conflict(message: &str, entry_id: String, remaining: Option<Vec<RemovalRemnant>>) -> ScmFailure {
+    ScmFailure::coded_with_message(
+        WORKTREE_REVISION_CONFLICT,
+        DomainErrorDetail::WorktreeRevisionConflict {
+            entry_id: Some(entry_id),
+            remaining,
+            branch: None,
+            tx_id: None,
+            expected_revision: None,
+            revision: None,
+        },
+        message,
+    )
+}
+
 pub fn project_unknown(project_path: String, reason: &str) -> ScmFailure {
     ScmFailure::coded(
         WORKTREE_PROJECT_UNKNOWN,
@@ -207,21 +226,6 @@ pub fn project_unknown_text(project_path: String, reason: &str, message: &str) -
         },
         message,
     )
-}
-
-/// `inspectProjectBranch` of a branch git no longer has: the code with its own text and no details.
-pub fn branch_missing() -> ScmFailure {
-    ScmFailure::Coded {
-        domain: crate::error::WORKTREE_DOMAIN,
-        code: WORKTREE_MISSING,
-        detail: None,
-        message: Some("The local branch no longer exists.".into()),
-    }
-}
-
-/// `worktreeError(code, message)` with no details: the code under its own text.
-pub fn coded_text(code: &'static str, message: &str) -> ScmFailure {
-    ScmFailure::Coded { domain: crate::error::WORKTREE_DOMAIN, code, detail: None, message: Some(message.into()) }
 }
 
 pub fn missing(entry_id: Option<String>, worktree_id: Option<String>, path: Option<String>) -> ScmFailure {
@@ -569,6 +573,15 @@ pub fn merge_failed(reason: &str, source: Option<String>, aborted: Option<bool>)
     )
 }
 
+/// A `git merge` that failed: git's own diagnostic (and whether the merge was aborted) is the message.
+pub fn merge_failed_with_output(message: String, aborted: bool) -> ScmFailure {
+    ScmFailure::coded_with_message(
+        MERGE_FAILED,
+        DomainErrorDetail::MergeFailed { reason: "merge-failed".to_owned(), source: None, aborted: Some(aborted) },
+        message,
+    )
+}
+
 pub fn merge_target_dirty(operation: &str, files: Vec<String>, count: Option<u64>) -> ScmFailure {
     ScmFailure::coded(
         MERGE_TARGET_DIRTY,
@@ -617,4 +630,30 @@ mod tests {
             other => panic!("{other:?}"),
         }
     }
+}
+
+
+/// A managed worktree still retains the branch (`delete-branch`): Node's plain
+/// `worktreeError('WORKTREE_BUSY_JOBS', text)`, with no `reason` or other details.
+pub fn branch_retained() -> ScmFailure {
+    coded_text(WORKTREE_BUSY_JOBS, "A managed worktree still retains this branch.")
+}
+/// A checkout still holds the branch (`delete-branch`): Node's plain
+/// `worktreeError('WORKTREE_BRANCH_OCCUPIED', text)`, without the branch detail the other
+/// producers attach.
+pub fn branch_checkout_held() -> ScmFailure {
+    coded_text(WORKTREE_BRANCH_OCCUPIED, "Remove or leave the checkout before deleting its branch.")
+}
+/// `inspectProjectBranch` of a branch git no longer has: the code with its own text and no details.
+pub fn branch_missing() -> ScmFailure {
+    ScmFailure::Coded {
+        domain: crate::error::WORKTREE_DOMAIN,
+        code: WORKTREE_MISSING,
+        detail: None,
+        message: Some("The local branch no longer exists.".into()),
+    }
+}
+/// `worktreeError(code, message)` with no details: the code under its own text.
+pub fn coded_text(code: &'static str, message: &str) -> ScmFailure {
+    ScmFailure::Coded { domain: crate::error::WORKTREE_DOMAIN, code, detail: None, message: Some(message.into()) }
 }

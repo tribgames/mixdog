@@ -10,7 +10,7 @@ import type {
   DesktopSelectProjectBranchInput,
   DesktopSelectProjectBranchResult,
 } from '../shared/contract';
-import { confirmAction } from './app-confirm';
+import { confirmAction, promptAction } from './app-confirm';
 import { t } from './i18n';
 import { resetModePrompt } from './source-control-confirmations';
 import { emptySummary, gitRemoteWebUrl, isDirtyResetRefusal, reasonText } from './source-control-support';
@@ -125,9 +125,11 @@ export function stashActions(ctx: SourceControlActionContext) {
   const { api, projectPath, run } = ctx;
   return {
     stashChanges: () => {
-      const message = window.prompt(t('Stash message (optional)'), '');
-      if (message === null) return;
-      void run('stash', () => api?.gitStash?.(projectPath, message));
+      const title = t('Stash message (optional)');
+      void promptAction(title, { value: '', label: title, key: `stash:${projectPath}` }).then((message) => {
+        if (message === null) return;
+        void run('stash', () => api?.gitStash?.(projectPath, message));
+      });
     },
     popStash: () => void run('stash-pop', () => api?.gitStashPop?.(projectPath)),
   };
@@ -209,9 +211,18 @@ export function branchActions(
         closePicker
       ),
     renameBranch: (branch: DesktopGitBranch) => {
-      const nextName = window.prompt(t('Rename branch'), branch.name);
-      if (!nextName?.trim() || nextName.trim() === branch.name) return;
-      void run(`branch-rename:${branch.name}`, () => api?.gitRenameBranch?.(projectPath, branch.name, nextName.trim()));
+      const title = t('Rename branch');
+      void promptAction(title, {
+        value: branch.name,
+        label: title,
+        confirmLabel: t('Rename'),
+        key: `branch-rename:${projectPath}:${branch.name}`,
+      }).then((nextName) => {
+        if (!nextName?.trim() || nextName.trim() === branch.name) return;
+        void run(`branch-rename:${branch.name}`, () =>
+          api?.gitRenameBranch?.(projectPath, branch.name, nextName.trim())
+        );
+      });
     },
     deleteBranch: (branch: DesktopGitBranch) => {
       void confirmAction(t('Delete local branch "{{branch}}"?', { branch: branch.name }), {
@@ -223,10 +234,19 @@ export function branchActions(
       });
     },
     createBranchFromFilter: () => {
+      const create = (name: string) => {
+        if (!name.trim()) return;
+        void run('branch-create', () => selectProjectBranch(projectPath, name.trim(), { create: true }), closePicker);
+      };
       // Seed the create-branch flow with the current filter text.
-      const name = branchQuery.trim() || window.prompt(t('New branch name')) || '';
-      if (!name.trim()) return;
-      void run('branch-create', () => selectProjectBranch(projectPath, name.trim(), { create: true }), closePicker);
+      if (branchQuery.trim()) {
+        create(branchQuery);
+        return;
+      }
+      const title = t('New branch name');
+      void promptAction(title, { value: '', label: title, key: `branch-create:${projectPath}` }).then((name) =>
+        create(name ?? '')
+      );
     },
     // The runtime's guarded merge (mergeProjectBranch): the confirmed target
     // must still be checked out, sessions working in the folder refuse it and
@@ -268,16 +288,27 @@ function ifConfirmed(entry: DesktopGitLogEntry, question: string, proceed: () =>
   });
 }
 
-function namedPrompt(message: string): string | null {
-  return window.prompt(message, '');
+function namedPrompt(message: string, key: string): Promise<string | null> {
+  return promptAction(message, { value: '', label: message, key });
 }
 
 /** Ask for the reset mode before confirmation; `hard` states what it
  *  destroys. */
 function resetToCommit(ctx: SourceControlActionContext, entry: DesktopGitLogEntry) {
+  // The first paragraph asks; the rest lists the modes.
+  const [title, ...modeLines] = resetModePrompt(entry.shortHash).split('\n\n');
+  void promptAction(title, {
+    value: 'mixed',
+    label: title,
+    description: modeLines.join('\n\n'),
+    key: `reset:${entry.hash}`,
+  }).then((answer) => {
+    if (answer !== null) resetWithMode(ctx, entry, answer);
+  });
+}
+
+function resetWithMode(ctx: SourceControlActionContext, entry: DesktopGitLogEntry, answer: string) {
   const { setError } = ctx;
-  const answer = window.prompt(resetModePrompt(entry.shortHash), 'mixed');
-  if (answer === null) return;
   const modes = ['soft', 'mixed', 'hard'] as const;
   const mode = modes.find((candidate) => candidate === answer.trim().toLowerCase());
   if (!mode) {
@@ -352,15 +383,17 @@ export function historyCommitActions(
       );
     },
     createTagAt: (entry: DesktopGitLogEntry) => {
-      const name = namedPrompt(
-        t('Create a tag at {{hash}} ({{subject}})', { hash: entry.shortHash, subject: commitTitle(entry) })
-      );
-      if (name === null) return;
-      if (!name.trim()) {
-        setError(t('A tag name is required to create a tag.'));
-        return;
-      }
-      void run(`tag:${entry.hash}`, () => api?.gitCreateTag?.(projectPath, name.trim(), entry.hash));
+      void namedPrompt(
+        t('Create a tag at {{hash}} ({{subject}})', { hash: entry.shortHash, subject: commitTitle(entry) }),
+        `tag:${projectPath}:${entry.hash}`
+      ).then((name) => {
+        if (name === null) return;
+        if (!name.trim()) {
+          setError(t('A tag name is required to create a tag.'));
+          return;
+        }
+        void run(`tag:${entry.hash}`, () => api?.gitCreateTag?.(projectPath, name.trim(), entry.hash));
+      });
     },
     /** `Delete tag <name>` — the reference names the tag in the item itself
      *  and one item per tag replaces its submenu. */
@@ -393,19 +426,21 @@ export function historyCommitActions(
     },
     /** `branch-` prefix so run() reloads the branch list too. */
     createBranchAtCommit: (entry: DesktopGitLogEntry) => {
-      const name = namedPrompt(
-        t('Create a branch at {{hash}} ({{subject}})', { hash: entry.shortHash, subject: commitTitle(entry) })
-      );
-      if (name === null) return;
-      if (!name.trim()) {
-        setError(t('A branch name is required to create a branch.'));
-        return;
-      }
-      // Creating it checks it out: the same guarded project checkout as the
-      // branch picker (dirty folder, occupancy, sessions working there).
-      void run(`branch-create-at:${entry.hash}`, () =>
-        selectProjectBranch(projectPath, name.trim(), { create: true, startPoint: entry.hash })
-      );
+      void namedPrompt(
+        t('Create a branch at {{hash}} ({{subject}})', { hash: entry.shortHash, subject: commitTitle(entry) }),
+        `branch-create-at:${projectPath}:${entry.hash}`
+      ).then((name) => {
+        if (name === null) return;
+        if (!name.trim()) {
+          setError(t('A branch name is required to create a branch.'));
+          return;
+        }
+        // Creating it checks it out: the same guarded project checkout as the
+        // branch picker (dirty folder, occupancy, sessions working there).
+        void run(`branch-create-at:${entry.hash}`, () =>
+          selectProjectBranch(projectPath, name.trim(), { create: true, startPoint: entry.hash })
+        );
+      });
     },
   };
 }

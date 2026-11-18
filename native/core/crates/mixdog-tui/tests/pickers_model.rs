@@ -13,15 +13,23 @@ use std::rc::Rc;
 
 use mixdog_tui::app::AppCtx;
 use mixdog_tui::pickers::PickerKind;
-use mixdog_tui::pickers::common::{
-    Onboarding, PanelItem, PickerFn, PickerHost, PickerPanel, ProviderSetupRequest, RouteState,
-};
+use mixdog_tui::pickers::common::{PanelItem, PickerFn, PickerHost, PickerPanel, ProviderSetupRequest, RouteState};
+#[cfg(node_twin)]
+use mixdog_tui::pickers::common::Onboarding;
+#[cfg(node_twin)]
 use mixdog_tui::pickers::model::agents::{AgentsOptions, open_agents_picker};
-use mixdog_tui::pickers::model::catalog::{CatalogKind, CatalogRefresh, ModelCatalogCaches, run_catalog_refresh};
+use mixdog_tui::pickers::model::catalog::{CatalogKind, CatalogRefresh, ModelCatalogCaches};
+#[cfg(node_twin)]
+use mixdog_tui::pickers::model::catalog::run_catalog_refresh;
 use mixdog_tui::pickers::model::options::{self, ProviderNames};
+#[cfg(node_twin)]
 use mixdog_tui::pickers::model::output_style::{OutputStyleOptions, open_output_style_picker};
-use mixdog_tui::pickers::model::picker::{ImmediateSelect, ModelPickerOptions, SelectRoute};
+use mixdog_tui::pickers::model::picker::{ModelPickerOptions, SelectRoute};
+#[cfg(node_twin)]
+use mixdog_tui::pickers::model::picker::ImmediateSelect;
+#[cfg(node_twin)]
 use mixdog_tui::pickers::model::theme::{ThemeOptions, open_effort_picker, open_theme_picker};
+#[cfg(node_twin)]
 use mixdog_tui::pickers::model::web_search::{WebSearchOptions, open_web_search_picker};
 use mixdog_tui::pickers::model::workflow::{WorkflowOptions, open_workflow_picker};
 use mixdog_tui::pickers::model::open_model_picker;
@@ -29,15 +37,11 @@ use mixdog_tui::slash::host::Tone;
 use mixdog_tui::surface::epoch::PanelValue;
 use mixdog_tui::surface::owner::PanelSurface;
 use mixdog_tui::surface::{SurfaceClaim, SurfaceKind};
-use mixdog_tui_widgets::picker::{IndexMode, PickerItem};
+use mixdog_tui_widgets::picker::PickerItem;
+#[cfg(node_twin)]
+use mixdog_tui_widgets::picker::IndexMode;
 use mixdog_tui_widgets::picker::layout::FooterInput;
 use serde_json::{Map, Value, json};
-
-const GOLDEN: &str = include_str!("goldens/pickers-model.json");
-
-fn golden() -> Value {
-    serde_json::from_str(GOLDEN).expect("pickers-model.json is valid JSON")
-}
 
 // ---------------------------------------------------------------------------------------------------------------- the host
 
@@ -210,6 +214,7 @@ impl Fake {
     }
 
     /// What settles on its own in the app after an operation: the scheduled catalog refreshes.
+    #[cfg(node_twin)]
     fn settle(&mut self) {
         while let Some(job) = self.jobs.pop_front() {
             run_catalog_refresh(self, job);
@@ -242,6 +247,7 @@ impl Fake {
         }
     }
 
+    #[cfg(node_twin)]
     fn adjust(&mut self, key: &str, reference: &Value) {
         let (Some(panel), item) = (self.panel(), self.row(reference)) else { return };
         let Some(handler) = panel.handler else { return };
@@ -252,6 +258,7 @@ impl Fake {
         }
     }
 
+    #[cfg(node_twin)]
     fn key(&mut self, input: &str, reference: &Value) {
         let (Some(panel), item) = (self.panel(), self.row(reference)) else { return };
         if let Some(handler) = panel.handler {
@@ -259,6 +266,7 @@ impl Fake {
         }
     }
 
+    #[cfg(node_twin)]
     fn highlight(&mut self, reference: &Value) {
         let (Some(panel), Some(item)) = (self.panel(), self.row(reference)) else { return };
         if let Some(handler) = panel.handler.filter(|handler| handler.wants_highlight()) {
@@ -272,6 +280,7 @@ impl Fake {
         }
     }
 
+    #[cfg(node_twin)]
     fn confirm(&mut self, button: &str) {
         let Some(panel) = self.panel().filter(|panel| panel.confirm.is_some()) else { return };
         if let Some(handler) = panel.handler {
@@ -280,6 +289,7 @@ impl Fake {
     }
 
     /// The footer texts of every row of the panel.
+    #[cfg(node_twin)]
     fn footers(&self, panel: &PickerPanel) -> Option<Value> {
         let footer = panel.footer.as_ref()?;
         let rows: Vec<Value> = panel
@@ -314,6 +324,7 @@ impl Fake {
     }
 
     /// The panel as `record-pickers-model.mjs` summarises it.
+    #[cfg(node_twin)]
     fn summary(&self) -> Value {
         let Some(panel) = self.panel() else { return Value::Null };
         let items: Vec<Value> = panel
@@ -362,6 +373,7 @@ impl Fake {
 // ---------------------------------------------------------------------------------------------------------------- options
 
 /// The caller continuations a scenario names, which log what they were called with.
+#[cfg(node_twin)]
 struct Callbacks {
     return_to: Option<PickerFn>,
     after_select: Option<PickerFn>,
@@ -376,6 +388,7 @@ fn log_fn(events: &Events, entry: Value) -> PickerFn {
     Rc::new(move |_| events.borrow_mut().push(entry.clone()))
 }
 
+#[cfg(node_twin)]
 impl Callbacks {
     fn new(raw: &Value, events: &Events) -> Self {
         let flag = |key: &str| raw.get(key).is_some_and(|value| value.as_bool().unwrap_or(true) && !value.is_null());
@@ -406,10 +419,12 @@ impl Callbacks {
     }
 }
 
+#[cfg(node_twin)]
 fn opt_text(raw: &Value, key: &str) -> Option<String> {
     raw.get(key).and_then(Value::as_str).map(str::to_owned)
 }
 
+#[cfg(node_twin)]
 fn model_options(raw: &Value, callbacks: Callbacks) -> ModelPickerOptions {
     ModelPickerOptions {
         title: opt_text(raw, "title"),
@@ -430,6 +445,7 @@ fn model_options(raw: &Value, callbacks: Callbacks) -> ModelPickerOptions {
 }
 
 /// Runs one operation of a scenario.
+#[cfg(node_twin)]
 fn run_op(fake: &mut Fake, op: &Value) {
     let raw = op.get("options").cloned().unwrap_or_else(|| json!({}));
     let events = Rc::clone(&fake.events);
@@ -494,6 +510,7 @@ fn run_op(fake: &mut Fake, op: &Value) {
 }
 
 /// The store calls of one step as a multiset: whether `got` holds the same calls as `want`, in any order.
+#[cfg(node_twin)]
 fn same_calls(got: &[Value], want: &[Value]) -> bool {
     let mut rest: Vec<&Value> = want.iter().collect();
     got.len() == want.len()
@@ -506,73 +523,16 @@ fn same_calls(got: &[Value], want: &[Value]) -> bool {
         })
 }
 
+#[cfg(node_twin)]
 fn caches_of(fake: &Fake) -> Value {
     let provider = fake.caches.entry(CatalogKind::Provider);
     let web = fake.caches.entry(CatalogKind::WebSearch);
     json!([provider.models.as_ref().map(Vec::len), provider.at, web.models.as_ref().map(Vec::len), web.at])
 }
 
-#[test]
-fn scenarios_match_what_the_node_pickers_do() {
-    let golden = golden();
-    let mut mismatches: Vec<String> = Vec::new();
-    let mut steps_checked = 0;
-    for scenario in golden["scenarios"].as_array().expect("scenarios") {
-        let name = text(scenario, "name");
-        let mut fake = Fake::new(&scenario["spec"]);
-        for (at, step) in scenario["steps"].as_array().expect("steps").iter().enumerate() {
-            fake.calls.clear();
-            fake.notices.clear();
-            fake.events.borrow_mut().clear();
-            run_op(&mut fake, &step["op"]);
-            steps_checked += 1;
-            // Node starts the full listing before it asks for the quick one, and a failing quick listing leaves it unobserved:
-            // the Rust code asks for the full listing only when the quick one answered nothing.
-            let mut want_calls = step["calls"].as_array().expect("calls").clone();
-            let full_listing = json!(["listProviderModels", [{"force": false}]]);
-            let failed_load = fake.notices.iter().any(|notice| notice[0].as_str().is_some_and(|text| text.starts_with("could not list models")));
-            if failed_load && !fake.calls.contains(&full_listing) {
-                if let Some(at) = want_calls.iter().position(|call| *call == full_listing) {
-                    want_calls.remove(at);
-                }
-            }
-            let events = fake.events.borrow().clone();
-            let mut problems: Vec<String> = Vec::new();
-            if !same_calls(&fake.calls, &want_calls) {
-                problems.push(format!("calls: got {}, want {}", Value::Array(fake.calls.clone()), step["calls"]));
-            }
-            if Value::Array(fake.notices.clone()) != step["notices"] {
-                problems.push(format!("notices: got {}, want {}", Value::Array(fake.notices.clone()), step["notices"]));
-            }
-            if Value::Array(events.clone()) != step["events"] {
-                problems.push(format!("events: got {}, want {}", Value::Array(events), step["events"]));
-            }
-            let summary = fake.summary();
-            if summary != step["panel"] {
-                let diff = ["title", "description", "help", "pickerKey", "initialIndex", "indexMode", "labelWidth", "metaWidth", "loading", "confirm", "adjustable", "highlights", "items", "footers"]
-                    .into_iter()
-                    .find(|key| summary.get(key) != step["panel"].get(key));
-                problems.push(match diff {
-                    Some(key) => format!("panel.{key}: got {}, want {}", summary[key], step["panel"][key]),
-                    None => format!("panel: got {summary}, want {}", step["panel"]),
-                });
-            }
-            if caches_of(&fake) != step["caches"] {
-                problems.push(format!("caches: got {}, want {}", caches_of(&fake), step["caches"]));
-            }
-            for problem in problems {
-                if mismatches.len() < 10 {
-                    mismatches.push(format!("{name} / step {at} {}: {problem}", step["op"]));
-                }
-            }
-        }
-    }
-    assert!(steps_checked > 150, "the recording holds scenarios");
-    assert!(mismatches.is_empty(), "{} first mismatches:\n{}", mismatches.len(), mismatches.join("\n"));
-}
-
 // ---------------------------------------------------------------------------------------------------------------- model options twin
 
+#[cfg(node_twin)]
 fn number_of(value: &Value) -> f64 {
     match value {
         Value::Null => f64::NAN,
@@ -585,192 +545,25 @@ fn number_of(value: &Value) -> f64 {
     }
 }
 
+#[cfg(node_twin)]
 fn same_number(got: f64, want: &Value) -> bool {
     let want = number_of(want);
     (got.is_nan() && want.is_nan()) || got == want
 }
 
+#[cfg(node_twin)]
 fn row_summary(row: &PanelItem) -> Value {
     json!([row.item.value, row.item.label, row.item.marker, row.item.meta, row.item.description, row.tag_text("_action"), row.tag_text("_provider"), row.tag_text("_modelId")])
 }
 
+#[cfg(node_twin)]
 fn names_of(value: &Value) -> ProviderNames {
     value.as_object().into_iter().flatten().map(|(id, name)| (id.clone(), name.as_str().unwrap_or_default().to_owned())).collect()
 }
 
+#[cfg(node_twin)]
 fn pair_of(models: &[Value]) -> Value {
     Value::Array(models.iter().map(|model| json!([model["provider"], model["id"]])).collect())
-}
-
-#[test]
-fn model_options_match_over_every_recorded_catalog() {
-    let golden = golden();
-    let recorded = &golden["options"];
-    let routes: Vec<Value> = recorded["routes"].as_array().expect("routes").clone();
-    let names = names_of(&recorded["names"]);
-    let mut mismatches: Vec<String> = Vec::new();
-    let mut note = |what: String| {
-        if mismatches.len() < 12 {
-            mismatches.push(what);
-        }
-    };
-    for (catalog, entry) in recorded["catalogs"].as_object().expect("catalogs") {
-        let models: Vec<Value> = entry["models"].as_array().expect("models").clone();
-        let normalized = options::normalize_model_options(&models);
-        if pair_of(&normalized) != entry["normalized"] {
-            note(format!("{catalog}: normalized got {}, want {}", pair_of(&normalized), entry["normalized"]));
-        }
-        for (at, route) in routes.iter().enumerate() {
-            let route = (!route.is_null()).then_some(route);
-            let got: Vec<Value> = options::build_model_provider_items(&normalized, route, Some(&names)).iter().map(row_summary).collect();
-            if Value::Array(got.clone()) != entry["providerItems"][at] {
-                note(format!("{catalog}: provider items for route {at} got {}, want {}", Value::Array(got), entry["providerItems"][at]));
-            }
-        }
-        let no_names: Vec<Value> = options::build_model_provider_items(&normalized, None, None).iter().map(row_summary).collect();
-        if Value::Array(no_names) != entry["providerItemsNoNames"] {
-            note(format!("{catalog}: provider items without names differ"));
-        }
-        let mut providers: Vec<String> = Vec::new();
-        for model in &normalized {
-            let provider = text(model, "provider");
-            if !providers.contains(&provider) {
-                providers.push(provider);
-            }
-        }
-        let model_items: Vec<Value> = providers
-            .iter()
-            .map(|provider| json!([provider, options::build_provider_model_items(&normalized, provider, Some(&routes[1])).iter().map(row_summary).collect::<Vec<_>>()]))
-            .collect();
-        if Value::Array(model_items) != entry["modelItems"] {
-            note(format!("{catalog}: model items differ"));
-        }
-        let setup = ProviderNames::new();
-        if json!(options::catalog_provider_display_names(&models, &setup)) != entry["names"] {
-            note(format!("{catalog}: catalog provider names differ"));
-        }
-        if json!(options::catalog_provider_display_names(&models, &names)) != entry["namesWithSetup"] {
-            note(format!("{catalog}: catalog provider names with setup differ"));
-        }
-        for (model, want) in models.iter().zip(entry["perModel"].as_array().expect("perModel")) {
-            let id = text(model, "id");
-            let version = options::model_version(model);
-            let want_version: Vec<f64> = want["version"].as_array().expect("version").iter().map(number_of).collect();
-            if version != want_version {
-                note(format!("{catalog}/{id}: version got {version:?}, want {want_version:?}"));
-            }
-            if !same_number(options::release_time(model), &want["release"]) {
-                note(format!("{catalog}/{id}: release time got {}, want {}", options::release_time(model), want["release"]));
-            }
-            let context = options::model_context_window(model);
-            let checks = [
-                (options::model_family(model) == text(want, "family"), "family"),
-                (options::is_claude_model(model) == want["claude"].as_bool().expect("claude"), "claude"),
-                (same_number(context, &want["context"]), "context window"),
-                (options::format_context_window(context) == text(want, "contextLabel"), "context label"),
-                (options::model_description(model) == text(want, "description"), "description"),
-                (options::model_family_limit(&text(model, "provider"), &options::model_family(model)) as u64 == want["limit"].as_u64().expect("limit"), "family limit"),
-            ];
-            for (ok, what) in checks {
-                if !ok {
-                    note(format!("{catalog}/{id}: {what} differs"));
-                }
-            }
-        }
-        let sample: Vec<&Value> = models.iter().take(14).collect();
-        let mut at = 0;
-        for a in &sample {
-            for b in &sample {
-                let want = &entry["matrix"][at];
-                if !same_number(options::compare_model_recency(a, b), &want[0]) || !same_number(options::compare_model_version(a, b), &want[1]) {
-                    note(format!("{catalog}: comparison {at} ({} vs {}) differs", text(a, "id"), text(b, "id")));
-                }
-                at += 1;
-            }
-        }
-    }
-    let helpers = &recorded["helpers"];
-    for (id, want) in helpers["parsedModelVersion"].as_array().expect("versions").iter().map(|pair| (&pair[0], &pair[1])) {
-        let got = options::parsed_model_version(id.as_str().unwrap_or_default());
-        let want: Vec<f64> = want.as_array().expect("version").iter().map(number_of).collect();
-        if got != want {
-            note(format!("parsedModelVersion({id}) got {got:?}, want {want:?}"));
-        }
-    }
-    for pair in helpers["formatContextWindow"].as_array().expect("windows") {
-        let got = options::format_context_window(number_of(&pair[0]));
-        if Value::String(got.clone()) != pair[1] {
-            note(format!("formatContextWindow({}) got {got}, want {}", pair[0], pair[1]));
-        }
-    }
-    for row in helpers["providerRank"].as_array().expect("ranks") {
-        let provider = row[0].as_str().unwrap_or_default();
-        if !same_number(options::provider_display_rank(provider), &row[1]) || Value::String(options::provider_display_name(provider)) != row[2] {
-            note(format!("provider rank or name of {} differs", row[0]));
-        }
-    }
-    for (route, want) in routes.iter().zip(helpers["routeLabels"].as_array().expect("labels")) {
-        let parts = options::agent_model_parts(&if route.is_null() { json!({}) } else { route.clone() });
-        let parts_json = serde_json::to_string(&parts.iter().map(|part| json!({"text": part.text, "width": part.width})).collect::<Vec<_>>()).expect("parts");
-        let empty = json!({});
-        let route = if route.is_null() { &empty } else { route };
-        let got = json!([
-            options::route_label(route, None),
-            options::route_label(route, Some(&names)),
-            options::route_model_label(route),
-            options::agent_model_profile(route),
-            parts_json
-        ]);
-        if got != *want {
-            note(format!("route labels of {route}: got {got}, want {want}"));
-        }
-    }
-    let claude = json!({"provider": "anthropic", "id": "claude-x-1"});
-    let from_model: Vec<Value> = [None, Some("auto"), Some("high")].into_iter().map(|effort| options::route_from_model(&claude, effort)).collect();
-    if Value::Array(from_model) != helpers["routeFromModel"] {
-        note("routeFromModel differs".to_owned());
-    }
-    let custom = "custom-a92e4651-dab8-45a1-aa63-70b7be71c1f7";
-    let custom_names = ProviderNames::from([(custom.to_owned(), "내 AI".to_owned())]);
-    let blank = ProviderNames::from([("custom-x".to_owned(), String::new())]);
-    let mine = ProviderNames::from([("openai".to_owned(), "Mine".to_owned())]);
-    let resolved = [
-        options::resolve_provider_display_name(custom, Some(&custom_names)),
-        options::resolve_provider_display_name(custom, None),
-        options::resolve_provider_display_name("openai", Some(&ProviderNames::new())),
-        options::resolve_provider_display_name("openai", Some(&mine)),
-        options::resolve_provider_display_name(&format!("  {custom}  "), Some(&custom_names)),
-        options::resolve_provider_display_name("custom-x", Some(&blank)),
-    ];
-    if json!(resolved) != helpers["resolveProviderDisplayName"] {
-        note(format!("resolveProviderDisplayName got {}, want {}", json!(resolved), helpers["resolveProviderDisplayName"]));
-    }
-    assert!(mismatches.is_empty(), "{} first mismatches:\n{}", mismatches.len(), mismatches.join("\n"));
-}
-
-#[test]
-fn setup_names_and_catalog_failures_match() {
-    let golden = golden();
-    let setup = &golden["options"]["setup"];
-    let mut fake = Fake::new(&json!({"store": {"getProviderSetup": setup["rows"]}}));
-    let loaded = options::load_provider_display_names(&mut fake);
-    assert_eq!(json!(loaded), setup["names"]);
-    let failures = options::load_provider_catalog_failures(&mut fake);
-    let failures_json: Vec<Value> = failures.iter().map(|failure| json!({"id": failure.id, "text": failure.text})).collect();
-    assert_eq!(Value::Array(failures_json), setup["failures"]);
-    let mixed: Vec<Value> = golden["options"]["catalogs"]["mixed"]["models"].as_array().expect("mixed").clone();
-    let items: Vec<Value> = options::build_catalog_failure_items(&failures, &mixed, Some(&loaded)).iter().map(row_summary).collect();
-    assert_eq!(Value::Array(items), setup["failureItems"]);
-    let other: Vec<Value> = options::build_catalog_failure_items(&failures, &[], None)
-        .iter()
-        .map(|row| json!([row.item.value, row.item.label, row.item.marker, row.item.description, row.tag_text("_failure")]))
-        .collect();
-    assert_eq!(Value::Array(other), setup["failureItemsOther"]);
-    let mut bare = Fake::new(&json!({}));
-    assert!(options::load_provider_display_names(&mut bare).is_empty());
-    assert!(options::load_provider_catalog_failures(&mut bare).is_empty());
-    let mut down = Fake::new(&json!({"store": {"getProviderSetup": {"$error": "down"}}}));
-    assert!(options::load_provider_display_names(&mut down).is_empty());
 }
 
 // ---------------------------------------------------------------------------------------------------------------- ported unit tests
@@ -1188,6 +981,20 @@ fn an_esc_before_the_workflow_switch_acks_cancels_the_hop_back() {
     assert_eq!(fake.notices.last(), Some(&json!(["Workflow saved \u{b7} new sessions", "info"])));
 }
 
+#[test]
+fn panels_report_the_identity_the_surface_keys_on() {
+    let mut fake = Fake::new(&json!({"store": {"listWorkflows": [{"id": "solo", "name": "Solo"}]}}));
+    open_workflow_picker(&mut fake, WorkflowOptions::default());
+    let panel = fake.panel().expect("a panel");
+    assert_eq!(PanelValue::title(&panel), "Workflow");
+    assert_eq!(PanelValue::kind(&panel), "");
+    // The widget props carry the rows, the widths and the confirm bar the panel asked for.
+    let props = panel.props(100);
+    assert_eq!(props.items.len(), 1);
+    assert_eq!(props.label_width, Some(18));
+    assert!(!props.adjustable);
+}
+
 // ---- the catalog cache
 
 #[test]
@@ -1208,16 +1015,6 @@ fn the_warm_up_fills_empty_caches_and_a_provider_clear_makes_a_stale_listing_dro
     assert!(fake.caches.entry(CatalogKind::WebSearch).models.is_none());
 }
 
-#[test]
-fn panels_report_the_identity_the_surface_keys_on() {
-    let mut fake = Fake::new(&json!({"store": {"listWorkflows": [{"id": "solo", "name": "Solo"}]}}));
-    open_workflow_picker(&mut fake, WorkflowOptions::default());
-    let panel = fake.panel().expect("a panel");
-    assert_eq!(PanelValue::title(&panel), "Workflow");
-    assert_eq!(PanelValue::kind(&panel), "");
-    // The widget props carry the rows, the widths and the confirm bar the panel asked for.
-    let props = panel.props(100);
-    assert_eq!(props.items.len(), 1);
-    assert_eq!(props.label_width, Some(18));
-    assert!(!props.adjustable);
-}
+#[cfg(node_twin)]
+#[path = "node-twin/pickers_model.rs"]
+mod node_twin;

@@ -155,86 +155,6 @@ async fn fake_browser(page_url: Url) -> (String, Arc<Mutex<Seen>>) {
     (endpoint, seen)
 }
 
-#[tokio::test]
-async fn render_reads_the_page_through_the_request_gate() {
-    let origin = MockServer::start().await;
-    let body = "<title>Rendered</title><main><h1>Hi</h1><p>Script made this.</p></main>";
-    Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw(body.as_bytes().to_vec(), "text/html; charset=utf-8"))
-        .mount(&origin)
-        .await;
-    let url = Url::parse(&format!("{}/p", origin.uri())).unwrap();
-    let (endpoint, seen) = fake_browser(url.clone()).await;
-    let renderer =
-        BrowserRenderer::with_policy(Arc::new(Endpoint(endpoint)), AddressPolicy::AnyForTest, "test", super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io }).unwrap();
-    let page = renderer.render(&url, Duration::from_secs(10)).await.unwrap();
-    assert_eq!(page.title, "Rendered");
-    assert_eq!(page.content, "# Hi\n\nScript made this.");
-    assert_eq!(page.extractor, "puppeteer");
-    let seen = seen.lock().unwrap();
-    assert_eq!(seen.fulfilled_status, Some(200));
-    assert_eq!(seen.fulfilled_body, body);
-    assert!(seen.methods.contains(&"Target.disposeBrowserContext".to_string()));
-}
-
-#[tokio::test]
-async fn render_holds_the_shared_browser_for_the_whole_render_and_lets_go_after() {
-    let origin = MockServer::start().await;
-    let body = "<title>Slow</title><main><p>Late.</p></main>";
-    Mock::given(method("GET"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(body.as_bytes().to_vec(), "text/html; charset=utf-8")
-                .set_delay(Duration::from_millis(300)),
-        )
-        .mount(&origin)
-        .await;
-    let url = Url::parse(&format!("{}/p", origin.uri())).unwrap();
-    let (endpoint, _seen) = fake_browser(url.clone()).await;
-    let live = Arc::new(AtomicUsize::new(0));
-    let renderer = BrowserRenderer::with_policy(
-        Arc::new(Counting { url: endpoint, live: live.clone() }),
-        AddressPolicy::AnyForTest,
-        "test",
-        super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io },
-    )
-    .unwrap();
-    let render = tokio::spawn({
-        let url = url.clone();
-        async move { renderer.render(&url, Duration::from_secs(10)).await }
-    });
-    // The page is being fetched for the browser: the render is under way.
-    while origin.received_requests().await.unwrap().is_empty() {
-        tokio::task::yield_now().await;
-    }
-    assert_eq!(live.load(Ordering::SeqCst), 1, "held while the render runs");
-    render.await.unwrap().unwrap();
-    assert_eq!(live.load(Ordering::SeqCst), 0, "released when the render ends");
-}
-
-#[tokio::test]
-async fn render_refuses_a_private_document_before_it_reaches_the_browser() {
-    let origin = MockServer::start().await;
-    let url = Url::parse(&format!("{}/p", origin.uri())).unwrap();
-    let (endpoint, seen) = fake_browser(url.clone()).await;
-    let renderer = BrowserRenderer::new(Arc::new(Endpoint(endpoint)), "test", super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io }).unwrap();
-    let error = renderer.render(&url, Duration::from_secs(10)).await.unwrap_err();
-    assert_eq!(error.kind, FetchKind::Policy);
-    assert_eq!(seen.lock().unwrap().fulfilled_status, None);
-    assert!(origin.received_requests().await.unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn render_reports_an_unreachable_browser() {
-    let free = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let endpoint = format!("ws://{}/devtools/browser/x", free.local_addr().unwrap());
-    drop(free);
-    let renderer = BrowserRenderer::new(Arc::new(Endpoint(endpoint)), "test", super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io }).unwrap();
-    let url = Url::parse("https://example.com/").unwrap();
-    let error = renderer.render(&url, Duration::from_secs(5)).await.unwrap_err();
-    assert!(error.message.starts_with("puppeteer launch failed:"), "{error}");
-}
-
 struct Routes(Vec<SearchCandidate>);
 
 #[async_trait]
@@ -345,7 +265,7 @@ async fn any_other_refusal_surfaces_without_trying_the_next_candidate() {
         vec![Err(refusal(false))],
     );
     let error = search.search(request(None), CancellationToken::new()).await.unwrap_err();
-    assert_eq!(error, "busy");
+    assert_eq!(error, super::NativeSearchError::Failed("busy".into()));
     let calls = sender.calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].tool, json!({ "type": "google_search" }));
@@ -356,7 +276,85 @@ async fn any_other_refusal_surfaces_without_trying_the_next_candidate() {
 async fn exhausted_candidates_and_missing_routes_say_why() {
     let (search, _) = search_with(vec![candidate("xai", SearchFamily::Xai)], vec![Err(refusal(true))]);
     let error = search.search(request(None), CancellationToken::new()).await.unwrap_err();
-    assert_eq!(error, "native web search failed: xai/m/web_search: busy");
+    assert_eq!(error.message(), "native web search failed: xai/m/web_search: busy");
     let (none, _) = search_with(Vec::new(), Vec::new());
-    assert_eq!(none.search(request(None), CancellationToken::new()).await.unwrap_err(), "no route");
+    assert_eq!(none.search(request(None), CancellationToken::new()).await.unwrap_err(), super::NativeSearchError::Unavailable("no route".into()));
+}
+
+
+#[tokio::test]
+async fn render_reads_the_page_through_the_request_gate() {
+    let origin = MockServer::start().await;
+    let body = "<title>Rendered</title><main><h1>Hi</h1><p>Script made this.</p></main>";
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body.as_bytes().to_vec(), "text/html; charset=utf-8"))
+        .mount(&origin)
+        .await;
+    let url = Url::parse(&format!("{}/p", origin.uri())).unwrap();
+    let (endpoint, seen) = fake_browser(url.clone()).await;
+    let renderer =
+        BrowserRenderer::with_policy(Arc::new(Endpoint(endpoint)), AddressPolicy::AnyForTest, "test", super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io }).unwrap();
+    let page = renderer.render(&url, Duration::from_secs(10)).await.unwrap();
+    assert_eq!(page.title, "Rendered");
+    assert_eq!(page.content, "# Hi\n\nScript made this.");
+    assert_eq!(page.extractor, "puppeteer");
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.fulfilled_status, Some(200));
+    assert_eq!(seen.fulfilled_body, body);
+    assert!(seen.methods.contains(&"Target.disposeBrowserContext".to_string()));
+}
+#[tokio::test]
+async fn render_holds_the_shared_browser_for_the_whole_render_and_lets_go_after() {
+    let origin = MockServer::start().await;
+    let body = "<title>Slow</title><main><p>Late.</p></main>";
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(body.as_bytes().to_vec(), "text/html; charset=utf-8")
+                .set_delay(Duration::from_millis(300)),
+        )
+        .mount(&origin)
+        .await;
+    let url = Url::parse(&format!("{}/p", origin.uri())).unwrap();
+    let (endpoint, _seen) = fake_browser(url.clone()).await;
+    let live = Arc::new(AtomicUsize::new(0));
+    let renderer = BrowserRenderer::with_policy(
+        Arc::new(Counting { url: endpoint, live: live.clone() }),
+        AddressPolicy::AnyForTest,
+        "test",
+        super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io },
+    )
+    .unwrap();
+    let render = tokio::spawn({
+        let url = url.clone();
+        async move { renderer.render(&url, Duration::from_secs(10)).await }
+    });
+    // The page is being fetched for the browser: the render is under way.
+    while origin.received_requests().await.unwrap().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(live.load(Ordering::SeqCst), 1, "held while the render runs");
+    render.await.unwrap().unwrap();
+    assert_eq!(live.load(Ordering::SeqCst), 0, "released when the render ends");
+}
+#[tokio::test]
+async fn render_refuses_a_private_document_before_it_reaches_the_browser() {
+    let origin = MockServer::start().await;
+    let url = Url::parse(&format!("{}/p", origin.uri())).unwrap();
+    let (endpoint, seen) = fake_browser(url.clone()).await;
+    let renderer = BrowserRenderer::new(Arc::new(Endpoint(endpoint)), "test", super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io }).unwrap();
+    let error = renderer.render(&url, Duration::from_secs(10)).await.unwrap_err();
+    assert_eq!(error.kind, FetchKind::Policy);
+    assert_eq!(seen.lock().unwrap().fulfilled_status, None);
+    assert!(origin.received_requests().await.unwrap().is_empty());
+}
+#[tokio::test]
+async fn render_reports_an_unreachable_browser() {
+    let free = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("ws://{}/devtools/browser/x", free.local_addr().unwrap());
+    drop(free);
+    let renderer = BrowserRenderer::new(Arc::new(Endpoint(endpoint)), "test", super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io }).unwrap();
+    let url = Url::parse("https://example.com/").unwrap();
+    let error = renderer.render(&url, Duration::from_secs(5)).await.unwrap_err();
+    assert!(error.message.starts_with("puppeteer launch failed:"), "{error}");
 }

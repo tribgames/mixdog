@@ -132,8 +132,10 @@ pub(super) fn react_to_message(messages: &[Value], change: &Change<'_>) -> Resul
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     /// `golden/reactions.json` is Node's own `reactToMessage` over the same lists.
     #[test]
     fn reacting_matches_node() {
@@ -165,3 +167,5 @@ mod tests {
         }
     }
 }
+
+

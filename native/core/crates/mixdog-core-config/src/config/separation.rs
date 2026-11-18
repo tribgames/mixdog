@@ -25,7 +25,8 @@ use super::agent_routes::separate_roster;
 use super::patch::js_deep_equal;
 use super::patch::strip_agent_section_defaults;
 use super::patch::without_defaults;
-use crate::tool_modules::with_grandfathered_builtins;
+use crate::tool_modules::adopt;
+use crate::tool_modules::Origin;
 use crate::workflow::ids::legacy_workflow_mode;
 use crate::workflow::ids::truthy;
 use crate::workflow::presets::default_maintenance;
@@ -107,7 +108,9 @@ fn separate_agent_section(agent: &Doc) -> Doc {
     strip_agent_section_defaults(&mut stripped);
     // A legacy profile without a `builtins` section is grandfathered as having Git/Memory/Office installed; stripping may leave `{}`, which reads as a fresh profile.
     if !agent.get("builtins").is_some_and(Value::is_object) {
-        let grandfathered = with_grandfathered_builtins(agent).get("builtins").cloned().unwrap_or(Value::Null);
+        // Node runs this on the raw stored section before any default is merged (`defaults-separation.mjs:134`), so the config
+        // in hand is literally what the function sees.
+        let grandfathered = adopt(agent, Origin::Given).get("builtins").cloned().unwrap_or(Value::Null);
         let has_keys = match &grandfathered {
             Value::Object(map) => !map.is_empty(),
             Value::Array(list) => !list.is_empty(),
@@ -503,6 +506,7 @@ impl Shared {
                 }
             }
             let next = super::canonical::canonicalize(next);
+            super::require_allow_all_actions_confirmation(super::allow_all_actions_enabled(&base), &next, false)?;
             if next == *current && !baseline.forced {
                 return Ok(None);
             }

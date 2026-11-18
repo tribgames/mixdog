@@ -567,13 +567,12 @@ pub fn mime_type(path: &Path) -> &'static str {
         Some(dot) if dot + 1 < name.len() => name[dot + 1..].to_lowercase(),
         _ => String::new(),
     };
+    // The formats the image codec decodes name their own media types (one table with the attachment intake).
+    if let Some(format) = mixdog_imaging::Format::from_extension(&extension) {
+        return format.media_type();
+    }
     match extension.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" | "jfif" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "avif" => "image/avif",
-        "svg" => "image/svg+xml",
+        // Not decoded by the codec, but files a person has.
         "bmp" => "image/bmp",
         "ico" => "image/x-icon",
         "pdf" => "application/pdf",

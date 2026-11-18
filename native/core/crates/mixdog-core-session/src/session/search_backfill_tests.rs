@@ -141,9 +141,9 @@ async fn the_backfill_reads_what_node_reads_of_the_same_records() {
 
     for session in recorded {
         let id = session["id"].as_str().expect("id");
-        let stamp = stored.record_stamp(id).await;
+        let stamp = stored.record_stamp(id).await.expect("stamp");
         assert_eq!(stamp.is_some(), session["stamped"] == true, "{id}");
-        assert_eq!(stored.record_stamp(id).await, stamp, "{id}: an unchanged record keeps its stamp");
+        assert_eq!(stored.record_stamp(id).await.expect("unchanged stamp"), stamp, "{id}");
         let read = stored.read(id).await;
         assert_eq!(read.as_ref().map(|s| s.id.as_str()), session["read"].as_str(), "{id}");
         let Some(read) = read else { continue };
@@ -151,7 +151,7 @@ async fn the_backfill_reads_what_node_reads_of_the_same_records() {
         assert_eq!(rows_of(&read.id, &read.messages), session["rows"], "{id}");
     }
 
-    assert!(stored.record_stamp("sess_missing").await.is_none());
+    assert!(stored.record_stamp("sess_missing").await.expect("missing stamp").is_none());
     assert!(stored.read("sess_missing").await.is_none());
 }
 
@@ -163,17 +163,36 @@ async fn a_changed_record_is_stamped_anew_and_a_deleted_one_is_not_listed() {
     assert!(golden["stampChangesOnSave"].as_bool().expect("recorded"), "Node's save changes the stamp");
     let (_dir, threads, lanes) = migrated(&golden).await;
     let stored = StoredSearchSessions::new(threads.clone(), lanes);
-    let before = stored.record_stamp("sess_plain").await.expect("stamped");
+    let before = stored.record_stamp("sess_plain").await.expect("stamp").expect("stamped");
+    let session = "sess_plain";
+    let position = threads.search_position(session).await.expect("position");
+    let log = threads.sessions_dir().join(session).join(mixdog_store::log::log_name(0));
+    // Replace the first log as a whole, as a rewrite does, with a valid same-size
+    // edit to its header frame. Leave the projection alone to pin the cursor.
+    let original = std::fs::read(&log).expect("original log");
+    let end = original.iter().position(|b| *b == b'\n').expect("first frame");
+    let payload = std::str::from_utf8(&original[mixdog_store::schema::frame::HEADER_LEN..end]).unwrap();
+    let edited = payload.replacen("project", "renamed", 1);
+    assert_ne!(edited, payload, "the fixture's cwd contains project");
+    let mut replacement = Vec::new();
+    mixdog_store::framing::encode_into(&mut replacement, 0, edited.as_bytes());
+    replacement.extend_from_slice(&original[end + 1..]);
+    assert_eq!(replacement.len(), original.len());
+    let next = log.with_extension("replacement");
+    std::fs::write(&next, replacement).expect("replacement log");
+    std::fs::rename(&log, log.with_extension("original")).expect("keep the old file identity alive");
+    std::fs::rename(next, &log).expect("replace first log");
+    assert_eq!(threads.search_position(session).await.expect("position after rewrite"), position);
+    let rewritten = stored.record_stamp(session).await.expect("stamp").expect("rewritten stamp");
+    assert_ne!(before, rewritten, "a same-length rewrite invalidates a matching cursor");
 
     let rig = Rig::new();
     let directory = Arc::new(SessionDirectory::new(rig.deps_on(threads.clone())));
     let set = [("title".to_owned(), json!("Heron survey"))].into_iter().collect();
     SessionThreads::new(directory).patch_header(&ThreadId::from("sess_plain"), set, Vec::new()).await.expect("patched");
-    // The patch is answered once durable; the stamp moves when the projection behind it lands.
-    threads.projected().await;
-    let now = stored.record_stamp("sess_plain").await;
-    assert!(now.is_some(), "the changed record is still stamped");
-    assert_ne!(now, Some(before), "the stamp moved");
+    // No explicit projection drain here: the adapter's stamp must see the acknowledged patch.
+    let now = stored.record_stamp("sess_plain").await.expect("stamp").expect("still stamped");
+    assert_ne!(now, rewritten, "an append also changes the stamp");
 
     threads.index().mark_deleted("sess_child").await.expect("delete mark");
     let ids = stored.session_ids().await.expect("listing");

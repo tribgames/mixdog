@@ -86,6 +86,9 @@ impl ProtocolClient for StubClient {
     async fn notify(&self, _method: &str, _params: Json) -> Result<(), ClientError> {
         Ok(())
     }
+    async fn notify_on(&self, _attachment: mixdog_app_server_client::AttachmentId, _method: &str, _params: Json) -> Result<(), ClientError> {
+        Ok(())
+    }
     async fn resume_thread(&self, _thread_id: &ThreadId, _window: ResumeWindow) -> Result<ThreadResumeResponse, ClientError> {
         Err(ClientError::ClientClosed)
     }
@@ -98,7 +101,7 @@ impl ProtocolClient for StubClient {
     fn pending_server_requests(&self) -> Vec<ServerRequest> {
         self.held.lock().unwrap().clone()
     }
-    async fn respond(&self, _id: mixdog_app_server_client::api::RequestId, _answer: ServerRequestAnswer) -> Result<(), ClientError> {
+    async fn respond(&self, _address: mixdog_app_server_client::ReplyAddress, _answer: ServerRequestAnswer) -> Result<(), ClientError> {
         self.answered.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -138,6 +141,11 @@ fn row(id: &str, title: &str, activity: i64) -> Json {
 
 fn notification(method: &str, params: Json) -> ClientEvent {
     ClientEvent::Notification(serde_json::from_value(json!({ "method": method, "params": params })).unwrap())
+}
+
+/// The address a request arrives with on the one socket these stubs stand for.
+fn address_of(request: &ServerRequest) -> mixdog_app_server_client::ReplyAddress {
+    mixdog_app_server_client::ReplyAddress { attachment: mixdog_app_server_client::AttachmentId::detached(), request_id: request.id().clone() }
 }
 
 fn approval(id: &str, thread: &str, method: &str) -> ServerRequest {
@@ -267,10 +275,10 @@ async fn server_feed_approval_observed_not_answered() {
     let tool = approval("a1", "t1", "item/tool/requestApproval");
     let question = approval("q1", "t2", "item/tool/requestUserInput");
     client.held.lock().unwrap().push(tool.clone());
-    client.events.send(ClientEvent::ServerRequest(tool)).unwrap();
+    let address = address_of(&tool); client.events.send(ClientEvent::ServerRequest(tool, address)).unwrap();
     approvals.wait_for(|rows| rows.len() == 1).await.unwrap();
     client.held.lock().unwrap().push(question.clone());
-    client.events.send(ClientEvent::ServerRequest(question)).unwrap();
+    let address = address_of(&question); client.events.send(ClientEvent::ServerRequest(question, address)).unwrap();
     approvals.wait_for(|rows| rows.len() == 2).await.unwrap();
     let rows = approvals.borrow().clone();
     assert_eq!((rows[0].session_id.as_str(), rows[0].kind), ("t1", ApprovalKind::Tool));
@@ -296,7 +304,7 @@ async fn server_feed_marks_the_approvals_it_found_held_as_replays_and_the_ones_t
 
     let live = approval("new", "t2", "item/tool/requestApproval");
     client.held.lock().unwrap().push(live.clone());
-    client.events.send(ClientEvent::ServerRequest(live)).unwrap();
+    let address = address_of(&live); client.events.send(ClientEvent::ServerRequest(live, address)).unwrap();
     approvals.wait_for(|rows| rows.len() == 2).await.unwrap();
     let rows = approvals.borrow().clone();
     let replay_of = |id: &str| rows.iter().find(|row| row.request_id == RequestId::String(id.into())).map(|row| row.replay);
@@ -318,7 +326,7 @@ async fn server_feed_marks_a_request_the_server_delivers_again_after_a_drop_as_a
     let mut approvals = feed.pending_approvals();
     let live = approval("live", "t1", "item/tool/requestApproval");
     client.held.lock().unwrap().push(live.clone());
-    client.events.send(ClientEvent::ServerRequest(live.clone())).unwrap();
+    let address = address_of(&live); client.events.send(ClientEvent::ServerRequest(live.clone(), address)).unwrap();
     approvals.wait_for(|rows| rows.len() == 1 && !rows[0].replay).await.unwrap();
 
     // The link drops: the client lets go of what it held, and the list empties.
@@ -327,13 +335,13 @@ async fn server_feed_marks_a_request_the_server_delivers_again_after_a_drop_as_a
     approvals.wait_for(|rows| rows.is_empty()).await.unwrap();
     // The server delivers the held request again after the reconnect, as a request that arrives: it is not news.
     client.held.lock().unwrap().push(live.clone());
-    client.events.send(ClientEvent::ServerRequest(live)).unwrap();
+    let address = address_of(&live); client.events.send(ClientEvent::ServerRequest(live, address)).unwrap();
     approvals.wait_for(|rows| rows.len() == 1).await.unwrap();
     assert!(approvals.borrow()[0].replay);
     // A request asked for the first time after the reconnect is live.
     let fresh = approval("fresh", "t2", "item/tool/requestApproval");
     client.held.lock().unwrap().push(fresh.clone());
-    client.events.send(ClientEvent::ServerRequest(fresh)).unwrap();
+    let address = address_of(&fresh); client.events.send(ClientEvent::ServerRequest(fresh, address)).unwrap();
     approvals.wait_for(|rows| rows.len() == 2).await.unwrap();
     let rows = approvals.borrow().clone();
     assert!(!rows.iter().find(|row| row.request_id == RequestId::String("fresh".into())).expect("fresh").replay);
@@ -401,31 +409,6 @@ async fn server_feed_agent_pool_from_section_and_list() {
     assert_eq!(pool.borrow()[1].tag, "w3");
 }
 
-#[tokio::test(start_paused = true)]
-async fn server_feed_edge_reaches_the_list_after_the_debounce() {
-    let client = stub(vec![("thread/list", vec![Reply::Value(json!({ "data": [row("a", "old", 10)] }))])]);
-    let feed = ServerFeed::attach(client.clone());
-    let mut sessions = feed.sessions();
-    sessions.wait_for(|rows| rows.len() == 1).await.unwrap();
-    drop(sessions.borrow_and_update());
-    client.events.send(notification("thread/started", json!({ "thread": row("n", "new", 50) }))).unwrap();
-    for _ in 0..50 {
-        tokio::task::yield_now().await;
-    }
-    // The edge is held, not yet heard.
-    assert_eq!(ids(&feed), ["a"]);
-    // The clock is the test's: just before the debounce ends nothing is heard, and the list arrives with it.
-    tokio::time::advance(REFRESH_DEBOUNCE - Duration::from_millis(1)).await;
-    for _ in 0..50 {
-        tokio::task::yield_now().await;
-    }
-    assert_eq!(ids(&feed), ["a"]);
-    let started = tokio::time::Instant::now();
-    sessions.wait_for(|rows| rows.len() == 2).await.unwrap();
-    assert!(started.elapsed() <= Duration::from_millis(1));
-    assert_eq!(ids(&feed), ["n", "a"]);
-}
-
 #[tokio::test]
 async fn server_feed_state_carries_host_shell_jobs_and_remote_session() {
     let client = stub(vec![("thread/list", vec![Reply::Value(json!({ "data": [] }))])]);
@@ -482,4 +465,30 @@ fn server_feed_remote_session_id_is_a_session_id() {
     assert_eq!(remote_session_id(&json!({ "sessionId": "a b" })), None);
     assert_eq!(remote_session_id(&json!({ "sessionId": null })), None);
     assert_eq!(remote_session_id(&json!({ "sessionId": "x".repeat(257) })), None);
+}
+
+
+#[tokio::test(start_paused = true)]
+async fn server_feed_edge_reaches_the_list_after_the_debounce() {
+    let client = stub(vec![("thread/list", vec![Reply::Value(json!({ "data": [row("a", "old", 10)] }))])]);
+    let feed = ServerFeed::attach(client.clone());
+    let mut sessions = feed.sessions();
+    sessions.wait_for(|rows| rows.len() == 1).await.unwrap();
+    drop(sessions.borrow_and_update());
+    client.events.send(notification("thread/started", json!({ "thread": row("n", "new", 50) }))).unwrap();
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    // The edge is held, not yet heard.
+    assert_eq!(ids(&feed), ["a"]);
+    // The clock is the test's: just before the debounce ends nothing is heard, and the list arrives with it.
+    tokio::time::advance(REFRESH_DEBOUNCE - Duration::from_millis(1)).await;
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(ids(&feed), ["a"]);
+    let started = tokio::time::Instant::now();
+    sessions.wait_for(|rows| rows.len() == 2).await.unwrap();
+    assert!(started.elapsed() <= Duration::from_millis(1));
+    assert_eq!(ids(&feed), ["n", "a"]);
 }

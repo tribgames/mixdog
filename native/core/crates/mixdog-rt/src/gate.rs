@@ -33,8 +33,6 @@ impl std::fmt::Display for GateCancelled {
     }
 }
 
-impl std::error::Error for GateCancelled {}
-
 /// The turn on a gate, held until dropped.
 pub struct GateGuard { _turn: ChainGuard }
 
@@ -193,3 +191,6 @@ mod tests {
         assert_eq!(gates.busy_keys(), 1, "only `b` remains");
     }
 }
+
+
+impl std::error::Error for GateCancelled {}

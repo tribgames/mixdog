@@ -53,7 +53,7 @@ fn main() -> ExitCode {
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect::<Vec<_>>()
         .join(" ");
-    let Some(secret) = ask(&endpoint, &token, &prompt) else {
+    let Some(secret) = ask(&endpoint, &token, &prompt, identity()) else {
         return ExitCode::from(1);
     };
     let mut out = std::io::stdout().lock();
@@ -64,10 +64,69 @@ fn main() -> ExitCode {
     }
 }
 
+/// Which ssh invocation this helper was spawned for (the number the session put in its environment) and which process ran it
+/// (the ssh that asks: a jump host's ssh is another process of the same invocation); sent so a question is told from the
+/// same question of another authentication. `None` without the number.
+fn identity() -> Option<(u64, u64)> {
+    let child = std::env::var("MIXDOG_ASKPASS_CHILD").ok()?.parse().ok()?;
+    Some((child, u64::from(parent_process())))
+}
+
+#[cfg(unix)]
+fn parent_process() -> u32 {
+    std::os::unix::process::parent_id()
+}
+
+/// The parent of this process from the toolhelp snapshot; 0 when it cannot be read.
+#[cfg(windows)]
+fn parent_process() -> u32 {
+    use core::ffi::c_void;
+    #[repr(C)]
+    struct ProcessEntry {
+        size: u32,
+        usage: u32,
+        process_id: u32,
+        heap_id: usize,
+        module_id: u32,
+        threads: u32,
+        parent_process_id: u32,
+        priority: i32,
+        flags: u32,
+        exe_file: [u16; 260],
+    }
+    unsafe extern "system" {
+        fn CreateToolhelp32Snapshot(flags: u32, process_id: u32) -> *mut c_void;
+        fn Process32FirstW(snapshot: *mut c_void, entry: *mut ProcessEntry) -> i32;
+        fn Process32NextW(snapshot: *mut c_void, entry: *mut ProcessEntry) -> i32;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+    const TH32CS_SNAPPROCESS: u32 = 2;
+    let me = std::process::id();
+    // SAFETY: the snapshot handle is checked, closed on every path, and `entry` is a zeroed plain-data struct with its size set.
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot as isize == -1 {
+            return 0;
+        }
+        let mut entry: ProcessEntry = core::mem::zeroed();
+        entry.size = core::mem::size_of::<ProcessEntry>() as u32;
+        let mut parent = 0;
+        let mut more = Process32FirstW(snapshot, &mut entry) != 0;
+        while more {
+            if entry.process_id == me {
+                parent = entry.parent_process_id;
+                break;
+            }
+            more = Process32NextW(snapshot, &mut entry) != 0;
+        }
+        CloseHandle(snapshot);
+        parent
+    }
+}
 /// The secret the desktop answered with, or `None` for a refusal, a closed endpoint or an unreadable reply.
-fn ask(endpoint: &str, token: &str, prompt: &str) -> Option<String> {
+fn ask(endpoint: &str, token: &str, prompt: &str, who: Option<(u64, u64)>) -> Option<String> {
     let mut stream = connect(endpoint).ok()?;
-    stream.write_all(request_line(token, prompt).as_bytes()).ok()?;
+    stream.write_all(request_line(token, prompt, who).as_bytes()).ok()?;
     stream.flush().ok()?;
     let mut line = Vec::new();
     BufReader::new(stream.take(MAX_REPLY_BYTES)).read_until(b'\n', &mut line).ok()?;
@@ -77,23 +136,28 @@ fn ask(endpoint: &str, token: &str, prompt: &str) -> Option<String> {
     parse_reply(std::str::from_utf8(&line).ok()?)
 }
 
-/// `{"token":..,"prompt":..}` plus a newline, at most [`MAX_REQUEST_BYTES`] long.
-fn request_line(token: &str, prompt: &str) -> String {
-    let mut prompt = prompt;
-    loop {
-        let line = format!("{{\"token\":{},\"prompt\":{}}}\n", quote(token), quote(prompt));
-        if line.len() <= MAX_REQUEST_BYTES {
-            return line;
-        }
-        // Cut by at least the excess (escaping only makes the text longer), then measure again.
-        let mut end = prompt.len().saturating_sub(line.len() - MAX_REQUEST_BYTES);
-        while !prompt.is_char_boundary(end) {
-            end -= 1;
-        }
-        prompt = &prompt[..end];
+/// `{"token":..,"prompt":..}` (plus `"child"` and `"process"` when given) and a newline, at most [`MAX_REQUEST_BYTES`] long.
+/// A question too long for that is cut to its longest prefix of whole characters that fits beside the fixed parts, which stay.
+fn request_line(token: &str, prompt: &str, who: Option<(u64, u64)>) -> String {
+    let who = who.map(|(child, process)| format!(",\"child\":{child},\"process\":{process}")).unwrap_or_default();
+    let line = |prompt: &str| format!("{{\"token\":{},\"prompt\":{}{who}}}\n", quote(token), quote(prompt));
+    let whole = line(prompt);
+    if whole.len() <= MAX_REQUEST_BYTES {
+        return whole;
     }
+    // Escaping makes the text longer by up to six times, so what is cut is counted in the bytes each character takes quoted.
+    let mut room = MAX_REQUEST_BYTES.saturating_sub(line("").len());
+    let mut end = 0;
+    for (at, c) in prompt.char_indices() {
+        let width = quote(c.encode_utf8(&mut [0; 4])).len() - 2;
+        if width > room {
+            break;
+        }
+        room -= width;
+        end = at + c.len_utf8();
+    }
+    line(&prompt[..end])
 }
-
 fn quote(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     out.push('"');
@@ -317,9 +381,23 @@ mod tests {
 
     #[test]
     fn request_is_capped_on_a_character_boundary() {
-        let line = request_line("t", &"é\u{1}".repeat(100_000));
+        let long = "é\u{1}".repeat(100_000);
+        let line = request_line("t", &long, None);
         assert!(line.len() <= MAX_REQUEST_BYTES && line.ends_with("\"}\n"));
-        assert_eq!(request_line("t", "p"), "{\"token\":\"t\",\"prompt\":\"p\"}\n");
+        assert!(line.len() > MAX_REQUEST_BYTES - 200 && line.contains("\"prompt\":\"é"), "the question is cut, never dropped");
+        // With the identity fields the question is what is cut: they stay whole at the end, inside the same budget.
+        let line = request_line("t", &long, Some((3, 4)));
+        assert!(line.len() <= MAX_REQUEST_BYTES, "{}", line.len());
+        assert!(line.ends_with("\",\"child\":3,\"process\":4}\n"));
+        // A cut that would land inside a two-byte character moves back to its start: the text is a whole-character prefix.
+        let start = line.find("\"prompt\":\"").unwrap() + "\"prompt\":\"".len();
+        let shown = &line[start..line.len() - "\",\"child\":3,\"process\":4}\n".len()];
+        assert!(shown.starts_with("é\\u0001é"), "the question was cut to nothing or mangled: {shown:.20}");
+        assert!(shown.len() > MAX_REQUEST_BYTES - 200);
+        let odd = request_line("t", &"é".repeat(40_000), Some((u64::MAX, u64::MAX)));
+        assert!(odd.len() <= MAX_REQUEST_BYTES && odd.ends_with(&format!("\"child\":{},\"process\":{}}}\n", u64::MAX, u64::MAX)));
+        assert_eq!(request_line("t", "p", None), "{\"token\":\"t\",\"prompt\":\"p\"}\n");
+        assert_eq!(request_line("t", "p", Some((3, 4))), "{\"token\":\"t\",\"prompt\":\"p\",\"child\":3,\"process\":4}\n");
     }
 
     #[test]

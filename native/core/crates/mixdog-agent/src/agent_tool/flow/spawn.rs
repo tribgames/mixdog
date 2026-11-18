@@ -252,7 +252,7 @@ impl SpawnFlowImpl {
         // Any resolved same-tag binding in this terminal (live or lingering trace) blocks a
         // fresh spawn; live reuse is routed before a spawn is prepared.
         let scan = wants_session_scan(args);
-        let existing = self.registry.resolve_tag(&tag, &context.scope(), ResolveOptions { scan_sessions: scan, exclude_terminal_traces: false })?;
+        let existing = self.registry.resolve_tag(&tag, &context.scope(), ResolveOptions { scan_sessions: scan, exclude_terminal_traces: false, skip_released: true })?;
         if existing.is_some() {
             return Err(format!("agent spawn: tag \"{tag}\" already exists"));
         }
@@ -428,8 +428,8 @@ impl SpawnFlowImpl {
             caller_session_id: Some(notify.caller_id()).filter(|c| !c.is_empty()),
             owner_session_id: Some(notify.owner_id()).filter(|c| !c.is_empty()),
             client_host_pid: notify.client_host_pid,
-            hop: None,
-            tool_call_id: None,
+            hop: (notify.hop > 0).then(|| serde_json::json!(notify.hop)),
+            tool_call_id: notify.tool_call_id.clone(),
         };
         let (flow, args, caller_cwd, context) = (self.clone(), args.clone(), caller_cwd.to_owned(), context.clone());
         let respawned = options.respawned;

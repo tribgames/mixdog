@@ -23,6 +23,9 @@ import { BrowserPermissionsGroup } from './browser-permissions';
 import { CookieAutoImportGroup } from './cookie-auto-import';
 import { type AuthFilter, type AuthRow, authCounts, filterAuthRows, mergeAuthRows } from './auth-rows';
 import { loginSavePayload } from './auth-login-draft';
+import { writeDesktopStatus } from './desktop-status-cache';
+import { useDesktopStatus } from './use-desktop-status';
+import { followSettingsReadConnection, startSettingsReadRecovery } from './read-recovery';
 
 type AuthApi = Partial<DesktopApi>;
 
@@ -61,17 +64,21 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
   const [importOpen, setImportOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [autoSignIn, setAutoSignIn] = useState<boolean | null>(null);
-  const [saveChatLogins, setSaveChatLogins] = useState<boolean | null>(null);
-  const [hidDevices, setHidDevices] = useState<boolean | null>(null);
+  // The three toggles stay hidden only while the settings are unknown; a late or failed first read is corrected by
+  // the next settings announcement.
+  const settings = useDesktopStatus(api, 'settings', active, 10_000);
+  const autoSignIn = settings ? settings.browserAutoSignIn !== false : null;
+  const saveChatLogins = settings ? settings.saveChatLogins !== false : null;
+  const hidDevices = settings ? settings.browserHidDevices === true : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [readError, setReadError] = useState('');
 
   // Only the newest read lands: an older one answering late never restores
   // a stale list or clears a newer error.
   const listRead = useRef(0);
-  const settingsRead = useRef(0);
-  const reload = useCallback(async () => {
+  const refreshList = useRef<(() => void) | null>(null);
+  const reload = useCallback(async (signal: AbortSignal) => {
     const read = ++listRead.current;
     try {
       const [vaultLogins, signedIn, linkedSignIns] = await Promise.all([
@@ -79,14 +86,14 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
         Promise.resolve(api.browserSignedInSites?.()).then((value) => value ?? []),
         Promise.resolve(api.browserLinkedSignIns?.()).then((value) => value ?? []),
       ]);
-      if (read !== listRead.current) return;
+      if (signal.aborted || read !== listRead.current) return;
       setLogins(vaultLogins);
       setSites(signedIn);
       setLinked(linkedSignIns);
-      setError('');
+      setReadError('');
     } catch (reason) {
-      if (read !== listRead.current) return;
-      setError(reason instanceof Error ? reason.message : String(reason));
+      if (signal.aborted || read !== listRead.current) return;
+      setReadError(reason instanceof Error ? reason.message : String(reason));
     }
   }, [api]);
 
@@ -94,24 +101,26 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
   // mounted while hidden, so a mount-only load would keep a stale list.
   useEffect(() => {
     if (!active) return;
-    void reload();
-    const read = ++settingsRead.current;
-    void Promise.resolve(api.readSettings?.())
-      .then((settings) => {
-        if (read !== settingsRead.current) return;
-        setAutoSignIn(settings ? settings.browserAutoSignIn !== false : null);
-        setSaveChatLogins(settings ? settings.saveChatLogins !== false : null);
-        setHidDevices(settings ? settings.browserHidDevices === true : null);
-      })
-      .catch(() => undefined);
+    const recovery = startSettingsReadRecovery(reload, 10_000, true, true);
+    const stopLink = followSettingsReadConnection(api, recovery);
+    refreshList.current = recovery.replace;
+    window.addEventListener('focus', recovery.replace);
+    return () => {
+      listRead.current += 1;
+      refreshList.current = null;
+      stopLink?.();
+      recovery.stop();
+      window.removeEventListener('focus', recovery.replace);
+    };
   }, [active, api, reload]);
 
   const run = async (work: () => Promise<unknown>) => {
+    listRead.current += 1;
     setBusy(true);
     setError('');
     try {
       await work();
-      await reload();
+      refreshList.current?.();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -119,17 +128,11 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
     }
   };
 
-  const toggleSetting = (
-    key: 'browserAutoSignIn' | 'saveChatLogins' | 'browserHidDevices',
-    next: boolean,
-    set: (value: boolean) => void
-  ) => {
-    set(next);
-    void Promise.resolve(api.updateSetting?.(key, next))
-      .then((settings) => {
-        if (settings) set(key === 'browserHidDevices' ? settings.browserHidDevices === true : settings[key] !== false);
-      })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+  const toggleSetting = (key: 'browserAutoSignIn' | 'saveChatLogins' | 'browserHidDevices', next: boolean) => {
+    // The choice shows while the write is in flight.
+    void writeDesktopStatus(api, 'settings', () => api.updateSetting?.(key, next), { [key]: next }).catch((reason) =>
+      setError(reason instanceof Error ? reason.message : String(reason))
+    );
   };
 
   const rows = mergeAuthRows(logins ?? [], sites, linked);
@@ -295,7 +298,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
             )}
           </ul>
         )}
-        {error && <ErrorNotice error={error} />}
+        {(error || readError) && <ErrorNotice error={error || readError} />}
       </Group>
 
       <Group>
@@ -305,7 +308,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
             description={t('The agent signs in by itself with saved logins.')}
             showDescription
             checked={autoSignIn}
-            onChange={(next) => toggleSetting('browserAutoSignIn', next, setAutoSignIn)}
+            onChange={(next) => toggleSetting('browserAutoSignIn', next)}
           />
         )}
         {saveChatLogins !== null && (
@@ -314,7 +317,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
             description={t('Save logins you enter in chat.')}
             showDescription
             checked={saveChatLogins}
-            onChange={(next) => toggleSetting('saveChatLogins', next, setSaveChatLogins)}
+            onChange={(next) => toggleSetting('saveChatLogins', next)}
           />
         )}
         {hidDevices !== null && (
@@ -325,7 +328,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
             )}
             showDescription
             checked={hidDevices}
-            onChange={(next) => toggleSetting('browserHidDevices', next, setHidDevices)}
+            onChange={(next) => toggleSetting('browserHidDevices', next)}
           />
         )}
       </Group>
@@ -362,7 +365,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
         onClose={() => {
           setImportOpen(false);
           setImportRevision((count) => count + 1);
-          void reload();
+          refreshList.current?.();
         }}
       />
       {confirmClear && (

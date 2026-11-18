@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { requiredTranscriptHistoryRequest } from '../main/ipc-validation.ts';
 
 import {
   appendHistoryPage,
@@ -9,6 +9,25 @@ import {
   TRANSCRIPT_WINDOW_MAX_ITEMS,
   TranscriptHistoryPager,
 } from './transcript-history.ts';
+
+test('reversing after an IPC history page uses the far edge of its grouped row', async () => {
+  const live = { items: [{ id: 'live', text: 'x'.repeat(TRANSCRIPT_WINDOW_MAX_CHARS + 1) }], hasOlder: true };
+  const requests = [];
+  const read = async (_sessionId, request) => {
+    requests.push(requiredTranscriptHistoryRequest(request));
+    if (request.before) return JSON.parse(JSON.stringify({
+      items: [{ id: 'group' }], hasOlder: false, hasNewer: true,
+      positions: ['h1:0:first'], positionEdges: [{ before: 'h1:0:first', after: 'h1:0:last' }],
+    }));
+    return { items: [{ id: 'next' }], hasOlder: true, hasNewer: false };
+  };
+  const pager = new TranscriptHistoryPager('s', () => read, () => live, () => {});
+  assert.equal(await pager.earlier(), 'paged');
+  assert.deepEqual(pager.window.items.map((row) => row.id), ['group']);
+  assert.equal(await pager.later(), 'paged');
+  assert.equal(requests.at(-1).position, 'h1:0:last');
+  assert.equal(requiredTranscriptHistoryRequest({ before: 'legacy', position: 'a:1:2:3', limit: 2 }).position, 'a:1:2:3');
+});
 
 /** A daemon's historical-position reads over `rows` (oldest first). */
 function historyHost(rows, pageRows = Number.POSITIVE_INFINITY) {
@@ -224,25 +243,20 @@ test('a host without positional reads, or a vanished boundary row, never strands
   assert.equal(gone.window, null);
 });
 
-// `fixtures/session-host-transcript-page-cases/golden.json` (record-session-host-transcript-page-cases.mjs, Node b6f10295a): the
-// client holds the newest 32 rows and reads the 64 older ones. The reads are the recorded replies (what the core's `thread/items/list`
-// answers is compared in session_host_replay_tests.rs); the movement is the recorder's own, made while the read is in flight.
-const pageCases = JSON.parse(
-  readFileSync(new URL('../../../../native/core/fixtures/session-host-transcript-page-cases/golden.json', import.meta.url), 'utf8')
-).cases;
-const pageCase = (name) => pageCases.find((entry) => entry.case.startsWith(name)).observed;
+// The client holds the newest 32 of 96 rows and reads the 64 older ones; the movement is made while the read is in flight.
+const row = (i) => ({ id: `row_${i}`, kind: 'assistant', text: `r${i}` });
+const allRows = Array.from({ length: 96 }, (_, i) => row(i));
+const olderPage = allRows.slice(0, 64);
 
 async function pagedWhile(move) {
-  const older = pageCase('an older page crosses');
-  const live = { items: older.heldBeforePage, hasOlder: true };
-  const answer = older.reads[0].result.page;
+  const live = { items: allRows.slice(64), hasOlder: true };
   let release;
   const gate = new Promise((resolve) => (release = resolve));
   const pager = new TranscriptHistoryPager(
     'sess_page_host',
     () => async () => {
       await gate;
-      return { items: answer.items, hasOlder: answer.state.transcriptHasOlder, hasNewer: true };
+      return { items: olderPage, hasOlder: false, hasNewer: true };
     },
     () => live,
     () => {}
@@ -250,19 +264,17 @@ async function pagedWhile(move) {
   const reading = pager.earlier();
   move(live);
   release();
-  return { outcome: await reading, pager, older };
+  return { outcome: await reading, pager };
 }
 
-test('an older page read with nothing moving lands as the recorded window', async () => {
-  const { outcome, pager, older } = await pagedWhile(() => {});
+test('an older page read with nothing moving lands above the rows held', async () => {
+  const { outcome, pager } = await pagedWhile(() => {});
   assert.equal(outcome, 'paged');
-  assert.deepEqual(pager.window.items, older.snapshot.items, 'all 96 rows the client then shows');
+  assert.deepEqual(pager.window.items, allRows, 'all 96 rows the client then shows');
 });
 
-test('held rows that move while the page is in flight drop the page and read the window again (held rows that move: Node)', async () => {
-  const name = 'held rows that move while the page is in flight';
-  assert.ok(pageCase(name).reads[1].result.full, 'Node fell back to a full read');
-  // The recorder's movement: the held copy loses its first row.
+test('held rows that move while the page is in flight drop the page and read the window again', async () => {
+  // The held copy loses its first row.
   const { outcome, pager } = await pagedWhile((live) => (live.items = live.items.slice(1)));
   assert.equal(outcome, 'moved');
   assert.equal(pager.window, null, 'the window is the live tail again, which the caller grows');
@@ -270,23 +282,16 @@ test('held rows that move while the page is in flight drop the page and read the
 });
 
 test('rows that land at the tail while an older page is in flight leave the page above the rows on screen, kept as they are', async () => {
-  const name = 'a session that changed between reads';
-  const appended = pageCase(name).snapshot.items.slice(-pageCase(name).appendedRows.length);
-  assert.deepEqual(
-    appended.map((row) => row.id),
-    pageCase(name).appendedRows
-  );
+  const appended = [row(96), row(97)];
   let shown;
-  const { outcome, pager, older } = await pagedWhile((live) => (shown = live.items = [...live.items, ...appended]));
-  // A re-read of the whole window (a new object for every row the reader saw) moved the reader as the page landed.
+  const { outcome, pager } = await pagedWhile((live) => (shown = live.items = [...live.items, ...appended]));
   assert.equal(outcome, 'paged');
-  const page = older.reads[0].result.page.items;
   assert.deepEqual(
-    pager.window.items.map((row) => row.id),
-    [...page, ...shown].map((row) => row.id)
+    pager.window.items.map((r) => r.id),
+    [...olderPage, ...shown].map((r) => r.id)
   );
   assert.ok(
-    shown.every((row, index) => pager.window.items[page.length + index] === row),
+    shown.every((r, index) => pager.window.items[olderPage.length + index] === r),
     'the rows on screen are the same rows'
   );
 });

@@ -180,40 +180,102 @@ pub fn json_number(number: f64) -> Value {
 mod tests {
     use super::*;
 
-    /// `[input, expected]` rows written by Node: the expected `Number(input)` as its IEEE bits in
-    /// hex (`-0` and NaN included).
-    const NUMBER_ROWS: &str = include_str!("../testdata/number_coercion.json");
-    /// `[bits, String(number)]` rows written by Node.
-    const STRING_ROWS: &str = include_str!("../testdata/number_to_string.json");
+    #[test]
+    fn json_values_coerce_like_number_and_string() {
+        let cases: &[(&str, Option<f64>, &str)] = &[
+            ("null", Some(0.0), "null"),
+            ("true", Some(1.0), "true"),
+            ("[]", Some(0.0), ""),
+            ("[null]", Some(0.0), ""),
+            ("[true]", None, "true"),
+            ("[[3]]", Some(3.0), "3"),
+            ("[1,2]", None, "1,2"),
+            ("[\" 7 \"]", Some(7.0), " 7 "),
+            ("{}", None, "[object Object]"),
+            ("[1,[2,null],{}]", None, "1,2,,[object Object]"),
+        ];
+        for (input, number, text) in cases {
+            let value: Value = serde_json::from_str(input).expect("json");
+            match number {
+                Some(want) => assert_eq!(to_number(&value), *want, "{input}"),
+                None => assert!(to_number(&value).is_nan(), "{input}"),
+            }
+            assert_eq!(value_to_string(&value), *text, "{input}");
+        }
+    }
 
-    fn bits(number: f64) -> String {
-        if number.is_nan() { "nan".into() } else { format!("{:016x}", number.to_bits()) }
+
+    #[test]
+    fn a_string_converts_by_the_string_numeric_literal_grammar() {
+        for (input, want) in [
+            ("", 0.0),
+            ("  \t\n ", 0.0),
+            (" 12 ", 12.0),
+            ("\u{feff}7\u{a0}", 7.0),
+            ("+5", 5.0),
+            ("-5", -5.0),
+            (".5", 0.5),
+            ("5.", 5.0),
+            ("+.5e1", 5.0),
+            ("1e3", 1000.0),
+            ("1E-2", 0.01),
+            ("0x1F", 31.0),
+            ("0X1f", 31.0),
+            ("0b101", 5.0),
+            ("0o17", 15.0),
+            ("007", 7.0),
+            ("Infinity", f64::INFINITY),
+            ("+Infinity", f64::INFINITY),
+            ("-Infinity", f64::NEG_INFINITY),
+            ("1e999", f64::INFINITY),
+            ("1e-999", 0.0),
+            ("9007199254740993", 9007199254740992.0),
+        ] {
+            assert_eq!(string_to_number(input), want, "Number({input:?})");
+        }
+        assert!(string_to_number("-0").is_sign_negative() && string_to_number("-0") == 0.0);
     }
 
     #[test]
-    fn number_of_a_string_matches_node() {
-        let rows: Vec<(String, String)> = serde_json::from_str(NUMBER_ROWS).expect("fixture");
-        assert_eq!(rows.len(), 227);
-        for (input, expected) in rows {
-            assert_eq!(bits(string_to_number(&input)), expected, "Number({input:?})");
+    fn a_string_outside_the_grammar_converts_to_nan() {
+        for input in [
+            "abc", "12px", "1 2", ".", "e5", "1e", "1e+", "0x", "0xg", "-0x10", "+0x10", "0b2", "0o8", "1_000", "infinity", "INFINITY", "Inf", "NaN",
+            "--1", "1..2", "0x1.8", "\u{200b}1", "\u{85}1",
+        ] {
+            assert!(string_to_number(input).is_nan(), "Number({input:?})");
         }
     }
 
     #[test]
-    fn string_of_a_number_matches_node() {
-        let rows: Vec<(String, String)> = serde_json::from_str(STRING_ROWS).expect("fixture");
-        assert!(rows.len() > 200);
-        for (hex, expected) in rows {
-            let number = f64::from_bits(u64::from_str_radix(&hex, 16).expect("bits"));
-            assert_eq!(number_to_string(number), expected, "{hex}");
+    fn a_number_is_written_by_number_tostring() {
+        for (number, text) in [
+            (0.0, "0"),
+            (-0.0, "0"),
+            (1.0, "1"),
+            (-1.5, "-1.5"),
+            (100.0, "100"),
+            (0.1 + 0.2, "0.30000000000000004"),
+            (0.000001, "0.000001"),
+            (1e-7, "1e-7"),
+            (1.5e-10, "1.5e-10"),
+            (123456789012345680000.0, "123456789012345680000"),
+            (1e21, "1e+21"),
+            (1.2345e25, "1.2345e+25"),
+            (5e-324, "5e-324"),
+            (f64::MAX, "1.7976931348623157e+308"),
+            (9007199254740992.0, "9007199254740992"),
+            (f64::NAN, "NaN"),
+            (f64::INFINITY, "Infinity"),
+            (f64::NEG_INFINITY, "-Infinity"),
+        ] {
+            assert_eq!(number_to_string(number), text, "{number:e}");
         }
     }
 
     #[test]
     fn json_number_is_what_json_stringify_round_trips_to() {
-        let rows: Vec<(String, String)> = serde_json::from_str(STRING_ROWS).expect("fixture");
-        for (hex, _) in rows {
-            let number = f64::from_bits(u64::from_str_radix(&hex, 16).expect("bits"));
+        for number in [0.0, -0.0, 1.0, -1.5, 0.1, 1e21, 1e-7, 5e-324, f64::MAX, 9007199254740993.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let hex = format!("{:x}", number.to_bits());
             let value = json_number(number);
             if number.is_finite() {
                 assert_eq!(value.as_f64(), Some(if number == 0.0 { 0.0 } else { number }), "{hex}");
@@ -236,28 +298,38 @@ mod tests {
         }
         assert!(json_number(1.0).is_i64());
     }
+}
+
+/// The recorded number conversions of the reference runtime; compiled only on the machine that holds them.
+#[cfg(all(test, node_twin))]
+mod node_twin {
+    use super::*;
+
+    fn bits(number: f64) -> String {
+        if number.is_nan() { "nan".into() } else { format!("{:016x}", number.to_bits()) }
+    }
+
+    /// `[input, expected]` rows: the expected `Number(input)` as its IEEE bits in hex.
+    const NUMBER_ROWS: &str = include_str!("../testdata/number_coercion.json");
+    /// `[bits, String(number)]` rows.
+    const STRING_ROWS: &str = include_str!("../testdata/number_to_string.json");
 
     #[test]
-    fn json_values_coerce_like_number_and_string() {
-        let cases: &[(&str, Option<f64>, &str)] = &[
-            ("null", Some(0.0), "null"),
-            ("true", Some(1.0), "true"),
-            ("[]", Some(0.0), ""),
-            ("[null]", Some(0.0), ""),
-            ("[true]", None, "true"),
-            ("[[3]]", Some(3.0), "3"),
-            ("[1,2]", None, "1,2"),
-            ("[\" 7 \"]", Some(7.0), " 7 "),
-            ("{}", None, "[object Object]"),
-            ("[1,[2,null],{}]", None, "1,2,,[object Object]"),
-        ];
-        for (input, number, text) in cases {
-            let value: Value = serde_json::from_str(input).expect("json");
-            match number {
-                Some(want) => assert_eq!(to_number(&value), *want, "{input}"),
-                None => assert!(to_number(&value).is_nan(), "{input}"),
-            }
-            assert_eq!(value_to_string(&value), *text, "{input}");
+    fn number_of_a_string_matches_the_recorded_rows() {
+        let rows: Vec<(String, String)> = serde_json::from_str(NUMBER_ROWS).expect("fixture");
+        assert_eq!(rows.len(), 227);
+        for (input, expected) in rows {
+            assert_eq!(bits(string_to_number(&input)), expected, "Number({input:?})");
+        }
+    }
+
+    #[test]
+    fn string_of_a_number_matches_the_recorded_rows() {
+        let rows: Vec<(String, String)> = serde_json::from_str(STRING_ROWS).expect("fixture");
+        assert!(rows.len() > 200);
+        for (hex, expected) in rows {
+            let number = f64::from_bits(u64::from_str_radix(&hex, 16).expect("bits"));
+            assert_eq!(number_to_string(number), expected, "{hex}");
         }
     }
 }

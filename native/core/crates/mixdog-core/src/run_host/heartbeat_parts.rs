@@ -31,35 +31,6 @@ use crate::run_host::retry::{RandomJitter, TimerWait};
 use crate::run_host::routine_host::RoutineAgents;
 use crate::run_host::summary_host::{NoApprovals, SummaryDeps, SummaryServices, maintainer_of};
 
-/// `getConfigSnapshot().heartbeat`, `heartbeatIntervalMinutes` and the representative bot's
-/// presence, read live at every tick.
-pub struct ConfigHeartbeatSettings {
-    settings: Settings,
-    agents: Arc<dyn RoutineAgents>,
-}
-
-impl ConfigHeartbeatSettings {
-    pub fn new(settings: Settings, agents: Arc<dyn RoutineAgents>) -> Arc<Self> {
-        Arc::new(Self { settings, agents })
-    }
-}
-
-#[async_trait]
-impl HeartbeatSettings for ConfigHeartbeatSettings {
-    async fn is_enabled(&self) -> Result<bool, String> {
-        Ok(self.settings.heartbeat()["heartbeat"] == Value::Bool(true))
-    }
-
-    async fn mixy_exists(&self) -> Result<bool, String> {
-        self.agents.mixy_exists(false).await
-    }
-
-    /// `normalizeHeartbeatIntervalMinutes(...) * 60_000`.
-    async fn interval_ms(&self) -> Result<i64, String> {
-        Ok(self.settings.heartbeat()["intervalMinutes"].as_i64().unwrap_or(60) * 60_000)
-    }
-}
-
 /// A session's latest transcript items, from the thread directory's own item reads.
 pub struct DirectorySessionReader {
     directory: Arc<SessionDirectory>,
@@ -204,7 +175,7 @@ impl MaintainerModel for HeartbeatMaintainer {
         let effort = mixdog_js::js_trim(&route.effort);
         let call = OneShotCall {
             model: route.model.clone(),
-            max_output_tokens,
+            max_output_tokens: Some(max_output_tokens),
             fast: route.fast,
             shape: CallShape {
                 request_kind: None,
@@ -237,51 +208,6 @@ impl TaskWatches for DeliveryTaskWatches {
     }
 }
 
-/// What the daemon holds that Mixy's heartbeat is built from.
-pub struct HeartbeatHolds {
-    /// The one clock the daemon's schedules and routines read.
-    pub clock: Arc<dyn SchedulerClock>,
-    /// The heartbeat state file, shared with the user-activity probe and the `session` tool's suggestions.
-    pub store: Arc<HeartbeatStore>,
-    pub activity: Arc<UserActivity>,
-    /// The live config (`heartbeat`, `intervalMinutes`).
-    pub settings: Settings,
-    /// The routine agents' presence rule (the representative bot exists).
-    pub agents: Arc<dyn RoutineAgents>,
-    pub directory: Arc<SessionDirectory>,
-    /// The Maintainer's providers.
-    pub summaries: Arc<SummaryServices>,
-    /// The home delivery whose watches mark a task session as still reporting.
-    pub delivery: Arc<AgentHomeDelivery>,
-    /// The session catalog `listSessionCatalog` reads.
-    pub catalog: Arc<dyn SessionCatalog>,
-    /// `pendingHeldRequests`.
-    pub held: Arc<dyn HeldRequests>,
-    /// The automation store (schedules and webhooks).
-    pub records: Arc<dyn RoutineRecords>,
-    pub routines: Arc<RoutineRuntime>,
-    /// The session side of a wake (the hidden session, the Lead route, the home-chat delivery).
-    pub wake_host: Arc<dyn WakeHost>,
-    /// The process's one `HeartbeatSessions`.
-    pub marks: Arc<HeartbeatSessions>,
-}
-
-/// Mixy's heartbeat over what the daemon holds. [`mixdog_services::bots::beat::start_mixy_heartbeat`]
-/// puts it on its timers (`FIRST_TICK`, then `TICK`).
-pub fn production_heartbeat(holds: HeartbeatHolds) -> Arc<Heartbeat> {
-    Heartbeat::new(HeartbeatParts {
-        clock: holds.clock,
-        store: holds.store.clone(),
-        activity: holds.activity,
-        settings: ConfigHeartbeatSettings::new(holds.settings, holds.agents),
-        facts: FactSources { catalog: holds.catalog, watches: DeliveryTaskWatches::new(holds.delivery), held: holds.held, routines: holds.records },
-        tails: DirectorySessionReader::new(holds.directory.clone()),
-        maintainer: Maintainer::new(holds.summaries.heartbeat_maintainer()),
-        wake: Arc::new(MixyWake::new(holds.routines, holds.wake_host, holds.marks, holds.store)),
-        live: DirectoryLiveSurface::new(holds.directory),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use mixdog_core_api::mock::MockStatePublisher;
@@ -311,6 +237,7 @@ mod tests {
         }
     }
 
+
     // Test files go through the durability lane and `mixdog_statefile`, as the tree's other tests do.
     fn write_file(path: &std::path::Path, body: &[u8]) {
         use futures::FutureExt as _;
@@ -332,7 +259,6 @@ mod tests {
         let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         (dir, ConfigHeartbeatSettings::new(Settings::with_process_env(config, Arc::new(NoEffects)), Arc::new(Mixy(mixy))))
     }
-
     /// Off unless `heartbeat` is exactly true; the interval is one of the four choices, else an hour.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_settings_are_read_live_from_the_config_and_the_presence_rule() {
@@ -345,6 +271,7 @@ mod tests {
         assert_eq!(off.interval_ms().await.unwrap(), 60 * 60_000, "an unlisted interval is the default hour");
         assert!(!off.mixy_exists().await.unwrap());
     }
+
 
     /// The reader answers the newest rows oldest first with the user's text; a missing session
     /// is an error. The live surface is busy only while a turn runs, shows a notice only in a
@@ -375,4 +302,75 @@ mod tests {
         );
         assert_eq!(reader.read_tail(thread.as_str(), 1).await.unwrap().items.len(), 1);
     }
+}
+
+
+/// `getConfigSnapshot().heartbeat`, `heartbeatIntervalMinutes` and the representative bot's
+/// presence, read live at every tick.
+pub struct ConfigHeartbeatSettings {
+    settings: Settings,
+    agents: Arc<dyn RoutineAgents>,
+}
+impl ConfigHeartbeatSettings {
+    pub fn new(settings: Settings, agents: Arc<dyn RoutineAgents>) -> Arc<Self> {
+        Arc::new(Self { settings, agents })
+    }
+}
+#[async_trait]
+impl HeartbeatSettings for ConfigHeartbeatSettings {
+    async fn is_enabled(&self) -> Result<bool, String> {
+        Ok(self.settings.heartbeat()["heartbeat"] == Value::Bool(true))
+    }
+
+    async fn mixy_exists(&self) -> Result<bool, String> {
+        self.agents.mixy_exists(false).await
+    }
+
+    /// `normalizeHeartbeatIntervalMinutes(...) * 60_000`.
+    async fn interval_ms(&self) -> Result<i64, String> {
+        Ok(self.settings.heartbeat()["intervalMinutes"].as_i64().unwrap_or(60) * 60_000)
+    }
+}
+/// What the daemon holds that Mixy's heartbeat is built from.
+pub struct HeartbeatHolds {
+    /// The one clock the daemon's schedules and routines read.
+    pub clock: Arc<dyn SchedulerClock>,
+    /// The heartbeat state file, shared with the user-activity probe and the `session` tool's suggestions.
+    pub store: Arc<HeartbeatStore>,
+    pub activity: Arc<UserActivity>,
+    /// The live config (`heartbeat`, `intervalMinutes`).
+    pub settings: Settings,
+    /// The routine agents' presence rule (the representative bot exists).
+    pub agents: Arc<dyn RoutineAgents>,
+    pub directory: Arc<SessionDirectory>,
+    /// The Maintainer's providers.
+    pub summaries: Arc<SummaryServices>,
+    /// The home delivery whose watches mark a task session as still reporting.
+    pub delivery: Arc<AgentHomeDelivery>,
+    /// The session catalog `listSessionCatalog` reads.
+    pub catalog: Arc<dyn SessionCatalog>,
+    /// `pendingHeldRequests`.
+    pub held: Arc<dyn HeldRequests>,
+    /// The automation store (schedules and webhooks).
+    pub records: Arc<dyn RoutineRecords>,
+    pub routines: Arc<RoutineRuntime>,
+    /// The session side of a wake (the hidden session, the Lead route, the home-chat delivery).
+    pub wake_host: Arc<dyn WakeHost>,
+    /// The process's one `HeartbeatSessions`.
+    pub marks: Arc<HeartbeatSessions>,
+}
+/// Mixy's heartbeat over what the daemon holds. [`mixdog_services::bots::beat::start_mixy_heartbeat`]
+/// puts it on its timers (`FIRST_TICK`, then `TICK`).
+pub fn production_heartbeat(holds: HeartbeatHolds) -> Arc<Heartbeat> {
+    Heartbeat::new(HeartbeatParts {
+        clock: holds.clock,
+        store: holds.store.clone(),
+        activity: holds.activity,
+        settings: ConfigHeartbeatSettings::new(holds.settings, holds.agents),
+        facts: FactSources { catalog: holds.catalog, watches: DeliveryTaskWatches::new(holds.delivery), held: holds.held, routines: holds.records },
+        tails: DirectorySessionReader::new(holds.directory.clone()),
+        maintainer: Maintainer::new(holds.summaries.heartbeat_maintainer()),
+        wake: Arc::new(MixyWake::new(holds.routines, holds.wake_host, holds.marks, holds.store)),
+        live: DirectoryLiveSurface::new(holds.directory),
+    })
 }

@@ -76,8 +76,30 @@ pub const CALLBACK_PATH: &str = "/oauth-callback";
 pub const REDIRECT_URI: &str = "http://127.0.0.1:51121/oauth-callback";
 /// Generation and account provisioning share the IDE's daily channel.
 pub const ENDPOINT: &str = "https://daily-cloudcode-pa.googleapis.com";
-/// The client version the backend gates models on, when no manifest is read.
-pub const VERSION_FALLBACK: &str = "2.19.1";
+/// The client version the backend gates models on, when no manifest is read, and the floor of one that is: a manifest
+/// answering less is not believed ([`crate::client_versions`]). 2.32.1 is the `antigravity-hub` entry of this machine's
+/// `client-versions.json`, the update manifest's own answer when it was read; the 2.19.1 it replaces predates the models the
+/// live roster now lists.
+pub const VERSION_FALLBACK: &str = "2.32.1";
+
+/// The changelist (`cl`) of the builds it is known for: Node's pinned build, 2.19.1, which carried 963137146 in its user agent
+/// (`antigravity-oauth-tokens.mjs`). No source names one for any other version, so any other is sent without it rather than
+/// under an old build's number.
+const KNOWN_CHANGELISTS: &[(&str, &str)] = &[("2.19.1", "963137146")];
+
+/// Whether a changelist is known for `version` ([`user_agent`] sends one only then); a replay of Node's recordings, which sent
+/// 963137146 whatever the version, states that as a decided departure for every other version.
+pub fn changelist_known(version: &str) -> bool {
+    KNOWN_CHANGELISTS.iter().any(|(known, _)| *known == version)
+}
+
+/// The hub client identity Cloud Code Assist expects for `version`: the changelist only where it is known.
+pub fn user_agent(version: &str) -> String {
+    match KNOWN_CHANGELISTS.iter().find(|(known, _)| *known == version) {
+        Some((_, cl)) => format!("antigravity/hub/{version} (aidev_client; os_type=darwin; arch=arm64; cl={cl})"),
+        None => format!("antigravity/hub/{version} (aidev_client; os_type=darwin; arch=arm64)"),
+    }
+}
 pub const VERSION_MANIFEST_URL: &str =
     "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml";
 const REFRESH_SKEW_MS: u64 = 5 * 60_000;
@@ -89,123 +111,9 @@ pub fn parse_manifest_version(text: &str) -> Option<String> {
     crate::client_versions::parse_antigravity_manifest_version(text)
 }
 
-// ---------------------------------------------------------------------------
-// Stored credentials
-// ---------------------------------------------------------------------------
-
-/// `antigravity-oauth.json`: the file keeps today's names and schema.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TokenDoc {
-    pub access_token: String,
-    pub refresh_token: String,
-    /// Epoch milliseconds; 0 when unknown.
-    pub expires_at_ms: u64,
-    pub project_id: String,
-    pub tier_id: String,
-    pub email: String,
-    pub user_id: String,
-}
-
-/// `expires_at` may be unix seconds or milliseconds, a numeric string, or an
-/// ISO-8601 string; 0 means unknown.
-fn expires_at_ms(value: &Value) -> u64 {
-    let number = match value {
-        Value::Number(n) => n.as_f64(),
-        Value::String(s) => match s.trim().parse::<f64>() {
-            Ok(n) => Some(n),
-            Err(_) => {
-                let ms = mixdog_js::time::date_parse(s.trim());
-                return if ms.is_finite() { ms.max(0.0) as u64 } else { 0 };
-            }
-        },
-        _ => None,
-    };
-    match number {
-        Some(n) if n.is_finite() && n > 0.0 => (if n < 1e12 { n * 1000.0 } else { n }) as u64,
-        _ => 0,
-    }
-}
-
-impl TokenDoc {
-    /// A document with both tokens; anything else is not a sign-in.
-    pub fn from_json(raw: &Value) -> Option<Self> {
-        let text = |keys: &[&str]| {
-            keys.iter().find_map(|k| raw.get(*k).and_then(Value::as_str)).unwrap_or("").to_owned()
-        };
-        let (access_token, refresh_token) = (text(&["access_token"]), text(&["refresh_token"]));
-        if access_token.is_empty() || refresh_token.is_empty() {
-            return None;
-        }
-        Some(Self {
-            access_token,
-            refresh_token,
-            expires_at_ms: expires_at_ms(raw.get("expires_at").or_else(|| raw.get("expiresAt")).unwrap_or(&Value::Null)),
-            project_id: text(&["project_id", "projectId"]),
-            tier_id: text(&["tier_id"]),
-            email: text(&["email"]),
-            user_id: text(&["user_id", "userId"]),
-        })
-    }
-
-    pub fn to_json(&self) -> Value {
-        json!({
-            "access_token": self.access_token,
-            "refresh_token": self.refresh_token,
-            "expires_at": self.expires_at_ms,
-            "project_id": self.project_id,
-            "tier_id": self.tier_id,
-            "email": self.email,
-            "user_id": self.user_id,
-        })
-    }
-}
-
-/// The credential file. The shared OAuth plumbing implements it with its
-/// locked atomic writes (owner-only mode, directory fsync).
-#[async_trait]
-pub trait TokenStore: Send + Sync {
-    async fn load(&self) -> Option<TokenDoc>;
-    /// Writes `next` only over the credential `spent` was read from: a
-    /// sign-out or a new sign-in that landed meanwhile wins. False when the
-    /// store no longer holds `spent`.
-    async fn replace_if_current(&self, spent: &TokenDoc, next: &TokenDoc) -> bool;
-    /// A new sign-in replaces whatever the file holds.
-    async fn save(&self, doc: &TokenDoc) -> bool;
-}
-
 /// `antigravity-oauth.json` on the shared credential file: atomic locked
 /// writes on the write lane, fields this code does not know kept.
 pub struct FileTokenStore(pub CredentialFile);
-
-#[async_trait]
-impl TokenStore for FileTokenStore {
-    async fn load(&self) -> Option<TokenDoc> {
-        let doc = match self.0.load_document().await {
-            Probe::Present(map) => TokenDoc::from_json(&Value::Object(map)),
-            Probe::Absent | Probe::Unreadable => None,
-        };
-        if let Some(doc) = &doc {
-            self.0.keep(&[&doc.access_token, &doc.refresh_token]);
-        }
-        doc
-    }
-
-    async fn replace_if_current(&self, spent: &TokenDoc, next: &TokenDoc) -> bool {
-        self.0.keep(&[&next.access_token, &next.refresh_token]);
-        let spent = spent.clone();
-        let Value::Object(update) = next.to_json() else { return false };
-        self.0
-            .replace_if(move |stored| TokenDoc::from_json(&Value::Object(stored.clone())).as_ref() == Some(&spent), update)
-            .await
-            .unwrap_or(false)
-    }
-
-    async fn save(&self, doc: &TokenDoc) -> bool {
-        self.0.keep(&[&doc.access_token, &doc.refresh_token]);
-        let Value::Object(update) = doc.to_json() else { return false };
-        self.0.replace_if(|_| true, update).await.unwrap_or(false)
-    }
-}
 
 fn reauth(message: &str) -> ProviderError {
     let mut err = ProviderError::new(ErrorKind::Auth, DeliveryState::NotSent);
@@ -215,101 +123,12 @@ fn reauth(message: &str) -> ProviderError {
     err
 }
 
-/// The access token is refreshed ahead of expiry so an in-flight turn never
-/// posts a stale one.
-pub fn should_refresh(tokens: &TokenDoc, now_ms: u64) -> bool {
-    if tokens.access_token.is_empty() {
-        return true;
-    }
-    tokens.expires_at_ms != 0 && now_ms + REFRESH_SKEW_MS >= tokens.expires_at_ms
-}
-
 pub struct AntigravityAuth {
     http: Arc<dyn HttpSend>,
     store: Arc<dyn TokenStore>,
     now_ms: Box<dyn Fn() -> u64 + Send + Sync>,
     /// Concurrent callers share one round-trip.
     refreshing: tokio::sync::Semaphore,
-}
-
-impl AntigravityAuth {
-    pub fn new(
-        http: Arc<dyn HttpSend>,
-        store: Arc<dyn TokenStore>,
-        now_ms: Box<dyn Fn() -> u64 + Send + Sync>,
-    ) -> Self {
-        Self { http, store, now_ms, refreshing: tokio::sync::Semaphore::new(1) }
-    }
-
-    /// The signed-in document, for building the adapter (project binding).
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    pub async fn current(&self) -> Result<TokenDoc, ProviderError> {
-        self.store.load().await.ok_or_else(|| reauth("not signed in — run /login"))
-    }
-
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn refresh(&self, spent: &TokenDoc) -> Result<TokenDoc, ProviderError> {
-        let id = client_id();
-        let secret = client_secret();
-        let body = form_body(&[
-            ("grant_type", "refresh_token"),
-            ("refresh_token", &spent.refresh_token),
-            ("client_id", &id),
-            ("client_secret", &secret),
-        ]);
-        let response = self
-            .http
-            .send(
-                WireRequest {
-                    transport: TransportKind::Http1,
-                    method: "POST".into(),
-                    url: TOKEN_URL.into(),
-                    headers: vec![(
-                        "content-type".into(),
-                        "application/x-www-form-urlencoded".into(),
-                    )],
-                    body,
-                },
-                TOKEN_EXCHANGE,
-            )
-            .await?;
-        let status = response.status;
-        let reply = response.read_all().await?;
-        if !(200..300).contains(&status) {
-            return Err(token_failure(status, &reply.body, "Antigravity token refresh"));
-        }
-        let grant = parse_token_grant(&reply.body, "Antigravity token refresh")?;
-        let next = TokenDoc {
-            access_token: grant.access_token,
-            refresh_token: grant.refresh_token.unwrap_or_else(|| spent.refresh_token.clone()),
-            expires_at_ms: grant.expires_in_secs.map_or(0, |s| (self.now_ms)() + s * 1000),
-            ..spent.clone()
-        };
-        if self.store.replace_if_current(spent, &next).await {
-            return Ok(next);
-        }
-        self.store.load().await.ok_or_else(|| reauth("credentials were removed during token refresh — run /login"))
-    }
-
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn tokens(&self, force: bool) -> Result<TokenDoc, ProviderError> {
-        let tokens = self.current().await?;
-        if !force && !should_refresh(&tokens, (self.now_ms)()) {
-            return Ok(tokens);
-        }
-        let _gate = self.refreshing.acquire().await.map_err(|_| reauth("refresh gate closed"))?;
-        // A concurrent caller may have refreshed while this one waited.
-        let current = self.current().await?;
-        if !force && !should_refresh(&current, (self.now_ms)()) {
-            return Ok(current);
-        }
-        match self.refresh(&current).await {
-            Ok(next) => Ok(next),
-            // A refresh failure on a still-valid token must not break the turn.
-            Err(err) if !force && !err.reauth_required && current.expires_at_ms > (self.now_ms)() => Ok(current),
-            Err(err) => Err(err),
-        }
-    }
 }
 
 #[async_trait]
@@ -406,6 +225,421 @@ pub struct CodeAssist<'a> {
     pub email: &'a str,
 }
 
+/// The Antigravity sign-in on the shared PKCE flow: the loopback listener,
+/// state and verifier come from there; this describes Google's side.
+pub struct AntigravityLogin {
+    pub http: Arc<dyn HttpSend>,
+    pub store: Arc<dyn TokenStore>,
+    pub client_version: String,
+    pub pause: Arc<dyn Pause>,
+    pub now_ms: Box<dyn Fn() -> u64 + Send + Sync>,
+}
+
+fn login_failure(err: &ProviderError, email: &str) -> LoginFailure {
+    match &err.verification_url {
+        Some(url) => LoginFailure::VerificationRequired {
+            url: url.to_string(),
+            account: (!email.is_empty()).then(|| email.to_owned()),
+        },
+        None => LoginFailure::Failed {
+            code: err.code.clone().unwrap_or_else(|| "antigravity_login_failed".into()),
+            message: err.message.clone(),
+        },
+    }
+}
+
+#[async_trait]
+impl PkceProvider for AntigravityLogin {
+    fn redirect(&self) -> crate::oauth::Redirect {
+        crate::oauth::redirects::ANTIGRAVITY
+    }
+
+    fn authorize_url(&self, request: &AuthorizeRequest<'_>) -> String {
+        authorize_url(request.state, request.code_challenge, request.redirect_uri)
+    }
+
+    fn callback_pages(&self) -> CallbackPages {
+        pages::ANTIGRAVITY
+    }
+
+    /// The browser's failure page never quotes an error (it is provider-controlled text): no detail.
+    async fn exchange_checked(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, Refusal> {
+        self.exchange_login(code, verifier, redirect_uri).await.map_err(Refusal::from)
+    }
+}
+
+fn tier_ids<'a>(list: &'a Value, key: &str) -> Vec<&'a str> {
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t.get(key).and_then(Value::as_str))
+        .filter(|id| !id.is_empty())
+        .collect()
+}
+
+/// Free tier when Google allows it (or reports no tier list at all);
+/// otherwise the default allowed tier Google can provision without a
+/// user-supplied Cloud project.
+fn onboarding_tier(payload: &Value) -> Option<String> {
+    let allowed = tier_ids(&payload["allowedTiers"], "id");
+    let ineligible = tier_ids(&payload["ineligibleTiers"], "tierId");
+    if allowed.contains(&"free-tier")
+        || (!payload["allowedTiers"].is_array() && !ineligible.contains(&"free-tier"))
+    {
+        return Some("free-tier".into());
+    }
+    let managed: Vec<&Value> = payload["allowedTiers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|t| {
+            t["id"].as_str().is_some_and(|id| !id.is_empty() && !ineligible.contains(&id))
+                && t["userDefinedCloudaicompanionProject"] != json!(true)
+        })
+        .collect();
+    managed
+        .iter()
+        .find(|t| t["isDefault"] == json!(true))
+        .or(managed.first())
+        .and_then(|t| t["id"].as_str())
+        .map(str::to_owned)
+}
+
+fn no_tier(payload: &Value, email: &str) -> ProviderError {
+    let summary = format!(
+        "allowed tiers: [{}]; ineligible tiers: [{}]",
+        tier_ids(&payload["allowedTiers"], "id").join(", "),
+        tier_ids(&payload["ineligibleTiers"], "tierId").join(", ")
+    );
+    let blocked = payload["ineligibleTiers"].as_array().and_then(|list| {
+        let with_reason = |t: &&Value| t["reasonMessage"].as_str().is_some_and(|m| !m.is_empty());
+        list.iter()
+            .find(|t| t["tierId"] == "free-tier" && with_reason(t))
+            .or_else(|| list.iter().find(with_reason))
+    });
+    if let Some(tier) = blocked {
+        let reason = format!("{}\n({summary})", tier["reasonMessage"].as_str().unwrap_or(""));
+        if let Some(url) = tier["validationUrl"].as_str().filter(|u| !u.is_empty()) {
+            return verification_required(url, &reason, email);
+        }
+        return failure(reason);
+    }
+    failure(format!("loadCodeAssist allowed no tier to onboard ({summary})"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The changelist is sent only for the build it is known for; any other version goes without one, not under an old build's.
+    #[test]
+    fn the_user_agent_carries_a_changelist_only_where_it_is_known() {
+        assert_eq!(user_agent("2.19.1"), "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)");
+        assert_eq!(user_agent(VERSION_FALLBACK), format!("antigravity/hub/{VERSION_FALLBACK} (aidev_client; os_type=darwin; arch=arm64)"));
+        assert!(!user_agent("2.32.1").contains("cl="));
+    }
+
+    struct Idle;
+
+    #[async_trait]
+    impl Pause for Idle {
+        async fn pause(&self, _: Duration) {}
+    }
+
+    #[test]
+    fn client_constants_decode_to_the_recorded_refresh_request() {
+        assert_eq!(client_id(), "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com");
+        assert!(client_secret().starts_with("GOCSPX-"));
+    }
+
+    #[test]
+    fn manifest_version_and_authorize_url() {
+        assert_eq!(parse_manifest_version("files:\nversion: 2.20.3 # latest\n").as_deref(), Some("2.20.3"));
+        assert_eq!(parse_manifest_version("version: nope\n"), None);
+        let url = authorize_url("st", "ch", REDIRECT_URI);
+        assert!(url.starts_with(AUTH_URL) && url.contains("access_type=offline") && url.contains("code_challenge=ch"));
+    }
+
+    #[test]
+    fn onboarding_prefers_free_then_managed_default() {
+        assert_eq!(onboarding_tier(&json!({})).as_deref(), Some("free-tier"));
+        let paid = json!({"allowedTiers":[{"id":"byo","userDefinedCloudaicompanionProject":true},
+            {"id":"standard-tier","isDefault":true}], "ineligibleTiers":[{"tierId":"free-tier","reasonMessage":"no"}]});
+        assert_eq!(onboarding_tier(&paid).as_deref(), Some("standard-tier"));
+        assert!(no_tier(&json!({"ineligibleTiers":[{"tierId":"free-tier","reasonMessage":"blocked"}]}), "").message.contains("blocked"));
+    }
+
+    #[test]
+    fn token_document_keeps_the_stored_schema() {
+        let raw = json!({"access_token":"a","refresh_token":"r","expires_at":1_900_000_000,
+            "project_id":"p","tier_id":"t","email":"e","user_id":"u"});
+        let doc = TokenDoc::from_json(&raw).unwrap();
+        assert_eq!(doc.expires_at_ms, 1_900_000_000_000);
+        assert_eq!(doc.to_json()["expires_at"], json!(1_900_000_000_000_u64));
+        assert!(TokenDoc::from_json(&json!({"access_token":"a"})).is_none());
+        let legacy = TokenDoc::from_json(&json!({"access_token":"a","refresh_token":"r","expiresAt":"2030-01-01T00:00:00Z","projectId":"p"}))
+            .unwrap();
+        assert_eq!((legacy.expires_at_ms, legacy.project_id.as_str()), (1_893_456_000_000, "p"));
+    }
+
+
+    /// The refresh that outlives its timer reads as the real Node function did (`sites.antigravityRefresh`):
+    /// `AbortSignal.timeout`'s own error.
+    #[tokio::test(start_paused = true)]
+    async fn a_refresh_that_outlives_its_timer_reads_as_nodes() {
+        use crate::oauth::CredentialIo;
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(dir.path().join("antigravity-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        let transport = TimingOut::new();
+        let auth = AntigravityAuth::new(transport.clone(), Arc::new(FileTokenStore(file)), Box::new(|| 0));
+        let spent = TokenDoc {
+            access_token: "a".into(),
+            refresh_token: "r".into(),
+            expires_at_ms: 0,
+            project_id: String::new(),
+            tier_id: String::new(),
+            email: String::new(),
+            user_id: String::new(),
+        };
+        let error = auth.refresh(&spent).await.expect_err("never answers");
+        assert_transport("antigravityRefresh", &transport);
+        assert_thrown("antigravityRefresh", &error.message);
+    }
+    /// The sign-in's code exchange and its project lookup that outlive their timers read as the real Node functions did
+    /// (`sites.antigravityCodeExchange`, `sites.antigravityProject`): `AbortSignal.timeout`'s own error.
+    #[tokio::test(start_paused = true)]
+    async fn a_sign_in_that_outlives_its_timers_reads_as_nodes() {
+        use crate::oauth::CredentialIo;
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
+
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(dir.path().join("antigravity-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        let transport = TimingOut::new();
+        let login = AntigravityLogin {
+            http: transport.clone(),
+            store: Arc::new(FileTokenStore(file)),
+            client_version: "1.0.0".into(),
+            pause: Arc::new(Idle),
+            now_ms: Box::new(|| 0),
+        };
+        let failure = login.exchange("abc", "v", "http://127.0.0.1/cb").await.expect_err("never answers");
+        assert_transport("antigravityCodeExchange", &transport);
+        assert_thrown("antigravityCodeExchange", login_message(&failure));
+
+        let project = TimingOut::new();
+        let assist = CodeAssist { http: project.as_ref(), access_token: "tok", client_version: "1.0.0", email: "" };
+        let error = assist.discover_account(&Idle).await.err().expect("never answers");
+        assert_transport("antigravityProject", &project);
+        assert_thrown("antigravityProject", &error.message);
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// Stored credentials
+// ---------------------------------------------------------------------------
+
+/// `antigravity-oauth.json`: the file keeps today's names and schema.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TokenDoc {
+    pub access_token: String,
+    pub refresh_token: String,
+    /// Epoch milliseconds; 0 when unknown.
+    pub expires_at_ms: u64,
+    pub project_id: String,
+    pub tier_id: String,
+    pub email: String,
+    pub user_id: String,
+}
+/// `expires_at` may be unix seconds or milliseconds, a numeric string, or an
+/// ISO-8601 string; 0 means unknown.
+fn expires_at_ms(value: &Value) -> u64 {
+    let number = match value {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => match s.trim().parse::<f64>() {
+            Ok(n) => Some(n),
+            Err(_) => {
+                let ms = mixdog_js::time::date_parse(s.trim());
+                return if ms.is_finite() { ms.max(0.0) as u64 } else { 0 };
+            }
+        },
+        _ => None,
+    };
+    match number {
+        Some(n) if n.is_finite() && n > 0.0 => (if n < 1e12 { n * 1000.0 } else { n }) as u64,
+        _ => 0,
+    }
+}
+impl TokenDoc {
+    /// A document with both tokens; anything else is not a sign-in.
+    pub fn from_json(raw: &Value) -> Option<Self> {
+        let text = |keys: &[&str]| {
+            keys.iter().find_map(|k| raw.get(*k).and_then(Value::as_str)).unwrap_or("").to_owned()
+        };
+        let (access_token, refresh_token) = (text(&["access_token"]), text(&["refresh_token"]));
+        if access_token.is_empty() || refresh_token.is_empty() {
+            return None;
+        }
+        Some(Self {
+            access_token,
+            refresh_token,
+            expires_at_ms: expires_at_ms(raw.get("expires_at").or_else(|| raw.get("expiresAt")).unwrap_or(&Value::Null)),
+            project_id: text(&["project_id", "projectId"]),
+            tier_id: text(&["tier_id"]),
+            email: text(&["email"]),
+            user_id: text(&["user_id", "userId"]),
+        })
+    }
+
+    pub fn to_json(&self) -> Value {
+        json!({
+            "access_token": self.access_token,
+            "refresh_token": self.refresh_token,
+            "expires_at": self.expires_at_ms,
+            "project_id": self.project_id,
+            "tier_id": self.tier_id,
+            "email": self.email,
+            "user_id": self.user_id,
+        })
+    }
+}
+/// The credential file. The shared OAuth plumbing implements it with its
+/// locked atomic writes (owner-only mode, directory fsync).
+#[async_trait]
+pub trait TokenStore: Send + Sync {
+    async fn load(&self) -> Option<TokenDoc>;
+    /// Writes `next` only over the credential `spent` was read from: a
+    /// sign-out or a new sign-in that landed meanwhile wins. False when the
+    /// store no longer holds `spent`.
+    async fn replace_if_current(&self, spent: &TokenDoc, next: &TokenDoc) -> bool;
+    /// A new sign-in replaces whatever the file holds.
+    async fn save(&self, doc: &TokenDoc) -> bool;
+}
+#[async_trait]
+impl TokenStore for FileTokenStore {
+    async fn load(&self) -> Option<TokenDoc> {
+        let doc = match self.0.load_document().await {
+            Probe::Present(map) => TokenDoc::from_json(&Value::Object(map)),
+            Probe::Absent | Probe::Unreadable => None,
+        };
+        if let Some(doc) = &doc {
+            self.0.keep(&[&doc.access_token, &doc.refresh_token]);
+        }
+        doc
+    }
+
+    async fn replace_if_current(&self, spent: &TokenDoc, next: &TokenDoc) -> bool {
+        self.0.keep(&[&next.access_token, &next.refresh_token]);
+        let spent = spent.clone();
+        let Value::Object(update) = next.to_json() else { return false };
+        self.0
+            .replace_if(move |stored| TokenDoc::from_json(&Value::Object(stored.clone())).as_ref() == Some(&spent), update)
+            .await
+            .unwrap_or(false)
+    }
+
+    async fn save(&self, doc: &TokenDoc) -> bool {
+        self.0.keep(&[&doc.access_token, &doc.refresh_token]);
+        let Value::Object(update) = doc.to_json() else { return false };
+        self.0.replace_if(|_| true, update).await.unwrap_or(false)
+    }
+}
+/// The access token is refreshed ahead of expiry so an in-flight turn never
+/// posts a stale one.
+pub fn should_refresh(tokens: &TokenDoc, now_ms: u64) -> bool {
+    if tokens.access_token.is_empty() {
+        return true;
+    }
+    tokens.expires_at_ms != 0 && now_ms + REFRESH_SKEW_MS >= tokens.expires_at_ms
+}
+impl AntigravityAuth {
+    pub fn new(
+        http: Arc<dyn HttpSend>,
+        store: Arc<dyn TokenStore>,
+        now_ms: Box<dyn Fn() -> u64 + Send + Sync>,
+    ) -> Self {
+        Self { http, store, now_ms, refreshing: tokio::sync::Semaphore::new(1) }
+    }
+
+    /// The signed-in document, for building the adapter (project binding).
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    pub async fn current(&self) -> Result<TokenDoc, ProviderError> {
+        self.store.load().await.ok_or_else(|| reauth("not signed in — run /login"))
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn refresh(&self, spent: &TokenDoc) -> Result<TokenDoc, ProviderError> {
+        let id = client_id();
+        let secret = client_secret();
+        let body = form_body(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", &spent.refresh_token),
+            ("client_id", &id),
+            ("client_secret", &secret),
+        ]);
+        let response = self
+            .http
+            .send(
+                WireRequest {
+                    transport: TransportKind::Http1,
+                    method: "POST".into(),
+                    url: TOKEN_URL.into(),
+                    headers: vec![(
+                        "content-type".into(),
+                        "application/x-www-form-urlencoded".into(),
+                    )],
+                    body,
+                },
+                TOKEN_EXCHANGE,
+            )
+            .await?;
+        let status = response.status;
+        let reply = response.read_all().await?;
+        if !(200..300).contains(&status) {
+            return Err(super::antigravity_refresh_failure(status, &reply.body));
+        }
+        let grant = parse_token_grant(&reply.body, "Antigravity token refresh")?;
+        let next = TokenDoc {
+            access_token: grant.access_token,
+            refresh_token: grant.refresh_token.unwrap_or_else(|| spent.refresh_token.clone()),
+            expires_at_ms: grant.expires_in_secs.map_or(0, |s| (self.now_ms)() + s * 1000),
+            ..spent.clone()
+        };
+        if self.store.replace_if_current(spent, &next).await {
+            return Ok(next);
+        }
+        self.store.load().await.ok_or_else(|| reauth("credentials were removed during token refresh — run /login"))
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn tokens(&self, force: bool) -> Result<TokenDoc, ProviderError> {
+        let tokens = self.current().await?;
+        if !force && !should_refresh(&tokens, (self.now_ms)()) {
+            return Ok(tokens);
+        }
+        let _gate = self.refreshing.acquire().await.map_err(|_| reauth("refresh gate closed"))?;
+        // A concurrent caller may have refreshed while this one waited.
+        let current = self.current().await?;
+        if !force && !should_refresh(&current, (self.now_ms)()) {
+            return Ok(current);
+        }
+        match self.refresh(&current).await {
+            Ok(next) => Ok(next),
+            // A refresh failure on a still-valid token must not break the turn.
+            Err(err) if !force && !err.reauth_required && current.expires_at_ms > (self.now_ms)() => Ok(current),
+            Err(err) => Err(err),
+        }
+    }
+}
 impl CodeAssist<'_> {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn call(&self, action: &str, body: Option<Value>) -> Result<Value, ProviderError> {
@@ -419,13 +653,7 @@ impl CodeAssist<'_> {
                 headers: vec![
                     ("content-type".into(), "application/json".into()),
                     ("authorization".into(), format!("Bearer {}", self.access_token)),
-                    (
-                        "user-agent".into(),
-                        format!(
-                            "antigravity/hub/{} (aidev_client; os_type=darwin; arch=arm64; cl=963137146)",
-                            self.client_version
-                        ),
-                    ),
+                    ("user-agent".into(), user_agent(&self.client_version)),
                 ],
                 body: body.map(|b| b.to_string().into_bytes()).unwrap_or_default(),
             }, ANTIGRAVITY_PROJECT)
@@ -520,50 +748,6 @@ impl CodeAssist<'_> {
         Ok(Account { project_id, tier_id })
     }
 }
-
-/// The Antigravity sign-in on the shared PKCE flow: the loopback listener,
-/// state and verifier come from there; this describes Google's side.
-pub struct AntigravityLogin {
-    pub http: Arc<dyn HttpSend>,
-    pub store: Arc<dyn TokenStore>,
-    pub client_version: String,
-    pub pause: Arc<dyn Pause>,
-    pub now_ms: Box<dyn Fn() -> u64 + Send + Sync>,
-}
-
-fn login_failure(err: &ProviderError, email: &str) -> LoginFailure {
-    match &err.verification_url {
-        Some(url) => LoginFailure::VerificationRequired {
-            url: url.to_string(),
-            account: (!email.is_empty()).then(|| email.to_owned()),
-        },
-        None => LoginFailure::Failed {
-            code: err.code.clone().unwrap_or_else(|| "antigravity_login_failed".into()),
-            message: err.message.clone(),
-        },
-    }
-}
-
-#[async_trait]
-impl PkceProvider for AntigravityLogin {
-    fn redirect(&self) -> crate::oauth::Redirect {
-        crate::oauth::redirects::ANTIGRAVITY
-    }
-
-    fn authorize_url(&self, request: &AuthorizeRequest<'_>) -> String {
-        authorize_url(request.state, request.code_challenge, request.redirect_uri)
-    }
-
-    fn callback_pages(&self) -> CallbackPages {
-        pages::ANTIGRAVITY
-    }
-
-    /// The browser's failure page never quotes an error (it is provider-controlled text): no detail.
-    async fn exchange_checked(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, Refusal> {
-        self.exchange_login(code, verifier, redirect_uri).await.map_err(Refusal::from)
-    }
-}
-
 impl AntigravityLogin {
     async fn exchange_login(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, LoginFailure> {
         let fail = |err: ProviderError| login_failure(&err, "");
@@ -640,172 +824,5 @@ impl AntigravityLogin {
             });
         }
         Ok((!email.is_empty()).then_some(email))
-    }
-}
-
-fn tier_ids<'a>(list: &'a Value, key: &str) -> Vec<&'a str> {
-    list.as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|t| t.get(key).and_then(Value::as_str))
-        .filter(|id| !id.is_empty())
-        .collect()
-}
-
-/// Free tier when Google allows it (or reports no tier list at all);
-/// otherwise the default allowed tier Google can provision without a
-/// user-supplied Cloud project.
-fn onboarding_tier(payload: &Value) -> Option<String> {
-    let allowed = tier_ids(&payload["allowedTiers"], "id");
-    let ineligible = tier_ids(&payload["ineligibleTiers"], "tierId");
-    if allowed.contains(&"free-tier")
-        || (!payload["allowedTiers"].is_array() && !ineligible.contains(&"free-tier"))
-    {
-        return Some("free-tier".into());
-    }
-    let managed: Vec<&Value> = payload["allowedTiers"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|t| {
-            t["id"].as_str().is_some_and(|id| !id.is_empty() && !ineligible.contains(&id))
-                && t["userDefinedCloudaicompanionProject"] != json!(true)
-        })
-        .collect();
-    managed
-        .iter()
-        .find(|t| t["isDefault"] == json!(true))
-        .or(managed.first())
-        .and_then(|t| t["id"].as_str())
-        .map(str::to_owned)
-}
-
-fn no_tier(payload: &Value, email: &str) -> ProviderError {
-    let summary = format!(
-        "allowed tiers: [{}]; ineligible tiers: [{}]",
-        tier_ids(&payload["allowedTiers"], "id").join(", "),
-        tier_ids(&payload["ineligibleTiers"], "tierId").join(", ")
-    );
-    let blocked = payload["ineligibleTiers"].as_array().and_then(|list| {
-        let with_reason = |t: &&Value| t["reasonMessage"].as_str().is_some_and(|m| !m.is_empty());
-        list.iter()
-            .find(|t| t["tierId"] == "free-tier" && with_reason(t))
-            .or_else(|| list.iter().find(with_reason))
-    });
-    if let Some(tier) = blocked {
-        let reason = format!("{}\n({summary})", tier["reasonMessage"].as_str().unwrap_or(""));
-        if let Some(url) = tier["validationUrl"].as_str().filter(|u| !u.is_empty()) {
-            return verification_required(url, &reason, email);
-        }
-        return failure(reason);
-    }
-    failure(format!("loadCodeAssist allowed no tier to onboard ({summary})"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The refresh that outlives its timer reads as the real Node function did (`sites.antigravityRefresh`):
-    /// `AbortSignal.timeout`'s own error.
-    #[tokio::test(start_paused = true)]
-    async fn a_refresh_that_outlives_its_timer_reads_as_nodes() {
-        use crate::oauth::CredentialIo;
-        use crate::transport::site_probe::TimingOut;
-        use crate::transport::site_probe::assert_thrown;
-        use crate::transport::site_probe::assert_transport;
-
-        let dir = tempfile::tempdir().unwrap();
-        let rt = mixdog_rt::testing::tokens();
-        let file = CredentialFile::new(dir.path().join("antigravity-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
-        let transport = TimingOut::new();
-        let auth = AntigravityAuth::new(transport.clone(), Arc::new(FileTokenStore(file)), Box::new(|| 0));
-        let spent = TokenDoc {
-            access_token: "a".into(),
-            refresh_token: "r".into(),
-            expires_at_ms: 0,
-            project_id: String::new(),
-            tier_id: String::new(),
-            email: String::new(),
-            user_id: String::new(),
-        };
-        let error = auth.refresh(&spent).await.expect_err("never answers");
-        assert_transport("antigravityRefresh", &transport);
-        assert_thrown("antigravityRefresh", &error.message);
-    }
-
-    struct Idle;
-
-    #[async_trait]
-    impl Pause for Idle {
-        async fn pause(&self, _: Duration) {}
-    }
-
-    /// The sign-in's code exchange and its project lookup that outlive their timers read as the real Node functions did
-    /// (`sites.antigravityCodeExchange`, `sites.antigravityProject`): `AbortSignal.timeout`'s own error.
-    #[tokio::test(start_paused = true)]
-    async fn a_sign_in_that_outlives_its_timers_reads_as_nodes() {
-        use crate::oauth::CredentialIo;
-        use crate::transport::site_probe::TimingOut;
-        use crate::transport::site_probe::assert_thrown;
-        use crate::transport::site_probe::assert_transport;
-        use crate::transport::site_probe::login_message;
-
-        let dir = tempfile::tempdir().unwrap();
-        let rt = mixdog_rt::testing::tokens();
-        let file = CredentialFile::new(dir.path().join("antigravity-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
-        let transport = TimingOut::new();
-        let login = AntigravityLogin {
-            http: transport.clone(),
-            store: Arc::new(FileTokenStore(file)),
-            client_version: "1.0.0".into(),
-            pause: Arc::new(Idle),
-            now_ms: Box::new(|| 0),
-        };
-        let failure = login.exchange("abc", "v", "http://127.0.0.1/cb").await.expect_err("never answers");
-        assert_transport("antigravityCodeExchange", &transport);
-        assert_thrown("antigravityCodeExchange", login_message(&failure));
-
-        let project = TimingOut::new();
-        let assist = CodeAssist { http: project.as_ref(), access_token: "tok", client_version: "1.0.0", email: "" };
-        let error = assist.discover_account(&Idle).await.err().expect("never answers");
-        assert_transport("antigravityProject", &project);
-        assert_thrown("antigravityProject", &error.message);
-    }
-
-    #[test]
-    fn client_constants_decode_to_the_recorded_refresh_request() {
-        assert_eq!(client_id(), "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com");
-        assert!(client_secret().starts_with("GOCSPX-"));
-    }
-
-    #[test]
-    fn token_document_keeps_the_stored_schema() {
-        let raw = json!({"access_token":"a","refresh_token":"r","expires_at":1_900_000_000,
-            "project_id":"p","tier_id":"t","email":"e","user_id":"u"});
-        let doc = TokenDoc::from_json(&raw).unwrap();
-        assert_eq!(doc.expires_at_ms, 1_900_000_000_000);
-        assert_eq!(doc.to_json()["expires_at"], json!(1_900_000_000_000_u64));
-        assert!(TokenDoc::from_json(&json!({"access_token":"a"})).is_none());
-        let legacy = TokenDoc::from_json(&json!({"access_token":"a","refresh_token":"r","expiresAt":"2030-01-01T00:00:00Z","projectId":"p"}))
-            .unwrap();
-        assert_eq!((legacy.expires_at_ms, legacy.project_id.as_str()), (1_893_456_000_000, "p"));
-    }
-
-    #[test]
-    fn manifest_version_and_authorize_url() {
-        assert_eq!(parse_manifest_version("files:\nversion: 2.20.3 # latest\n").as_deref(), Some("2.20.3"));
-        assert_eq!(parse_manifest_version("version: nope\n"), None);
-        let url = authorize_url("st", "ch", REDIRECT_URI);
-        assert!(url.starts_with(AUTH_URL) && url.contains("access_type=offline") && url.contains("code_challenge=ch"));
-    }
-
-    #[test]
-    fn onboarding_prefers_free_then_managed_default() {
-        assert_eq!(onboarding_tier(&json!({})).as_deref(), Some("free-tier"));
-        let paid = json!({"allowedTiers":[{"id":"byo","userDefinedCloudaicompanionProject":true},
-            {"id":"standard-tier","isDefault":true}], "ineligibleTiers":[{"tierId":"free-tier","reasonMessage":"no"}]});
-        assert_eq!(onboarding_tier(&paid).as_deref(), Some("standard-tier"));
-        assert!(no_tier(&json!({"ineligibleTiers":[{"tierId":"free-tier","reasonMessage":"blocked"}]}), "").message.contains("blocked"));
     }
 }

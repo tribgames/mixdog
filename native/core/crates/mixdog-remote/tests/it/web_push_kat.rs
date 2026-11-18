@@ -1,6 +1,5 @@
-//! Known answer: the RFC 8291 body this crate builds is byte-identical to the Node product's
-//! `encryptWebPushPayload` (apps/desktop/src/main/web-push.ts) for the same keys, salt and
-//! payload. The vector was produced by running that function with fixed throwaway keys
+//! Known answer: the RFC 8291 body this crate builds is the one the known-answer vector below gives for the same keys, salt and
+//! payload, made with fixed throwaway keys
 //! (`d = 0x11..` local, `0x22..` subscription, auth `0x33..`, salt `0x44..`).
 
 use base64::Engine;

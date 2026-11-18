@@ -361,6 +361,58 @@ impl mixdog_core_api::domain::approval::ApprovalGate for PendingApproval {
 }
 
 #[tokio::test]
+async fn an_unresolvable_rewritten_account_is_refused_before_approval() {
+    let hook = Arc::new(RewriteHook::default());
+    let refusal = "Account \"gone\" cannot be used. Usable gmail accounts: a, b. Pass one as `account`.".to_owned();
+    let r = rig_bound(
+        Connectors { needs: vec!["mcp__mail__send".into()], ..Connectors::default() },
+        SessionSurface::default(),
+        Some(hook.clone()),
+        Err(refusal.clone()),
+    );
+    assert_eq!(
+        r.gate.check_call("c", &call("mcp__mail__send", json!({"account": "gone"}))).await,
+        GateDecision::Deny(format!("Error: {refusal}"))
+    );
+    assert_eq!(hook.0.lock().expect("seen").len(), 1, "resolution follows the hook rewrite");
+    assert!(r.approvals.asks.lock().expect("asks").is_empty(), "no card was shown");
+}
+
+#[tokio::test]
+async fn a_no_from_the_person_denies_waits_and_marks_the_turn_as_waiting_on_them() {
+    let r = rig(
+        Connectors { needs: vec!["mcp__notes__append".into()], ..Connectors::default() },
+        SessionSurface::default(),
+        false,
+    );
+    r.approvals.script.lock().expect("script").push_back(decided(false, None));
+    let got = r.gate.check_call("c", &call("mcp__notes__append", json!({}))).await;
+    let GateDecision::Deny(text) = got else { panic!("{got:?}") };
+    assert!(text.starts_with("Error: tool \"mcp__notes__append\" was not approved: "), "{text}");
+    assert_eq!(waits(&r.events), [true, false]);
+    assert_eq!(*r.guards.0.lock().expect("waits"), 1);
+}
+
+#[tokio::test]
+async fn an_approved_ask_runs_and_an_unsaved_always_allow_is_noticed() {
+    let r = rig(
+        Connectors { needs: vec!["mcp__notes__append".into()], save_works: false, ..Connectors::default() },
+        SessionSurface::default(),
+        false,
+    );
+    r.approvals.script.lock().expect("script").push_back(decided(true, Some(ApprovalRemember::Agent)));
+    assert_eq!(r.gate.check_call("c", &call("mcp__notes__append", json!({}))).await, GateDecision::Allow);
+    assert_eq!(waits(&r.events), [true, false]);
+    assert_eq!(*r.guards.0.lock().expect("waits"), 0);
+    assert!(r
+        .events
+        .0
+        .lock()
+        .expect("events")
+        .contains(&RunEvent::Stage(Stage::Notice { message: ALLOW_NOT_SAVED_NOTICE.into(), tone: Tone::Warn })));
+}
+
+#[tokio::test]
 async fn a_connector_call_is_bound_after_rewrites_before_approval() {
     let hook = Arc::new(RewriteHook::default());
     let r = rig_bound(Connectors::default(), SessionSurface::default(), Some(hook.clone()), Ok(Some(work_account())));
@@ -411,48 +463,12 @@ async fn a_connector_call_is_bound_after_rewrites_before_approval() {
     assert_eq!(asks[0].payload["account"], "work@example.com");
 }
 
-#[tokio::test]
-async fn an_unresolvable_rewritten_account_is_refused_before_approval() {
-    let hook = Arc::new(RewriteHook::default());
-    let refusal = "Account \"gone\" cannot be used. Usable gmail accounts: a, b. Pass one as `account`.".to_owned();
-    let r = rig_bound(
-        Connectors { needs: vec!["mcp__mail__send".into()], ..Connectors::default() },
-        SessionSurface::default(),
-        Some(hook.clone()),
-        Err(refusal.clone()),
-    );
-    assert_eq!(
-        r.gate.check_call("c", &call("mcp__mail__send", json!({"account": "gone"}))).await,
-        GateDecision::Deny(format!("Error: {refusal}"))
-    );
-    assert_eq!(hook.0.lock().expect("seen").len(), 1, "resolution follows the hook rewrite");
-    assert!(r.approvals.asks.lock().expect("asks").is_empty(), "no card was shown");
-}
 
+/// A connector approval answered "always allow": the call runs once either way; a refused save raises the notice and stores
+/// nothing, a saved one raises none and stores the grant.
 #[tokio::test]
-async fn a_no_from_the_person_denies_waits_and_marks_the_turn_as_waiting_on_them() {
-    let r = rig(
-        Connectors { needs: vec!["mcp__notes__append".into()], ..Connectors::default() },
-        SessionSurface::default(),
-        false,
-    );
-    r.approvals.script.lock().expect("script").push_back(decided(false, None));
-    let got = r.gate.check_call("c", &call("mcp__notes__append", json!({}))).await;
-    let GateDecision::Deny(text) = got else { panic!("{got:?}") };
-    assert!(text.starts_with("Error: tool \"mcp__notes__append\" was not approved: "), "{text}");
-    assert_eq!(waits(&r.events), [true, false]);
-    assert_eq!(*r.guards.0.lock().expect("waits"), 1);
-}
-
-/// Node's connector approval for a bot's own session, answered "always allow" (recorded in `approval-grant-change-cases`, case "an
-/// approval whose grant cannot be saved ..."): the call runs once either way, a refused save raises the notice and stores nothing, a saved
-/// one raises none and stores the grant.
-#[tokio::test]
-async fn an_always_allow_that_cannot_be_saved_runs_the_call_and_tells_the_person_as_nodes_does() {
-    let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/approval-grant-change-cases/golden.json")).expect("golden.json");
-    let case = golden["cases"].as_array().expect("cases").iter().find(|c| c["case"].as_str().is_some_and(|name| name.starts_with("an approval whose grant cannot be saved"))).expect("the recorded case");
+async fn an_always_allow_that_cannot_be_saved_runs_the_call_and_tells_the_person() {
     for (label, save_works) in [("saved", true), ("refused", false)] {
-        let observed = &case["observed"][label];
         let stored = Arc::new(Mutex::new(Vec::new()));
         let r = rig(
             Connectors { needs: vec!["mcp__notes__append".into()], save_works, stored: stored.clone(), ..Connectors::default() },
@@ -460,41 +476,20 @@ async fn an_always_allow_that_cannot_be_saved_runs_the_call_and_tells_the_person
             false,
         );
         r.approvals.script.lock().expect("script").push_back(decided(true, Some(ApprovalRemember::Agent)));
-        // `outcome: null`: the call runs.
         assert_eq!(r.gate.check_call("c", &call("mcp__notes__append", json!({}))).await, GateDecision::Allow, "{label}: the call runs");
-        assert!(observed["outcome"].is_null());
-        let notices: Vec<serde_json::Value> = r
+        let notices: Vec<(String, Tone)> = r
             .events
             .0
             .lock()
             .expect("events")
             .iter()
             .filter_map(|event| match event {
-                RunEvent::Stage(Stage::Notice { message, tone }) => Some(json!([message, if *tone == Tone::Warn { "warn" } else { "other" }])),
+                RunEvent::Stage(Stage::Notice { message, tone }) => Some((message.clone(), *tone)),
                 _ => None,
             })
             .collect();
-        assert_eq!(serde_json::Value::Array(notices), observed["notices"], "{label}: the notices");
-        let kept = if stored.lock().expect("stored").is_empty() { "needs_approval" } else { "auto" };
-        assert_eq!(json!(kept), observed["stored"], "{label}: the stored permission");
+        let told = if save_works { Vec::new() } else { vec![(ALLOW_NOT_SAVED_NOTICE.to_owned(), Tone::Warn)] };
+        assert_eq!(notices, told, "{label}: the notices");
+        assert_eq!(stored.lock().expect("stored").is_empty(), !save_works, "{label}: the grant is stored only when it could be saved");
     }
-}
-
-#[tokio::test]
-async fn an_approved_ask_runs_and_an_unsaved_always_allow_is_noticed() {
-    let r = rig(
-        Connectors { needs: vec!["mcp__notes__append".into()], save_works: false, ..Connectors::default() },
-        SessionSurface::default(),
-        false,
-    );
-    r.approvals.script.lock().expect("script").push_back(decided(true, Some(ApprovalRemember::Agent)));
-    assert_eq!(r.gate.check_call("c", &call("mcp__notes__append", json!({}))).await, GateDecision::Allow);
-    assert_eq!(waits(&r.events), [true, false]);
-    assert_eq!(*r.guards.0.lock().expect("waits"), 0);
-    assert!(r
-        .events
-        .0
-        .lock()
-        .expect("events")
-        .contains(&RunEvent::Stage(Stage::Notice { message: ALLOW_NOT_SAVED_NOTICE.into(), tone: Tone::Warn })));
 }

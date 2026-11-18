@@ -201,6 +201,7 @@ impl WarmDeps for ProcessWarmDeps {
             facts: Facts {
                 input_tokens: Some(usage.input),
                 input_tokens_known: None,
+                output_tokens_known: usage.output_known,
                 output_tokens: usage.output,
                 cached_tokens: usage.cached,
                 cache_write_tokens: usage.cache_write,

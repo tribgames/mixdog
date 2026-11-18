@@ -74,6 +74,7 @@ impl Uia {
                 automation: self.automation.clone(),
                 element,
                 window: top,
+                port: self.port.clone(),
             }) as Rc<dyn Element>
         })
     }

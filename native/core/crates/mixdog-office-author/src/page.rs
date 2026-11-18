@@ -259,6 +259,190 @@ pub struct Element<'a> {
     index: usize,
 }
 
+impl Element<'_> {
+    /// The call of `function` on this element as an expression of the page.
+    fn call(&self, function: &str) -> String {
+        format!("({function})(document.querySelectorAll({})[{}])", json!(self.selector), self.index)
+    }
+
+    /// `element.boundingBox()`: the box in CSS px of the page's frame, or `None` when it has no layout box.
+    pub async fn bounding_box(&self) -> Result<Option<Rect>, String> {
+        Ok(self.measure().await?.map(|(rect, _, _)| rect))
+    }
+
+    async fn measure(&self) -> Result<Option<(Rect, f64, f64)>, String> {
+        let function = "(element) => { if (!(element instanceof Element)) return null; if (element.getClientRects().length === 0) return null; \
+             const rect = element.getBoundingClientRect(); \
+             return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, pageLeft: window.visualViewport.pageLeft, pageTop: window.visualViewport.pageTop }; }";
+        let found = self.page.evaluate_expression(&self.call(function)).await?;
+        if found.is_null() {
+            return Ok(None);
+        }
+        let number = |key: &str| found.get(key).and_then(Value::as_f64).unwrap_or(0.0);
+        Ok(Some((
+            Rect { x: number("x"), y: number("y"), width: number("width"), height: number("height") },
+            number("pageLeft"),
+            number("pageTop"),
+        )))
+    }
+
+    /// `element.screenshot({ omitBackground })` as a PNG: the element is scrolled into view when it is not wholly in
+    /// it, and photographed by its box.
+    pub async fn screenshot(&self, omit_background: bool) -> Result<Vec<u8>, String> {
+        let scroll = "async (element) => { if (!element || !element.isConnected) throw new Error('Node is detached from document'); \
+             if (element.nodeType !== Node.ELEMENT_NODE) throw new Error('Node is not of type HTMLElement'); \
+             const target = element instanceof SVGElement ? (element.ownerSVGElement || element) : element; \
+             const ratio = await new Promise((resolve) => { const observer = new IntersectionObserver((entries) => { resolve(entries[0].intersectionRatio); observer.disconnect(); }); observer.observe(target); }); \
+             if (ratio !== 1) element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); }";
+        self.page.evaluate_expression(&self.call(scroll)).await?;
+        let Some((mut rect, page_left, page_top)) = self.measure().await? else {
+            return Err("Node is either not visible or not an HTMLElement".to_string());
+        };
+        if rect.width == 0.0 {
+            return Err("Node has 0 width.".to_string());
+        }
+        if rect.height == 0.0 {
+            return Err("Node has 0 height.".to_string());
+        }
+        rect.x += page_left;
+        rect.y += page_top;
+        self.page.screenshot(ScreenshotOptions { clip: Some(rect), omit_background }).await
+    }
+}
+
+/// The source of a function expression that defines the page script `script` (an extract of the Node module: plain
+/// function declarations that need nothing outside themselves) and calls its function `name` with its own arguments:
+/// what `page.evaluate(name, ...args)` shipped as the function's text.
+pub fn page_function(script: &str, name: &str) -> String {
+    format!("function () {{
+{script}
+return {name}.apply(null, arguments);
+}}")
+}
+
+fn call_expression(function: &str, args: &[Value]) -> String {
+    let list: Vec<String> = args.iter().map(Value::to_string).collect();
+    format!("({function})({})", list.join(", "))
+}
+
+fn text(value: &Value, key: &str) -> String {
+    value.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
+}
+
+fn decode(value: &Value, key: &str) -> Result<Vec<u8>, String> {
+    STANDARD.decode(value.get(key).and_then(Value::as_str).unwrap_or_default()).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_clip_is_rounded_at_both_corners() {
+        let clip = Rect { x: 10.4, y: 20.5, width: 100.3, height: 50.4 }.rounded();
+        assert_eq!(clip, Rect { x: 10.0, y: 21.0, width: 101.0, height: 50.0 });
+        // Math.round takes a tie toward +infinity.
+        assert_eq!(Rect { x: -0.5, y: 0.0, width: 1.0, height: 1.0 }.rounded().x, 0.0);
+    }
+
+    #[test]
+    fn the_default_print_parameters_are_puppeteers() {
+        let params = PdfOptions::default().print_params().unwrap();
+        assert_eq!(params["paperWidth"], json!(8.5));
+        assert_eq!(params["paperHeight"], json!(11));
+        assert_eq!(params["generateTaggedPDF"], json!(true));
+        assert_eq!(params["generateDocumentOutline"], json!(false));
+        assert_eq!(params["preferCSSPageSize"], json!(false));
+        assert_eq!(params["printBackground"], json!(false));
+        assert_eq!(params["scale"], json!(1));
+        assert_eq!(params["transferMode"], json!("ReturnAsStream"));
+        assert_eq!(params["pageRanges"], json!(""));
+        for side in ["marginTop", "marginBottom", "marginLeft", "marginRight"] {
+            assert_eq!(params[side], json!(0), "{side}");
+        }
+    }
+
+    #[test]
+    fn the_authoring_pdf_call_maps_to_the_browsers_parameters() {
+        let options = PdfOptions { prefer_css_page_size: true, print_background: true, tagged: true, outline: true, ..PdfOptions::default() };
+        let params = options.print_params().unwrap();
+        assert_eq!(params["preferCSSPageSize"], json!(true));
+        assert_eq!(params["printBackground"], json!(true));
+        assert_eq!(params["generateTaggedPDF"], json!(true));
+        assert_eq!(params["generateDocumentOutline"], json!(true));
+    }
+
+    #[test]
+    fn an_outline_turns_tagging_on() {
+        let options = PdfOptions { tagged: false, outline: true, ..PdfOptions::default() };
+        assert_eq!(options.print_params().unwrap()["generateTaggedPDF"], json!(true));
+        let options = PdfOptions { tagged: false, ..PdfOptions::default() };
+        assert_eq!(options.print_params().unwrap()["generateTaggedPDF"], json!(false));
+    }
+
+    #[test]
+    fn lengths_are_read_in_the_units_puppeteer_knows() {
+        let options = PdfOptions {
+            width: Some(Length::Text("210mm".into())),
+            height: Some(Length::Pixels(960.0)),
+            margin: Margin { top: Some(Length::Text("1in".into())), left: Some(Length::Text("96".into())), ..Margin::default() },
+            ..PdfOptions::default()
+        };
+        let params = options.print_params().unwrap();
+        assert_eq!(params["paperHeight"], json!(10));
+        assert_eq!(params["marginTop"], json!(1));
+        assert_eq!(params["marginLeft"], json!(1));
+        let width = params["paperWidth"].as_f64().unwrap();
+        assert!((width - 210.0 / 25.4).abs() < 1e-12, "{width}");
+        let bad = PdfOptions { width: Some(Length::Text("wide".into())), ..PdfOptions::default() };
+        assert_eq!(bad.print_params().unwrap_err(), "Failed to parse parameter value: wide");
+    }
+
+    #[test]
+    fn a_named_format_wins_and_an_unknown_one_is_refused() {
+        let options = PdfOptions { format: Some("A4".into()), width: Some(Length::Pixels(1.0)), ..PdfOptions::default() };
+        let params = options.print_params().unwrap();
+        assert_eq!(params["paperWidth"], json!(8.2677));
+        assert_eq!(params["paperHeight"], json!(11.6929));
+        let unknown = PdfOptions { format: Some("poster".into()), ..PdfOptions::default() };
+        assert_eq!(unknown.print_params().unwrap_err(), "Unknown paper format: poster");
+    }
+
+    #[test]
+    fn an_exception_reads_as_its_message() {
+        let thrown = json!({ "exception": { "type": "object", "subtype": "error", "description": "Error: no such slide\n    at <anonymous>:1:7" } });
+        assert_eq!(exception_message(&thrown), "no such slide");
+        let typed = json!({ "exception": { "description": "TypeError: x is not a function\n    at f" } });
+        assert_eq!(exception_message(&typed), "x is not a function");
+        let value = json!({ "exception": { "type": "string", "value": "plain" } });
+        assert_eq!(exception_message(&value), "plain");
+    }
+
+    #[test]
+    fn a_value_the_page_cannot_serialise_is_null() {
+        assert_eq!(remote_value(&json!({ "type": "number", "unserializableValue": "NaN" })), Value::Null);
+        assert_eq!(remote_value(&json!({ "type": "number", "unserializableValue": "-0" })), json!(0));
+        assert_eq!(remote_value(&json!({ "type": "number", "value": 3 })), json!(3));
+        assert_eq!(remote_value(&json!({ "type": "undefined" })), Value::Null);
+    }
+
+    #[test]
+    fn a_page_script_is_called_through_a_wrapper() {
+        let wrapped = page_function("function pick(a, b) { return b; }", "pick");
+        assert_eq!(call_expression(&wrapped, &[json!(1), json!(2)]), "(function () {
+function pick(a, b) { return b; }
+return pick.apply(null, arguments);
+})(1, 2)");
+    }
+
+    #[test]
+    fn a_call_expression_carries_its_arguments_as_json() {
+        assert_eq!(call_expression("(a, b) => a", &[json!(1), json!("x\"y")]), "((a, b) => a)(1, \"x\\\"y\")");
+        assert_eq!(call_expression("() => 1", &[]), "(() => 1)()");
+    }
+}
+
+
 impl Page {
     /// Opens a blank page in the browser context `context_id`.
     pub async fn open(cdp: Arc<Cdp>, context_id: &str) -> Result<Self, String> {
@@ -476,188 +660,5 @@ impl Page {
                 return Ok(bytes);
             }
         }
-    }
-}
-
-impl Element<'_> {
-    /// The call of `function` on this element as an expression of the page.
-    fn call(&self, function: &str) -> String {
-        format!("({function})(document.querySelectorAll({})[{}])", json!(self.selector), self.index)
-    }
-
-    /// `element.boundingBox()`: the box in CSS px of the page's frame, or `None` when it has no layout box.
-    pub async fn bounding_box(&self) -> Result<Option<Rect>, String> {
-        Ok(self.measure().await?.map(|(rect, _, _)| rect))
-    }
-
-    async fn measure(&self) -> Result<Option<(Rect, f64, f64)>, String> {
-        let function = "(element) => { if (!(element instanceof Element)) return null; if (element.getClientRects().length === 0) return null; \
-             const rect = element.getBoundingClientRect(); \
-             return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, pageLeft: window.visualViewport.pageLeft, pageTop: window.visualViewport.pageTop }; }";
-        let found = self.page.evaluate_expression(&self.call(function)).await?;
-        if found.is_null() {
-            return Ok(None);
-        }
-        let number = |key: &str| found.get(key).and_then(Value::as_f64).unwrap_or(0.0);
-        Ok(Some((
-            Rect { x: number("x"), y: number("y"), width: number("width"), height: number("height") },
-            number("pageLeft"),
-            number("pageTop"),
-        )))
-    }
-
-    /// `element.screenshot({ omitBackground })` as a PNG: the element is scrolled into view when it is not wholly in
-    /// it, and photographed by its box.
-    pub async fn screenshot(&self, omit_background: bool) -> Result<Vec<u8>, String> {
-        let scroll = "async (element) => { if (!element || !element.isConnected) throw new Error('Node is detached from document'); \
-             if (element.nodeType !== Node.ELEMENT_NODE) throw new Error('Node is not of type HTMLElement'); \
-             const target = element instanceof SVGElement ? (element.ownerSVGElement || element) : element; \
-             const ratio = await new Promise((resolve) => { const observer = new IntersectionObserver((entries) => { resolve(entries[0].intersectionRatio); observer.disconnect(); }); observer.observe(target); }); \
-             if (ratio !== 1) element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); }";
-        self.page.evaluate_expression(&self.call(scroll)).await?;
-        let Some((mut rect, page_left, page_top)) = self.measure().await? else {
-            return Err("Node is either not visible or not an HTMLElement".to_string());
-        };
-        if rect.width == 0.0 {
-            return Err("Node has 0 width.".to_string());
-        }
-        if rect.height == 0.0 {
-            return Err("Node has 0 height.".to_string());
-        }
-        rect.x += page_left;
-        rect.y += page_top;
-        self.page.screenshot(ScreenshotOptions { clip: Some(rect), omit_background }).await
-    }
-}
-
-/// The source of a function expression that defines the page script `script` (an extract of the Node module: plain
-/// function declarations that need nothing outside themselves) and calls its function `name` with its own arguments:
-/// what `page.evaluate(name, ...args)` shipped as the function's text.
-pub fn page_function(script: &str, name: &str) -> String {
-    format!("function () {{
-{script}
-return {name}.apply(null, arguments);
-}}")
-}
-
-fn call_expression(function: &str, args: &[Value]) -> String {
-    let list: Vec<String> = args.iter().map(Value::to_string).collect();
-    format!("({function})({})", list.join(", "))
-}
-
-fn text(value: &Value, key: &str) -> String {
-    value.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
-}
-
-fn decode(value: &Value, key: &str) -> Result<Vec<u8>, String> {
-    STANDARD.decode(value.get(key).and_then(Value::as_str).unwrap_or_default()).map_err(|error| error.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_clip_is_rounded_at_both_corners() {
-        let clip = Rect { x: 10.4, y: 20.5, width: 100.3, height: 50.4 }.rounded();
-        assert_eq!(clip, Rect { x: 10.0, y: 21.0, width: 101.0, height: 50.0 });
-        // Math.round takes a tie toward +infinity.
-        assert_eq!(Rect { x: -0.5, y: 0.0, width: 1.0, height: 1.0 }.rounded().x, 0.0);
-    }
-
-    #[test]
-    fn the_default_print_parameters_are_puppeteers() {
-        let params = PdfOptions::default().print_params().unwrap();
-        assert_eq!(params["paperWidth"], json!(8.5));
-        assert_eq!(params["paperHeight"], json!(11));
-        assert_eq!(params["generateTaggedPDF"], json!(true));
-        assert_eq!(params["generateDocumentOutline"], json!(false));
-        assert_eq!(params["preferCSSPageSize"], json!(false));
-        assert_eq!(params["printBackground"], json!(false));
-        assert_eq!(params["scale"], json!(1));
-        assert_eq!(params["transferMode"], json!("ReturnAsStream"));
-        assert_eq!(params["pageRanges"], json!(""));
-        for side in ["marginTop", "marginBottom", "marginLeft", "marginRight"] {
-            assert_eq!(params[side], json!(0), "{side}");
-        }
-    }
-
-    #[test]
-    fn the_authoring_pdf_call_maps_to_the_browsers_parameters() {
-        let options = PdfOptions { prefer_css_page_size: true, print_background: true, tagged: true, outline: true, ..PdfOptions::default() };
-        let params = options.print_params().unwrap();
-        assert_eq!(params["preferCSSPageSize"], json!(true));
-        assert_eq!(params["printBackground"], json!(true));
-        assert_eq!(params["generateTaggedPDF"], json!(true));
-        assert_eq!(params["generateDocumentOutline"], json!(true));
-    }
-
-    #[test]
-    fn an_outline_turns_tagging_on() {
-        let options = PdfOptions { tagged: false, outline: true, ..PdfOptions::default() };
-        assert_eq!(options.print_params().unwrap()["generateTaggedPDF"], json!(true));
-        let options = PdfOptions { tagged: false, ..PdfOptions::default() };
-        assert_eq!(options.print_params().unwrap()["generateTaggedPDF"], json!(false));
-    }
-
-    #[test]
-    fn lengths_are_read_in_the_units_puppeteer_knows() {
-        let options = PdfOptions {
-            width: Some(Length::Text("210mm".into())),
-            height: Some(Length::Pixels(960.0)),
-            margin: Margin { top: Some(Length::Text("1in".into())), left: Some(Length::Text("96".into())), ..Margin::default() },
-            ..PdfOptions::default()
-        };
-        let params = options.print_params().unwrap();
-        assert_eq!(params["paperHeight"], json!(10));
-        assert_eq!(params["marginTop"], json!(1));
-        assert_eq!(params["marginLeft"], json!(1));
-        let width = params["paperWidth"].as_f64().unwrap();
-        assert!((width - 210.0 / 25.4).abs() < 1e-12, "{width}");
-        let bad = PdfOptions { width: Some(Length::Text("wide".into())), ..PdfOptions::default() };
-        assert_eq!(bad.print_params().unwrap_err(), "Failed to parse parameter value: wide");
-    }
-
-    #[test]
-    fn a_named_format_wins_and_an_unknown_one_is_refused() {
-        let options = PdfOptions { format: Some("A4".into()), width: Some(Length::Pixels(1.0)), ..PdfOptions::default() };
-        let params = options.print_params().unwrap();
-        assert_eq!(params["paperWidth"], json!(8.2677));
-        assert_eq!(params["paperHeight"], json!(11.6929));
-        let unknown = PdfOptions { format: Some("poster".into()), ..PdfOptions::default() };
-        assert_eq!(unknown.print_params().unwrap_err(), "Unknown paper format: poster");
-    }
-
-    #[test]
-    fn an_exception_reads_as_its_message() {
-        let thrown = json!({ "exception": { "type": "object", "subtype": "error", "description": "Error: no such slide\n    at <anonymous>:1:7" } });
-        assert_eq!(exception_message(&thrown), "no such slide");
-        let typed = json!({ "exception": { "description": "TypeError: x is not a function\n    at f" } });
-        assert_eq!(exception_message(&typed), "x is not a function");
-        let value = json!({ "exception": { "type": "string", "value": "plain" } });
-        assert_eq!(exception_message(&value), "plain");
-    }
-
-    #[test]
-    fn a_value_the_page_cannot_serialise_is_null() {
-        assert_eq!(remote_value(&json!({ "type": "number", "unserializableValue": "NaN" })), Value::Null);
-        assert_eq!(remote_value(&json!({ "type": "number", "unserializableValue": "-0" })), json!(0));
-        assert_eq!(remote_value(&json!({ "type": "number", "value": 3 })), json!(3));
-        assert_eq!(remote_value(&json!({ "type": "undefined" })), Value::Null);
-    }
-
-    #[test]
-    fn a_page_script_is_called_through_a_wrapper() {
-        let wrapped = page_function("function pick(a, b) { return b; }", "pick");
-        assert_eq!(call_expression(&wrapped, &[json!(1), json!(2)]), "(function () {
-function pick(a, b) { return b; }
-return pick.apply(null, arguments);
-})(1, 2)");
-    }
-
-    #[test]
-    fn a_call_expression_carries_its_arguments_as_json() {
-        assert_eq!(call_expression("(a, b) => a", &[json!(1), json!("x\"y")]), "((a, b) => a)(1, \"x\\\"y\")");
-        assert_eq!(call_expression("() => 1", &[]), "(() => 1)()");
     }
 }

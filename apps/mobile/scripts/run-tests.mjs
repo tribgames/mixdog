@@ -6,8 +6,15 @@
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { beginReceipt, childrenOf, finishReceipt, receiptPath } from '../../../scripts/ci/receipt.mjs';
+
+const reporterUrl = (receipt) => {
+  const url = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'scripts', 'ci', 'skip-reporter.mjs'));
+  url.searchParams.set('out', receipt);
+  return url.href;
+};
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SLOW = /\.slow\.test\.ts$/;
 
@@ -26,6 +33,19 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     console.error(`no ${process.argv[2]} test files under src/`);
     process.exit(1);
   }
-  const run = spawnSync(process.execPath, ['--import', 'tsx', '--test', ...files], { cwd: ROOT, stdio: 'inherit' });
-  process.exit(run.status ?? 1);
+  // With MIXDOG_RECEIPT (the gate sets it per lane) the run leaves a receipt the skip check reads: this lane's skips are reviewed like
+  // every other Node lane's (scripts/ci/receipt.mjs); without it this is a plain run.
+  const env = { ...process.env };
+  const receipt = receiptPath(env);
+  delete env.MIXDOG_RECEIPT;
+  delete env.MIXDOG_CHILD_RECEIPTS;
+  const reporting = receipt ? ['--test-reporter=spec', '--test-reporter-destination=stdout', `--test-reporter=${reporterUrl(receipt)}`, '--test-reporter-destination=stdout'] : [];
+  if (receipt) {
+    beginReceipt(receipt, 'node');
+    env.MIXDOG_CHILD_RECEIPTS = childrenOf(receipt);
+  }
+  const run = spawnSync(process.execPath, ['--import', 'tsx', ...reporting, '--test', ...files], { cwd: ROOT, stdio: 'inherit', env });
+  const status = run.status ?? 1;
+  if (receipt) finishReceipt(receipt, status);
+  process.exit(status);
 }

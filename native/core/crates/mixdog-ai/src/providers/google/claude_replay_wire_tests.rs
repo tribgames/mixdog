@@ -6,21 +6,35 @@
 //! whole with Node's (the per-send `requestId` only for presence), the answer whole with Node's result (the replay
 //! envelope the next turn sends back included), and the stream callbacks in order.
 
+#[cfg(node_twin)]
 use std::sync::Arc;
 
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::Hub;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::Inputs;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::assert_same_events;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::assert_same_requests;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::assert_same_result;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::attempt;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::built;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::core_result;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::load;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::node_result;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::request_of;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::scenarios;
 
+#[cfg(node_twin)]
 #[tokio::test]
 async fn every_claude_history_is_replayed_as_node_replays_it() {
     let names = scenarios("antigravity-claude");

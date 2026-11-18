@@ -30,8 +30,6 @@ use mixdog_agent::compact::summary_run::SummaryMode;
 use mixdog_agent::compact::summary_run::SummaryResponse;
 use mixdog_agent::compact::summary_run::SummaryRoute;
 use mixdog_agent::compact::summary_run::SummarySender;
-use mixdog_agent::compact::triggers::CacheTail;
-use mixdog_agent::compact::triggers::CacheWarmLedger;
 use mixdog_agent::compact::triggers::ToolMediaMeter;
 use mixdog_agent::env::CompactError;
 use mixdog_agent::env::CompactRequest;
@@ -56,31 +54,6 @@ impl ToolMediaMeter for HeavyMedia {
     }
     fn count(&self, _: &Content, _: bool) -> u64 {
         1
-    }
-}
-
-/// An agent session whose last request was sent an hour ago on a 5-minute tail.
-struct ExpiredTail;
-impl CacheWarmLedger for ExpiredTail {
-    fn last_use_at(&self) -> u64 {
-        0
-    }
-    fn route_use_at(&self) -> Option<u64> {
-        Some(0)
-    }
-}
-impl CacheTail for ExpiredTail {
-    fn agent_owner(&self) -> bool {
-        true
-    }
-    fn five_minute_tail(&self) -> bool {
-        true
-    }
-    fn last_provider_send_at(&self) -> u64 {
-        1_000
-    }
-    fn now_ms(&self) -> u64 {
-        3_600_000
     }
 }
 
@@ -149,8 +122,9 @@ fn session(settings: CompactSettings, threshold: Option<u64>, resolver: Arc<Aske
             attachments: Arc::new(NoAttachments),
             redactor: Arc::new(NoRedaction),
             blobs: Arc::new(NoBlobs),
+            skills: None,
         }),
-        triggers: TriggerSeams { tool_media: Arc::new(HeavyMedia), native_pdf: false, cache: Arc::new(ExpiredTail) },
+        triggers: TriggerSeams { tool_media: Arc::new(HeavyMedia), native_pdf: false },
         fork: Arc::new(Cold),
         resolver,
         summary_mode: SummaryMode::Session,
@@ -195,9 +169,8 @@ fn an_explicit_boundary_below_the_window_is_the_context_the_hard_budget_is_cut_f
 }
 
 #[test]
-fn the_session_arms_the_cache_expiry_and_request_media_triggers() {
+fn the_session_arms_the_request_media_trigger() {
     let compactor = FreshCompactor::for_session(session(settings(Some(200_000)), None, Arc::default())).expect("a compactor");
-    assert!(compactor.cache_expired());
     let result = AgentMessage::tool_result("c1", Content::Text("shot".into()), mixdog_agent::message::ToolKind::Normal);
     assert!(compactor.request_media(&[result]));
 }

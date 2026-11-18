@@ -32,7 +32,7 @@ pub fn identity_hash(occurrence_key: &str) -> String {
     digest.iter().take(12).map(|byte| format!("{byte:02x}")).collect()
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct SessionState {
     pub occ_next: HashMap<String, u64>,
     /// An earlier ingest established this state (a warm call).

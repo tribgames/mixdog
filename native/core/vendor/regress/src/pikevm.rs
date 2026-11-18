@@ -390,7 +390,7 @@ impl<'r, 't> exec::Executor<'r, 't> for PikeVMExecutor<'r, Utf8Input<'t>> {
     type AsAscii = PikeVMExecutor<'r, AsciiInput<'t>>;
 
     fn new(re: &'r CompiledRegex, text: &'t str) -> Self {
-        let input = Utf8Input::new(text, re.flags.unicode);
+        let input = Utf8Input::new(text, re.flags.unicode_mode());
         Self {
             input,
             matcher: MatchAttempter::new(re),

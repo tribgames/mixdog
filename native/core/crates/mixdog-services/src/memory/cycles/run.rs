@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::quality::{Row, cycle1_source_budget, partition_cycle1_rows, InvalidChunk};
 use crate::bots::delivery::env::RetryTimer;
-use super::requests::{RetryRunner, RetryTimers, consume_cycle_requests, mark_cycle_request, resolve_coalesce_max_drains, resolve_coalesce_max_retries, spawn_work};
+use super::requests::{RetryRunner, RetryTimers, consume_cycle_requests, mark_cycle_request, resolve_coalesce_max_drains, resolve_coalesce_max_retries, spawn_in};
 use super::rows::{MAX_PACKETS, PACKET_MAX_ROWS, PlanOptions, count_pending_rows, count_raw_unchunked_rows, fetch_cycle1_rows, group_rows_by_session, resolve_cycle1_plan};
 use super::signature::make_cycle_request_signature;
 use super::window::{Timing, WindowEnv, WindowResult, invalid_json, process_cycle1_window};
@@ -338,7 +338,8 @@ pub struct Cycle1Runner {
 
 impl Cycle1Runner {
     pub fn new(db: Db, llm: Arc<dyn Cycle1Llm>, embeddings: Arc<dyn CycleEmbeddings>, config: Arc<dyn CycleConfig>, now: NowMs, timer: Arc<dyn RetryTimer>) -> Arc<Self> {
-        Arc::new(Self { db, llm, embeddings, config, now, retries: RetryTimers::new(timer), running: Mutex::new(false), logged_at: Mutex::default() })
+        let retries = RetryTimers::new(timer, db.scope().clone());
+        Arc::new(Self { db, llm, embeddings, config, now, retries, running: Mutex::new(false), logged_at: Mutex::default() })
     }
 
     pub fn db(&self) -> &Db {
@@ -528,7 +529,7 @@ impl Cycle1Runner {
 
     fn flush_after(&self, cancel: &CancellationToken, quick_exit: bool) {
         let (embeddings, cancel) = (Arc::clone(&self.embeddings), cancel.clone());
-        spawn_work("memory-cycle-embed-flush", async move {
+        let _flushing = spawn_in(self.db.scope(), "memory-cycle-embed-flush", async move {
             match embeddings.flush_dirty(&cancel).await {
                 Ok(d) if !quick_exit && d.attempted > 0 => {
                     log(&format!("[cycle1] embedding flush attempted={} ok={} failed={}\n", d.attempted, d.succeeded, d.failed));

@@ -1,7 +1,7 @@
 {
   "name": "todo",
   "title": "Todo",
-  "description": "The step list for this request; the Lead and each agent keep their own. set (or init): the whole plan in order, each step a short outcome (it replaces the previous list; the first open step is in progress); a step is its wording or {content, status} with status pending, in_progress or completed, so a plan sent again can mark the steps already finished; phases name groups of steps. advance: closes the step in progress and starts the next. done, start, drop and rm take a 1-based step number or the step's exact wording (item), for work out of order, given up or removed; done takes several at once (index or item as a list) and, with start, begins another step in the same call. append adds steps at the end of the list (or of the phase named). view shows the list.",
+  "description": "The step list for this request; the Lead and each agent keep their own. set replaces the whole plan; init refuses to replace unfinished work. Supply items or phases, at most 50 steps total. advance closes the active step and starts the next pending one. done, start, drop and rm take a 1-based step number or the step's exact wording. done can close several and start another in the same call. append adds steps to an existing list under the named or last phase. set/init and view show the whole list; other mutations acknowledge the change and show the next step, so no view is needed to confirm them.",
   "annotations": {
     "title": "Todo",
     "readOnlyHint": false,
@@ -45,7 +45,8 @@
                   "enum": [
                     "pending",
                     "in_progress",
-                    "completed"
+                    "completed",
+                    "abandoned"
                   ]
                 }
               },
@@ -58,7 +59,7 @@
         },
         "minItems": 1,
         "maxItems": 50,
-        "description": "set/init/append: the steps, in order; for set a step may be {content, status} (append takes wordings)."
+        "description": "set/init: steps in order as wording or {content, status}; append requires step wordings only."
       },
       "done": {
         "type": "integer",
@@ -96,7 +97,7 @@
       },
       "note": {
         "type": "string",
-        "description": "advance/done: optional one-line evidence."
+        "description": "advance/done: one-line evidence; drop: optional one-line reason."
       },
       "phases": {
         "type": "array",
@@ -125,7 +126,8 @@
                         "enum": [
                           "pending",
                           "in_progress",
-                          "completed"
+                          "completed",
+                          "abandoned"
                         ]
                       }
                     },

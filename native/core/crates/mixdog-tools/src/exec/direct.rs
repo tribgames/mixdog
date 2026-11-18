@@ -317,57 +317,6 @@ pub async fn plan_direct_exe(
 mod tests {
     use super::*;
 
-    fn vectors() -> serde_json::Value {
-        serde_json::from_str(include_str!("testdata/direct_node_vectors.json")).unwrap()
-    }
-
-    /// Node's `commandNeedsShell`, `hasPowerShellOnlySyntax` and `tokenizeDirectArgv` (loose and
-    /// strict) on 59 commands.
-    #[test]
-    fn the_syntax_checks_equal_nodes() {
-        let vectors = vectors();
-        let cases = vectors["syntax"].as_array().unwrap();
-        assert_eq!(cases.len(), 59);
-        for case in cases {
-            let c = case["command"].as_str().unwrap();
-            assert_eq!(command_needs_shell(c), case["needsShell"].as_bool().unwrap(), "needsShell {c:?}");
-            assert_eq!(has_powershell_only_syntax(c), case["psOnly"].as_bool().unwrap(), "psOnly {c:?}");
-            for (key, strict) in [("argv", false), ("argvStrict", true)] {
-                let want: Option<Vec<String>> = case[key]
-                    .as_array()
-                    .map(|a| a.iter().map(|s| s.as_str().unwrap().to_owned()).collect());
-                assert_eq!(tokenize_direct_argv(c, strict), want, "{key} {c:?}");
-            }
-        }
-    }
-
-    /// Node's `resolveDirectExe` over a directory layout, results relative to the root.
-    #[test]
-    fn exe_resolution_equals_nodes() {
-        let vectors = vectors();
-        let root = tempfile::tempdir().unwrap();
-        for file in vectors["resolve"]["files"].as_array().unwrap() {
-            let path = root.path().join(file.as_str().unwrap());
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, b"").unwrap();
-        }
-        let dirs = |names: &serde_json::Value| -> String {
-            names
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|n| root.path().join(n.as_str().unwrap()).to_string_lossy().into_owned())
-                .collect::<Vec<_>>()
-                .join(";")
-        };
-        for case in vectors["resolve"]["cases"].as_array().unwrap() {
-            let token = case["token"].as_str().unwrap();
-            let got = resolve_direct_exe_blocking(token, root.path(), &dirs(&case["path"]), 64)
-                .map(|p| p.strip_prefix(root.path()).unwrap().to_string_lossy().replace('\\', "/"));
-            assert_eq!(got.as_deref(), case["result"].as_str(), "{token:?} {}", case["path"]);
-        }
-    }
-
     #[test]
     fn a_head_that_is_a_powershell_word_or_cmdlet_stays_with_the_shell() {
         assert!(direct_exe_tokens("git status", true, true, false).is_some());
@@ -400,5 +349,90 @@ mod tests {
         let text = body(shell.call(&ctx(&rig, "d1"), serde_json::json!({ "command": command })).await);
         // `echo ok` writes the line with its line end.
         assert_eq!(text, "[exit code: 3]\n\nok\n");
+    }
+
+
+    fn argv(command: &str, strict: bool) -> Option<Vec<&'static str>> {
+        tokenize_direct_argv(command, strict).map(|v| v.into_iter().map(|s| &*Box::leak(s.into_boxed_str())).collect())
+    }
+
+    #[test]
+    fn a_plain_command_runs_directly_and_one_with_shell_syntax_needs_the_shell() {
+        for command in ["git status", "git log --oneline -5", "ls -la", "echo '$HOME'", "echo a~b", "echo a#b", "tool \"a b\" c", "tool 'it''s'", "tool a\tb", "", "   "] {
+            assert!(!command_needs_shell(command), "{command:?}");
+        }
+        for command in [
+            "git log | head", "a && b", "a; b", "echo $HOME", "echo \"$HOME\"", "echo ~", "echo @args", "echo # c", "tool *.txt", "tool [ab]",
+            "tool a?b", "tool 2>&1", "tool (a)", "tool {a}", "tool a>b", "tool a\nb", "& tool", "tool \"unterminated", "tool 'unterminated",
+        ] {
+            assert!(command_needs_shell(command), "{command:?}");
+        }
+    }
+
+    #[test]
+    fn powershell_only_syntax_is_recognised_by_cmdlet_names_variables_and_parameters() {
+        for command in ["Get-Process", "Get-ChildItem", "$x = 1", "$env:PATH", "tool -eq 1", "tool -Path x", "tool -Force", "x | % { $_ }", "tool 2>$null", "[System.IO.Path]::GetTempPath()"] {
+            assert!(has_powershell_only_syntax(command), "{command:?}");
+        }
+        for command in ["git status", "a-b", "path/get-thing", "tool 2>&1", "echo $HOME"] {
+            assert!(!has_powershell_only_syntax(command), "{command:?}");
+        }
+    }
+
+    #[test]
+    fn quotes_group_words_and_a_doubled_quote_is_one_quote_character() {
+        assert_eq!(argv("node -e \"console.log(1)\"", false), Some(vec!["node", "-e", "console.log(1)"]));
+        assert_eq!(argv("tool 'a b' c", false), Some(vec!["tool", "a b", "c"]));
+        assert_eq!(argv("tool \"a \"\"b\"\" c\"", false), Some(vec!["tool", "a \"b\" c"]));
+        assert_eq!(argv("tool 'it''s'", false), Some(vec!["tool", "it's"]));
+        assert_eq!(argv("tool x\"y z\"w", false), Some(vec!["tool", "xy zw"]));
+        assert_eq!(argv("\"C:\\Program Files\\x\\y.exe\" a", false), Some(vec!["C:\\Program Files\\x\\y.exe", "a"]));
+        assert_eq!(argv("tool 한글 \"한 글\"", false), Some(vec!["tool", "한글", "한 글"]));
+        assert_eq!(argv("   ", false), Some(vec![]));
+        assert_eq!(argv("tool \"unterminated", false), None);
+    }
+
+    #[test]
+    fn strict_tokenising_refuses_what_only_a_shell_reads_the_same_way() {
+        assert_eq!(argv("tool \"x\\\"y\"", false), Some(vec!["tool", "x\"y"]));
+        assert_eq!(argv("tool \"x\\\"y\"", true), None);
+        assert_eq!(argv("tool \"x\"y", false), Some(vec!["tool", "xy"]));
+        assert_eq!(argv("tool \"x\"y", true), None);
+        assert_eq!(argv("tool x\"y z\"w", true), Some(vec!["tool", "xy zw"]));
+    }
+
+    #[test]
+    fn a_bare_token_resolves_to_the_first_exe_on_the_path_and_never_to_a_script() {
+        let root = tempfile::tempdir().unwrap();
+        for file in ["d1/a.exe", "d2/b.exe", "d2/b.cmd", "d3/c.exe", "d3/c.ps1", "d4/e.bat", "d5/e.exe", "d6/f.com", "d6/f.exe", "d7/g.cmd", "d8/g.exe", "d9/h.exe", "d9/sub/i.exe", "d10/j.cmd"] {
+            let path = root.path().join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"").unwrap();
+        }
+        let resolve = |token: &str, path: &[&str]| {
+            let dirs = path.iter().map(|n| root.path().join(n).to_string_lossy().into_owned()).collect::<Vec<_>>().join(";");
+            resolve_direct_exe_blocking(token, root.path(), &dirs, 64).map(|p| p.strip_prefix(root.path()).unwrap().to_string_lossy().replace('\\', "/"))
+        };
+        assert_eq!(resolve("a", &["d1"]).as_deref(), Some("d1/a.exe"));
+        assert_eq!(resolve("a.exe", &["d1"]).as_deref(), Some("d1/a.exe"));
+        assert_eq!(resolve("  a  ", &["d1"]).as_deref(), Some("d1/a.exe"));
+        assert_eq!(resolve("a", &["d1", "d1", "D1"]).as_deref(), Some("d1/a.exe"));
+        // Only an `.exe` counts: a `.cmd`, `.ps1`, `.com` or `.bat` of the name is a script for the shell.
+        for (token, dir) in [("c", "d3"), ("f", "d6"), ("b.cmd", "d2"), ("c.ps1", "d3"), ("j", "d10"), ("a.cmd", "d1")] {
+            assert_eq!(resolve(token, &[dir]), None, "{token}");
+        }
+        // The first directory that holds an executable decides; a script of the name in an earlier one hides nothing.
+        assert_eq!(resolve("e", &["d5", "d4"]).as_deref(), Some("d5/e.exe"));
+        assert_eq!(resolve("e", &["d4", "d5"]), None, "an earlier script of the name shadows a later exe");
+        assert_eq!(resolve("g", &["d8", "d7"]).as_deref(), Some("d8/g.exe"));
+        assert_eq!(resolve("g", &["d7", "d8"]), None);
+        assert_eq!(resolve("x", &["d1"]), None);
+        assert_eq!(resolve("", &["d1"]), None);
+        // A token with a separator is a path from the working folder, whatever the search path holds.
+        assert_eq!(resolve("d9/h.exe", &["d1"]).as_deref(), Some("d9/h.exe"));
+        assert_eq!(resolve("d9\\h.exe", &[]).as_deref(), Some("d9/h.exe"));
+        assert_eq!(resolve("./d1/a.exe", &[]).as_deref(), Some("d1/a.exe"));
+        assert_eq!(resolve("d9/../d1/a.exe", &[]).as_deref(), Some("d1/a.exe"));
+        assert_eq!(resolve("d9/h", &[]), None, "a path names the file exactly");
     }
 }

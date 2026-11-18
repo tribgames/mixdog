@@ -67,38 +67,6 @@ impl RootCleanup for CodeGraphCleanup {
     }
 }
 
-/// `code-graph` (`forgetTrustedCodeGraphRoot`): the project registry's entries that are the removed root itself, so the root is
-/// no longer a trusted code-graph target once its worktree is gone. A path that cannot be unregistered is the cleanup's failure.
-pub struct TrustedRootCleanup {
-    registry: Arc<mixdog_workspace::catalog::Catalog>,
-}
-
-impl TrustedRootCleanup {
-    pub fn new(registry: Arc<mixdog_workspace::catalog::Catalog>) -> Self {
-        Self { registry }
-    }
-}
-
-#[async_trait]
-impl RootCleanup for TrustedRootCleanup {
-    fn name(&self) -> &str {
-        "trusted-code-graph-root"
-    }
-
-    async fn run(&self, root: &Path, _entry_id: &str) -> Result<(), String> {
-        let key = mixdog_scm::locks::path_key(root);
-        let rows = self.registry.list().await.map_err(|error| error.to_string())?;
-        let mut kept = Vec::new();
-        for row in rows.into_iter().filter(|row| !row.path.is_empty() && mixdog_scm::locks::path_key(Path::new(&row.path)) == key) {
-            match self.registry.remove(&row.path, None).await {
-                Ok(answer) if answer["removed"] == true => {}
-                _ => kept.push(PathBuf::from(row.path)),
-            }
-        }
-        kept_error(&kept)
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test setup builds fixture trees")]
 mod tests {
@@ -116,6 +84,7 @@ mod tests {
         assert!(!dir.exists());
         assert_eq!(kept_error(&[PathBuf::from("a"), PathBuf::from("b")]), Err("kept: a, b".to_owned()));
     }
+
 
     /// `forgetTrustedCodeGraphRoot`: the registry entry of the removed root goes, a sibling's stays, and a root nothing registered
     /// is not a failure.
@@ -143,5 +112,36 @@ mod tests {
         assert_eq!(listed.len(), 1, "{listed:?}");
         assert_eq!(mixdog_scm::locks::path_key(Path::new(&listed[0])), mixdog_scm::locks::path_key(&kept));
         cleanup.run(&tmp.path().join("never"), "entry").await.expect("nothing to clean");
+    }
+}
+
+
+/// `code-graph` (`forgetTrustedCodeGraphRoot`): the project registry's entries that are the removed root itself, so the root is
+/// no longer a trusted code-graph target once its worktree is gone. A path that cannot be unregistered is the cleanup's failure.
+pub struct TrustedRootCleanup {
+    registry: Arc<mixdog_workspace::catalog::Catalog>,
+}
+impl TrustedRootCleanup {
+    pub fn new(registry: Arc<mixdog_workspace::catalog::Catalog>) -> Self {
+        Self { registry }
+    }
+}
+#[async_trait]
+impl RootCleanup for TrustedRootCleanup {
+    fn name(&self) -> &str {
+        "trusted-code-graph-root"
+    }
+
+    async fn run(&self, root: &Path, _entry_id: &str) -> Result<(), String> {
+        let key = mixdog_scm::locks::path_key(root);
+        let rows = self.registry.list().await.map_err(|error| error.to_string())?;
+        let mut kept = Vec::new();
+        for row in rows.into_iter().filter(|row| !row.path.is_empty() && mixdog_scm::locks::path_key(Path::new(&row.path)) == key) {
+            match self.registry.remove(&row.path, None).await {
+                Ok(answer) if answer["removed"] == true => {}
+                _ => kept.push(PathBuf::from(row.path)),
+            }
+        }
+        kept_error(&kept)
     }
 }

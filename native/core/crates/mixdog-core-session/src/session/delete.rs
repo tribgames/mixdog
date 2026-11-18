@@ -106,8 +106,9 @@ impl PurgeHooks {
 }
 
 /// What `deleteSession` does outside the session and its store. Node's
-/// `agentTool.forgetLeadSession(id)` has no counterpart: a Lead's pool row is the session's own
-/// `worker` header map, gone with the session (decisions.md, "Session delete purge hooks").
+/// `agentTool.forgetLeadSession(id)` is part of the agent status purge (`AgentRegistry::forget_deleted_session`): a Lead's
+/// pool row is the session's own `worker` header map, which the registry keeps past the session's header as it keeps a
+/// deleted agent's row, so the purge removes it.
 #[async_trait]
 pub trait DeleteSeams: Send + Sync {
     /// `releaseSessionWork(id, reason)`: `cancelBackgroundTasks({ reason, notify: false,
@@ -229,6 +230,23 @@ async fn idle_refusal(
     Ok(Ok(meta))
 }
 
+/// The idle deletes a test holds right after their archive judgment, by session: `arrived` is told, then `go` is awaited.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) static JUDGED_HOLDS: std::sync::Mutex<Vec<(String, tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>> =
+    std::sync::Mutex::new(Vec::new());
+
+#[cfg(any(test, feature = "test-support"))]
+async fn judged_hold(id: &str) {
+    let held = {
+        let mut holds = JUDGED_HOLDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        holds.iter().position(|(at, _, _)| at == id).map(|at| holds.remove(at))
+    };
+    if let Some((_, arrived, go)) = held {
+        let _ = arrived.send(());
+        let _ = go.await;
+    }
+}
+
 /// `deleteSessionIfIdle(id, expected)`: the desktop's auto-delete of an archived session that
 /// is still archived, not a favorite, idle and unchanged since the caller looked
 /// (`expected.lastUsedAt`). Resolves `{deleted: true}` or `{deleted: false, reason}`; a refusal
@@ -237,6 +255,7 @@ pub(crate) async fn delete_session_if_idle(
     directory: &super::directory::DirInner,
     id: &str,
     expected: &serde_json::Value,
+    cancel: &mixdog_rt::CancellationToken,
 ) -> Result<serde_json::Value, CoreError> {
     let refuse = |reason: &str| Ok(serde_json::json!({ "deleted": false, "reason": reason }));
     let id = mixdog_js::js_trim(id);
@@ -270,19 +289,40 @@ pub(crate) async fn delete_session_if_idle(
         return refuse("not-archived");
     };
     let header = handle.cell.header.load_full();
-    if !sidebar_flag(&header, "archivedAt") {
+    let archive = deps.archive.resolve(id, header.get("archivedAt"));
+    if !archive.archived() {
         return refuse("not-archived");
+    }
+    // A header's stamp after the archive entries were lost may be a restore the user made: never deleted on it.
+    if !archive.trusted() {
+        return refuse("archive-state-lost");
     }
     if sidebar_flag(&header, "favoriteAt") {
         return refuse("favorite");
     }
+    #[cfg(any(test, feature = "test-support"))]
+    judged_hold(id).await;
     let meta = match idle_refusal(directory, &thread, expected).await? {
         Ok(meta) => meta,
         Err(reason) => return refuse(reason),
     };
+    // Admitted against the entry judged above, held to the end of the delete: a restore committed since refuses it, and one
+    // after it fails whole.
+    let Some(_claim) = deps.archive.claim_delete(id, archive.entry) else {
+        return refuse("changed");
+    };
     let abort = mixdog_agent::cancel::Abort::close_session(id, AUTO_DELETE_REASON);
+    // The session auto-retention's delete states what it judged (`ifIdle.activity`, beside `lastUsedAt`): the thread's own
+    // admission asks again, atomically with a subscriber attaching, that nobody is or ever was attached, no turn runs or is queued,
+    // no approval shows and the activity is the one judged, and that `cancel` (shutdown, or the options changed) has not fired.
+    let guard = expected.get("activity").and_then(serde_json::Value::as_f64).map(|activity| super::control::DeleteGuard {
+        activity,
+        cancel: cancel.clone(),
+        peers: Vec::new(),
+        opens: 0,
+    });
     // A close that could not be carried out (the thread is closing) landed nothing: `close-failed`.
-    let hold = match directory.close_for_delete(&thread, &abort, true, None).await {
+    let hold = match directory.close_for_delete(&thread, &abort, true, guard).await {
         Ok(Ok(hold)) => hold,
         Ok(Err(refusal)) => return refuse(refusal),
         Err(CoreError::ThreadClosing { .. }) => return refuse("close-failed"),
@@ -326,10 +366,13 @@ async fn remove(
     deps.deletion.tombstoned(thread);
     deps.deletion.session_closed(thread.as_str(), closed.reason, &closed.header, closed.at_ms);
     deps.deletion.release_mcp_scope(thread.as_str());
+    deps.session_grants.forget(thread.as_str());
     // A failed purge leaves the marked session's files for the next delete's purge or the
     // boot purge; the session is deleted either way.
     drop(deps.store.purge_deleted().await);
     deps.purge.run(deps.turn_review.as_ref(), thread.as_str(), &cwds).await;
+    // The deleted session's transcript-cache book is no longer open; its waiters wake and find it gone.
+    deps.cache_tail.release(thread.as_str());
     deps.deletion.thread_deleted(thread);
     true
 }
@@ -376,7 +419,11 @@ pub fn is_session_id(id: &str) -> bool {
 /// `false` when nothing was deleted), or with `ifIdle` the desktop's `deleteSessionIfIdle`
 /// (`{deleted, reason?}`). Served by the thread's handle and, for a thread that cannot be opened
 /// (none, or deleted), by the directory: Node answers `false` there too.
-pub(crate) async fn serve(directory: &super::directory::DirInner, params: &serde_json::Value) -> Result<mixdog_core_api::Reply, CoreError> {
+pub(crate) async fn serve(
+    directory: &super::directory::DirInner,
+    params: &serde_json::Value,
+    cancel: &mixdog_rt::CancellationToken,
+) -> Result<mixdog_core_api::Reply, CoreError> {
     let params: mixdog_app_protocol::v2::thread::ThreadDeleteParams =
         serde_json::from_value(params.clone()).map_err(|_| CoreError::InvalidParams {
             path: "params".into(),
@@ -384,7 +431,7 @@ pub(crate) async fn serve(directory: &super::directory::DirInner, params: &serde
         })?;
     let id = params.thread_id.as_str();
     Ok(mixdog_core_api::Reply::Value(match &params.if_idle {
-        Some(expected) => delete_session_if_idle(directory, id, expected).await?,
+        Some(expected) => delete_session_if_idle(directory, id, expected, cancel).await?,
         None => serde_json::Value::Bool(client_delete(directory, id).await?),
     }))
 }
@@ -425,11 +472,12 @@ async fn client_delete(directory: &super::directory::DirInner, id: &str) -> Resu
     delete_session(directory, trimmed, None).await
 }
 
-/// `deleteSession(id)`: false when nothing was deleted.
+/// `deleteSession(id)`: false when nothing was deleted. A guarded (automatic) delete carries the archive entry it judged, and is
+/// admitted against it before anything closes, held to its end.
 pub(crate) async fn delete_session(
     directory: &super::directory::DirInner,
     id: &str,
-    guard: Option<super::control::DeleteGuard>,
+    guarded: Option<(super::control::DeleteGuard, Option<mixdog_store::archive_state::ArchiveEntry>)>,
 ) -> Result<bool, CoreError> {
     let id = mixdog_js::js_trim(id);
     if !is_session_id(id) {
@@ -442,6 +490,13 @@ pub(crate) async fn delete_session(
         return Ok(false);
     };
     // `mgr.closeSession(id, reason)`: the running turn stops before anything else goes.
+    let (guard, _claim) = match guarded {
+        Some((guard, judged)) => match deps.archive.claim_delete(id, judged) {
+            Some(claim) => (Some(guard), Some(claim)),
+            None => return Ok(false),
+        },
+        None => (None, None),
+    };
     let abort = mixdog_agent::cancel::Abort::close_session(id, DELETE_REASON);
     let Ok(hold) = directory.close_for_delete(&thread, &abort, false, guard).await? else {
         return Ok(false);
@@ -451,6 +506,8 @@ pub(crate) async fn delete_session(
     if !remove(directory, &thread, meta.cwds, hold, closed).await {
         return Ok(false);
     }
+    // The session is gone: nothing of it can run again, so its Stop latches go with it.
+    directory.forget_stop_latches(&thread);
     after_delete(&deps, id);
     Ok(true)
 }

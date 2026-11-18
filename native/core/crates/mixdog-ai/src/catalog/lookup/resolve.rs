@@ -411,8 +411,8 @@ fn roster_reasoning_options(row: &Value) -> Value {
 
 /// The resident tables a lookup reads; none of it does I/O.
 pub struct Lookup<'a> {
-    pub litellm: &'a Value,
-    pub models_dev: &'a Value,
+    pub litellm: &'a crate::catalog::Overlay,
+    pub models_dev: &'a crate::catalog::Overlay,
     pub rosters: &'a Rosters,
 }
 
@@ -449,8 +449,8 @@ impl Lookup<'_> {
         registry::antigravity_pricing_alias(&id).to_owned()
     }
 
-    fn catalog_row(&self, key: &str) -> Option<&Value> {
-        self.litellm.get(key).filter(|v| truthy(Some(v)))
+    fn catalog_row(&self, key: &str) -> Option<Value> {
+        self.litellm.row(key).filter(|v| truthy(Some(v)))
     }
 
     /// Override → LiteLLM → models.dev rows under one catalog provider id.
@@ -476,7 +476,7 @@ impl Lookup<'_> {
         };
         if meta.is_none() {
             if let Some(row) = self.catalog_row(id).filter(|r| provider_matches(r)) {
-                meta = Some(litellm(row));
+                meta = Some(litellm(&row));
             }
             let prefixes: Vec<&str> = match mapped {
                 None => SIMPLE_PREFIXES.to_vec(),
@@ -499,7 +499,7 @@ impl Lookup<'_> {
                     break;
                 }
                 if let Some(row) = self.catalog_row(&format!("{prefix}{id}")) {
-                    meta = Some(litellm(row));
+                    meta = Some(litellm(&row));
                 }
             }
             if mapped.is_none_or(|m| m == "anthropic") {
@@ -508,14 +508,14 @@ impl Lookup<'_> {
                         break;
                     }
                     if let Some(row) = self.catalog_row(&format!("{prefix}{id}-v1:0")) {
-                        meta = Some(litellm(row));
+                        meta = Some(litellm(&row));
                     }
                 }
             }
         }
         if let Some(mapped) = mapped {
-            let row = self.models_dev.get(mapped).and_then(|p| p.get("models")).and_then(|m| m.get(id)).filter(|r| truthy(Some(r)));
-            if let Some(row) = row {
+            let row = self.models_dev.model(mapped, id).filter(|r| truthy(Some(r)));
+            if let Some(row) = &row {
                 meta = merge_metadata(meta, Some(models_dev_metadata(row)), from_override, from_override);
                 let mut m = meta.unwrap_or_default();
                 m.insert("displayName".into(), models_dev_display_name(row));
@@ -539,30 +539,26 @@ impl Lookup<'_> {
         for key in keys {
             let vendor = self
                 .litellm
-                .get(&key)
-                .and_then(|r| r.get("litellm_provider"))
-                .and_then(Value::as_str)
-                .and_then(registry::models_dev_provider_id);
+                .row(&key)
+                .and_then(|r| r.get("litellm_provider").and_then(Value::as_str).and_then(registry::models_dev_provider_id));
             if let Some(vendor) = vendor.filter(|v| is_vendor(v)) {
                 add(vendor, &mut vendors);
             }
         }
-        let has_model = |vendor: &str| self.models_dev.get(vendor).and_then(|p| p.get("models")).and_then(|m| m.get(id)).is_some_and(|r| truthy(Some(r)));
+        let has_model = |vendor: &str| self.models_dev.has_model(vendor, id);
         let first_party = registry::first_party_ids();
         for vendor in first_party {
             if has_model(vendor) {
                 add(vendor.to_owned(), &mut vendors);
             }
         }
-        let unregistered: Vec<&String> = self
+        let unregistered: Vec<&str> = self
             .models_dev
-            .as_object()
-            .into_iter()
-            .flat_map(|o| o.keys())
-            .filter(|v| has_model(v) && !first_party.contains(&v.as_str()) && is_vendor(v))
+            .providers()
+            .filter(|v| has_model(v) && !first_party.contains(v) && is_vendor(v))
             .collect();
         if let [only] = unregistered.as_slice() {
-            add((*only).clone(), &mut vendors);
+            add((*only).to_owned(), &mut vendors);
         }
         vendors
     }

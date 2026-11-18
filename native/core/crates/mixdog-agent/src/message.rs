@@ -92,6 +92,12 @@ pub struct AgentMessage {
     pub attempt: Option<u32>,
     pub submission_ids: Vec<String>,
     pub message_id: Option<String>,
+    /// User messages: how many images went with only their smaller copy because the original could not be found
+    /// (`meta.transcript.originalImagesMissing`; 0 writes nothing).
+    pub originals_missing: u32,
+    /// A message a drain took in: the entry's `transcriptMeta`, written into `meta.transcript` when the row is first
+    /// made (a row read back keeps what it stored).
+    pub transcript_meta: Option<mixdog_protocol::JsonValue>,
     /// Tool messages only.
     pub tool_kind: Option<ToolKind>,
     /// Tool messages only: when the call ran (Node `toolTiming`); `None` for a call that did not run.
@@ -118,6 +124,8 @@ pub struct AgentMessage {
     /// optional `ownerSessionId`), from the result's `meta` when that is a tool meta. The host stores it on the
     /// row and the live item shows it; it is never wire text.
     pub tool_meta: Option<mixdog_protocol::JsonValue>,
+    /// An `agent` call's result only (Node `agentTaskIds`): the ids of the jobs the call started, none as `[]`.
+    pub agent_task_ids: Option<Vec<String>>,
     /// The stored row this message was read from, exactly as stored (see the host message codec):
     /// whatever the typed fields do not hold (timings, usage counters, envelope extras) is written
     /// back from it, and a field the run changed is written over it.
@@ -132,6 +140,8 @@ impl AgentMessage {
             attempt: None,
             submission_ids: Vec::new(),
             message_id: None,
+            originals_missing: 0,
+            transcript_meta: None,
             tool_kind: None,
             tool_timing: None,
             stop_reason: None,
@@ -141,6 +151,7 @@ impl AgentMessage {
             effort: None,
             ui_diff: None,
             tool_meta: None,
+            agent_task_ids: None,
             stored: None,
         }
     }
@@ -205,6 +216,7 @@ impl AgentMessage {
         message.source = self.source.and_then(Source::wire);
         message.turn_reminder = self.turn_reminder.clone().filter(|text| !text.is_empty());
         message.account_routing = self.account_routing();
+        message.message_id = self.message_id.clone();
         message.gemini_metadata = self.provider_metadata.as_ref().and_then(|m| m.get("gemini")).cloned();
         message.sent_request_tail = self
             .stored
@@ -215,8 +227,8 @@ impl AgentMessage {
         message
     }
 
-    /// The stored `providerMetadata.accountRouting` (`{ provider, accountId, sessionAccountId }`), when it names
-    /// a provider and an account.
+    /// The stored `providerMetadata.accountRouting` (`{ provider, accountId, sessionAccountId }`), when
+    /// it names a provider and an account.
     fn account_routing(&self) -> Option<mixdog_core_api::domain::provider::AccountRouting> {
         let routing = self.provider_metadata.as_ref()?.get("accountRouting")?;
         let text = |key: &str| routing.get(key).and_then(mixdog_protocol::JsonValue::as_str).filter(|s| !s.is_empty()).map(str::to_owned);

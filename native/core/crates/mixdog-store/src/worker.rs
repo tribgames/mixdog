@@ -39,6 +39,57 @@ impl WorkerKeys {
     }
 }
 
+/// The header members a listing of sessions reads (the agent pool's worker fields and the archive mark). The catalog
+/// row holds them (`sessions.listed`), so a listing of every stored session reads the index and opens no log: a header
+/// also carries the session's prompts and tool catalog, and decoding each to pick these read hundreds of megabytes.
+pub const LISTED_FIELDS: [&str; 34] = [
+    "owner",
+    "agent",
+    "sourceType",
+    "ownerSessionId",
+    "parentSessionId",
+    "title",
+    "provider",
+    "model",
+    "effort",
+    "fast",
+    "autoEffort",
+    "createdAt",
+    "updatedAt",
+    "cwd",
+    "clientHostPid",
+    "agentTag",
+    "task_id",
+    "taskId",
+    "turnStartedAt",
+    "startedAt",
+    "cancelledAt",
+    "finishedAt",
+    "totalInputTokens",
+    "totalOutputTokens",
+    "totalToolCalls",
+    "todo",
+    "cancelStatus",
+    "status",
+    "state",
+    "lastStatus",
+    "stage",
+    "outcome",
+    "terminationReason",
+    "archivedAt",
+];
+
+/// The [`LISTED_FIELDS`] members `header` has, in its own order, as JSON. `None` for a session kept only to host a
+/// worker row, which has no record a listing reads.
+pub fn listed_row(header: &Map<String, Value>) -> Option<String> {
+    if header.get(crate::archived_agent::WORKER_ROW_ONLY_KEY).and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    let listed: Map<String, Value> =
+        header.iter().filter(|(key, _)| LISTED_FIELDS.contains(&key.as_str())).map(|(key, value)| (key.clone(), value.clone())).collect();
+    Some(Value::Object(listed).to_string())
+}
+
 /// The session's own tag keys, as 1.4.5 `lastTagSession` reads the agent registry's
 /// descriptor of a stored session (`agent-rehydrate.mjs` `storedAgentCandidate` and
 /// `rehydratedDescriptor`): `agentTagOf` = `clean(agentTag)`, and the parent link that

@@ -12,6 +12,7 @@ import {
   htmlLineBreaksToBreaks,
   linkifyLocalPaths,
   repairAdjacentStrongPunctuation,
+  sourceOffsets,
   stripHtmlComments,
   trimAutolinkCjkSuffix,
   trimTrailingCodeNewline,
@@ -21,6 +22,14 @@ interface MarkdownAstNode {
   type: 'root' | 'element' | 'text';
   tagName?: string;
   value?: string;
+  /** Where the node starts in the parsed text (absent for nodes a plugin
+   *  made): a streamed reply's fade finds what each character showed in by it
+   *  (markdown-stream-fade). */
+  offset?: number;
+  /** A text node whose characters do not sit at consecutive offsets from
+   *  `offset`: where the run breaks, as flat [value index, offset] pairs
+   *  (sourceJumps). */
+  jumps?: number[];
   properties?: Record<string, unknown>;
   children?: MarkdownAstNode[];
 }
@@ -35,7 +44,32 @@ interface SyntaxNode {
   value?: unknown;
   tagName?: unknown;
   properties?: unknown;
+  position?: { start?: { offset?: number }; end?: { offset?: number } };
   children?: SyntaxNode[];
+}
+
+function offsetOf(node: SyntaxNode): { offset?: number } {
+  const offset = node.position?.start?.offset;
+  return typeof offset === 'number' ? { offset } : {};
+}
+
+/** Where the characters of text `node` (`value`) sit in `source`: its start,
+ *  and the breaks in their run of consecutive offsets, as flat [value index,
+ *  offset] pairs (sourceOffsets). Text that does not read off its source
+ *  range has none (no text node of this renderer's parser and plugins). */
+function textOffsets(node: SyntaxNode, value: string, source: string, code: boolean): { offset?: number; jumps?: number[] } {
+  const start = node.position?.start?.offset;
+  const end = node.position?.end?.offset;
+  if (typeof start !== 'number' || typeof end !== 'number') return {};
+  const offsets = sourceOffsets(source, start, end, value, code);
+  if (offsets === null) return {};
+  const jumps: number[] = [];
+  let next = start;
+  offsets.forEach((offset, index) => {
+    if (offset !== next) jumps.push(index, offset);
+    next = offset + 1;
+  });
+  return jumps.length > 0 ? { offset: start, jumps } : { offset: start };
 }
 
 // react-markdown displays raw HTML as literal text unless a rehype HTML
@@ -47,7 +81,7 @@ function preserveRawHtmlAsText() {
       if (!Array.isArray(parent.children)) return;
       parent.children = parent.children.map((child) => {
         if (child.type === 'html') {
-          return { type: 'text', value: String(child.value ?? '') };
+          return { type: 'text', value: String(child.value ?? ''), position: child.position };
         }
         visit(child);
         return child;
@@ -96,22 +130,28 @@ function normalizedProperties(value: unknown): Record<string, unknown> | undefin
   return properties;
 }
 
-function normalizeAstNode(node: SyntaxNode): MarkdownAstNode {
+/** `node` of the tree parsed from `source`; `code`: inside a code element,
+ *  where nothing decodes. */
+function normalizeAstNode(node: SyntaxNode, source: string, code = false): MarkdownAstNode {
   if (node.type === 'text') {
-    return { type: 'text', value: String(node.value ?? '') };
+    const value = String(node.value ?? '');
+    return { type: 'text', value, ...textOffsets(node, value, source, code) };
   }
   if (node.type === 'element') {
     const properties = normalizedProperties(node.properties);
+    const tagName = String(node.tagName || 'span');
+    const inner = code || tagName === 'code';
     return {
       type: 'element',
-      tagName: String(node.tagName || 'span'),
+      tagName,
+      ...offsetOf(node),
       ...(properties ? { properties } : {}),
-      children: Array.isArray(node.children) ? node.children.map(normalizeAstNode) : [],
+      children: Array.isArray(node.children) ? node.children.map((child) => normalizeAstNode(child, source, inner)) : [],
     };
   }
   return {
     type: 'root',
-    children: Array.isArray(node.children) ? node.children.map(normalizeAstNode) : [],
+    children: Array.isArray(node.children) ? node.children.map((child) => normalizeAstNode(child, source)) : [],
   };
 }
 
@@ -144,7 +184,9 @@ const markdownProcessor = unified()
 markdownProcessor.freeze();
 
 export function parseMarkdownToHast(text: string): MarkdownAstRoot {
-  const parsed = markdownProcessor.parse(String(text ?? ''));
-  const transformed = markdownProcessor.runSync(parsed) as SyntaxNode;
-  return normalizeAstNode(transformed) as MarkdownAstRoot;
+  const source = String(text ?? '');
+  const parsed = markdownProcessor.parse(source);
+  // The plugins place the text they make by the source (markdown-plugins).
+  const transformed = markdownProcessor.runSync(parsed, source) as SyntaxNode;
+  return normalizeAstNode(transformed, source) as MarkdownAstRoot;
 }

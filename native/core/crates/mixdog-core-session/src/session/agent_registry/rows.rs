@@ -146,32 +146,6 @@ fn pid_value(pid: Option<u64>) -> Value {
     pid.map_or(Value::Null, Value::from)
 }
 
-/// `Date.parse(text)`, 0 for an invalid or zero time (`|| 0`).
-fn parse_or_zero(text: &str) -> f64 {
-    let parsed = mixdog_js::time::date_parse(text);
-    if parsed.is_nan() { 0.0 } else { parsed }
-}
-
-/// `stampMs`: a positive number as is; text that is a number (not an ISO date) as that
-/// number; else the time it parses to; 0 when none.
-pub fn stamp_ms(value: Option<&Value>) -> f64 {
-    if let Some(Value::Number(n)) = value {
-        let n = n.as_f64().unwrap_or(0.0);
-        return if n.is_finite() && n > 0.0 { n } else { 0.0 };
-    }
-    let text = clean(value);
-    if text.is_empty() {
-        return 0.0;
-    }
-    let numeric = mixdog_js::string_to_number(&text);
-    let iso_year = text.len() >= 5 && text.as_bytes()[..4].iter().all(u8::is_ascii_digit) && text.as_bytes()[4] == b'-';
-    if numeric.is_finite() && numeric > 0.0 && !iso_year {
-        return numeric;
-    }
-    let parsed = mixdog_js::time::date_parse(&text);
-    if parsed.is_finite() && parsed > 0.0 { parsed } else { 0.0 }
-}
-
 /// `new Date(ms).toISOString()`.
 pub fn iso(ms: f64) -> String {
     iso_from_ms(ms as i64)
@@ -215,15 +189,6 @@ pub fn worker_stage_for_status(status: &str, runtime_stage: Option<&str>) -> Str
     }
     let lower = stage.to_lowercase();
     if ACTIVE_STAGES.contains(&lower.as_str()) || lower == "resource_wait" { stage } else { status }
-}
-
-/// `workerRowTime`.
-pub fn worker_row_time(row: &Row) -> f64 {
-    let first = ["updatedAt", "finishedAt", "lastUsedAt", "createdAt"].into_iter().map(|k| row.get(k)).find(|v| truthy(*v)).flatten();
-    match first {
-        Some(value) => parse_or_zero(&mixdog_js::value_to_string(value)),
-        None => 0.0,
-    }
 }
 
 /// `agentTagOf`.
@@ -451,20 +416,6 @@ pub fn row_to_session(row: &Row) -> Row {
     s
 }
 
-/// A row, tombstone or session as the agent tool's record of a tag.
-pub fn tag_record(row: &Row, tag_key: &str, id_key: &str) -> TagRecord {
-    TagRecord {
-        tag: clean(row.get(tag_key)),
-        session_id: clean(row.get(id_key)),
-        agent: clean(row.get("agent")),
-        cwd: clean(row.get("cwd")),
-        owner: owner_of(row),
-        status: clean(row.get("status")),
-        stage: clean(row.get("stage")),
-        at_ms: worker_row_time(row),
-    }
-}
-
 /// The facts of a session (`getLiveSession`'s answer).
 pub fn session_facts(session: &Row) -> SessionFacts {
     SessionFacts { id: clean(session.get("id")), agent: clean(session.get("agent")), cwd: clean(session.get("cwd")), owner: owner_of(session) }
@@ -500,6 +451,52 @@ pub fn find_tombstone<'a>(row: &Row, by_key: &'a std::collections::HashMap<Strin
     by_parent.or_else(|| by_key.get(&format!("{}\0{tag}", positive_int(row.get("clientHostPid")).unwrap_or(0))))
 }
 
+
+/// `Date.parse(text)`, 0 for an invalid or zero time (`|| 0`).
+fn parse_or_zero(text: &str) -> f64 {
+    let parsed = mixdog_js::time::date_parse(text);
+    if parsed.is_nan() { 0.0 } else { parsed }
+}
+/// `stampMs`: a positive number as is; text that is a number (not an ISO date) as that
+/// number; else the time it parses to; 0 when none.
+pub fn stamp_ms(value: Option<&Value>) -> f64 {
+    if let Some(Value::Number(n)) = value {
+        let n = n.as_f64().unwrap_or(0.0);
+        return if n.is_finite() && n > 0.0 { n } else { 0.0 };
+    }
+    let text = clean(value);
+    if text.is_empty() {
+        return 0.0;
+    }
+    let numeric = mixdog_js::string_to_number(&text);
+    let iso_year = text.len() >= 5 && text.as_bytes()[..4].iter().all(u8::is_ascii_digit) && text.as_bytes()[4] == b'-';
+    if numeric.is_finite() && numeric > 0.0 && !iso_year {
+        return numeric;
+    }
+    let parsed = mixdog_js::time::date_parse(&text);
+    if parsed.is_finite() && parsed > 0.0 { parsed } else { 0.0 }
+}
+/// `workerRowTime`.
+pub fn worker_row_time(row: &Row) -> f64 {
+    let first = ["updatedAt", "finishedAt", "lastUsedAt", "createdAt"].into_iter().map(|k| row.get(k)).find(|v| truthy(*v)).flatten();
+    match first {
+        Some(value) => parse_or_zero(&mixdog_js::value_to_string(value)),
+        None => 0.0,
+    }
+}
+/// A row, tombstone or session as the agent tool's record of a tag.
+pub fn tag_record(row: &Row, tag_key: &str, id_key: &str) -> TagRecord {
+    TagRecord {
+        tag: clean(row.get(tag_key)),
+        session_id: clean(row.get(id_key)),
+        agent: clean(row.get("agent")),
+        cwd: clean(row.get("cwd")),
+        owner: owner_of(row),
+        status: clean(row.get("status")),
+        stage: clean(row.get("stage")),
+        at_ms: worker_row_time(row),
+    }
+}
 /// `tombstoneBlocksWork`.
 pub fn blocks_work(row: &Row, tombstone: Option<&Row>) -> bool {
     #[cfg(any(test, feature = "test-support"))]
@@ -510,7 +507,6 @@ pub fn blocks_work(row: &Row, tombstone: Option<&Row>) -> bool {
     }
     stamp_ms(row.get("createdAt")).max(stamp_ms(row.get("turnStartedAt"))) <= reaped_at
 }
-
 /// `normalizeTagTombstones` for one stored tombstone of session `session_id`: `None` when it
 /// has no tag or no time, or is past the TTL at `now`.
 pub fn normalize_tombstone(raw: &Row, session_id: &str, now: f64) -> Option<Row> {
@@ -536,7 +532,6 @@ pub fn normalize_tombstone(raw: &Row, session_id: &str, now: f64) -> Option<Row>
     t.insert("reapedAt".into(), Value::String(reaped_at));
     live.then_some(t)
 }
-
 /// The tombstone list readers see: newest first, at most [`MAX_TAG_TOMBSTONES`].
 pub fn order_tombstones(mut rows: Vec<Row>) -> Vec<Row> {
     rows.sort_by(|a, b| {
@@ -546,7 +541,6 @@ pub fn order_tombstones(mut rows: Vec<Row>) -> Vec<Row> {
     rows.truncate(MAX_TAG_TOMBSTONES);
     rows
 }
-
 /// `recoverTagTombstoneOwner`: the owner a legacy (owner-less) tombstone's session had,
 /// when exactly one session can be it; `None` otherwise.
 pub fn recover_owner(row: &Row, sessions: &[Row]) -> Option<Row> {
@@ -581,7 +575,6 @@ pub fn recover_owner(row: &Row, sessions: &[Row]) -> Option<Row> {
     out.insert("ownerSessionId".into(), Value::String(clean(either(session, "ownerSessionId", "parentSessionId"))));
     Some(out)
 }
-
 /// `resumableAfterReap`.
 pub fn resumable_after_reap(record: &Row) -> bool {
     if record.get("closeProvenance").and_then(Value::as_f64) != Some(CLOSE_PROVENANCE_VERSION) {
@@ -590,14 +583,12 @@ pub fn resumable_after_reap(record: &Row) -> bool {
     let closed_at = stamp_ms(record.get("ownerClosedAt"));
     !(closed_at > 0.0 && closed_at >= stamp_ms(record.get("lastTurnCompletedAt")))
 }
-
 // ---- retention -------------------------------------------------------------------------
 
 /// `sessionActivityAt`.
 pub fn session_activity_at(record: &Row) -> f64 {
     ["updatedAt", "finishedAt", "lastUsedAt", "createdAt"].into_iter().map(|k| stamp_ms(record.get(k))).fold(0.0, f64::max)
 }
-
 /// `settledRetentionDeadline`, with `reap_ms` the provider's `resolveAgentTerminalReapMs`.
 pub fn settled_retention_deadline(reap_ms: &dyn Fn(&str) -> f64, record: &Row) -> f64 {
     let settled = session_activity_at(record);
@@ -612,7 +603,6 @@ pub fn settled_retention_deadline(reap_ms: &dyn Fn(&str) -> f64, record: &Row) -
     let end = settled + reap_ms(&clean(record.get("provider")));
     if end.is_nan() { f64::INFINITY } else { floor.max(end) }
 }
-
 /// `pastSettledRetention`.
 pub fn past_settled_retention(reap_ms: &dyn Fn(&str) -> f64, record: &Row, now: f64) -> bool {
     let settled = session_activity_at(record);
@@ -621,7 +611,6 @@ pub fn past_settled_retention(reap_ms: &dyn Fn(&str) -> f64, record: &Row, now: 
     }
     now >= settled_retention_deadline(reap_ms, record)
 }
-
 /// `nonterminalReapDeadline`.
 pub fn nonterminal_reap_deadline(reap_ms: &dyn Fn(&str) -> f64, row: &Row) -> f64 {
     let time = worker_row_time(row);

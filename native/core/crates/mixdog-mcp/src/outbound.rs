@@ -172,6 +172,68 @@ mod tests {
         assert_eq!(kind("slack", "list_deleted_items", &json!({}), Hints::default()), None);
     }
 
+    fn plain(server: &str, tool: &str) -> Option<ActionKind> {
+        kind(server, tool, &json!({}), Hints::default())
+    }
+
+    #[test]
+    fn the_listed_sends_are_outbound_in_their_own_category() {
+        for (tool, want) in [
+            ("add_issue_comment", ActionKind::Comment),
+            ("create_pull_request_review", ActionKind::Review),
+            ("send_email", ActionKind::Email),
+            ("slack_post_message", ActionKind::Message),
+            ("submit_form", ActionKind::Form),
+            ("create_tweet", ActionKind::Publish),
+        ] {
+            assert_eq!(plain("s", tool), Some(want), "{tool}");
+        }
+    }
+
+    #[test]
+    fn a_name_is_normalised_before_it_is_judged() {
+        assert_eq!(plain("s", "Send-Email"), Some(ActionKind::Email));
+        assert_eq!(plain("s", "SLACK-POST-MESSAGE"), Some(ActionKind::Message));
+    }
+
+    #[test]
+    fn a_mail_server_makes_any_send_reply_or_forward_a_mail() {
+        assert_eq!(plain("gmail", "forward_thread"), Some(ActionKind::Email));
+        assert_eq!(plain("outlook-work", "reply_all"), Some(ActionKind::Email));
+        assert_eq!(plain("fs", "forward_thread"), None, "no mail token in the name or the server");
+    }
+
+    #[test]
+    fn payment_names_and_tokens_are_payments_unless_the_name_opens_with_a_read_verb() {
+        assert_eq!(plain("shop", "purchase_item"), Some(ActionKind::Payment));
+        assert_eq!(plain("shop", "place_order"), Some(ActionKind::Payment));
+        assert_eq!(plain("bank", "transfer_funds"), Some(ActionKind::Payment));
+        assert_eq!(plain("shop", "list_payments"), None);
+        assert_eq!(plain("shop", "get_purchase"), None);
+    }
+
+    #[test]
+    fn names_that_open_with_a_read_verb_are_reads_unless_listed() {
+        assert_eq!(plain("s", "search_messages"), None);
+        assert_eq!(plain("s", "fetch_email"), None);
+    }
+
+    #[test]
+    fn deleting_is_a_trash_a_permanent_delete_or_a_remote_delete() {
+        assert_eq!(plain("gmail", "trash_emails"), Some(ActionKind::Trash));
+        assert_eq!(plain("gmail", "empty_trash"), Some(ActionKind::Delete));
+        assert_eq!(plain("fs", "purge_cache"), Some(ActionKind::Delete));
+        assert_eq!(plain("fs", "remove_member"), Some(ActionKind::Delete));
+        assert_eq!(plain("fs", "delete_file"), Some(ActionKind::Delete));
+        assert_eq!(kind("gmail", "trash_emails", &json!({}), Hints { read_only: true, outbound: false }), Some(ActionKind::Trash), "a recoverable trash stays a trash");
+    }
+
+    #[test]
+    fn an_outbound_hint_makes_an_unknown_tool_a_message_and_a_read_only_one_stays_a_read() {
+        assert_eq!(kind("x", "do_thing", &json!({}), Hints { read_only: true, outbound: true }), None);
+        assert_eq!(kind("x", "do_thing", &json!({}), Hints { read_only: false, outbound: true }), Some(ActionKind::Message));
+    }
+
     #[test]
     fn read_only_hint_exempts_unknown_names_but_not_known_sends() {
         let read_only = Hints { read_only: true, outbound: false };

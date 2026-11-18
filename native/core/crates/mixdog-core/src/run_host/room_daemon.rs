@@ -6,12 +6,16 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_core_api::ids::ThreadId;
-use mixdog_core_rooms::rooms::live::RoomDaemon;
+use mixdog_core_rooms::rooms::live::{RoomDaemon, RoomViewUpdate};
 use mixdog_core_rooms::rooms::member_turn::SubmitOptions;
 use mixdog_core_rooms::rooms::turn_prompt::RoomPrompt;
 use mixdog_core_session::session::SessionDirectory;
-use mixdog_core_session::session::room_log::{RoomLog, SessionRoomLog};
+use mixdog_core_session::session::room_log::SessionRoomLog;
+#[cfg(node_twin)]
+use mixdog_core_session::session::room_log::RoomLog;
 use serde_json::Value;
+
+use super::room_approvals::room_view_of;
 
 pub type RepublishCatalog = Arc<dyn Fn() + Send + Sync>;
 
@@ -72,15 +76,16 @@ fn content_of(prompt: &RoomPrompt) -> Value {
 
 #[async_trait]
 impl RoomDaemon for DirectoryRoomDaemon {
-    async fn append_rows(&self, session_id: &str, messages: Vec<Value>) -> Result<(), String> {
+    async fn append_rows(&self, session_id: &str, messages: Vec<Value>, view: RoomViewUpdate) -> Result<(), String> {
+        let view = room_view_of(view.exchange, &view.questions);
         #[cfg(any(test, feature = "test-support"))]
         if let Some(hook) = &self.between_open_and_post {
             // The product's own open and post, in its two steps, with the hook between them.
             let handle = mixdog_core_session::session::room_log::open_for_post(&self.directory, session_id).await.map_err(node_error)?;
             hook(ThreadId::from(session_id)).await;
-            return mixdog_core_session::session::room_log::post_on_opened(&handle, messages).await.map(drop).map_err(node_error);
+            return mixdog_core_session::session::room_log::post_on_opened_with_view(&handle, messages, view).await.map(drop).map_err(node_error);
         }
-        self.log.append_rows(session_id, messages).await.map(drop).map_err(node_error)
+        self.log.append_rows_with_view(session_id, messages, view).await.map(drop).map_err(node_error)
     }
 
     async fn room_rows(&self, session_id: &str) -> Result<Vec<Value>, String> {
@@ -90,7 +95,23 @@ impl RoomDaemon for DirectoryRoomDaemon {
     async fn submit(&self, session_id: &str, prompt: &RoomPrompt, options: &SubmitOptions) -> Result<bool, String> {
         let id = options.id.as_deref().unwrap_or_default();
         let room_row = options.room_row.as_deref().unwrap_or_default();
-        Ok(self.directory.submit_member_turn(&ThreadId::from(session_id), &content_of(prompt), id, options.hop.unwrap_or(0), room_row).await)
+        // The exchange that owns the submission rides the member's durable queued entry (`transcriptMeta.roomExchange`).
+        let mut meta = serde_json::Map::new();
+        if let Some(exchange) = options.exchange.as_deref().filter(|exchange| !exchange.is_empty()) {
+            meta.insert("roomExchange".into(), Value::String(exchange.to_owned()));
+        }
+        let thread = ThreadId::from(session_id);
+        Ok(self.directory.submit_chained_turn(&thread, &content_of(prompt), id, options.hop.unwrap_or(0), &[], &meta, room_row).await.is_some())
+    }
+
+    /// The room's user Stop of its frozen member submissions in `session_id` ([`SessionDirectory::stop_work`]).
+    async fn stop_work(&self, session_id: &str, submissions: &[String]) -> Result<(), String> {
+        self.directory.stop_work(&ThreadId::from(session_id), submissions.to_vec()).await.map_err(node_error)
+    }
+
+    /// The Stop's seal: `submissions` are terminal in `session_id` at once ([`SessionDirectory::latch_work`]).
+    fn latch_work(&self, session_id: &str, submissions: &[String]) {
+        self.directory.latch_work(&ThreadId::from(session_id), submissions);
     }
 
     async fn read_snapshot(&self, session_id: &str) -> Result<Value, String> {
@@ -144,7 +165,7 @@ mod tests {
             "content": "yo",
             "meta": { "source": "agent-room", "room": { "kind": "speech", "speaker": "gh" }, "transcript": { "at": 5, "messageId": "s1" } },
         });
-        daemon.append_rows("sess_room_abc123", vec![message]).await.unwrap();
+        daemon.append_rows("sess_room_abc123", vec![message], RoomViewUpdate::default()).await.unwrap();
         let rows = daemon.room_rows("sess_room_abc123").await.unwrap();
         assert_eq!((rows[0]["id"].as_str(), rows[0]["text"].as_str()), (Some("s1"), Some("yo")));
         assert_eq!(daemon.read_snapshot("sess_room_abc123").await.unwrap()["busy"], json!(false));
@@ -154,3 +175,4 @@ mod tests {
         assert_eq!(*told.lock().unwrap(), ["catalog"]);
     }
 }
+

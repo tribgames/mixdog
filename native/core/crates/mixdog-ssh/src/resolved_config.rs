@@ -1,24 +1,24 @@
-//! The ssh config Mixdog's own ssh invocations (probe, exec, tunnel) run with, built per target from what `ssh -G`
-//! resolves for it: every resolved option of the host and of each ProxyJump hop, except what forwards something
-//! (ports, agent, X11, local commands), and without including the user's config. A hop's ssh reads the same file
-//! (`-F` is passed on to it), so each hop gets its own `Host` block. Mixdog's known_hosts is listed first, then the
-//! user's files. The file is checked by resolving the target through it and comparing: when it does not say the same,
-//! nothing stays written for the target and the caller falls back to the generic config that includes the user's
-//! file (and tells the user which forwards then apply).
+//! The ssh config Mixdog's own ssh invocations (probe, exec, tunnel) of a target run with, written for the inspection that
+//! reviewed it from what `ssh -G` resolved for the route: every resolved option of the host and of each ProxyJump hop, except
+//! what forwards something (ports, agent, X11, local commands), and without including the user's config. A hop's ssh reads the
+//! same file (`-F` is passed on to it), so each hop gets its own `Host` block. Mixdog's known_hosts is listed first, then the
+//! user's files. The file is checked by resolving the target through it and comparing: when it does not say the same, the file
+//! is the user's config as it was read instead, with the same known_hosts settings for each server ahead of it (and the user
+//! is told which forwards then apply).
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use mixdog_fsio::Unlaned;
-use sha2::{Digest, Sha256};
 
 use crate::binary::ssh_tool_command;
-use crate::command::{parse_ssh_target, SshTarget};
-use crate::context::{AttemptContext, SshConfigFiles, SshEnv, ToolOutput};
+use crate::command::SshTarget;
+use crate::context::{AttemptContext, ConfigFile, ReviewedConfig, SshConfigFiles, SshEnv, ToolOutput};
 use crate::diagnostics::{describe_argv, DiagnosticKind};
-use crate::host_key::{parse_ssh_config_dump, ResolvedHost};
+use crate::pins::owner_of;
+use crate::host_key::ResolvedHost;
 use crate::mixdog_config::{word, MixdogSshConfig};
 
 const TOOL_TIMEOUT: Duration = Duration::from_millis(8_000);
@@ -42,7 +42,10 @@ const FORWARDING_KEYS: [&str; 13] = [
     "localcommand",
 ];
 /// Lines that would open another block, or are written by Mixdog itself.
-const SKIPPED_KEYS: [&str; 5] = ["host", "match", "include", "userknownhostsfile", "globalknownhostsfile"];
+const SKIPPED_KEYS: [&str; 7] = ["host", "match", "include", "userknownhostsfile", "globalknownhostsfile", "updatehostkeys", "stricthostkeychecking"];
+const GENERATED_HEADER: &str = "# Written by Mixdog from what ssh resolves for this server; forwards are left out.";
+/// The header of a config that is the user's own, as it was read, behind Mixdog's known_hosts settings.
+const SNAPSHOT_HEADER: &str = "# Written by Mixdog for one connection: the user's ssh config as it was read, behind Mixdog's known_hosts settings.";
 /// Values that are file names: quoted when they hold spaces, which some ssh builds print bare.
 const PATH_KEYS: [&str; 7] =
     ["identityfile", "certificatefile", "controlpath", "identityagent", "revokedhostkeys", "pkcs11provider", "securitykeyprovider"];
@@ -79,24 +82,82 @@ fn comparable(lines: &[DumpLine]) -> Vec<String> {
 }
 
 /// One server of the route: what `ssh -G` said about it.
-struct Block {
-    target: SshTarget,
+pub(crate) struct Block {
+    pub(crate) target: SshTarget,
     pattern: String,
     lines: Vec<DumpLine>,
-    host: ResolvedHost,
+    pub(crate) host: ResolvedHost,
+}
+
+impl Block {
+    pub(crate) fn new(target: SshTarget, dump: &str, host: ResolvedHost) -> Self {
+        Self { pattern: host_part(&target), lines: parse_dump(dump), target, host }
+    }
+}
+
+/// What `ssh -G` resolved for a route, once per inspection: the inspection judges its servers by it and the config the attempt
+/// runs with is written from it.
+pub(crate) struct Route {
+    /// The target, then the ProxyJump hops behind it (each server once).
+    pub(crate) blocks: Vec<Block>,
+    /// Every hop of the hops was read too, within [`MAX_CHAIN`] servers: only then can the route's own options be written out.
+    pub(crate) complete: bool,
+}
+
+impl Route {
+    /// The server `target` names, as resolved.
+    pub(crate) fn host_of(&self, target: &SshTarget) -> Option<&ResolvedHost> {
+        let pattern = host_part(target);
+        self.blocks.iter().find(|block| block.pattern == pattern).map(|block| &block.host)
+    }
+
+    pub(crate) fn holds(&self, target: &SshTarget) -> bool {
+        self.host_of(target).is_some()
+    }
+
+    /// Has the route reached [`MAX_CHAIN`] servers?
+    pub(crate) fn is_full(&self) -> bool {
+        self.blocks.len() >= MAX_CHAIN
+    }
+
+    /// The forwards the user's config sets for this connection and its hops, each once, at most 8.
+    fn forwards(&self) -> Vec<String> {
+        let mut forwards: Vec<String> = Vec::new();
+        for forward in self.blocks.iter().flat_map(|block| block.host.forwards.iter().cloned()) {
+            if !forwards.contains(&forward) {
+                forwards.push(forward);
+            }
+        }
+        forwards.truncate(MAX_FORWARDS);
+        forwards
+    }
 }
 
 fn host_part(target: &SshTarget) -> String {
     target.destination.rsplit('@').next().unwrap_or_default().to_owned()
 }
 
+/// The head of a server's `Host` block: the known_hosts files its ssh consults (Mixdog's own first, then the ones resolved for
+/// it), and nothing a connection does may write the shared trust file or accept a key unseen.
+fn known_hosts_head(pattern: &str, host: &ResolvedHost, own_known_hosts: &str) -> Vec<String> {
+    let user_files = std::iter::once(own_known_hosts).chain(host.known_hosts_files.iter().map(String::as_str));
+    let global = if host.global_known_hosts_files.is_empty() {
+        "none".to_owned()
+    } else {
+        host.global_known_hosts_files.iter().map(|file| word(file)).collect::<Vec<_>>().join(" ")
+    };
+    vec![
+        format!("Host {}", word(pattern)),
+        "  UpdateHostKeys no".to_owned(),
+        "  StrictHostKeyChecking yes".to_owned(),
+        format!("  UserKnownHostsFile {}", user_files.map(word).collect::<Vec<_>>().join(" ")),
+        format!("  GlobalKnownHostsFile {global}"),
+    ]
+}
+
 /// One `Host` block for a resolved server.
 pub fn resolved_block_text(pattern: &str, lines: &[DumpLine], host: &ResolvedHost, own_known_hosts: &str) -> String {
-    let user_files = std::iter::once(own_known_hosts).chain(host.known_hosts_files.iter().map(String::as_str));
-    let mut out = vec![format!("Host {}", word(pattern)), format!("  UserKnownHostsFile {}", user_files.map(word).collect::<Vec<_>>().join(" "))];
-    if !host.global_known_hosts_files.is_empty() {
-        out.push(format!("  GlobalKnownHostsFile {}", host.global_known_hosts_files.iter().map(|file| word(file)).collect::<Vec<_>>().join(" ")));
-    }
+    let mut out = known_hosts_head(pattern, host, own_known_hosts);
     for (key, value) in lines {
         if is_forwarding(key) || is_skipped(key) {
             continue;
@@ -129,74 +190,36 @@ async fn run_ssh(env: &SshEnv, ctx: &AttemptContext, args: &[String]) -> Option<
     env.tools.run(&ssh_tool_command("ssh", env), args, TOOL_TIMEOUT).await.ok()
 }
 
-/// The dump of one destination of the route, resolved through the user's own config.
-async fn resolve_one(env: &SshEnv, ctx: &AttemptContext, target: &SshTarget) -> Option<(Vec<DumpLine>, ResolvedHost)> {
-    let mut args = vec!["-G".to_owned()];
-    args.extend(port_args(target));
-    args.extend(["--".to_owned(), target.destination.clone()]);
-    let dump = run_ssh(env, ctx, &args).await.filter(|dump| dump.exit_code == Some(0))?;
-    let host = parse_ssh_config_dump(&dump.stdout, env)?;
-    Some((parse_dump(&dump.stdout), host))
+/// The `SshTarget::key()` of the destination an ssh argument list addresses (`... -p N -- destination ...`).
+pub(crate) fn args_target_key(args: &[String]) -> Option<String> {
+    let dash = args.iter().position(|arg| arg == "--")?;
+    let destination = args.get(dash + 1).filter(|destination| !destination.is_empty())?;
+    let port = args[..dash].iter().rposition(|arg| arg == "-p").and_then(|at| args.get(at + 1)).and_then(|port| port.parse::<u16>().ok());
+    Some(SshTarget { destination: destination.clone(), port, display: destination.clone() }.key())
 }
 
-/// The target and, depth first, every ProxyJump hop behind it; None when any of them cannot be read or the route is
-/// longer than [`MAX_CHAIN`] servers.
-async fn resolve_chain(env: &SshEnv, ctx: &AttemptContext, root: &SshTarget) -> Option<Vec<Block>> {
-    let mut seen: BTreeSet<String> = BTreeSet::new();
-    let mut blocks: Vec<Block> = Vec::new();
-    let mut pending = vec![root.clone()];
-    while let Some(target) = pending.pop() {
-        let pattern = host_part(&target);
-        if seen.contains(&pattern) {
-            continue;
+/// At the start of a process, when the ssh state is first opened: nothing is selected and no attempt holds a file yet, so every
+/// config written for an inspection (`t-….conf`, of this version or an earlier one) and every candidate an earlier build left
+/// (`t-….cand`) that carries Mixdog's header is removed. Any other file is left. Called inside a transaction.
+pub(crate) fn purge_unselected_target_configs(dir: &Path) -> std::io::Result<()> {
+    for entry in mixdog_fsio::read_dir(&Unlaned, dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let generated_name = name.starts_with("t-") && (name.ends_with(".conf") || name.ends_with(".cand"));
+        let ours = |bytes: &[u8]| bytes.starts_with(GENERATED_HEADER.as_bytes()) || bytes.starts_with(SNAPSHOT_HEADER.as_bytes());
+        if generated_name && mixdog_fsio::read(&Unlaned, entry.path()).is_ok_and(|bytes| ours(&bytes)) {
+            mixdog_fsio::remove_file(&Unlaned, entry.path())?;
         }
-        if seen.len() >= MAX_CHAIN {
-            return None;
-        }
-        let (lines, host) = resolve_one(env, ctx, &target).await?;
-        seen.insert(pattern.clone());
-        let mut hops = Vec::new();
-        if let Some(jump) = &host.proxy_jump {
-            for part in jump.split(',') {
-                let part = part.trim();
-                hops.push(parse_ssh_target(part.strip_prefix("ssh://").unwrap_or(part)).ok()?);
-            }
-        }
-        pending.extend(hops.into_iter().rev());
-        blocks.push(Block { target, pattern, lines, host });
     }
-    Some(blocks)
+    Ok(())
 }
 
-/// A target's own generated config.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ResolvedConfig {
-    /// The file every ssh of the target runs with (`-F`).
-    pub file: PathBuf,
-    /// The forwards of the user's config for this connection and its hops that the file leaves out: none of them
-    /// applies.
-    pub forwards: Vec<String>,
-}
-
-/// The target keeps the generic config, which includes the user's file.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Unresolved {
-    /// The forwards the user's config applies to this connection (and its hops), at most 8; empty when the route
-    /// could not be read at all.
-    pub forwards: Vec<String>,
-}
-
-/// Destination and port as typed: what the generated files are told apart by.
-fn key_of(destination: &str, port: &str) -> String {
-    format!("{destination}\u{0}{port}")
-}
-
-/// The generated configs of the targets resolved so far, and Mixdog's generic config for everything else. Where Mixdog's ssh folder
-/// could not be prepared there is no config of its own: no target resolves and no generic config is named, so ssh reads the user's
-/// own files.
+/// The config the last inspection of each target reviewed (what an ssh of no attempt, a restore or a reconnect, runs with), and
+/// Mixdog's generic config for everything else. Where Mixdog's ssh folder could not be prepared there is no config of its own:
+/// nothing is written and no generic config is named, so ssh reads the user's own files.
 pub struct ResolvedConfigs {
     config: Option<Arc<MixdogSshConfig>>,
-    files: Mutex<BTreeMap<String, PathBuf>>,
+    files: Mutex<BTreeMap<String, Arc<ConfigFile>>>,
 }
 
 impl ResolvedConfigs {
@@ -209,63 +232,66 @@ impl ResolvedConfigs {
         Arc::new(Self { config: None, files: Mutex::new(BTreeMap::new()) })
     }
 
-    fn files(&self) -> MutexGuard<'_, BTreeMap<String, PathBuf>> {
+    fn files(&self) -> MutexGuard<'_, BTreeMap<String, Arc<ConfigFile>>> {
         self.files.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Builds and verifies the generated config for `target` and makes it the one [`SshConfigFiles::for_args`]
-    /// returns for the target's ssh arguments. `Err` means the generic config stays in use.
-    pub async fn resolve_for_target(&self, env: &SshEnv, ctx: &AttemptContext, target: &SshTarget) -> Result<ResolvedConfig, Unresolved> {
-        let Some(config) = &self.config else { return Err(Unresolved::default()) };
-        let key = key_of(&target.destination, &target.port.map(|port| port.to_string()).unwrap_or_default());
-        self.files().remove(&key);
+    /// Writes the config the inspection of `target` reviewed, for it alone, from the route it read: the route's resolved options
+    /// without forwards where a file can say them faithfully, else `user_config` (the user's ssh config as it was read before the
+    /// route) with Mixdog's known_hosts settings for every server of the route ahead of it. Either way each server's ssh consults
+    /// the files the inspection judged it by. The file becomes the one later ssh runs of the target find. Gives the forwards of the
+    /// user's config that then apply (none for the route's own options).
+    pub(crate) async fn write_reviewed(&self, env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, route: &Route, user_config: Option<&str>) -> std::io::Result<(ReviewedConfig, Vec<String>)> {
+        let key = target.key();
+        let Some(config) = &self.config else { return Ok((ReviewedConfig { target_key: key, file: None }, Vec::new())) };
         let own = config.known_hosts_file().to_string_lossy().into_owned();
-        let Some(blocks) = resolve_chain(env, ctx, target).await else { return Err(Unresolved::default()) };
-        let mut forwards: Vec<String> = Vec::new();
-        for forward in blocks.iter().flat_map(|block| block.host.forwards.iter().cloned()) {
-            if !forwards.contains(&forward) {
-                forwards.push(forward);
+        let owner = owner_of(target);
+        let fresh = || ConfigFile::new(config.dir().join(format!("t-v2-{owner}-{:016x}.conf", rand::random::<u64>())));
+        if route.complete && !route.blocks.iter().any(is_lossy) {
+            let file = fresh();
+            let mut text = vec![GENERATED_HEADER.to_owned()];
+            text.extend(route.blocks.iter().map(|block| resolved_block_text(&block.pattern, &block.lines, &block.host, &own)));
+            text.push(String::new());
+            mixdog_fsio::write(&Unlaned, file.path(), text.join("\n"))?;
+            if says_what_was_resolved(env, ctx, route, file.path()).await {
+                return Ok((self.select(key, file), Vec::new()));
             }
         }
-        forwards.truncate(MAX_FORWARDS);
-        let unresolved = Unresolved { forwards };
-        if blocks.iter().any(is_lossy) {
-            return Err(unresolved);
-        }
-        let digest = Sha256::digest(key.as_bytes());
-        let name: String = digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect();
-        let file = config.dir().join(format!("t-{name}.conf"));
-        let mut text = vec!["# Written by Mixdog from what ssh resolves for this server; forwards are left out.".to_owned()];
-        text.extend(blocks.iter().map(|block| resolved_block_text(&block.pattern, &block.lines, &block.host, &own)));
-        text.push(String::new());
-        if let Err(failure) = mixdog_fsio::write(&Unlaned, &file, text.join("\n")) {
-            let note = format!("the ssh config of the target could not be written: {failure}");
-            env.diagnostics.record(ctx.diagnostics_key.as_deref(), DiagnosticKind::Log, &note, now_ms());
-            return Err(unresolved);
-        }
-        // The file must say what ssh resolved, for the server and for every hop.
-        for block in &blocks {
-            let mut args = vec!["-G".to_owned(), "-F".to_owned(), file.to_string_lossy().into_owned()];
-            args.extend(port_args(&block.target));
-            args.extend(["--".to_owned(), block.target.destination.clone()]);
-            let again = run_ssh(env, ctx, &args).await.filter(|check| check.exit_code == Some(0)).map(|check| comparable(&parse_dump(&check.stdout)));
-            if again.as_ref() != Some(&comparable(&block.lines)) {
-                let _ = mixdog_fsio::remove_file(&Unlaned, &file);
-                return Err(unresolved);
-            }
-        }
-        self.files().insert(key, file.clone());
-        Ok(ResolvedConfig { file, forwards: unresolved.forwards })
+        let file = fresh();
+        let mut text = vec![SNAPSHOT_HEADER.to_owned()];
+        text.extend(route.blocks.iter().map(|block| known_hosts_head(&block.pattern, &block.host, &own).join("\n")));
+        text.push(crate::mixdog_config::generic_block(&own, &[]));
+        text.extend(user_config.map(str::to_owned));
+        mixdog_fsio::write(&Unlaned, file.path(), text.join("\n"))?;
+        Ok((self.select(key, file), route.forwards()))
+    }
+
+    fn select(&self, key: String, file: ConfigFile) -> ReviewedConfig {
+        let file = Arc::new(file);
+        self.files().insert(key.clone(), Arc::clone(&file));
+        ReviewedConfig { target_key: key, file: Some(file) }
     }
 }
 
+/// Does the file say what ssh resolved, for the server and for every hop?
+async fn says_what_was_resolved(env: &SshEnv, ctx: &AttemptContext, route: &Route, file: &Path) -> bool {
+    for block in &route.blocks {
+        let mut args = vec!["-G".to_owned(), "-F".to_owned(), file.to_string_lossy().into_owned()];
+        args.extend(port_args(&block.target));
+        args.extend(["--".to_owned(), block.target.destination.clone()]);
+        let again = run_ssh(env, ctx, &args).await.filter(|check| check.exit_code == Some(0)).map(|check| comparable(&parse_dump(&check.stdout)));
+        if again.as_ref() != Some(&comparable(&block.lines)) {
+            return false;
+        }
+    }
+    true
+}
+
 impl SshConfigFiles for ResolvedConfigs {
-    /// The generated config of the target an argument list is for (`... -p N -- destination ...`), if one was built.
+    /// The config the last inspection of the target an argument list is for reviewed, if any.
     fn for_args(&self, args: &[String]) -> Option<PathBuf> {
-        let dash = args.iter().position(|arg| arg == "--")?;
-        let destination = args.get(dash + 1).filter(|destination| !destination.is_empty())?;
-        let port = args[..dash].iter().rposition(|arg| arg == "-p").map_or("", |at| args.get(at + 1).map_or("", String::as_str));
-        self.files().get(&key_of(destination, port)).cloned()
+        let key = args_target_key(args)?;
+        self.files().get(&key).map(|file| file.path().to_path_buf())
     }
 
     fn generic(&self) -> Option<PathBuf> {

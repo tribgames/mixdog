@@ -795,8 +795,8 @@ test('mobile cold boot hydrates the composer project catalog from local cache', 
     },
   };
   const cached = [
-    { name: 'Mixdog', path: 'C:\\Project\\mixdog', alias: 'Core' },
-    { name: 'Duplicate', path: 'c:/project/mixdog/', alias: null },
+    { name: 'Mixdog', path: 'C:\\Project\\sample', alias: 'Core' },
+    { name: 'Duplicate', path: 'c:/project/sample/', alias: null },
   ];
 
   writeCachedProjectCatalog(cached, storage);
@@ -806,7 +806,7 @@ test('mobile cold boot hydrates the composer project catalog from local cache', 
 });
 
 test('an uncertain empty mobile probe preserves the last project until reconnect validates it', () => {
-  const lastProject = 'C:\\Project\\mixdog';
+  const lastProject = 'C:\\Project\\sample';
 
   assert.equal(acceptedProjectCatalog([], false), null);
   assert.deepEqual(acceptedProjectCatalog([], true), []);

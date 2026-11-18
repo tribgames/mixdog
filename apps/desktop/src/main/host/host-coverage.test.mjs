@@ -18,6 +18,7 @@ registerHooks({
   },
 });
 const { createDesktopHost } = await import('./index.ts');
+const { createComputerSwitch } = await import('./computer-scope.ts');
 
 /**
  * host/* methods the protocol lists that this desktop does not serve yet. Each entry names the task
@@ -57,6 +58,7 @@ function served() {
       environment: { ready: new Promise(() => {}), sources: () => ({ power: new EventEmitter(), screen: new EventEmitter() }) },
       desktopHostScreen: () => null,
       desktopHostCommand: () => null,
+      computerSwitch: createComputerSwitch(true),
     },
     updater: { check: async () => ({}), getState: () => ({}), confirmBusy: async () => false, install: async () => {} },
     notifications: { createNotification() {}, playSound: async () => {}, activate() {}, isSupported: () => true, idleSeconds: () => 0 },

@@ -27,6 +27,11 @@ impl UserCwd {
         Self { data_dir: data_dir.into(), io }
     }
 
+    /// The data dir itself, which also keeps each conversation's image choices.
+    pub fn data_dir(&self) -> &std::path::Path {
+        &self.data_dir
+    }
+
     /// `job` as an interactive-io lane job. An `Err` means the job did not run (the lane was
     /// full or wedged), which is not "no saved cwd": Node's `catch { return null }` covers a
     /// failed file read only, and an unrun read must not be taken for an absent file.

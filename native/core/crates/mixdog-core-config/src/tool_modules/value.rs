@@ -67,10 +67,47 @@ pub fn module_enabled(doc: &Doc, name: &str) -> bool {
     section_enabled(entry(doc, "modules", name), true)
 }
 
+const GRANDFATHERED_BUILTIN_IDS: [&str; 3] = ["git", "memory", "office"];
+
+fn has_builtins_section(doc: &Doc) -> bool {
+    doc.get("builtins").is_some_and(|v| v.is_object() || v.is_array())
+}
+
+/// Where a config without a `builtins` section came from. Node's `withGrandfatheredBuiltins` (builtin-grandfathering.mjs) is one
+/// function over a config object, but the object differs by origin, and so does what it holds:
+/// - `Loaded`: the stored agent section as `loadConfig` (config.mjs:239-379) returns it. A section with any key (`hasKeys`,
+///   :240) is merged onto defaults that always carry `presets`, `providers`, `modules` and `recap`, which are user marks, so
+///   it is grandfathered whatever else it holds (a section holding only `autoClear.enabled:false`, as the desktop settings
+///   store writes it, keeps Git/Memory/Office); an empty or absent section is stamped `builtins: {}` (:379), a fresh profile.
+///   Run against Node's real `loadConfig` in `record-builtin-grandfathering.mjs`.
+/// - `Given`: a config object in hand, as the recorders of the workflow, agent-store and feature-gate paths hand it to the
+///   function (`record-workflow-config.mjs:254`, `config-lifecycle.mjs:123` `initialConfig`): only the keys it holds count, and
+///   only the user marks among them do. The product never guesses it from the keys: a replay harness states it where it hands
+///   the recorded literal in (`Config::with_origin`), a production call site states `Loaded`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Origin {
+    Loaded,
+    Given,
+}
+
+fn grandfathers(doc: &Doc, origin: Origin) -> bool {
+    match origin {
+        Origin::Loaded => !doc.is_empty(),
+        // User-mark keys only: a default in-memory config may carry harmless structural keys.
+        Origin::Given => ["presets", "providers", "modules", "default", "memoryTools", "recap"].iter().any(|key| doc.contains_key(*key)),
+    }
+}
+
+/// The one decision of "installed" for every reader of the stored section (panel, Doctor, `setup status`, the tool surface):
+/// what Node's adopted `Loaded` config holds. With a `builtins` section only it decides; without one a stored profile counts
+/// git, memory and office as installed, a fresh one counts none.
 pub fn builtin_installed(doc: &Doc, id: &str) -> bool {
-    entry(doc, "builtins", id)
-        .and_then(|e| e.get("installed"))
-        .is_some_and(|v| *v == Value::Bool(true))
+    if has_builtins_section(doc) {
+        return entry(doc, "builtins", id)
+            .and_then(|e| e.get("installed"))
+            .is_some_and(|v| *v == Value::Bool(true));
+    }
+    GRANDFATHERED_BUILTIN_IDS.contains(&id) && grandfathers(doc, Origin::Loaded)
 }
 
 fn memory_tools_enabled(doc: &Doc) -> bool {
@@ -101,24 +138,26 @@ fn installed_and_enabled(doc: &Doc, id: &str, over: Option<bool>) -> bool {
     over.unwrap_or_else(|| builtin_installed(doc, id) && module_enabled(doc, id))
 }
 
-/// `withGrandfatheredBuiltins`: a config with no `builtins` section that carries a user's
-/// profile counts git, memory and office as installed.
-pub fn with_grandfathered_builtins(doc: &Doc) -> Doc {
-    if doc.get("builtins").is_some_and(|v| v.is_object() || v.is_array()) {
+/// `withGrandfatheredBuiltins` over a config of the given origin: the stored keys are kept, `builtins` is the section it has, or
+/// the grandfathered three (`grandfathers`), or empty.
+pub fn adopt(doc: &Doc, origin: Origin) -> Doc {
+    if has_builtins_section(doc) {
         return doc.clone();
     }
     let mut next = doc.clone();
     next.insert("builtins".into(), Value::Object(Map::new()));
-    // User-mark keys only: a default in-memory config may carry harmless structural keys.
-    let existing_profile = ["presets", "providers", "modules", "default", "memoryTools", "recap"]
-        .iter()
-        .any(|key| doc.contains_key(*key));
-    if existing_profile {
-        for id in ["git", "memory", "office"] {
+    if grandfathers(doc, origin) {
+        for id in GRANDFATHERED_BUILTIN_IDS {
             super::edit::set_builtin_installed(&mut next, id);
         }
     }
     next
+}
+
+/// The adopted config of the stored agent section ([`Origin::Loaded`]): what every reader of the live config and the tool-module
+/// setters hold.
+pub fn adopted_stored_agent(doc: &Doc) -> Doc {
+    adopt(doc, Origin::Loaded)
 }
 
 pub fn normalize_instruction_files(value: Option<&Value>) -> &'static str {

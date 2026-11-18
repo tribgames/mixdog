@@ -1,7 +1,9 @@
 import type { DesktopApi, DesktopModelOption } from '../shared/contract';
+import { normalizedProviderModels } from '../shared/desktop-transcript-limits';
 import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope';
 import { isSshConnectionWindow } from './desktop-connection';
 import { requireDesktopProviders } from './desktop-provider-retry';
+import { record } from './record-utils';
 import { invokeOrHeld } from './section-capabilities';
 
 const MODEL_CATALOG_STORAGE_KEY = 'mixdog.desktop-model-catalog.v2';
@@ -268,6 +270,75 @@ export function fetchProviderModels(
   };
   void request.then(release, release);
   return request;
+}
+
+// The settings sweep and manual refresh share the last usable rows, including
+// when the Models page is closed. Keep them separate from the picker's
+// provisional quick answers, which cannot establish removals.
+type ModelManagementApi = ProviderModelsApi & Partial<Pick<DesktopApi, 'invokeCapability'>>;
+interface ModelManagementCache {
+  scope: string;
+  models?: DesktopModelOption[];
+  pending?: { generation: number; force: boolean; result: Promise<DesktopModelOption[]> };
+  listeners: Set<() => void>;
+}
+
+const MODEL_MANAGEMENT_CATALOGS = new WeakMap<ModelManagementApi, ModelManagementCache>();
+
+function modelManagementCache(api: ModelManagementApi): ModelManagementCache {
+  const scope = catalogStorageScope();
+  const held = MODEL_MANAGEMENT_CATALOGS.get(api);
+  if (held?.scope === scope) return held;
+  const cache = { scope, listeners: held?.listeners ?? new Set<() => void>() };
+  MODEL_MANAGEMENT_CATALOGS.set(api, cache);
+  return cache;
+}
+
+export function heldModelManagementCatalog(api: ModelManagementApi): DesktopModelOption[] | undefined {
+  return modelManagementCache(api).models;
+}
+
+export function subscribeModelManagementCatalog(api: ModelManagementApi, listener: () => void): () => void {
+  const { listeners } = modelManagementCache(api);
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
+}
+
+export function readModelManagementCatalog(api: ModelManagementApi, force: boolean): Promise<DesktopModelOption[]> {
+  const cache = modelManagementCache(api);
+  const generation = providerModelsGeneration;
+  if (cache.pending?.generation === generation && (!force || cache.pending.force)) return cache.pending.result;
+  const options = { quick: false, ...(force ? { force: true } : {}) };
+  const issued: Promise<DesktopModelOption[]> = Promise.resolve().then(async () => {
+    const reply = await api.invokeCapability?.({
+      capability: 'listProviderModels',
+      args: [{ ...options, withCatalogState: true }],
+    });
+    const payload = record(reply?.value);
+    const rows = Array.isArray(payload.models) ? payload.models : reply?.value;
+    const models = Array.isArray(rows) ? normalizedProviderModels(rows) : await fetchProviderModels(api, options);
+    const complete = new Set(Array.isArray(payload.completeProviders) ? payload.completeProviders : []);
+    if (modelManagementCache(api) !== cache || generation !== providerModelsGeneration) {
+      return heldModelManagementCatalog(api) ?? [];
+    }
+    if (cache.pending?.result !== issued) return cache.pending?.result ?? cache.models ?? [];
+    const seen = new Set(models.map((row) => JSON.stringify([row.provider, row.model])));
+    const reconciled = [
+      ...models,
+      ...(cache.models ?? []).filter(
+        (row) => !complete.has(row.provider) && !seen.has(JSON.stringify([row.provider, row.model]))
+      ),
+    ];
+    cache.models = reconciled;
+    for (const listener of cache.listeners) listener();
+    return reconciled;
+  });
+  cache.pending = { generation, force, result: issued };
+  const release = () => {
+    if (cache.pending?.result === issued) cache.pending = undefined;
+  };
+  void issued.then(release, release);
+  return issued;
 }
 
 // ---------------------------------------------------------------------------

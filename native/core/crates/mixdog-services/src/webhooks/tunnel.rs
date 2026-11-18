@@ -154,32 +154,6 @@ pub fn error_frame(id: &str, status: u16, message: &str) -> String {
     response_frame(id, status, &[("content-type", "application/json")], body.as_bytes())
 }
 
-/// `handleLegMessage` and the replay: the frame to send back for one text message from the relay,
-/// if any. Text that is not JSON gets no reply; an invalid frame that still carries a string id
-/// is answered 400 so the relay does not wait for its timeout. `local_port` is the listener's
-/// port, `None` while it is not listening.
-pub async fn answer(raw: &str, local_port: Option<u16>) -> Option<String> {
-    let value: Value = serde_json::from_str(raw).ok()?;
-    match normalize_request_frame(&value) {
-        Err(message) => value.get("id").and_then(Value::as_str).map(|id| error_frame(id, 400, &message)),
-        Ok(frame) => Some(forward(&frame, local_port).await),
-    }
-}
-
-async fn forward(frame: &HookFrame, local_port: Option<u16>) -> String {
-    let Some(port) = local_port.filter(|port| *port != 0) else {
-        return response_frame(&frame.id, 503, &[("content-type", "application/json")], br#"{"error":"webhook server not listening"}"#);
-    };
-    match replay(frame, port).await {
-        Ok(reply) => response_frame(&frame.id, reply.status, &[("content-type", reply.content_type.as_deref().unwrap_or("application/json"))], &reply.body),
-        // The local response broke off or outgrew the limit: Node destroys it and answers an
-        // empty 502.
-        Err(Replay::Aborted) => response_frame(&frame.id, 502, &[], &[]),
-        Err(Replay::Rejected(message)) => error_frame(&frame.id, 400, &message),
-        Err(Replay::Failed(message)) => error_frame(&frame.id, 502, &message),
-    }
-}
-
 struct LocalReply {
     status: u16,
     content_type: Option<String>,
@@ -195,61 +169,7 @@ enum Replay {
     Aborted,
 }
 
-/// One step of the exchange, idle for no longer than [`LOCAL_TIMEOUT`] (Node's socket timeout).
-async fn within<T>(step: impl Future<Output = T>) -> Result<T, Replay> {
-    mixdog_rt::time::timeout(LOCAL_TIMEOUT, step).await.map_err(|_| Replay::Failed("local webhook timeout".to_owned()))
-}
-
 type RequestBody = BoxBody<Bytes, Infallible>;
-
-/// The POST of the frame. A body goes out as one chunk (what Node's `write` then `end`
-/// produces); no body is `Content-Length: 0`.
-fn local_request(frame: &HookFrame, port: u16) -> Result<Request<RequestBody>, Replay> {
-    let uri: Uri = frame.path.parse().map_err(|_| Replay::Rejected("Request path contains unescaped characters".to_owned()))?;
-    let mut builder = Request::builder().method("POST").uri(uri).header("host", format!("127.0.0.1:{port}"));
-    for (name, values) in &frame.headers {
-        for value in values {
-            let value = HeaderValue::from_str(value).map_err(|_| Replay::Rejected(format!("Invalid character in header content [\"{name}\"]")))?;
-            builder = builder.header(name.as_str(), value);
-        }
-    }
-    let body: RequestBody = match frame.body.as_deref().filter(|b| !b.is_empty()) {
-        Some(bytes) => {
-            let chunk = Bytes::copy_from_slice(bytes);
-            StreamBody::new(futures::stream::once(async move { Ok::<_, Infallible>(Frame::data(chunk)) })).boxed()
-        }
-        None => Empty::<Bytes>::new().boxed(),
-    };
-    builder.body(body).map_err(|e| Replay::Rejected(e.to_string()))
-}
-
-async fn replay(frame: &HookFrame, port: u16) -> Result<LocalReply, Replay> {
-    let request = local_request(frame, port)?;
-    let stream = match within(TcpStream::connect((Ipv4Addr::LOCALHOST, port))).await? {
-        Ok(stream) => stream,
-        Err(e) if e.kind() == ErrorKind::ConnectionRefused => return Err(Replay::Failed(format!("connect ECONNREFUSED 127.0.0.1:{port}"))),
-        Err(e) => return Err(Replay::Failed(e.to_string())),
-    };
-    let (mut sender, connection) =
-        within(hyper::client::conn::http1::handshake(TokioIo::new(stream))).await?.map_err(|e| Replay::Failed(e.to_string()))?;
-    tokio::spawn(async move {
-        let _ = connection.await;
-    });
-    let response = within(sender.send_request(request)).await?.map_err(|e| Replay::Failed(e.to_string()))?;
-    let (parts, mut body) = response.into_parts();
-    let mut bytes = Vec::new();
-    while let Some(next) = within(body.frame()).await? {
-        let Ok(next) = next else { return Err(Replay::Aborted) };
-        if let Some(data) = next.data_ref() {
-            bytes.extend_from_slice(data);
-            if bytes.len() > MAX_TUNNEL_BODY_BYTES {
-                return Err(Replay::Aborted);
-            }
-        }
-    }
-    let content_type = parts.headers.get("content-type").map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned());
-    Ok(LocalReply { status: parts.status.as_u16(), content_type, body: bytes })
-}
 
 #[cfg(test)]
 mod tests {
@@ -309,25 +229,6 @@ mod tests {
         assert_eq!(empty["body"], "");
     }
 
-    #[tokio::test]
-    async fn bad_json_gets_no_answer_and_a_bad_frame_with_an_id_gets_a_400() {
-        assert_eq!(answer("not json", None).await, None);
-        assert_eq!(answer(r#"{"type":"http"}"#, None).await, None);
-        let reply: Value = serde_json::from_str(&answer(r#"{"type":"http","id":"bad-1","method":"GET","path":"/webhook/x"}"#, None).await.unwrap()).unwrap();
-        assert_eq!((reply["status"].as_u64(), reply["id"].as_str()), (Some(400), Some("bad-1")));
-        let text = String::from_utf8(base64::engine::general_purpose::STANDARD.decode(reply["body"].as_str().unwrap()).unwrap()).unwrap();
-        assert!(text.contains("method must be POST"));
-    }
-
-    #[tokio::test]
-    async fn without_a_local_listener_the_answer_is_503() {
-        let raw = frame(json!({"id": "req-503", "body": ""})).to_string();
-        let reply: Value = serde_json::from_str(&answer(&raw, None).await.unwrap()).unwrap();
-        assert_eq!(reply["status"], 503);
-        let body = base64::engine::general_purpose::STANDARD.decode(reply["body"].as_str().unwrap()).unwrap();
-        assert_eq!(body, br#"{"error":"webhook server not listening"}"#);
-    }
-
     /// A one-shot local server: reads the request head, then writes `reply` and closes. Returns
     /// the port and what the request looked like.
     async fn local_server(reply: Vec<u8>) -> (u16, tokio::task::JoinHandle<String>) {
@@ -355,6 +256,24 @@ mod tests {
         base64::engine::general_purpose::STANDARD.decode(reply["body"].as_str().unwrap()).unwrap()
     }
 
+
+    #[tokio::test]
+    async fn bad_json_gets_no_answer_and_a_bad_frame_with_an_id_gets_a_400() {
+        assert_eq!(answer("not json", None).await, None);
+        assert_eq!(answer(r#"{"type":"http"}"#, None).await, None);
+        let reply: Value = serde_json::from_str(&answer(r#"{"type":"http","id":"bad-1","method":"GET","path":"/webhook/x"}"#, None).await.unwrap()).unwrap();
+        assert_eq!((reply["status"].as_u64(), reply["id"].as_str()), (Some(400), Some("bad-1")));
+        let text = String::from_utf8(base64::engine::general_purpose::STANDARD.decode(reply["body"].as_str().unwrap()).unwrap()).unwrap();
+        assert!(text.contains("method must be POST"));
+    }
+    #[tokio::test]
+    async fn without_a_local_listener_the_answer_is_503() {
+        let raw = frame(json!({"id": "req-503", "body": ""})).to_string();
+        let reply: Value = serde_json::from_str(&answer(&raw, None).await.unwrap()).unwrap();
+        assert_eq!(reply["status"], 503);
+        let body = base64::engine::general_purpose::STANDARD.decode(reply["body"].as_str().unwrap()).unwrap();
+        assert_eq!(body, br#"{"error":"webhook server not listening"}"#);
+    }
     /// Node `relay-tunnel.tunnel.test.mjs`: the frame is replayed against the local server and the
     /// response comes back verbatim.
     #[tokio::test]
@@ -376,7 +295,6 @@ mod tests {
         assert!(request.contains("x-demo: yes\r\n") && request.contains("transfer-encoding: chunked\r\n"));
         assert!(request.ends_with("b\r\n{\"hello\":1}\r\n0\r\n\r\n"));
     }
-
     #[tokio::test]
     async fn a_refused_connection_is_a_502_with_the_os_message() {
         let free = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
@@ -387,7 +305,6 @@ mod tests {
         assert_eq!(reply["status"], 502);
         assert_eq!(String::from_utf8(decoded(&reply)).unwrap(), format!(r#"{{"error":"connect ECONNREFUSED 127.0.0.1:{port}"}}"#));
     }
-
     /// A body that stops short of its framing is not a success: Node's response `error` answers an
     /// empty 502, whatever the status line said.
     #[tokio::test]
@@ -404,7 +321,6 @@ mod tests {
             assert_eq!((reply["status"].as_u64(), reply["body"].as_str(), reply["headers"].as_object().map(Map::len)), (Some(502), Some(""), Some(0)), "{}", String::from_utf8_lossy(case));
         }
     }
-
     #[tokio::test]
     async fn a_chunked_local_response_is_decoded_and_an_oversized_one_is_an_empty_502() {
         let raw = frame(json!({"id": "r", "body": ""})).to_string();
@@ -419,7 +335,6 @@ mod tests {
         let reply: Value = serde_json::from_str(&answer(&raw, Some(port)).await.unwrap()).unwrap();
         assert_eq!((reply["status"].as_u64(), reply["body"].as_str()), (Some(502), Some("")));
     }
-
     /// The local server that accepts and goes quiet: the exchange ends at Node's 25 s socket
     /// timeout with a 502, not never. The clock is paused, so this takes no wall time.
     #[tokio::test(start_paused = true)]
@@ -437,4 +352,81 @@ mod tests {
         assert_eq!(String::from_utf8(decoded(&reply)).unwrap(), r#"{"error":"local webhook timeout"}"#);
         assert_eq!(started.elapsed(), LOCAL_TIMEOUT);
     }
+}
+
+
+/// `handleLegMessage` and the replay: the frame to send back for one text message from the relay,
+/// if any. Text that is not JSON gets no reply; an invalid frame that still carries a string id
+/// is answered 400 so the relay does not wait for its timeout. `local_port` is the listener's
+/// port, `None` while it is not listening.
+pub async fn answer(raw: &str, local_port: Option<u16>) -> Option<String> {
+    let value: Value = serde_json::from_str(raw).ok()?;
+    match normalize_request_frame(&value) {
+        Err(message) => value.get("id").and_then(Value::as_str).map(|id| error_frame(id, 400, &message)),
+        Ok(frame) => Some(forward(&frame, local_port).await),
+    }
+}
+async fn forward(frame: &HookFrame, local_port: Option<u16>) -> String {
+    let Some(port) = local_port.filter(|port| *port != 0) else {
+        return response_frame(&frame.id, 503, &[("content-type", "application/json")], br#"{"error":"webhook server not listening"}"#);
+    };
+    match replay(frame, port).await {
+        Ok(reply) => response_frame(&frame.id, reply.status, &[("content-type", reply.content_type.as_deref().unwrap_or("application/json"))], &reply.body),
+        // The local response broke off or outgrew the limit: Node destroys it and answers an
+        // empty 502.
+        Err(Replay::Aborted) => response_frame(&frame.id, 502, &[], &[]),
+        Err(Replay::Rejected(message)) => error_frame(&frame.id, 400, &message),
+        Err(Replay::Failed(message)) => error_frame(&frame.id, 502, &message),
+    }
+}
+/// One step of the exchange, idle for no longer than [`LOCAL_TIMEOUT`] (Node's socket timeout).
+async fn within<T>(step: impl Future<Output = T>) -> Result<T, Replay> {
+    mixdog_rt::time::timeout(LOCAL_TIMEOUT, step).await.map_err(|_| Replay::Failed("local webhook timeout".to_owned()))
+}
+/// The POST of the frame. A body goes out as one chunk (what Node's `write` then `end`
+/// produces); no body is `Content-Length: 0`.
+fn local_request(frame: &HookFrame, port: u16) -> Result<Request<RequestBody>, Replay> {
+    let uri: Uri = frame.path.parse().map_err(|_| Replay::Rejected("Request path contains unescaped characters".to_owned()))?;
+    let mut builder = Request::builder().method("POST").uri(uri).header("host", format!("127.0.0.1:{port}"));
+    for (name, values) in &frame.headers {
+        for value in values {
+            let value = HeaderValue::from_str(value).map_err(|_| Replay::Rejected(format!("Invalid character in header content [\"{name}\"]")))?;
+            builder = builder.header(name.as_str(), value);
+        }
+    }
+    let body: RequestBody = match frame.body.as_deref().filter(|b| !b.is_empty()) {
+        Some(bytes) => {
+            let chunk = Bytes::copy_from_slice(bytes);
+            StreamBody::new(futures::stream::once(async move { Ok::<_, Infallible>(Frame::data(chunk)) })).boxed()
+        }
+        None => Empty::<Bytes>::new().boxed(),
+    };
+    builder.body(body).map_err(|e| Replay::Rejected(e.to_string()))
+}
+async fn replay(frame: &HookFrame, port: u16) -> Result<LocalReply, Replay> {
+    let request = local_request(frame, port)?;
+    let stream = match within(TcpStream::connect((Ipv4Addr::LOCALHOST, port))).await? {
+        Ok(stream) => stream,
+        Err(e) if e.kind() == ErrorKind::ConnectionRefused => return Err(Replay::Failed(format!("connect ECONNREFUSED 127.0.0.1:{port}"))),
+        Err(e) => return Err(Replay::Failed(e.to_string())),
+    };
+    let (mut sender, connection) =
+        within(hyper::client::conn::http1::handshake(TokioIo::new(stream))).await?.map_err(|e| Replay::Failed(e.to_string()))?;
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    let response = within(sender.send_request(request)).await?.map_err(|e| Replay::Failed(e.to_string()))?;
+    let (parts, mut body) = response.into_parts();
+    let mut bytes = Vec::new();
+    while let Some(next) = within(body.frame()).await? {
+        let Ok(next) = next else { return Err(Replay::Aborted) };
+        if let Some(data) = next.data_ref() {
+            bytes.extend_from_slice(data);
+            if bytes.len() > MAX_TUNNEL_BODY_BYTES {
+                return Err(Replay::Aborted);
+            }
+        }
+    }
+    let content_type = parts.headers.get("content-type").map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned());
+    Ok(LocalReply { status: parts.status.as_u16(), content_type, body: bytes })
 }

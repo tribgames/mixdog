@@ -511,8 +511,11 @@ impl McpService {
         }
         .await;
         if let Err(error) = attempt {
-            // As in Node, a failed rollback is the failure the caller gets.
-            self.secrets.forget_stored_secrets(&stored_cfg).await?;
+            // Node had no rollback (the secrets stored for the account stayed). Here the stored secrets are
+            // removed again, and a rollback that fails is only logged: the failure the caller gets is the save's own.
+            if let Err(rollback) = self.secrets.forget_stored_secrets(&stored_cfg).await {
+                tracing::warn!(error = %rollback, "the secrets stored for a connector account that failed to save were not removed");
+            }
             return Err(error);
         }
         self.runtime.forget_account_health(&account_name);
@@ -584,7 +587,10 @@ impl McpService {
         }
         .await;
         if let Err(error) = attempt {
-            self.secrets.restore(snapshot).await?;
+            // A restore that fails is only logged: the failure the caller gets is the save's own.
+            if let Err(restore) = self.secrets.restore(snapshot).await {
+                tracing::warn!(error = %restore, "the secrets of a server that failed to save were not restored");
+            }
             return Err(error);
         }
         let enabled = enabled_flag(&merged);
@@ -652,7 +658,10 @@ impl McpService {
         }
         .await;
         if let Err(error) = attempt {
-            self.secrets.restore(snapshot).await?;
+            // A restore that fails is only logged: the failure the caller gets is the save's own.
+            if let Err(restore) = self.secrets.restore(snapshot).await {
+                tracing::warn!(error = %restore, "the secrets of a server that failed to save were not restored");
+            }
             return Err(error);
         }
         self.runtime.forget_account_health(&account_name);

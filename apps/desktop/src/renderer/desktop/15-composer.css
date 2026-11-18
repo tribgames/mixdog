@@ -499,14 +499,6 @@
   align-items: center;
   gap: 6px;
 }
-/* A header action beside the close button (the shells tab's Close all). */
-.composer-island-phead-action {
-  flex: none;
-  margin-inline-start: auto;
-}
-.composer-island-phead-action + .composer-island-close {
-  margin-inline-start: 4px;
-}
 /* Only text that can ellipsize gives way on a narrow island: the Goal while
    it still shows its title. Counts never shrink. */
 .composer-island-pill > .composer-island-seg,
@@ -565,30 +557,6 @@
 .composer-island-seg > svg {
   flex: none;
 }
-/* Agent attention states: glyph + words on a wide island, glyph + bare count
-   on a narrow one (the waiting dot only appears next to the bare count). */
-.composer-island-seg-states {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--mx-text-muted);
-  font-weight: var(--mx-weight-regular);
-  white-space: nowrap;
-}
-.composer-island-seg-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-/* A state's dot (waiting, failed) only stands in for its words. */
-.composer-island-seg-state > .composer-island-dot {
-  display: none;
-}
-.composer-island-seg-state + .composer-island-seg-state::before {
-  content: "·";
-  margin-inline-end: 2px;
-}
 .composer-island-pill > .composer-island-seg.composer-island-seg-shell {
   flex-shrink: 1;
 }
@@ -628,14 +596,6 @@
 .composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-num {
   display: inline-block;
 }
-.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-state > .composer-island-dot {
-  display: inline-block;
-}
-.composer-island[data-compact]:where(:not([data-measuring]))
-  .composer-island-seg-state
-  + .composer-island-seg-state::before {
-  content: none;
-}
 .composer-island[data-compact]:where(:not([data-measuring])) :is(.composer-island-seg, .session-goal-trigger) {
   gap: 5px;
   padding-inline: 8px;
@@ -671,11 +631,7 @@
 .composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-branch .composer-island-seg-text {
   max-width: 104px;
 }
-/* Still overflowing once compact (useIslandFit): the running state leaves the
-   agents segment (its pulse stays) and every segment tightens. */
-.composer-island[data-fit-tight] .composer-island-seg-states {
-  display: none;
-}
+/* Still overflowing once compact (useIslandFit): every segment tightens. */
 .composer-island[data-fit-tight] :is(.composer-island-seg, .session-goal-trigger) {
   gap: 4px;
   padding-inline: 6px;
@@ -1007,34 +963,22 @@
   color: var(--mx-text);
   font-weight: 500;
 }
-/* Counts wrap among themselves, never under a button. When the pane is too
-   narrow for them beside the title and the buttons (a phone, a split pane, a
-   long translation) they take their own second line. */
+/* Counts wrap among themselves, never under the close button. When the pane is
+   too narrow for them beside the title (a phone, a split pane, a long
+   translation) they take their own second line. */
 @container composer-island (max-width: 559px) {
   .composer-island-phead:has(> .composer-island-phead-meta) {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-rows: 44px auto;
     grid-template-areas:
-      "tab action close"
+      "tab . close"
       "meta meta meta";
     column-gap: 8px;
     padding-bottom: 10px;
   }
   .composer-island-phead:has(> .composer-island-phead-meta) > .composer-island-tab {
     grid-area: tab;
-  }
-  .composer-island-phead:has(> .composer-island-phead-meta) > .composer-island-phead-action {
-    grid-area: action;
-    justify-self: end;
-    max-width: 100%;
-    height: auto;
-    min-height: 32px;
-    margin: 0;
-    padding-block: 5px;
-    line-height: 1.2;
-    text-align: center;
-    white-space: normal;
   }
   .composer-island-phead:has(> .composer-island-phead-meta) > .composer-island-close {
     grid-area: close;
@@ -1045,41 +989,11 @@
     margin: 0 11px;
   }
 }
-/* The session's totals below the agent rows: one quiet footer line. */
-.composer-island-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 14px;
-  padding: 8px 14px;
-  border-top: var(--mx-hairline) solid var(--composer-island-rule);
-  color: var(--mx-text-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.composer-island-summary b {
-  color: var(--mx-text);
-  font-weight: 500;
-}
-/* Each stat's box comes from its data-reserve text (the widest figures), drawn
- * invisibly beside the live text in one grid cell: "-" and the measured value
- * wrap and size alike, so the footer never moves when the ledger answers. */
-.composer-island-summary-stat {
-  display: inline-grid;
-  max-width: 100%;
-  min-width: 0;
-}
-.composer-island-summary-stat::after {
-  content: attr(data-reserve);
-  grid-area: 1 / 1;
-  font-weight: 500;
-  overflow-wrap: anywhere;
-  visibility: hidden;
-  pointer-events: none;
-}
-.composer-island-summary-stat > span {
-  grid-area: 1 / 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
+/* The usage readout as the agents panel's footer line: flush with the
+   footer's inset, and not a button. */
+.composer-island-panel > .composer-island-panel-foot > .composer-usage-readout {
+  padding-inline: 0;
+  cursor: default;
 }
 .composer-island-agents .agent-pool-row:disabled {
   cursor: default;
@@ -1230,6 +1144,39 @@
   justify-content: flex-end;
   gap: 6px;
   padding-top: 8px;
+}
+/* The agents, shell and branch panels' footer (IslandPanelFoot), below the
+   list: the panel's line or actions on the left, its tidy action at the right
+   end, which never leaves the row's last slot. The list above keeps 4px of
+   its inset before the rule, as the branch panel always did. */
+.composer-island-panel-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  border-top: var(--mx-hairline) solid var(--composer-island-rule);
+}
+.composer-island-panel > .composer-island-pbody:has(+ .composer-island-panel-foot) {
+  padding-bottom: 4px;
+}
+.composer-island-panel-foot-end {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  margin-inline-start: auto;
+}
+.composer-island-panel-foot .composer-island-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.composer-island-panel-foot .composer-island-button > svg {
+  flex: none;
+}
+.composer-island-panel-foot .composer-island-button[aria-disabled="true"] {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
 }
 .composer-island-button,
 .composer-island .session-goal-control {
@@ -1680,21 +1627,12 @@ html[data-mixdog-mobile-tabs] .composer-island-tab {
   gap: 7px;
   padding-inline: 11px;
 }
-/* Header buttons: a 44px tap area. The close box is 44 with its glyph kept
-   where the 32px box put it; the header action keeps its look and grows an
-   invisible 44px pad. */
+/* The header's close button: a 44px tap area, its glyph kept where the 32px
+   box put it. */
 html[data-mixdog-mobile-tabs] .composer-island-close {
   width: 44px;
   height: 44px;
   margin-inline-end: -6px;
-}
-html[data-mixdog-mobile-tabs] .composer-island-phead-action {
-  position: relative;
-}
-html[data-mixdog-mobile-tabs] .composer-island-phead-action::after {
-  content: "";
-  position: absolute;
-  inset: -6px 0;
 }
 html[data-mixdog-mobile-tabs] :is(.composer-island-close, .composer-island-flash) > svg {
   width: 16px;
@@ -1909,11 +1847,12 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
 /* The readout is muted text (no hover card) that opens the Usage view on
    click. It never shrinks: the component measures the line and drops parts
    (cache hit, then the token total, then the whole readout) to fit; the
-   ellipsis only catches a measuring miss. */
-.composer-model-line > .composer-usage-readout[hidden] {
+   ellipsis only catches a measuring miss. The agents panel's usage footer is
+   the same readout (FittedReadout), not clickable. */
+:is(.composer-model-line, .composer-island-panel-foot) > .composer-usage-readout[hidden] {
   display: none;
 }
-.composer-model-line > .composer-usage-readout {
+:is(.composer-model-line, .composer-island-panel-foot) > .composer-usage-readout {
   display: flex;
   align-items: center;
   gap: 8px; /* ITEM_GAP in composer-usage-readout.tsx */

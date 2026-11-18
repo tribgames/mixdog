@@ -5,16 +5,17 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_app_protocol::v2::connections::{SshCleanupPhase, SshCleanupProgress, SshCleanupRequest, SshCleanupResult};
+use mixdog_app_protocol::v2::connections::{SshCleanupPhase, SshCleanupProgress, SshCleanupRequest, SshCleanupResult, SshLocalForget};
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_ssh::bootstrap::ServerPayloads;
 use mixdog_ssh::cleanup::{cleanup_server, CleanupOptions, CleanupProgress, CleanupReport};
 use mixdog_ssh::command::{parse_ssh_target, SshTarget};
 use mixdog_ssh::connect_failure::{failure_of, ConnectError};
 use mixdog_ssh::context::{AttemptContext, Platform, SshEnv};
+use mixdog_ssh::said;
 
 use crate::attempts::{AttemptError, Attempts};
-use crate::host_list_ops::host_views;
+use crate::host_list_ops::{forget_in_turn, host_views, LocalForget};
 use crate::host_store::{SshHostRecord, SshHostStore};
 use crate::login::{with_login_retry, LoginHelpers};
 use crate::restore::attempt_context;
@@ -71,13 +72,14 @@ pub struct Cleanup {
 }
 
 fn progress_of(operation_id: &str, progress: CleanupProgress) -> SshCleanupProgress {
-    let (phase, detail) = match progress {
+    let (phase, said) = match progress {
         CleanupProgress::Connect => (SshCleanupPhase::Connect, None),
         CleanupProgress::Stop { detail } => (SshCleanupPhase::Stop, Some(detail)),
         CleanupProgress::Remove { detail } => (SshCleanupPhase::Remove, Some(detail)),
         CleanupProgress::Done => (SshCleanupPhase::Done, None),
     };
-    SshCleanupProgress { operation_id: operation_id.to_owned(), phase, detail }
+    let (detail, detail_notice) = said.map_or((None, None), |said| (Some(said.english), Some(said.message)));
+    SshCleanupProgress { operation_id: operation_id.to_owned(), phase, detail, detail_notice }
 }
 
 impl Cleanup {
@@ -100,8 +102,38 @@ impl Cleanup {
         if id.is_empty() {
             return Err(AttemptError::new("id must be a non-empty string."));
         }
-        let record = self.deps.hosts.get(id).ok_or_else(|| AttemptError::new("This SSH server is no longer saved."))?;
+        let record = self.deps.hosts.get(id).ok_or_else(|| AttemptError::new(said::SERVER_NOT_SAVED.plain().english))?;
+        self.run(caller, record, request, progress).await
+    }
+
+    /// Cleans a server that was never saved (its first connection failed), named as the connect dialog was given it. Nothing is
+    /// saved or forgotten: the request's `forget` does not apply.
+    pub async fn cleanup_target(
+        &self,
+        caller: ConnectionId,
+        target: &str,
+        mut request: SshCleanupRequest,
+        progress: CleanupProgressSink,
+    ) -> Result<SshCleanupResult, AttemptError> {
+        if request.operation_id.is_empty() {
+            return Err(AttemptError::new("operationId must be a non-empty string."));
+        }
+        request.forget = false;
+        let record = self.deps.hosts.ensure_for_target(target, "").map_err(|error| AttemptError::new(error.to_string()))?;
+        self.run(caller, record, request, progress).await
+    }
+
+    async fn run(
+        &self,
+        caller: ConnectionId,
+        record: SshHostRecord,
+        request: SshCleanupRequest,
+        progress: CleanupProgressSink,
+    ) -> Result<SshCleanupResult, AttemptError> {
         let target = parse_ssh_target(&record.target).map_err(|error| AttemptError::new(error.to_string()))?;
+        // The server's turn for the whole cleanup, the forget included: no connection installs the server again, or saves it,
+        // between the removal of its software and the removal of its entry.
+        let _turn = self.deps.hosts.turn(&target.key()).await;
         let prompter = self.deps.attempts.operation_prompter(caller, request.operation_id.clone(), target.label().to_owned());
         let mut result = with_login_retry(
             self.deps.login.as_ref(),
@@ -112,8 +144,13 @@ impl Cleanup {
         )
         .await;
         if let SshCleanupResult::Done(done) = &mut result {
+            // Only after the server itself was cleaned, so a failure leaves the entry for "Forget" to retry (the uninstall is not run
+            // again). The remote result stands whatever the local one is.
             if request.forget {
-                self.deps.hosts.forget(&record.id).await.map_err(|error| AttemptError::new(error.to_string()))?;
+                done.forget = Some(match forget_in_turn(&self.deps.hosts, &self.deps.attempts, &record.id).await {
+                    LocalForget::Done => SshLocalForget { ok: true, error: None, notice: None },
+                    LocalForget::Failed { message, notice } => SshLocalForget { ok: false, error: Some(message), notice: Some(notice) },
+                });
             }
             done.hosts = host_views(&self.deps.hosts, self.deps.attempts.links());
         }
@@ -135,7 +172,7 @@ impl Cleanup {
         }
         let sink = |step: CleanupProgress| progress(progress_of(&request.operation_id, step));
         match self.deps.cleaner.remove(&context, target, request.remove_user_data, &sink).await {
-            Ok(_) => SshCleanupResult::done(Vec::new(), None),
+            Ok(_) => SshCleanupResult::done(Vec::new(), None, None),
             Err(error) => SshCleanupResult::failed(failure_of(&error, target, self.deps.cleaner.platform()).into_failure()),
         }
     }

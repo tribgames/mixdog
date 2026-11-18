@@ -316,8 +316,97 @@ pub fn explicit_skill_names(prompt: &Prompt, available: &HashSet<String>) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(node_twin)]
     use serde_json::Value;
 
+    fn text(prompt: &str) -> Prompt {
+        Prompt::Text(prompt.to_owned())
+    }
+
+    fn names(prompt: &Prompt, available: &[&str]) -> Vec<String> {
+        explicit_skill_names(prompt, &available.iter().map(|n| (*n).to_owned()).collect())
+    }
+
+    fn mentions(prompt: &str) -> Vec<(String, usize, usize)> {
+        skill_mention_candidates(prompt).into_iter().map(|m| (m.name, m.start, m.end)).collect()
+    }
+
+    #[test]
+    fn a_leading_skill_header_names_the_skill() {
+        assert_eq!(selected_skill_name(&text("Skill: \"review\"\n\nplease")), Some("review".into()));
+        assert_eq!(selected_skill_name(&text("Skill: \"  review \"\r\n\r\nplease")), Some("review".into()), "the name is trimmed, CRLF allowed");
+        assert_eq!(selected_skill_name(&text("Skill: \"a\\\"b\"\n\nx")), Some("a\"b".into()), "a JSON string escape");
+    }
+
+    #[test]
+    fn an_incomplete_or_misplaced_skill_header_selects_nothing() {
+        for prompt in ["Skill: \"review\"\nno blank line", "Skill: \"review\"", "say Skill: \"review\"\n\nx", "Skill: \"\"\n\nx", "Skill: \"a\nb\"\n\nx", "Skill: review\n\nx"] {
+            assert_eq!(selected_skill_name(&text(prompt)), None, "{prompt:?}");
+        }
+    }
+
+    #[test]
+    fn only_the_first_part_of_a_prompt_can_carry_the_header() {
+        let first = Prompt::Parts(vec![PromptPart::Str("Skill: \"a\"\n\nx".into())]);
+        assert_eq!(selected_skill_name(&first), Some("a".into()));
+        let second = Prompt::Parts(vec![PromptPart::Other, PromptPart::Str("Skill: \"a\"\n\nx".into())]);
+        assert_eq!(selected_skill_name(&second), None);
+    }
+
+    #[test]
+    fn an_inline_mention_is_a_dollar_name_after_a_boundary() {
+        assert_eq!(mentions("use $review now"), [("review".into(), 4, 11)]);
+        assert_eq!(mentions("$a-1 and ($b) and \"$c\""), [("a-1".into(), 0, 4), ("b".into(), 10, 12), ("c".into(), 19, 21)]);
+        assert!(mentions("cost$review").is_empty(), "no boundary before the dollar");
+        assert!(mentions("$Review $re_view $review_").is_empty(), "upper case and underscore end a name unrecognised");
+    }
+
+    #[test]
+    fn numbers_and_environment_variable_names_are_never_mentions() {
+        assert!(mentions("$1 $42 $path $HOME $tmp $appdata").is_empty());
+    }
+
+    #[test]
+    fn a_mention_inside_markdown_code_is_not_a_mention() {
+        assert!(mentions("run `$review` now").is_empty());
+        assert!(mentions("```\n$review\n```").is_empty());
+        assert!(mentions("~~~sh\n$review\n~~~").is_empty());
+        assert_eq!(mentions("```\n$a\n```\n$b"), [("b".into(), 11, 13)]);
+        assert_eq!(mentions("`` `x` `` $c"), [("c".into(), 10, 12)]);
+    }
+
+    #[test]
+    fn offsets_count_utf16_units() {
+        // The emoji is two units, so the mention starts at 3, not 2.
+        assert_eq!(mentions("😀 $go"), [("go".into(), 3, 6)]);
+    }
+
+    #[test]
+    fn a_selected_skill_must_be_available_and_each_is_chosen_once_in_order() {
+        let prompt = text("Skill: \"deploy\"\n\nthen $review and $missing and $review and $deploy");
+        assert_eq!(names(&prompt, &["deploy", "review"]), ["deploy", "review"]);
+        assert_eq!(names(&prompt, &["review"]), ["review"]);
+        assert!(names(&text("nothing here"), &["review"]).is_empty());
+    }
+
+    #[test]
+    fn at_most_five_skills_are_selected_for_one_turn() {
+        let prompt = text("$a $b $c $d $e $f $g");
+        let all = ["a", "b", "c", "d", "e", "f", "g"];
+        assert_eq!(names(&prompt, &all), ["a", "b", "c", "d", "e"]);
+    }
+
+    #[test]
+    fn attachment_text_is_not_the_users_own_text() {
+        let reference = "a".repeat(64);
+        let prompt = Prompt::Parts(vec![
+            PromptPart::Text { text: Some("$secret".into()), attachment_ref: Some(reference) },
+            PromptPart::Text { text: Some("and $typed".into()), attachment_ref: None },
+        ]);
+        assert_eq!(names(&prompt, &["secret", "typed"]), ["typed"]);
+    }
+
+    #[cfg(node_twin)]
     fn prompt_of(value: &Value) -> Prompt {
         let part = |v: &Value| match v {
             Value::String(s) => PromptPart::Str(s.clone()),
@@ -334,6 +423,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn selection_is_what_node_computes() {
         let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("tests/golden/skillselect.json")).unwrap();
@@ -359,3 +449,5 @@ mod tests {
         }
     }
 }
+
+

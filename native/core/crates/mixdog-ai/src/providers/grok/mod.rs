@@ -14,6 +14,8 @@ mod tool_schema;
 #[cfg(test)]
 mod fixture_manifest;
 #[cfg(test)]
+mod flatten_rules_tests;
+#[cfg(test)]
 mod listing_tests;
 #[cfg(test)]
 mod version_gate_tests;
@@ -108,20 +110,6 @@ pub fn sdk_headers_for(platform: &str, arch: &str, runtime_version: &str) -> Vec
     .map(|(name, value)| (name.to_owned(), value))
     .collect()
 }
-
-/// The headers for this host, spelled with the names Node's `process` has for it.
-pub(crate) fn sdk_headers() -> Vec<(String, String)> {
-    let platform = match std::env::consts::OS {
-        "windows" => "win32",
-        "macos" => "darwin",
-        other => other,
-    };
-    let arch = match std::env::consts::ARCH {
-        "x86" => "ia32",
-        other => other,
-    };
-    sdk_headers_for(platform, arch, SDK_RUNTIME_VERSION)
-}
 /// `randomUUID()` of `proxyHeaders`: minted once per send (its `SendIdentity`), every attempt carries it.
 fn request_id() -> String {
     #[cfg(any(test, feature = "test-support"))]
@@ -150,6 +138,44 @@ pub(crate) fn reset_process_state() {
     auth::reset_discovered();
 }
 
+/// The xAI Responses codec aimed at the Grok CLI proxy.
+pub fn codec(client_version: &str) -> Arc<dyn WireCodec> {
+    codec_with(client_version, false)
+}
+
+/// [`codec`], with the server-hosted tool search the provider's config opted into (`xaiServerToolSearch`).
+pub fn codec_with(client_version: &str, server_tool_search: bool) -> Arc<dyn WireCodec> {
+    let profile = CompatProfile::xai();
+    let config = CompatConfig {
+        server_tool_search,
+        base_url: Some(PROXY_BASE_URL.to_owned()),
+        client_version: client_version.to_owned(),
+        environment: Some(EnvSource(Arc::new(ProcessEnv))),
+        ..CompatConfig::for_profile(&profile)
+    };
+    Arc::new(CompatResponsesCodec::new(profile, config, TransportKind::Http1))
+}
+
+/// `send`'s version gate (`grok-oauth.mjs:451-465`): a 426 whose body states a minimum above the version in use teaches
+/// it, and the same request goes out once more at once at that version.
+fn version_gate(versions: Arc<crate::client_versions::ClientVersions>) -> crate::providers::connect::rewrite::Resend {
+    Arc::new(move |error| error.status == Some(426) && versions.learn_grok_required(&error.message))
+}
+
+
+/// The headers for this host, spelled with the names Node's `process` has for it.
+pub(crate) fn sdk_headers() -> Vec<(String, String)> {
+    let platform = match std::env::consts::OS {
+        "windows" => "win32",
+        "macos" => "darwin",
+        other => other,
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86" => "ia32",
+        other => other,
+    };
+    sdk_headers_for(platform, arch, SDK_RUNTIME_VERSION)
+}
 /// Points the xAI request at the proxy and adds the CLI identity headers.
 pub struct GrokRewriter {
     pub client_version: crate::client_versions::Live,
@@ -160,7 +186,6 @@ pub struct GrokRewriter {
     /// Which models take a reasoning effort when no roster row says (_grokModelSupportsEffort).
     pub effort_rule: Arc<dyn self::listing::XaiEffortRule>,
 }
-
 impl Rewriter for GrokRewriter {
     fn rewrite(&self, mut wire: WireRequest, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         let opts = &request.options;
@@ -208,25 +233,6 @@ impl Rewriter for GrokRewriter {
         Ok(wire)
     }
 }
-
-/// The xAI Responses codec aimed at the Grok CLI proxy.
-pub fn codec(client_version: &str) -> Arc<dyn WireCodec> {
-    codec_with(client_version, false)
-}
-
-/// [`codec`], with the server-hosted tool search the provider's config opted into (`xaiServerToolSearch`).
-pub fn codec_with(client_version: &str, server_tool_search: bool) -> Arc<dyn WireCodec> {
-    let profile = CompatProfile::xai();
-    let config = CompatConfig {
-        server_tool_search,
-        base_url: Some(PROXY_BASE_URL.to_owned()),
-        client_version: client_version.to_owned(),
-        environment: Some(EnvSource(Arc::new(ProcessEnv))),
-        ..CompatConfig::for_profile(&profile)
-    };
-    Arc::new(CompatResponsesCodec::new(profile, config, TransportKind::Http1))
-}
-
 /// The Grok adapter around the xAI Responses codec.
 pub fn adapter(
     http: Arc<dyn HttpSend>,
@@ -268,10 +274,4 @@ pub fn adapter(
         Some(versions) => adapter.with_resend(version_gate(versions)),
         None => adapter,
     }
-}
-
-/// `send`'s version gate (`grok-oauth.mjs:451-465`): a 426 whose body states a minimum above the version in use teaches
-/// it, and the same request goes out once more at once at that version.
-fn version_gate(versions: Arc<crate::client_versions::ClientVersions>) -> crate::providers::connect::rewrite::Resend {
-    Arc::new(move |error| error.status == Some(426) && versions.learn_grok_required(&error.message))
 }

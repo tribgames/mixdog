@@ -2,7 +2,9 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncEx
 import { createPortal } from 'react-dom';
 
 import { createBootSurfaceBarrier, desktopBootCoverTimeoutAllowed, markBootStage } from './boot-metrics';
-import { DesktopLoadingSurface } from './RendererRecovery';
+import { useBootFailure, useBootProgress } from './boot-progress';
+import { useLocalCoreLink } from './local-core-link';
+import { DesktopBootFailure, DesktopLoadingSurface } from './RendererRecovery';
 import { t } from './i18n';
 import { RemoteConnectionBanner } from './RemoteConnectionBanner';
 import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
@@ -239,7 +241,13 @@ export function DesktopBootGate({
     currentRemoteConnectionState,
     () => null
   );
-  const connectionReady = !remote || connectionState === 'connected';
+  // The cover's end belongs to the window's own link to its core: a window with a local core link (the desktop app's) is not handed off,
+  // by readiness, the time limit or anything else, until that link is open. What the core reports while it starts (a rebuild's counts, a
+  // failure) only decides what the cover draws.
+  const coreLink = useLocalCoreLink();
+  const bootProgress = useBootProgress();
+  const bootFailure = useBootFailure();
+  const connectionReady = remote ? connectionState === 'connected' : coreLink !== 'opening';
   const barrierRef = useRef<ReturnType<typeof createBootSurfaceBarrier> | null>(null);
   barrierRef.current ||= createBootSurfaceBarrier();
   const barrier = barrierRef.current;
@@ -269,11 +277,11 @@ export function DesktopBootGate({
     if (revealRequested && !revealed) setRevealed(true);
   }, [revealRequested, revealed]);
   useEffect(() => {
-    if (remote || !enabled || !windowShown || revealed || !desktopBootCoverTimeoutAllowed(restorePending))
+    if (remote || !enabled || !windowShown || revealed || coreLink === 'opening' || !desktopBootCoverTimeoutAllowed(restorePending))
       return undefined;
     const timer = window.setTimeout(() => setTimedOut(true), DESKTOP_BOOT_COVER_MAX_MS);
     return () => window.clearTimeout(timer);
-  }, [remote, enabled, restorePending, revealed, windowShown]);
+  }, [remote, enabled, restorePending, revealed, windowShown, coreLink]);
   useEffect(() => {
     if (timedOut) {
       markBootStage('desktop-boot-timeout', surfaces.pendingKeys.join(','));
@@ -348,7 +356,11 @@ export function DesktopBootGate({
       </div>
       {!handoffComplete && (
         <div className="desktop-boot-cover" data-leaving={coverLeaving ? 'true' : undefined}>
-          <DesktopLoadingSurface label={label} brand />
+          {bootFailure && coreLink === 'opening' ? (
+            <DesktopBootFailure failure={bootFailure} />
+          ) : (
+            <DesktopLoadingSurface label={label} brand progress={bootProgress} />
+          )}
           {remote && <RemoteConnectionBanner boot />}
         </div>
       )}

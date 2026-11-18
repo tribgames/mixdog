@@ -5,6 +5,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
+#[cfg(any(windows, unix))]
 use tokio::process::Child;
 
 pub struct Containment {
@@ -27,7 +28,20 @@ impl Containment {
         if FAIL_NEXT_ATTACH.with(std::cell::Cell::take) {
             return Err(std::io::Error::other("attach failed (injected by the test)"));
         }
-        Ok(Self { exited: AtomicBool::new(false), os: os::attach(child)? })
+        #[cfg(windows)]
+        let process = child.raw_handle();
+        #[cfg(unix)]
+        let process = child.id();
+        Ok(Self { exited: AtomicBool::new(false), os: os::attach(process)? })
+    }
+
+    /// [`Self::attach`] for a `std` child (created suspended on Windows, leading its own group on Unix).
+    pub fn attach_std(child: &std::process::Child) -> std::io::Result<Self> {
+        #[cfg(windows)]
+        let process = Some(std::os::windows::io::AsRawHandle::as_raw_handle(child));
+        #[cfg(unix)]
+        let process = Some(child.id());
+        Ok(Self { exited: AtomicBool::new(false), os: os::attach(process)? })
     }
 
     /// Kills the child and everything in its job or group. A no-op once the exit was observed:
@@ -54,7 +68,6 @@ impl Drop for Containment {
 mod os {
     use std::ffi::c_void;
 
-    use tokio::process::Child;
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
@@ -74,8 +87,8 @@ mod os {
     /// The job handle as an integer so the owner is `Send + Sync`.
     pub(super) struct Handle(usize);
 
-    pub(super) fn attach(child: &Child) -> std::io::Result<Handle> {
-        let process = child.raw_handle().ok_or_else(|| std::io::Error::other("child already exited"))?;
+    pub(super) fn attach(process: Option<*mut c_void>) -> std::io::Result<Handle> {
+        let process = process.ok_or_else(|| std::io::Error::other("child already exited"))?;
         // SAFETY: plain Win32 calls on a job created here and on the live child's handle.
         unsafe {
             let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
@@ -123,15 +136,11 @@ mod os {
 
 #[cfg(unix)]
 mod os {
-    use tokio::process::Child;
-
     /// The child's process-group id (the child leads its own group).
     pub(super) struct Handle(i32);
 
-    pub(super) fn attach(child: &Child) -> std::io::Result<Handle> {
-        child
-            .id()
-            .and_then(|pid| i32::try_from(pid).ok())
+    pub(super) fn attach(pid: Option<u32>) -> std::io::Result<Handle> {
+        pid.and_then(|pid| i32::try_from(pid).ok())
             .map(Handle)
             .ok_or_else(|| std::io::Error::other("child already exited"))
     }

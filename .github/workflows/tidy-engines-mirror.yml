@@ -14,7 +14,19 @@ env:
   MANIFEST: native/core/crates/mixdog-services/data/tidy-engines-manifest.json
 
 jobs:
+  # The mirror publishes GitHub release assets, so it is reachable only through the full-release gate for the one commit this
+  # dispatch resolved (github.sha, read once and used by every job below). scripts/ci/coverage/wiring.mjs checks the edge.
+  coverage-gate:
+    uses: ./.github/workflows/release-gate.yml
+    permissions:
+      contents: read
+      actions: read
+    with:
+      ref: ${{ github.sha }}
+      gate: mirror
+
   mirror:
+    needs: coverage-gate
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     permissions:
@@ -22,6 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Download, verify, and publish non-GPL engine assets

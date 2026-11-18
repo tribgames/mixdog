@@ -30,9 +30,13 @@ const handlers = {
 // The submit is interrupted the way a lost reply is: the call fails with the connection-interrupted code.
 const lostReply = () => Object.assign(new Error('interrupted'), { code: 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED' });
 
-test('an old host (no remoteParity) keeps the pre-round behavior', async () => {
-  let submits = 0;
-  await withPhoneApi({ ...handlers, submitToSession: () => Promise.reject((submits += 1, lostReply())) }, async ({ ctx, api, calls }) => {
+test('an old host (no remoteParity) keeps the inert members, and still sends with a stable id and replay', async () => {
+  const submitted = [];
+  const lostOnce = (params) => {
+    submitted.push(params);
+    return submitted.length === 1 ? Promise.reject(lostReply()) : true;
+  };
+  await withPhoneApi({ ...handlers, submitToSession: lostOnce }, async ({ ctx, api, calls }) => {
     ctx.updaterListeners = new Set();
     ctx.peerRemoteParity = false;
     // Node remote-shim-api.ts:546-567 -- the gated members read as absent unless `parity()` (:97, ctx.peerRemoteParity === true).
@@ -49,12 +53,14 @@ test('an old host (no remoteParity) keeps the pre-round behavior', async () => {
     // :415-418 -- without parity the trash refusal (remote-browser-fallbacks.ts:23) and the page release are local fallbacks.
     await assert.rejects(api.trashProjectEntry('/p', 'a.txt'), { message: OLD_TRASH });
     await api.browserReleasePage('page');
-    // :444-446 -- without parity submitToSession is a plain call: no stable id, a lost reply is not replayed.
-    await assert.rejects(api.submitToSession('s1', 'hello', {}), { code: 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED' });
+    // Without parity the send still carries a stable id and a lost reply is replayed with it: the id does not wait on flags that are
+    // about unrelated calls, and the core dedupes a start by it, so the replay cannot double-submit.
+    assert.equal(await api.submitToSession('s1', 'hello', {}), true);
     await settle();
-    // Nothing else (no unknown-method probe, no retry) reached the adapter: the one submit.
-    assert.deepEqual(calls.map((call) => call.method), ['submitToSession']);
-    assert.equal(submits, 1);
+    assert.deepEqual(calls.map((call) => call.method), ['submitToSession', 'submitToSession']);
+    assert.equal(submitted.length, 2);
+    assert.ok(submitted[0][2].id, 'the first send names its submission');
+    assert.equal(submitted[1][2].id, submitted[0][2].id, 'the replay is the same submission');
   });
 });
 

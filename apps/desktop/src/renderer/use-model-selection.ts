@@ -1,97 +1,66 @@
 import { useEffect, useRef, useState } from 'react';
-import type { DesktopModelSelection, SessionSnapshot } from '../shared/contract';
+import type { DesktopModelSelection, DesktopStreamPosition } from '../shared/contract';
 import { mergeRoutePreference } from './app-route-preference';
+import { defaultSessionLaneStore, useSessionLaneStreamPosition } from './session-lane-store';
+
+type SessionLaneStoreApi = typeof defaultSessionLaneStore;
 
 type PendingSelection = {
   token: number;
   sessionId: string;
   selection: DesktopModelSelection;
-  settled: boolean;
+  /** Set once the call answered: the stream position that ends the preview. */
+  mark: DesktopStreamPosition | null;
 };
 
-function sameSelection(left: DesktopModelSelection, right: DesktopModelSelection): boolean {
-  if (
-    left.provider !== right.provider ||
-    left.model !== right.model ||
-    (left.effort || '') !== (right.effort || '') ||
-    Boolean(left.fast) !== Boolean(right.fast) ||
-    (left.autoEffort !== false) !== (right.autoEffort !== false) ||
-    left.contextPercent !== right.contextPercent ||
-    left.contextTokens !== right.contextTokens
-  )
-    return false;
-  const before = left.modelParameters || {};
-  const after = right.modelParameters || {};
-  const keys = Object.keys(before);
-  return keys.length === Object.keys(after).length && keys.every((key) => before[key] === after[key]);
+/** What a call that just answered waits for on the session's stream: the position its connection has received on the feed,
+ *  measured as the lane measures what it shows (the protocol client's positions: nothing of the lane's own history is read, so
+ *  a publication between the answer and this read cannot make it unreachable). Null without a followed session. */
+export async function streamMarkAfterCall(sessionId: string | undefined): Promise<DesktopStreamPosition | null> {
+  if (!sessionId) return null;
+  return window.mixdogDesktop.sessionStreamPosition(sessionId);
 }
 
-function acknowledgedSelection(
-  requested: DesktopModelSelection,
-  snapshot: NonNullable<SessionSnapshot>
-): DesktopModelSelection {
-  const value = snapshot as Record<string, unknown>;
-  const effort = typeof value.effort === 'string' ? value.effort : '';
-  const contextPercent = typeof value.contextPercent === 'number' ? value.contextPercent : undefined;
-  // A snapshot that reports contextPercent is the whole context answer: an
-  // exact window it does not carry is no longer in force.
-  const { contextTokens: requestedTokens, ...requestedRest } = requested;
-  const contextTokens = typeof value.contextTokens === 'number' ? value.contextTokens : undefined;
-  const keptTokens = Object.hasOwn(value, 'contextPercent') ? contextTokens : requestedTokens;
-  return {
-    ...requestedRest,
-    ...(keptTokens ? { contextTokens: keptTokens } : {}),
-    ...(typeof value.provider === 'string' ? { provider: value.provider } : {}),
-    ...(typeof value.model === 'string' ? { model: value.model } : {}),
-    ...(Object.hasOwn(value, 'effort') ? { effort } : {}),
-    ...(typeof value.fast === 'boolean' ? { fast: value.fast } : {}),
-    ...(typeof value.autoEffort === 'boolean' ? { autoEffort: value.autoEffort } : {}),
-    ...(Object.hasOwn(value, 'contextPercent') ? { contextPercent } : {}),
-    ...(value.modelParameters && typeof value.modelParameters === 'object'
-      ? { modelParameters: value.modelParameters as Record<string, string> }
-      : {}),
-  };
-}
-
-// A mutation owns its preview through BOTH the reply and the React snapshot
-// handoff. Streaming old props are not a rejection; only a failed mutation is.
-// Only the request locks controls. Snapshot handoff can lag or never match
-// the reply during a turn, and must not prevent another selection.
-export function useModelSelection(sessionId: string, authoritative: DesktopModelSelection) {
+// The shown value has one owner: the session's ordered stream (`authoritative`). A pick is a preview over it, never a value of
+// its own: it lasts while its call runs and, once the call has answered, until the stream has shown the state that call's
+// mutation produced (`mark`, the feed position its connection had received when the answer came: the core writes a mutation's
+// feed frames before its response on the same connection). From then on only the stream's value shows, whatever another device
+// changed meanwhile. A failed call ends its preview at once. The reply's own state is never read.
+export function useModelSelection(
+  sessionId: string,
+  authoritative: DesktopModelSelection,
+  store: SessionLaneStoreApi = defaultSessionLaneStore
+) {
   const [pending, setPending] = useState<PendingSelection | null>(null);
   const sequence = useRef(0);
+  // Heard only while an answered pick waits for its mark.
+  const position = useSessionLaneStreamPosition(pending?.mark ? sessionId : '', store);
   const active = pending?.sessionId === sessionId ? pending : null;
   const selection = active?.selection || authoritative;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: position is the trigger: a publication that moves it may reach the mark.
   useEffect(() => {
-    if (
-      pending &&
-      (pending.sessionId !== sessionId || (pending.settled && sameSelection(authoritative, pending.selection)))
-    ) {
+    if (pending && (pending.sessionId !== sessionId || (pending.mark && store.streamReached(sessionId, pending.mark)))) {
       setPending(null);
     }
-  }, [authoritative, pending, sessionId]);
+  }, [pending, position, sessionId, store]);
   return {
     selection,
-    pending: active !== null && !active.settled,
+    pending: active !== null && !active.mark,
     begin(next: DesktopModelSelection) {
       const token = ++sequence.current;
       setPending({
         token,
         sessionId,
         selection: mergeRoutePreference(selection, next),
-        settled: false,
+        mark: null,
       });
       return token;
     },
-    settle(token: number, snapshot?: SessionSnapshot | null) {
+    /** The call answered (`mark`: what the stream must reach), or failed or had no stream to wait for (null). */
+    settle(token: number, mark: DesktopStreamPosition | null) {
       setPending((current) => {
         if (!current || current.token !== token || current.sessionId !== sessionId) return current;
-        if (!snapshot) return null;
-        return {
-          ...current,
-          selection: acknowledgedSelection(current.selection, snapshot),
-          settled: true,
-        };
+        return mark ? { ...current, mark } : null;
       });
     },
   };

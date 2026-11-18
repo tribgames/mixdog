@@ -7,6 +7,7 @@
 //! that names no scope is the default one.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,6 +17,7 @@ use arc_swap::ArcSwap;
 use arc_swap::ArcSwapOption;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_js::js_trim;
+use mixdog_rt::CancellationToken;
 use mixdog_rt::TaskClass;
 use serde_json::Value;
 
@@ -75,7 +77,7 @@ struct ScopeLife {
 
 /// Closes servers a scope gave up ([`McpHub::retire_scope`]).
 pub async fn close_retired(servers: Vec<Arc<McpServer>>) {
-    futures::future::join_all(servers.iter().map(|server| server.close())).await;
+    futures::future::join_all(servers.iter().map(|server| server.close_because("its scope was released"))).await;
 }
 
 /// The servers of every scope, each scope's in insertion order (Node's `servers` registry,
@@ -83,6 +85,13 @@ pub async fn close_retired(servers: Vec<Arc<McpServer>>) {
 type Registry = HashMap<String, Vec<Arc<McpServer>>>;
 /// A server's name inside a scope.
 type ScopedName = (String, String);
+
+#[derive(Default)]
+pub(crate) struct ApplyWork {
+    pub(crate) closing: Vec<tokio::task::JoinHandle<()>>,
+    pub(crate) starting: Vec<CancellationToken>,
+    pub(crate) previous: Vec<Arc<McpServer>>,
+}
 
 /// `sharedStdioKey` (mcp/client.mjs:123-132): a stdio server's connection is shared by the scopes that connect the same
 /// server with the same configuration, unless the roots it advertises follow its scope; a remote one stays its scope's.
@@ -325,7 +334,7 @@ impl McpHub {
     /// [`apply`](Self::apply) for the servers of `scope` (`connectMcpServers(config, { scopeId })`):
     /// the other scopes' servers are untouched.
     pub fn apply_in(self: &Arc<Self>, scope: &str, configs: Vec<McpServerConfig>) {
-        self.apply_retrying(scope, configs, &|_| true);
+        drop(self.apply_retrying(scope, configs, &|_| true, &[]));
     }
 
     fn make_server(&self, config: &McpServerConfig, env: Option<&OAuthEnv>, oauths: &mut HashMap<String, Arc<McpOAuth>>) -> Arc<McpServer> {
@@ -362,9 +371,11 @@ impl McpHub {
 
     /// [`apply_in`](Self::apply_in) that connects again only the failed servers `retry` names; the
     /// other failed ones stay as they are (a one-server toggle touches only its own server).
-    fn apply_retrying(self: &Arc<Self>, scope: &str, configs: Vec<McpServerConfig>, retry: &dyn Fn(&str) -> bool) {
+    fn apply_retrying(
+        self: &Arc<Self>, scope: &str, configs: Vec<McpServerConfig>, retry: &dyn Fn(&str) -> bool,
+        previous: &[Arc<McpServer>],
+    ) -> ApplyWork {
         let scope = normalize_scope(Some(scope));
-        let current = self.in_scope(&scope);
         let mut kept: Vec<String> = Vec::new();
         // The servers the scope takes on, in configuration order, and those of them it connects (the others it adopted),
         // each with whether it is a dead shared connection connected again in place.
@@ -375,6 +386,7 @@ impl McpHub {
         // Held until the registry holds the outcome: no other scope adopts a connection this one gives up meanwhile, nor
         // gives up one this one adopts.
         let mut shared = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+        let current = self.in_scope(&scope);
         let mut next_oauth: HashMap<String, Arc<McpOAuth>> = HashMap::new();
         for config in configs.into_iter().filter(|c| c.enabled) {
             match current.iter().find(|s| s.name() == config.name) {
@@ -422,6 +434,14 @@ impl McpHub {
                         continue;
                     }
                     let server = self.make_server(&config, env.as_deref(), &mut next_oauth);
+                    if let Some(old) = current.iter().chain(previous).find(|old| old.name() == server.name()) {
+                        let mut predecessors = old.predecessors.get().cloned().unwrap_or_default();
+                        predecessors.retain(|stopped| !stopped.is_cancelled());
+                        // The old instance may still belong to another scope. Only its final holder
+                        // can retire it; a replacement cannot take its resources in the meantime.
+                        predecessors.push(old.stopped());
+                        let _ = server.predecessors.set(predecessors);
+                    }
                     // A server that follows its scope starts with the scope's root as it is now.
                     let root = self.scope_roots.lock().unwrap_or_else(|e| e.into_inner()).get(&scope).cloned();
                     server.set_scope_root(root.as_deref().unwrap_or_default());
@@ -462,12 +482,26 @@ impl McpHub {
             registry
         });
         let closing = unheld(&mut shared, &self.servers.load(), &scope, retired);
-        drop(shared);
-        for server in closing {
-            mixdog_rt::spawn("mcp.hub.close", TaskClass::Work, async move { server.close().await });
-        }
+        let closing = closing.into_iter().map(|server| {
+            let replacement = next.iter().any(|kept| kept.name() == server.name());
+            let why = if replacement {
+                "replaced by a new server (config changed or failed server retried)"
+            } else {
+                "removed from the scope's configuration"
+            };
+            mixdog_rt::spawn("mcp.hub.close", TaskClass::Work, async move { server.close_because(why).await })
+        }).collect();
         for (server, dead) in started {
+            let mut scheduled = server.scheduled_start.lock().unwrap_or_else(|e| e.into_inner());
+            if scheduled.as_ref().is_some_and(|done| !done.is_cancelled()) {
+                continue;
+            }
+            let done = CancellationToken::new();
+            *scheduled = Some(done.clone());
+            drop(scheduled);
+            let complete = done.drop_guard();
             mixdog_rt::spawn("mcp.hub.connect", TaskClass::Work, async move {
+                let _complete = complete;
                 // A dead shared connection takes the shared reconnect, which connects it once whichever scopes asked.
                 let connected = if dead { server.reconnect_after(None).await } else { server.connect().await.map_err(|error| error.to_string()) };
                 // The lines Node's `connectServer` writes to the log (`[mcp-client] Failed to connect`, `[mcp] connected`).
@@ -481,6 +515,23 @@ impl McpHub {
                 }
             });
         }
+        // An adopted (or retained) instance can already have a startup scheduled by another apply.
+        // Only that explicit completion is waitable; a dead connection alone promises no retry.
+        let starting = Self::pending_starts_of(&next);
+        drop(shared);
+        ApplyWork { closing, starting, previous: current }
+    }
+
+    fn pending_starts_of(servers: &[Arc<McpServer>]) -> Vec<CancellationToken> {
+        servers.iter().flat_map(|server| std::iter::once(server.clone()).chain(server.account_servers())).filter_map(|server| {
+            server.scheduled_start.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+                .filter(|done| !done.is_cancelled()).cloned()
+        }).collect()
+    }
+
+    pub(crate) fn pending_starts(&self, scope: &str) -> Vec<CancellationToken> {
+        let _shared = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+        Self::pending_starts_of(&self.in_scope(scope))
     }
 
     pub fn server(&self, name: &str) -> Option<Arc<McpServer>> {
@@ -504,6 +555,29 @@ impl McpHub {
             let entry = server.catalog()?.entries.iter().find(|entry| entry.qualified == qualified)?.clone();
             Some((server.name().to_owned(), entry.tool.clone()))
         })
+    }
+
+    /// Whether the server `owner` (its configured name, as recorded with the stored definition when it was published) has
+    /// withdrawn `qualified`: a server of that name (a plugin's included) has published a catalog, in no scope that lists it. The
+    /// hub keeps no owners of its own: the identity travels with the durable definition, so it survives a restart, and a
+    /// definition with no recorded owner is never judged here. A server that is down, not yet connected or has published no
+    /// catalog withdraws nothing.
+    pub fn withdrawn(&self, qualified: &str, owner: &str) -> bool {
+        self.published().withdrawn(qualified, owner)
+    }
+
+    /// One reading of what every server (in any scope) has published now: each catalog is read once, so every judgement made
+    /// from the result is made against the same state, whatever a server publishes meanwhile.
+    pub fn published(&self) -> Published {
+        Published(
+            self.servers
+                .load()
+                .values()
+                .flatten()
+                .filter_map(|server| Some((server.name().to_owned(), server.catalog()?.entries.iter().map(|entry| entry.qualified.clone()).collect())))
+                .collect(),
+            self.account_names(),
+        )
     }
 
     /// The default scope's servers in insertion order.
@@ -543,6 +617,57 @@ impl McpHub {
     /// (`filterMcpToolsForCwd`): the server's own scope and the scope of the plugin that declared it.
     pub fn tools_for_cwd(&self, scope: &str, scopes: &ExtensionScopes, cwd: &Path) -> Vec<Arc<dyn Tool>> {
         self.ready_tools(scope, |server| scopes.mcp_server_allowed_for_cwd(server.name(), server.config().plugin_id.as_deref(), cwd))
+    }
+
+    /// [`tools_for_cwd`](Self::tools_for_cwd) and [`published`](Self::published) from one reading: every server's catalog is read
+    /// once, and the tools of `scope` and what each server (in any scope) published are both made of that one read. A request
+    /// boundary built from this judges its definitions and its withdrawals against the same state.
+    pub fn read_for_cwd(&self, scope: &str, scopes: &ExtensionScopes, cwd: &Path) -> (Vec<Arc<dyn Tool>>, Published) {
+        let scope = normalize_scope(Some(scope));
+        let (mut tools, mut published): (Vec<Arc<dyn Tool>>, Vec<(String, Vec<String>)>) = (Vec::new(), Vec::new());
+        for (key, servers) in self.servers.load().iter() {
+            for server in servers {
+                let Some(catalog) = server.catalog() else { continue };
+                published.push((server.name().to_owned(), catalog.entries.iter().map(|entry| entry.qualified.clone()).collect()));
+                if *key == scope && scopes.mcp_server_allowed_for_cwd(server.name(), server.config().plugin_id.as_deref(), cwd) {
+                    tools.extend(catalog.entries.iter().map(|entry| Arc::new(McpTool::in_scope(Arc::clone(server), Arc::clone(entry), &scope)) as Arc<dyn Tool>));
+                }
+            }
+        }
+        (tools, Published(published, self.account_names()))
+    }
+
+    /// The names of the accounts connector servers hold that no server of the same name publishes under: an account is a private
+    /// connection inside its connector's one tool group, never a publisher of tools of its own.
+    /// Each with the prefixes its tools are named under: its own name, and the shortened form a long or unsafe name gets
+    /// (`naming::server_part`) unless a server publishes under that same part.
+    fn account_names(&self) -> Accounts {
+        let registry = self.servers.load();
+        // Every prefix a real (configured or published) server's tools can be named under, by the qualification rule itself:
+        // the name as it is, and its shortened part. A stored name such a server can own is that server's.
+        let servers = registry
+            .values()
+            .flatten()
+            .flat_map(|server| [format!("mcp__{}__", server.name()), format!("mcp__{}__", crate::naming::server_part(server.name()))])
+            .collect();
+        let names: HashSet<&str> = registry.values().flatten().map(|server| server.name()).collect();
+        let parts: HashSet<String> = names.iter().map(|name| crate::naming::server_part(name)).collect();
+        let accounts = registry
+            .values()
+            .flatten()
+            .flat_map(|server| server.account_servers())
+            .map(|account| account.name().to_owned())
+            .filter(|name| !names.contains(name.as_str()))
+            .map(|name| {
+                let mut prefixes = vec![format!("mcp__{name}__")];
+                let part = crate::naming::server_part(&name);
+                if part != name && !parts.contains(&part) {
+                    prefixes.push(format!("mcp__{part}__"));
+                }
+                (name, prefixes)
+            })
+            .collect();
+        Accounts { accounts, servers }
     }
 
     /// The tools of the servers [`McpServer::catalog`] lists: the ready ones, and those whose connection ended by itself
@@ -615,21 +740,37 @@ impl McpHub {
     /// operation (`connectServer`'s `genAtStart`, `mcp/client.mjs:199,405,447`). Of the failed
     /// servers, those `retry` names connect again. Whether it applied.
     pub fn apply_at(
+        self: &Arc<Self>, scope: &str, generation: u64, configs: Vec<McpServerConfig>, retry: &dyn Fn(&str) -> bool,
+    ) -> bool {
+        self.apply_at_tracked(scope, generation, configs, retry).is_some()
+    }
+
+    /// As [`apply_at`](Self::apply_at), with startup and final-holder teardown completions.
+    /// The scheduled work continues even if the caller stops waiting.
+    pub(crate) fn apply_at_tracked(
         self: &Arc<Self>,
         scope: &str,
         generation: u64,
         configs: Vec<McpServerConfig>,
         retry: &dyn Fn(&str) -> bool,
-    ) -> bool {
+    ) -> Option<ApplyWork> {
+        self.apply_after_at(scope, generation, configs, retry, &[])
+    }
+
+    /// Applies the second half of a reset, retaining predecessors from before its empty registry publication.
+    pub(crate) fn apply_after_at(
+        self: &Arc<Self>, scope: &str, generation: u64, configs: Vec<McpServerConfig>, retry: &dyn Fn(&str) -> bool,
+        previous: &[Arc<McpServer>],
+    ) -> Option<ApplyWork> {
         let key = normalize_scope(Some(scope));
         let lives = self.lives.lock().unwrap_or_else(|e| e.into_inner());
         let (released, current) = lives.get(&key).map_or((false, 0), |life| (life.released, life.generation));
         if released || current != generation {
-            return false;
+            return None;
         }
-        self.apply_retrying(&key, configs, retry);
+        let work = self.apply_retrying(&key, configs, retry, previous);
         drop(lives);
-        true
+        Some(work)
     }
 
     /// The first half of `disconnectAll({ scopeId })` (`mcp/client.mjs:1182-1230`), synchronous: the
@@ -693,6 +834,155 @@ impl McpHub {
                 closing.push(server);
             }
         }
-        futures::future::join_all(closing.into_iter().map(|server| server.close())).await;
+        futures::future::join_all(closing.into_iter().map(|server| server.close_because("shutdown (every scope closed)"))).await;
+    }
+}
+
+/// What the servers had published at one reading of the hub ([`McpHub::published`]): each server's configured name and its
+/// catalog's qualified names; a server with no catalog (down, connecting) is not in it.
+#[derive(Clone, Debug, Default)]
+pub struct Published(Vec<(String, Vec<String>)>, Accounts);
+
+/// The connector accounts no server publishes under, each with its tool-name prefixes, and the prefixes real servers own.
+#[derive(Clone, Debug, Default)]
+pub struct Accounts {
+    accounts: Vec<(String, Vec<String>)>,
+    servers: Vec<String>,
+}
+
+impl Accounts {
+    /// The ownership decision: a stored name a real server can own is that server's and never an account's; only a name no real
+    /// server can own and an account can is. A recorded publisher is the owner outright, matched against the accounts whole.
+    fn owns(&self, qualified: &str, publisher: Option<&str>) -> bool {
+        match publisher {
+            Some(owner) => self.accounts.iter().any(|(account, _)| account == owner),
+            None => {
+                !self.servers.iter().any(|prefix| qualified.starts_with(prefix.as_str()))
+                    && self.accounts.iter().any(|(_, prefixes)| prefixes.iter().any(|prefix| qualified.starts_with(prefix.as_str())))
+            }
+        }
+    }
+}
+
+impl Published {
+    /// Whether the stored definition `qualified` belongs to an account of a connector rather than to a server
+    /// (`mcp__gmail-2__search_emails` of the account `gmail-2` of the one `gmail` connector): no server publishes it, so it can
+    /// never be listed again. With a recorded `publisher` the account is that name, matched whole; with none the hub's own
+    /// account names and the prefixes they are named under are matched, never an owner read off an arbitrary name.
+    pub fn is_account_tool(&self, qualified: &str, publisher: Option<&str>) -> bool {
+        self.1.owns(qualified, publisher)
+    }
+
+    /// [`McpHub::withdrawn`] against this reading.
+    pub fn withdrawn(&self, qualified: &str, owner: &str) -> bool {
+        withdrawn_by(owner, &self.0, qualified)
+    }
+}
+
+/// [`McpHub::withdrawn`] by the recorded `owner` of `qualified`: what each server (a plugin's included, in any scope) has
+/// published now, as its configured name and its catalog's qualified names; a server with no catalog (down, connecting) is not
+/// in `published`. The name is withdrawn when a server of that owner's name has published a catalog (in any scope) and none of
+/// those lists it. The owner is never derived from the shape of the name.
+fn withdrawn_by(owner: &str, published: &[(String, Vec<String>)], qualified: &str) -> bool {
+    let mut of_owner = published.iter().filter(|(server, _)| server == owner).peekable();
+    of_owner.peek().is_some() && of_owner.all(|(_, entries)| !entries.iter().any(|entry| entry == qualified))
+}
+
+#[cfg(test)]
+mod withdrawn_tests {
+    use super::withdrawn_by;
+
+    fn published(servers: &[(&str, &[&str])]) -> Vec<(String, Vec<String>)> {
+        servers.iter().map(|(name, entries)| ((*name).to_owned(), entries.iter().map(|entry| (*entry).to_owned()).collect())).collect()
+    }
+
+    /// A server dropping (it publishes no catalog while down) and returning (its catalog lists the tool again) withdraws
+    /// nothing: the definition and the selection are kept through both.
+    #[test]
+    fn a_server_dropping_and_returning_withdraws_nothing() {
+        let tool = "mcp__fs__read_file";
+        let up = published(&[("fs", &[tool, "mcp__fs__write_file"])]);
+        assert!(!withdrawn_by("fs", &up, tool));
+        assert!(!withdrawn_by("fs", &[], tool), "no published catalog: unknown inventory, not withdrawal");
+        assert!(!withdrawn_by("fs", &up, tool), "and back again");
+    }
+
+    /// Ownership is the identity recorded at publication, never the name's shape: `mcp__fs__b__read` was published by server
+    /// `fs__b`, which has not published since a restart, while server `fs` publishes another tool. `fs` does not own it, so
+    /// it is not withdrawn.
+    #[test]
+    fn a_name_with_a_double_underscore_is_judged_by_its_recorded_owner() {
+        let tool = "mcp__fs__b__read";
+        let only_fs = published(&[("fs", &["mcp__fs__other"])]);
+        assert!(!withdrawn_by("fs__b", &only_fs, tool), "fs__b has published nothing yet");
+        let both = published(&[("fs", &["mcp__fs__other"]), ("fs__b", &["mcp__fs__b__write"])]);
+        assert!(withdrawn_by("fs__b", &both, tool), "its own catalog no longer lists it");
+        assert!(!withdrawn_by("fs", &both, "mcp__fs__other"));
+    }
+
+    /// A server whose configured name is sanitized in the names it publishes (`my server` publishes `mcp__my-server__x`):
+    /// its empty catalog is found by the recorded configured name and withdraws what it listed before; a plugin-owned server is
+    /// the same shape. A name with no recorded owner is never judged by this function's caller.
+    #[test]
+    fn a_sanitized_server_publishing_an_empty_catalog_withdraws_what_it_listed() {
+        let empty = published(&[("my server", &[])]);
+        assert!(withdrawn_by("my server", &empty, "mcp__my-server__x"));
+        assert!(!withdrawn_by("other", &empty, "mcp__my-server__x"), "another owner's silence withdraws nothing");
+        let plugin = published(&[("plugin-notes", &["mcp__plugin-notes__search"])]);
+        assert!(withdrawn_by("plugin-notes", &plugin, "mcp__plugin-notes__delete"));
+        assert!(!withdrawn_by("plugin-notes", &plugin, "mcp__plugin-notes__search"));
+    }
+
+    /// The owner travels with the stored definition, not with the hub: after a restart the hub has seen nothing, the stored
+    /// owner `fs` is asked, `fs` publishes a catalog without the tool, and it is withdrawn. A definition stored with no owner has
+    /// none to ask and is never judged (the callers pass the stored owner or do not ask).
+    #[test]
+    fn a_stored_owner_withdraws_after_a_restart() {
+        let after_restart = published(&[("fs", &["mcp__fs__other"])]);
+        assert!(withdrawn_by("fs", &after_restart, "mcp__fs__t"));
+        assert!(!withdrawn_by("fs", &[], "mcp__fs__t"), "before fs publishes anything");
+    }
+
+    fn reading(accounts: &[&str], servers: &[&str]) -> super::Published {
+        let prefixes = |name: &str| {
+            let mut all = vec![format!("mcp__{name}__")];
+            let part = crate::naming::server_part(name);
+            if part != name {
+                all.push(format!("mcp__{part}__"));
+            }
+            all
+        };
+        super::Published(
+            Vec::new(),
+            super::Accounts {
+                accounts: accounts.iter().map(|a| ((*a).to_owned(), prefixes(a))).collect(),
+                servers: servers.iter().flat_map(|s| prefixes(s)).collect(),
+            },
+        )
+    }
+
+    /// An account `gmail-2` and a real server `gmail-2__work`: the server's stored tool starts with the account's prefix but is the
+    /// server's (plain and shortened server part, with or without a recorded publisher); the account's own tool is still retired.
+    #[test]
+    fn a_real_servers_tool_is_never_retired_as_an_account_tool() {
+        let hub = reading(&["gmail-2"], &["gmail-2__work"]);
+        assert!(!hub.is_account_tool("mcp__gmail-2__work__search", None), "plain server part");
+        assert!(!hub.is_account_tool("mcp__gmail-2__work__search", Some("gmail-2__work")), "recorded publisher is the server");
+        assert!(hub.is_account_tool("mcp__gmail-2__search", None), "the account's own tool");
+        assert!(hub.is_account_tool("mcp__gmail-2__work__search", Some("gmail-2")), "a recorded account publisher");
+        let long = "gmail-2__".to_owned() + &"w".repeat(50);
+        let short = crate::naming::server_part(&long);
+        let hub = reading(&["gmail-2"], &[&long]);
+        let shortened = format!("mcp__{short}__search_0123abcd");
+        assert!(!hub.is_account_tool(&shortened, None), "shortened server part");
+        assert!(!hub.is_account_tool(&shortened, Some(&long)), "shortened, recorded publisher");
+    }
+
+    /// The same server name in two scopes: one scope still listing the tool keeps it.
+    #[test]
+    fn a_tool_another_scope_still_lists_is_not_withdrawn() {
+        let scopes = published(&[("fs", &["mcp__fs__a"]), ("fs", &["mcp__fs__a", "mcp__fs__b"])]);
+        assert!(!withdrawn_by("fs", &scopes, "mcp__fs__b"));
+        assert!(withdrawn_by("fs", &scopes, "mcp__fs__c"));
     }
 }

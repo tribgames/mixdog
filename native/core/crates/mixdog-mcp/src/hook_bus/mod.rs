@@ -179,6 +179,7 @@ fn build_payload(event: &str, input: &ToolCall<'_>, response: Option<&Value>) ->
     Value::Object(payload)
 }
 
+
 impl HookBus {
     pub fn new(
         data_dir: PathBuf,
@@ -568,7 +569,6 @@ impl HookBus {
         Outcome { action: "deny", name: None, args: None, reason: Some(reason) }
     }
 }
-
 /// Reads a `prompt` handler: a model's verdict is JSON (`ok: false` denies) or plain text.
 async fn run_prompt(runner: &dyn PromptRunner, handler: &HookHandler, payload: &Value, event: &str, cancel: &CancellationToken) -> HandlerRun {
     let timeout = handler_timeout(&handler.raw, event);

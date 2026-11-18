@@ -98,6 +98,11 @@ pub fn groups_for_languages<'a>(groups: &'a [RuleGroup], languages: &[String]) -
     groups.iter().filter(|g| languages.is_empty() || languages.contains(&g.language) || group_aliases(&g.language).iter().any(|a| languages.iter().any(|l| l == a))).collect()
 }
 
+/// Packs that can apply to `languages`, with the same `tsx`→`typescript` alias scans use; an empty list means all.
+pub fn packs_for_languages<'a>(packs: &'a [RulePack], languages: &[String]) -> Vec<&'a RulePack> {
+    packs.iter().filter(|p| languages.is_empty() || p.languages.iter().any(|l| languages.contains(l) || group_aliases(l).iter().any(|a| languages.iter().any(|x| x == a)))).collect()
+}
+
 /// Files one structural language group should scan; never an unfiltered tree.
 pub fn files_for_structural_group(files: &[String], group: &RuleGroup, extensions: Option<&HashMap<String, String>>) -> Vec<String> {
     if group.language == "tsx" {

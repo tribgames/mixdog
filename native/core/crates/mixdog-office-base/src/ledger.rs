@@ -104,86 +104,6 @@ fn inside(parent: &Path, child: &Path) -> bool {
     child.get(parent.len()).is_none_or(|first| !first.starts_with(".."))
 }
 
-impl CallLedger {
-    /// A ledger for a call working in `cwd` (the process's working directory when empty) with `data_dir` as the Office
-    /// data folder (none when empty). The system temp folder is the scratch folder.
-    pub fn new(cwd: &Path, data_dir: &Path) -> std::io::Result<Self> {
-        Self::with_temp_dir(cwd, data_dir, &std::env::temp_dir())
-    }
-
-    /// [`CallLedger::new`] with the scratch folder named.
-    pub fn with_temp_dir(cwd: &Path, data_dir: &Path, temp_dir: &Path) -> std::io::Result<Self> {
-        let process_cwd = std::env::current_dir()?;
-        let cwd = if cwd.as_os_str().is_empty() { process_cwd.clone() } else { resolve_path(&process_cwd, cwd) };
-        let data_dir = if data_dir.as_os_str().is_empty() { None } else { Some(resolve_from_process_cwd(data_dir)?) };
-        Ok(Self {
-            cwd,
-            data_dir,
-            temp_dir: resolve_from_process_cwd(temp_dir)?,
-            notes: Mutex::new(Notes { budget: SnapshotBudget::new(PATCH_EDIT_BUDGET_BYTES), keys: HashSet::new(), entries: Vec::new() }),
-        })
-    }
-
-    /// `noteOfficeWrite`: the call is about to write `path`. The first receipt of a path captures its state before the
-    /// write; scratch paths and anything that is not a regular file are ignored.
-    pub fn note_write_in<P: ReadProof>(&self, proof: &P, path: &Path) {
-        let text = js_trim(&path.to_string_lossy()).to_owned();
-        if text.is_empty() {
-            return;
-        }
-        let full_path = resolve_path(&self.cwd, Path::new(&text));
-        let key = path_key(&full_path);
-        let mut notes = self.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if notes.keys.contains(&key) {
-            return;
-        }
-        if self.data_dir.as_deref().is_some_and(|data| inside(data, &full_path)) {
-            return;
-        }
-        if inside(&self.temp_dir, &full_path) && !inside(&self.cwd, &full_path) {
-            return;
-        }
-        // Not a regular file (or unreadable): never recorded.
-        let Ok(content) = review_file_content(proof, &full_path, Some(&mut notes.budget)) else {
-            return;
-        };
-        let stamp = file_stamp(proof, &full_path);
-        notes.keys.insert(key);
-        notes.entries.push(Noted { full_path, content: content.into(), stamp });
-    }
-
-    /// `officeWriteChanges`: every noted file the call created, changed or removed, with its bytes read from disk now.
-    pub fn changes<P: ReadProof>(&self, proof: &P) -> Vec<FileChange> {
-        let notes = self.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut changes = Vec::new();
-        for noted in &notes.entries {
-            let stamp = file_stamp(proof, &noted.full_path);
-            if noted.stamp.is_none() && stamp.is_none() {
-                continue;
-            }
-            // Uncaptured bytes compare by their stamp; captured ones byte for byte.
-            let untouched = noted.stamp.is_some() && noted.stamp == stamp;
-            if untouched && !matches!(noted.content, ChangeSide::Bytes(_)) {
-                continue;
-            }
-            let after = match stamp {
-                Some(_) => match review_file_content(proof, &noted.full_path, None) {
-                    Ok(content) => ChangeSide::from(content),
-                    Err(_) => continue,
-                },
-                None => ChangeSide::Absent,
-            };
-            if let (ChangeSide::Bytes(before), ChangeSide::Bytes(now)) = (&noted.content, &after)
-                && before == now
-            {
-                continue;
-            }
-            changes.push(FileChange { path: noted.full_path.clone(), before: noted.content.clone(), after });
-        }
-        changes
-    }
-}
-
 impl WriteNote for CallLedger {
     /// The seam of the engine's writers, which run inside a lane job of their own and carry no proof through the
     /// trait.
@@ -298,16 +218,6 @@ mod tests {
     }
 
     #[test]
-    fn a_name_that_begins_with_two_dots_is_outside_the_folder_it_is_in() {
-        let root = std::env::temp_dir().join("office-ledger-inside");
-        assert!(inside(&root, &root));
-        assert!(inside(&root, &root.join("a").join("b")));
-        assert!(!inside(&root, &root.join("..odd")));
-        assert!(!inside(&root, &std::env::temp_dir()));
-        assert!(!inside(Path::new(""), &root));
-    }
-
-    #[test]
     fn the_budget_marks_what_does_not_fit_and_an_unchanged_uncaptured_file_is_not_reported() {
         let w = world();
         let work = w.root.join("work");
@@ -324,5 +234,113 @@ mod tests {
         assert_eq!(changes[0].path, work.join("big.bin"));
         assert_eq!(changes[0].before, ChangeSide::Uncaptured { size: 6, reason: Some("budget".to_owned()) });
         assert_eq!(changes[0].after, ChangeSide::Bytes(b"1234567".to_vec()));
+    }
+
+
+    #[test]
+    fn paths_that_differ_only_in_case_are_one_file_where_the_file_system_ignores_case() {
+        let w = world();
+        let work = w.root.join("work");
+        put(&work.join("Case.docx"), b"one");
+        w.ledger.note_write(&work.join("Case.docx"));
+        put(&work.join("Case.docx"), b"two");
+        // On Windows this names the same file, whose first receipt was already taken.
+        w.ledger.note_write(&work.join("CASE.DOCX"));
+        put(&work.join("Case.docx"), b"three");
+        let changes = w.ledger.changes(&Unlaned);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].before, ChangeSide::Bytes(b"one".to_vec()));
+        assert_eq!(changes[0].after, ChangeSide::Bytes(b"three".to_vec()));
+    }
+
+    #[test]
+    fn a_name_that_begins_with_two_dots_is_outside_the_folder_it_is_in() {
+        let root = std::env::temp_dir().join("office-ledger-inside");
+        assert!(inside(&root, &root));
+        assert!(inside(&root, &root.join("a").join("b")));
+        assert!(!inside(&root, &root.join("..odd")));
+        assert!(!inside(&root, &std::env::temp_dir()));
+        assert!(!inside(Path::new(""), &root));
+    }
+}
+
+
+impl CallLedger {
+    /// A ledger for a call working in `cwd` (the process's working directory when empty) with `data_dir` as the Office
+    /// data folder (none when empty). The system temp folder is the scratch folder.
+    pub fn new(cwd: &Path, data_dir: &Path) -> std::io::Result<Self> {
+        Self::with_temp_dir(cwd, data_dir, &std::env::temp_dir())
+    }
+
+    /// [`CallLedger::new`] with the scratch folder named.
+    pub fn with_temp_dir(cwd: &Path, data_dir: &Path, temp_dir: &Path) -> std::io::Result<Self> {
+        let process_cwd = std::env::current_dir()?;
+        let cwd = if cwd.as_os_str().is_empty() { process_cwd.clone() } else { resolve_path(&process_cwd, cwd) };
+        let data_dir = if data_dir.as_os_str().is_empty() { None } else { Some(resolve_from_process_cwd(data_dir)?) };
+        Ok(Self {
+            cwd,
+            data_dir,
+            temp_dir: resolve_from_process_cwd(temp_dir)?,
+            notes: Mutex::new(Notes { budget: SnapshotBudget::new(PATCH_EDIT_BUDGET_BYTES), keys: HashSet::new(), entries: Vec::new() }),
+        })
+    }
+
+    /// `noteOfficeWrite`: the call is about to write `path`. The first receipt of a path captures its state before the
+    /// write; scratch paths and anything that is not a regular file are ignored.
+    pub fn note_write_in<P: ReadProof>(&self, proof: &P, path: &Path) {
+        let text = js_trim(&path.to_string_lossy()).to_owned();
+        if text.is_empty() {
+            return;
+        }
+        let full_path = resolve_path(&self.cwd, Path::new(&text));
+        let key = path_key(&full_path);
+        let mut notes = self.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if notes.keys.contains(&key) {
+            return;
+        }
+        if self.data_dir.as_deref().is_some_and(|data| inside(data, &full_path)) {
+            return;
+        }
+        if inside(&self.temp_dir, &full_path) && !inside(&self.cwd, &full_path) {
+            return;
+        }
+        // Not a regular file (or unreadable): never recorded.
+        let Ok(content) = review_file_content(proof, &full_path, Some(&mut notes.budget)) else {
+            return;
+        };
+        let stamp = file_stamp(proof, &full_path);
+        notes.keys.insert(key);
+        notes.entries.push(Noted { full_path, content: content.into(), stamp });
+    }
+
+    /// `officeWriteChanges`: every noted file the call created, changed or removed, with its bytes read from disk now.
+    pub fn changes<P: ReadProof>(&self, proof: &P) -> Vec<FileChange> {
+        let notes = self.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut changes = Vec::new();
+        for noted in &notes.entries {
+            let stamp = file_stamp(proof, &noted.full_path);
+            if noted.stamp.is_none() && stamp.is_none() {
+                continue;
+            }
+            // Uncaptured bytes compare by their stamp; captured ones byte for byte.
+            let untouched = noted.stamp.is_some() && noted.stamp == stamp;
+            if untouched && !matches!(noted.content, ChangeSide::Bytes(_)) {
+                continue;
+            }
+            let after = match stamp {
+                Some(_) => match review_file_content(proof, &noted.full_path, None) {
+                    Ok(content) => ChangeSide::from(content),
+                    Err(_) => continue,
+                },
+                None => ChangeSide::Absent,
+            };
+            if let (ChangeSide::Bytes(before), ChangeSide::Bytes(now)) = (&noted.content, &after)
+                && before == now
+            {
+                continue;
+            }
+            changes.push(FileChange { path: noted.full_path.clone(), before: noted.content.clone(), after });
+        }
+        changes
     }
 }

@@ -18,6 +18,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use mixdog_agent::env::Clock;
+use mixdog_agent::env::CrossTurnReceipt;
 use mixdog_agent::env::FailedCall;
 use mixdog_agent::env::ProviderSend;
 use mixdog_agent::env::RequestUsage;
@@ -237,6 +238,11 @@ impl FailureWriter {
         let due = self.trace.tool(args, self.clock.now_ms());
         #[cfg(feature = "test-support")]
         self.tell_appended("tool");
+        self.after_append(due);
+    }
+
+    fn record_receipt(self: &Arc<Self>, row: &Map<String, Value>) {
+        let due = self.trace.append(row, self.clock.now_ms());
         self.after_append(due);
     }
 
@@ -512,6 +518,25 @@ impl ToolFailureLog for RunFailureLog {
         }
         if let Value::Object(args) = args {
             self.writer.record_tool(&args);
+        }
+    }
+
+    fn cross_turn_receipt(&self, receipt: CrossTurnReceipt<'_>) {
+        let row = json!({
+            "sessionId": self.session_id,
+            "iteration": receipt.iteration,
+            "kind": "steer",
+            "payload": {
+                "tag": "cross_turn_dedup",
+                "tool": receipt.tool,
+                "occurrence": receipt.occurrence,
+                "first_iteration": receipt.first_iteration,
+                "dedup_stub_total": receipt.total,
+            },
+            "agent": self.agent,
+        });
+        if let Value::Object(row) = row {
+            self.writer.record_receipt(&row);
         }
     }
 

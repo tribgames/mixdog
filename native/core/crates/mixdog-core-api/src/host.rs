@@ -98,6 +98,17 @@ impl Lease {
 pub const NO_CLAIMANT: &str = "noClaimant";
 /// The claimant closed before it answered.
 pub const CLAIMANT_CLOSED: &str = "claimantClosed";
+/// The capability's deadline passed while the request waited for the claimant's answer.
+pub const TIMED_OUT: &str = "timedOut";
+
+/// Whether a `capabilityUnavailable{desktopHost}` detail says the request was handed to the claimant and its answer was then
+/// lost (the connection closed, or the wait timed out), so the command may have run. Every other detail ended the request
+/// before anything was sent (no claimant, a method the claimant does not serve, a claim that changed, a connection already
+/// closed at the send) or is a cancel, which the caller's token reports.
+pub fn lost_after_dispatch(detail: &str) -> bool {
+    matches!(detail, CLAIMANT_CLOSED | TIMED_OUT)
+}
+
 /// The claimant never claimed the request inside [`Lease::claim`].
 pub const NOT_CLAIMED: &str = "notClaimed";
 /// The claimant stopped vouching for a claimed request for longer than [`Lease::renew`].
@@ -178,6 +189,14 @@ pub trait HostChannel: Send + Sync {
         true
     }
 
+    /// The number of the claim a `method` request of `capability` is dispatched to now, selected exactly as [`HostChannel::request`]
+    /// selects it (new for every `host/claim`, so it changes when its claimant ends or another takes over); `None` when none takes
+    /// it, or for a channel that cannot tell.
+    fn claim_generation(&self, capability: HostCapability, method: Method) -> Option<u64> {
+        let _ = (capability, method);
+        None
+    }
+
     /// [`HostChannel::serves`] for the one `method` the caller is about to send: a claim that declared `capability` but listed
     /// other methods in its `serves` does not serve it. A channel that cannot tell answers as `serves`.
     fn serves_method(&self, capability: HostCapability, method: Method) -> bool {
@@ -207,6 +226,26 @@ pub trait HostChannel: Send + Sync {
         on_event: &mut (dyn FnMut(Value) + Send),
     ) -> Result<Value, HostError> {
         let _ = (capability, method, params, on_event);
+        Err(CoreError::CapabilityUnavailable {
+            capability: "desktopHost".into(),
+            detail: "noClaimant".into(),
+        }
+        .into())
+    }
+
+    /// [`HostChannel::request_streamed`] whose caller also speaks to the claimant while it works: each value `back` yields
+    /// (a JSON object) is sent to the claimant serving this request, and to no other, as the notification `back_method`
+    /// with the request's id as its `requestId`. A channel that carries no such exchange has no claimant for it.
+    async fn request_streamed_duplex(
+        &self,
+        capability: HostCapability,
+        method: Method,
+        params: Value,
+        on_event: &mut (dyn FnMut(Value) + Send),
+        back_method: Method,
+        back: tokio::sync::mpsc::UnboundedReceiver<Value>,
+    ) -> Result<Value, HostError> {
+        let _ = (capability, method, params, on_event, back_method, back);
         Err(CoreError::CapabilityUnavailable {
             capability: "desktopHost".into(),
             detail: "noClaimant".into(),
@@ -304,4 +343,20 @@ pub trait ApprovalSurfaces: Send + Sync {
 /// into the live-view encoder. Never waits; the receiver keeps only what its encoder can take.
 pub trait HostMediaSink: Send + Sync {
     fn frame(&self, from: ConnectionId, frame: Bytes);
+}
+
+#[cfg(test)]
+mod lost_after_dispatch_tests {
+    use super::*;
+
+    /// Only a close or a timeout after the frame was handed over says the command may have run; no claimant, an unlisted method,
+    /// a changed claim and a cancel all ended it before anything was sent.
+    #[test]
+    fn only_a_loss_after_the_hand_over_may_have_run() {
+        assert!(lost_after_dispatch(CLAIMANT_CLOSED));
+        assert!(lost_after_dispatch(TIMED_OUT));
+        for detail in [NO_CLAIMANT, "unsupportedMethod", "claimantChanged", "cancelled", NOT_CLAIMED, LEASE_LAPSED] {
+            assert!(!lost_after_dispatch(detail), "{detail}");
+        }
+    }
 }

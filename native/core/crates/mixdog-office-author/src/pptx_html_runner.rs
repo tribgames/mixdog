@@ -794,6 +794,7 @@ mod tests {
         assert_eq!(at(1000, 10), vec![0, 0, 255]);
     }
 
+
     #[test]
     fn an_image_that_covers_more_than_a_page_is_unread_and_one_page_with_no_drift_leaves_the_pages_empty() {
         let tokens = mixdog_rt::testing::tokens();

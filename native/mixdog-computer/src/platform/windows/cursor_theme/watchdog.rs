@@ -213,7 +213,7 @@ pub fn run(parent_pid: &str) -> i32 {
     // Opens the receipt the parent keeps its input in, and watches the
     // person's keys from here on, so a killed parent's keys are released and
     // the person's are not (InitializeOwnership, BeginOwnershipObservation).
-    let _receipt = super::super::input::Sender::new(marker);
+    let _receipt = super::super::input::Sender::new(crate::port::windows::WinPort::new(&crate::port::Scope::open(1), marker));
     let observer = Observer::new();
     super::super::observe::start(observer.shared.clone(), marker);
     // SAFETY: a plain open; the handle is closed by Live.

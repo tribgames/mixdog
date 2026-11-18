@@ -63,6 +63,7 @@ use mixdog_store::schema::record::HeaderChange;
 use mixdog_tools::orch::status::StatusSurface;
 use mixdog_tools::orch::util::PortError;
 use mixdog_tools::policy::ConnectorPermissions;
+use mixdog_tools::policy::Withdrawal;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -76,7 +77,9 @@ use super::prompt_rebuild::PromptRebuild;
 use super::prompt_rebuild::RebuildRequest;
 use super::prompt_session::SessionPrompt;
 use mixdog_core_prompt::prompt::notice::OwnedSections;
+use mixdog_core_prompt::prompt::notice::note_presented;
 use mixdog_core_prompt::prompt::notice::stage_prompt_settings_notice;
+use mixdog_ai::service::routes::provider_tail_cache_lifetime_ms;
 use super::prompt_session::refresh_environment;
 use super::tool_availability::Moved;
 use super::tool_availability::stage_connector_availability;
@@ -122,7 +125,7 @@ use super::turn_reminders::agent_list_entries;
 /// `trigger`, `public` (only `false`), `description`, `inputSchema` and `annotations`, each only where
 /// the definition has it.
 pub fn tool_doc(tool: &Arc<dyn Tool>) -> Value {
-    tool.spec().definition()
+    tool.stored().encode()
 }
 
 /// The bridge exposure's own definitions (`TOOL_BRIDGE_TOOLS`): `load_tool` and `call_tool`.
@@ -135,15 +138,43 @@ pub fn bridge_docs(pool: &[Arc<dyn Tool>]) -> Vec<Value> {
 pub struct HubSurfaceHost {
     bridge: Vec<Value>,
     hub: Arc<McpHub>,
+    /// The registered tools by name: what the core can execute besides a connected server's tools. Kept as the tools, not their names,
+    /// so that whether one can run is asked of it at each use ([`Tool::runnable`]): `computer` comes and goes with its helper, the
+    /// desktop and its setting while the core runs.
+    registered: HashMap<String, Arc<dyn Tool>>,
 }
 
 impl HubSurfaceHost {
     pub fn new(pool: &[Arc<dyn Tool>], hub: Arc<McpHub>) -> Self {
-        Self { bridge: bridge_docs(pool), hub }
+        Self { bridge: bridge_docs(pool), hub, registered: pool.iter().map(|tool| (tool.spec().name.clone(), tool.clone())).collect() }
     }
 }
 
 impl ToolSurfaceHost for HubSurfaceHost {
+    /// Ownership: a built-in is defined by membership in the complete registered pool (whether it can run or not); a connected
+    /// server's or plugin's tool by its owner's definition, retained through disconnects: only the owner publishing a catalog
+    /// without it withdraws it (`McpHub::withdrawn`). A prefix alone defines nothing.
+    fn defined(&self, name: &str) -> bool {
+        name.starts_with("mcp__") || self.registered.contains_key(name)
+    }
+
+    /// A server's tool is withdrawn only by the owner recorded with its stored definition: one reading of the hub
+    /// (`McpHub::published`).
+    fn withdrawal(&self) -> Withdrawal {
+        let published = self.hub.published();
+        Arc::new(move |name, owner| published.withdrawn(name, owner))
+    }
+
+    fn account_tool(&self, name: &str, publisher: Option<&str>) -> bool {
+        self.hub.published().is_account_tool(name, publisher)
+    }
+
+    /// Whether `name` can run now: registered, and its tool says so at this moment. A server's tool follows its server's
+    /// scoped snapshot (the surface's projection reads that).
+    fn runs(&self, name: &str) -> bool {
+        name.starts_with("mcp__") || self.registered.get(name).is_some_and(|tool| tool.runnable())
+    }
+
     fn bridge_tools(&self) -> Vec<Value> {
         self.bridge.clone()
     }
@@ -394,8 +425,7 @@ impl LeadSurfaceHost {
         let connectors_only = header_diff(header, session.as_object().expect("session object"));
         let owner_is_agent = is_agent_owner(&session);
         let identity = header.get("promptIdentity").filter(|identity| identity.is_object());
-        let route = s.routes.route(thread);
-        let (provider, model) = (clean(route.get("provider")), clean(route.get("model")));
+        let (provider, model) = self.seated_route(thread, header);
         // ctiveWorkflowContext(config): the workflow the config makes active, not the session's.
         let target = s.workflow.target(header, "", None).await.map_err(String::from)?;
         let mut denied: Vec<String> = Vec::new();
@@ -467,7 +497,7 @@ impl LeadSurfaceHost {
     /// resolves to; the first of a name, finalized for the owner (a worker loses the Lead-only tools).
     async fn definition_candidates(&self, thread: &ThreadId, header: &Header) -> Result<Vec<Value>, String> {
         let s = &self.sources;
-        let model = clean(s.routes.route(thread).get("model"));
+        let (_, model) = self.seated_route(thread, header);
         let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
         let spec = tool_spec_for_mode(thread_mode(header));
         let previewed = resolve(
@@ -523,10 +553,25 @@ impl LeadSurfaceHost {
     /// The prompt sections a conversation's settings are compared with, as they stand now
     /// (`promptSettingsSections`): the prompt composition's own, over the thread's workflow, denials and route.
     async fn current_prompt(&self, thread: &ThreadId, header: &Header) -> Result<SessionPrompt, String> {
+        self.composed(thread, header, "", None).await.map(|(prompt, _)| prompt)
+    }
+
+    /// The chooser can already hold the next turn's pick. Compose for the seated route.
+    fn seated_route(&self, thread: &ThreadId, header: &Header) -> (String, String) {
+        let model = clean(header.get("model"));
+        if !model.is_empty() {
+            return (clean(header.get("provider")), model);
+        }
+        let route = self.sources.routes.route(thread);
+        (clean(route.get("provider")), clean(route.get("model")))
+    }
+
+    /// The prompt composition over the workflow `workflow_id` names in `mode` (the config's active workflow for none), and
+    /// the tools that workflow and the live gates deny (`liveDeniedTools`), which the prompt was composed without.
+    async fn composed(&self, thread: &ThreadId, header: &Header, workflow_id: &str, mode: Option<&str>) -> Result<(SessionPrompt, Vec<String>), String> {
         let s = &self.sources;
-        let route = s.routes.route(thread);
-        let (provider, model) = (clean(route.get("provider")), clean(route.get("model")));
-        let target = s.workflow.target(header, "", None).await.map_err(String::from)?;
+        let (provider, model) = self.seated_route(thread, header);
+        let target = s.workflow.target(header, workflow_id, mode).await.map_err(String::from)?;
         let mut denied: Vec<String> = Vec::new();
         for name in s.workflow.live_denied_tools(header, &target.summary).await.map_err(String::from)? {
             if !name.is_empty() && !denied.contains(&name) {
@@ -535,13 +580,119 @@ impl LeadSurfaceHost {
         }
         let allowed = self.honored_allowlist(header);
         let has_git_tool = doc_names(header.get("tools")).iter().chain(doc_names(header.get("deferredToolCatalog")).iter()).any(|name| name == "git");
-        s.prompt.rebuild(RebuildRequest { header: header.clone(), target, denied, allow: allowed, provider, model, has_git_tool }).await
+        let prompt = s.prompt.rebuild(RebuildRequest { header: header.clone(), target, denied: denied.clone(), allow: allowed, provider, model, has_git_tool }).await?;
+        Ok((prompt, denied))
+    }
+
+    /// `foldPromptIfCold` (`agent-profile-fold.mjs`), for every kind of session (a delegated worker too), run after the
+    /// turn's gates are staged: at a point where the provider cache is cold anyway the conversation's system text is rebuilt
+    /// from the sources as they stand, so changed rule text, skills, manifests and late tools reach it. A cold point is the
+    /// first turn start after a compaction (`compactionFoldPending`, or the intent a compaction parked), a message tail the
+    /// provider's cache let expire, and a switch reminder that is neither pending nor still in the conversation. A prompt
+    /// that comes out the same writes nothing but the cleared marks. Removing core memory takes
+    /// precedence over keeping a warm prefix that would send that memory again.
+    async fn fold_prompt_if_cold(&self, thread: &ThreadId, core_memory_empty: bool) -> Result<(), CoreError> {
+        let s = &self.sources;
+        loop {
+            let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
+            let had_core_memory = header.get("promptSettings")
+                .and_then(|settings| settings.pointer("/texts/coreMemory"))
+                .and_then(Value::as_str)
+                .is_some_and(|text| !text.is_empty());
+            if !(core_memory_empty && had_core_memory)
+                && !compaction_cold(&header) && !tail_expired(&header, s.clock.now_ms())
+                && !self.reminder_dropped(thread, &header).await?
+            {
+                return Ok(());
+            }
+            let workflow_id = header.get("workflow").and_then(|workflow| workflow.get("id")).and_then(Value::as_str).unwrap_or_default();
+            let (composed, denied) = self.composed(thread, &header, workflow_id, Some(current_mode(&header).as_str())).await.map_err(|message| failed("tools", message))?;
+            let next = self.folded_prompt(thread, &header, &composed, &denied).map_err(|message| failed("tools", message))?;
+            let change = header_diff(&header, &next);
+            if change.set.is_empty() && change.unset.is_empty() {
+                return Ok(());
+            }
+            let expect: Map<String, Value> = change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
+            if s.threads.patch_header_if(thread, expect, change.set, change.unset).await.map_err(|error| port(thread, error))?.is_none() {
+                return Ok(());
+            }
+        }
+    }
+
+    /// `reminderDropped` of `cacheCold`: a workflow or mode switch whose reminder is neither pending nor still in the
+    /// conversation (a compaction or a clear dropped it), with its overlay still held.
+    async fn reminder_dropped(&self, thread: &ThreadId, header: &Header) -> Result<bool, CoreError> {
+        let overlays = [("workflowOverlay", "workflowSwitch"), ("orchestrationModeOverlay", "orchestrationModeSwitch")];
+        let content = |overlay: &str| clean(header.get(overlay).and_then(|overlay| overlay.get("content")));
+        let dropped: Vec<String> = overlays.iter().filter(|(overlay, notice)| truthy(header.get(*overlay)) && !truthy(header.get(*notice))).map(|(overlay, _)| content(overlay)).collect();
+        if dropped.is_empty() {
+            return Ok(false);
+        }
+        let rows = self.sources.messages.messages(thread).await.map_err(|error| port(thread, error))?;
+        let holds = |content: &str| !content.is_empty() && rows.iter().any(|row| row.get("role").and_then(Value::as_str) != Some("system") && message_text(row).contains(content));
+        Ok(dropped.iter().any(|content| !holds(content)))
+    }
+
+    /// `foldPrompt`: `header` with its system text taken from `composed` (the late tools folded into the deferred manifest,
+    /// the environment block refreshed, the switch overlays folded in) and the fold marks cleared. Only a moved request prefix
+    /// (the system messages, the tools) is a change: the prompt settings it presents are recorded either way, but a prompt
+    /// that sends the same bytes keeps the cache and parks no intent. One that moved is tagged once, with the intent
+    /// already pending (a compaction) or `prompt_fold`; the stored thinking bound to the old prefix is rebound by the turn
+    /// that starts on it (`factory.rs`, which holds the rows).
+    fn folded_prompt(&self, thread: &ThreadId, header: &Header, composed: &SessionPrompt, denied: &[String]) -> Result<Header, String> {
+        let s = &self.sources;
+        let (_, model) = self.seated_route(thread, header);
+        let surface = ToolSurface { host: s.tool_host.as_ref(), clock: s.clock.as_ref() };
+        let mut session = Value::Object(header.clone());
+        // `applyPolicy` / `applyToolDenials`: the session denies what the live policy of its workflow denies, so an overlay's
+        // call-time refusals become the denials the folded prompt tells (and the opened-tool record of the switch is spent).
+        session["disallowedTools"] = json!(denied);
+        for key in ["tools", "deferredToolCatalog"] {
+            if let Some(items) = session.get(key).and_then(Value::as_array) {
+                session[key] = Value::Array(filter_disallowed_tools(items, denied));
+            }
+        }
+        // A cold point is where a withdrawn or retired tool leaves the stored lists and the manifest that listed it; a refresh
+        // while warm only stops the tool being callable.
+        surface.repair(&mut session);
+        session["messages"] = Value::Array(composed.blocks.node_messages());
+        let pool = surface.pool_tool_names(&session);
+        apply_initial_manifest(&mut session, &pool, true, s.clock.as_ref());
+        surface.fold_late_deferred_tools(&mut session);
+        land_prompt(&mut session, composed.clone(), &model)?;
+        let mut next = session.as_object().cloned().ok_or_else(|| "the folded session is not an object".to_owned())?;
+        next.shift_remove("messages");
+        for key in ["workflowOverlay", "orchestrationModeOverlay", "workflowOpenedTools", "promptFoldPending", "compactionFoldPending"] {
+            next.shift_remove(key);
+        }
+        note_presented(&mut next, &composed.sections);
+        let prefix = |header: &Header| (SystemBlocks::from_header(header).node_messages(), header.get("tools").cloned());
+        if prefix(header) == prefix(&next) {
+            match header.get("updatedAt") {
+                Some(at) => next.insert("updatedAt".into(), at.clone()),
+                None => next.shift_remove("updatedAt"),
+            };
+        } else {
+            let pending = header.get("pendingCacheBreakIntent").and_then(Value::as_str).unwrap_or("prompt_fold").to_owned();
+            let marked = mark_tool_surface_migrated(s.clock.as_ref(), Some(&pending), None).change;
+            // The kept prefix guard describes the prefix that moved: Node deletes it in `markToolSurfaceMigrated`, and the
+            // core's deletion is a new lineage (`transcriptEpoch`, as a route change names one). Without it a fold that is no
+            // compaction (`prompt_fold` is no compaction intent) is refused as a rewritten prefix at the next send.
+            next.insert("transcriptEpoch".into(), json!(uuid::Uuid::now_v7().to_string()));
+            // Owed to the stored rows, in this same write: the turn that starts on the moved prefix rebinds them.
+            next.insert("thinkingRebindPending".into(), Value::Bool(true));
+            for key in marked.unset {
+                next.shift_remove(&key);
+            }
+            next.extend(marked.set);
+        }
+        Ok(next)
     }
 
     /// [`Self::stage_gates`], or with `tools` false only the connector switches, which Node reads every turn. With
     /// `notice` (the sections as they stand now) the thread's prompt settings are compared with them first and the
     /// notice for what changed is staged (`stagePromptSettingsNotice`); a change folds in at the next cold point
-    /// (`promptFoldPending`), except for a delegated worker, whose prompt is never rebuilt.
+    /// (`promptFoldPending`, [`Self::fold_prompt_if_cold`]).
     async fn stage(&self, thread: &ThreadId, tools: bool, notice: Option<&OwnedSections>) -> Result<Staged, CoreError> {
         let s = &self.sources;
         loop {
@@ -550,7 +701,7 @@ impl LeadSurfaceHost {
             let connectors = stage_connector_availability(&mut next, thread, s.connectors.as_ref(), s.clock.now_ms());
             if let Some(sections) = notice {
                 let changed = stage_prompt_settings_notice(&mut next, sections, s.clock.now_ms());
-                if !changed.is_empty() && !is_agent_owner(&Value::Object(next.clone())) {
+                if !changed.is_empty() {
                     next.insert("promptFoldPending".to_owned(), Value::Bool(true));
                 }
             }
@@ -640,6 +791,11 @@ impl TurnSettings for LeadSurfaceHost {
         let key = Applied { gates: gates.clone(), settings };
         let unchanged = self.applied_to(thread).as_ref() == Some(&key) && !truthy(header.get("promptSettingsRecheck"));
         self.stage(thread, !unchanged, sections.as_ref().filter(|_| !unchanged)).await.map_err(described)?;
+        // After the gates: a tool opened since the compaction is in the catalog the fold builds from.
+        if identity {
+            self.fold_prompt_if_cold(thread, sections.as_ref().is_some_and(|value| value.core_memory.is_empty()))
+                .await.map_err(described)?;
+        }
         self.note_applied(thread, key);
         self.fold_mcp_surface(thread).await.map_err(described)
     }
@@ -702,9 +858,8 @@ impl LeadSurfaceHost {
     /// * Any later turn: the late pool, connected names and pending delta follow the live registry
     ///   (`reconcileDeferredMcpToolCatalog`).
     ///
-    /// Not carried: the grace Node waits for a reconnect in flight (`awaitMcpGrace`, and the agent runtime's wait for
-    /// its initial connect), since the hub offers no readiness wait. The reconciles at the request boundary and around
-    /// each tool call are `refresh_mcp`.
+    /// A fresh agent gets a bounded chance to see its initial tools before the first request;
+    /// tools that start later still enter through `refresh_mcp`.
     async fn fold_mcp_surface(&self, thread: &ThreadId) -> Result<Header, CoreError> {
         self.fold(thread, true).await
     }
@@ -712,8 +867,32 @@ impl LeadSurfaceHost {
     /// `refreshDeferredMcpToolCatalog(session)`: the reconcile alone, for a session that has a deferred provider mode.
     async fn fold(&self, thread: &ThreadId, first_turn: bool) -> Result<Header, CoreError> {
         let s = &self.sources;
+        let mut waited_scope = None;
+        let mut grace_deadline = None;
         loop {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
+            if first_turn && truthy(header.get("deferredInitialRefreshPending"))
+                && (header.get("owner").and_then(Value::as_str) == Some("agent")
+                    || header.get("visibility").and_then(Value::as_str) == Some("agent-only"))
+                && let Some(scope) = header_scope(&header)
+                && waited_scope.as_deref() != Some(scope)
+            {
+                let deadline = *grace_deadline.get_or_insert_with(|| {
+                    let grace_ms = std::env::var("MIXDOG_MCP_AGENT_GRACE_MS").ok()
+                        .filter(|value| !value.is_empty())
+                        .and_then(|value| {
+                            let value = value.trim();
+                            if value.is_empty() { Some(0.0) } else { value.parse::<f64>().ok() }
+                        })
+                        .filter(|value| value.is_finite())
+                        .map_or(3_000, |value| value.clamp(0.0, 30_000.0) as u64);
+                    tokio::time::Instant::now() + std::time::Duration::from_millis(grace_ms)
+                });
+                waited_scope = Some(scope.to_owned());
+                s.scopes.await_initial_within(scope, deadline.saturating_duration_since(tokio::time::Instant::now())).await;
+                // Fold the current header, not the one held while the scope was starting.
+                continue;
+            }
             let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
             let live: Vec<Value> = s.mcp.tools(header_scope(&header), &cwd).iter().map(tool_doc).collect();
             let (next, state) = self.folded_surface(thread, &header, &live, first_turn).map_err(|message| failed("tools", message))?;
@@ -780,16 +959,25 @@ impl LeadSurfaceHost {
     /// against the old one is dropped: the provider state, the prefix guard, the context baseline. `None`: nothing to
     /// migrate, or `unanswered` (a tool call still waits for its result, which is not a safe boundary).
     ///
-    /// The migrated send's cache-break tag (`opts.cacheBreakIntent`) is read only by code the Rust core does not port
-    /// (see `decisions.md` `deferred-fold-5`), so the header carries none.
+    /// The live run clears its guard and takes the cache-break tag, so the header carries no intent.
     fn migrate_exposure_of(&self, header: &Header, unanswered: bool) -> Result<Option<Header>, String> {
         let s = &self.sources;
-        if unanswered || !tool_exposure_migration_needed(&Value::Object(header.clone()), None, &load_tool_def(s.tool_host.as_ref())) {
+        if unanswered {
             return Ok(None);
         }
         let mode = header.get("deferredSurfaceMode").and_then(Value::as_str).filter(|mode| !mode.is_empty()).unwrap_or("lead").to_owned();
         let options = ApplyOptions { provider: Some(clean(header.get("provider"))), model: Some(clean(header.get("model"))), disallowed: Vec::new() };
-        let (mut next, ()) = self.over_system_blocks(header, |surface, session| surface.apply(session, &mode, &[], &options))?;
+        let (mut next, migrating) = self.over_system_blocks(header, |surface, session| {
+            // Old bridge guidance is visible only after the system messages have been materialized.
+            if !tool_exposure_migration_needed(session, None, &load_tool_def(s.tool_host.as_ref())) {
+                return false;
+            }
+            surface.restore(session, &mode, &[], &options);
+            true
+        })?;
+        if !migrating {
+            return Ok(None);
+        }
         let invalidated = invalidate_for_tool_surface_migration(s.clock.as_ref());
         for key in invalidated.unset {
             next.shift_remove(&key);
@@ -861,8 +1049,10 @@ impl ResumedSurface for LeadSurfaceHost {
         let options = ApplyOptions { provider: Some(clean(session.get("provider"))), model: Some(clean(session.get("model"))), disallowed: Vec::new() };
         let load_tool = load_tool_def(s.tool_host.as_ref());
         let (mut next, migrating) = self.over_system_blocks(session, |surface, target| {
+            // The target is the materialized session (its system messages are in `messages`): the same predicate as the boundary's.
             let migrating = tool_exposure_migration_needed(target, None, &load_tool);
-            surface.apply(target, mode, &standalone, &options);
+            // The stored definitions as stored: a resume is not a boundary for availability (`ToolSurface::restore`).
+            surface.restore(target, mode, &standalone, &options);
             migrating
         })?;
         if migrating {
@@ -1123,6 +1313,28 @@ impl LeadSurfaceHost {
         seeded.insert("agentRosterRevision".to_owned(), json!(roster));
         Ok(seeded)
     }
+}
+
+/// `messageText` of `workflow-switch-notice.mjs`: a message's text, joined over its parts.
+fn message_text(message: &Value) -> String {
+    match message.get("content") {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(parts)) => parts.iter().map(|part| part.as_str().map(str::to_owned).unwrap_or_else(|| clean(part.get("text")))).collect(),
+        _ => String::new(),
+    }
+}
+
+/// A compaction is a cold point: its pass marked it (`compactionFoldPending`) or parked a compaction intent for the next send
+/// (`COLD_INTENTS` of `agent-profile-fold.mjs`).
+fn compaction_cold(header: &Header) -> bool {
+    header.get("compactionFoldPending") == Some(&Value::Bool(true)) || matches!(header.get("pendingCacheBreakIntent").and_then(Value::as_str), Some("post_turn_compaction" | "manual_compaction"))
+}
+
+/// `sessionTailCacheExpired`: the provider's cache already let the message tail expire since the session's last send.
+fn tail_expired(header: &Header, now_ms: i64) -> bool {
+    let tier = header.get("providerCacheOpts").and_then(|opts| opts.get("cacheStrategy")).and_then(|strategy| strategy.get("messages")).and_then(Value::as_str);
+    let last_send = mixdog_js::to_number_of(header.get("lastProviderSendAt"));
+    provider_tail_cache_lifetime_ms(&clean(header.get("provider")), tier).is_some_and(|lifetime| last_send > 0.0 && now_ms as f64 - last_send > lifetime as f64)
 }
 
 /// `leadRosterRevision(parts)` (`role-instructions.mjs:413`): the bot roster a Lead's prompt lists (its

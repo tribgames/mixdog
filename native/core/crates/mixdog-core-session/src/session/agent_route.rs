@@ -146,19 +146,6 @@ mod tests {
     use mixdog_core_ports::ports::route::FollowOptions;
     use crate::session::testing::Rig;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_bots_chats_are_its_hosted_home_and_room_member_sessions() {
-        let rig = Rig::new();
-        let directory = SessionDirectory::new(rig.deps());
-        for id in ["sess_home_writer", "sess_rmem_room01_writer", "sess_home_editor", "sess_rmem_room01_editor", "sess_task_1"] {
-            directory.create_with_id(ThreadId::from(id), Header::new(), json!({})).await.expect("create");
-        }
-        let mut chats = directory.chats_of("writer").expect("a home id");
-        chats.sort_by(|a, b| a.as_str().cmp(b.as_str()));
-        assert_eq!(chats, [ThreadId::from("sess_home_writer"), ThreadId::from("sess_rmem_room01_writer")]);
-        assert_eq!(directory.chats_of("Not An Id"), None);
-    }
-
     struct Two;
     impl AgentChats for Two {
         fn chats_of(&self, _agent_id: &str) -> Option<Vec<ThreadId>> {
@@ -169,17 +156,6 @@ mod tests {
     /// Counts the picks; the home chat refuses them, after a pause that keeps the publication
     /// in flight.
     struct Refusing(AtomicUsize);
-    #[async_trait]
-    impl ChatRouteSetter for Refusing {
-        async fn set_route(&self, thread: &ThreadId, _pick: Route, _options: FollowOptions) -> Result<(), PortError> {
-            self.0.fetch_add(1, SeqCst);
-            mixdog_rt::time::sleep(std::time::Duration::from_millis(20)).await;
-            if thread.as_str() == "sess_home_writer" {
-                return Err(PortError::Failed { capability: "route".into(), message: "signed out".into() });
-            }
-            Ok(())
-        }
-    }
 
     #[tokio::test(start_paused = true)]
     async fn the_same_route_in_flight_is_joined_and_a_refusal_never_fails_the_save() {
@@ -199,18 +175,6 @@ mod tests {
         taken: AtomicUsize,
         attempts: AtomicUsize,
     }
-    #[async_trait]
-    impl ChatRouteSetter for Flaky {
-        async fn set_route(&self, thread: &ThreadId, _pick: Route, _options: FollowOptions) -> Result<(), PortError> {
-            self.attempts.fetch_add(1, SeqCst);
-            mixdog_rt::time::sleep(std::time::Duration::from_millis(20)).await;
-            if thread.as_str() == "sess_home_writer" && !self.taking.load(SeqCst) {
-                return Err(PortError::Failed { capability: "route".into(), message: "host busy".into() });
-            }
-            self.taken.fetch_add(1, SeqCst);
-            Ok(())
-        }
-    }
 
     #[tokio::test(start_paused = true)]
     async fn a_stored_route_a_chat_refused_is_retried_and_once_taken_not_sent_again() {
@@ -227,5 +191,44 @@ mod tests {
         assert_eq!(setter.attempts.load(SeqCst), 4);
         publisher.publish_stored("writer", &route).await.expect("already taken");
         assert_eq!(setter.attempts.load(SeqCst), 4, "taken once, it is not delivered again");
+    }
+
+
+    #[async_trait]
+    impl ChatRouteSetter for Refusing {
+        async fn set_route(&self, thread: &ThreadId, _pick: Route, _options: FollowOptions) -> Result<(), PortError> {
+            self.0.fetch_add(1, SeqCst);
+            mixdog_rt::time::sleep(std::time::Duration::from_millis(20)).await;
+            if thread.as_str() == "sess_home_writer" {
+                return Err(PortError::Failed { capability: "route".into(), message: "signed out".into() });
+            }
+            Ok(())
+        }
+    }
+    #[async_trait]
+    impl ChatRouteSetter for Flaky {
+        async fn set_route(&self, thread: &ThreadId, _pick: Route, _options: FollowOptions) -> Result<(), PortError> {
+            self.attempts.fetch_add(1, SeqCst);
+            mixdog_rt::time::sleep(std::time::Duration::from_millis(20)).await;
+            if thread.as_str() == "sess_home_writer" && !self.taking.load(SeqCst) {
+                return Err(PortError::Failed { capability: "route".into(), message: "host busy".into() });
+            }
+            self.taken.fetch_add(1, SeqCst);
+            Ok(())
+        }
+    }
+
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_bots_chats_are_its_hosted_home_and_room_member_sessions() {
+        let rig = Rig::new();
+        let directory = SessionDirectory::new(rig.deps());
+        for id in ["sess_home_writer", "sess_rmem_room01_writer", "sess_home_editor", "sess_rmem_room01_editor", "sess_task_1"] {
+            directory.create_with_id(ThreadId::from(id), Header::new(), json!({})).await.expect("create");
+        }
+        let mut chats = directory.chats_of("writer").expect("a home id");
+        chats.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        assert_eq!(chats, [ThreadId::from("sess_home_writer"), ThreadId::from("sess_rmem_room01_writer")]);
+        assert_eq!(directory.chats_of("Not An Id"), None);
     }
 }

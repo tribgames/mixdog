@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use mixdog_agent::effort::EffortWiring;
 pub use mixdog_agent::env::{ChainSurface, RouteDecision, UsageSegment};
-use mixdog_agent::env::{RouteFallback, RouteSwitch};
+use mixdog_agent::env::{RouteFallback, RouteSwitch, RouteSwitchRequest};
 pub use mixdog_agent::recovery::{strip_provider_replay, strip_provider_replay_messages};
 use mixdog_agent::text_only::TextOnlyInput;
 use mixdog_ai::retry::classify::kind_from_code;
@@ -24,6 +24,9 @@ use super::route_chain::live_route_fallbacks;
 use super::route_chain::next_route_fallback_index;
 use super::route_chain::route_fallback_hopped;
 use super::route_chain::route_leaf;
+use super::route_chain::same_route_model;
+use super::route_chain::session_chain_source;
+use super::route_chain::session_route_primary;
 use super::route_chain::BotRoutes;
 use mixdog_core_ports::ports::domain_sessions::Obj;
 
@@ -137,9 +140,28 @@ fn hop_reason(kind: ErrorKind) -> &'static str {
     }
 }
 
+/// What the account and quota owner knows of whether a route can be sent on right now. The hop never derives it: it is that
+/// owner's evidence (accounts, credentials, quota readings, the destination's availability), asked per route.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RouteEligibility {
+    /// A send on it would be admitted now.
+    Eligible,
+    /// Known exhausted: every account of it is out, so a send on it would fail.
+    Exhausted,
+    /// No evidence either way (the owner holds none, or cannot read it): the route is neither chosen nor left on this.
+    Unknown,
+}
+
 /// What the hop needs from the session, the config and the provider registry.
 #[async_trait]
 pub trait HopHost: Send + Sync {
+    /// Whether `route` (a configured route of the session's order) can be sent on now. Owner: the quota/admission layer;
+    /// a host with no such source answers [`RouteEligibility::Unknown`], which reconsiders nothing.
+    async fn route_eligibility(&self, route: &Value) -> RouteEligibility {
+        let _ = route;
+        RouteEligibility::Unknown
+    }
+
     /// The live session header; `None` once it is closed.
     fn session(&self) -> Option<Value>;
     /// `getConfigSnapshot({ secrets: false })`.
@@ -231,15 +253,25 @@ pub fn route_usage_segments(hops: &[UsageHop], total: &Usage, current: (&str, &s
         .collect()
 }
 
+type RequestForRoute = dyn Fn(&Obj) -> RouteSwitchRequest + Send + Sync;
+
 /// The route hop of one run.
 pub struct RouteHop {
     host: Arc<dyn HopHost>,
+    request_for_route: Option<Box<RequestForRoute>>,
     usage_hops: Mutex<Vec<UsageHop>>,
+    /// Non-quota failures during this run: a quota reading cannot prove these resolved.
+    failed_here: Mutex<Vec<Value>>,
 }
 
 impl RouteHop {
     pub fn new(host: Arc<dyn HopHost>) -> Self {
-        Self { host, usage_hops: Mutex::new(Vec::new()) }
+        Self { host, request_for_route: None, usage_hops: Mutex::new(Vec::new()), failed_here: Mutex::new(Vec::new()) }
+    }
+
+    pub fn with_request_for_route(mut self, build: impl Fn(&Obj) -> RouteSwitchRequest + Send + Sync + 'static) -> Self {
+        self.request_for_route = Some(Box::new(build));
+        self
     }
 
     /// `routeUsageSegments(state.routeUsageHops, state.lastUsage, current)` at the end of the turn.
@@ -326,6 +358,10 @@ impl RouteFallback for RouteHop {
         self.decide(error, last_usage).await
     }
 
+    async fn reconsider(&self, last_usage: Option<&Usage>) -> Option<RouteSwitch> {
+        RouteHop::reconsider(self, last_usage).await
+    }
+
     fn usage_segments(&self, total: &Usage, current: (&str, &str)) -> Vec<UsageSegment> {
         RouteHop::usage_segments(self, total, current)
     }
@@ -401,14 +437,125 @@ impl RouteHop {
             failures,
             checkpoint_route_changed: session.get("activeTurnCheckpoint").is_some_and(Value::is_object),
         };
+        if error.kind != ErrorKind::QuotaExhausted {
+            self.failed_here.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(session.clone());
+        }
+        match self.seat(next, provider, write, notice).await {
+            Ok(switch) => RouteDecision::Switch(switch),
+            Err(message) => RouteDecision::Fail(message),
+        }
+    }
+
+    /// Writes the session onto `next` with `write` in one update, and the switch the run seats from what was written.
+    async fn seat(&self, next: &Value, provider: Arc<dyn ProviderAdapter>, write: HopWrite, notice: String) -> Result<RouteSwitch, String> {
         let window = self.host.raw_context_window(&text(next.get("provider")), &text(next.get("model")), next);
-        let updated = match self.host.apply_hop(route_fields(next, window), write).await {
-            Ok(Some(updated)) => updated,
-            Ok(None) => return RouteDecision::Fail("agent session closed during model fallback".to_owned()),
-            Err(message) => return RouteDecision::Fail(message),
+        let Some(updated) = self.host.apply_hop(route_fields(next, window), write).await? else {
+            return Err("agent session closed during model fallback".to_owned());
         };
         let (effort, text_only) = self.host.wiring(&updated, &provider);
-        RouteDecision::Switch(RouteSwitch { provider, model: text(updated.get("model")), notice, effort, text_only })
+        let request = match (&self.request_for_route, updated.as_object()) {
+            (Some(build), Some(fields)) => build(fields),
+            _ => RouteSwitchRequest::default(),
+        };
+        Ok(RouteSwitch { provider, model: text(updated.get("model")), notice, request, effort, text_only })
+    }
+
+    /// Before an unsent request: the primary or a session diverted by quota follows the configured order
+    /// by eligibility. The order is the authoritative chain owner's ([`session_chain_source`], the primary first), and
+    /// the first route that is eligible and ranks above the current one is taken even when the current is healthy; while
+    /// the current route is known exhausted, the first eligible route below it is. A route nothing proves eligible is
+    /// never chosen, so no send is spent finding out. A deliberate choice (a pick held for the next turn, or a session no
+    /// hop moved from its primary) is left alone: the session's hop fields are the only mark of an automatic diversion,
+    /// and a deliberate route write clears them.
+    pub async fn reconsider(&self, last_usage: Option<&Usage>) -> Option<RouteSwitch> {
+        let session = self.host.session()?;
+        if session.get("agent").is_none_or(|a| matches!(a, Value::Null | Value::Bool(false)) || a.as_str() == Some("")) {
+            return None;
+        }
+        if session.get("pendingRoute").is_some_and(|pick| !pick.is_null()) {
+            return None;
+        }
+        let primary = session_route_primary(&session);
+        let failures = session.get("routeFallbackFailures").and_then(Value::as_array).cloned().unwrap_or_default();
+        let left_on_quota = failures.iter().any(|f| same_route_model(Some(f), Some(&primary)) && f.get("kind").and_then(Value::as_str) == Some("quota_exhausted"));
+        // Only the configured primary, or a route already automatically diverted on quota, participates.
+        if !left_on_quota && !same_route_model(Some(&primary), Some(&session)) {
+            return None;
+        }
+        let config = self.host.config();
+        let (chain, _) = live_route_fallbacks(&session, &config, self.host.bots()).await.ok()?;
+        if chain.is_empty() {
+            return None;
+        }
+        // The configured primary as its owner states it now, else the leaf the session kept from its first hop.
+        let source = session_chain_source(&session, &config, self.host.bots()).await.ok().flatten().filter(|s| same_route_model(Some(s), Some(&primary)));
+        let mut order = vec![Value::Object(route_leaf(Some(source.as_ref().unwrap_or(&primary))))];
+        order.extend(chain.iter().cloned());
+        let current = order.iter().position(|route| same_route_model(Some(route), Some(&session)))?;
+        let failed_here = self.failed_here.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let usable = |route: &Value| !failed_here.iter().any(|failed| same_route_model(Some(failed), Some(route)));
+        let mut target = None;
+        for (index, route) in order.iter().enumerate().take(current) {
+            if usable(route) && self.host.route_eligibility(route).await == RouteEligibility::Eligible {
+                target = Some(index);
+                break;
+            }
+        }
+        let diverted_on = target.is_none() && self.host.route_eligibility(&order[current]).await == RouteEligibility::Exhausted;
+        if diverted_on {
+            for (index, route) in order.iter().enumerate().skip(current + 1) {
+                if usable(route) {
+                    match self.host.route_eligibility(route).await {
+                        RouteEligibility::Eligible => {
+                            target = Some(index);
+                            break;
+                        }
+                        RouteEligibility::Exhausted => {}
+                        // The ordinary fallback path may still send here. Do not jump past it.
+                        RouteEligibility::Unknown => break,
+                    }
+                }
+            }
+        }
+        let index = target?;
+        let next = &order[index];
+        let next_provider = text(next.get("provider"));
+        let provider = self.host.provider(&next_provider).await.ok().flatten()?;
+        let notice = if index < current {
+            format!("{} is available again — switched back from {}.", self.label(next), self.label(&session))
+        } else {
+            notice_text(&self.label(&session), &self.label(next), ErrorKind::QuotaExhausted)
+        };
+        // The routes the session still has behind it are the history of what failed: the one it now stands on proved
+        // itself, so it leaves the list unless it is the primary, whose entry is what marks the diversion.
+        let mut failures = failures;
+        if diverted_on {
+            failures.retain(|f| !same_route_model(Some(f), Some(&session)));
+            failures.push(json!({
+                "provider": session.get("provider"),
+                "model": session.get("model"),
+                "kind": "quota_exhausted",
+                "error": "No applicable account has quota for this model.",
+            }));
+        }
+        if index != 0 {
+            failures.retain(|f| !same_route_model(Some(f), Some(next)));
+        }
+        let write = HopWrite {
+            chain,
+            primary: (!route_fallback_hopped(&session)).then(|| Value::Object(route_leaf(Some(&session)))),
+            index,
+            failures,
+            checkpoint_route_changed: session.get("activeTurnCheckpoint").is_some_and(Value::is_object),
+        };
+        let switch = self.seat(next, provider, write, notice).await.ok()?;
+        // The left route's share of the turn ends here, as at a hop.
+        self.usage_hops.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(UsageHop {
+            provider: text(session.get("provider")),
+            model: text(session.get("model")),
+            usage: last_usage.cloned(),
+        });
+        Some(switch)
     }
 }
 
@@ -432,16 +579,195 @@ fn route_fields(next: &Value, window: Option<u64>) -> Obj {
 }
 
 #[cfg(test)]
-mod tests {
+mod reconsider_tests {
+    use std::collections::HashMap;
+
+    use mixdog_core_api::domain::mock::MockProvider;
+
     use super::*;
-    use mixdog_core_api::domain::keepalive::{KeepaliveSchedule, TransportKind};
-    use mixdog_core_api::domain::provider::{
-        DeliveryState, ErrorResponse, ModelRequest, ModelStream, WireCodec, WireDecoder, WireRequest,
-    };
+    use crate::run_host::route_chain::RouteReadUnavailable;
+
+    struct NoBots;
+    #[async_trait]
+    impl BotRoutes for NoBots {
+        async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, RouteReadUnavailable> {
+            Ok(None)
+        }
+        async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, RouteReadUnavailable> {
+            Ok(None)
+        }
+    }
+
+    /// A host over one session header whose routes the quota owner's evidence is given for by model.
+    struct Host {
+        session: Value,
+        config: Obj,
+        evidence: HashMap<&'static str, RouteEligibility>,
+        writes: Mutex<Vec<(Obj, HopWrite)>>,
+    }
+
+    #[async_trait]
+    impl HopHost for Host {
+        async fn route_eligibility(&self, route: &Value) -> RouteEligibility {
+            self.evidence.get(text(route.get("model")).as_str()).copied().unwrap_or(RouteEligibility::Unknown)
+        }
+        fn session(&self) -> Option<Value> {
+            Some(self.session.clone())
+        }
+        fn config(&self) -> Obj {
+            self.config.clone()
+        }
+        fn bots(&self) -> &dyn BotRoutes {
+            &NoBots
+        }
+        fn model_label(&self, _: &str, model: &str) -> String {
+            model.to_owned()
+        }
+        fn error_text(&self, error: &ProviderError) -> String {
+            error.message.clone()
+        }
+        async fn provider(&self, _: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
+            Ok(Some(Arc::new(MockProvider::new([])) as Arc<dyn ProviderAdapter>))
+        }
+        fn raw_context_window(&self, _: &str, _: &str, _: &Value) -> Option<u64> {
+            None
+        }
+        async fn apply_hop(&self, route: Obj, write: HopWrite) -> Result<Option<Value>, String> {
+            self.writes.lock().unwrap().push((route.clone(), write));
+            Ok(Some(Value::Object(route)))
+        }
+        fn wiring(&self, _: &Value, _: &Arc<dyn ProviderAdapter>) -> (Option<EffortWiring>, Option<TextOnlyInput>) {
+            (None, None)
+        }
+    }
+
+    /// The Lead's configured order: Fable first, then Astra, then Gemini, each on its own provider.
+    fn config() -> Obj {
+        json!({
+            "default": "workflow-lead",
+            "presets": [{
+                "id": "workflow-lead", "provider": "anthropic-oauth", "model": "fable", "effort": "medium",
+                "fallbacks": [{ "provider": "openai-oauth", "model": "astra", "effort": "high" }, { "provider": "google", "model": "gem" }],
+            }],
+        })
+        .as_object()
+        .unwrap()
+        .clone()
+    }
+
+    /// A Lead session a quota moved off Fable (`kind`), standing on `(provider, model)`.
+    fn session(provider: &str, model: &str, kind: &str) -> Value {
+        json!({
+            "id": "sess_x", "agent": "mixy", "provider": provider, "model": model,
+            "routeFallbackPrimary": { "provider": "anthropic-oauth", "model": "fable" },
+            "routeFallbackIndex": 1,
+            "routeFallbackFailures": [{ "provider": "anthropic-oauth", "model": "fable", "kind": kind, "error": "limit" }],
+        })
+    }
+
+    fn hop(session: Value, evidence: &[(&'static str, RouteEligibility)]) -> (RouteHop, Arc<Host>) {
+        let host = Arc::new(Host { session, config: config(), evidence: evidence.iter().copied().collect(), writes: Mutex::default() });
+        (RouteHop::new(host.clone()), host)
+    }
+
+    use RouteEligibility::{Eligible, Exhausted, Unknown};
+
+    #[tokio::test]
+    async fn the_first_unsent_request_leaves_only_a_proven_exhausted_primary_in_order() {
+        for (primary, first_alternative, expected) in [
+            (Unknown, Eligible, None),
+            (Exhausted, Unknown, None),
+            (Exhausted, Eligible, Some("astra")),
+        ] {
+            let fresh = json!({ "id": "sess_x", "agent": "mixy", "provider": "anthropic-oauth", "model": "fable" });
+            let (hop, _) = hop(fresh, &[("fable", primary), ("astra", first_alternative), ("gem", Eligible)]);
+            let switched = hop.reconsider(None).await;
+            assert_eq!(switched.as_ref().map(|s| s.model.as_str()), expected);
+            if let Some(switch) = switched {
+                let usage = Usage { input_tokens: 42, ..Usage::default() };
+                let segments = hop.usage_segments(&usage, ("openai-oauth", &switch.model));
+                assert_eq!(segments.len(), 1);
+                assert_eq!((segments[0].provider.as_str(), segments[0].model.as_str(), segments[0].usage.input_tokens), ("openai-oauth", "astra", 42));
+            }
+        }
+    }
+
+    /// After the primary recovers the session goes back to it even though the fallback it stands on is healthy: one write,
+    /// the primary's quota entry kept as the mark of the diversion, and nothing deliberate (no primary rewrite).
+    #[tokio::test]
+    async fn a_recovered_primary_is_preferred_over_a_healthy_fallback() {
+        let (hop, host) = hop(session("openai-oauth", "astra", "quota_exhausted"), &[("fable", Eligible), ("astra", Eligible)]);
+        let switch = hop.reconsider(None).await.expect("back to the primary");
+        assert_eq!(switch.model, "fable");
+        assert!(switch.notice.contains("available again"), "{}", switch.notice);
+        let writes = host.writes.lock().unwrap();
+        assert_eq!(writes.len(), 1);
+        let (route, write) = &writes[0];
+        assert_eq!((route["model"].as_str(), write.index, write.primary.is_none(), write.failures.len()), (Some("fable"), 0, true, 1));
+    }
+
+    /// While the primary is proven exhausted the healthy fallback stays; no evidence (`Unknown`) moves nothing either way.
+    #[tokio::test]
+    async fn a_primary_not_proven_eligible_leaves_the_session_where_it_is() {
+        for primary in [Exhausted, Unknown] {
+            let (hop, host) = hop(session("openai-oauth", "astra", "quota_exhausted"), &[("fable", primary), ("astra", Eligible)]);
+            assert!(hop.reconsider(None).await.is_none(), "{primary:?}");
+            assert!(host.writes.lock().unwrap().is_empty());
+        }
+    }
+
+    /// A fallback that is itself known out hands on to the first eligible route below it, in configured order, with no send.
+    #[tokio::test]
+    async fn an_exhausted_current_route_goes_on_to_the_next_eligible_one() {
+        let (hop, host) = hop(session("openai-oauth", "astra", "quota_exhausted"), &[("fable", Exhausted), ("astra", Exhausted), ("gem", Eligible)]);
+        let switch = hop.reconsider(None).await.expect("on to the next");
+        assert_eq!(switch.model, "gem");
+        assert_eq!(host.writes.lock().unwrap()[0].1.index, 2);
+    }
+
+    /// A session a quota did not divert, and one with a pick held for the next turn, are never reconsidered.
+    #[tokio::test]
+    async fn deliberate_and_non_quota_routes_are_left_alone() {
+        let (hop, _) = hop(session("openai-oauth", "astra", "overloaded"), &[("fable", Eligible), ("astra", Eligible)]);
+        assert!(hop.reconsider(None).await.is_none(), "left for a reason eligibility does not speak to");
+        let mut held = session("openai-oauth", "astra", "quota_exhausted");
+        held["pendingRoute"] = json!({ "provider": "openai-oauth", "model": "astra" });
+        let (hop, host) = hop(held, &[("fable", Eligible), ("astra", Eligible)]);
+        assert!(hop.reconsider(None).await.is_none());
+        assert!(host.writes.lock().unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(node_twin)]
+    use super::*;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::keepalive::TransportKind;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::DeliveryState;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::ErrorResponse;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::ModelRequest;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::ModelStream;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::WireCodec;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::WireDecoder;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::provider::WireRequest;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::retry::RetryPolicy;
+    #[cfg(node_twin)]
     use mixdog_protocol::ProviderId;
 
+    #[cfg(node_twin)]
     struct NoCodec;
+    #[cfg(node_twin)]
     impl WireCodec for NoCodec {
         fn transport(&self) -> TransportKind {
             TransportKind::Http1
@@ -457,6 +783,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Dummy {
         id: ProviderId,
         policy: RetryPolicy,
@@ -464,6 +791,7 @@ mod tests {
     }
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl ProviderAdapter for Dummy {
         fn release_send(&self, _group: &str) {}
         fn id(&self) -> &ProviderId {
@@ -483,8 +811,10 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Bots;
     #[async_trait]
+    #[cfg(node_twin)]
     impl BotRoutes for Bots {
         async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, crate::run_host::route_chain::RouteReadUnavailable> {
             Ok(None)
@@ -496,6 +826,7 @@ mod tests {
 
     /// A host over one session header; `apply_hop` writes what Node's `updateSessionRoute` and the
     /// hop write.
+    #[cfg(node_twin)]
     struct Host {
         session: Mutex<Value>,
         config: Obj,
@@ -504,6 +835,7 @@ mod tests {
     }
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl HopHost for Host {
         fn session(&self) -> Option<Value> {
             Some(self.session.lock().unwrap().clone())
@@ -552,10 +884,12 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn golden() -> Value {
         serde_json::from_str(include_str!("golden/route_chain.json")).expect("fixture")
     }
 
+    #[cfg(node_twin)]
     fn switched(decision: RouteDecision) -> RouteSwitch {
         match decision {
             RouteDecision::Switch(switch) => switch,
@@ -565,10 +899,12 @@ mod tests {
     }
 
     /// The error surfaces as it came, with nothing tried to name.
+    #[cfg(node_twin)]
     fn unchanged(decision: RouteDecision, message: &str) -> bool {
         matches!(decision, RouteDecision::Surface(s) if s.error.message == message && s.attempts.is_empty())
     }
 
+    #[cfg(node_twin)]
     fn host(windows: Vec<(&'static str, u64)>) -> Host {
         let golden = golden();
         Host {
@@ -579,6 +915,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn failure(kind: ErrorKind, status: u16, message: &str) -> ProviderError {
         let mut error = ProviderError::new(kind, DeliveryState::Accepted);
         error.status = Some(status);
@@ -587,6 +924,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_websocket_retirement_never_advances_the_model_route() {
         let host = Arc::new(host(vec![]));
         let hop = RouteHop::new(host.clone());
@@ -602,6 +940,7 @@ mod tests {
 
     /// Node's `routeFallbackVerdict` on 24 failures, and `namesUnavailableModel` on 16 texts.
     #[test]
+    #[cfg(node_twin)]
     fn the_verdicts_follow_node() {
         let golden: Value = serde_json::from_str(include_str!("golden/verdict.json")).expect("fixture");
         let cases = golden["cases"].as_object().unwrap();
@@ -659,6 +998,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_hop_writes_the_route_and_the_four_session_fields() {
         let host = Arc::new(host(vec![]));
         let hop = RouteHop::new(host.clone());
@@ -683,6 +1023,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_chain_that_ran_out_names_every_model_tried() {
         let host = Arc::new(host(vec![]));
         let hop = RouteHop::new(host.clone());
@@ -702,6 +1043,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_context_overflow_hops_only_to_a_larger_window() {
         let smaller = Arc::new(host(vec![("grok-4", 256_000), ("gemini-2.5-pro", 128_000)]));
         let hop = RouteHop::new(smaller.clone());
@@ -718,6 +1060,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_failure_that_would_fail_anywhere_stays_and_a_session_without_an_agent_never_hops() {
         let host = Arc::new(host(vec![]));
         let hop = RouteHop::new(host.clone());
@@ -728,6 +1071,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_provider_that_is_not_there_fails_the_hop_with_nodes_error() {
         let host = Arc::new(host(vec![]));
         host.session.lock().unwrap().as_object_mut().unwrap().insert(
@@ -744,6 +1088,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_switch_books_the_left_models_usage_and_the_turn_splits_per_model() {
         let host = Arc::new(host(vec![]));
         let hop = RouteHop::new(host);
@@ -758,6 +1103,7 @@ mod tests {
 
     /// Node's `routeUsageSegments` on five recorded turns.
     #[test]
+    #[cfg(node_twin)]
     fn usage_segments_follow_node() {
         let golden: Value = serde_json::from_str(include_str!("golden/usage_strip.json")).expect("fixture");
         let usage = |v: &Value| Usage {
@@ -795,6 +1141,7 @@ mod tests {
 
     /// Node's `stripProviderReplayMessage`: what stays of a message that carried replay state.
     #[test]
+    #[cfg(node_twin)]
     fn the_replay_strip_keeps_what_the_next_provider_needs() {
         use mixdog_core_api::domain::provider::{Content, Message, ProviderReplay, Role, ToolCall};
         let golden: Value = serde_json::from_str(include_str!("golden/usage_strip.json")).expect("fixture");
@@ -813,3 +1160,4 @@ mod tests {
         assert_eq!(golden["strip"]["sameObjectWhenPlain"], true);
     }
 }
+

@@ -2,6 +2,7 @@
 // The UI reads folded state from `client.store` and calls typed methods; no
 // desktop-method table or message shim sits between them.
 import {
+  ClientFailure,
   connect,
   DEFAULT_LADDER,
   sessionReducer,
@@ -97,12 +98,13 @@ export function createRedialSchedule(random: () => number): { next(ask: RedialAs
  */
 export async function connectPhone(options: PhoneClientOptions): Promise<PhoneClient> {
   const random = options.random ?? Math.random;
-  let terminal: 'update-required' | 'pairing-lost' | undefined;
+  type Terminal = Extract<PhoneConnection, { state: 'update-required' | 'pairing-lost' }>;
+  let terminal: Terminal | undefined;
   let client: ProtocolClient<SessionFold> | undefined;
-  const settle = (state: 'update-required' | 'pairing-lost'): void => {
+  const settle = (state: Terminal): void => {
     if (terminal) return;
     terminal = state;
-    options.onConnection({ state });
+    options.onConnection(state);
     void client?.close();
   };
   // Redial pacing: the library asks for a wait before each dial; what the page knows of the last end decides how long (see createRedialSchedule).
@@ -157,7 +159,7 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
       silent = info.quiet;
       // The failure is reported before a terminal state asks the user, as the page always did.
       options.onClose?.(code, reason, info);
-      if (state) settle(state);
+      if (state) settle({ state });
     },
   });
   options.onConnection({ state: 'connecting' });
@@ -177,9 +179,9 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
       });
     } catch (error) {
       if (terminal) throw error;
-      const detail = (error as { detail?: { kind?: string } }).detail;
+      const detail = error instanceof ClientFailure ? error.detail : undefined;
       if (detail?.kind === 'versionRefused') {
-        settle('update-required');
+        settle({ state: 'update-required', reason: detail.reason });
         throw error;
       }
       await sleep(0);
@@ -189,6 +191,10 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
   }
   const report = (shown: PhoneConnection): void => {
     if (terminal) return;
+    if (shown.state === 'update-required') {
+      settle(shown);
+      return;
+    }
     // A redial the page chose (recycle, background) or one that has not yet had a connection is connecting, not an outage.
     const next: PhoneConnection =
       shown.state === 'reconnecting' && (quiet || connector.suspended) ? { state: 'connecting' } : shown;

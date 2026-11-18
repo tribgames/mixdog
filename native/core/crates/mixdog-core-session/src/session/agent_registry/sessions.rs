@@ -25,6 +25,7 @@ use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_tools::fs::ReadState;
 use crate::session::Clock;
 use crate::session::SessionDirectory;
+use crate::session::archive_trees::Mark;
 
 /// The statusline's per-agent route (`clearAgentStatuslineRoute`).
 pub trait AgentStatusline: Send + Sync {
@@ -242,11 +243,6 @@ impl crate::session::directory::OwnerTeardown for AgentOwnerTeardown {
         self.sessions.teardown_owner(owner.as_str(), reason, &self.board).await;
     }
 }
-/// The header carries the archive flag, as the sidebar reads it.
-fn archived(header: &serde_json::Map<String, Value>) -> bool {
-    crate::session::delete::sidebar_flag(header, "archivedAt")
-}
-
 #[async_trait]
 impl Sessions for AgentSessions {
     /// Stored agent sessions open on demand, so there is nothing to load ahead: the registry's
@@ -323,17 +319,12 @@ impl Sessions for AgentSessions {
     async fn hide_sessions(&self, session_ids: &[String]) -> Vec<HideFailed> {
         let mut failed = Vec::new();
         for id in session_ids.iter().filter(|id| !id.is_empty()) {
-            let thread = ThreadId::from(id.as_str());
             // An archived session keeps its stamp; one that is gone has nothing to hide.
-            match self.threads.header(&thread).await {
-                Ok(header) if !archived(&header) => {
-                    let set = serde_json::Map::from_iter([("archivedAt".to_owned(), serde_json::json!(self.clock.now_ms()))]);
-                    if let Err(error) = self.threads.patch_header(&thread, set, vec![]).await {
-                        tracing::warn!(session = %id, ?error, "a closed agent's session stays listed");
-                        failed.push(HideFailed { session_id: id.clone(), reason: format!("could not save the hidden sessions: {error:?}") });
-                    }
-                }
-                _ => {}
+            let Ok(header) = self.threads.header(&ThreadId::from(id.as_str())).await else { continue };
+            let now = self.clock.now_ms() as f64;
+            if let Err(error) = self.directory.mark_archived(id, &header, Mark::Archive(Box::new(move || now))).await {
+                tracing::warn!(session = %id, ?error, "a closed agent's session stays listed");
+                failed.push(HideFailed { session_id: id.clone(), reason: format!("could not save the hidden sessions: {error:?}") });
             }
         }
         failed
@@ -341,7 +332,10 @@ impl Sessions for AgentSessions {
 
     /// Read as a listing reads the session, without opening it: a cleanup asks this of every closed agent of the caller.
     async fn is_hidden(&self, session_id: &str) -> bool {
-        self.directory.listed_header(&ThreadId::from(session_id)).await.is_some_and(|header| archived(&header))
+        self.directory
+            .listed_fields(&ThreadId::from(session_id), &["archivedAt"])
+            .await
+            .is_some_and(|header| self.directory.archive_state(session_id, &header).archived())
     }
 
     /// `sessionGone` (`agent-tree.mjs`) over `storedSessionAbsent`: gone only when the index lists the session no longer
@@ -388,10 +382,9 @@ impl Sessions for AgentSessions {
         if session_id.is_empty() {
             return;
         }
-        let thread = ThreadId::from(session_id);
         // Still hidden on a failed write: the next send tries again.
-        if matches!(self.threads.header(&thread).await, Ok(header) if archived(&header)) {
-            let _ = self.threads.patch_header(&thread, serde_json::Map::new(), vec!["archivedAt".to_owned()]).await;
+        if let Ok(header) = self.threads.header(&ThreadId::from(session_id)).await {
+            let _ = self.directory.mark_archived(session_id, &header, Mark::Restore).await;
         }
     }
 
@@ -423,6 +416,7 @@ mod tests {
         assert_eq!(last_handoff(&none, &messages[..1]), "first");
         assert_eq!(last_handoff(&none, &[]), "");
     }
+
 
     /// `__close_all` (`daemon-agent-control.mjs:75-82`): the workers close first, the descendants
     /// are cancelled after that has settled.

@@ -134,50 +134,6 @@ pub fn exchange_error(status: u16, headers: &[(String, String)], detail: &str) -
     error
 }
 
-/// One token exchange: `token` (an API key or a refresh token) for a fresh
-/// access token.
-pub async fn exchange_token(http: &dyn HttpSend, token: &str) -> Result<StoredTokens, ProviderError> {
-    let head = http
-        .send(
-            WireRequest {
-                transport: TransportKind::Http1,
-                method: "POST".to_owned(),
-                url: EXCHANGE_URL.to_owned(),
-                headers: vec![
-                    // As the caller's `fetch` spells them (cursor-auth.mjs `exchangeCursorToken`).
-                    ("Authorization".to_owned(), format!("Bearer {token}")),
-                    ("Content-Type".to_owned(), "application/json".to_owned()),
-                ],
-                body: b"{}".to_vec(),
-            },
-            CURSOR_EXCHANGE,
-        )
-        .await?;
-    let success = head.is_success();
-    let response = head.read_all().await?;
-    if !success {
-        // The server's text may echo the token this exchange carried; it is redacted wherever it stands.
-        let detail = crate::oauth::scrub::scrub_oauth_secrets(&String::from_utf8_lossy(&response.body), &[token]).trim().to_owned();
-        return Err(exchange_error(response.status.unwrap_or(0), &response.headers, &detail));
-    }
-    let data: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
-    let Some(access) = data.get("accessToken").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
-        let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
-        error.message = "Cursor token exchange returned no access token".to_owned();
-        return Err(error);
-    };
-    let refresh = data
-        .get("refreshToken")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .unwrap_or(token);
-    Ok(StoredTokens::from_exchange(
-        access.to_owned(),
-        Some(refresh.to_owned()),
-        now_ms(),
-    ))
-}
-
 /// `cursor-api`: the configured API key, exchanged for access tokens that are
 /// cached until their refresh skew.
 pub struct ApiKeyAccess {
@@ -206,34 +162,6 @@ impl ApiKeyAccess {
             .load_full()
             .filter(|t| !t.needs_refresh(now_ms()))
             .map(|t| t.access_token.clone())
-    }
-}
-
-#[async_trait]
-impl AccessToken for ApiKeyAccess {
-    async fn access_token(&self, force_refresh: bool) -> Result<String, ProviderError> {
-        if !force_refresh && let Some(access) = self.fresh() {
-            return Ok(access);
-        }
-        // What this caller saw rejected: a forced refresh that finds another
-        // token in the cache after waiting adopts it instead of exchanging again.
-        let seen = self.cached.load_full().map(|t| t.access_token.clone());
-        let _gate = self.exchanging.acquire().await.map_err(|_| storage("exchange gate closed"))?;
-        let current = self.cached.load_full().map(|t| t.access_token.clone());
-        if let Some(access) = self.fresh()
-            && (!force_refresh || current != seen)
-        {
-            return Ok(access);
-        }
-        let tokens = exchange_token(self.http.as_ref(), &self.api_key).await?;
-        // The exchanged token is a credential before any request carries it; the key's next one replaces it.
-        crate::oauth::carried::keep(
-            &crate::oauth::carried::derived_source("cursor exchange", &self.slot),
-            &[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()],
-        );
-        let access = tokens.access_token.clone();
-        self.cached.store(Some(std::sync::Arc::new(tokens)));
-        Ok(access)
     }
 }
 fn reauth(message: &str) -> ProviderError {
@@ -265,79 +193,8 @@ pub struct FileAccess {
     file: CredentialFile,
     /// One refresh at a time in this process; waiters adopt its result.
     refreshing: tokio::sync::Semaphore,
-}
-
-impl FileAccess {
-    pub fn new(http: std::sync::Arc<dyn HttpSend>, file: CredentialFile) -> Self {
-        Self {
-            http,
-            file,
-            refreshing: tokio::sync::Semaphore::new(1),
-        }
-    }
-
-    async fn stored(&self) -> Result<StoredTokens, ProviderError> {
-        match self.file.load::<StoredTokens>().await {
-            Probe::Present(tokens) => {
-                self.file.keep(&[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()]);
-                Ok(tokens)
-            }
-            Probe::Absent => Err(reauth("Cursor OAuth is not connected.")),
-            Probe::Unreadable => Err(storage("the credential file cannot be read")),
-        }
-    }
-
-    /// Records that the refresh token was refused, unless another process has
-    /// replaced it since. The tokens stay; a new sign-in clears the marker.
-    async fn mark_dead(&self, refresh_token: &str) {
-        let expected = refresh_token.to_owned();
-        let mut update = serde_json::Map::new();
-        update.insert("reauth_required".to_owned(), Value::Bool(true));
-        let _ = self
-            .file
-            .replace_if(
-                move |doc| doc.get("refresh_token").and_then(Value::as_str) == Some(expected.as_str()),
-                update,
-            )
-            .await;
-    }
-
-    async fn refresh(&self, old: StoredTokens, force: bool) -> Result<StoredTokens, ProviderError> {
-        let _gate = self.refreshing.acquire().await.map_err(|_| storage("refresh gate closed"))?;
-        // A concurrent refresher (or process) may already have rotated.
-        let latest = self.stored().await?;
-        let rotated = latest.access_token != old.access_token || latest.refresh_token != old.refresh_token;
-        let valid_after = now_ms() + if force { 0 } else { REFRESH_SKEW.as_millis() as u64 };
-        if rotated && (latest.expires_at == 0 || latest.expires_at > valid_after) {
-            return Ok(latest);
-        }
-        let Some(refresh_token) = latest.refresh_token.clone() else {
-            return Err(reauth("Cursor OAuth refresh token is unavailable."));
-        };
-        let next = match exchange_token(self.http.as_ref(), &refresh_token).await {
-            Ok(next) => next,
-            Err(error) => {
-                if error.reauth_required {
-                    self.mark_dead(&refresh_token).await;
-                }
-                return Err(error);
-            }
-        };
-        self.file.keep(&[&next.access_token, next.refresh_token.as_deref().unwrap_or(&refresh_token)]);
-        let (access, refresh) = (latest.access_token.clone(), refresh_token);
-        let published = self
-            .file
-            .replace_if(
-                move |doc| {
-                    doc.get("access_token").and_then(Value::as_str) == Some(access.as_str())
-                        && doc.get("refresh_token").and_then(Value::as_str) == Some(refresh.as_str())
-                },
-                document(&next)?,
-            )
-            .await
-            .map_err(|_| storage("the refreshed tokens could not be stored"))?;
-        if published { Ok(next) } else { self.stored().await }
-    }
+    /// `CURSOR_ACCESS_TOKEN`: stands in for the file (`loadStoredCredentials`), with no refresh token.
+    env_token: Option<String>,
 }
 
 #[async_trait]
@@ -492,6 +349,49 @@ mod tests {
         assert_eq!(throttled.retry_after, Some(Duration::from_secs(2)));
     }
 
+    fn file_in(dir: &tempfile::TempDir) -> CredentialFile {
+        use crate::oauth::CredentialIo;
+        let rt = mixdog_rt::testing::tokens();
+        CredentialFile::new(dir.path().join("cursor-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io })
+    }
+    /// `CURSOR_ACCESS_TOKEN` stands in for the file (`loadStoredCredentials`): it is served without any exchange.
+    #[tokio::test]
+    async fn the_environment_token_is_served_in_place_of_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let http = std::sync::Arc::new(Exchange { calls: AtomicUsize::new(0), status: 200 });
+        let access = FileAccess::new(http.clone(), file_in(&dir)).with_env_token(Some(jwt(4_000_000_000)));
+        assert_eq!(access.access_token(false).await.unwrap(), jwt(4_000_000_000));
+        assert_eq!(http.calls.load(Ordering::SeqCst), 0);
+    }
+    /// With another account selected (`boundProviderAuthPath` names its file) the environment token is not used: the
+    /// selected account's own file is read, and it is absent here.
+    #[tokio::test]
+    async fn a_selected_account_does_not_send_with_the_environment_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let other = dir.path().join("provider-accounts").join("cursor-oauth").join("a2.json");
+        let http = std::sync::Arc::new(Exchange { calls: AtomicUsize::new(0), status: 200 });
+        let file = file_in(&dir).following(std::sync::Arc::new(move || {
+            let other = other.clone();
+            Box::pin(async move { other })
+        }));
+        let access = FileAccess::new(http, file).with_env_token(Some(jwt(4_000_000_000)));
+        let error = access.access_token(false).await.expect_err("the selected account is not signed in");
+        assert!(error.reauth_required);
+    }
+    /// A stored document without `expires_at` expires with its token's `exp` claim (`cursorTokenExpiry`).
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "test: writes a fixture credential file synchronously")]
+    async fn a_file_without_an_expiry_expires_with_its_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = file_in(&dir);
+        std::fs::write(file.path(), format!(r#"{{"access_token":"{}","refresh_token":"r0"}}"#, jwt(1))).unwrap();
+        let http = std::sync::Arc::new(Exchange { calls: AtomicUsize::new(0), status: 200 });
+        let access = FileAccess::new(http.clone(), file);
+        assert_eq!(access.access_token(false).await.unwrap(), jwt(4_000_000_000));
+        assert_eq!(http.calls.load(Ordering::SeqCst), 1);
+    }
+
+
     /// The refresh that outlives its timer reads as the real Node function did (`sites.cursorRefresh`).
     #[tokio::test(start_paused = true)]
     async fn an_exchange_that_outlives_its_timer_reads_as_nodes() {
@@ -501,5 +401,166 @@ mod tests {
         let error = exchange_token(transport.as_ref(), "r").await.expect_err("never answers");
         assert_transport("cursorRefresh", &transport);
         assert_thrown("cursorRefresh", &error.message);
+    }
+}
+
+
+/// One token exchange: `token` (an API key or a refresh token) for a fresh
+/// access token.
+pub async fn exchange_token(http: &dyn HttpSend, token: &str) -> Result<StoredTokens, ProviderError> {
+    let head = http
+        .send(
+            WireRequest {
+                transport: TransportKind::Http1,
+                method: "POST".to_owned(),
+                url: EXCHANGE_URL.to_owned(),
+                headers: vec![
+                    // As the caller's `fetch` spells them (cursor-auth.mjs `exchangeCursorToken`).
+                    ("Authorization".to_owned(), format!("Bearer {token}")),
+                    ("Content-Type".to_owned(), "application/json".to_owned()),
+                ],
+                body: b"{}".to_vec(),
+            },
+            CURSOR_EXCHANGE,
+        )
+        .await?;
+    let success = head.is_success();
+    let response = head.read_all().await?;
+    if !success {
+        // The server's text may echo the token this exchange carried; it is redacted wherever it stands.
+        let detail = crate::oauth::scrub::scrub_oauth_secrets(&String::from_utf8_lossy(&response.body), &[token]).trim().to_owned();
+        return Err(exchange_error(response.status.unwrap_or(0), &response.headers, &detail));
+    }
+    let data: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
+    let Some(access) = data.get("accessToken").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+        let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+        error.message = "Cursor token exchange returned no access token".to_owned();
+        return Err(error);
+    };
+    let refresh = data
+        .get("refreshToken")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(token);
+    Ok(StoredTokens::from_exchange(
+        access.to_owned(),
+        Some(refresh.to_owned()),
+        now_ms(),
+    ))
+}
+#[async_trait]
+impl AccessToken for ApiKeyAccess {
+    async fn access_token(&self, force_refresh: bool) -> Result<String, ProviderError> {
+        if !force_refresh && let Some(access) = self.fresh() {
+            return Ok(access);
+        }
+        // What this caller saw rejected: a forced refresh that finds another
+        // token in the cache after waiting adopts it instead of exchanging again.
+        let seen = self.cached.load_full().map(|t| t.access_token.clone());
+        let _gate = self.exchanging.acquire().await.map_err(|_| storage("exchange gate closed"))?;
+        let current = self.cached.load_full().map(|t| t.access_token.clone());
+        if let Some(access) = self.fresh()
+            && (!force_refresh || current != seen)
+        {
+            return Ok(access);
+        }
+        let tokens = exchange_token(self.http.as_ref(), &self.api_key).await?;
+        // The exchanged token is a credential before any request carries it; the key's next one replaces it.
+        crate::oauth::carried::keep(
+            &crate::oauth::carried::derived_source("cursor exchange", &self.slot),
+            &[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()],
+        );
+        let access = tokens.access_token.clone();
+        self.cached.store(Some(std::sync::Arc::new(tokens)));
+        Ok(access)
+    }
+}
+impl FileAccess {
+    pub fn new(http: std::sync::Arc<dyn HttpSend>, file: CredentialFile) -> Self {
+        Self {
+            http,
+            file,
+            refreshing: tokio::sync::Semaphore::new(1),
+            env_token: None,
+        }
+    }
+
+    pub fn with_env_token(mut self, token: Option<String>) -> Self {
+        self.env_token = token.filter(|t| !t.is_empty());
+        self
+    }
+
+    async fn stored(&self) -> Result<StoredTokens, ProviderError> {
+        // Only where Node read it: no account bound (`!boundProviderAuthPath('cursor-oauth')`, cursor-auth.mjs:100).
+        if let Some(token) = &self.env_token
+            && self.file.is_own_now().await
+        {
+            return Ok(StoredTokens { access_token: token.clone(), refresh_token: None, expires_at: token_expiry(token), reauth_required: false });
+        }
+        match self.file.load::<StoredTokens>().await {
+            Probe::Present(mut tokens) => {
+                self.file.keep(&[&tokens.access_token, tokens.refresh_token.as_deref().unwrap_or_default()]);
+                // `Number(raw.expires_at) || cursorTokenExpiry(raw.access_token)`: a file that records no expiry
+                // still expires when its token's own claim says so.
+                if tokens.expires_at == 0 {
+                    tokens.expires_at = token_expiry(&tokens.access_token);
+                }
+                Ok(tokens)
+            }
+            Probe::Absent => Err(reauth("Cursor OAuth is not connected.")),
+            Probe::Unreadable => Err(storage("the credential file cannot be read")),
+        }
+    }
+
+    /// Records that the refresh token was refused, unless another process has
+    /// replaced it since. The tokens stay; a new sign-in clears the marker.
+    async fn mark_dead(&self, refresh_token: &str) {
+        let expected = refresh_token.to_owned();
+        let mut update = serde_json::Map::new();
+        update.insert("reauth_required".to_owned(), Value::Bool(true));
+        let _ = self
+            .file
+            .replace_if(
+                move |doc| doc.get("refresh_token").and_then(Value::as_str) == Some(expected.as_str()),
+                update,
+            )
+            .await;
+    }
+
+    async fn refresh(&self, old: StoredTokens, force: bool) -> Result<StoredTokens, ProviderError> {
+        let _gate = self.refreshing.acquire().await.map_err(|_| storage("refresh gate closed"))?;
+        // A concurrent refresher (or process) may already have rotated.
+        let latest = self.stored().await?;
+        let rotated = latest.access_token != old.access_token || latest.refresh_token != old.refresh_token;
+        let valid_after = now_ms() + if force { 0 } else { REFRESH_SKEW.as_millis() as u64 };
+        if rotated && (latest.expires_at == 0 || latest.expires_at > valid_after) {
+            return Ok(latest);
+        }
+        let Some(refresh_token) = latest.refresh_token.clone() else {
+            return Err(reauth("Cursor OAuth refresh token is unavailable."));
+        };
+        let next = match exchange_token(self.http.as_ref(), &refresh_token).await {
+            Ok(next) => next,
+            Err(error) => {
+                if error.reauth_required {
+                    self.mark_dead(&refresh_token).await;
+                }
+                return Err(error);
+            }
+        };
+        self.file.keep(&[&next.access_token, next.refresh_token.as_deref().unwrap_or(&refresh_token)]);
+        let (access, refresh) = (latest.access_token.clone(), refresh_token);
+        let published = self
+            .file
+            .replace_if(
+                move |doc| {
+                    doc.get("access_token").and_then(Value::as_str) == Some(access.as_str())
+                        && doc.get("refresh_token").and_then(Value::as_str) == Some(refresh.as_str())
+                },
+                document(&next)?,
+            )
+            .await
+            .map_err(|_| storage("the refreshed tokens could not be stored"))?;
+        if published { Ok(next) } else { self.stored().await }
     }
 }

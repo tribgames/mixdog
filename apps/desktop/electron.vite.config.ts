@@ -154,6 +154,7 @@ const FIRST_SCREEN_LOCALE_CHUNKS = {
   'zh-TW': 'zh-TW',
 } as const;
 
+const rendererPublicDir = resolve(__dirname, 'src/renderer/public');
 const firstScreenHints: Plugin = {
   name: 'mixdog-first-screen-hints',
   enforce: 'post',
@@ -254,7 +255,7 @@ const firstScreenHints: Plugin = {
       return stampRendererShell(html.replace(
         placeholder,
         hints ? `<template id="mixdog-first-screen">${hints}</template>` : '',
-      ), context.bundle);
+      ), context.bundle, rendererPublicDir);
     },
   },
 };
@@ -295,6 +296,8 @@ export default defineConfig({
           'browser-login': resolve(__dirname, 'src/preload/browser-login.ts'),
           'browser-page': resolve(__dirname, 'src/preload/browser-page.ts'),
           'desktop-pet': resolve(__dirname, 'src/preload/desktop-pet.ts'),
+          // Main's own confirm surface, e.g. "Allow all actions" (main/developer-risk-confirm.ts).
+          'host-confirm': resolve(__dirname, 'src/preload/host-confirm.ts'),
           // The hidden WebRTC live-view sender (main/remote-webrtc/sender-window.ts).
           'remote-webrtc-sender': resolve(__dirname, 'src/preload/remote-webrtc-sender.ts'),
           // The hidden direct-transport peer host (main/remote-transport/peer-window.ts).
@@ -312,7 +315,7 @@ export default defineConfig({
   renderer: buildTargetEnabled('renderer') ? {
     // The relay/VPS serves this renderer as an installable web app. Keep the
     // manifest, icon and network-only service worker at stable root paths.
-    publicDir: resolve(__dirname, 'src/renderer/public'),
+    publicDir: rendererPublicDir,
     ...(devViteCacheDir ? { cacheDir: resolve(devViteCacheDir) } : {}),
     resolve: {
       alias: [

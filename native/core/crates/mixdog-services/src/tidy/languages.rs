@@ -67,6 +67,11 @@ pub fn language_for_path(file_path: &str) -> String {
     CODE_LANGUAGE_EXTENSIONS.iter().chain(AUX_LANGUAGE_EXTENSIONS).find(|(_, exts)| exts.contains(&ext.as_str())).map(|(l, _)| (*l).to_owned()).unwrap_or_default()
 }
 
+/// Whether `id` names a language tidy knows: the static registry, or one the graph binary reports.
+pub fn is_known_language(id: &str, graph: Option<&GraphLangs>) -> bool {
+    CODE_LANGUAGE_EXTENSIONS.iter().chain(AUX_LANGUAGE_EXTENSIONS).any(|(l, _)| *l == id) || graph.is_some_and(|g| g.ids.iter().any(|l| l == id))
+}
+
 /// The graph binary's `--langs` capability table.
 #[derive(Debug, Clone, Default)]
 pub struct GraphLangs {
@@ -75,7 +80,7 @@ pub struct GraphLangs {
     pub scannable: Vec<String>,
 }
 
-fn language_with(file_path: &str, extensions: Option<&HashMap<String, String>>) -> String {
+pub fn language_with(file_path: &str, extensions: Option<&HashMap<String, String>>) -> String {
     let ext = extension_of(file_path);
     if let Some(from_graph) = extensions.and_then(|m| m.get(&ext)).filter(|_| !ext.is_empty()) {
         return from_graph.clone();
@@ -141,23 +146,6 @@ pub fn parse_graph_langs(stdout: &str) -> Option<GraphLangs> {
     (!langs.extensions.is_empty()).then_some(langs)
 }
 
-/// git-tracked (and untracked, non-ignored) files under `cwd`, filtered to the scope paths.
-pub async fn list_scoped_files(processes: &Processes, cwd: &Path, paths: &[String], cancel: Option<&CancellationToken>) -> (Vec<String>, String) {
-    let Some(git) = processes.which("git", None).await else { return (Vec::new(), "git is not installed".into()) };
-    let mut args: Vec<String> = ["-c", "core.quotepath=false", "--literal-pathspecs", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--"].iter().map(|s| (*s).to_owned()).collect();
-    args.extend(paths.iter().cloned());
-    let mut options = RunOptions::new(cwd);
-    options.cancel = cancel;
-    options.timeout = std::time::Duration::from_secs(20);
-    let result = processes.run(&git.to_string_lossy(), &args, options).await;
-    if result.code != 0 {
-        let err = mixdog_js::slice_utf16(mixdog_js::js_trim(&result.stderr), 200);
-        return (Vec::new(), if err.is_empty() { if result.error.is_empty() { format!("git ls-files exited {}", result.code) } else { result.error } } else { err });
-    }
-    let files = result.stdout.split('\0').map(normalize_rel).filter(|f| !f.is_empty() && within_scope(f, paths)).collect();
-    (files, String::new())
-}
-
 #[derive(Debug)]
 pub struct Detected {
     /// `(language, files)` sorted by count then id.
@@ -166,35 +154,6 @@ pub struct Detected {
     pub source: &'static str,
     pub extensions: Option<HashMap<String, String>>,
     pub note: Option<String>,
-}
-
-/// Detects the languages present in `cwd`. Files come from git (they scope every engine run) and
-/// map to languages by extension: the graph binary's table wins when available, with the static
-/// registry covering formatter-only extensions the binary does not parse.
-pub async fn detect_languages(processes: &Processes, cwd: &Path, paths: &[String], language_filter: &[String], graph_langs: Option<&GraphLangs>, cancel: Option<&CancellationToken>) -> Detected {
-    let (files, error) = list_scoped_files(processes, cwd, paths, cancel).await;
-    let extensions = graph_langs.map(|g| &g.extensions);
-    let language_of = |rel: &str| language_with(rel, extensions);
-    let filtered: Vec<String> = if language_filter.is_empty() { files } else { files.into_iter().filter(|f| language_filter.contains(&language_of(f))).collect() };
-    let mut counts: Vec<(String, usize)> = Vec::new();
-    for rel in &filtered {
-        let language = language_of(rel);
-        if language.is_empty() {
-            continue;
-        }
-        match counts.iter_mut().find(|(l, _)| *l == language) {
-            Some((_, n)) => *n += 1,
-            None => counts.push((language, 1)),
-        }
-    }
-    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| mixdog_js::locale_compare(&a.0, &b.0)));
-    Detected {
-        languages: counts,
-        files: filtered,
-        source: if extensions.is_some() { "graph-binary" } else { "git" },
-        extensions: extensions.cloned(),
-        note: (!error.is_empty()).then(|| format!("language detection fell back to an empty file set: {error}")),
-    }
 }
 
 /// Files of the requested languages, in scope order, classified with the same table detection used.
@@ -243,6 +202,7 @@ mod tests {
         assert!(files_for_languages(&["a.rs".into()], &[], None).is_empty());
     }
 
+
     #[tokio::test]
     async fn detection_counts_git_files_by_language() {
         let dir = tempfile::tempdir().unwrap();
@@ -261,5 +221,51 @@ mod tests {
         assert_eq!(only.files, ["c.py"]);
         let scoped = detect_languages(&Processes::for_tests(), dir.path(), &["a.rs".into()], &[], None, None).await;
         assert_eq!(scoped.files, ["a.rs"]);
+    }
+}
+
+
+/// git-tracked (and untracked, non-ignored) files under `cwd`, filtered to the scope paths.
+pub async fn list_scoped_files(processes: &Processes, cwd: &Path, paths: &[String], cancel: Option<&CancellationToken>) -> (Vec<String>, String) {
+    let Some(git) = processes.which("git", None).await else { return (Vec::new(), "git is not installed".into()) };
+    let mut args: Vec<String> = ["-c", "core.quotepath=false", "--literal-pathspecs", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--"].iter().map(|s| (*s).to_owned()).collect();
+    args.extend(paths.iter().cloned());
+    let mut options = RunOptions::new(cwd);
+    options.cancel = cancel;
+    options.timeout = std::time::Duration::from_secs(20);
+    let result = processes.run(&git.to_string_lossy(), &args, options).await;
+    if result.code != 0 {
+        let err = mixdog_js::slice_utf16(mixdog_js::js_trim(&result.stderr), 200);
+        return (Vec::new(), if err.is_empty() { if result.error.is_empty() { format!("git ls-files exited {}", result.code) } else { result.error } } else { err });
+    }
+    let files = result.stdout.split('\0').map(normalize_rel).filter(|f| !f.is_empty() && within_scope(f, paths)).collect();
+    (files, String::new())
+}
+/// Detects the languages present in `cwd`. Files come from git (they scope every engine run) and
+/// map to languages by extension: the graph binary's table wins when available, with the static
+/// registry covering formatter-only extensions the binary does not parse.
+pub async fn detect_languages(processes: &Processes, cwd: &Path, paths: &[String], language_filter: &[String], graph_langs: Option<&GraphLangs>, cancel: Option<&CancellationToken>) -> Detected {
+    let (files, error) = list_scoped_files(processes, cwd, paths, cancel).await;
+    let extensions = graph_langs.map(|g| &g.extensions);
+    let language_of = |rel: &str| language_with(rel, extensions);
+    let filtered: Vec<String> = if language_filter.is_empty() { files } else { files.into_iter().filter(|f| language_filter.contains(&language_of(f))).collect() };
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for rel in &filtered {
+        let language = language_of(rel);
+        if language.is_empty() {
+            continue;
+        }
+        match counts.iter_mut().find(|(l, _)| *l == language) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((language, 1)),
+        }
+    }
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| mixdog_js::locale_compare(&a.0, &b.0)));
+    Detected {
+        languages: counts,
+        files: filtered,
+        source: if extensions.is_some() { "graph-binary" } else { "git" },
+        extensions: extensions.cloned(),
+        note: (!error.is_empty()).then(|| format!("language detection fell back to an empty file set: {error}")),
     }
 }

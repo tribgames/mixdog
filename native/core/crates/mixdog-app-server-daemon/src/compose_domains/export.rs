@@ -32,24 +32,6 @@ pub trait SessionCwds: Send + Sync {
     async fn cwd(&self, session_id: &str) -> Result<Option<String>, mixdog_core_api::CoreError>;
 }
 
-/// The sessions' stored headers as the cwd source: a header's `cwd` text.
-pub struct HeaderCwds(pub Arc<dyn mixdog_core::run_host::config_hosts::ThreadHeaders>);
-
-#[async_trait]
-impl SessionCwds for HeaderCwds {
-    async fn cwd(&self, session_id: &str) -> Result<Option<String>, mixdog_core_api::CoreError> {
-        let Some(header) = self.0.header(&session_id.into()).await? else { return Ok(None) };
-        Ok(header.get("cwd").and_then(Value::as_str).map(str::to_owned))
-    }
-}
-
-#[async_trait]
-impl mixdog_scm::service::ThreadWorktrees for HeaderCwds {
-    async fn cwd(&self, thread: &mixdog_core_api::ids::ThreadId) -> Result<Option<String>, mixdog_core_api::CoreError> {
-        SessionCwds::cwd(self, thread.as_str()).await
-    }
-}
-
 pub(super) struct HostExportRenderer {
     host: Arc<dyn HostChannel>,
     cwds: Arc<dyn SessionCwds>,
@@ -148,20 +130,6 @@ mod tests {
 
     struct Headers;
 
-    #[async_trait]
-    impl mixdog_core::run_host::config_hosts::ThreadHeaders for Headers {
-        async fn header(&self, thread: &mixdog_core_api::ids::ThreadId) -> Result<Option<mixdog_store::schema::record::Header>, mixdog_core_api::CoreError> {
-            Ok((thread.as_str() == "s").then(|| json!({ "cwd": "/work", "title": "x" }).as_object().unwrap().clone()))
-        }
-    }
-
-    #[tokio::test]
-    async fn a_sessions_cwd_is_its_stored_headers_cwd() {
-        let cwds = HeaderCwds(Arc::new(Headers));
-        assert_eq!(cwds.cwd("s").await.unwrap().as_deref(), Some("/work"));
-        assert_eq!(cwds.cwd("other").await.unwrap(), None);
-    }
-
     struct UnreadableCwds;
 
     #[async_trait]
@@ -198,5 +166,36 @@ mod tests {
         let host = Arc::new(MockHostChannel::default());
         let error = renderer(host).render(&command(), &CancellationToken::new()).await.err().unwrap();
         assert_eq!(error.reason, Reason::Unsupported);
+    }
+
+
+    #[async_trait]
+    impl mixdog_core::run_host::config_hosts::ThreadHeaders for Headers {
+        async fn header(&self, thread: &mixdog_core_api::ids::ThreadId) -> Result<Option<mixdog_store::schema::record::Header>, mixdog_core_api::CoreError> {
+            Ok((thread.as_str() == "s").then(|| json!({ "cwd": "/work", "title": "x" }).as_object().unwrap().clone()))
+        }
+    }
+    #[tokio::test]
+    async fn a_sessions_cwd_is_its_stored_headers_cwd() {
+        let cwds = HeaderCwds(Arc::new(Headers));
+        assert_eq!(cwds.cwd("s").await.unwrap().as_deref(), Some("/work"));
+        assert_eq!(cwds.cwd("other").await.unwrap(), None);
+    }
+}
+
+
+/// The sessions' stored headers as the cwd source: a header's `cwd` text.
+pub struct HeaderCwds(pub Arc<dyn mixdog_core::run_host::config_hosts::ThreadHeaders>);
+#[async_trait]
+impl SessionCwds for HeaderCwds {
+    async fn cwd(&self, session_id: &str) -> Result<Option<String>, mixdog_core_api::CoreError> {
+        let Some(header) = self.0.header(&session_id.into()).await? else { return Ok(None) };
+        Ok(header.get("cwd").and_then(Value::as_str).map(str::to_owned))
+    }
+}
+#[async_trait]
+impl mixdog_scm::service::ThreadWorktrees for HeaderCwds {
+    async fn cwd(&self, thread: &mixdog_core_api::ids::ThreadId) -> Result<Option<String>, mixdog_core_api::CoreError> {
+        SessionCwds::cwd(self, thread.as_str()).await
     }
 }

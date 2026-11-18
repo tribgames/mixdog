@@ -306,7 +306,7 @@
     "twin": null,
     "note": "the older in-memory binding shape is not reachable over the wire",
     "covered_by": [
-      "native_push::a_single_association_entry_is_still_honoured_and_upgraded_on_use"
+      "native_push::one_phone_token_paired_with_two_desktops_both_deliver_and_revoking_one_leaves_the_other"
     ]
   },
   {

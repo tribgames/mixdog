@@ -211,6 +211,15 @@ mod tests {
         assert_eq!(ms[11..], [7436, 7436, 7436]);
     }
 
+    #[tokio::test]
+    async fn three_failures_in_a_row_end_the_login() {
+        let http = Scripted::new(&[(500, ""), (500, ""), (500, "")]);
+        let pace = FakePace::default();
+        let failure = poll_tokens(http.as_ref(), &pace, "u", "v").await.unwrap_err();
+        assert_eq!(failure, failed("poll", "Cursor OAuth failed (500)"));
+    }
+
+
     /// A poll nothing answers arms no timer: it ends at the dispatcher, and the third failure in a row ends the login with
     /// the last one's text (`sites.cursorPoll`).
     #[tokio::test(start_paused = true)]
@@ -219,20 +228,12 @@ mod tests {
         use crate::transport::site_probe::assert_dispatcher;
         use crate::transport::site_probe::assert_thrown;
         use crate::transport::site_probe::login_message;
-        use crate::transport::site_probe::recorded;
+        use crate::transport::site_probe::rejected_count;
 
         let transport = TimingOut::new();
         let failure = poll_tokens(transport.as_ref(), &FakePace::default(), "u", "v").await.unwrap_err();
         assert_dispatcher("cursorPoll", &transport);
-        assert_eq!(transport.seen().len(), recorded("cursorPoll")["fetchRejected"].as_array().unwrap().len());
+        assert_eq!(transport.seen().len(), rejected_count("cursorPoll"));
         assert_thrown("cursorPoll", login_message(&failure));
-    }
-
-    #[tokio::test]
-    async fn three_failures_in_a_row_end_the_login() {
-        let http = Scripted::new(&[(500, ""), (500, ""), (500, "")]);
-        let pace = FakePace::default();
-        let failure = poll_tokens(http.as_ref(), &pace, "u", "v").await.unwrap_err();
-        assert_eq!(failure, failed("poll", "Cursor OAuth failed (500)"));
     }
 }

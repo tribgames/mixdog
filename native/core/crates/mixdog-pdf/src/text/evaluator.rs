@@ -165,7 +165,6 @@ fn chars_of<'b>(state: &TextState, arg: Option<&'b Obj>) -> Result<Chars<'b>> {
 
 /// The reader of one document's text: the document, its fonts and the page's view box.
 pub struct Evaluator<'a> {
-    document: &'a Document,
     xref: &'a Xref,
     fonts: &'a FontLoader,
     view_box: [f64; 4],
@@ -177,7 +176,6 @@ pub struct Evaluator<'a> {
 impl<'a> Evaluator<'a> {
     pub fn new(document: &'a Document, fonts: &'a FontLoader, view_box: [f64; 4]) -> Self {
         Evaluator {
-            document,
             xref: document.xref(),
             fonts,
             view_box,

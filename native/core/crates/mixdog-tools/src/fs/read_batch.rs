@@ -12,8 +12,6 @@ use mixdog_protocol::JsonValue;
 use super::read_state::LineRange;
 use super::read_state::merge_ranges;
 
-/// Windows of one file whose gap is at most this many lines share one disk read.
-const COALESCE_GAP_LINES: u64 = 256;
 /// Rows of a line window before the model-facing marker form: `<n>→<row>`.
 const SEP: char = '→';
 
@@ -54,6 +52,8 @@ pub(super) struct BEntry {
     pub orig_limit: Option<f64>,
     /// `tail: N` until it is read off the file (`ReadTool::resolve_tail`).
     pub tail: Option<u64>,
+    /// Call-wide PDF selection; inherits unchanged through windows and glob expansion.
+    pub pages: Option<JsonValue>,
     /// The window is the public guard's default (the caller named neither an offset nor a limit), so a notebook,
     /// which refuses a named range, still reads.
     pub injected: bool,
@@ -66,7 +66,7 @@ impl BEntry {
     }
 
     /// `entryIsImplicitDefaultRead`: the caller named neither an offset nor a limit.
-    fn implicit(&self) -> bool {
+    pub fn implicit(&self) -> bool {
         self.limit.is_none() && self.offset.is_none()
     }
 
@@ -100,7 +100,7 @@ impl BEntry {
 /// the first member's slot; the other members are dropped.
 pub(super) fn merge_overlapping(entries: Vec<BEntry>, key: &dyn Fn(&str) -> String) -> Vec<BEntry> {
     let explicit = |e: &BEntry| {
-        e.is_full_mode() && e.full != Some(true) && e.offset.is_some_and(f64::is_finite) && e.limit.is_some_and(|l| l.is_finite() && l > 0.0)
+        e.tail.is_none() && !super::common::has_glob_magic(&e.path) && e.is_full_mode() && e.full != Some(true) && e.offset.is_some_and(f64::is_finite) && e.limit.is_some_and(|l| l.is_finite() && l > 0.0)
     };
     type PathWindows = (String, Vec<(usize, u64, u64)>);
     let mut by_path: Vec<PathWindows> = Vec::new();
@@ -174,7 +174,7 @@ pub(super) fn coalesce_object(entries: Vec<BEntry>, key: &dyn Fn(&str) -> String
     let mut out: Vec<Option<BEntry>> = vec![None; entries.len()];
     let mut groups: Vec<(String, Vec<Item>)> = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
-        if !entry.is_full_mode() {
+        if entry.tail.is_some() || super::common::has_glob_magic(&entry.path) || !entry.is_full_mode() {
             out[index] = Some(entry.clone());
             continue;
         }
@@ -200,7 +200,9 @@ pub(super) fn coalesce_object(entries: Vec<BEntry>, key: &dyn Fn(&str) -> String
             let implicit = entries[item.index].implicit();
             let explicit = !implicit;
             let can_merge = clusters.last().is_some_and(|c| {
-                (c.end.is_none() || item.offset <= c.end.unwrap_or(0).saturating_add(COALESCE_GAP_LINES))
+                // Decided departure from Node (which merged windows up to 256 lines apart and charged the gap): only
+                // windows that overlap or touch share a read, so an unrequested gap is never rendered or charged.
+                (c.end.is_none() || item.offset <= c.end.unwrap_or(0))
                     && !(c.has_implicit && explicit)
                     && !(implicit && c.has_explicit)
                     && !(implicit && c.has_implicit)
@@ -260,11 +262,12 @@ pub(super) fn dedupe(entries: &[BEntry]) -> (Vec<usize>, Vec<usize>) {
             None => (js_opt(e.offset), js_opt(e.limit)),
         };
         let key = format!(
-            "{}|{offset}|{limit}|{}|{}|{}",
+            "{}|{offset}|{limit}|{}|{}|{}|{:?}",
             e.path,
             e.mode.clone().unwrap_or_default(),
             e.n.as_ref().map(js_str).unwrap_or_default(),
-            e.full.map(|f| f.to_string()).unwrap_or_default()
+            e.full.map(|f| f.to_string()).unwrap_or_default(),
+            e.tail,
         );
         let at = *seen.entry(key).or_insert_with(|| {
             firsts.push(i);
@@ -287,13 +290,14 @@ pub(super) fn primary_reads(entries: &[BEntry], key: &dyn Fn(&str) -> String) ->
             firsts.len() - 1
         } else {
             let k = format!(
-                "{}|{}|{}|{}|{}|{}",
+                "{}|{}|{}|{}|{}|{}|{:?}",
                 key(&e.path),
                 e.mode.clone().unwrap_or_default(),
                 js_opt(e.offset),
                 js_opt(e.limit),
                 e.n.as_ref().map(js_str).unwrap_or_default(),
-                e.full.map(|f| f.to_string()).unwrap_or_default()
+                e.full.map(|f| f.to_string()).unwrap_or_default(),
+                e.tail,
             );
             *seen.entry(k).or_insert_with(|| {
                 firsts.push(i);
@@ -314,19 +318,6 @@ pub(super) fn body_budget(paths: &[&str], read_call_budget: usize) -> f64 {
         .max(2048)
         .min(read_call_budget / 2);
     (read_call_budget - reserve).max(256) as f64
-}
-
-/// `estimateTaskBytes`: rendered bytes a read is expected to need; `None` size (not a file) is
-/// unbounded.
-pub(super) fn estimate_bytes(size: Option<u64>, limit: u64) -> f64 {
-    let Some(size) = size else { return f64::INFINITY };
-    let size = size as f64;
-    let lines = (size / 40.0).max(1.0);
-    let mut need = size + (size / 20.0) * 8.0;
-    if limit > 0 {
-        need *= (limit as f64 / lines).min(1.0);
-    }
-    need.ceil() + 1024.0
 }
 
 /// `allocateBudgets`: water-filling. A task needing less than the equal share gets what it needs;
@@ -372,6 +363,28 @@ fn marker(from: u64, to: u64, total: Option<u64>, next: Option<u64>) -> String {
     }
 }
 
+/// What a window that stopped at the output budget after line `delivered` (of `requested_last`) still owes, and the call
+/// that fetches it. Line numbers are 1-based; the call's offset is `delivered` in the caller's coordinate base.
+fn remaining_note(delivered: u64, requested_last: u64, base: u64) -> String {
+    format!(
+        "lines {}-{requested_last} NOT returned (output budget) — re-read this file with offset:{} limit:{}]",
+        delivered + 1,
+        delivered + base,
+        requested_last - delivered
+    )
+}
+
+/// The same statement for a window read on its own that the output budget cut short, or `None` when the body is whole.
+/// `off` is the window's 0-based offset and `lim` its line count.
+pub(super) fn cap_remaining(body: &str, off: u64, lim: u64, base: u64) -> Option<String> {
+    if !body.lines().any(|l| l.starts_with("[output capped") || (l.starts_with("[lines ") && l.contains("output capped"))) {
+        return None;
+    }
+    let delivered = body.split('\n').filter_map(|l| row_number(l).map(|(n, _)| n)).max().unwrap_or(off);
+    let requested_last = off.saturating_add(lim);
+    (delivered < requested_last).then(|| format!("[window {}", remaining_note(delivered, requested_last, base)))
+}
+
 /// `sliceReadBodyByLines`: cut one caller's window `[off+1, off+lim]` out of a union read's body.
 /// `lim` is `None` for an unbounded window (`limit:0`).
 pub(super) fn slice_read_body(body: &str, off: u64, lim: Option<u64>, base: u64) -> String {
@@ -404,6 +417,20 @@ pub(super) fn slice_read_body(body: &str, off: u64, lim: Option<u64>, base: u64)
         let digits: String = line[at + 3..].chars().take_while(char::is_ascii_digit).collect();
         digits.parse().ok()
     });
+    let capped = lines.iter().any(|l| output_cap_line(l));
+    if capped && !seen_any {
+        // The shared read's budget ended before its first row: nothing of this window was delivered, whatever footer the
+        // read printed, so it is never reported as a completed interval.
+        let wanted = match last_line {
+            Some(last) => format!("{first_line}-{last}"),
+            None => format!("{first_line}+"),
+        };
+        let limit_note = last_line.map(|last| format!(" limit:{}", last - first_line + 1)).unwrap_or_default();
+        return format!(
+            "(lines {wanted} were NOT returned — the shared read's output budget ended before its first row; read this range separately with offset:{}{limit_note})",
+            off + base
+        );
+    }
     if kept.is_empty() && seen_any && min_seen <= max_seen {
         if let Some(total) = total.filter(|t| first_line > *t) {
             return format!("(no lines in range; file has {total} lines)");
@@ -429,7 +456,23 @@ pub(super) fn slice_read_body(body: &str, off: u64, lim: Option<u64>, base: u64)
     let emitted_start = kept_first.unwrap_or(first_line);
     let emitted_last = kept_last.map_or(requested_last, |k| requested_last.min(k));
     let more = total.map_or(last_line.is_some(), |t| emitted_last < t);
-    let footer = marker(emitted_start, emitted_last, total, more.then_some(emitted_last + base));
+    // The union read stopped at its output budget inside this window: say exactly which interval is missing and the call
+    // that fetches it (a window delivered whole keeps the ordinary footer).
+    let footer = match last_line {
+        None if capped && total.is_none_or(|t| emitted_last < t) => {
+            // The requested interval is unbounded; retain the producer's continuation.
+            let cap = lines.iter().rev().find(|line| output_cap_line(line)).unwrap();
+            (*cap).to_owned()
+        }
+        Some(_) if capped && kept_last.is_some() && emitted_last < requested_last => {
+            let of = total.map(|t| format!(" of {t}")).unwrap_or_default();
+            format!(
+                "[lines {emitted_start}-{emitted_last}{of}; {}",
+                remaining_note(emitted_last, requested_last, base)
+            )
+        }
+        _ => marker(emitted_start, emitted_last, total, more.then_some(emitted_last + base)),
+    };
     let mut out = kept.join("\n");
     if !kept.is_empty() {
         out.push('\n');
@@ -437,7 +480,9 @@ pub(super) fn slice_read_body(body: &str, off: u64, lim: Option<u64>, base: u64)
     out + &footer
 }
 
-/// `renderedBatchReadRanges`: the line numbers a body shows, as ranges; else the footer's range.
+/// The line numbers a body shows, as ranges. Only rows actually emitted count: a footer that names a range over no rows
+/// (a window the output budget cut before its first row) is not a delivery (a departure from `renderedBatchReadRanges`,
+/// which fell back to the footer's range).
 pub(super) fn rendered_ranges(body: &str) -> Vec<LineRange> {
     let rows: Vec<LineRange> = body
         .split('\n')
@@ -445,15 +490,7 @@ pub(super) fn rendered_ranges(body: &str) -> Vec<LineRange> {
         .filter(|n| *n > 0 && *n < (1 << 53))
         .map(|n| LineRange { start: n, end: Some(n) })
         .collect();
-    if !rows.is_empty() {
-        return merge_ranges(&rows);
-    }
-    static FOOTER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    regex(&FOOTER, r"\[lines\s+(\d+)-(\d+)\s+of\s+\d+")
-        .captures(body)
-        .and_then(|c| Some(LineRange { start: c[1].parse().ok()?, end: Some(c[2].parse().ok()?) }))
-        .map(|r| merge_ranges(&[r]))
-        .unwrap_or_default()
+    merge_ranges(&rows)
 }
 
 /// The parts of `a` that lie inside `b`.
@@ -522,14 +559,16 @@ pub(super) fn rows_for_model(text: &str) -> String {
 pub(super) enum CBody {
     /// A flat string (Node's text result): numbered rows, an error, a preview, a document.
     Str(String),
+    /// A rendered multi-file result. Its rows have no single offset or line range.
+    Nested { text: String, incomplete: bool },
     /// Structured content (an image result); `failed` is Node's `isError`.
-    Rich { parts: Vec<ToolPart>, failed: bool },
+    Rich { parts: Vec<ToolPart>, failed: bool, incomplete: bool },
 }
 
 impl CBody {
     fn text(&self) -> String {
         match self {
-            Self::Str(s) => s.clone(),
+            Self::Str(s) | Self::Nested { text: s, .. } => s.clone(),
             Self::Rich { parts, .. } => parts
                 .iter()
                 .filter_map(|p| if let ToolPart::Text(t) = p { Some(t.as_str()) } else { None })
@@ -609,7 +648,7 @@ fn header(results: &[Resolved]) -> String {
         .filter_map(|r| {
             let body = match &r.body {
                 CBody::Str(s) => s.as_str(),
-                CBody::Rich { .. } => return None,
+                CBody::Rich { .. } | CBody::Nested { .. } => return None,
             };
             let m = regex(&LINES, r"lines\t(\d+)").captures(body)?;
             Some(format!("{} has {} lines", r.path.replace('\\', "/"), &m[1]))
@@ -644,6 +683,29 @@ pub(super) fn is_rejected(results: &[Resolved]) -> bool {
     results.iter().any(|r| status(&r.body) != "ok")
 }
 
+pub(super) fn is_incomplete(results: &[Resolved]) -> bool {
+    is_rejected(results) || results.iter().any(|r| match &r.body {
+        CBody::Str(text) => text_incomplete(text),
+        CBody::Nested { incomplete, .. } | CBody::Rich { incomplete, .. } => *incomplete,
+    })
+}
+
+fn output_cap_line(line: &str) -> bool {
+    line.ends_with(']') && (line.starts_with("[output capped at ")
+        || (line.starts_with("[lines ") && line.contains("; output capped at ")))
+}
+
+/// Numbered source rows cannot be mistaken for these renderer notices. A
+/// continuation after an explicitly requested, fully delivered window is not partial.
+pub(super) fn text_incomplete(text: &str) -> bool {
+    (text.starts_with("... [tail of ") && text.lines().last().is_some_and(|line| line.starts_with("[tail incomplete: ") && line.ends_with(']')))
+    || text.lines().any(|line| output_cap_line(line)
+        || ((line.starts_with("[lines ") || line.starts_with("[window lines ") || line.starts_with("(lines "))
+            && (line.contains(" NOT returned (output budget)")
+                || line.contains(" were NOT returned — the coalesced read ")
+                || line.contains(" were NOT returned — the shared read's output budget "))))
+}
+
 /// `renderBatchResults` when no entry is structured: one string, numbered rows still in it.
 pub(super) fn render_text(results: &[Resolved]) -> String {
     let mut seen: Vec<(usize, &str, String, String)> = Vec::new();
@@ -675,7 +737,7 @@ pub(super) fn render_rich(results: &[Resolved]) -> Vec<ToolPart> {
         let entry_header = format!("{}{tag} [{}]{}", r.path, status(&r.body), truncated_suffix(&text));
         let prior = match &r.body {
             CBody::Rich { .. } => seen_rich.iter().find(|(_, p, path, l)| *p == r.producer && *path == r.path && *l == label).map(|(idx, _, _, _)| *idx),
-            CBody::Str(s) => seen_text.iter().find(|(_, path, l, b)| *path == r.path && *l == label && b == s).map(|(idx, _, _, _)| *idx),
+            CBody::Str(s) | CBody::Nested { text: s, .. } => seen_text.iter().find(|(_, path, l, b)| *path == r.path && *l == label && b == s).map(|(idx, _, _, _)| *idx),
         };
         if let Some(idx) = prior {
             parts.push(ToolPart::Text(format!("{entry_header} [= entry #{}, identical result omitted]", idx + 1)));
@@ -687,10 +749,10 @@ pub(super) fn render_rich(results: &[Resolved]) -> Vec<ToolPart> {
                 parts.push(ToolPart::Text(entry_header));
                 parts.extend(blocks.iter().cloned());
             }
-            CBody::Str(s) => {
+            CBody::Str(s) | CBody::Nested { text: s, .. } => {
                 seen_text.push((i, &r.path, label, s.clone()));
                 parts.push(ToolPart::Text(entry_header));
-                parts.push(ToolPart::Text(s.clone()));
+                parts.push(ToolPart::Text(rows_for_model(s)));
             }
         }
     }
@@ -711,6 +773,56 @@ mod tests {
     fn water_filling_gives_small_tasks_their_need() {
         assert_eq!(allocate_budgets(&[1048.0, 29000.0], 49152.0), vec![1048.0, 29000.0]);
         assert_eq!(allocate_budgets(&[f64::INFINITY, f64::INFINITY], 100.0), vec![50.0, 50.0]);
+    }
+
+    fn window(path: &str, offset: f64, limit: f64) -> BEntry {
+        BEntry { path: path.to_owned(), offset: Some(offset), limit: Some(limit), ..BEntry::default() }
+    }
+
+    /// Decided departure from Node (`coalesceObjectReadEntries` merged windows up to 256 lines apart and charged the gap).
+    #[test]
+    fn windows_with_an_unrequested_gap_do_not_share_a_read() {
+        let key = |p: &str| p.to_owned();
+        let far = coalesce_object(vec![window("f", 0.0, 2.0), window("f", 100.0, 2.0)], &key);
+        assert!(far.iter().all(|e| e.union.is_none() && !e.needs_slice), "{far:?}");
+        let touching = coalesce_object(vec![window("f", 0.0, 2.0), window("f", 2.0, 2.0)], &key);
+        assert!(touching.iter().all(|e| e.union == Some((0, 4)) && e.needs_slice), "{touching:?}");
+    }
+
+    #[test]
+    fn a_window_cut_by_the_budget_names_its_remaining_interval_and_the_call() {
+        let body = "1→a\n2→b\n3→c\n\n[output capped at 1KB; offset:3 for more]";
+        assert_eq!(
+            slice_read_body(body, 0, Some(5), 1),
+            "1→a\n2→b\n3→c\n[lines 1-3; lines 4-5 NOT returned (output budget) — re-read this file with offset:4 limit:2]"
+        );
+        let alone = "1→a\n2→b\n\n[output capped at 1KB; offset:2 for more]";
+        assert_eq!(
+            cap_remaining(alone, 0, 5, 1).as_deref(),
+            Some("[window lines 3-5 NOT returned (output budget) — re-read this file with offset:3 limit:3]")
+        );
+        assert_eq!(cap_remaining("1→a\n2→b", 0, 5, 1), None, "a body the budget did not cut owes nothing");
+    }
+
+    #[test]
+    fn a_window_whose_shared_read_emitted_no_row_is_not_delivered() {
+        let stream = "\n\n[output capped at 1KB; 9 KB file; offset:0 for more]";
+        let buffered = "[lines 1-0 of 9; output capped at 1KB; offset:1 for more]";
+        for body in [stream, buffered] {
+            let got = slice_read_body(body, 0, Some(2), 1);
+            assert_eq!(
+                got,
+                "(lines 1-2 were NOT returned — the shared read's output budget ended before its first row; read this range separately with offset:1 limit:2)",
+                "{body}"
+            );
+            assert!(rendered_ranges(&got).is_empty());
+        }
+        assert!(rendered_ranges(buffered).is_empty(), "a footer over no rows is not a delivery");
+    }
+
+    #[test]
+    fn what_a_short_window_leaves_goes_to_the_larger_ones() {
+        assert_eq!(allocate_budgets(&[30.0, 40_000.0, 40_000.0], 49_000.0), vec![30.0, 24_485.0, 24_485.0]);
     }
 
     #[test]

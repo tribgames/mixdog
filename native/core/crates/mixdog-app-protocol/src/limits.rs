@@ -70,6 +70,13 @@ pub struct Limits {
     /// Raw `blob/put` chunk bound, so the frame stays under `maxInboundFrameBytes` after base64.
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_blob_put_chunk_bytes: u64,
+    /// How much base64 payload of `transfer/writeChunk` requests a sender may have sent and not yet had answered, across every
+    /// file upload on one connection (`4 * ceil(rawChunkLength / 3)` per request; JSON, WebSocket and SSH overhead are not
+    /// counted, the frame bound covers the request's envelope). A core that states it also applies one upload's chunks in the
+    /// order they arrive, so a sender may pipeline them. The raw chunk of an upload is `maxBlobPutChunkBytes`. Interactive
+    /// calls never take part in this window.
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub max_upload_in_flight_bytes: u64,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_connections: u32,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
@@ -102,6 +109,7 @@ impl Default for Limits {
             terminal_ring_chars: 200_000,
             max_blob_page_bytes: MIB,
             max_blob_put_chunk_bytes: blob_put_chunk_for(max_inbound_frame_bytes),
+            max_upload_in_flight_bytes: 3 * MIB,
             max_connections: 128,
             heartbeat_tick_ms: 15_000,
             max_processes: 64,
@@ -152,6 +160,12 @@ impl Limits {
         {
             return Err(LimitsViolation(
                 "base64(maxBlobPutChunkBytes) fits maxInboundFrameBytes",
+            ));
+        }
+        // An upload's chunk is the same size as a blob chunk: the window must take at least one of them.
+        if self.max_upload_in_flight_bytes < self.max_blob_put_chunk_bytes.div_ceil(3) * 4 {
+            return Err(LimitsViolation(
+                "maxUploadInFlightBytes holds base64(maxBlobPutChunkBytes)",
             ));
         }
         Ok(())

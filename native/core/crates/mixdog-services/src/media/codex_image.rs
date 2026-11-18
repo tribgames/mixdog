@@ -20,7 +20,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::adapter_http::{JsonPost, PostReply};
 use super::download::AdapterError;
-use super::image_api::{ImageReference, truthy};
+use super::image_api::truthy;
+use super::references::{References, Target};
 use super::lanes::LaneError;
 use super::upstream::{Headers, UsageLimit, decode_base64_media, upstream_error, usage_limit_error, usage_limit_from_response, usage_limit_info};
 use super::usage::{reported_usage, responses_usage};
@@ -76,11 +77,6 @@ fn plain(failure: super::catalog_fetch::HttpFailure) -> AdapterError {
 
 fn header(reply: &PostReply, name: &str) -> Option<String> {
     reply.headers.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, value)| value.clone())
-}
-
-fn data_url(reference: &ImageReference) -> String {
-    let mime = if reference.mime.is_empty() { "image/png" } else { reference.mime.as_str() };
-    format!("data:{mime};base64,{}", reference.base64)
 }
 
 fn images_url(session: &dyn CodexSession, route: &str) -> String {
@@ -169,9 +165,13 @@ async fn via_images_endpoint(
     auth: &CodexAuth,
     prompt: &str,
     options: &Value,
-    references: &[ImageReference],
+    references: &References,
     cancel: &CancellationToken,
 ) -> Result<Option<CodexImage>, AdapterError> {
+    // This branch is its own target: the images endpoint and its model, prepared here and again for the Responses fallback.
+    let url = images_url(session, if references.is_empty() { "images/generations" } else { "images/edits" });
+    let account = auth.account_id.clone().unwrap_or_default();
+    let references = references.prepare(&Target { endpoint: &url, account: &account, model: CODEX_IMAGE_MODEL, operation: "images-endpoint" }).await?;
     let mut body = Map::new();
     body.insert("prompt".into(), json!(prompt));
     body.insert("model".into(), json!(CODEX_IMAGE_MODEL));
@@ -180,13 +180,13 @@ async fn via_images_endpoint(
     if truthy(options.get("background")) {
         body.insert("background".into(), options["background"].clone());
     }
-    let (url, body) = if references.is_empty() {
-        (images_url(session, "images/generations"), body)
+    let body = if references.is_empty() {
+        body
     } else {
         let mut edit = Map::new();
-        edit.insert("images".into(), references.iter().map(|r| json!({ "image_url": data_url(r) })).collect());
+        edit.insert("images".into(), references.iter().map(|r| json!({ "image_url": r.data_url() })).collect());
         edit.extend(body);
-        (images_url(session, "images/edits"), edit)
+        edit
     };
     let reply = http.post(&url, &images_headers(session, auth), &Value::Object(body), REQUEST_TIMEOUT, cancel).await.map_err(plain)?;
     if images_endpoint_unavailable(&reply) {
@@ -251,12 +251,14 @@ async fn via_responses(
     auth: &CodexAuth,
     (model, prompt): (&str, &str),
     options: &Value,
-    references: &[ImageReference],
+    references: &References,
     cancel: &CancellationToken,
 ) -> Result<CodexImage, AdapterError> {
+    let (endpoint, account) = (session.responses_url(), auth.account_id.clone().unwrap_or_default());
+    let references = references.prepare(&Target { endpoint: &endpoint, account: &account, model, operation: "responses-image" }).await?;
     // Reference images ride as input_image parts on the user turn: the same shape the chat path
     // uses for pasted images.
-    let mut content: Vec<Value> = references.iter().map(|r| json!({ "type": "input_image", "image_url": data_url(r) })).collect();
+    let mut content: Vec<Value> = references.iter().map(|r| json!({ "type": "input_image", "image_url": r.data_url() })).collect();
     content.push(json!({ "type": "input_text", "text": prompt }));
     let mut tool = Map::new();
     tool.insert("type".into(), json!("image_generation"));
@@ -274,7 +276,7 @@ async fn via_responses(
         // the hosted tool. Studio always requests an image.
         "tool_choice": { "type": "image_generation" },
     });
-    let reply = http.post(&session.responses_url(), &responses_headers(session, auth), &body, REQUEST_TIMEOUT, cancel).await.map_err(plain)?;
+    let reply = http.post(&endpoint, &responses_headers(session, auth), &body, REQUEST_TIMEOUT, cancel).await.map_err(plain)?;
     if !(200..300).contains(&reply.status) {
         return Err(failed_response(&reply, session, auth, cancel).await);
     }
@@ -324,7 +326,7 @@ async fn via_responses(
 
 /// `generateImage({ model, prompt, options, references, signal })`.
 #[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
-pub async fn generate_image(http: &dyn JsonPost, session: &dyn CodexSession, model: &str, prompt: &str, options: &Value, references: &[ImageReference], cancel: &CancellationToken) -> Result<CodexImage, AdapterError> {
+pub async fn generate_image(http: &dyn JsonPost, session: &dyn CodexSession, model: &str, prompt: &str, options: &Value, references: &References, cancel: &CancellationToken) -> Result<CodexImage, AdapterError> {
     let unsupported = |message: &str| AdapterError::from(LaneError { message: message.to_owned(), code: "MEDIA_OPTION_UNSUPPORTED", status: 400 });
     if ["size", "quality", "resolution", "aspectRatio"].iter().any(|key| truthy(options.get(*key)) && options[*key] != "auto") {
         return Err(unsupported("ChatGPT selects image output settings; explicit size and quality are not supported on this connection."));

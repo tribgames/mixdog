@@ -228,7 +228,9 @@ export interface RemoteShimCollaborators {
   sessionsCatalog: ReturnType<typeof createRemoteCatalog<DesktopSessionSummary>>;
   agentsCatalog: ReturnType<typeof createRemoteCatalog<DesktopAgentPoolRow>>;
   sessionInbox: ReturnType<typeof createRemoteSessionInbox>;
-  termListeners: Set<(event: { id: string; data: string }) => void>;
+  /** Told each time a `setVisibleSessions` of the page has settled (the view followed what the panes name and let go of the rest). */
+  viewSettledListeners: Set<() => void>;
+  termListeners: Set<(event: { id: string; data: string; reset?: true }) => void>;
   termSizeOwnerListeners: Set<(event: TerminalSizeOwnerEvent) => void>;
   termActivityListeners: Set<(event: TerminalActivityEvent) => void>;
   folderChangeListeners: Set<(dir: string) => void>;
@@ -496,6 +498,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     sessionsCatalog: createRemoteCatalog<DesktopSessionSummary>(),
     agentsCatalog: createRemoteCatalog<DesktopAgentPoolRow>(),
     sessionInbox: createRemoteSessionInbox({ onGap: () => ctx.requestResync() }),
+    viewSettledListeners: new Set(),
     termListeners: new Set(),
     termSizeOwnerListeners: new Set(),
     termActivityListeners: new Set(),

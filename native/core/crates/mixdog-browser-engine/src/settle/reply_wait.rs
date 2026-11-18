@@ -99,8 +99,6 @@ impl fmt::Display for ReplyWaitError {
     }
 }
 
-impl std::error::Error for ReplyWaitError {}
-
 /// `postconditionMatchesGuest`: whether the page now satisfies `expected`. The text is read from the page only when a text
 /// condition needs it, and counts only when the page did not navigate while it was read; a failed reading is "not yet".
 pub async fn postcondition_matches_page(page: &Page<'_>, expected: &Postcondition, cancel: &CancelView) -> Result<bool, Cancelled> {
@@ -180,6 +178,150 @@ async fn read_whole_text_for_condition(page: &Page<'_>, cancel: &CancelView) -> 
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use mixdog_rt::CancelSource;
+    use serde_json::json;
+
+    use super::super::settle::support::*;
+    use super::*;
+
+    const URL: &str = "https://example.test/app";
+
+    fn rig(text: &str) -> (Arc<TestProbe>, Arc<TestHost>) {
+        let probe = TestProbe::new(URL);
+        let host = Arc::new(TestHost::new(&probe));
+        *host.text.lock().expect("lock") = text.to_string();
+        (probe, host)
+    }
+
+    fn page<'a>(host: &'a TestHost, probe: &'a TestProbe) -> Page<'a> {
+        Page { host, id: "p1", probe }
+    }
+
+    fn live() -> CancelView {
+        CancelSource::new().view()
+    }
+
+    #[tokio::test]
+    async fn a_page_that_navigated_while_its_text_was_read_does_not_match_and_a_failed_read_is_not_yet() {
+        let (probe, host) = rig("Saved");
+        let expected = normalize(Some(&json!({"text": "Saved"}))).expect("valid").expect("some");
+        assert!(postcondition_matches_page(&page(&host, &probe), &expected, &live()).await.expect("read"));
+
+        *host.url_after_read.lock().expect("lock") = Some("https://example.test/elsewhere".into());
+        assert!(!postcondition_matches_page(&page(&host, &probe), &expected, &live()).await.expect("read"));
+
+        let (probe, host) = rig("Saved");
+        *host.read_fails.lock().expect("lock") = true;
+        assert!(!postcondition_matches_page(&page(&host, &probe), &expected, &live()).await.expect("a failed read is not an error"));
+    }
+
+    #[tokio::test]
+    async fn a_text_longer_than_one_read_is_read_in_parts_so_a_late_phrase_is_found_and_a_missing_one_proved_gone() {
+        let long = format!("{}Saved", "x".repeat(250_000));
+        let (probe, host) = rig(&long);
+        let present = normalize(Some(&json!({"text": "Saved"}))).expect("valid").expect("some");
+        assert!(postcondition_matches_page(&page(&host, &probe), &present, &live()).await.expect("read"));
+        assert_eq!(host.count("read"), 3, "250,005 characters in parts of 120,000");
+        let gone = normalize(Some(&json!({"textGone": "Loading"}))).expect("valid").expect("some");
+        assert!(postcondition_matches_page(&page(&host, &probe), &gone, &live()).await.expect("read"));
+        let still_there = normalize(Some(&json!({"textGone": "Saved"}))).expect("valid").expect("some");
+        assert!(!postcondition_matches_page(&page(&host, &probe), &still_there, &live()).await.expect("read"));
+    }
+
+    #[tokio::test]
+    async fn a_text_the_host_never_finishes_giving_is_not_yet() {
+        let (probe, host) = rig("Saved");
+        *host.read_endless.lock().expect("lock") = true;
+        let gone = normalize(Some(&json!({"textGone": "Loading"}))).expect("valid").expect("some");
+        assert!(!postcondition_matches_page(&page(&host, &probe), &gone, &live()).await.expect("read"));
+        assert_eq!(host.count("read"), 10, "the parts are bounded");
+    }
+
+
+    #[tokio::test]
+    async fn a_postcondition_that_holds_is_found_after_the_gesture_and_reports_how_long_it_took() {
+        let (probe, host) = rig("Saved successfully");
+        let options = ReplyWaitOptions { settle_action: true, ..ReplyWaitOptions::default() };
+        let wait = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({"text": "saved"})), &options, &live()).await.expect("wait");
+        assert!(wait.postcondition_matched);
+        assert_eq!(wait.settle, Duration::ZERO);
+        assert_eq!(wait.expected.as_ref().map(|expected| expected.text.as_str()), Some("saved"));
+        assert!(host.count("read") >= 1);
+    }
+    #[tokio::test]
+    async fn a_postcondition_that_never_holds_ends_at_its_budget_and_says_so() {
+        let (probe, host) = rig("Still loading");
+        let wait = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({"text": "Saved", "timeoutMs": 500})), &ReplyWaitOptions::default(), &live())
+            .await
+            .expect("wait");
+        assert!(!wait.postcondition_matched);
+        assert!(wait.postcondition_elapsed >= Duration::from_millis(500));
+        assert!(host.count("read") > 1, "the page was read again while waiting");
+        assert!(host.count("renderCheckpoint") == 0, "an observation does not settle");
+    }
+    #[tokio::test]
+    async fn a_url_only_condition_reads_no_text_and_a_moved_page_is_not_matched() {
+        let (probe, host) = rig("");
+        probe.set(|state| state.url = "https://example.test/complete".into());
+        let wait = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({"url": "/complete"})), &ReplyWaitOptions::default(), &live())
+            .await
+            .expect("wait");
+        assert!(wait.postcondition_matched);
+        assert_eq!(host.count("read"), 0);
+    }
+    #[tokio::test]
+    async fn a_condition_that_held_before_the_gesture_requires_the_quiet_windows() {
+        let (probe, host) = rig("Saved");
+        let options = ReplyWaitOptions { settle_action: true, preexisting_postcondition: true, baseline_url: Some(URL.into()), expected: None };
+        let wait = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({"text": "Saved"})), &options, &live()).await.expect("wait");
+        assert!(wait.postcondition_matched);
+        assert_eq!(host.count("domQuiet"), 1, "the quiet windows ran although the condition already held");
+    }
+    #[tokio::test]
+    async fn an_explicit_settle_delay_is_waited_and_a_prenormalised_condition_is_taken_as_given() {
+        let (probe, host) = rig("");
+        let started = time::Instant::now();
+        let options = ReplyWaitOptions { expected: Some(None), ..ReplyWaitOptions::default() };
+        let wait = await_reply_ready(&page(&host, &probe), &fast_policy(), Some(&json!(40)), Some(&json!({"text": "ignored"})), &options, &live()).await.expect("wait");
+        assert!(started.elapsed() >= Duration::from_millis(40));
+        assert_eq!(wait.settle, Duration::from_millis(40));
+        assert_eq!(wait.expected, None);
+        assert!(wait.postcondition_matched);
+        assert!(host.called().is_empty());
+    }
+    #[tokio::test]
+    async fn an_unreadable_expect_or_settle_ms_fails_before_anything_waits() {
+        let (probe, host) = rig("");
+        let bad = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({})), &ReplyWaitOptions::default(), &live()).await.expect_err("bad expect");
+        assert!(matches!(bad, ReplyWaitError::Expect(_)));
+        assert!(bad.to_string().contains("requires text"));
+        let worse = await_reply_ready(&page(&host, &probe), &fast_policy(), Some(&json!("soon")), None, &ReplyWaitOptions::default(), &live()).await.expect_err("bad settleMs");
+        assert_eq!(worse.to_string(), "settleMs must be a finite number");
+        assert!(host.called().is_empty());
+    }
+    #[tokio::test]
+    async fn cancellation_ends_the_poll_with_the_callers_reason() {
+        let (probe, host) = rig("never");
+        let source = CancelSource::new();
+        let view = source.view();
+        let canceller = tokio::spawn(async move {
+            time::sleep(Duration::from_millis(30)).await;
+            source.cancel("user took control");
+        });
+        let error = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({"text": "Saved", "timeoutMs": 20_000})), &ReplyWaitOptions::default(), &view)
+            .await
+            .expect_err("cancelled");
+        canceller.await.expect("canceller");
+        assert_eq!(error.to_string(), "user took control");
+    }
+}
+
+
+impl std::error::Error for ReplyWaitError {}
 /// Polls until the postcondition holds or its budget ends; `announce` is cancelled the moment it holds so the settle can stop
 /// waiting for it. Answers how long it took (measured before the probe that found it) and whether it held.
 async fn poll_postcondition(
@@ -203,7 +345,6 @@ async fn poll_postcondition(
         pause(POSTCONDITION_POLL, cancel).await?;
     }
 }
-
 /// `awaitReplyReady`: the settle after a gesture, the explicit `settleMs` and the `expect` poll, together. The command's `expect`
 /// and `settleMs` are read as the JSON the caller sent.
 pub async fn await_reply_ready(
@@ -243,151 +384,4 @@ pub async fn await_reply_ready(
     )
     .await?;
     Ok(ReplyWait { settle, expected, postcondition_elapsed: elapsed, postcondition_matched: matched })
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use mixdog_rt::CancelSource;
-    use serde_json::json;
-
-    use super::super::settle::support::*;
-    use super::*;
-
-    const URL: &str = "https://example.test/app";
-
-    fn rig(text: &str) -> (Arc<TestProbe>, Arc<TestHost>) {
-        let probe = TestProbe::new(URL);
-        let host = Arc::new(TestHost::new(&probe));
-        *host.text.lock().expect("lock") = text.to_string();
-        (probe, host)
-    }
-
-    fn page<'a>(host: &'a TestHost, probe: &'a TestProbe) -> Page<'a> {
-        Page { host, id: "p1", probe }
-    }
-
-    fn live() -> CancelView {
-        CancelSource::new().view()
-    }
-
-    #[tokio::test]
-    async fn a_postcondition_that_holds_is_found_after_the_gesture_and_reports_how_long_it_took() {
-        let (probe, host) = rig("Saved successfully");
-        let options = ReplyWaitOptions { settle_action: true, ..ReplyWaitOptions::default() };
-        let wait = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({"text": "saved"})), &options, &live()).await.expect("wait");
-        assert!(wait.postcondition_matched);
-        assert_eq!(wait.settle, Duration::ZERO);
-        assert_eq!(wait.expected.as_ref().map(|expected| expected.text.as_str()), Some("saved"));
-        assert!(host.count("read") >= 1);
-    }
-
-    #[tokio::test]
-    async fn a_postcondition_that_never_holds_ends_at_its_budget_and_says_so() {
-        let (probe, host) = rig("Still loading");
-        let wait = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({"text": "Saved", "timeoutMs": 500})), &ReplyWaitOptions::default(), &live())
-            .await
-            .expect("wait");
-        assert!(!wait.postcondition_matched);
-        assert!(wait.postcondition_elapsed >= Duration::from_millis(500));
-        assert!(host.count("read") > 1, "the page was read again while waiting");
-        assert!(host.count("renderCheckpoint") == 0, "an observation does not settle");
-    }
-
-    #[tokio::test]
-    async fn a_url_only_condition_reads_no_text_and_a_moved_page_is_not_matched() {
-        let (probe, host) = rig("");
-        probe.set(|state| state.url = "https://example.test/complete".into());
-        let wait = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({"url": "/complete"})), &ReplyWaitOptions::default(), &live())
-            .await
-            .expect("wait");
-        assert!(wait.postcondition_matched);
-        assert_eq!(host.count("read"), 0);
-    }
-
-    #[tokio::test]
-    async fn a_condition_that_held_before_the_gesture_requires_the_quiet_windows() {
-        let (probe, host) = rig("Saved");
-        let options = ReplyWaitOptions { settle_action: true, preexisting_postcondition: true, baseline_url: Some(URL.into()), expected: None };
-        let wait = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({"text": "Saved"})), &options, &live()).await.expect("wait");
-        assert!(wait.postcondition_matched);
-        assert_eq!(host.count("domQuiet"), 1, "the quiet windows ran although the condition already held");
-    }
-
-    #[tokio::test]
-    async fn an_explicit_settle_delay_is_waited_and_a_prenormalised_condition_is_taken_as_given() {
-        let (probe, host) = rig("");
-        let started = time::Instant::now();
-        let options = ReplyWaitOptions { expected: Some(None), ..ReplyWaitOptions::default() };
-        let wait = await_reply_ready(&page(&host, &probe), &fast_policy(), Some(&json!(40)), Some(&json!({"text": "ignored"})), &options, &live()).await.expect("wait");
-        assert!(started.elapsed() >= Duration::from_millis(40));
-        assert_eq!(wait.settle, Duration::from_millis(40));
-        assert_eq!(wait.expected, None);
-        assert!(wait.postcondition_matched);
-        assert!(host.called().is_empty());
-    }
-
-    #[tokio::test]
-    async fn an_unreadable_expect_or_settle_ms_fails_before_anything_waits() {
-        let (probe, host) = rig("");
-        let bad = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({})), &ReplyWaitOptions::default(), &live()).await.expect_err("bad expect");
-        assert!(matches!(bad, ReplyWaitError::Expect(_)));
-        assert!(bad.to_string().contains("requires text"));
-        let worse = await_reply_ready(&page(&host, &probe), &fast_policy(), Some(&json!("soon")), None, &ReplyWaitOptions::default(), &live()).await.expect_err("bad settleMs");
-        assert_eq!(worse.to_string(), "settleMs must be a finite number");
-        assert!(host.called().is_empty());
-    }
-
-    #[tokio::test]
-    async fn cancellation_ends_the_poll_with_the_callers_reason() {
-        let (probe, host) = rig("never");
-        let source = CancelSource::new();
-        let view = source.view();
-        let canceller = tokio::spawn(async move {
-            time::sleep(Duration::from_millis(30)).await;
-            source.cancel("user took control");
-        });
-        let error = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({"text": "Saved", "timeoutMs": 20_000})), &ReplyWaitOptions::default(), &view)
-            .await
-            .expect_err("cancelled");
-        canceller.await.expect("canceller");
-        assert_eq!(error.to_string(), "user took control");
-    }
-
-    #[tokio::test]
-    async fn a_page_that_navigated_while_its_text_was_read_does_not_match_and_a_failed_read_is_not_yet() {
-        let (probe, host) = rig("Saved");
-        let expected = normalize(Some(&json!({"text": "Saved"}))).expect("valid").expect("some");
-        assert!(postcondition_matches_page(&page(&host, &probe), &expected, &live()).await.expect("read"));
-
-        *host.url_after_read.lock().expect("lock") = Some("https://example.test/elsewhere".into());
-        assert!(!postcondition_matches_page(&page(&host, &probe), &expected, &live()).await.expect("read"));
-
-        let (probe, host) = rig("Saved");
-        *host.read_fails.lock().expect("lock") = true;
-        assert!(!postcondition_matches_page(&page(&host, &probe), &expected, &live()).await.expect("a failed read is not an error"));
-    }
-
-    #[tokio::test]
-    async fn a_text_longer_than_one_read_is_read_in_parts_so_a_late_phrase_is_found_and_a_missing_one_proved_gone() {
-        let long = format!("{}Saved", "x".repeat(250_000));
-        let (probe, host) = rig(&long);
-        let present = normalize(Some(&json!({"text": "Saved"}))).expect("valid").expect("some");
-        assert!(postcondition_matches_page(&page(&host, &probe), &present, &live()).await.expect("read"));
-        assert_eq!(host.count("read"), 3, "250,005 characters in parts of 120,000");
-        let gone = normalize(Some(&json!({"textGone": "Loading"}))).expect("valid").expect("some");
-        assert!(postcondition_matches_page(&page(&host, &probe), &gone, &live()).await.expect("read"));
-        let still_there = normalize(Some(&json!({"textGone": "Saved"}))).expect("valid").expect("some");
-        assert!(!postcondition_matches_page(&page(&host, &probe), &still_there, &live()).await.expect("read"));
-    }
-
-    #[tokio::test]
-    async fn a_text_the_host_never_finishes_giving_is_not_yet() {
-        let (probe, host) = rig("Saved");
-        *host.read_endless.lock().expect("lock") = true;
-        let gone = normalize(Some(&json!({"textGone": "Loading"}))).expect("valid").expect("some");
-        assert!(!postcondition_matches_page(&page(&host, &probe), &gone, &live()).await.expect("read"));
-        assert_eq!(host.count("read"), 10, "the parts are bounded");
-    }
 }

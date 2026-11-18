@@ -108,6 +108,13 @@ CREATE INDEX IF NOT EXISTS idx_entries_session_ts ON entries(session_id, ts DESC
 CREATE INDEX IF NOT EXISTS idx_entries_root_status_score ON entries(status, score DESC) WHERE is_root = 1;
 CREATE INDEX IF NOT EXISTS idx_entries_root_category ON entries(category, status) WHERE is_root = 1;
 CREATE INDEX IF NOT EXISTS idx_entries_pending ON entries(ts DESC, id DESC) WHERE chunk_root IS NULL AND session_id IS NOT NULL;
+-- The raw rows the embedding flush claims (`embed_flush.rs` `claim`): it walked the primary key from its cursor through
+-- every entry, testing each row's content, and found none (234k entries, 0 of them unembedded raw rows, on one store),
+-- reading the table and its TOAST whole on each flush.
+CREATE INDEX IF NOT EXISTS idx_entries_raw_unembedded ON entries(id) WHERE is_root = 0 AND chunk_root IS NULL AND embedding IS NULL;
+-- The same for the roots the root flush claims (`embed_flush/root.rs` `claim_roots`): walked backwards over the primary key,
+-- one call read 199k buffers (about 1.6 GB) to find none of 69k roots unembedded.
+CREATE INDEX IF NOT EXISTS idx_entries_root_unembedded ON entries(id) WHERE is_root = 1 AND embedding IS NULL;
 CREATE INDEX IF NOT EXISTS idx_entries_project ON entries(project_id) WHERE project_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_entries_tsv ON entries USING GIN (search_tsv);
 CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL;
@@ -262,11 +269,13 @@ async fn reset_vectors_for_model(db: &Db, dims: usize, identity: &serde_json::Va
 }
 
 pub async fn set_meta(db: &Db, key: &str, value: &serde_json::Value) -> Result<()> {
-    db.execute(
-        "INSERT INTO meta(key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value",
-        &[&key, value],
-    )
-    .await?;
+    let client = db.client().await?;
+    // A test's fence inside the write (the connection checked out, the statement not yet answered): the shutdown's offset persistence.
+    #[cfg(test)]
+    crate::memory::lifecycle::fences::pass(key).await;
+    client
+        .execute("INSERT INTO meta(key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value", &[&key, value])
+        .await?;
     Ok(())
 }
 

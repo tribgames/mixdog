@@ -76,54 +76,6 @@ pub struct SystemEngineResolver {
     host_modules: Arc<Mutex<HostModules>>,
 }
 
-impl SystemEngineResolver {
-    pub fn new(processes: Processes, plugin_data: &Path, manifest: Option<Value>, env: Option<HashMap<String, String>>) -> Self {
-        Self { processes, plugin_data: plugin_data.to_owned(), manifest: manifest.unwrap_or_else(read_engines_manifest), env, host_modules: Arc::default() }
-    }
-
-    /// Status/install resolution is project-free: the managed tools dir holds no config,
-    /// node_modules or virtualenv, so resolution sees exactly manifest, PATH and managed installs.
-    fn scope(&self) -> PathBuf {
-        if self.plugin_data.as_os_str().is_empty() { std::env::temp_dir().join("mixdog-tidy-status") } else { managed_tools_dir(&self.plugin_data) }
-    }
-
-    fn cached_probe(&self) -> HostModuleProbe {
-        let cache = self.host_modules.clone();
-        let processes = self.processes.clone();
-        Arc::new(move |engine: Resolved| {
-            let cache = cache.clone();
-            let processes = processes.clone();
-            Box::pin(async move {
-                let key = engine.command.clone();
-                if key.is_empty() {
-                    return String::new();
-                }
-                let (version, stale) = {
-                    let mut c = cache.lock().unwrap();
-                    let entry = c.entry(key.clone()).or_insert_with(|| (String::new(), None, false));
-                    let stale = entry.1.is_none_or(|at| at.elapsed() >= HOST_MODULE_PROBE_TTL) && !entry.2;
-                    if stale {
-                        entry.2 = true;
-                    }
-                    (entry.0.clone(), stale)
-                };
-                if stale {
-                    // The caller's request is long gone by then; publish for the next poll.
-                    tokio::spawn(async move {
-                        let version = probe_host_managed_module(&processes, &engine, None).await;
-                        cache.lock().unwrap().insert(key, (version, Some(Instant::now()), false));
-                    });
-                }
-                version
-            })
-        })
-    }
-
-    fn host_module_probed(&self, command: &str) -> bool {
-        self.host_modules.lock().unwrap().get(command).is_some_and(|e| e.1.is_some())
-    }
-}
-
 #[async_trait]
 impl EngineResolver for SystemEngineResolver {
     fn tools_dir(&self) -> String {
@@ -188,20 +140,38 @@ pub struct CoreInstall<'a> {
     pub only: Option<Vec<String>>,
 }
 
-/// Installs the CORE managed engine set for the built-in feature. Never fails and never aborts
-/// the set for one engine: each engine ends installed / present / skipped / failed (with its
-/// error). Overlapping presses share one job; the caller reads progress from `job`.
-pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -> Value {
-    let manifest = options.manifest.clone().unwrap_or_else(read_engines_manifest);
-    let tools_dir = if options.plugin_data.as_os_str().is_empty() { String::new() } else { managed_tools_dir(options.plugin_data).to_string_lossy().into_owned() };
+struct FinishInstall<'a>(&'a InstallJob);
+
+impl Drop for FinishInstall<'_> {
+    fn drop(&mut self) {
+        self.0.finish();
+    }
+}
+
+/// Installs the requested core engines and returns their settled results. An invalid request
+/// starts no job; per-engine failures do not fail a valid request. Overlapping requests wait
+/// their turn; `job` shows the active set.
+pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -> Result<Value, String> {
+    const CANCELLED: &str = "Code Tidy installation canceled.";
     let wanted: Vec<&str> = match &options.only {
-        Some(only) => TIDY_CORE_ENGINE_IDS.iter().copied().filter(|id| only.iter().any(|o| o == id)).collect(),
+        Some(only) => {
+            if let Some(id) = only.iter().find(|id| !TIDY_CORE_ENGINE_IDS.contains(&id.as_str())) {
+                return Err(format!("Unknown Code Tidy core engine ID: {id:?}."));
+            }
+            TIDY_CORE_ENGINE_IDS.iter().copied().filter(|id| only.iter().any(|o| o == id)).collect()
+        }
         None => TIDY_CORE_ENGINE_IDS.to_vec(),
     };
-    if !job.begin(&wanted) {
-        // Another install is running: callers observe the same job.
-        return json!({"toolsDir": tools_dir, "shared": true, "engines": []});
-    }
+    let _turn = tokio::select! {
+        biased;
+        () = options.cancel.cancelled() => return Err(CANCELLED.into()),
+        turn = job.install_turn() => turn,
+    };
+    let manifest = options.manifest.clone().unwrap_or_else(read_engines_manifest);
+    let tools_dir = if options.plugin_data.as_os_str().is_empty() { String::new() } else { managed_tools_dir(options.plugin_data).to_string_lossy().into_owned() };
+    assert!(job.begin(&wanted), "the install turn owns the progress slot");
+    // Settle the slot even if the caller drops the future; release the turn only after cleanup.
+    let finish = FinishInstall(job);
     let resolver = SystemEngineResolver::new(options.processes.clone(), options.plugin_data, Some(manifest.clone()), options.env.clone());
     let resolved = resolve_engines(&options.processes, &resolver.scope(), ResolveOptions {
         engine_ids: wanted.iter().map(|s| (*s).to_owned()).collect(),
@@ -280,14 +250,21 @@ pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -
             }
         }
     }
-    job.finish();
-    json!({"toolsDir": tools_dir, "engines": job.snapshot_results().iter().map(engine_result).collect::<Vec<_>>()})
+    drop(finish);
+    if options.cancel.is_cancelled() {
+        return Err(CANCELLED.into());
+    }
+    Ok(json!({"toolsDir": tools_dir, "engines": job.snapshot_results().iter().map(engine_result).collect::<Vec<_>>()}))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::future::{Future, poll_fn};
+    use std::task::Poll;
+
     use async_trait::async_trait;
     use sha2::{Digest, Sha256};
+    use tokio::sync::Semaphore;
 
     use super::*;
     use crate::local_provider::assets::{Body, Fetched};
@@ -329,7 +306,7 @@ mod tests {
         // ruff's bytes differ from its pinned digest; shfmt/shellcheck have no asset; PowerShell is absent.
         let fetcher = ByUrl(HashMap::from([("https://x/biome".to_owned(), b"biome-bin".to_vec()), ("https://x/ruff".to_owned(), b"tampered".to_vec())]));
         let job = Arc::new(InstallJob::default());
-        let out = run_core_install(&job, CoreInstall { processes: Processes::for_tests(), plugin_data: data.path(), manifest: Some(manifest), env: Some(env), fetcher: &fetcher, cancel: CancellationToken::new(), only: None }).await;
+        let out = run_core_install(&job, CoreInstall { processes: Processes::for_tests(), plugin_data: data.path(), manifest: Some(manifest), env: Some(env), fetcher: &fetcher, cancel: CancellationToken::new(), only: None }).await.unwrap();
         let status_of = |id: &str| out["engines"].as_array().unwrap().iter().find(|e| e["id"] == id).unwrap()["status"].as_str().unwrap().to_owned();
         assert_eq!(status_of("biome"), "installed");
         assert_eq!(status_of("ruff"), "failed");
@@ -337,6 +314,90 @@ mod tests {
         let live = job.status();
         assert_eq!((live["active"].clone(), live["percent"].clone()), (json!(false), json!(100)));
         assert!(managed_engine_dir(data.path(), "biome", "1.0.0").join("tool-bin").exists());
+    }
+
+    #[tokio::test]
+    async fn a_mixed_request_with_an_unknown_engine_is_rejected_before_progress_starts() {
+        let job = Arc::new(InstallJob::default());
+        let error = run_core_install(&job, CoreInstall {
+            processes: Processes::for_tests(),
+            plugin_data: Path::new(""),
+            manifest: Some(json!({"engines": {}})),
+            env: Some(HashMap::from([("PATH".to_owned(), String::new())])),
+            fetcher: &ByUrl(HashMap::new()),
+            cancel: CancellationToken::new(),
+            only: Some(vec!["biome".into(), "not-an-engine".into()]),
+        }).await.unwrap_err();
+        assert!(error.contains("not-an-engine"));
+        assert!(job.status().is_null());
+    }
+
+    #[tokio::test]
+    async fn overlapping_core_installs_wait_and_return_their_own_engine_set() {
+        struct HeldFetch {
+            entered: Semaphore,
+            release: Semaphore,
+            inner: ByUrl,
+        }
+
+        #[async_trait]
+        impl Fetcher for HeldFetch {
+            async fn get(&self, url: &str, timeout: i64) -> Result<Fetched, String> {
+                if url == "https://x/biome" {
+                    self.entered.add_permits(1);
+                    self.release.acquire().await.unwrap().forget();
+                }
+                self.inner.get(url, timeout).await
+            }
+        }
+
+        let data = tempfile::tempdir().unwrap();
+        let env = HashMap::from([("PATH".to_owned(), data.path().to_string_lossy().into_owned())]);
+        let manifest = json!({"engines": {
+            "biome": {"version": "1.0.0", "assets": {"any": asset("https://x/biome", b"biome-bin")}},
+            "ruff": {"version": "1.0.0", "assets": {"any": asset("https://x/ruff", b"ruff-bin")}},
+        }});
+        let fetcher = HeldFetch {
+            entered: Semaphore::new(0),
+            release: Semaphore::new(0),
+            inner: ByUrl(HashMap::from([
+                ("https://x/biome".to_owned(), b"biome-bin".to_vec()),
+                ("https://x/ruff".to_owned(), b"ruff-bin".to_vec()),
+            ])),
+        };
+        let job = Arc::new(InstallJob::default());
+        let options = |id: &str| CoreInstall {
+            processes: Processes::for_tests(),
+            plugin_data: data.path(),
+            manifest: Some(manifest.clone()),
+            env: Some(env.clone()),
+            fetcher: &fetcher,
+            cancel: CancellationToken::new(),
+            only: Some(vec![id.to_owned()]),
+        };
+        let first = run_core_install(&job, options("biome"));
+        let second = async {
+            fetcher.entered.acquire().await.unwrap().forget();
+            let mut request = std::pin::pin!(run_core_install(&job, options("ruff")));
+            poll_fn(|cx| {
+                assert!(request.as_mut().poll(cx).is_pending(), "the queued request must not report completion");
+                Poll::Ready(())
+            }).await;
+            let active = job.status();
+            assert_eq!(active["active"], true);
+            assert_eq!(active["engines"][0]["id"], "biome");
+            fetcher.release.add_permits(1);
+            request.await
+        };
+
+        let (first, second) = tokio::join!(first, second);
+        for (outcome, id) in [(first, "biome"), (second, "ruff")] {
+            let outcome = outcome.unwrap();
+            let engines = outcome["engines"].as_array().unwrap();
+            assert_eq!(engines.len(), 1);
+            assert_eq!(engines[0]["id"], id);
+            assert_eq!(engines[0]["status"], "installed");
+        }
     }
 
     #[tokio::test]
@@ -356,5 +417,54 @@ mod tests {
         assert!(!by("rustfmt").installable, "toolchain engines are never installable");
         assert_eq!(all.len(), engines().len());
         assert!(resolver.tools_dir().ends_with("tools"));
+    }
+}
+
+
+impl SystemEngineResolver {
+    pub fn new(processes: Processes, plugin_data: &Path, manifest: Option<Value>, env: Option<HashMap<String, String>>) -> Self {
+        Self { processes, plugin_data: plugin_data.to_owned(), manifest: manifest.unwrap_or_else(read_engines_manifest), env, host_modules: Arc::default() }
+    }
+
+    /// Status/install resolution is project-free: the managed tools dir holds no config,
+    /// node_modules or virtualenv, so resolution sees exactly manifest, PATH and managed installs.
+    fn scope(&self) -> PathBuf {
+        if self.plugin_data.as_os_str().is_empty() { std::env::temp_dir().join("mixdog-tidy-status") } else { managed_tools_dir(&self.plugin_data) }
+    }
+
+    fn cached_probe(&self) -> HostModuleProbe {
+        let cache = self.host_modules.clone();
+        let processes = self.processes.clone();
+        Arc::new(move |engine: Resolved| {
+            let cache = cache.clone();
+            let processes = processes.clone();
+            Box::pin(async move {
+                let key = engine.command.clone();
+                if key.is_empty() {
+                    return String::new();
+                }
+                let (version, stale) = {
+                    let mut c = cache.lock().unwrap();
+                    let entry = c.entry(key.clone()).or_insert_with(|| (String::new(), None, false));
+                    let stale = entry.1.is_none_or(|at| at.elapsed() >= HOST_MODULE_PROBE_TTL) && !entry.2;
+                    if stale {
+                        entry.2 = true;
+                    }
+                    (entry.0.clone(), stale)
+                };
+                if stale {
+                    // The caller's request is long gone by then; publish for the next poll.
+                    tokio::spawn(async move {
+                        let version = probe_host_managed_module(&processes, &engine, None).await;
+                        cache.lock().unwrap().insert(key, (version, Some(Instant::now()), false));
+                    });
+                }
+                version
+            })
+        })
+    }
+
+    fn host_module_probed(&self, command: &str) -> bool {
+        self.host_modules.lock().unwrap().get(command).is_some_and(|e| e.1.is_some())
     }
 }

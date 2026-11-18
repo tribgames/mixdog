@@ -5,44 +5,18 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+#[cfg(node_twin)]
 use serde_json::Value;
 
 use super::SessionDirectory;
+#[cfg(node_twin)]
 use super::delivered::DeliveredCompletions;
+#[cfg(node_twin)]
 use super::pending_read::PendingQueue;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use crate::eventually_on;
 use super::tests::start_thread;
-
-#[tokio::test(start_paused = true)]
-async fn a_channel_notification_queues_as_a_task_notification_with_channel_origin() {
-    let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/channel-router/golden.json")).unwrap();
-    let rig = Rig::new();
-    rig.set_script(Arc::new(|run| {
-        Box::pin(async move {
-            run.cancel.cancelled().await;
-            RunOutcome::Interrupted
-        })
-    }));
-    rig.clock.0.store(gold["frozenNow"].as_u64().unwrap(), Ordering::SeqCst);
-    let directory = Arc::new(SessionDirectory::new(rig.deps()));
-    let handle = start_thread(&directory).await;
-    // The first notification starts a turn that never ends; the next stays queued.
-    directory.queue_channel_notification(&handle.id, "running".into()).await;
-    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
-    directory.queue_channel_notification(&handle.id, "first".into()).await;
-    eventually_on!(&[&handle.cell.stepped], || (!handle.cell.queue.load().is_empty()).then_some(())).await;
-    // Node's in-memory form is the first of its two copies; ids are opaque (24 random hex there).
-    let mut want = gold["queue"]["entries"][0].clone();
-    want["content"] = "first".into();
-    want["text"] = "first".into();
-    let reads = PendingQueue::new(directory.clone(), Arc::new(DeliveredCompletions::new(rig.clock.clone())));
-    let got = reads.pending_messages(handle.id.as_str()).await;
-    assert_eq!(got.len(), 1);
-    want["id"] = got[0]["id"].clone();
-    assert_eq!(got[0], want);
-}
 
 #[tokio::test(start_paused = true)]
 async fn the_same_channel_text_twice_is_two_entries() {
@@ -80,4 +54,35 @@ async fn a_channel_notification_starts_a_turn_while_wakes_are_off_and_the_warmer
     assert_eq!(begun[0].0, quiet.id);
     assert_eq!(begun[0].1, serde_json::json!({ "promptSource": "task-notification", "promptOrigin": "channel" }));
     assert_eq!(begun[0].2, None, "a turn that is no retry reads no messages");
+}
+
+
+#[cfg(node_twin)]
+#[tokio::test(start_paused = true)]
+async fn a_channel_notification_queues_as_a_task_notification_with_channel_origin() {
+    let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/channel-router/golden.json")).unwrap();
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.cancel.cancelled().await;
+            RunOutcome::Interrupted
+        })
+    }));
+    rig.clock.0.store(gold["frozenNow"].as_u64().unwrap(), Ordering::SeqCst);
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let handle = start_thread(&directory).await;
+    // The first notification starts a turn that never ends; the next stays queued.
+    directory.queue_channel_notification(&handle.id, "running".into()).await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
+    directory.queue_channel_notification(&handle.id, "first".into()).await;
+    eventually_on!(&[&handle.cell.stepped], || (!handle.cell.queue.load().is_empty()).then_some(())).await;
+    // Node's in-memory form is the first of its two copies; ids are opaque (24 random hex there).
+    let mut want = gold["queue"]["entries"][0].clone();
+    want["content"] = "first".into();
+    want["text"] = "first".into();
+    let reads = PendingQueue::new(directory.clone(), Arc::new(DeliveredCompletions::new(rig.clock.clone())));
+    let got = reads.pending_messages(handle.id.as_str()).await;
+    assert_eq!(got.len(), 1);
+    want["id"] = got[0]["id"].clone();
+    assert_eq!(got[0], want);
 }

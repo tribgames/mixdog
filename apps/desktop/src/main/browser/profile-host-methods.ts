@@ -41,7 +41,7 @@ export function createCookieAutoImporter(options: {
   return new CookieAutoImporter({
     settings: options.settings,
     state: profileImporter.cookieAutoImportState,
-    run: (profileId) => profileImporter.runAutomaticCookieImport(profileId),
+    run: (profileId, stillSelected) => profileImporter.runAutomaticCookieImport(profileId, stillSelected),
     chromeRunning: async () => chromeLockHeld(profileImporter.chromeLockFile()),
     watchChromeExit: (onExit, onStopped) => {
       try {
@@ -52,7 +52,7 @@ export function createCookieAutoImporter(options: {
       }
     },
     keyStatus: () => profileImporter.savedKeyStatus(),
-    forgetKey: () => profileImporter.forgetSavedKey(),
+    forgetKey: () => profileImporter.withCookieMutation(() => profileImporter.forgetSavedKey()),
     onError: options.onError,
   });
 }

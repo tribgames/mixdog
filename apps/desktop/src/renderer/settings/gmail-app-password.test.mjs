@@ -140,12 +140,14 @@ test('the app-password dialog verifies on the host, explains a refusal, then con
   assert.ok(calls.filter(([capability]) => capability === 'mcpStatus').length >= 2, 'the host confirmed it');
   assert.ok(!calls.some(([capability]) => capability === 'beginMcpOAuthLogin'), 'no Google sign-in');
 
-  // The row then names the account; its detail offers a password change, not the Google key.
+  // The row then names the account (its 연결됨 tag's tooltip); its detail offers a password change, not the Google key.
   await act(async () =>
     root.render(React.createElement(CategoryPanel, { category: 'connectors', context: panelContext(live) }))
   );
   const row = host.querySelector('[data-connector-row="gmail"]');
-  assert.match(row.textContent, /me@gmail\.com/);
+  const tag = row.querySelector('.sidebar-resource-title > .sidebar-resource-tag');
+  assert.equal(tag?.textContent, 'Connected');
+  assert.match(tag.title, /me@gmail\.com/);
   await click(row.querySelector('.extensions-row-open'));
   const detail = document.body.querySelector('.connectors-detail-dialog');
   assert.match(detail.textContent, /Connected with an app password/);

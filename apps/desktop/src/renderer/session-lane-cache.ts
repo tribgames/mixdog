@@ -7,6 +7,8 @@ interface SessionLaneEntry {
   estimatedAt: number;
   /** Authoritative content generation this cached transcript was accepted at. */
   revision: number | null;
+  /** The lane's own snapshot object this entry was made from: handed on again, it is the same state at a later position. */
+  incoming?: WeakRef<object>;
 }
 
 /** Mounted panes pin their live frame; only inactive snapshots are evictable.

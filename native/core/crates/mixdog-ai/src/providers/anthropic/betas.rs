@@ -31,6 +31,12 @@ pub(crate) struct BetaFeatures {
     pub mid_conversation_effort: bool,
 }
 
+/// Whether a request that sends these beta names asked for progress updates (`body.thinking?.display === 'updates'`):
+/// the body's display is the one thing that names this beta.
+pub(crate) fn sent_display_updates(names: &[String]) -> bool {
+    names.iter().any(|name| name == THINKING_DISPLAY_UPDATES)
+}
+
 /// A custom endpoint's set (`requestBetasFor` with `base: ''`): only the names its own request body needs.
 pub(crate) fn custom_beta_header(features: BetaFeatures) -> String {
     let all = beta_header(Flavor::ApiKey, features);

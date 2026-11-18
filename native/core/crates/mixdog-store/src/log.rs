@@ -7,6 +7,7 @@
 //! sequential (the next starts only after this call returns).
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "log file I/O runs only in lane jobs (lane proof arguments)")]
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -25,7 +26,6 @@ use mixdog_rt::DurabilityIo;
 use mixdog_rt::InLane;
 
 use crate::blobs::BlobError;
-use crate::blobs::BlobPin;
 use crate::blobs::BlobStore;
 use crate::encode::EncodeError;
 use crate::encode::Encoded;
@@ -132,6 +132,10 @@ pub struct OpenedLog {
     /// Bytes read from the log, for the open bound (≤ `REVERSE_SCAN_MAX` + the frame
     /// before the anchor), plus the checkpoint-state blob if out of line.
     pub bytes_read: u64,
+    /// What the fold could not read and no later checkpoint restored (a salvaged open, FORMAT.md §4.5): the state may
+    /// be stale, so the log is read-only (`LogWriter::open` refuses, `OpenAppendError::BodiesLost`) until the missing
+    /// blobs are back and an open reads it whole.
+    pub lost: Option<String>,
     anchor_offset: u64,
     last_is_anchor: bool,
     /// The newest file is a group file (§1): the next write starts the next file.
@@ -195,6 +199,7 @@ pub struct TailRead {
     records: Vec<(FramePos, u64)>,
     effects: Vec<crate::fold::Effect>,
     last_is_anchor: bool,
+    lost: Option<String>,
 }
 
 impl TailRead {
@@ -288,6 +293,24 @@ fn read_head_of(dir: &Path, files: Vec<u32>) -> Result<HeadRead, OpenError> {
     })
 }
 
+/// The newest anchor of the newest log file, the fold right after it and the position of the frame that follows it: what
+/// a reader that needs only the frames after a known position starts from, instead of folding the log from its first frame
+/// (J1 and §6.3 step 3, as an open reads them). `None` for a group file or when the anchor cannot be read; the caller folds
+/// from the start then.
+pub(crate) fn newest_anchor_fold_unlaned(dir: &Path, resolve: &mut crate::fold::ResolveBody<'_>) -> Option<(FramePos, Fold, FramePos)> {
+    let head = read_head_of(dir, list_logs(dir).ok()?).ok()?;
+    if head.group_file {
+        return None;
+    }
+    let (anchor, _) = head.scan.frames.split_first()?;
+    let anchor_pos = FramePos { ordinal: anchor.ordinal, file_no: head.newest, offset: head.window_start + anchor.start as u64 };
+    let next = FramePos { ordinal: anchor.ordinal + 1, file_no: head.newest, offset: head.window_start + anchor.end() as u64 };
+    let session_name = dir.file_name()?.to_string_lossy().into_owned();
+    let record = parse_record(anchor.payload(&head.buf)).ok()?;
+    let fold = fold_at_anchor(record, anchor_pos, &session_name, resolve).ok()?;
+    Some((anchor_pos, fold, next))
+}
+
 /// The fold right after the anchor frame at `pos` whose record is `record` (§6.3 step 3): the
 /// `session` frame of this session, or a `checkpoint` whose state covers exactly that frame.
 fn fold_at_anchor(record: Record, pos: FramePos, session_name: &str, resolve: &mut crate::fold::ResolveBody<'_>) -> Result<Fold, OpenError> {
@@ -307,6 +330,44 @@ fn fold_at_anchor(record: Record, pos: FramePos, session_name: &str, resolve: &m
             Ok(Fold::from_checkpoint(session_name, state))
         }
         _ => Err(OpenError::Format("anchor is not a checkpoint or session".into())),
+    }
+}
+
+/// The fold of the log in `dir` read forward from its `session` frame up to ordinal `end` (exclusive; `None`: to the
+/// log's end), for an open whose anchor state or tail record names a blob that is missing or corrupt (FORMAT.md §4.5):
+/// every record is folded as far as it can be, and the next checkpoint whose state reads puts back what a lost body
+/// changed in the header (`fold::fold_salvaging`). Fails `BlobError::Missing` when the session's own header is lost and
+/// no later checkpoint holds it: no session is opened without its header. With the fold, the losses no later checkpoint
+/// restored (`Losses::describe`): the log then opens read-only ([`OpenedLog::lost`]). Unbounded (the whole log), and
+/// only then.
+fn salvage_fold(dir: &Path, blobs: &BlobStore, end: Option<u64>) -> Result<(Fold, Option<String>), OpenError> {
+    let gone = RefCell::new(Vec::new());
+    let mut resolve = crate::fold::noting(blobs, &gone);
+    let mut losses = crate::fold::Losses::default();
+    let mut fold = None;
+    let mut pos = FramePos { ordinal: first_ordinal_unlaned(dir)?, file_no: 0, offset: 0 };
+    'read: loop {
+        let read = read_forward_unlaned(dir, pos, MAX_FRAME_LEN as u64)?;
+        for (record, at, _) in &read.frames {
+            if end.is_some_and(|end| at.ordinal >= end) {
+                break 'read;
+            }
+            crate::fold::fold_salvaging(&mut fold, record, *at, &mut resolve, &gone, &mut losses).map_err(OpenError::Format)?;
+        }
+        match read.next {
+            ForwardEnd::More(next) => pos = next,
+            ForwardEnd::Done { .. } | ForwardEnd::Damaged(_) => break,
+        }
+    }
+    if let Some(digest) = losses.header_missing() {
+        return Err(BlobError::Missing { digest: digest.clone() }.into());
+    }
+    let fold = fold.ok_or_else(|| OpenError::Format(format!("{}: the log holds no frame", dir.display())))?;
+    match end {
+        Some(end) if fold.next_ordinal != end => {
+            Err(OpenError::Format(format!("{}: salvaged to ordinal {}, the tail ends at {end}", dir.display(), fold.next_ordinal)))
+        }
+        _ => Ok((fold, (!losses.is_empty()).then(|| losses.describe()))),
     }
 }
 
@@ -376,13 +437,21 @@ fn read_group_file(mut head: HeadRead, blobs: &BlobStore, index: &dyn LineageInd
     let head_len = frame.len() as u64;
     let session_name = head.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let mut bytes_read = head.bytes_read;
+    let gone = RefCell::new(Vec::new());
     let mut resolve = |b: &crate::schema::blob::BodyBlob| {
-        blobs
-            .read_unlaned(&b.descriptor().digest)
-            .inspect(|bytes| bytes_read += bytes.len() as u64)
-            .map_err(|e| e.to_string())
+        let digest = &b.descriptor().digest;
+        blobs.read_unlaned(digest).inspect(|bytes| bytes_read += bytes.len() as u64).map_err(|e| {
+            crate::fold::note_loss(&gone, digest, &e);
+            e.to_string()
+        })
     };
-    let before = fold_at_anchor(checkpoint, FramePos { ordinal, file_no: head.newest, offset: 0 }, &session_name, &mut resolve)?;
+    // A head state or a member body whose blob is missing or corrupt: the fold is salvaged from the whole log (FORMAT.md
+    // §4.5).
+    let (before, lost) = match fold_at_anchor(checkpoint, FramePos { ordinal, file_no: head.newest, offset: 0 }, &session_name, &mut resolve) {
+        Ok(before) => (before, None),
+        Err(_) if crate::fold::take_lost(&gone).is_some() => salvage_fold(&head.dir, blobs, Some(ordinal + 1))?,
+        Err(e) => return Err(e),
+    };
     let mut fold = before.clone();
     let mut log_bytes = 0u64;
     // `Some(None)`: a member that is no record; `Some(Some(_))`: one that did not fold.
@@ -422,15 +491,16 @@ fn read_group_file(mut head: HeadRead, blobs: &BlobStore, index: &dyn LineageInd
         }
         whole = whole && check.finish().is_ok();
     }
-    let (fold, status, committed_end) = match (whole, halted) {
-        (true, None) => (fold, LogStatus::Clean, head.size),
+    let ((fold, lost), status, committed_end) = match (whole, halted) {
+        (true, None) => ((fold, lost), LogStatus::Clean, head.size),
+        (true, Some(Some(_))) if crate::fold::take_lost(&gone).is_some() => (salvage_fold(&head.dir, blobs, None)?, LogStatus::Clean, head.size),
         (true, Some(Some(failure))) => return Err(failure),
-        _ => (before, LogStatus::Damaged(GroupFileHead::damage(head.newest, ordinal)), head_len),
+        _ => ((before, lost), LogStatus::Damaged(GroupFileHead::damage(head.newest, ordinal)), head_len),
     };
     let last_is_anchor = status != LogStatus::Clean;
     head.buf = frame;
     head.bytes_read = bytes_read + log_bytes;
-    Ok(TailRead { head, fold, anchor_offset: 0, status, committed_end, records: Vec::new(), effects: Vec::new(), last_is_anchor })
+    Ok(TailRead { head, fold, anchor_offset: 0, status, committed_end, records: Vec::new(), effects: Vec::new(), last_is_anchor, lost })
 }
 
 /// J2's tail part: parses the anchor and the tail, reads the anchor state's blob, and runs
@@ -468,13 +538,15 @@ pub fn read_tail<L: IoLane>(
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
+    let gone = RefCell::new(Vec::new());
     let mut resolve = |b: &crate::schema::blob::BodyBlob| {
-        blobs
-            .read_unlaned(&b.descriptor().digest)
-            .inspect(|bytes| bytes_read += bytes.len() as u64)
-            .map_err(|e| e.to_string())
+        let digest = &b.descriptor().digest;
+        blobs.read_unlaned(digest).inspect(|bytes| bytes_read += bytes.len() as u64).map_err(|e| {
+            crate::fold::note_loss(&gone, digest, &e);
+            e.to_string()
+        })
     };
-    let fold = fold_at_anchor(parse_record(anchor.payload(buf)).map_err(OpenError::Format)?, anchor_pos, &session_name, &mut resolve)?;
+    let anchor_record = parse_record(anchor.payload(buf)).map_err(OpenError::Format)?;
 
     // Fold the tail; a committed frame that is not a valid record is damage of the record
     // layer at that frame (FORMAT.md §3.2).
@@ -494,7 +566,21 @@ pub fn read_tail<L: IoLane>(
             }
         }
     }
-    let effects = fold.prepare(records.iter().map(|(r, _)| r), index, &mut resolve)?;
+    let folded = fold_at_anchor(anchor_record, anchor_pos, &session_name, &mut resolve).and_then(|fold| {
+        let effects = fold.prepare(records.iter().map(|(r, _)| r), index, &mut resolve)?;
+        Ok((fold, effects))
+    });
+    // A blob the anchor's state or a tail record names is missing or corrupt: the fold is salvaged from the whole log
+    // (FORMAT.md §4.5), and the next clean close writes a checkpoint of it.
+    let salvaged = folded.is_err() && !gone.borrow().is_empty();
+    let (fold, effects, lost) = match folded {
+        Ok((fold, effects)) => (fold, effects, None),
+        Err(_) if salvaged => {
+            let (fold, lost) = salvage_fold(dir, blobs, Some(anchor.ordinal + 1 + records.len() as u64))?;
+            (fold, Vec::new(), lost)
+        }
+        Err(e) => return Err(e),
+    };
     let positions: Vec<(FramePos, u64)> = records
         .iter()
         .map(|(_, frame)| {
@@ -510,10 +596,12 @@ pub fn read_tail<L: IoLane>(
         committed_end = *end;
     }
     let anchor_offset = anchor_pos.offset;
-    let last_is_anchor = positions.is_empty();
+    let last_is_anchor = positions.is_empty() && !salvaged;
+    // The salvaged fold already holds the tail.
+    let positions = if salvaged { Vec::new() } else { positions };
     let mut head = head;
     head.bytes_read = bytes_read;
-    Ok(TailRead { head, fold, anchor_offset, status, committed_end, records: positions, effects, last_is_anchor })
+    Ok(TailRead { head, fold, anchor_offset, status, committed_end, records: positions, effects, last_is_anchor, lost })
 }
 
 /// Decode: applies the tail's effects to the anchor fold (CPU only).
@@ -522,11 +610,12 @@ pub fn decode_tail(_lane: &InLane<mixdog_rt::CpuInteractive>, tail: TailRead) ->
 }
 
 fn decode_tail_unlaned(tail: TailRead) -> OpenedLog {
-    let TailRead { head, mut fold, anchor_offset, status, committed_end, records, effects, last_is_anchor } = tail;
+    let TailRead { head, mut fold, anchor_offset, status, committed_end, records, effects, last_is_anchor, lost } = tail;
     for (effect, (pos, _)) in effects.into_iter().zip(records) {
         fold.apply(effect, pos);
     }
     OpenedLog {
+        lost,
         dir: head.dir,
         files: head.files,
         newest_file_no: head.newest,
@@ -549,13 +638,18 @@ pub fn read_frame_payload<L: IoLane>(_lane: &InLane<L>, dir: &Path, pos: FramePo
         return Err(damaged());
     }
     let mut file = File::open(&path).map_err(err(IoOp::Open, &path))?;
-    let buf = match read_range(&mut file, &path, pos.offset, frame_len as usize) {
+    let mut buf = match read_range(&mut file, &path, pos.offset, frame_len as usize) {
         Ok(b) => b,
         Err(e) if e.source.kind() == io::ErrorKind::UnexpectedEof => return Err(damaged()),
         Err(e) => return Err(e.into()),
     };
+    // The payload is a part of the frame just read: the frame's buffer is cut down to it, not copied a second time.
     let payload = framing::check_frame(&buf, pos.ordinal).map_err(|_| damaged())?;
-    Ok(payload.to_vec())
+    let start = payload.as_ptr() as usize - buf.as_ptr() as usize;
+    let end = start + payload.len();
+    buf.truncate(end);
+    buf.drain(..start);
+    Ok(buf)
 }
 
 /// Decode: one payload from `read_frame_payload` parsed; a payload that is not a valid
@@ -931,6 +1025,9 @@ impl AppendError {
 pub enum OpenAppendError {
     #[error("session damaged at {0:?}")]
     StoreDamaged(Damage),
+    /// The open salvaged a fold that lost state ([`OpenedLog::lost`]): read-only until the blobs are restored.
+    #[error("session state lost with its blobs: {0}")]
+    BodiesLost(String),
     #[error(transparent)]
     Io(#[from] IoError),
 }
@@ -979,10 +1076,10 @@ impl LogWriter {
         let Record::Session(record) = &session.record else {
             return Err(FoldError::Unexpected("first record must be a session").into());
         };
+        let _writing = crate::log_epoch::writing_dir(dir);
         let start = record.base.as_ref().map_or(0, |b| b.end_ordinal_exclusive);
-        let mut pins = Vec::new();
         for blob in &session.blobs {
-            pins.push(deps.blobs.put_unlaned(&blob.bytes, |p, b| deps.io.publish(p, b))?);
+            deps.blobs.put_unlaned(&blob.bytes, |p, b| deps.io.publish(p, b))?;
         }
         let mut lookup = blob_lookup(&session.blobs);
         let header: Header = resolve_slot(&record.header, &mut lookup).map_err(FoldError::Body)?;
@@ -1003,11 +1100,11 @@ impl LogWriter {
                 frame_len: buf.len() as u64,
                 kind,
                 op,
+                receipt: None,
                 history_rev: 0,
                 rows: 0,
                 visible_rows: 0,
             }],
-            pins,
         };
         let writer = LogWriter {
             dir: dir.to_path_buf(),
@@ -1032,6 +1129,11 @@ impl LogWriter {
         if let LogStatus::Damaged(d) = opened.status {
             return Err(OpenAppendError::StoreDamaged(d));
         }
+        // No write, checkpoint or execution from a fold that lost state.
+        if let Some(lost) = opened.lost {
+            return Err(OpenAppendError::BodiesLost(lost));
+        }
+        let _writing = crate::log_epoch::writing_dir(&opened.dir);
         fsio::sweep_tmp_unlaned(&opened.dir)?;
         let path = opened.dir.join(log_name(opened.newest_file_no));
         let mut file = deps.io.open_append(&path).map_err(err(IoOp::Open, &path))?;
@@ -1074,6 +1176,7 @@ impl LogWriter {
 
     /// "Retry storage": runs a pending rollback now.
     pub fn retry_storage(&mut self, _lane: &InLane<DurabilityIo>) -> Result<(), AppendError> {
+        let _writing = crate::log_epoch::writing_dir(&self.dir);
         self.ready().map(|_| ())
     }
 
@@ -1159,6 +1262,8 @@ impl LogWriter {
     }
 
     fn append(&mut self, batch: Vec<Encoded>, force_checkpoint: bool) -> Result<BatchAck, AppendError> {
+        // Held to the end: a pending rollback run first, the write, and the rollback of a write that failed.
+        let _writing = crate::log_epoch::writing_dir(&self.dir);
         let end = self.ready()?;
         self.alone(end)?;
         let deps = self.deps.clone();
@@ -1232,9 +1337,8 @@ impl LogWriter {
         }
         buf[..lead].copy_from_slice(&lead_frames);
         // Blobs before the frames that reference them (SM §7.5).
-        let mut pins: Vec<BlobPin> = Vec::new();
         for blob in checkpoint.iter().chain(&batch).flat_map(|e| &e.blobs) {
-            pins.push(deps.blobs.put_unlaned(&blob.bytes, |p, b| deps.io.publish(p, b))?);
+            deps.blobs.put_unlaned(&blob.bytes, |p, b| deps.io.publish(p, b))?;
         }
 
         #[cfg(feature = "crash-hook")]
@@ -1291,13 +1395,17 @@ impl LogWriter {
         let mut records = batch.iter();
         let mut effects = effects.into_iter();
         for (i, (&pos, &frame_len)) in positions.iter().zip(&lens).enumerate() {
-            let (effect, kind, op) = if i == 0 && checkpoint.is_some() {
-                (crate::fold::Effect::None, crate::projection::FrameKind::Other, None)
-            } else {
-                let record = &records.next().expect("one record per frame").record;
-                // The bodies are in the batch (or already stored): the fold read them too.
-                let (kind, op) = project(record, &mut lookup).expect("batch body readable");
-                (effects.next().expect("one effect per record"), kind, op)
+            let (effect, kind, op, receipt) = match &checkpoint {
+                Some(cp) if i == 0 => {
+                    (crate::fold::Effect::None, crate::projection::FrameKind::Other, None, None)
+                }
+                _ => {
+                    let record = &records.next().expect("one record per frame").record;
+                    // The bodies are in the batch (or already stored): the fold read them too.
+                    let (kind, op) = project(record, &mut lookup).expect("batch body readable");
+                    let receipt = crate::projection::receipt(record, &mut lookup).expect("batch body readable");
+                    (effects.next().expect("one effect per record"), kind, op, receipt)
+                }
             };
             self.fold.apply(effect, pos);
             frames.push(ProjectedFrame {
@@ -1305,6 +1413,7 @@ impl LogWriter {
                 frame_len,
                 kind,
                 op,
+                receipt,
                 history_rev: self.fold.history_rev,
                 rows: self.fold.rows,
                 visible_rows: self.fold.visible_rows,
@@ -1324,7 +1433,6 @@ impl LogWriter {
                 session: self.fold.session.clone(),
                 frames,
                 head: CatalogHead::of(&self.fold),
-                pins,
             },
         })
     }
@@ -1426,6 +1534,7 @@ pub fn repair_damage(
 ) -> Result<PathBuf, IoError> {
     use crate::schema::migration::*;
     let dir = data_dir.join("sessions").join(session);
+    let _writing = crate::log_epoch::writing(session);
     // The same place can be damaged again after a repair (a group file's number is free once the file is moved away; a
     // cut file is written again from the cut): each repair keeps its own evidence. A folder with no reason file is this
     // repair, interrupted (the reason is written last), and is finished; one with a reason is an earlier repair's.

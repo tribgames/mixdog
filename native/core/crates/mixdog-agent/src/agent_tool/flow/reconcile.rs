@@ -183,7 +183,13 @@ pub fn reconcile_failed(job: &JobHandle, error: &TurnError, identity: &Map<Strin
     });
     job.board.reconcile(
         &job.task_id,
-        Completion { result, error: Some(error.message.clone()), terminal_reason: Some("agent-stream-stalled".to_owned()), ..Completion::new("failed") },
+        Completion {
+            result,
+            error: Some(error.message.clone()),
+            error_notes: error.notes.clone(),
+            terminal_reason: Some("agent-stream-stalled".to_owned()),
+            ..Completion::new("failed")
+        },
     );
 }
 

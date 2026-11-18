@@ -12,9 +12,57 @@ import { IN_TREE_DAEMON_STOP_GRACE_MS } from '../shared/core-src/standalone/daem
 /** Bound on waiting for a daemon in this app's process tree to exit after its
  *  forced stop. A healthy daemon shutdown (PostgreSQL stop included) measures
  *  ~0.6 s; past this the app exits and the daemon dies with it. The daemon
- *  times its forced PostgreSQL stop from the same constant. Windows are
+ *  arms its own forced PostgreSQL stop at the start of its shutdown, at this
+ *  constant less the stop's signal margin (`daemon-stop-budget.mjs`
+ *  PG_FORCED_STOP_AT_MS, mirrored by the core's `PG_FORCED_STOP_AT`), and its
+ *  whole-shutdown backstop is Node's 15 s (`SHUTDOWN_BUDGET`): this is Node's
+ *  launcher wait (`stopInTreeDaemon`), not a longer one. Windows are
  *  already hidden, so a longer wait only delays the invisible process exit. */
 export const DESKTOP_DAEMON_STOP_TIMEOUT_MS = IN_TREE_DAEMON_STOP_GRACE_MS;
+
+/** What a quit's stop of its core came to: the request (see `CoreStopRequest`), whether the core had exited when the wait
+ *  ended, and the times. Written to the desktop diagnostics as `desktop-daemon-stop`, the line 1.4.5 wrote. */
+export interface CoreStopOutcome {
+  request: 'none' | 'not-ours' | 'sent' | 'refused' | 'unanswered';
+  error: string | null;
+  /** How long the request took to be answered. */
+  requestMs: number;
+  /** The core's process had ended when the wait did (or there was none to wait for). */
+  exited: boolean;
+  /** From the quit's stop beginning to the core's exit or the wait giving up. */
+  elapsedMs: number;
+  timeoutMs: number;
+}
+
+export interface CoreStopQuitOptions {
+  request(timeoutMs: number): Promise<{ request: CoreStopOutcome['request']; error: string | null; elapsedMs: number }>;
+  /** Resolves true once the core has exited, false after `remainingMs`. */
+  exit(remainingMs: number): Promise<boolean>;
+  record(outcome: CoreStopOutcome): void | Promise<void>;
+  timeoutMs?: number;
+  now?(): number;
+}
+
+/** The core's end at a quit, as 1.4.5's `stopInTreeDaemon` did it: ask it to stop with its running work aborted, wait for
+ *  its own exit within `timeoutMs` (the request counts against it), and record what happened. The app exits after this,
+ *  so a core that did not leave in time is the only one the app's exit still ends. */
+export async function stopCoreForQuit(options: CoreStopQuitOptions): Promise<CoreStopOutcome> {
+  const timeoutMs = options.timeoutMs ?? DESKTOP_DAEMON_STOP_TIMEOUT_MS;
+  const now = options.now ?? Date.now;
+  const began = now();
+  const asked = await options.request(timeoutMs);
+  const exited = await options.exit(Math.max(0, timeoutMs - (now() - began)));
+  const outcome: CoreStopOutcome = {
+    request: asked.request,
+    error: asked.error,
+    requestMs: asked.elapsedMs,
+    exited,
+    elapsedMs: now() - began,
+    timeoutMs,
+  };
+  await options.record(outcome);
+  return outcome;
+}
 
 export interface QuitWindow {
   isDestroyed(): boolean;
@@ -29,6 +77,10 @@ export interface DesktopQuitSequenceOptions {
   /** Start a fresh instance once this one exits (Electron app.relaunch). */
   relaunch(): void;
   onError?(error: unknown): void;
+  /** Bound on the whole teardown: past it the app exits anyway (`onTeardownTimeout` first), so a teardown step that never
+   *  settles cannot leave a quitting app running with its core and the single-instance lock held. None: unbounded. */
+  teardownTimeoutMs?: number;
+  onTeardownTimeout?(): void;
 }
 
 export interface DesktopQuitSequence {
@@ -56,10 +108,28 @@ export function createDesktopQuitSequence(options: DesktopQuitSequenceOptions): 
           options.onError?.(error);
         }
       }
-      running = Promise.resolve()
+      const teardown = Promise.resolve()
         .then(() => options.teardown())
-        .catch((error: unknown) => options.onError?.(error))
-        .finally(() => options.exit());
+        .catch((error: unknown) => options.onError?.(error));
+      const bound = options.teardownTimeoutMs;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const deadline =
+        bound === undefined
+          ? null
+          : new Promise<void>((resolve) => {
+              timer = setTimeout(() => {
+                try {
+                  options.onTeardownTimeout?.();
+                } catch (error) {
+                  options.onError?.(error);
+                }
+                resolve();
+              }, bound);
+            });
+      running = (deadline ? Promise.race([teardown, deadline]) : teardown).finally(() => {
+        if (timer) clearTimeout(timer);
+        options.exit();
+      });
       return running;
     },
     secondInstance() {

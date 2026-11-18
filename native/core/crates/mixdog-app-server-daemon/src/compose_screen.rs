@@ -14,7 +14,7 @@
 //! - display changes: the desktop's `host/screen/displaysChanged` re-reads the monitors and renews every session's geometry;
 //! - quit: [`Screens::stop_step`] stops every session under the quit budget (their input is released) before the live view goes.
 //!
-//! Windows only: elsewhere the phone's screen control reports once, at error level, that it is off.
+//! Windows only: elsewhere there is no screen control, which is no error (a debug line says so).
 //!
 //! `compose_flip.rs` calls [`installer`] where PC access is built and [`compose_screen`] once, where PC access, the computer pool and the
 //! live view exist.
@@ -159,7 +159,8 @@ pub async fn compose_screen(inputs: ScreenInputs) -> Screens {
 #[cfg(not(windows))]
 pub async fn compose_screen(inputs: ScreenInputs) -> Screens {
     let ScreenInputs { host: _, registry: _, events: _, pool: _, native: _, manager: _, pc_access: _, helper: _, blobs: _, data_dir: _ } = inputs;
-    tracing::error!(reason = "screen control is implemented for Windows only", "phone screen control is off");
+    // Not an error: this OS has no screen control to start (Node composed none here either).
+    tracing::debug!("phone screen control is not available on this OS");
     Screens {}
 }
 

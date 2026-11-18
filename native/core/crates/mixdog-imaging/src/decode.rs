@@ -104,6 +104,66 @@ impl Format {
             Self::Avif => "heif",
         }
     }
+
+    /// The IANA media type of bytes in this format.
+    pub fn media_type(self) -> &'static str {
+        match self {
+            Self::Jpeg => "image/jpeg",
+            Self::Png => "image/png",
+            Self::Gif => "image/gif",
+            Self::Webp => "image/webp",
+            Self::Tiff => "image/tiff",
+            Self::Svg => "image/svg+xml",
+            Self::Avif => "image/avif",
+        }
+    }
+
+    /// Every format the decoder takes.
+    pub const ALL: [Self; 7] = [Self::Jpeg, Self::Png, Self::Gif, Self::Webp, Self::Tiff, Self::Svg, Self::Avif];
+
+    /// The file extensions of this format, lower case with the dot, the one a written file gets first.
+    pub fn extensions(self) -> &'static [&'static str] {
+        match self {
+            Self::Jpeg => &[".jpg", ".jpeg", ".jpe", ".jfif"],
+            Self::Png => &[".png"],
+            Self::Gif => &[".gif"],
+            Self::Webp => &[".webp"],
+            Self::Tiff => &[".tif", ".tiff"],
+            Self::Svg => &[".svg"],
+            Self::Avif => &[".avif"],
+        }
+    }
+
+    /// The format a file extension names (without the dot, any case), by [`Format::extensions`].
+    pub fn from_extension(extension: &str) -> Option<Self> {
+        let dotted = format!(".{}", extension.to_ascii_lowercase());
+        Self::ALL.into_iter().find(|format| format.extensions().contains(&dotted.as_str()))
+    }
+
+    /// Whether a web browser draws this format itself (everything the decoder takes but TIFF).
+    pub fn browsers_draw(self) -> bool {
+        self != Self::Tiff
+    }
+
+    /// The media type of a file extension (without the dot) of an image a web browser draws itself: what a preview or a
+    /// served page may name by extension.
+    pub fn browser_media_type(extension: &str) -> Option<&'static str> {
+        Self::from_extension(extension).filter(|format| format.browsers_draw()).map(Self::media_type)
+    }
+
+    /// The format a media type names (the table of [`Format::media_type`] read backwards).
+    pub fn from_media_type(media_type: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|format| format.media_type() == media_type)
+    }
+
+    /// The format an image of this one is handed on in: the four raster types every model provider accepts as an
+    /// image (PNG, JPEG, GIF, WebP) stay as they are; anything else (markup, TIFF, AVIF) goes on as a PNG.
+    pub fn carried_as(self) -> Self {
+        match self {
+            Self::Jpeg | Self::Png | Self::Gif | Self::Webp => self,
+            Self::Tiff | Self::Svg | Self::Avif => Self::Png,
+        }
+    }
 }
 
 /// 8-bit pixels, RGB (3 bytes a pixel) or RGBA (4), row after row.
@@ -204,27 +264,46 @@ fn check_pixels(width: u32, height: u32, limit: u64) -> Result<(), ImagingError>
 
 /// Decodes `bytes` (the whole image, every pixel) and refuses an image of more than `pixel_limit` pixels.
 pub fn decode(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
+    decode_within(bytes, pixel_limit, u64::MAX)
+}
+
+/// [`decode`] that also refuses, from the header and before any pixel buffer is allocated, an image whose decoding
+/// would hold more than `budget` bytes at once (the decoder's own buffer plus the 8-bit RGB(A) copy made of it where
+/// the two differ), so that a small file that declares a large canvas cannot make this allocate it. An SVG is
+/// rasterized at its declared size here; [`rasterize_svg`] renders one at a chosen size.
+pub fn decode_within(bytes: &[u8], pixel_limit: u64, budget: u64) -> Result<Decoded, ImagingError> {
     if bytes.is_empty() {
         return Err(ImagingError::invalid(EMPTY_BUFFER));
     }
     match Format::sniff(bytes) {
         None => Err(ImagingError::invalid(UNSUPPORTED_FORMAT)),
-        Some(Format::Jpeg) => decode_jpeg(bytes, pixel_limit),
-        Some(Format::Png) => decode_with(PngDecoder::new(Cursor::new(bytes)), Format::Png, pixel_limit),
-        Some(Format::Gif) => decode_with(GifDecoder::new(Cursor::new(bytes)), Format::Gif, pixel_limit),
-        Some(Format::Webp) => decode_with(WebPDecoder::new(Cursor::new(bytes)), Format::Webp, pixel_limit),
-        Some(Format::Tiff) => decode_tiff(bytes, pixel_limit),
-        Some(Format::Svg) => decode_svg(bytes, pixel_limit),
+        Some(Format::Jpeg) => decode_jpeg(bytes, pixel_limit, budget),
+        Some(Format::Png) => decode_with(PngDecoder::new(Cursor::new(bytes)), Format::Png, pixel_limit, budget),
+        Some(Format::Gif) => decode_with(GifDecoder::new(Cursor::new(bytes)), Format::Gif, pixel_limit, budget),
+        Some(Format::Webp) => decode_with(WebPDecoder::new(Cursor::new(bytes)), Format::Webp, pixel_limit, budget),
+        Some(Format::Tiff) => decode_tiff(bytes, pixel_limit, budget),
+        Some(Format::Svg) => rasterize_svg(bytes, pixel_limit, None),
         Some(Format::Avif) => {
-            let image = crate::avif::decode_avif(bytes, pixel_limit)?;
+            // The samples, the RGB conversion and the RGBA the alpha item makes: at most 12 bytes a pixel.
+            let image = crate::avif::decode_avif(bytes, pixel_limit.min(budget / AVIF_BYTES_PER_PIXEL))?;
             Ok(Decoded { format: Format::Avif, width: image.width, height: image.height, orientation: 1, raster: image.raster })
         }
     }
 }
 
-/// SVG metadata uses sharp's default density (72 DPI). The raster retains straight
-/// alpha like the other decoders; tiny-skia renders premultiplied sRGB.
-fn decode_svg(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
+/// The most bytes a pixel of an AVIF holds while it is decoded (16-bit samples, then RGB, then RGBA).
+const AVIF_BYTES_PER_PIXEL: u64 = 12;
+
+/// Fails with the pixel-limit sentence when `peak` bytes are more than `budget`.
+fn within(peak: u64, budget: u64) -> Result<(), ImagingError> {
+    if peak > budget { Err(ImagingError::invalid(PIXEL_LIMIT)) } else { Ok(()) }
+}
+
+/// An SVG rasterized, by default at its declared size under `pixel_limit`, or (`fit`) at the size that fits inside the
+/// given box without enlargement, in which case nothing larger than that size is ever allocated, whatever canvas the
+/// document declares. The raster retains straight alpha like the other decoders; tiny-skia renders premultiplied
+/// sRGB. Metadata uses sharp's default density (72 DPI).
+pub fn rasterize_svg(bytes: &[u8], pixel_limit: u64, fit: Option<(u32, u32)>) -> Result<Decoded, ImagingError> {
     use std::sync::{Arc, OnceLock};
     use resvg::{tiny_skia, usvg};
     static FONTS: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
@@ -244,14 +323,25 @@ fn decode_svg(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
         },
         ..usvg::Options::default()
     };
-    let tree = usvg::Tree::from_data(bytes, &options)
+    // The document is read under the bounds every SVG reader of the workspace shares (gzip inflated to a limit, the
+    // node count and the nesting bounded), not by `Tree::from_data`, which inflates and parses without any.
+    let text = crate::svg_limits::document_text(bytes)?;
+    let document = crate::svg_limits::parse(&text)?;
+    let tree = usvg::Tree::from_xmltree(&document, &options)
         .map_err(|_| corrupt(Format::Svg, Stage::Header))?;
     let size = tree.size().to_int_size();
-    let (width, height) = (size.width(), size.height());
-    check_pixels(width, height, pixel_limit)?;
+    let (declared_width, declared_height) = (size.width(), size.height());
+    let (width, height) = match fit {
+        Some((box_width, box_height)) => crate::resize::output_size(declared_width, declared_height, box_width, box_height, true),
+        None => {
+            check_pixels(declared_width, declared_height, pixel_limit)?;
+            (declared_width, declared_height)
+        }
+    };
     let mut pixmap = tiny_skia::Pixmap::new(width, height)
         .ok_or_else(|| ImagingError::environment("cannot allocate SVG raster"))?;
-    resvg::render(&tree, tiny_skia::Transform::identity(), &mut pixmap.as_mut());
+    let transform = tiny_skia::Transform::from_scale(width as f32 / declared_width as f32, height as f32 / declared_height as f32);
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
     // The straight colour is the premultiplied byte over the alpha, truncated: what libvips writes when it takes
     // the rasterizer's premultiplied pixels back to straight alpha (tiny-skia's own demultiply rounds).
     let data = pixmap.pixels().iter().flat_map(|pixel| {
@@ -271,7 +361,7 @@ pub fn decoded_dimensions(bytes: &[u8]) -> Result<(u32, u32), ImagingError> {
 /// A TIFF whose strips are JPEG-compressed YCbCr is read here: the `image` crate refuses that colour type. The
 /// strips come out as YCbCr samples, which libjpeg (what libvips asks for RGB) turns into RGB with its fixed-point
 /// tables, reproduced below. Every other TIFF goes through the `image` decoder.
-fn decode_tiff(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
+fn decode_tiff(bytes: &[u8], pixel_limit: u64, budget: u64) -> Result<Decoded, ImagingError> {
     use tiff::decoder::Decoder;
     use tiff::decoder::DecodingResult;
     use tiff::decoder::Limits as TiffLimits;
@@ -281,16 +371,18 @@ fn decode_tiff(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> 
     let mut reader = match Decoder::new(Cursor::new(bytes)) {
         Ok(reader) => reader.with_limits(TiffLimits::unlimited()),
         Err(_) if jpeg_tables_cut_off(bytes) => return Err(ImagingError::invalid(JPEG_TABLES_MISSING)),
-        Err(_) => return decode_with(TiffDecoder::new(Cursor::new(bytes)), Format::Tiff, pixel_limit),
+        Err(_) => return decode_with(TiffDecoder::new(Cursor::new(bytes)), Format::Tiff, pixel_limit, budget),
     };
     if !matches!(reader.colortype(), Ok(TiffColor::YCbCr(8))) {
-        return decode_with(TiffDecoder::new(Cursor::new(bytes)), Format::Tiff, pixel_limit);
+        return decode_with(TiffDecoder::new(Cursor::new(bytes)), Format::Tiff, pixel_limit, budget);
     }
     let (width, height) = reader.dimensions().map_err(|_| corrupt(Format::Tiff, Stage::Header))?;
     if width == 0 || height == 0 {
         return Err(corrupt(Format::Tiff, Stage::Header));
     }
     check_pixels(width, height, pixel_limit)?;
+    // The YCbCr samples and the RGB made of them: six bytes a pixel.
+    within(u64::from(width) * u64::from(height) * 6, budget)?;
     let orientation = reader.find_tag_unsigned::<u8>(Tag::Orientation).ok().flatten().filter(|value| (1..=8).contains(value)).unwrap_or(1);
     let icc = reader.get_tag_u8_vec(Tag::IccProfile).ok();
     let samples = match reader.read_image() {
@@ -360,7 +452,7 @@ fn ycbcr_to_rgb(y: u8, cb: u8, cr: u8) -> [u8; 3] {
     [red.clamp(0, 255) as u8, green.clamp(0, 255) as u8, blue.clamp(0, 255) as u8]
 }
 
-fn decode_with<D: ImageDecoder>(opened: Result<D, ImageError>, format: Format, pixel_limit: u64) -> Result<Decoded, ImagingError> {
+fn decode_with<D: ImageDecoder>(opened: Result<D, ImageError>, format: Format, pixel_limit: u64, budget: u64) -> Result<Decoded, ImagingError> {
     let mut decoder = opened.map_err(|error| image_error(format, Stage::Header, &error))?;
     let (width, height) = decoder.dimensions();
     if width == 0 || height == 0 {
@@ -374,6 +466,13 @@ fn decode_with<D: ImageDecoder>(opened: Result<D, ImageError>, format: Format, p
     let icc = decoder.icc_profile().ok().flatten();
     let orientation = decoder.orientation().map(Orientation::to_exif).unwrap_or(1);
     let total = usize::try_from(decoder.total_bytes()).map_err(|_| ImagingError::invalid(PIXEL_LIMIT))?;
+    // The decoder's buffer, and beside it the 8-bit RGB(A) copy made of it unless it already is that.
+    let copy = if matches!(color, ColorType::Rgb8 | ColorType::Rgba8) {
+        0
+    } else {
+        u64::from(width) * u64::from(height) * if color.has_alpha() { 4 } else { 3 }
+    };
+    within((total as u64).saturating_add(copy), budget)?;
     let mut buffer = vec![0u8; total];
     decoder.read_image(&mut buffer).map_err(|error| image_error(format, Stage::Data, &error))?;
     let mut raster = raster_of(color, buffer, width, height)?;
@@ -515,7 +614,7 @@ fn has_bogus_marker_length(bytes: &[u8]) -> bool {
     false
 }
 
-fn decode_jpeg(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> {
+fn decode_jpeg(bytes: &[u8], pixel_limit: u64, budget: u64) -> Result<Decoded, ImagingError> {
     // A truncated or damaged stream is an error, as it is for sharp (which fails on libjpeg warnings).
     let options = DecoderOptions::default().set_strict_mode(true).set_max_width(usize::from(u16::MAX)).set_max_height(usize::from(u16::MAX));
     let mut header = JpegDecoder::new_with_options(ZCursor::new(bytes), options);
@@ -542,6 +641,13 @@ fn decode_jpeg(bytes: &[u8], pixel_limit: u64) -> Result<Decoded, ImagingError> 
         ColorSpace::CMYK if cmyk.is_some() => ColorSpace::CMYK,
         _ => ColorSpace::RGB,
     };
+    // The decoder's samples, and beside them the RGB made of grey or CMYK ones.
+    let (samples, converted) = match output {
+        ColorSpace::Luma => (1, 3),
+        ColorSpace::CMYK => (4, 3),
+        _ => (3, 0),
+    };
+    within(u64::from(width) * u64::from(height) * (samples + converted), budget)?;
     let mut decoder = JpegDecoder::new_with_options(ZCursor::new(bytes), options.jpeg_set_out_colorspace(output));
     let pixels = decoder.decode().map_err(|error| jpeg_error(&error, Stage::Data))?;
     if !has_end_of_image(bytes) {

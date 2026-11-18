@@ -198,17 +198,6 @@ pub fn is_within(parent: &str, child: &str) -> bool {
     target == base || target.starts_with(&format!("{base}/"))
 }
 
-/// Repository-relative folder of a Project registered below the repository root ('' for the
-/// root or anything outside it), with forward slashes.
-pub fn project_subdir_of(top_level: &str, project_path: &str) -> String {
-    if top_level.is_empty() || project_path.is_empty() || !is_within(top_level, project_path) {
-        return String::new();
-    }
-    // Node's `relative` of the two resolved paths: the rest keeps the project's own case, whatever spelling either came in.
-    let rel = mixdog_js::nodepath::relative_host(top_level, project_path);
-    if rel.starts_with("..") || mixdog_js::nodepath::is_absolute_host(&rel) { String::new() } else { rel.replace('\\', "/") }
-}
-
 /// `subdir` (forward slashes) inside `root`.
 pub fn checkout_folder(root: &str, subdir: &str) -> String {
     if subdir.is_empty() {
@@ -296,15 +285,6 @@ mod tests {
     }
 
     #[test]
-    fn subfolder_projects_map_into_the_checkout() {
-        assert_eq!(project_subdir_of("/r", "/r/apps/web"), "apps/web");
-        assert_eq!(project_subdir_of("/r/", "/r/x/../Apps/web/"), "Apps/web", "another spelling of the same folders");
-        assert_eq!(project_subdir_of("/r", "/r"), "");
-        assert_eq!(project_subdir_of("/r", "/other"), "");
-        assert!(is_within("/r", "/r/a") && !is_within("/r", "/rx"));
-    }
-
-    #[test]
     fn a_project_selection_outside_the_worktree_leaves_it_at_a_new_revision() {
         let bound = json!({"projectPath": "/p", "repoCommonDir": "/p/.git", "cwd": "/w", "worktreeId": "w", "branch": "b", "revision": 3});
         let (kept, project) = workspace_for_project_selection(Some(&bound), "/w/sub");
@@ -325,4 +305,26 @@ mod tests {
         assert_eq!(restore_workspace_after_resume(Some(&bound), true).lock.as_deref(), Some("/w"));
         assert_eq!(bound_workspace_cwd(Some(&bound), false), Some(("/p".to_owned(), true)));
     }
+
+
+    #[test]
+    fn subfolder_projects_map_into_the_checkout() {
+        assert_eq!(project_subdir_of("/r", "/r/apps/web"), "apps/web");
+        assert_eq!(project_subdir_of("/r/", "/r/x/../Apps/web/"), "Apps/web", "another spelling of the same folders");
+        assert_eq!(project_subdir_of("/r", "/r"), "");
+        assert_eq!(project_subdir_of("/r", "/other"), "");
+        assert!(is_within("/r", "/r/a") && !is_within("/r", "/rx"));
+    }
+}
+
+
+/// Repository-relative folder of a Project registered below the repository root ('' for the
+/// root or anything outside it), with forward slashes.
+pub fn project_subdir_of(top_level: &str, project_path: &str) -> String {
+    if top_level.is_empty() || project_path.is_empty() || !is_within(top_level, project_path) {
+        return String::new();
+    }
+    // Node's `relative` of the two resolved paths: the rest keeps the project's own case, whatever spelling either came in.
+    let rel = mixdog_js::nodepath::relative_host(top_level, project_path);
+    if rel.starts_with("..") || mixdog_js::nodepath::is_absolute_host(&rel) { String::new() } else { rel.replace('\\', "/") }
 }

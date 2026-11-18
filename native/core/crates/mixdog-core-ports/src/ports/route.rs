@@ -29,6 +29,9 @@ use super::threads::ThreadState;
 /// `effort`, `effectiveEffort`, `autoEffort`, `modelParameters`, context fields.
 pub type Route = Map<String, Value>;
 
+/// Internal metadata on a held Desktop model pick, not a provider route parameter.
+pub const PRE_SWITCH_COMPACTION: &str = "preSwitchCompaction";
+
 /// `AGENT_ROUTE_KEYS` of `agent-profile-changes.mjs`.
 pub const AGENT_ROUTE_KEYS: [&str; 8] =
     ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
@@ -42,6 +45,7 @@ pub struct FollowOptions {
     pub defer_until_next_turn: bool,
     pub switch_established: bool,
     pub apply_to_current_session: bool,
+    pub compact_before_switch: bool,
     /// The session generation the selection was enqueued under (`originGeneration`, else the
     /// generation when it was opened). Only an addressed selection holds a lease on it.
     pub lease: Option<u64>,
@@ -70,6 +74,8 @@ pub trait LiveRoute: Send + Sync {
     /// Makes a route held by an earlier process the live one again
     /// (`setRouteState(resolveRoute(config, held))`).
     fn adopt_held(&self, thread: &ThreadId, held: &Route);
+    /// Seat a restored pick in the chooser only if no other selection replaced it.
+    fn adopt_held_if(&self, _thread: &ThreadId, _expected: &Route, _held: &Route) {}
 }
 
 /// What the session and the runtime around it do for a route change (the session side is
@@ -270,6 +276,14 @@ impl SessionRoutes {
         origin.unwrap_or_else(|| self.session.generation(thread))
     }
 
+    /// The selected model a tuning action addresses. A quota hop writes the seated route on
+    /// the session rather than the picker cell; a held pick still takes precedence over it.
+    pub async fn tuning_pick(&self, thread: &ThreadId) -> Result<Option<Route>, PortError> {
+        let header = self.threads.header(thread).await?;
+        let selected = header.get("pendingRoute").and_then(Value::as_object).unwrap_or(&header);
+        Ok(header_names_session(selected).then(|| held_route_pick(selected)))
+    }
+
     /// The route the thread's session runs.
     pub async fn read(&self, thread: &ThreadId) -> Result<ThreadRouteView, PortError> {
         let header = self.threads.header(thread).await?;
@@ -308,6 +322,10 @@ impl SessionRoutes {
     /// `updateSessionInPlace`: the addressed session takes the route it was asked to run on.
     async fn update_in_place(&self, thread: &ThreadId, header: &Header, cross_provider: bool) -> Result<(), PortError> {
         let route = self.live.route(thread);
+        self.update_to(thread, header, &route, cross_provider).await
+    }
+
+    async fn update_to(&self, thread: &ThreadId, header: &Header, route: &Route, cross_provider: bool) -> Result<(), PortError> {
         let mut fields = Route::new();
         fields.insert("provider".into(), route.get("provider").cloned().unwrap_or(Value::Null));
         fields.insert("model".into(), route.get("model").cloned().unwrap_or(Value::Null));
@@ -324,12 +342,12 @@ impl SessionRoutes {
         }
         fields.insert("contextTokens".into(), or_null("contextTokens"));
         fields.insert("selectedContextWindow".into(), or_null("selectedContextWindow"));
-        fields.extend(self.fallback_fields(thread, header, &route).await?);
+        fields.extend(self.fallback_fields(thread, header, route).await?);
         if !self.session.update_route(thread, fields.clone(), cross_provider).await? {
             self.threads.patch_header(thread, fields, Vec::new()).await?;
         }
-        self.session.rebuild_tool_surface(thread, text(&route, "provider")).await?;
-        self.session.write_statusline(thread, &route);
+        self.session.rebuild_tool_surface(thread, text(route, "provider")).await?;
+        self.session.write_statusline(thread, route);
         Ok(())
     }
 
@@ -337,14 +355,18 @@ impl SessionRoutes {
     /// to mark (or the model is unchanged).
     async fn switch_in_place(&self, thread: &ThreadId, header: &Header) -> Result<Option<Value>, PortError> {
         let route = self.live.route(thread);
-        if text(&route, "provider") == text(header, "provider") && text(&route, "model") == text(header, "model") {
-            self.update_in_place(thread, header, false).await?;
+        self.switch_to(thread, header, &route).await
+    }
+
+    async fn switch_to(&self, thread: &ThreadId, header: &Header, route: &Route) -> Result<Option<Value>, PortError> {
+        if text(route, "provider") == text(header, "provider") && text(route, "model") == text(header, "model") {
+            self.update_to(thread, header, route, false).await?;
             return Ok(None);
         }
         let at = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
         let boundary = serde_json::json!({ "provider": route.get("provider"), "modelId": route.get("model"), "at": at });
         let recorded = self.session.record_boundary(thread, "modelSwitches", boundary.clone()).await?;
-        self.update_in_place(thread, header, true).await?;
+        self.update_to(thread, header, route, true).await?;
         Ok(recorded.then_some(boundary))
     }
 
@@ -379,8 +401,12 @@ impl SessionRoutes {
         let mut set = Map::new();
         // The selected route may belong to the next turn. Its persisted pick is also the thread state's source, so tuning
         // must move that pick even while the running session still uses another model.
-        if header.contains_key("pendingRoute") {
-            set.insert("pendingRoute".into(), Value::Object(held_route_pick(&route)));
+        if let Some(held) = header.get("pendingRoute") {
+            let mut pick = held_route_pick(&route);
+            if held.get(PRE_SWITCH_COMPACTION) == Some(&Value::Bool(true)) {
+                pick.insert(PRE_SWITCH_COMPACTION.into(), Value::Bool(true));
+            }
+            set.insert("pendingRoute".into(), Value::Object(pick));
         }
         if text(&header, "provider") != text(&route, "provider") || text(&header, "model") != text(&route, "model") {
             return if set.is_empty() { Ok(()) } else { self.threads.patch_header(thread, set, Vec::new()).await };
@@ -461,7 +487,11 @@ impl SessionRoutes {
             }
             // Held on the session too, so a restart before the next turn still applies it.
             let mut set = Map::new();
-            set.insert("pendingRoute".into(), Value::Object(held_route_pick(&route)));
+            let mut pick = held_route_pick(&route);
+            if options.compact_before_switch {
+                pick.insert(PRE_SWITCH_COMPACTION.into(), Value::Bool(true));
+            }
+            set.insert("pendingRoute".into(), Value::Object(pick));
             self.threads.patch_header(thread, set, Vec::new()).await?;
             return Ok(Followed::default());
         }
@@ -514,6 +544,35 @@ impl SessionRoutes {
         applied
     }
 
+    /// Turn start consumes only the pick admitted by the actor. The live cell is
+    /// the chooser's newest value, not this turn's route.
+    pub async fn apply_admitted(&self, thread: &ThreadId, admitted: Option<&Value>) -> Result<(), PortError> {
+        let Some(value) = admitted else { return Ok(()) };
+        let Some(mut route) = value.as_object().cloned() else { return Ok(()) };
+        if !truthy(route.get("provider")) || !truthy(route.get("model")) {
+            return Ok(());
+        }
+        route.shift_remove(PRE_SWITCH_COMPACTION);
+        let header = self.threads.header(thread).await?;
+        let selected = self.live.route(thread);
+        let applied = self.switch_to(thread, &header, &route).await;
+        if applied.is_ok() || applied.as_ref().is_err_and(permanent) {
+            let expect = Map::from_iter([("pendingRoute".into(), value.clone())]);
+            let cleared = self.threads.patch_header_if(thread, expect, Map::new(), vec!["pendingRoute".into()]).await;
+            if applied.is_ok() {
+                self.session.invalidate_context_status(thread);
+                if cleared?.is_none() {
+                    self.pending_lock().remove(thread.as_str());
+                    // A pick restored from disk may not have been installed in this process's chooser.
+                    if text(&selected, "provider") == text(&header, "provider") && text(&selected, "model") == text(&header, "model") {
+                        self.live.adopt_held_if(thread, &selected, &route);
+                    }
+                }
+            }
+        }
+        applied.map(|_| ())
+    }
+
     async fn try_apply_pending(&self, thread: &ThreadId) -> Result<Option<Value>, PortError> {
         let mut header = self.threads.header(thread).await?;
         let stored = header.shift_remove("pendingRoute");
@@ -525,7 +584,9 @@ impl SessionRoutes {
             (Some(token), _) => token == Some(self.session.generation(thread)),
             (None, Some(held)) if truthy(held.get("provider")) && truthy(held.get("model")) => {
                 // Held by an earlier process: the saved pick becomes the live route again.
-                self.live.adopt_held(thread, held);
+                let mut route = held.clone();
+                route.shift_remove(PRE_SWITCH_COMPACTION);
+                self.live.adopt_held(thread, &route);
                 true
             }
             _ => false,
@@ -713,7 +774,14 @@ mod tests {
             }
             Ok(())
         }
-        async fn patch_header_if(&self, thread: &ThreadId, _: Map<String, Value>, set: Map<String, Value>, unset: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+        async fn patch_header_if(&self, thread: &ThreadId, expect: Map<String, Value>, set: Map<String, Value>, unset: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+            let header = self.header(thread).await?;
+            if expect.iter().any(|(key, value)| header.get(key).unwrap_or(&Value::Null) != value) {
+                return Ok(Some(expect.into_iter().map(|(key, _)| {
+                    let current = header.get(&key).cloned().unwrap_or(Value::Null);
+                    (key, current)
+                }).collect()));
+            }
             self.patch_header(thread, set, unset).await.map(|()| None)
         }
         async fn publish(&self, _: &ThreadId, _: crate::ports::threads::Section) -> Result<(), PortError> {
@@ -794,6 +862,24 @@ mod tests {
         let session = Session::new(calls.clone(), None);
         let routes = SessionRoutes::new(Arc::new(threads), Arc::new(Messages(messages)), Arc::new(session), Arc::new(Live(obj(live))));
         (routes, calls)
+    }
+
+    #[tokio::test]
+    async fn an_admitted_turn_applies_its_own_pick_and_leaves_the_later_pick_pending() {
+        let admitted = json!({ "provider": "p", "model": "first" });
+        let later = json!({ "provider": "q", "model": "later" });
+        let (routes, calls) = routes(
+            json!({ "provider": "p", "model": "old", "pendingRoute": later }),
+            established(),
+            later.clone(),
+        );
+        routes.apply_admitted(&thread(), None).await.unwrap();
+        assert!(calls.0.lock().unwrap().is_empty(), "a turn admitted without a pick never uses a late one");
+        routes.apply_admitted(&thread(), Some(&admitted)).await.unwrap();
+        assert!(calls.0.lock().unwrap().iter().any(|call| call == "update \"first\" cross=true"));
+        assert_eq!(routes.threads.header(&thread()).await.unwrap()["pendingRoute"], later);
+        routes.apply_admitted(&thread(), Some(&later)).await.unwrap();
+        assert!(!routes.threads.header(&thread()).await.unwrap().contains_key("pendingRoute"));
     }
 
     #[tokio::test]

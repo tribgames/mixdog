@@ -56,6 +56,8 @@ pub struct CachedWindows {
 #[derive(Default, Debug)]
 pub struct Rosters {
     dir: Option<PathBuf>,
+    /// The identity each account-specific roster is read under; its file is the one that names it.
+    accounts: super::oauth_cache::RosterAccounts,
     /// While set, reads are served from this file name -> rows map instead of the directory.
     preset: Option<HashMap<String, Vec<Value>>>,
 }
@@ -72,6 +74,10 @@ fn parse_rows(bytes: &[u8]) -> Vec<Value> {
         },
         _ => Vec::new(),
     }
+}
+
+fn roster_name(roster: super::oauth_cache::Roster) -> &'static str {
+    roster.provider_name()
 }
 
 /// `rowId`: `String(row?.id || row?.name || row?.slug || '').trim()`.
@@ -125,12 +131,18 @@ fn model_aliases(model: &str) -> Vec<String> {
 impl Rosters {
     /// The roster files in `dir`, each read when a lookup asks for it.
     pub fn in_dir(dir: PathBuf) -> Self {
-        Self { dir: Some(dir), preset: None }
+        Self { dir: Some(dir), accounts: Default::default(), preset: None }
+    }
+
+    /// The same directory read against the account table the listings keep (`OauthModelCache::with_accounts`).
+    pub fn with_accounts(mut self, accounts: super::oauth_cache::RosterAccounts) -> Self {
+        self.accounts = accounts;
+        self
     }
 
     /// Fixed rows in place of the directory (`withRosters`).
     pub fn from_rows(files: impl IntoIterator<Item = (String, Vec<Value>)>) -> Self {
-        Self { dir: None, preset: Some(files.into_iter().collect()) }
+        Self { dir: None, accounts: Default::default(), preset: Some(files.into_iter().collect()) }
     }
 
     /// `readModelsFromCacheFile`: the file's rows; an absent, unreadable or damaged file is no rows.
@@ -139,11 +151,39 @@ impl Rosters {
             return preset.get(file).cloned().unwrap_or_default();
         }
         let Some(dir) = &self.dir else { return Vec::new() };
+        // A roster the cache writes is its identity's own file, and the identity the listings last sampled is the only one
+        // read (the one rule, every reader): another account's roster is another file, and with no identity known none is
+        // read. The file a 1.4.5 install left under the route's plain name names no account and proves nothing about this
+        // one: it is not opened. A file that does not say it was fetched for this identity is no rows, a damaged one is
+        // reported and is no rows.
+        if let Some(roster) = super::oauth_cache::Roster::of_file(file) {
+            let Some(key) = self.accounts.get(roster) else { return Vec::new() };
+            let keyed = roster.keyed_file(&key);
+            let bytes = match mixdog_statefile::read_content(&dir.join(&keyed)) {
+                Ok(Some(bytes)) => bytes,
+                Ok(None) | Err(_) => return Vec::new(),
+            };
+            let Ok(record) = serde_json::from_slice::<Value>(&bytes) else {
+                tracing::warn!("[{}] {keyed} is damaged (not JSON)", roster_name(roster));
+                return Vec::new();
+            };
+            if !super::oauth_cache::record_is_fetched_for(&record, &key) {
+                return Vec::new();
+            }
+            return parse_rows(&bytes);
+        }
         match mixdog_statefile::read_content(&dir.join(file)) {
             Ok(Some(bytes)) => parse_rows(&bytes),
             Ok(None) | Err(_) => Vec::new(),
         }
     }
+    /// `effort-rejections.json` of the data directory as its entries (what an endpoint refused per route); none
+    /// without a directory. Read at each call, like the roster files.
+    pub fn effort_rejections(&self) -> HashMap<String, crate::effort::RejectionEntry> {
+        let bytes = self.dir.as_ref().and_then(|dir| mixdog_statefile::read_content(&dir.join("effort-rejections.json")).ok().flatten());
+        crate::effort::parse_rejections(bytes.as_deref())
+    }
+
     /// `getProviderCachedModelSync`: the first row of the provider's files
     /// whose id is the model or one of its date-less aliases.
     pub fn row(&self, provider: &str, model: &str) -> Option<Value> {

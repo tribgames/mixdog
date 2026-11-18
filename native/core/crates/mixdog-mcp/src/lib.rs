@@ -9,7 +9,7 @@ pub mod config;
 pub mod connector_accounts;
 pub mod connector_instructions;
 pub mod connector_transport;
-mod containment;
+pub mod containment;
 pub mod cross_spawn;
 pub mod deadlines;
 pub mod declaration_cache;

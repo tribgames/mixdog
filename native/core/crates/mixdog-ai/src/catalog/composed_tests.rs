@@ -13,7 +13,9 @@ use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError,
 use serde_json::Value;
 
 use super::modelsdev_source::{LITELLM_URL, MODELS_DEV_URL, read_file};
-use super::lookup::fixtures::{LITELLM, MODELS_DEV};
+/// Two one-row tables in the published shapes: LiteLLM keyed by model, models.dev by provider.
+const LITELLM: &str = r#"{"openai/gpt-x":{"max_input_tokens":128000,"max_output_tokens":4096,"mode":"chat","input_cost_per_token":0.0000025,"output_cost_per_token":0.00001}}"#;
+const MODELS_DEV: &str = r#"{"openai":{"models":{"gpt-m":{"name":"GPT M","limit":{"context":200000,"output":8000},"cost":{"input":1.5,"output":6.0}}}}}"#;
 use super::{CatalogService, CatalogSnapshot, LITELLM_CACHE_FILE, MODELS_DEV_CACHE_FILE};
 use crate::oauth::CredentialIo;
 use crate::transport::http::{BodyStream, HttpResponse, HttpSend};
@@ -124,10 +126,15 @@ async fn the_price_audit_reports_unpriced_roster_routes_once_per_table_revision(
     let (empty_dir, _http, empty) = composed(false).await;
     let empty = Arc::new(empty);
     assert_eq!(empty.audit_cached_pricing(), None, "no roster route, nothing to report");
-    put(empty_dir.path().join("openai-oauth-models.json"), r#"{"models":[{"id":"zz-unpriced"}]}"#.to_owned()).await;
+    // A roster is read from the file of the identity the listings noted, and only one fetched for it.
+    let roster = |service: &CatalogService, dir: &std::path::Path| {
+        service.roster_accounts.note(super::oauth_cache::Roster::Codex, Some("acct-1"));
+        put(dir.join(super::oauth_cache::Roster::Codex.keyed_file("acct-1")), r#"{"account":"acct-1","provenance":"fetched","models":[{"id":"zz-unpriced"}]}"#.to_owned())
+    };
+    roster(&empty, empty_dir.path()).await;
     assert_eq!(empty.audit_cached_pricing(), None, "the revision was already audited");
 
-    put(dir.path().join("openai-oauth-models.json"), r#"{"models":[{"id":"zz-unpriced"}]}"#.to_owned()).await;
+    roster(&service, dir.path()).await;
     assert_eq!(
         service.audit_cached_pricing().as_deref(),
         Some("[model-pricing] 1/1 catalog routes have no complete price: openai-oauth/zz-unpriced (inputCostPerM, outputCostPerM)")

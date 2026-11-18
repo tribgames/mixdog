@@ -27,6 +27,13 @@ static GEMINI_DECLARATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b(?:function_declarations|functionDeclarations)(?:\[(\d+)\]|\.(\d+))").expect("a valid pattern"));
 static OPENAI_FUNCTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"Invalid schema for function ['"`]([^'"`]+)['"`]"#).expect("a valid pattern"));
 
+/// `isUnknownModel` (anthropic-oauth.mjs:932, openai-oauth.mjs:318): a 404, or a refusal whose text says the model is
+/// unknown or not found.
+pub(crate) fn names_unknown_model(status: Option<u16>, text: &str) -> bool {
+    static UNKNOWN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)unknown[_\s-]?model|model[_\s-]?not[_\s-]?found").expect("a valid pattern"));
+    status == Some(404) || UNKNOWN.is_match(text)
+}
+
 /// `isThinkingReplayRejection`: the 400s a replay repair clears. "must start with a thinking block" is not one of them
 /// (it asks for more reasoning replay, not less).
 pub(crate) fn is_thinking_replay_rejection(status: Option<u16>, text: &str) -> bool {

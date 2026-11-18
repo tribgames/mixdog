@@ -17,7 +17,10 @@ import type { useAppSubmitRouting } from '../use-app-submit-routing';
 import type { useDesktopState } from '../app-desktop-state';
 import type { useAppShellPanels } from '../use-app-shell-panels';
 import type { useAppSettingsRouter } from './use-app-settings-router';
-import type { applySessionLaneResult } from './use-app-task-lifecycle';
+
+/** A session pane's settings and command replies: the pane shows its session's ordered stream alone, which carries every
+ *  change such a call makes, so the reply's state (unordered with that stream, without the transcript) is not applied. */
+const ignoreSessionReply = (): void => undefined;
 
 interface PaneConversationRendererOptions {
   conversationHandoff: ConversationHandoff | null;
@@ -42,7 +45,6 @@ interface PaneConversationRendererOptions {
   paneSubmitFor: ReturnType<typeof useAppSubmitRouting>['paneSubmitFor'];
   paneDraftSubmitFor: ReturnType<typeof useAppSubmitRouting>['paneDraftSubmitFor'];
   submit: ReturnType<typeof useAppSubmitRouting>['submit'];
-  applySessionLaneResult: typeof applySessionLaneResult;
   applySnapshot: ReturnType<typeof useDesktopState>['applySnapshot'];
   composerFocusRequest: number;
 
@@ -115,7 +117,6 @@ interface PaneRouteTarget {
  *  Each route calls the target the latest render recorded. */
 interface PaneRoutes {
   target: PaneRouteTarget;
-  applySessionLane: (next: Parameters<PaneConversationRendererOptions['applySnapshot']>[0]) => void;
   openSessions: () => void;
   openCommandSurface: (
     surface: Parameters<PaneConversationRendererOptions['openConversationCommandSurface']>[0]
@@ -143,10 +144,6 @@ function paneRoutesFor(target: PaneRouteTarget): PaneRoutes {
   }
   const routes: PaneRoutes = {
     target,
-    applySessionLane: (next) => {
-      const { options, paneSessionId } = routes.target;
-      options.applySessionLaneResult(paneSessionId, next);
-    },
     openSessions: () => routes.target.options.openSidebar(),
     openCommandSurface: (surface) => {
       const { options, paneSessionId } = routes.target;
@@ -269,7 +266,7 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
           invokeResult: options.invokeResult,
           errors: options.errors,
           submit,
-          applySnapshot: paneSessionId ? routes.applySessionLane : options.applySnapshot,
+          applySnapshot: paneSessionId ? ignoreSessionReply : options.applySnapshot,
           transitioning: false,
           composerFocusRequest: focused ? options.composerFocusRequest : 0,
           onNewTask: options.conversationNewTask,

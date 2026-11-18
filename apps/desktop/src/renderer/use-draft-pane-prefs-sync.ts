@@ -21,7 +21,7 @@ import {
 } from './draft-pane-prefs-store';
 import type { NavigationSelection } from './navigation';
 import { subscribeSetupChanges } from './setup-change-refresh';
-import { newestOnly } from './sidebar-reference-cache';
+import { newestOnly, subscribePresetsPushes } from './sidebar-reference-cache';
 
 type DraftPrefsMap = MutableRefObject<Map<string, DraftPanePrefs>>;
 type LastPrefs = MutableRefObject<DraftPanePrefs | null>;
@@ -95,9 +95,11 @@ export function useHostMainRoute({
   useEffect(() => {
     refreshHostMainRoute();
     const unsubscribe = subscribeSetupChanges(refreshHostMainRoute);
+    const unfollow = subscribePresetsPushes(window.mixdogDesktop, refreshHostMainRoute);
     window.addEventListener('focus', refreshHostMainRoute);
     return () => {
       unsubscribe();
+      unfollow();
       window.removeEventListener('focus', refreshHostMainRoute);
     };
   }, [refreshHostMainRoute]);
@@ -110,19 +112,16 @@ export function useHostMainRoute({
 export function useHydrateDraftPrefs({
   draftPanePrefs,
   lastNewTaskPrefs,
-  hostMainRoute,
-  selectionRef,
+  refreshHostMainRoute,
   persistDraftPanePrefs,
   repaintDrafts,
-  setNewTaskModelSelection,
 }: {
   draftPanePrefs: DraftPrefsMap;
   lastNewTaskPrefs: LastPrefs;
-  hostMainRoute: MutableRefObject<DesktopModelSelection | null>;
-  selectionRef: MutableRefObject<NavigationSelection>;
+  /** useHostMainRoute's ordered read of the published Lead. */
+  refreshHostMainRoute(): void;
   persistDraftPanePrefs(): void;
   repaintDrafts(): void;
-  setNewTaskModelSelection(selection: DesktopModelSelection | null): void;
 }): void {
   // biome-ignore lint/correctness/useExhaustiveDependencies: the prefs and route refs are stable
   useEffect(() => {
@@ -150,25 +149,23 @@ export function useHydrateDraftPrefs({
           setModelRoute: (selection) => api.setModelRoute(selection) as unknown as Promise<Snapshot>,
         })
           .then(({ route }) => {
-            if (route) hostMainRoute.current = route;
             // Skipped because another route already is the Lead route: the
-            // drafts without an explicit pick follow it instead of the cache.
+            // last-used cache follows it instead of keeping the tried model.
             const next = followLeadRoute(lastNewTaskPrefs.current, tried, route);
-            if (!next?.modelSelection) return;
-            lastNewTaskPrefs.current = next;
-            const draftKey = focusedDraftKey(selectionRef.current);
-            if (!draftKey || !draftPanePrefs.current.get(draftKey)?.modelSelection) {
-              setNewTaskModelSelection(next.modelSelection);
+            if (next?.modelSelection) {
+              lastNewTaskPrefs.current = next;
+              persistDraftPanePrefs();
             }
-            persistDraftPanePrefs();
-            repaintDrafts();
+            // The answer can arrive after a Lead published since: the inheriting
+            // drafts take the Lead through the ordered read, never this answer.
+            refreshHostMainRoute();
           })
           .catch(() => {});
       }
     } catch {
       /* best-effort */
     }
-  }, [persistDraftPanePrefs, repaintDrafts, selectionRef, setNewTaskModelSelection]);
+  }, [persistDraftPanePrefs, refreshHostMainRoute, repaintDrafts]);
 }
 
 /** Once the project catalog is validated, every draft's (and the last-used)

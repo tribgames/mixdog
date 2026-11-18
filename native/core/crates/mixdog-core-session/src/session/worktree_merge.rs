@@ -44,6 +44,22 @@ impl Inner {
         }
         self.gate.hold_checkout_folder(actor.unwrap_or(""), folder, hold)
     }
+
+    /// Before a carry clears the shared checkout `folder` (held by the caller): `folder-shell-jobs`
+    /// while any other session working in it, idle or not, owns a running background shell.
+    pub(super) async fn assert_checkout_quiet(&self, session: &str, folder: &str) -> Result<(), ScmFailure> {
+        let sharing: Vec<String> = self
+            .host
+            .live_sessions()
+            .into_iter()
+            .filter(|c| !c.id.is_empty() && c.id != session && !c.closed && c.cwd.as_deref().is_some_and(|cwd| is_within(folder, cwd)))
+            .map(|c| c.id)
+            .collect();
+        if !sharing.is_empty() && self.host.shell_job_count(&sharing).await > 0 {
+            return Err(errors::busy(RefusalReason::FolderShellJobs));
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -247,7 +263,11 @@ impl Inner {
         let path = row["path"].as_str().unwrap_or_default().to_owned();
         let admission = Admission { inner: self.clone(), actor: None };
         let _admitted = admission.admit(&[PathBuf::from(&path)], true).await?;
-        let removed = self.ops.wt.remove(&id, force, None, cancel).await?;
+        // The scope is read again under the admission (`removeOrphanWorktree`): an owner that came back
+        // or a session the store still keeps refuses.
+        let live = (self.live)();
+        let retained = self.sessions.stored_session_ids().await?;
+        let removed = self.ops.wt.remove_orphaned(&id, force, &live, &retained, false, cancel).await?;
         Ok(json!({ "removed": removed, "entryId": id, "path": path }))
     }
 

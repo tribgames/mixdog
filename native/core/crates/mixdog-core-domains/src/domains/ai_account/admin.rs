@@ -30,6 +30,8 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::collaborators::AuthRefresh;
+use super::collaborators::LoginBrowser;
+use super::collaborators::NoBrowser;
 use super::collaborators::OAuthProvider;
 use super::collaborators::VertexAdc;
 use super::failure::Failure;
@@ -51,10 +53,6 @@ pub(crate) fn acct(error: AccountError) -> Failure {
         AccountError::Invalid(m) => Failure::type_error(m),
         other => Failure::error(other.to_string()),
     }
-}
-
-fn vault_failure(error: mixdog_ai::registry::keys::VaultError) -> Failure {
-    Failure::error(error.message)
 }
 
 fn text(value: Option<&Value>) -> String {
@@ -105,6 +103,7 @@ pub struct ProviderAdmin {
     vault: Arc<dyn SecretVault>,
     config: Config,
     pub(crate) refresh: Arc<dyn AuthRefresh>,
+    browser: Arc<dyn LoginBrowser>,
     vertex_adc: Arc<dyn VertexAdc>,
     pub(crate) registry: Arc<ProviderRegistry>,
     pub(crate) oauth_usage: Arc<OAuthUsage>,
@@ -141,6 +140,164 @@ fn sweep_due(rows: &[Account], selected: Option<&str>, now: i64) -> Vec<String> 
         .collect()
 }
 
+/// `if (openBrowser) await openLoginUrl(url)` of every provider's `beginOAuthLogin` (`openBrowser` defaults to true):
+/// the authorize page of a browser sign-in, the verification page of a device-code one. The loopback callback or the
+/// pasted code then completes it. The page is the one the start produced (`started`), whatever the flow has moved on to. A
+/// request from another machine never opens it, and a local client that signs in elsewhere sends `openBrowser: false`.
+pub(super) fn open_sign_in_page(browser: &dyn LoginBrowser, local: bool, options: &Value, started: &LoginState) {
+    // The browser is this machine's: a request from an SSH or relay client never opens it, whatever it sends.
+    if !local || options.get("openBrowser") == Some(&Value::Bool(false)) {
+        return;
+    }
+    match started {
+        LoginState::Authorize { url, .. } => browser.open(url),
+        LoginState::DeviceCode { verification_uri, .. } => browser.open(verification_uri),
+        _ => {}
+    }
+}
+
+/// The selected account of a roster read: "default" when none is selected, or when the roster could
+/// be read and is unusable (Node); an `Err` only when the read never ran.
+pub(crate) fn selected_of(pool: Result<mixdog_ai::accounts::Pool, AccountError>) -> Result<String, AccountError> {
+    match pool {
+        Ok(pool) => Ok(pool.selected_id.filter(|id| !id.is_empty()).unwrap_or_else(|| "default".into())),
+        Err(error) if error.unrun() => Err(error),
+        Err(_) => Ok("default".into()),
+    }
+}
+
+/// One roster row of `listProviderAccounts`.
+async fn account_row(oauth: &Arc<dyn OAuthProvider>, row: &Account, now: i64, use_credits: bool) -> Value {
+    let auth = oauth.describe(&row.id).await;
+    let field = |key: &str| auth.get(key).and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or("").to_owned();
+    let (email, account_id, org) = (field("email"), field("accountId"), field("orgName"));
+    let mut identity = if !email.is_empty() {
+        Some(email.clone())
+    } else if !account_id.is_empty() {
+        Some(account_id)
+    } else {
+        None
+    };
+    if !org.is_empty() {
+        identity = Some(identity.map_or(org.clone(), |i| format!("{i} · {org}")));
+    }
+    let limit = account_limit(row, now, use_credits).map_or(Value::Null, |limit| match limit {
+        Limit::Account => json!({ "scope": "account" }),
+        Limit::Model(families) => json!({ "scope": "model", "families": families }),
+    });
+    let mut out = Map::new();
+    out.insert("id".into(), json!(row.id));
+    out.insert("label".into(), json!(row.label));
+    out.insert("authenticated".into(), json!(auth.get("authenticated") == Some(&Value::Bool(true))));
+    out.insert("reauthRequired".into(), json!(auth.get("reauthRequired") == Some(&Value::Bool(true))));
+    out.insert("usage".into(), row.usage.as_ref().map_or(Value::Null, |u| serde_json::to_value(u).unwrap_or(Value::Null)));
+    out.insert("blockedUntil".into(), account_blocked_until(row, "").filter(|t| *t != 0).map_or(Value::Null, |t| json!(t)));
+    out.insert("limit".into(), limit);
+    if let Some(identity) = identity {
+        out.insert("identity".into(), json!(identity));
+    }
+    if !email.is_empty() {
+        out.insert("email".into(), json!(email));
+    }
+    Value::Object(out)
+}
+
+/// `assertOAuthLoginOptions`.
+pub(crate) fn assert_login_options(options: &Value) -> Result<(), Failure> {
+    let bad = || Failure::type_error("Invalid OAuth account login options.");
+    let Some(map) = options.as_object() else { return Err(bad()) };
+    if map.keys().any(|k| !["addAccount", "label", "accountId", "openBrowser"].contains(&k.as_str())) {
+        return Err(bad());
+    }
+    if map.get("addAccount").is_some_and(|v| !v.is_boolean()) || map.get("openBrowser").is_some_and(|v| !v.is_boolean()) {
+        return Err(bad());
+    }
+    if map.get("label").is_some_and(|v| v.as_str().is_none_or(|s| mixdog_js::utf16_len(s) > 80)) {
+        return Err(bad());
+    }
+    Ok(())
+}
+
+/// `changeProviderAccounts`' argument checks, in Node's order and words.
+pub(crate) fn parse_account_change(change: &Value) -> Result<AccountChange, Failure> {
+    let type_error = |m: &str| Failure::type_error(m);
+    let Some(map) = change.as_object() else { return Err(type_error("Invalid provider account change.")) };
+    if map.keys().any(|k| !["selectedId", "order", "auto", "policy", "useCredits", "rename"].contains(&k.as_str())) {
+        return Err(type_error("Invalid provider account change."));
+    }
+    let mut out = AccountChange::default();
+    if let Some(rename) = map.get("rename") {
+        let label = rename.get("label").and_then(Value::as_str);
+        let Some(label) = label.filter(|l| !mixdog_js::js_trim(l).is_empty() && mixdog_js::utf16_len(l) <= 80) else {
+            return Err(type_error("Invalid account name."));
+        };
+        let id = rename.get("id").and_then(Value::as_str).unwrap_or("\u{0}");
+        out.rename = Some((id.to_owned(), label.to_owned()));
+    }
+    if let Some(selected) = map.get("selectedId") {
+        out.selected_id = Some(selected.as_str().unwrap_or("").to_owned());
+    }
+    if let Some(order) = map.get("order") {
+        let Some(list) = order.as_array() else {
+            return Err(type_error("Account order must contain every connected account exactly once."));
+        };
+        out.order = Some(list.iter().map(|v| v.as_str().unwrap_or("\u{0}").to_owned()).collect());
+    }
+    if let Some(auto) = map.get("auto") {
+        out.auto = Some(auto.as_bool().ok_or_else(|| type_error("Automatic account switching must be boolean."))?);
+    }
+    if let Some(policy) = map.get("policy") {
+        out.policy = Some(
+            policy.as_str().and_then(Policy::parse).ok_or_else(|| type_error("Unknown account switching policy."))?,
+        );
+    }
+    if let Some(credits) = map.get("useCredits") {
+        out.use_credits = Some(credits.as_bool().ok_or_else(|| type_error("Credit use must be boolean."))?);
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod sweep_tests {
+    use mixdog_ai::accounts::Usage;
+
+    use super::*;
+
+    fn measured(id: &str, checked_at: i64) -> Account {
+        let mut row = Account::new(id);
+        row.usage = Some(Usage { windows: Vec::new(), checked_at });
+        row
+    }
+
+    #[test]
+    fn a_roster_read_measures_the_accounts_whose_reading_is_due() {
+        let now = 1_800_000_000_000;
+        let rows = [
+            Account::new("never-measured"),
+            measured("a-minute-ago", now - 60_000),
+            measured("ten-minutes-ago", now - 10 * 60_000),
+            measured("a-day-ago", now - 24 * 3_600_000),
+        ];
+        assert_eq!(sweep_due(&rows, None, now), ["never-measured", "ten-minutes-ago", "a-day-ago"]);
+        // The account in use is the dashboard's to measure; a roster of that one account is asked nothing.
+        assert_eq!(sweep_due(&rows, Some("a-day-ago"), now), ["never-measured", "ten-minutes-ago"]);
+        assert!(sweep_due(&rows[3..], Some("a-day-ago"), now).is_empty());
+    }
+
+    #[test]
+    fn each_account_is_due_at_its_own_age_within_a_quarter_of_five_minutes() {
+        let ids: Vec<String> = (0..200).map(|n| format!("account-{n}")).collect();
+        let ttls: Vec<i64> = ids.iter().map(|id| sweep_ttl_ms(id)).collect();
+        assert!(ttls.iter().all(|ttl| (225_000..=375_000).contains(ttl)), "{ttls:?}");
+        assert!(ttls.iter().max().unwrap() - ttls.iter().min().unwrap() > 60_000, "the accounts are spread");
+        assert_eq!(sweep_ttl_ms("account-7"), sweep_ttl_ms("account-7"), "an account keeps its age");
+    }
+}
+
+
+fn vault_failure(error: mixdog_ai::registry::keys::VaultError) -> Failure {
+    Failure::error(error.message)
+}
 impl ProviderAdmin {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -155,6 +312,24 @@ impl ProviderAdmin {
         oauth_usage: Arc<OAuthUsage>,
         credential_io: CredentialIo,
     ) -> Arc<Self> {
+        Self::with_browser(providers, builder, accounts, vault, config, refresh, vertex_adc, registry, oauth_usage, credential_io, Arc::new(NoBrowser))
+    }
+
+    /// [`Self::new`] for a host with a browser: a sign-in opens its page there unless it asks for none.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_browser(
+        providers: Vec<Arc<dyn OAuthProvider>>,
+        builder: Arc<dyn ProviderBuilder>,
+        accounts: AccountStore,
+        vault: Arc<dyn SecretVault>,
+        config: Config,
+        refresh: Arc<dyn AuthRefresh>,
+        vertex_adc: Arc<dyn VertexAdc>,
+        registry: Arc<ProviderRegistry>,
+        oauth_usage: Arc<OAuthUsage>,
+        credential_io: CredentialIo,
+        browser: Arc<dyn LoginBrowser>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             providers,
             builder,
@@ -162,6 +337,7 @@ impl ProviderAdmin {
             vault,
             config,
             refresh,
+            browser,
             vertex_adc,
             registry,
             oauth_usage,
@@ -253,9 +429,9 @@ impl ProviderAdmin {
         auth.get("status").filter(|s| truthy(Some(s))).cloned().unwrap_or(Value::Null)
     }
 
-    pub async fn authenticate_provider(&self, provider: &str, secret: &str) -> Result<Value, Failure> {
+    pub async fn authenticate_provider(&self, provider: &str, secret: &str, local: bool) -> Result<Value, Failure> {
         let result = if mixdog_js::js_trim(secret).is_empty() {
-            self.login_oauth_provider_inner(provider).await?
+            self.login_oauth_provider_inner(provider, local).await?
         } else {
             self.save_provider_api_key_inner(provider, secret, &Value::Null).await?
         };
@@ -263,13 +439,15 @@ impl ProviderAdmin {
         Ok(result)
     }
 
-    pub async fn login_oauth_provider(&self, provider: &str) -> Result<Value, Failure> {
-        let result = self.login_oauth_provider_inner(provider).await?;
+    pub async fn login_oauth_provider(&self, provider: &str, local: bool) -> Result<Value, Failure> {
+        let result = self.login_oauth_provider_inner(provider, local).await?;
         self.refresh.after_credential_change();
         Ok(result)
     }
 
-    async fn login_oauth_provider_inner(&self, provider: &str) -> Result<Value, Failure> {
+    /// `oauth.login()`: `beginOAuthLogin` with its default `openBrowser`, awaited to the end. `local` is whether the request
+    /// came from this machine.
+    async fn login_oauth_provider_inner(&self, provider: &str, local: bool) -> Result<Value, Failure> {
         Self::require_local()?;
         let id = mixdog_js::js_trim(provider);
         let oauth = self.oauth(id).ok_or_else(|| Failure::error(format!("unknown OAuth provider \"{id}\"")))?;
@@ -278,6 +456,7 @@ impl ProviderAdmin {
             .login_flow(&account)
             .ok_or_else(|| Failure::error(format!("{id} login did not complete")))?;
         let session = flow.start().await.map_err(|e| Failure::error(format!("{e:?}")))?;
+        open_sign_in_page(&*self.browser, local, &json!({}), &session.started());
         let done = loop {
             match session.next().await {
                 Some(LoginState::Done { .. }) => break true,
@@ -312,6 +491,7 @@ impl ProviderAdmin {
         self: &Arc<Self>,
         provider: &str,
         options: &Value,
+        local: bool,
     ) -> Result<(Box<dyn LoginSession>, Settle), Failure> {
         Self::require_local()?;
         let id = mixdog_js::js_trim(provider).to_owned();
@@ -359,6 +539,7 @@ impl ProviderAdmin {
         }
         .ok_or_else(|| Failure::error("login flow unavailable"))?;
         let session = flow.start().await.map_err(|e| Failure::error(format!("{e:?}")))?;
+        open_sign_in_page(&*self.browser, local, options, &session.started());
         let label = options.get("label").and_then(Value::as_str).unwrap_or("").to_owned();
         let admin = self.clone();
         let settle: Settle = Box::new(move |via_code| {
@@ -734,143 +915,5 @@ impl ProviderAdmin {
             out.insert("dashboard".into(), dashboard);
         }
         Ok(Value::Object(out))
-    }
-}
-
-/// The selected account of a roster read: "default" when none is selected, or when the roster could
-/// be read and is unusable (Node); an `Err` only when the read never ran.
-pub(crate) fn selected_of(pool: Result<mixdog_ai::accounts::Pool, AccountError>) -> Result<String, AccountError> {
-    match pool {
-        Ok(pool) => Ok(pool.selected_id.filter(|id| !id.is_empty()).unwrap_or_else(|| "default".into())),
-        Err(error) if error.unrun() => Err(error),
-        Err(_) => Ok("default".into()),
-    }
-}
-
-/// One roster row of `listProviderAccounts`.
-async fn account_row(oauth: &Arc<dyn OAuthProvider>, row: &Account, now: i64, use_credits: bool) -> Value {
-    let auth = oauth.describe(&row.id).await;
-    let field = |key: &str| auth.get(key).and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or("").to_owned();
-    let (email, account_id, org) = (field("email"), field("accountId"), field("orgName"));
-    let mut identity = if !email.is_empty() {
-        Some(email.clone())
-    } else if !account_id.is_empty() {
-        Some(account_id)
-    } else {
-        None
-    };
-    if !org.is_empty() {
-        identity = Some(identity.map_or(org.clone(), |i| format!("{i} · {org}")));
-    }
-    let limit = account_limit(row, now, use_credits).map_or(Value::Null, |limit| match limit {
-        Limit::Account => json!({ "scope": "account" }),
-        Limit::Model(families) => json!({ "scope": "model", "families": families }),
-    });
-    let mut out = Map::new();
-    out.insert("id".into(), json!(row.id));
-    out.insert("label".into(), json!(row.label));
-    out.insert("authenticated".into(), json!(auth.get("authenticated") == Some(&Value::Bool(true))));
-    out.insert("reauthRequired".into(), json!(auth.get("reauthRequired") == Some(&Value::Bool(true))));
-    out.insert("usage".into(), row.usage.as_ref().map_or(Value::Null, |u| serde_json::to_value(u).unwrap_or(Value::Null)));
-    out.insert("blockedUntil".into(), account_blocked_until(row, "").filter(|t| *t != 0).map_or(Value::Null, |t| json!(t)));
-    out.insert("limit".into(), limit);
-    if let Some(identity) = identity {
-        out.insert("identity".into(), json!(identity));
-    }
-    if !email.is_empty() {
-        out.insert("email".into(), json!(email));
-    }
-    Value::Object(out)
-}
-
-/// `assertOAuthLoginOptions`.
-pub(crate) fn assert_login_options(options: &Value) -> Result<(), Failure> {
-    let bad = || Failure::type_error("Invalid OAuth account login options.");
-    let Some(map) = options.as_object() else { return Err(bad()) };
-    if map.keys().any(|k| !["addAccount", "label", "accountId", "openBrowser"].contains(&k.as_str())) {
-        return Err(bad());
-    }
-    if map.get("addAccount").is_some_and(|v| !v.is_boolean()) || map.get("openBrowser").is_some_and(|v| !v.is_boolean()) {
-        return Err(bad());
-    }
-    if map.get("label").is_some_and(|v| v.as_str().is_none_or(|s| mixdog_js::utf16_len(s) > 80)) {
-        return Err(bad());
-    }
-    Ok(())
-}
-
-/// `changeProviderAccounts`' argument checks, in Node's order and words.
-pub(crate) fn parse_account_change(change: &Value) -> Result<AccountChange, Failure> {
-    let type_error = |m: &str| Failure::type_error(m);
-    let Some(map) = change.as_object() else { return Err(type_error("Invalid provider account change.")) };
-    if map.keys().any(|k| !["selectedId", "order", "auto", "policy", "useCredits", "rename"].contains(&k.as_str())) {
-        return Err(type_error("Invalid provider account change."));
-    }
-    let mut out = AccountChange::default();
-    if let Some(rename) = map.get("rename") {
-        let label = rename.get("label").and_then(Value::as_str);
-        let Some(label) = label.filter(|l| !mixdog_js::js_trim(l).is_empty() && mixdog_js::utf16_len(l) <= 80) else {
-            return Err(type_error("Invalid account name."));
-        };
-        let id = rename.get("id").and_then(Value::as_str).unwrap_or("\u{0}");
-        out.rename = Some((id.to_owned(), label.to_owned()));
-    }
-    if let Some(selected) = map.get("selectedId") {
-        out.selected_id = Some(selected.as_str().unwrap_or("").to_owned());
-    }
-    if let Some(order) = map.get("order") {
-        let Some(list) = order.as_array() else {
-            return Err(type_error("Account order must contain every connected account exactly once."));
-        };
-        out.order = Some(list.iter().map(|v| v.as_str().unwrap_or("\u{0}").to_owned()).collect());
-    }
-    if let Some(auto) = map.get("auto") {
-        out.auto = Some(auto.as_bool().ok_or_else(|| type_error("Automatic account switching must be boolean."))?);
-    }
-    if let Some(policy) = map.get("policy") {
-        out.policy = Some(
-            policy.as_str().and_then(Policy::parse).ok_or_else(|| type_error("Unknown account switching policy."))?,
-        );
-    }
-    if let Some(credits) = map.get("useCredits") {
-        out.use_credits = Some(credits.as_bool().ok_or_else(|| type_error("Credit use must be boolean."))?);
-    }
-    Ok(out)
-}
-
-#[cfg(test)]
-mod sweep_tests {
-    use mixdog_ai::accounts::Usage;
-
-    use super::*;
-
-    fn measured(id: &str, checked_at: i64) -> Account {
-        let mut row = Account::new(id);
-        row.usage = Some(Usage { windows: Vec::new(), checked_at });
-        row
-    }
-
-    #[test]
-    fn a_roster_read_measures_the_accounts_whose_reading_is_due() {
-        let now = 1_800_000_000_000;
-        let rows = [
-            Account::new("never-measured"),
-            measured("a-minute-ago", now - 60_000),
-            measured("ten-minutes-ago", now - 10 * 60_000),
-            measured("a-day-ago", now - 24 * 3_600_000),
-        ];
-        assert_eq!(sweep_due(&rows, None, now), ["never-measured", "ten-minutes-ago", "a-day-ago"]);
-        // The account in use is the dashboard's to measure; a roster of that one account is asked nothing.
-        assert_eq!(sweep_due(&rows, Some("a-day-ago"), now), ["never-measured", "ten-minutes-ago"]);
-        assert!(sweep_due(&rows[3..], Some("a-day-ago"), now).is_empty());
-    }
-
-    #[test]
-    fn each_account_is_due_at_its_own_age_within_a_quarter_of_five_minutes() {
-        let ids: Vec<String> = (0..200).map(|n| format!("account-{n}")).collect();
-        let ttls: Vec<i64> = ids.iter().map(|id| sweep_ttl_ms(id)).collect();
-        assert!(ttls.iter().all(|ttl| (225_000..=375_000).contains(ttl)), "{ttls:?}");
-        assert!(ttls.iter().max().unwrap() - ttls.iter().min().unwrap() > 60_000, "the accounts are spread");
-        assert_eq!(sweep_ttl_ms("account-7"), sweep_ttl_ms("account-7"), "an account keeps its age");
     }
 }

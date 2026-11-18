@@ -24,6 +24,10 @@ export function updateClaimQueue(update: (current: DesktopRemoteClientClaim[]) =
   for (const listener of [...listeners]) listener();
 }
 
+export function claimQueueSnapshot(): Claims {
+  return queue;
+}
+
 export function useClaimQueue(): Claims {
   return useSyncExternalStore(
     subscribe,

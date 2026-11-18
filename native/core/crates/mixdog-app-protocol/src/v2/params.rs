@@ -27,6 +27,9 @@ pub struct ModelListParams {
     pub refresh: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quick: Option<bool>,
+    /// Return the models with read completeness, including when there are no rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub with_catalog_state: Option<bool>,
 }
 
 /// Params of `feedback/upload`.
@@ -480,6 +483,56 @@ pub struct ThreadResizeImageParams {
 }
 
 impl crate::common::HasOpId for ThreadResizeImageParams {
+    fn op_id(&self) -> &OpId {
+        &self.op_id
+    }
+}
+
+/// One image of a conversation, by the message it sits in and its position there (the ids a refusal names it by).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ImageRecoveryTarget {
+    pub message_id: String,
+    pub part: u32,
+}
+
+/// What the person chose for a refused image: every choice is local (no model is called and no history record is changed), and
+/// each can be undone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ImageRecoveryAction {
+    /// The overlay as it stands and where the restore check of the history is; changes nothing.
+    State,
+    /// Leave these images out of what is sent from now on (the person has confirmed, naming them).
+    ContinueWithout { images: Vec<ImageRecoveryTarget> },
+    /// Stand a picture the person chose in the place of one image (`data` is base64 of the picture; it is attached, checked and
+    /// kept like any attachment, and a picture that cannot be attached is refused in words).
+    Replace { image: ImageRecoveryTarget, data: String, name: String },
+    /// Put these images back.
+    Undo { images: Vec<ImageRecoveryTarget> },
+    /// Send from the conversation's latest prompt on, without what came before it.
+    NewBranchWithoutContext,
+    /// Take back the new branch: the earlier messages are sent again.
+    UndoNewBranch,
+    /// Run the restore check of the history's images again.
+    RecheckHistory,
+}
+
+/// Params of `thread/imageRecovery`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ThreadImageRecoveryParams {
+    pub op_id: OpId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<ThreadId>,
+    pub action: ImageRecoveryAction,
+}
+
+impl crate::common::HasOpId for ThreadImageRecoveryParams {
     fn op_id(&self) -> &OpId {
         &self.op_id
     }
@@ -4952,6 +5005,8 @@ pub enum DownloadSource {
     },
     /// A folder the conversation names (absolute, or in its folder), served as a zip of its work files.
     Folder { path: String },
+    /// A visualize export rendered for the validated conversation.
+    Export { input: JsonValue },
 }
 
 /// Params of `transfer/authorizeRead`: the first stage of a phone's download, a grant that expires.

@@ -201,8 +201,8 @@ struct Metrics<'a> {
     free_tokens: Tokens,
     built_in_tool_schema_tokens: f64,
     mcp_tool_schema_tokens: f64,
-    fresh_input: f64,
-    cache_write: f64,
+    fresh_input: Tokens,
+    cache_write: Tokens,
     cache_hit_rate: String,
     cache_write_label: String,
     context_source: &'static str,
@@ -294,14 +294,14 @@ fn metrics<'a>(input: &ContextModelInput<'a>, defaults: &'a Defaults) -> Metrics
         Some(used) if number_truthy(window_tokens) => Some(max(0.0, window_tokens - used)),
         _ => None,
     };
-    let cached_read = number_or_zero(field(usage, "lastCachedReadTokens"));
-    let cache_write = number_or_zero(field(usage, "lastCacheWriteTokens"));
-    let fresh_input = match field(usage, "lastUncachedInputTokens").filter(|value| !value.is_null()) {
-        Some(uncached) => to_number(uncached),
-        None => max(number_or_zero(field(usage, "lastInputTokens")) - cached_read - cache_write, 0.0),
-    };
-    let last_context = number_or_zero(field(usage, "lastContextTokens"));
-    let cache_denom = if number_truthy(last_context) { last_context } else { cached_read + fresh_input + cache_write };
+    let last_tokens = |key| field(usage, key).and_then(Value::as_f64).filter(|n| *n >= 0.0);
+    let cached_read = last_tokens("lastCachedReadTokens");
+    let cache_write = last_tokens("lastCacheWriteTokens");
+    // Occupancy is a separate reading: it may include output or be all the provider knows.
+    let split = last_tokens("lastPromptTokens").zip(cached_read).zip(cache_write)
+        .filter(|((prompt, read), write)| *read + *write <= *prompt);
+    let fresh_input = split.map(|((prompt, read), write)| prompt - read - write);
+    let cache_hit = split.and_then(|((prompt, read), _)| (prompt > 0.0).then(|| read / prompt));
     let compact_state = compaction_state(compaction);
     // lastDurationMs belongs to the previous, finished compaction: a running one shows no duration rather than one that
     // reads as its elapsed time.
@@ -329,16 +329,8 @@ fn metrics<'a>(input: &ContextModelInput<'a>, defaults: &'a Defaults) -> Metrics
         mcp_tool_schema_tokens: schema_tokens_for(&["mcp"]),
         fresh_input,
         cache_write,
-        cache_hit_rate: if cache_denom > 0.0 {
-            format!("{}%", to_fixed(cached_read / cache_denom * 100.0, 0))
-        } else {
-            "N/A".to_owned()
-        },
-        cache_write_label: if cache_write > 0.0 {
-            format!(" \u{b7} {} write", fmt(tokens_num(cache_write)))
-        } else {
-            String::new()
-        },
+        cache_hit_rate: cache_hit.map_or_else(|| "N/A".to_owned(), |rate| format!("{}%", to_fixed(rate * 100.0, 0))),
+        cache_write_label: cache_write.map_or_else(String::new, |write| format!(" \u{b7} {} write", fmt_number(write))),
         context_source: context_measurement_label(&measured_source),
         last_api_label: if truthy_of(field(context, "lastApiRequestStale")) {
             "last API request (pre-compact)"
@@ -377,7 +369,7 @@ fn context_rows(m: &Metrics) -> Vec<Value> {
     let built_in = tokens_num(m.built_in_tool_schema_tokens);
     let usage = |key: &str| tokens_of(field(m.usage, key));
     let messages = |key: &str| tokens_of(field(m.messages, key));
-    let fresh = tokens_num(m.fresh_input);
+    let fresh = m.fresh_input;
     vec![
         row(
             "summary",
@@ -593,7 +585,7 @@ fn context_detail(m: &Metrics) -> Value {
             "lastApi",
             Some(object([
                 ("contextTokens", some(field(m.usage, "lastContextTokens"))),
-                ("inputTokens", number_member(m.fresh_input)),
+                ("inputTokens", tokens_member(m.fresh_input)),
                 ("rawInputTokens", some(field(m.usage, "lastInputTokens"))),
                 ("outputTokens", some(field(m.usage, "lastOutputTokens"))),
             ])),
@@ -603,7 +595,7 @@ fn context_detail(m: &Metrics) -> Value {
             Some(object([
                 ("hitRate", Some(json!(m.cache_hit_rate))),
                 ("readTokens", some(field(m.usage, "lastCachedReadTokens"))),
-                ("writeTokens", number_member(m.cache_write)),
+                ("writeTokens", tokens_member(m.cache_write)),
             ])),
         ),
         (

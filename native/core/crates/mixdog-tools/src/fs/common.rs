@@ -296,6 +296,105 @@ pub(crate) async fn resolve_write_target(ctx: &ToolContext, raw: &str) -> Result
     }
 }
 
+/// Node `symlinkTargetGuard` (read-single-guards.mjs): where `full` really lives, when that is a UNC share, a Windows
+/// device namespace, a blocked device file or a special file. Reaching such a target through a link would authenticate
+/// to a remote host or hang on a device, whatever the spelling of the link. Only a link is resolved, and with the OS's
+/// own resolver as Node's `fsPromises.realpath` does: a file on a mapped drive is then the share it lives on. The
+/// refusal names the link and its target.
+#[allow(clippy::disallowed_methods, reason = "runs only as an interactive-lane job body (symlink_refusal)")]
+fn symlink_target_refusal(full: &Path, shown: &str) -> Option<String> {
+    // Inspect ancestors before the leaf; probing through a refused directory link already crosses it.
+    let mut full = full.to_path_buf();
+    let mut followed = false;
+    for _ in 0..40 {
+        let mut next_link = None;
+        let ancestors: Vec<_> = full.ancestors().collect();
+        for path in ancestors.into_iter().rev() {
+            // Skip Windows' bare drive prefix (`C:`); `C:\` is the first actual ancestor.
+            if cfg!(windows) && !path.has_root() {
+                continue;
+            }
+            let Ok(meta) = std::fs::symlink_metadata(path) else { break };
+            if meta.file_type().is_symlink() {
+                let Ok(target) = std::fs::read_link(path) else {
+                    return Some(format!("Error: cannot verify symbolic link for read: {shown}"));
+                };
+                let mut spelling = fwd(&target);
+                if cfg!(windows) {
+                    if let Some(share) = spelling.strip_prefix("//?/UNC/") {
+                        spelling = format!("//{share}");
+                    } else if let Some(drive) = spelling.strip_prefix("//?/")
+                        && drive.as_bytes().get(1) == Some(&b':')
+                    {
+                        spelling = drive.to_owned();
+                    }
+                }
+                if let Some(refusal) = super::read_paths::string_guard(&spelling) {
+                    let candidate = Path::new(&spelling);
+                    return target_refusal(candidate, shown).or_else(|| Some(format!("Error: {refusal}: {shown} → {spelling}")));
+                }
+                let target = path.parent().unwrap_or(path).join(if cfg!(windows) { PathBuf::from(spelling) } else { target });
+                let target = mixdog_workspace::pathguard::lexical(&target);
+                if let Some(refusal) = super::read_paths::string_guard(&fwd(&target)) {
+                    return target_refusal(&target, shown).or_else(|| Some(format!("Error: {refusal}: {shown} → {}", fwd(&target))));
+                }
+                next_link = Some(target.join(full.strip_prefix(path).ok()?));
+                break;
+            }
+        }
+        match next_link {
+            Some(path) => {
+                followed = true;
+                full = path;
+            }
+            None => {
+                if let Some(reason) = super::read_paths::string_guard(&fwd(&full)) {
+                    return target_refusal(&full, shown).or_else(|| Some(format!("Error: {reason}: {shown} → {}", fwd(&full))));
+                }
+                // Native canonicalization also identifies a mapped share when the path was reached through a link.
+                if followed
+                    && let Ok(real) = mixdog_workspace::pathguard::canonical(&full)
+                {
+                    return target_refusal(&real, shown);
+                }
+                return None;
+            }
+        }
+    }
+    Some(format!("Error: cannot resolve read path (too many symbolic links): {shown}"))
+}
+
+/// The refusal a link's real path `real` earns, in Node's order: blocked device, UNC, Windows device, special file.
+#[allow(clippy::disallowed_methods, reason = "runs only as an interactive-lane job body (symlink_refusal)")]
+pub(super) fn target_refusal(real: &Path, shown: &str) -> Option<String> {
+    let target = real.to_string_lossy().into_owned();
+    let what = if super::read_paths::is_blocked_device_path(&target) {
+        "device file via symlink (would block or produce infinite output)"
+    } else if super::read_paths::is_unc_path(&target) {
+        "UNC / SMB path via symlink (network credential leak risk)"
+    } else if super::read_paths::is_windows_device_path(&target) {
+        "Windows device path via symlink (reserved name or raw-device namespace)"
+    } else if std::fs::metadata(real).is_ok_and(|meta| mixdog_js::device_paths::is_special_file(&meta)) {
+        "special file via symlink (FIFO / character / block device / socket)"
+    } else {
+        return None;
+    };
+    Some(format!(
+        "Error: cannot read {what}: {} → {}",
+        super::patch_guard::normalize_output_path(shown),
+        super::patch_guard::normalize_output_path(&target)
+    ))
+}
+
+/// [`symlink_target_refusal`] as a job on the interactive lane: `read`'s refusal for a path whose link leads somewhere
+/// it may not open, `None` for any other path.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+pub(crate) async fn symlink_refusal(ctx: &ToolContext, abs: &AbsPath, shown: &str) -> Result<Option<String>, ToolError> {
+    let (full, shown) = (abs.as_path().to_path_buf(), shown.to_owned());
+    let job = ctx.io.interactive.submit(&ctx.cancel, move |_| symlink_target_refusal(&full, &shown)).map_err(|_| cancelled())?;
+    job.await.map_err(|_| cancelled())
+}
+
 /// `urlAsPathMessage`'s answer, as the tool words it.
 pub(crate) const URL_AS_PATH: &str = "Error: this is a URL; use web_fetch";
 

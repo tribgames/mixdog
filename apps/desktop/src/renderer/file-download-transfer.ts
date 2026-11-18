@@ -5,8 +5,8 @@
 // encrypted media lane the service worker streams to a browser download (only
 // after the worker answered a probe for the lease), and last a Blob of RPC
 // range reads for small files only. Memory stays bounded:
-// the native path holds one chunk at a time and no Blob ever exceeds
-// BLOB_FALLBACK_MAX_BYTES.
+// the native path holds one chunk at a time, and neither browser path
+// assembles a Blob larger than BLOB_FALLBACK_MAX_BYTES.
 import {
   FileDownloadError,
   fileDownloadErrorReason,
@@ -34,9 +34,6 @@ import { base64Bytes } from './studio-pane-support';
 
 /** Largest file the browser fallback assembles in memory. */
 export const BLOB_FALLBACK_MAX_BYTES = 32 * 1024 * 1024;
-/** Largest lane download the page itself reads into a Blob (Range windows
- *  through the worker); a larger one is handed to the browser as the lane URL. */
-export const LANE_BLOB_MAX_BYTES = 128 * 1024 * 1024;
 /** One Range request of the page's own lane read. */
 export const LANE_WINDOW_BYTES = 4 * 1024 * 1024;
 
@@ -451,16 +448,16 @@ export async function runFileDownload(
     if (probe === 'changed') throw new FileDownloadError('changed', 'The file changed on the host.');
     let blob: Blob;
     if (url && probe === 'ok') {
-      // The lease now belongs to the lane (the worker reads it).
-      state.transferId = null;
-      if (transfer.size > LANE_BLOB_MAX_BYTES) {
+      if (transfer.size > BLOB_FALLBACK_MAX_BYTES) {
         // Too large to hold: the browser downloads the lane URL on its own.
         report({ phase: 'saving', received: 0 });
         await env.deliver({ url }, transfer);
+        state.transferId = null; // the browser now owns the lease
         return outcome('lane', 'started');
       }
       // Read by the page itself, so progress, errors and the share sheet stay
       // here instead of depending on how the browser treats a worker download.
+      state.transferId = null;
       blob = await readLaneFile(env, url, transfer, signal, report);
     } else {
       if (transfer.size > BLOB_FALLBACK_MAX_BYTES) throw new FileSaveError('browser-too-large');
@@ -480,10 +477,10 @@ export async function runFileDownload(
   }
 }
 
-function clickDownload(url: string, name: string): void {
+function clickDownload(url: string, name?: string): void {
   const link = document.createElement('a');
   link.href = url;
-  link.download = name;
+  if (name !== undefined) link.download = name;
   link.rel = 'noopener';
   document.body.append(link);
   link.click();
@@ -497,7 +494,9 @@ async function deliverInBrowser(
   transfer: Pick<FileDownloadTransfer, 'name' | 'mime'>
 ): Promise<BrowserDelivery> {
   if ('url' in target) {
-    clickDownload(target.url, transfer.name);
+    // Navigate through the worker, which marks its streamed response as an attachment.
+    // The download attribute can otherwise bypass the worker and request the URL from the relay.
+    clickDownload(target.url);
     return 'saved';
   }
   const file = new File([target.blob], transfer.name, { type: transfer.mime });
@@ -522,7 +521,7 @@ async function probeLaneUrl(url: string): Promise<LaneProbe> {
     const response = await fetch(url, { headers: { Range: 'bytes=0-0' }, cache: 'no-store' });
     void response.body?.cancel().catch(noop);
     if (response.status === 412) return 'changed';
-    return response.ok ? 'ok' : 'unavailable';
+    return response.status === 206 ? 'ok' : 'unavailable';
   } catch {
     return 'unavailable';
   }

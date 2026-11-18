@@ -55,18 +55,26 @@ pub fn request_begin(exclusions: Arc<SessionToolExclusions>, thread: ThreadId, d
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::sync::Mutex;
 
+    #[cfg(node_twin)]
     use mixdog_agent::env::Retracted;
+    #[cfg(node_twin)]
     use mixdog_agent::env::TextRetraction;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::ToolExclusionReport;
+    #[cfg(node_twin)]
     use serde_json::Value;
 
+    #[cfg(node_twin)]
     use super::*;
 
     #[derive(Default)]
+    #[cfg(node_twin)]
     struct Events(Mutex<Vec<(String, Tone)>>);
 
+    #[cfg(node_twin)]
     impl RunObserver for Events {
         fn event(&self, event: RunEvent) {
             if let RunEvent::Stage(Stage::Notice { message, tone }) = event {
@@ -86,6 +94,7 @@ mod tests {
     /// Node's `recordProviderToolExclusion` notices (`fixtures/tool-exclusions`) as the sink shows
     /// them: the whole text and the `warn` tone, once per tool, with no directory to refresh.
     #[test]
+    #[cfg(node_twin)]
     fn the_sink_shows_nodes_notices_with_their_tone() {
         const GOLDEN: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/tool-exclusions/golden.json"));
         let golden: Value = serde_json::from_str(GOLDEN).unwrap();
@@ -124,3 +133,5 @@ mod tests {
         assert!(checked >= 5, "the golden holds notices");
     }
 }
+
+

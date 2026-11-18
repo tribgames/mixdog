@@ -34,7 +34,9 @@ test('an endpoint answer without a url or token is an error, not a dial', async 
 });
 
 function windowsFixture(options = {}) {
-  const core = fakeCore({ 'connections/endpoint': { url: 'ws://server/', token: 'server-token', serverInstanceId: 'i' } });
+  const core = fakeCore({
+    'connections/endpoint': options.remoteEndpoint ?? { url: 'ws://server/', token: 'server-token', serverInstanceId: 'i' },
+  });
   const shown = [];
   const windows = createServerWindows({
     core,
@@ -68,14 +70,27 @@ test('a window that could not be made leaves no record and rejects', async () =>
 test('a server window gets the server’s core as primary and this PC’s as pc, both under its role', async () => {
   const { windows } = windowsFixture();
   await windows.open({ connectionId: 'srv', kind: 'ssh', name: 'Box' });
-  assert.deepEqual(await windows.endpointsFor('srv'), [
-    { slot: 'primary', url: 'ws://server/', token: 'server-token', target: 'server', role: 'server:srv' },
-    { slot: 'pc', url: 'ws://local/', token: 'local-token', target: 'local', role: 'server:srv' },
-  ]);
-  assert.deepEqual(await windows.endpointsFor('local'), [
-    { slot: 'primary', url: 'ws://local/', token: 'local-token', target: 'local', role: 'main' },
-  ]);
-  await assert.rejects(windows.endpointsFor('other'), /not open/);
+  assert.deepEqual(await windows.endpointFor('srv', 'primary'), {
+    slot: 'primary', url: 'ws://server/', token: 'server-token', target: 'server', role: 'server:srv',
+  });
+  assert.deepEqual(await windows.endpointFor('srv', 'pc'), {
+    slot: 'pc', url: 'ws://local/', token: 'local-token', target: 'local', role: 'server:srv',
+  });
+  assert.deepEqual(await windows.endpointFor('local', 'primary'), {
+    slot: 'primary', url: 'ws://local/', token: 'local-token', target: 'local', role: 'main',
+  });
+  assert.equal(await windows.endpointFor('local', 'pc'), undefined);
+  await assert.rejects(windows.endpointFor('other', 'pc'), /not open/);
+});
+
+test('a reloading server window can reach the PC for Retry even when its server endpoint is down', async () => {
+  const { windows, core } = windowsFixture({ remoteEndpoint: new Error('Server is disconnected') });
+  await windows.open({ connectionId: 'srv', kind: 'ssh', name: 'Box' });
+  await assert.rejects(windows.endpointFor('srv', 'primary'), /disconnected/);
+  const pc = await windows.endpointFor('srv', 'pc');
+  assert.equal(pc.url, 'ws://local/');
+  assert.equal(pc.role, 'server:srv');
+  assert.deepEqual(core.calls, [['connections/endpoint', { connectionId: 'srv' }]]);
 });
 
 test('MIXDOG_SSH_TARGET opens the target through the core and reports a refusal by its code', async () => {

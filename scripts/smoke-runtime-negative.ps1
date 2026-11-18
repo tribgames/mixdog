@@ -3,6 +3,7 @@
 # boot, double-init refusal, hostile-env survival.
 #
 # Env: TAG / OS / ARCH / RUNTIME_RELEASE_REPOSITORY (default tribgames/mixdog)
+#      RUNTIME_SMOKE_INPUT (staged pair) / RUNTIME_SMOKE_OUTPUT (retain smoked pair)
 
 $ErrorActionPreference = 'Stop'
 
@@ -22,17 +23,22 @@ $Work = New-Item -ItemType Directory -Force -Path "$env:TEMP\smoke-$([guid]::New
 try {
     Write-Host "==> Negative-path smoke for ${Os}-${Arch} from $Url"
 
-    Write-Host "==> Test 1: HEAD reaches release asset"
-    $resp = Invoke-WebRequest -Uri $Url -Method Head -UseBasicParsing -ErrorAction Stop
-    Write-Host "  HTTP $($resp.StatusCode)"
-
-    Write-Host "==> Test 2: full download + sha256"
     $TarPath = Join-Path $Work $Asset
-    Invoke-WebRequest -Uri $Url -OutFile $TarPath -UseBasicParsing
+    $SidecarPath = "$TarPath.sha256"
+    if ($env:RUNTIME_SMOKE_INPUT) {
+        Copy-Item -LiteralPath (Join-Path $env:RUNTIME_SMOKE_INPUT $Asset) -Destination $TarPath
+        Copy-Item -LiteralPath (Join-Path $env:RUNTIME_SMOKE_INPUT "$Asset.sha256") -Destination $SidecarPath
+    } else {
+        Write-Host "==> Test 1: HEAD reaches release asset"
+        $resp = Invoke-WebRequest -Uri $Url -Method Head -UseBasicParsing -ErrorAction Stop
+        Write-Host "  HTTP $($resp.StatusCode)"
+        Invoke-WebRequest -Uri $Url -OutFile $TarPath -UseBasicParsing
+        Invoke-WebRequest -Uri "$Url.sha256" -OutFile $SidecarPath -UseBasicParsing
+    }
+    Write-Host "==> Test 2: sha256 of the exact tarball under test"
     $sha = (Get-FileHash -Algorithm SHA256 $TarPath).Hash.ToLower()
     Write-Host "  sha256=$sha"
-    $Sidecar = (Invoke-WebRequest -Uri "$Url.sha256" -UseBasicParsing -ErrorAction Stop).Content
-    if ($Sidecar -is [byte[]]) { $Sidecar = [System.Text.Encoding]::ASCII.GetString($Sidecar) }
+    $Sidecar = [System.IO.File]::ReadAllText($SidecarPath)
     $expected = ($Sidecar.Trim() -split '\s+')[0].ToLower()
     if ($sha -ne $expected) { throw "FAIL: sha256 mismatch (got $sha, release sidecar says '$expected')" }
     Write-Host "  PASS: sha256 matches release sidecar"
@@ -112,6 +118,10 @@ try {
         $env:PGROOT = $SavedPgRoot
     }
 
+    if ($env:RUNTIME_SMOKE_OUTPUT) {
+        New-Item -ItemType Directory -Force -Path $env:RUNTIME_SMOKE_OUTPUT | Out-Null
+        Copy-Item -LiteralPath $TarPath,$SidecarPath -Destination $env:RUNTIME_SMOKE_OUTPUT
+    }
     Write-Host "==> All negative-path smokes: PASS"
 }
 finally {

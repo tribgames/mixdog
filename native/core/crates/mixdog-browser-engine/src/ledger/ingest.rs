@@ -51,8 +51,6 @@ impl fmt::Display for SeqGap {
     }
 }
 
-impl std::error::Error for SeqGap {}
-
 /// What redacts a console entry before it is kept (the page's known secrets belong to whoever owns them).
 pub type Sanitizer = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
@@ -556,3 +554,6 @@ mod tests {
         assert!(!is_browser_component_address(""));
     }
 }
+
+
+impl std::error::Error for SeqGap {}

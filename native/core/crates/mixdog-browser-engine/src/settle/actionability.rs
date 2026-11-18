@@ -52,8 +52,6 @@ impl fmt::Display for ActionabilityError {
     }
 }
 
-impl std::error::Error for ActionabilityError {}
-
 /// How a probe failed: not ready yet, or for a reason retrying cannot fix (a transport failure, a stale ref, an ambiguous target).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeFailure<E> {
@@ -71,33 +69,6 @@ pub enum ActionableError<E> {
     Failed(E),
 }
 
-/// `waitForBrowserActionable`: runs `probe` until it answers, retrying only [`ProbeFailure::NotActionable`] every 100 ms until
-/// `timeout` has passed. Cancellation interrupts the wait and never admits a later probe; a result that arrives after the
-/// cancellation is dropped.
-pub async fn wait_for_actionable<T, E, F, Fut>(mut probe: F, cancel: &CancelView, timeout: Duration) -> Result<T, ActionableError<E>>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<T, ProbeFailure<E>>>,
-{
-    let deadline = time::Instant::now() + timeout;
-    loop {
-        throw_if_cancelled(cancel).map_err(ActionableError::Cancelled)?;
-        let answer = probe().await;
-        throw_if_cancelled(cancel).map_err(ActionableError::Cancelled)?;
-        match answer {
-            Ok(result) => return Ok(result),
-            Err(ProbeFailure::Other(error)) => return Err(ActionableError::Failed(error)),
-            Err(ProbeFailure::NotActionable(blocker)) => {
-                let remaining = deadline.saturating_duration_since(time::Instant::now());
-                if remaining.is_zero() {
-                    return Err(ActionableError::NotActionable(blocker));
-                }
-                pause(remaining.min(ACTIONABILITY_POLL), cancel).await.map_err(ActionableError::Cancelled)?;
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicUsize;
@@ -110,6 +81,15 @@ mod tests {
     fn live() -> CancelView {
         CancelSource::new().view()
     }
+
+    #[test]
+    fn a_ref_refusal_is_the_not_ready_yet_failure_and_nothing_else_is() {
+        let refused = RefError::Refused { reason: ActionabilityReason::Covered, message: "ref r is covered".into() };
+        assert_eq!(ActionabilityError::try_from(refused), Ok(ActionabilityError::new("ref r is covered", ActionabilityReason::Covered)));
+        let failed = RefError::Failed("stale".into());
+        assert_eq!(ActionabilityError::try_from(failed.clone()), Err(failed));
+    }
+
 
     #[tokio::test]
     async fn read_only_actionability_probes_wait_for_readiness_and_return_the_fresh_result() {
@@ -128,7 +108,6 @@ mod tests {
         assert_eq!(result, Ok("fresh"));
         assert_eq!(probes.load(Ordering::SeqCst), 3);
     }
-
     #[tokio::test]
     async fn transport_failures_stale_refs_and_ambiguity_are_not_blindly_retried() {
         for message in ["CDP disconnected", "stale ref", "target matched 2 elements"] {
@@ -146,7 +125,6 @@ mod tests {
             assert_eq!(probes.load(Ordering::SeqCst), 1);
         }
     }
-
     #[tokio::test]
     async fn an_actionability_deadline_reports_the_last_blocker_without_another_probe() {
         let probes = AtomicUsize::new(0);
@@ -163,7 +141,6 @@ mod tests {
         assert_eq!(result, Err(ActionableError::NotActionable(blocker)));
         assert_eq!(probes.load(Ordering::SeqCst), 1);
     }
-
     #[tokio::test]
     async fn cancellation_interrupts_readiness_polling_and_never_admits_a_later_probe() {
         let source = CancelSource::new();
@@ -193,12 +170,33 @@ mod tests {
         assert!(matches!(result, Err(ActionableError::Cancelled(_))));
         assert_eq!(probes.load(Ordering::SeqCst), 1, "an already-cancelled wait must not probe");
     }
+}
 
-    #[test]
-    fn a_ref_refusal_is_the_not_ready_yet_failure_and_nothing_else_is() {
-        let refused = RefError::Refused { reason: ActionabilityReason::Covered, message: "ref r is covered".into() };
-        assert_eq!(ActionabilityError::try_from(refused), Ok(ActionabilityError::new("ref r is covered", ActionabilityReason::Covered)));
-        let failed = RefError::Failed("stale".into());
-        assert_eq!(ActionabilityError::try_from(failed.clone()), Err(failed));
+
+impl std::error::Error for ActionabilityError {}
+/// `waitForBrowserActionable`: runs `probe` until it answers, retrying only [`ProbeFailure::NotActionable`] every 100 ms until
+/// `timeout` has passed. Cancellation interrupts the wait and never admits a later probe; a result that arrives after the
+/// cancellation is dropped.
+pub async fn wait_for_actionable<T, E, F, Fut>(mut probe: F, cancel: &CancelView, timeout: Duration) -> Result<T, ActionableError<E>>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, ProbeFailure<E>>>,
+{
+    let deadline = time::Instant::now() + timeout;
+    loop {
+        throw_if_cancelled(cancel).map_err(ActionableError::Cancelled)?;
+        let answer = probe().await;
+        throw_if_cancelled(cancel).map_err(ActionableError::Cancelled)?;
+        match answer {
+            Ok(result) => return Ok(result),
+            Err(ProbeFailure::Other(error)) => return Err(ActionableError::Failed(error)),
+            Err(ProbeFailure::NotActionable(blocker)) => {
+                let remaining = deadline.saturating_duration_since(time::Instant::now());
+                if remaining.is_zero() {
+                    return Err(ActionableError::NotActionable(blocker));
+                }
+                pause(remaining.min(ACTIONABILITY_POLL), cancel).await.map_err(ActionableError::Cancelled)?;
+            }
+        }
     }
 }

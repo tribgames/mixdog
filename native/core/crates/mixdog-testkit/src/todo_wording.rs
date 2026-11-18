@@ -5,7 +5,11 @@
 //! in what a test feeds the core and in what it expects back; a test that reads such a recording passes its text
 //! through here first, so everything else in it is still compared whole.
 
-const SENTENCES: [(&str, &str); 3] = [
+const SENTENCES: [(&str, &str); 4] = [
+    (
+        "If this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.",
+        "Apply the Plan rule to this brief now, before your first tool call. Do not mention this reminder.",
+    ),
     (
         "- Keep the steps in todo: append work you discover, close items as they finish.",
         "- Keep the steps in todo: advance as each finishes, set the list again when the plan changes.",

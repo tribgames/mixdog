@@ -71,6 +71,23 @@ mod tests {
 
     use super::*;
 
+    #[tokio::test]
+    async fn an_answer_is_served_only_at_the_version_it_was_loaded_at() {
+        let (aged, loads) = (Aged::new(Duration::from_secs(60)), AtomicUsize::new(0));
+        let ask = |version| aged.get_at::<(), _, _>("repo", version, || async { Ok(loads.fetch_add(1, Ordering::SeqCst) + 1) });
+        assert_eq!(ask(7).await, Ok(1));
+        assert_eq!(ask(7).await, Ok(1), "the same version is served as held, however many asks");
+        assert_eq!(ask(8).await, Ok(2), "a moved version is loaded again though the answer is young");
+    }
+
+    #[tokio::test]
+    async fn a_failed_load_is_not_kept() {
+        let aged: Aged<&str, usize> = Aged::new(Duration::from_secs(60));
+        assert!(aged.get("repo", || async { Err::<usize, _>("busy") }).await.is_err());
+        assert_eq!(aged.get::<&str, _, _>("repo", || async { Ok(7) }).await, Ok(7));
+    }
+
+
     async fn counted(aged: &Aged<&'static str, usize>, loads: &AtomicUsize, key: &'static str) -> usize {
         aged.get::<(), _, _>(key, || async {
             loads.fetch_add(1, Ordering::SeqCst);
@@ -80,7 +97,6 @@ mod tests {
         .await
         .unwrap()
     }
-
     #[tokio::test]
     async fn overlapping_asks_for_one_key_share_one_load() {
         let (aged, loads) = (Arc::new(Aged::new(Duration::from_secs(60))), Arc::new(AtomicUsize::new(0)));
@@ -97,7 +113,6 @@ mod tests {
         counted(&aged, &loads, "other").await;
         assert_eq!(loads.load(Ordering::SeqCst), 2, "another key has its own answer");
     }
-
     #[tokio::test]
     async fn an_answer_is_served_until_it_is_older_than_the_bound_or_forgotten() {
         let (aged, loads) = (Aged::new(Duration::from_millis(200)), AtomicUsize::new(0));
@@ -110,21 +125,5 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(250)).await;
         counted(&aged, &loads, "repo").await;
         assert_eq!(loads.load(Ordering::SeqCst), 3, "an answer older than the bound is loaded again");
-    }
-
-    #[tokio::test]
-    async fn an_answer_is_served_only_at_the_version_it_was_loaded_at() {
-        let (aged, loads) = (Aged::new(Duration::from_secs(60)), AtomicUsize::new(0));
-        let ask = |version| aged.get_at::<(), _, _>("repo", version, || async { Ok(loads.fetch_add(1, Ordering::SeqCst) + 1) });
-        assert_eq!(ask(7).await, Ok(1));
-        assert_eq!(ask(7).await, Ok(1), "the same version is served as held, however many asks");
-        assert_eq!(ask(8).await, Ok(2), "a moved version is loaded again though the answer is young");
-    }
-
-    #[tokio::test]
-    async fn a_failed_load_is_not_kept() {
-        let aged: Aged<&str, usize> = Aged::new(Duration::from_secs(60));
-        assert!(aged.get("repo", || async { Err::<usize, _>("busy") }).await.is_err());
-        assert_eq!(aged.get::<&str, _, _>("repo", || async { Ok(7) }).await, Ok(7));
     }
 }

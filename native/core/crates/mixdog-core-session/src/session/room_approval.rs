@@ -23,8 +23,14 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::thread::Decision;
 use mixdog_js::js_trim;
 use mixdog_js::slice_utf16;
+use mixdog_protocol::ApprovalRemember;
 use mixdog_protocol::ConnectionKind;
 use mixdog_tools::policy::action::GrantKey;
+use mixdog_tools::policy::action::parse_kind;
+use mixdog_tools::policy::offer::Caller;
+use mixdog_tools::policy::offer::Card;
+use mixdog_tools::policy::offer::offered_scopes;
+use mixdog_tools::policy::offer::row_fields;
 use mixdog_tools::state::handoff::login_page_url;
 use serde_json::Map;
 use serde_json::Value;
@@ -38,7 +44,6 @@ type Obj = Map<String, Value>;
 const HUMAN_REQUEST_KINDS: [&str; 6] = ["approval", "outbound", "secret", "takeover", "permission", "connector"];
 const CONNECTOR_WIDEN_LEVELS: [&str; 2] = ["needs_approval", "auto"];
 const CONNECTOR_LEVELS: [&str; 3] = ["disabled", "needs_approval", "auto"];
-const REMEMBER_SCOPES: [&str; 4] = ["once", "session", "agent", "always"];
 const SECRET_FORMS: [&str; 4] = ["login", "password", "new-password", "otp"];
 const DETAIL_FIELDS: [&str; 11] = ["to", "cc", "subject", "merchant", "amount", "currency", "recurrence", "count", "size", "messages", "more"];
 const TEXT_LIMIT: usize = 200;
@@ -80,17 +85,6 @@ fn rememberable(action: &str) -> bool {
     GrantKey::parse(action).is_some_and(|key| key.rememberable())
 }
 
-/// `rememberScopes(value)`: `once` first, then the listed known scopes, each once.
-fn remember_scopes(value: Option<&Value>) -> Vec<String> {
-    let mut scopes = vec!["once".to_owned()];
-    for scope in value.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
-        if REMEMBER_SCOPES.contains(&scope) && scope != "once" && !scopes.iter().any(|s| s == scope) {
-            scopes.push(scope.to_owned());
-        }
-    }
-    scopes
-}
-
 fn kind_of(input: &Obj) -> Option<&str> {
     input.get("kind").and_then(Value::as_str)
 }
@@ -98,20 +92,30 @@ fn kind_of(input: &Obj) -> Option<&str> {
 /// `grantActionOf(input)`.
 fn grant_action_of(input: &Obj) -> String {
     match kind_of(input) {
-        Some("outbound") => text(input.get("outbound").and_then(|o| o.get("category")), TEXT_LIMIT),
-        Some("approval") => text(input.get("grantAction"), TEXT_LIMIT),
+        // What a remembered choice covers is the tool (`tool:<identity>`), never the action category.
+        Some("outbound" | "approval") => text(input.get("grantAction"), TEXT_LIMIT),
         _ => String::new(),
     }
 }
 
-/// `offeredScopes(input)`.
-fn offered_scopes(input: &Obj) -> Vec<String> {
-    let scopes = remember_scopes(input.get("remember"));
-    let action = grant_action_of(input);
-    if !action.is_empty() && !rememberable(&action) {
-        return vec!["once".to_owned()];
-    }
-    if action.is_empty() { scopes.into_iter().filter(|s| s != "session" && s != "always").collect() } else { scopes }
+fn flag(input: &Obj, name: &str) -> bool {
+    input.get(name) == Some(&Value::Bool(true))
+}
+
+/// The scopes the row offers: the policy's one rule ([`offered_scopes`]) on what the row itself
+/// says — the card it is, the tool its answer covers, the call's action category and who answers —
+/// whatever scopes it lists. A row that is no gate's card (a secret, a takeover, a connector widening,
+/// a permission request) is answered once.
+fn row_scopes(input: &Obj) -> Vec<ApprovalRemember> {
+    let (card, category) = match kind_of(input) {
+        Some("outbound") => (Card::Outbound, text(input.get("outbound").and_then(|outbound| outbound.get("category")), TEXT_LIMIT)),
+        Some("approval") if flag(input, row_fields::CONNECTOR_POLICY) => (Card::ConnectorPolicy, String::new()),
+        Some("approval") => (Card::HookAsk, text(input.get(row_fields::ACTION_KIND), TEXT_LIMIT)),
+        _ => return vec![ApprovalRemember::Once],
+    };
+    let key = GrantKey::parse(&grant_action_of(input));
+    let caller = if flag(input, row_fields::UNATTENDED) { Caller::Unattended } else { Caller::Attended };
+    offered_scopes(card, key.as_ref(), parse_kind(&category), caller)
 }
 
 /// `humanRequestFields(input)`: the kind-specific fields, whitelisted, plus the bound `account`.
@@ -122,12 +126,12 @@ fn human_request_fields(input: &Obj) -> Obj {
         fields.insert("account".into(), json!(account));
     }
     let Some(kind) = kind_of(input).filter(|kind| HUMAN_REQUEST_KINDS.contains(kind)) else { return fields };
-    fields.insert("remember".into(), json!(offered_scopes(input)));
+    fields.insert("remember".into(), json!(row_scopes(input)));
     let agent = text(input.get("agentId"), TEXT_LIMIT);
     if !agent.is_empty() {
         fields.insert("agentId".into(), json!(agent));
     }
-    if kind == "approval" {
+    if kind == "approval" || kind == "outbound" {
         let grant = grant_action_of(input);
         if !grant.is_empty() && rememberable(&grant) {
             fields.insert("grantAction".into(), json!(grant));
@@ -187,7 +191,6 @@ fn human_request_fields(input: &Obj) -> Obj {
         }
         fields.insert("secret".into(), Value::Object(shown));
         fields.insert("args".into(), json!({ "surface": surface, "target": target, "field": field }));
-        fields.insert("remember".into(), json!(["once"]));
     }
     if kind == "takeover" {
         let takeover = input.get("takeover").filter(|t| t.is_object()).cloned().unwrap_or_else(|| json!({}));
@@ -241,7 +244,6 @@ fn human_request_fields(input: &Obj) -> Obj {
             shown.insert("fillId".into(), json!(fill));
         }
         fields.insert("takeover".into(), Value::Object(shown));
-        fields.insert("remember".into(), json!(["once"]));
     }
     if kind == "permission" {
         let scopes: Vec<Value> = input
@@ -285,7 +287,6 @@ fn human_request_fields(input: &Obj) -> Obj {
                 "choices": choices,
             }),
         );
-        fields.insert("remember".into(), json!(["once"]));
     }
     fields
 }
@@ -442,7 +443,12 @@ pub struct RoomViewState {
     pub typing_id: String,
     /// The speaking member's [`tool_approval`].
     pub approval: Option<Value>,
+    /// Nobody types: the supervisor is choosing the next speaker.
+    pub deciding: bool,
 }
+
+/// The id of the band's row while the room is deciding: one id for the whole hand-off, replaced by the next speaker's.
+pub const DECIDING_ROW_ID: &str = "room-deciding";
 
 /// The `roomView` section of a room log (`thread/roomView/updated`): what
 /// `decorateRoomSnapshot(state, snapshot, handoffQuestions)` lays over the log's own state. `None`
@@ -450,19 +456,25 @@ pub struct RoomViewState {
 pub fn room_view(state: Option<&RoomViewState>, handoff_questions: &[Value]) -> Option<ThreadRoomView> {
     let questions = (!handoff_questions.is_empty()).then(|| handoff_questions.to_vec());
     let Some(state) = state else { return questions.map(|q| ThreadRoomView { handoff_questions: Some(q), ..ThreadRoomView::default() }) };
-    let typing = (!state.speaking.is_empty()).then(|| {
-        json!({
-            "kind": "notice",
-            "id": state.typing_id,
-            "tone": "info",
-            "text": format!("{}…", state.speaking_name),
-            "room": { "kind": "typing", "speaker": state.speaking, "name": state.speaking_name },
+    let typing = if state.deciding {
+        // The hand-off band: its own state (`room.deciding`) in the typing row's place, so it has the band's one footprint.
+        Some(json!({ "kind": "notice", "id": DECIDING_ROW_ID, "tone": "info", "text": "…", "room": { "kind": "typing", "speaker": "", "name": "", "deciding": true } }))
+    } else {
+        (!state.speaking.is_empty()).then(|| {
+            json!({
+                "kind": "notice",
+                "id": state.typing_id,
+                "tone": "info",
+                "text": format!("{}…", state.speaking_name),
+                "room": { "kind": "typing", "speaker": state.speaking, "name": state.speaking_name },
+            })
         })
-    });
+    };
     Some(ThreadRoomView {
         busy: true,
         tool_approval: state.approval.clone().filter(|a| truthy(Some(a))),
         typing,
+        deciding: state.deciding.then_some(true),
         handoff_questions: questions,
     })
 }
@@ -511,7 +523,8 @@ impl SessionDirectory {
     pub fn member_approval(&self, thread: &ThreadId) -> Option<Value> {
         let handle = self.handle(thread)?;
         let shown = handle.cell.shown_approval.load_full()?;
-        Some(tool_approval(&shown))
+        // Shared room views carry ordinary tool approvals; browser cards use the PC-only request.
+        (shown.ask.kind != ApprovalKind::Browser).then(|| tool_approval(&shown))
     }
 
     /// The room's answer to `approval_id` of `thread` (`scheduler.approve` → `deps.approve`):

@@ -20,6 +20,26 @@ use mixdog_core_run::run_host::progress::WaitedJobs;
 use crate::session::Clock;
 use crate::session::SessionDirectory;
 
+/// The header members [`facts_of`] and [`worker_result_text`] read.
+const FACT_FIELDS: [&str; 16] = [
+    "agent",
+    "tag",
+    "provider",
+    "model",
+    "presetName",
+    "effort",
+    "fast",
+    "autoEffort",
+    "status",
+    "closed",
+    "stage",
+    "createdAt",
+    "updatedAt",
+    "lastUsedAt",
+    "clientHostPid",
+    "lastHandoff",
+];
+
 /// `workerResultText`'s placeholder.
 const NO_OUTPUT: &str = "(worker session has no assistant output yet)";
 
@@ -58,6 +78,16 @@ impl AgentWorkers {
             facts.stage = Some("parked".to_owned());
         }
         facts
+    }
+
+    /// The members of a worker's record the views read ([`FACT_FIELDS`]). A worker's status and result are asked for
+    /// on every status pass and wait, long after it finished: only these members are read of a stored session, not its
+    /// whole header. A session with no listed record (unconverted, row-only, unknown) goes the opening way, whole.
+    async fn record(&self, thread: &ThreadId) -> Option<Row> {
+        match self.directory.listed_fields(thread, &FACT_FIELDS).await {
+            Some(record) => Some(record),
+            None => self.threads.header(thread).await.ok(),
+        }
     }
 
     /// Whether the worker's turn waits on a user approval (`runtime.awaitingUser`).
@@ -144,11 +174,16 @@ impl Workers for AgentWorkers {
     /// `mgr.getSession(id)`: the stored session (opened when not loaded) and its conversation.
     async fn session(&self, session_id: &str) -> Option<WorkerFacts> {
         let thread = ThreadId::from(session_id);
-        let header = self.threads.header(&thread).await.ok()?;
+        let header = self.record(&thread).await?;
         // The result is the newest assistant message: only the context's tail that holds it is read.
         let messages = self.directory.model_context(&thread).read_tail_until(is_result).await.unwrap_or_default();
         let result = worker_result_text(&header, &messages);
         Some(self.facts(session_id, &header, result))
+    }
+
+    async fn session_status(&self, session_id: &str) -> Option<WorkerFacts> {
+        let header = self.record(&ThreadId::from(session_id)).await?;
+        Some(self.facts(session_id, &header, NO_OUTPUT.to_owned()))
     }
 
     /// `mgr.getSessionRuntime(id)`: a session with no runtime answers its own stage, which for a parked agent is

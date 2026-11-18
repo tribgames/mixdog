@@ -12,8 +12,9 @@ use tokio_util::sync::CancellationToken;
 use super::adapter_http::JsonPost;
 use super::download::{AdapterError, Limits, PublicFetch, download_gemini_media, parse_json_body};
 use super::gemini_image::encode_uri_component;
-use super::image_api::{ImageReference, truthy};
+use super::image_api::truthy;
 use super::lanes::LaneError;
+use super::references::{References, Target, key_account};
 use super::upstream::{decode_base64_media, upstream_error};
 use super::usage::{interactions_usage, reported_usage};
 use super::xai::Pacer;
@@ -58,13 +59,15 @@ fn key_headers(key: &str) -> Vec<(String, String)> {
 }
 
 #[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
-async fn via_omni(http: &dyn JsonPost, key: &str, model: &str, prompt: &str, options: &Value, references: &[ImageReference], cancel: &CancellationToken) -> Result<GeminiVideo, AdapterError> {
+async fn via_omni(http: &dyn JsonPost, key: &str, model: &str, prompt: &str, options: &Value, references: &References, cancel: &CancellationToken) -> Result<GeminiVideo, AdapterError> {
+    let (endpoint, account) = (format!("{BASE_URL}/interactions"), key_account(key));
+    let references = references.prepare(&Target { endpoint: &endpoint, account: &account, model, operation: "video-omni" }).await?;
     // Omni takes a multimodal input array; a reference image switches the task from
     // text-to-video to image-to-video.
     let input = if references.is_empty() {
         json!(prompt)
     } else {
-        let mut parts: Vec<Value> = references.iter().map(|r| json!({ "type": "image", "data": r.base64, "mime_type": if r.mime.is_empty() { "image/png" } else { r.mime.as_str() } })).collect();
+        let mut parts: Vec<Value> = references.iter().map(|r| json!({ "type": "image", "data": r.base64(), "mime_type": r.mime() })).collect();
         parts.push(json!({ "type": "text", "text": prompt }));
         Value::Array(parts)
     };
@@ -109,10 +112,21 @@ async fn via_veo(
     model: &str,
     prompt: &str,
     options: &Value,
-    references: &[ImageReference],
+    references: &References,
     cancel: &CancellationToken,
     on_progress: &(dyn Fn(f64) + Send + Sync),
 ) -> Result<GeminiVideo, AdapterError> {
+    // Veo takes one start image; a second is refused, never ignored, and before any picture is read.
+    if references.len() > 1 {
+        return Err(LaneError {
+            message: format!("Veo takes one start image; {} were given. Remove {} and try again.", references.len(), references.len() - 1),
+            code: "MEDIA_TOO_MANY_REFERENCES",
+            status: 400,
+        }
+        .into());
+    }
+    let (endpoint, account) = (format!("{BASE_URL}/models/{}:predictLongRunning", encode_uri_component(model)), key_account(key));
+    let references = references.prepare(&Target { endpoint: &endpoint, account: &account, model, operation: "video-seed" }).await?;
     let headers = key_headers(key);
     let mut parameters = Map::new();
     parameters.insert("aspectRatio".into(), json!(aspect_for(options)));
@@ -120,7 +134,7 @@ async fn via_veo(
     instance.insert("prompt".into(), json!(prompt));
     // Veo accepts a single seed image for image-to-video.
     if let Some(seed) = references.first() {
-        instance.insert("image".into(), json!({ "bytesBase64Encoded": seed.base64, "mimeType": if seed.mime.is_empty() { "image/png" } else { seed.mime.as_str() } }));
+        instance.insert("image".into(), json!({ "bytesBase64Encoded": seed.base64(), "mimeType": seed.mime() }));
     }
     let resolution = if truthy(options.get("resolution")) { options.get("resolution").map(value_to_string).unwrap_or_default() } else { String::new() };
     if resolution == "720p" || resolution == "1080p" {
@@ -206,7 +220,7 @@ pub async fn generate_video(
     model: &str,
     prompt: &str,
     options: &Value,
-    references: &[ImageReference],
+    references: &References,
     cancel: &CancellationToken,
     on_progress: &(dyn Fn(f64) + Send + Sync),
 ) -> Result<GeminiVideo, AdapterError> {

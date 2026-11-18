@@ -14,12 +14,13 @@ import {
   setRemoteConnectionState,
 } from '../../desktop/src/renderer/remote-connection-state.ts';
 import { setRemoteHostName, setRemoteHostOpenAccess } from '../../desktop/src/renderer/remote-host-access.ts';
+import { publishMediaKey, revokeMediaKey } from '../../desktop/src/renderer/remote-media-lane.ts';
 import { currentDeviceId, savePcName } from '../../desktop/src/renderer/remote-saved-pcs.ts';
 import { REMOTE_SECURE_CHANNEL_READY_EVENT, type RemoteShimContext } from '../../desktop/src/renderer/remote-shim-state.ts';
 import { connectPhone, type PhoneClient } from './phone-client.ts';
 import { peerFlagsOf } from './phone-capabilities.ts';
 import { createLaneFeeds, type LaneFeeds } from './phone-lanes.ts';
-import type { PhoneConnection } from './phone-status.ts';
+import type { PhoneConnection, VersionRefusal } from './phone-status.ts';
 import { createViewManager, type ViewManager } from './phone-view.ts';
 import type { RelaySocket } from './relay-connector.ts';
 
@@ -36,8 +37,8 @@ export interface PhoneEnv {
   visualizePanels(): readonly string[];
   readonly webrtc?: Parameters<typeof connectPhone>[0]['webrtc'];
   readonly random?: () => number;
-  /** The PC runs another version than this page; the page must be reloaded from the relay after the update. */
-  updateRequired(): void;
+  /** Recover from a core initialize refusal without touching the saved pairing. */
+  updateRequired(reason: VersionRefusal): void;
 }
 
 export interface PhoneBoot {
@@ -46,8 +47,12 @@ export interface PhoneBoot {
   client(): ProtocolClient<SessionFold> | undefined;
   /** Called with the client that is up and with every client that replaces it (a re-pairing dials a new one); returns the unsubscribe. */
   onClient(listener: (client: ProtocolClient<SessionFold>) => void): () => void;
+  onPairingReset(listener: () => void): () => void;
+  resetPairing(): void;
   /** Resolves when the connection that is up has attached the app feed and the open threads. */
   synced(): Promise<void>;
+  /** Resolves when the connection that is up has attached the app feed (the conversation list needs no more). */
+  appSynced(): Promise<void>;
   setVisibleSessions(threadIds: readonly string[]): Promise<boolean>;
   /** The page or the shown threads changed. */
   refreshScreen(): void;
@@ -71,6 +76,28 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
   let pendingLanes: Iterable<string> = [];
   const declaredLanes = new Map<string, readonly string[]>();
   const clientListeners = new Set<(client: ProtocolClient<SessionFold>) => void>();
+  const pairingResetListeners = new Set<() => void>();
+  let pairingGeneration = 0;
+  let dial: AbortController | undefined;
+  let versionRefused = false;
+  const clearMedia = (): void => {
+    if (ctx.mediaSid) revokeMediaKey(ctx.mediaSid);
+    ctx.mediaSid = null;
+  };
+  const resetPairing = (): void => {
+    pairingGeneration++;
+    clearMedia();
+    dial?.abort();
+    starting = undefined;
+    view?.stop();
+    view = undefined;
+    lanes?.stop();
+    lanes = undefined;
+    const retired = phone;
+    phone = undefined;
+    for (const listener of pairingResetListeners) listener();
+    void retired?.client.close();
+  };
   // The page told the PC it is in the background (Node's `reportedBackground`).
   let background = false;
   // Node's resyncOnWake / resyncAfterWakeProbe: a page that was away, or whose connection ended, resyncs on its next wake, and only once the relay
@@ -114,17 +141,47 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
         return;
       case 'pairing-lost':
         ctx.connectionReady = false;
-        starting = undefined;
-        phone = undefined;
         ctx.resetApprovalAndAsk(earlyUiT('Your PC disconnected this device.'));
         return;
       case 'update-required':
         ctx.connectionReady = false;
-        env.updateRequired();
+        versionRefused = true;
+        env.updateRequired(next.reason);
         return;
       case 'closed':
         ctx.connectionReady = false;
     }
+  };
+
+  // A relay pong permits the check; only the core's answer can establish that the feeds need no recovery.
+  let wakeCheck: Promise<void> | undefined;
+  let hintedDuringCheck = false;
+  let gapGeneration: number | undefined;
+  const wakeView = (hint = false): void => {
+    const waking = view;
+    if (!waking) return;
+    if (wakeCheck) {
+      hintedDuringCheck ||= hint;
+      return;
+    }
+    let recovering = false;
+    const recover = (): void => {
+      if (view !== waking) return;
+      recovering = true;
+      gapGeneration = pairingGeneration;
+      // A missed feed is not repaired by reattaching only the app and thread feeds. Replace the leg so every wanted feed
+      // is reattached once, with its own cursor, and no late attach can replace the recovered subscription.
+      phone?.link.retire();
+    };
+    const check = waking.wake(lanes?.expected()).then((confirmed) => {
+      if (!confirmed) recover();
+    }, recover).finally(() => {
+      wakeCheck = undefined;
+      const again = hintedDuringCheck;
+      hintedDuringCheck = false;
+      if (again && !recovering) wakeView();
+    });
+    wakeCheck = check;
   };
 
   const onSynced = (): void => {
@@ -132,6 +189,10 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     setRemoteConnectionState('connected');
     window.dispatchEvent(new Event(REMOTE_CONNECTION_READY_EVENT));
     phone?.screen?.synced();
+    if (gapGeneration === pairingGeneration) {
+      gapGeneration = undefined;
+      window.dispatchEvent(new Event('mixdog:remote-state-gap'));
+    }
     // Terminal panes can hold PTY ids from the connection that died: told only after the replacement settled.
     if (ctx.pendingReconnectNotification) {
       ctx.pendingReconnectNotification = false;
@@ -139,12 +200,14 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     }
   };
 
-  const register = async (): Promise<void> => {
+  const register = async (assertCurrent: () => void): Promise<void> => {
     for (let attempt = 0; ; attempt++) {
+      assertCurrent();
       try {
         await ctx.ensureClientRegistration();
         return;
       } catch (error) {
+        assertCurrent();
         const status = (error as { status?: number } | null)?.status;
         reportRemoteConnectionIssue('registration-failed', error, status);
         // This credential was revoked or its slot is gone: only a new approval fixes it. Anything else retries.
@@ -158,8 +221,14 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
   };
 
   const run = async (): Promise<PhoneClient> => {
+    const generation = pairingGeneration;
+    const assertCurrent = (): void => {
+      if (generation !== pairingGeneration) throw remoteConnectionInterruptedError();
+    };
     await ctx.waitForCredential();
-    await register();
+    await register(assertCurrent);
+    assertCurrent();
+    dial = new AbortController();
     setRemoteConnectionPhase('websocket');
     const connected = await connectPhone({
       deviceId: ctx.deviceId,
@@ -171,8 +240,13 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       visible: () => !hidden(),
       ...(env.webrtc ? { webrtc: env.webrtc } : {}),
       random,
-      onConnection,
+      signal: dial.signal,
+      onConnection: (state) => {
+        if (generation === pairingGeneration) onConnection(state);
+      },
       onClose: (code, _reason, info) => {
+        if (generation !== pairingGeneration) return;
+        clearMedia();
         resyncOnWake = true;
         resyncAfterProbe = false;
         ctx.limits.resetLearnedCaps();
@@ -182,12 +256,20 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       encrypting: () => setRemoteConnectionPhase('encryption'),
       unresponsive: () => reportRemoteConnectionIssue('heartbeat-timeout'),
       probeAnswered: () => {
+        if (generation !== pairingGeneration) return;
         if (!resyncAfterProbe) return;
         resyncAfterProbe = false;
-        void view?.resync().catch(() => undefined);
+        wakeView();
       },
-      resyncHint: () => void view?.resync().catch(() => undefined),
-      ready: (hello) => {
+      resyncHint: () => {
+        if (generation === pairingGeneration) wakeView(true);
+      },
+      ready: (hello, media) => {
+        if (generation !== pairingGeneration) return;
+        if (media) {
+          ctx.mediaSid = media.sid;
+          publishMediaKey(media.sid, media.key, { base: ctx.serverBase || location.origin, token: ctx.currentToken });
+        }
         ctx.limits.learnRoutingCaps(hello);
         setRemoteHostOpenAccess(hello.remoteOpenAccess === 1);
         if (typeof hello.hostName === 'string') {
@@ -202,6 +284,10 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
         visualizePanels: () => env.visualizePanels(),
       },
     });
+    if (generation !== pairingGeneration) {
+      await connected.client.close();
+      assertCurrent();
+    }
     phone = connected;
     const applyFlags = (): void => void Object.assign(ctx, peerFlagsOf(connected.client.server.capabilities));
     applyFlags();
@@ -221,7 +307,12 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       probe: () => wake(),
       silentSince: (since) => connected.link.silentSince(since),
     });
-    lanes = createLaneFeeds(connected.client);
+    lanes = createLaneFeeds(connected.client, {
+      redraw: () => {
+        if (generation === pairingGeneration) window.dispatchEvent(new Event('mixdog:remote-terminal-gap'));
+      },
+      retire: () => connected.link.retire(),
+    });
     for (const [lane, feeds] of declaredLanes) lanes.declare(lane, feeds);
     lanes.use(pendingLanes);
     // Each client the page dials (a re-pairing makes a new one in the same page) is handed to whoever reads its events.
@@ -234,10 +325,13 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
   const start = (): Promise<PhoneClient> => {
     // A page the OS put in the background holds no connection until it is back.
     if (!starting && ctx.backgroundSuspended) return Promise.reject(remoteConnectionInterruptedError());
-    starting ??= run().catch((error: unknown) => {
-      starting = undefined;
-      throw error;
-    });
+    if (!starting) {
+      const attempt = run();
+      starting = attempt;
+      void attempt.catch(() => {
+        if (starting === attempt && !versionRefused) starting = undefined;
+      });
+    }
     return starting;
   };
 
@@ -246,12 +340,12 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
   let frozen = false;
   const beginBackgroundGrace = (): void => {
     phone?.link.hidden();
+    resyncOnWake = true;
     if (!env.suspendApplies()) return;
     if (!background) {
       background = true;
       phone?.screen?.refresh();
     }
-    resyncOnWake = true;
     if (graceTimer !== undefined) return;
     graceTimer = setTimeout(() => {
       graceTimer = undefined;
@@ -267,6 +361,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     phone?.link.suspend();
   };
   const wake = (event?: Event): void => {
+    if (versionRefused) return;
     if (event?.type === 'resume') frozen = false;
     if (hidden()) {
       beginBackgroundGrace();
@@ -287,13 +382,14 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     }
     const probing = phone.link.wake();
     if (!probing) resyncOnWake = true;
-    else if (resyncOnWake || event?.type === 'online') {
+    else if (resyncOnWake || event?.type === 'online' || event?.type === REMOTE_WAKE_EVENT) {
       resyncOnWake = false;
       resyncAfterProbe = true;
     }
   };
   document.addEventListener('freeze', () => {
     frozen = true;
+    resyncOnWake = true;
   });
   document.addEventListener('visibilitychange', wake);
   document.addEventListener('resume', wake);
@@ -315,9 +411,18 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       if (phone) listener(phone.client);
       return () => void clientListeners.delete(listener);
     },
+    onPairingReset: (listener) => {
+      pairingResetListeners.add(listener);
+      return () => void pairingResetListeners.delete(listener);
+    },
+    resetPairing,
     synced: async () => {
       await start();
       await view!.synced();
+    },
+    appSynced: async () => {
+      await start();
+      await view!.appSynced();
     },
     setVisibleSessions: async (threadIds) => {
       await start();

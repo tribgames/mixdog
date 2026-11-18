@@ -47,6 +47,16 @@ fn sanitize(text: &str, keep_underscore: bool) -> String {
     out
 }
 
+/// The server's part of a shortened name: the server itself when it is kept, else its sanitized and cut form.
+pub(crate) fn server_part(server: &str) -> String {
+    if server_part_is_kept(server) {
+        return server.to_owned();
+    }
+    let cleaned = sanitize(server, false);
+    let trimmed: String = cleaned.trim_matches('-').chars().take(SHORT_SERVER_PART_MAX).collect::<String>().trim_end_matches('-').to_owned();
+    if trimmed.is_empty() { "server".to_owned() } else { trimmed }
+}
+
 /// `mcp__<server>__<tool>` when it already fits `max_len` and the provider alphabet, else a
 /// deterministic short form ending in a hash of the full name so distinct tools never meet.
 pub fn qualified_tool_name(server: &str, tool: &str, max_len: usize) -> String {
@@ -55,20 +65,7 @@ pub fn qualified_tool_name(server: &str, tool: &str, max_len: usize) -> String {
         return full;
     }
     let hash = hash8(&full);
-    let server_part = if server_part_is_kept(server) {
-        server.to_owned()
-    } else {
-        let cleaned = sanitize(server, false);
-        let trimmed: String = cleaned
-            .trim_matches('-')
-            .chars()
-            .take(SHORT_SERVER_PART_MAX)
-            .collect::<String>()
-            .trim_end_matches('-')
-            .to_owned();
-        if trimmed.is_empty() { "server".to_owned() } else { trimmed }
-    };
-    let prefix = format!("mcp__{server_part}__");
+    let prefix = format!("mcp__{}__", server_part(server));
     let room = max_len.saturating_sub(prefix.len() + hash.len() + 1);
     let tool_part: String = sanitize(tool, true).chars().take(room).collect::<String>().trim_end_matches('_').to_owned();
     if tool_part.is_empty() {

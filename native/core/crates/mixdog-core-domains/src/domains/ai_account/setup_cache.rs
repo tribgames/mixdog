@@ -29,6 +29,10 @@ pub trait SetupBuilder: Send + Sync {
     async fn build(&self, options: SetupOptions) -> Result<Value, Failure>;
     /// `providerSetup` in the model-proxy client mode: the projection of what the PC advertised (`force` asks it afresh).
     async fn proxy(&self, force: bool) -> Result<Value, Failure>;
+    /// The credential snapshot can be held while non-secret preferences change.
+    fn refresh_hidden_favorites(&self, setup: Value) -> Value {
+        setup
+    }
 }
 
 /// The keychain as the setup flow sees it (`keychain-cjs` through `shared/config.mjs`).
@@ -42,7 +46,7 @@ pub trait KeychainLive: Send + Sync {
     async fn await_prewarm(&self);
     /// `retryKeychain({ interactive })`: true when a failed keyring just recovered.
     async fn retry(&self, interactive: bool) -> bool;
-    /// `refreshKeychainStatus({ force })`: true when the stored values changed.
+    /// `refreshKeychainStatus({ force })`: true when keyring health or its snapshot changed.
     async fn refresh(&self, force: bool) -> bool;
 }
 
@@ -192,8 +196,12 @@ impl CachedProviderSetup {
         if inner.host.model_proxy_client() {
             return self.cached(force || recheck_keychain, false).await;
         }
+        let keychain_blocked = || {
+            let status = inner.keychain.status();
+            cfg!(target_os = "linux") && status.state == "locked"
+        };
         let ready = inner.keychain.prewarm_ready();
-        if !force && (!ready || !self.has_cached()) {
+        if !force && !unlock_keychain && !recheck_keychain && !keychain_blocked() && (!ready || !self.has_cached()) {
             let quick = self.cached(false, true).await?;
             let this = self.clone();
             mixdog_rt::spawn("provider-setup-warmup", mixdog_rt::TaskClass::Work, async move {
@@ -204,20 +212,33 @@ impl CachedProviderSetup {
             if let Value::Object(map) = &mut flagged {
                 map.insert("pendingSecrets".into(), json!(!ready));
             }
-            return Ok(inner.overlays.with_catalog_errors(flagged));
+            return Ok(inner.overlays.with_catalog_errors(inner.builder.refresh_hidden_favorites(flagged)));
         }
         inner.keychain.await_prewarm().await;
-        // A keyring the user has since unlocked: rebuild the setup cached while every key read as absent.
         let recovered = inner.keychain.retry(unlock_keychain).await;
-        if force || recovered {
-            inner.host.reload_full_config();
-        }
-        // Passive: detects a re-locked keyring and re-snapshots a stale cache so external changes show.
         let changed = inner.keychain.refresh(recheck_keychain).await;
-        if changed {
+        // A known lock is not a sign-out. Keep the last credential snapshot with the live
+        // alert, or use a no-secrets snapshot until the first full read is possible.
+        if keychain_blocked() {
+            let held = self.state().setup.clone();
+            let setup = match held {
+                Some(setup) => setup,
+                None => {
+                    let mut quick = inner.builder.build(SetupOptions { check_secrets: false, detect_local: false }).await?;
+                    if let Value::Object(map) = &mut quick {
+                        map.insert("pendingSecrets".into(), json!(true));
+                    }
+                    quick
+                }
+            };
+            let setup = inner.builder.refresh_hidden_favorites(setup);
+            return Ok(inner.overlays.with_catalog_errors(inner.overlays.with_live_keychain(setup)));
+        }
+        if force || recovered || changed {
             inner.host.reload_full_config();
         }
         let setup = self.cached(force || recovered || changed, false).await?;
+        let setup = inner.builder.refresh_hidden_favorites(setup);
         Ok(inner.overlays.with_catalog_errors(inner.overlays.with_live_keychain(setup)))
     }
 }

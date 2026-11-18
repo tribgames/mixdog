@@ -1,6 +1,4 @@
-//! Browser registration, the approval handoff and the pair-code routes: the cases of `lib/relay-pairing.test.mjs`, and the claim and
-//! registration cases of `apps/relay/security.test.mjs` that need no full relay. The pool of claims is exercised on an explicit clock;
-//! the routes run over real sockets against the http1 layer with a hub whose desktop leg is a recording stand-in.
+//! Browser registration, the approval handoff and the pair-code routes: the pool of claims on an explicit clock, the routes over real sockets against the http1 layer with a hub whose desktop leg is a recording stand-in.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -53,42 +51,6 @@ fn pending_claim_pool_bounds_are_the_ones_the_http_handler_enforces() {
     assert_eq!(MAX_PENDING_CLAIMS_PER_DEVICE, 8);
     assert_eq!(MAX_PENDING_CLAIMS_PER_SOURCE, 8);
     assert_eq!(CLAIM_TTL_MS, 300_000);
-}
-
-#[test]
-fn claim_get_for_an_id_this_relay_does_not_hold_is_unknown_not_expired_or_404() {
-    assert_eq!(Claims::new().poll("missing"), json!({ "status": "unknown" }));
-}
-
-#[test]
-fn an_approved_claim_can_be_read_again_until_its_retention_ends_then_it_is_unknown() {
-    let token = "a".repeat(64);
-    let expires_at = 1_000_000 + APPROVED_CLAIM_RETAIN_MS;
-    let mut claims = Claims::new();
-    claims.insert(claim_record(ClaimStatus::Approved, &token, expires_at));
-    let approved = json!({ "status": "approved", "clientId": "bbbbbbbb", "token": token, "sealed": { "box": "opaque" } });
-    claims.sweep(1_000_000);
-    assert_eq!(claims.poll("c1"), approved);
-    claims.sweep(1_000_000);
-    assert_eq!(claims.poll("c1"), approved, "a lost answer can be asked for again");
-    // Another claim id is not this claim: no credential for a guess.
-    assert_eq!(claims.poll("c2"), json!({ "status": "unknown" }));
-    claims.sweep(expires_at + 1);
-    assert_eq!(claims.poll("c1"), json!({ "status": "unknown" }));
-    assert_eq!(claims.len(), 0);
-}
-
-#[test]
-fn a_lapsed_pending_claim_answers_expired_for_a_while_then_unknown() {
-    let expires_at = 1_000_000;
-    let mut claims = Claims::new();
-    claims.insert(claim_record(ClaimStatus::Pending, "", expires_at - 1));
-    claims.sweep(expires_at);
-    assert_eq!(claims.poll("c1"), json!({ "status": "expired" }));
-    claims.sweep(expires_at);
-    assert_eq!(claims.poll("c1"), json!({ "status": "expired" }));
-    claims.sweep(expires_at + EXPIRED_CLAIM_RETAIN_MS + 10);
-    assert_eq!(claims.poll("c1"), json!({ "status": "unknown" }));
 }
 
 // ---- the rig: a hub with a recording desktop leg behind the three routes ----
@@ -178,29 +140,6 @@ struct Rig {
     desktop: DesktopHandle,
 }
 
-/// A relay with one known desktop, connected unless `connected` is false.
-async fn boot(connected: bool) -> Rig {
-    let dir = TempDir::new().unwrap();
-    let io = mixdog_rt::testing::tokens().durability_io;
-    let store = DeviceStore::open(dir.path(), io).await.expect("the store opens");
-    assert!(store.authenticate(DEVICE, SECRET).await);
-    // A watchdog that never fires within a test.
-    let config = HubConfig { handshake: HandshakeTiming { stall: Duration::from_secs(60), probe: Duration::from_millis(30) }, ..HubConfig::default() };
-    let hub = Hub::new(store, config, IngressPool::new());
-    let pairing = Pairing::new(hub.clone(), Arc::new(Mutex::new(RateLimiter::new(1000, 60_000))));
-    pairing.register().expect("the frames are free");
-    let leg = Arc::new(Leg::default());
-    let desktop = hub.attach_desktop(DEVICE, leg.clone(), None);
-    if !connected {
-        // A socket reads as closed by the time its close event fires.
-        leg.closed.store(true, Ordering::SeqCst);
-        desktop.closed();
-    }
-    let server = Server::start(0, None, Arc::new(Routes(pairing)), Limits::default()).await.unwrap();
-    let addr = ([127, 0, 0, 1], server.port()).into();
-    Rig { _dir: dir, hub, server, addr, leg, desktop }
-}
-
 impl Rig {
     fn origin(&self) -> String {
         format!("http://{}", self.addr)
@@ -235,6 +174,94 @@ impl Reply {
     }
 }
 
+fn dechunk(raw: &str) -> String {
+    let mut out = String::new();
+    let mut rest = raw;
+    while let Some((size, tail)) = rest.split_once("\r\n") {
+        let Ok(size) = usize::from_str_radix(size.split(';').next().unwrap_or("").trim(), 16) else { break };
+        if size == 0 || tail.len() < size {
+            break;
+        }
+        out.push_str(&tail[..size]);
+        rest = tail[size..].strip_prefix("\r\n").unwrap_or("");
+    }
+    out
+}
+
+fn claim_body(client: &str, key: &str) -> Value {
+    json!({ "deviceId": DEVICE, "clientId": client, "publicKey": key.repeat(87) })
+}
+
+fn is_token(text: &str) -> bool {
+    text.len() == 64 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+// ---- pair codes ----
+
+async fn issue_code(rig: &Rig) -> String {
+    rig.frame(&json!({ "type": "pair-code-request", "lease": "lease-0001", "name": "Home PC" })).await;
+    let issued = rig.leg.frames_of("pair-code-issued");
+    let last = issued.last().expect("an answer");
+    assert_eq!(last["ok"], json!(true));
+    last["code"].as_str().expect("a code").to_owned()
+}
+
+
+#[test]
+fn claim_get_for_an_id_this_relay_does_not_hold_is_unknown_not_expired_or_404() {
+    assert_eq!(Claims::new().poll("missing"), json!({ "status": "unknown" }));
+}
+#[test]
+fn an_approved_claim_can_be_read_again_until_its_retention_ends_then_it_is_unknown() {
+    let token = "a".repeat(64);
+    let expires_at = 1_000_000 + APPROVED_CLAIM_RETAIN_MS;
+    let mut claims = Claims::new();
+    claims.insert(claim_record(ClaimStatus::Approved, &token, expires_at));
+    let approved = json!({ "status": "approved", "clientId": "bbbbbbbb", "token": token, "sealed": { "box": "opaque" } });
+    claims.sweep(1_000_000);
+    assert_eq!(claims.poll("c1"), approved);
+    claims.sweep(1_000_000);
+    assert_eq!(claims.poll("c1"), approved, "a lost answer can be asked for again");
+    // Another claim id is not this claim: no credential for a guess.
+    assert_eq!(claims.poll("c2"), json!({ "status": "unknown" }));
+    claims.sweep(expires_at + 1);
+    assert_eq!(claims.poll("c1"), json!({ "status": "unknown" }));
+    assert_eq!(claims.len(), 0);
+}
+#[test]
+fn a_lapsed_pending_claim_answers_expired_for_a_while_then_unknown() {
+    let expires_at = 1_000_000;
+    let mut claims = Claims::new();
+    claims.insert(claim_record(ClaimStatus::Pending, "", expires_at - 1));
+    claims.sweep(expires_at);
+    assert_eq!(claims.poll("c1"), json!({ "status": "expired" }));
+    claims.sweep(expires_at);
+    assert_eq!(claims.poll("c1"), json!({ "status": "expired" }));
+    claims.sweep(expires_at + EXPIRED_CLAIM_RETAIN_MS + 10);
+    assert_eq!(claims.poll("c1"), json!({ "status": "unknown" }));
+}
+/// A relay with one known desktop, connected unless `connected` is false.
+async fn boot(connected: bool) -> Rig {
+    let dir = TempDir::new().unwrap();
+    let io = mixdog_rt::testing::tokens().durability_io;
+    let store = DeviceStore::open(dir.path(), io).await.expect("the store opens");
+    assert!(store.authenticate(DEVICE, SECRET).await);
+    // A watchdog that never fires within a test.
+    let config = HubConfig { handshake: HandshakeTiming { stall: Duration::from_secs(60), probe: Duration::from_millis(30) }, ..HubConfig::default() };
+    let hub = Hub::new(store, config, IngressPool::new());
+    let pairing = Pairing::new(hub.clone(), Arc::new(Mutex::new(RateLimiter::new(1000, 60_000))));
+    pairing.register().expect("the frames are free");
+    let leg = Arc::new(Leg::default());
+    let desktop = hub.attach_desktop(DEVICE, leg.clone(), None);
+    if !connected {
+        // A socket reads as closed by the time its close event fires.
+        leg.closed.store(true, Ordering::SeqCst);
+        desktop.closed();
+    }
+    let server = Server::start(0, None, Arc::new(Routes(pairing)), Limits::default()).await.unwrap();
+    let addr = ([127, 0, 0, 1], server.port()).into();
+    Rig { _dir: dir, hub, server, addr, leg, desktop }
+}
 /// One request, answered with the connection closed. `status` is 0 when the server closed the connection without an answer.
 async fn call(addr: SocketAddr, method: &str, target: &str, headers: &[(&str, String)], body: &[u8]) -> Reply {
     let mut head = format!("{method} {target} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\nContent-Length: {}\r\n", body.len());
@@ -253,45 +280,19 @@ async fn call(addr: SocketAddr, method: &str, target: &str, headers: &[(&str, St
     let chunked = head.lines().any(|line| line.eq_ignore_ascii_case("Transfer-Encoding: chunked"));
     Reply { status, head: head.to_owned(), body: if chunked { dechunk(body) } else { body.to_owned() } }
 }
-
-fn dechunk(raw: &str) -> String {
-    let mut out = String::new();
-    let mut rest = raw;
-    while let Some((size, tail)) = rest.split_once("\r\n") {
-        let Ok(size) = usize::from_str_radix(size.split(';').next().unwrap_or("").trim(), 16) else { break };
-        if size == 0 || tail.len() < size {
-            break;
-        }
-        out.push_str(&tail[..size]);
-        rest = tail[size..].strip_prefix("\r\n").unwrap_or("");
-    }
-    out
-}
-
 async fn post_json(rig: &Rig, target: &str, headers: &[(&str, String)], body: &Value) -> Reply {
     let mut all = vec![("Content-Type", "application/json".to_owned()), ("Origin", rig.origin())];
     all.extend(headers.iter().map(|(name, value)| (*name, value.clone())));
     call(rig.addr, "POST", target, &all, body.to_string().as_bytes()).await
 }
-
 async fn claim(rig: &Rig, body: &Value) -> Reply {
     post_json(rig, "/claim", &[], body).await
 }
-
 async fn poll(rig: &Rig, claim_id: &str) -> Value {
     let reply = call(rig.addr, "GET", &format!("/claim/{claim_id}"), &[], b"").await;
     assert_eq!(reply.status, 200);
     reply.json()
 }
-
-fn claim_body(client: &str, key: &str) -> Value {
-    json!({ "deviceId": DEVICE, "clientId": client, "publicKey": key.repeat(87) })
-}
-
-fn is_token(text: &str) -> bool {
-    text.len() == 64 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
 // ---- registration ----
 
 #[tokio::test]
@@ -303,7 +304,6 @@ async fn client_registration_refuses_non_post_and_cross_origin_callers() {
     assert_eq!(cross.status, 403);
     rig.finish().await;
 }
-
 #[tokio::test]
 async fn browser_registration_exchanges_the_pairing_token_for_an_individual_credential() {
     let rig = boot(true).await;
@@ -333,7 +333,6 @@ async fn browser_registration_exchanges_the_pairing_token_for_an_individual_cred
     assert_eq!(bad_id.status, 401);
     rig.finish().await;
 }
-
 #[tokio::test]
 async fn an_oversize_registration_body_destroys_the_request_and_registers_nothing() {
     let rig = boot(true).await;
@@ -344,7 +343,6 @@ async fn an_oversize_registration_body_destroys_the_request_and_registers_nothin
     assert!(rig.hub.store().list_clients(DEVICE, &|_| false).is_empty());
     rig.finish().await;
 }
-
 // ---- claims ----
 
 #[tokio::test]
@@ -382,7 +380,6 @@ async fn an_approval_mints_the_credential_and_the_relay_only_routes_the_request(
     assert_eq!(poll(&rig, "00000000-0000-4000-8000-000000000000").await, json!({ "status": "unknown" }));
     rig.finish().await;
 }
-
 #[tokio::test]
 async fn registering_with_the_claim_credential_ends_the_re_read_window() {
     let rig = boot(true).await;
@@ -401,7 +398,6 @@ async fn registering_with_the_claim_credential_ends_the_re_read_window() {
     assert_eq!(poll(&rig, &other_id).await, json!({ "status": "pending" }));
     rig.finish().await;
 }
-
 #[tokio::test]
 async fn a_denial_and_an_answer_from_another_desktop_are_told_apart() {
     let rig = boot(true).await;
@@ -418,7 +414,6 @@ async fn a_denial_and_an_answer_from_another_desktop_are_told_apart() {
     assert_eq!(poll(&rig, &claim_id).await, json!({ "status": "denied" }));
     rig.finish().await;
 }
-
 #[tokio::test]
 async fn a_reopened_request_resumes_instead_of_prompting_the_desktop_again() {
     let rig = boot(true).await;
@@ -433,7 +428,6 @@ async fn a_reopened_request_resumes_instead_of_prompting_the_desktop_again() {
     assert_eq!(rig.leg.frames_of("client-claim").len(), 2);
     rig.finish().await;
 }
-
 #[tokio::test]
 async fn a_claim_for_an_unknown_desktop_is_refused_and_never_reaches_a_leg() {
     let rig = boot(true).await;
@@ -450,7 +444,6 @@ async fn a_claim_for_an_unknown_desktop_is_refused_and_never_reaches_a_leg() {
     assert_eq!(call(rig.addr, "GET", "/claim", &[], b"").await.status, 405);
     rig.finish().await;
 }
-
 #[tokio::test]
 async fn a_claim_for_a_desktop_that_is_offline_answers_503_offline() {
     let rig = boot(false).await;
@@ -459,7 +452,6 @@ async fn a_claim_for_a_desktop_that_is_offline_answers_503_offline() {
     assert_eq!(reply.json(), json!({ "status": "offline" }));
     rig.finish().await;
 }
-
 #[tokio::test]
 async fn pending_claims_give_each_desktop_a_bounded_share_of_the_pool() {
     let rig = boot(true).await;
@@ -473,17 +465,6 @@ async fn pending_claims_give_each_desktop_a_bounded_share_of_the_pool() {
     assert_eq!(refused.json(), json!({ "status": "busy" }));
     rig.finish().await;
 }
-
-// ---- pair codes ----
-
-async fn issue_code(rig: &Rig) -> String {
-    rig.frame(&json!({ "type": "pair-code-request", "lease": "lease-0001", "name": "Home PC" })).await;
-    let issued = rig.leg.frames_of("pair-code-issued");
-    let last = issued.last().expect("an answer");
-    assert_eq!(last["ok"], json!(true));
-    last["code"].as_str().expect("a code").to_owned()
-}
-
 #[tokio::test]
 async fn a_registered_code_redeems_into_a_claim_the_desktop_sees_as_a_code_claim() {
     let rig = boot(true).await;
@@ -511,7 +492,6 @@ async fn a_registered_code_redeems_into_a_claim_the_desktop_sees_as_a_code_claim
     assert_eq!(spent.json(), json!({ "status": "invalid-code" }));
     rig.finish().await;
 }
-
 #[tokio::test]
 async fn wrong_guesses_are_limited_per_source_and_never_echo_the_code() {
     let rig = boot(true).await;
@@ -529,7 +509,6 @@ async fn wrong_guesses_are_limited_per_source_and_never_echo_the_code() {
     assert_eq!(limited.header("Retry-After").as_deref(), Some("60"));
     rig.finish().await;
 }
-
 #[tokio::test]
 async fn oversize_and_malformed_code_requests_are_refused_and_cross_origin_callers_too() {
     let rig = boot(true).await;
@@ -543,7 +522,6 @@ async fn oversize_and_malformed_code_requests_are_refused_and_cross_origin_calle
     assert_eq!(call(rig.addr, "GET", "/pair-code/nothing", &[], b"").await.status, 404);
     rig.finish().await;
 }
-
 #[tokio::test]
 async fn the_phone_app_origin_may_call_and_is_answered_with_cors_headers() {
     let rig = boot(true).await;
@@ -561,7 +539,6 @@ async fn the_phone_app_origin_may_call_and_is_answered_with_cors_headers() {
     assert_eq!(call(rig.addr, "POST", "/pair-code/resolve", &[], br#"{"code":"123456"}"#).await.status, 404);
     rig.finish().await;
 }
-
 #[tokio::test]
 async fn presence_and_support_report_known_desktops_only() {
     let rig = boot(true).await;
@@ -581,7 +558,6 @@ async fn presence_and_support_report_known_desktops_only() {
     assert_eq!(offline.json()["online"], json!(false));
     rig.finish().await;
 }
-
 #[tokio::test]
 async fn a_code_dies_with_the_leg_that_published_it_and_can_be_withdrawn() {
     let rig = boot(true).await;

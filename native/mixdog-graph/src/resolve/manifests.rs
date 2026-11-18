@@ -79,69 +79,124 @@ fn strip_jsonc_comments(text: &str) -> String {
 }
 
 thread_local! {
-    /// The paths the resolver looked at while a [`recording`] runs on this thread.
-    static INPUTS: std::cell::RefCell<Option<Vec<ResolverInput>>> = const { std::cell::RefCell::new(None) };
+    static STAMPS: std::cell::RefCell<Option<Vec<InputStamp>>> = const { std::cell::RefCell::new(None) };
+    static INPUTS: std::cell::RefCell<Option<Vec<ObservedInput>>> = const { std::cell::RefCell::new(None) };
 }
 
-/// A path the resolver looked at, with its `(size, mtime in ns)` as it was taken just before the look (`None`:
-/// the path did not exist). A caller that compares a later stamp with this one sees a change made after the look,
-/// or during it.
-pub type ResolverInput = (PathBuf, Option<(u64, u64)>);
+pub(crate) type InputStamp = (PathBuf, Option<(u64, u64)>);
 
-fn stamp_of(path: &Path) -> Option<(u64, u64)> {
-    let meta = fs::metadata(path).ok()?;
-    let nanos = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
-    Some((meta.len(), u64::try_from(nanos).ok()?))
+/// The observation actually used by the resolver, not a timestamp proxy for its contents or access.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ObservedInput(PathBuf, Observation);
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Observation {
+    Text(Result<[u8; 32], std::io::ErrorKind>),
+    IsFile(bool),
+    IsDir(bool),
+    Entries(Result<[u8; 32], std::io::ErrorKind>),
 }
 
-/// Notes `path` as a resolver input when a recording is running: a file read (present or not: a missing one
-/// that appears later changes the answer) or a directory listed or probed (its entries decide which manifests exist).
-/// Called before the look, so the stamp is never newer than what the look saw.
-fn note_input(path: &Path) {
+impl ObservedInput {
+    pub fn is_current(&self) -> bool {
+        let path = &self.0;
+        let now = match &self.1 {
+            Observation::Text(_) => Observation::Text(text_digest(&fs::read_to_string(path))),
+            Observation::IsFile(_) => Observation::IsFile(path.is_file()),
+            Observation::IsDir(_) => Observation::IsDir(path.is_dir()),
+            Observation::Entries(_) => Observation::Entries(entries_digest(&dir_entries(path))),
+        };
+        now == self.1
+    }
+}
+
+fn text_digest(text: &std::io::Result<String>) -> Result<[u8; 32], std::io::ErrorKind> {
+    use sha2::{Digest, Sha256};
+    text.as_ref().map(|text| Sha256::digest(text.as_bytes()).into()).map_err(std::io::Error::kind)
+}
+
+fn entries_digest(entries: &std::io::Result<Vec<fs::DirEntry>>) -> Result<[u8; 32], std::io::ErrorKind> {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    for entry in entries.as_ref().map_err(std::io::Error::kind)? {
+        let name = entry.file_name();
+        let bytes = name.as_encoded_bytes();
+        digest.update(bytes.len().to_le_bytes());
+        digest.update(bytes);
+    }
+    Ok(digest.finalize().into())
+}
+
+fn note_input(path: &Path, observe: impl FnOnce() -> Observation) {
     INPUTS.with(|inputs| {
         if let Some(list) = inputs.borrow_mut().as_mut() {
-            list.push((path.to_path_buf(), stamp_of(path)));
+            list.push(ObservedInput(path.to_path_buf(), observe()));
         }
     });
 }
 
-/// Runs `work` and returns it with every path the manifest loaders looked at on this thread meanwhile.
-pub(crate) fn recording<T>(work: impl FnOnce() -> T) -> (T, Vec<ResolverInput>) {
+fn note_stamp(path: &Path) {
+    STAMPS.with(|stamps| {
+        if let Some(list) = stamps.borrow_mut().as_mut() {
+            let stamp = (|| {
+                let meta = fs::metadata(path).ok()?;
+                let nanos = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+                Some((meta.len(), u64::try_from(nanos).ok()?))
+            })();
+            list.push((path.to_path_buf(), stamp));
+        }
+    });
+}
+
+pub(crate) fn recording<T>(work: impl FnOnce() -> T) -> (T, Vec<InputStamp>) {
+    STAMPS.with(|stamps| *stamps.borrow_mut() = Some(Vec::new()));
+    let out = work();
+    let stamps = STAMPS.with(|stamps| stamps.borrow_mut().take()).unwrap_or_default();
+    (out, stamps)
+}
+
+pub(crate) fn observing<T>(work: impl FnOnce() -> T) -> (T, Vec<ObservedInput>) {
     INPUTS.with(|inputs| *inputs.borrow_mut() = Some(Vec::new()));
     let out = work();
     let inputs = INPUTS.with(|inputs| inputs.borrow_mut().take()).unwrap_or_default();
     (out, inputs)
 }
 
-// Every filesystem observation the resolver makes goes through the helpers below, and each stamps its path before
-// it looks: a change after the stamp, between the stamp and the look included, differs from what is recorded.
-
 fn read_input(path: &Path) -> std::io::Result<String> {
-    note_input(path);
-    fs::read_to_string(path)
+    note_stamp(path);
+    let text = fs::read_to_string(path);
+    note_input(path, || Observation::Text(text_digest(&text)));
+    text
 }
 
 fn is_file(path: &Path) -> bool {
-    note_input(path);
-    path.is_file()
+    note_stamp(path);
+    let is_file = path.is_file();
+    note_input(path, || Observation::IsFile(is_file));
+    is_file
 }
 
 fn is_dir(path: &Path) -> bool {
-    note_input(path);
-    path.is_dir()
+    note_stamp(path);
+    let is_dir = path.is_dir();
+    note_input(path, || Observation::IsDir(is_dir));
+    is_dir
 }
 
 /// Child entries in a fixed order. `fs::read_dir` hands back whatever order
 /// the filesystem happens to have, so two manifests competing for the same key
 /// would otherwise win arbitrarily — and differently between runs or machines.
 fn sorted_dir_entries(dir: &Path) -> Vec<fs::DirEntry> {
-    note_input(dir);
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut entries: Vec<fs::DirEntry> = entries.flatten().collect();
+    note_stamp(dir);
+    let entries = dir_entries(dir);
+    note_input(dir, || Observation::Entries(entries_digest(&entries)));
+    entries.unwrap_or_default()
+}
+
+fn dir_entries(dir: &Path) -> std::io::Result<Vec<fs::DirEntry>> {
+    let mut entries: Vec<fs::DirEntry> = fs::read_dir(dir)?.flatten().collect();
     entries.sort_by_key(|entry| entry.file_name());
-    entries
+    Ok(entries)
 }
 
 /// Longest key first, then the key itself: a TOTAL order. Length alone leaves

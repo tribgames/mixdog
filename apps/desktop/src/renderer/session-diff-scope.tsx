@@ -1,6 +1,7 @@
 import { ArrowUpRight, Undo2 } from 'lucide-react';
 import { t } from './i18n';
 import type { SessionDiffRow } from './session-diff-model';
+import { rowListIndex } from './session-diff-row-index';
 import { DiffStats } from './session-diff-section';
 import { changedFilesLabel } from './source-control-support';
 import { SetiFileIcon } from './SetiFileIcon';
@@ -86,8 +87,8 @@ function ChangesScope({
   unlistedCount: number;
   showCount: boolean;
 }) {
-  const additions = rows.reduce((total, row) => total + row.additions, 0);
-  const deletions = rows.reduce((total, row) => total + row.deletions, 0);
+  // Summed when the list was adopted (its shared index).
+  const { additions, deletions } = rowListIndex(rows);
   const total = rows.length + unlistedCount;
   // A capped list reads "1000 of 200000 changed files"; the counts cover the listed rows.
   const count = unlistedCount

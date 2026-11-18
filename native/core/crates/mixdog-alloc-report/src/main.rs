@@ -142,3 +142,4 @@ mod tests {
         assert_eq!(row["estimatedBytesByApplicationFrame"][0][1], 65536);
     }
 }
+

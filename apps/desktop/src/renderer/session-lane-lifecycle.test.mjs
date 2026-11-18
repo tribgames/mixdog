@@ -61,7 +61,7 @@ function laneFrame(sessionId, rows, resultChars) {
     const turn = Math.floor(index / 3);
     if (index % 3 === 0) items.push({ id: `${sessionId}-u${turn}`, kind: 'user', text: `Fix step ${turn}` });
     else if (index % 3 === 1) {
-      const output = `PS C:\\Project\\mixdog> npm test # ${sessionId} ${turn}\n`.padEnd(resultChars, 'ok 1 - passes\n');
+      const output = `PS C:\\Project\\sample> npm test # ${sessionId} ${turn}\n`.padEnd(resultChars, 'ok 1 - passes\n');
       items.push({
         id: `${sessionId}-t${turn}`,
         kind: 'tool',
@@ -73,7 +73,7 @@ function laneFrame(sessionId, rows, resultChars) {
           {
             callId: `${sessionId}-c${turn}`,
             name: 'shell',
-            args: { command: 'npm test', cwd: 'C:\\Project\\mixdog' },
+            args: { command: 'npm test', cwd: 'C:\\Project\\sample' },
             category: 'shell',
             summary: 'npm test',
             isError: false,
@@ -96,7 +96,7 @@ function laneFrame(sessionId, rows, resultChars) {
     provider: 'openai',
     model: 'gpt-5.5',
     effort: 'high',
-    cwd: 'C:\\Project\\mixdog',
+    cwd: 'C:\\Project\\sample',
     stats: { inputTokens: 120_000, outputTokens: 8_000 },
     contextWindow: 400_000,
     promptHistoryList: ['Fix step 1', 'Fix step 2'],

@@ -78,6 +78,8 @@ export type TranscriptRoomRow = {
   kind: 'user' | 'speech' | 'pass' | 'cap' | 'stopped' | 'interrupted' | 'typing';
   speaker?: string;
   name?: string;
+  /** A typing row: nobody types, the room is choosing the next speaker (the core's hand-off band). */
+  deciding?: boolean;
   /** The members a user message or a member's @mention addresses, in order. */
   to?: string[];
   toName?: string[];

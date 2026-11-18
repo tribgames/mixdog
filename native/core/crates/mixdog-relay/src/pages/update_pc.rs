@@ -38,3 +38,14 @@ pub fn render_update_pc_page(current: &str, min: &str) -> String {
 pub fn update_pc_page(method: &str, current: &str, min: &str) -> PageReply {
     PageReply::html(STATIC_PAGE_CSP, &render_update_pc_page(current, min), method == "HEAD")
 }
+
+/// The shipped worker only retires its stale shell for an OK, no-store document.
+pub fn renderer_unavailable_page(method: &str) -> PageReply {
+    PageReply::html(
+        STATIC_PAGE_CSP,
+        "<!doctype html><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Web client unavailable</title>\
+         <h1>Web client unavailable</h1><p>The web client for this PC version is unavailable.</p>\
+         <button type=\"button\" onclick=\"location.reload()\">Reload page</button>",
+        method == "HEAD",
+    )
+}

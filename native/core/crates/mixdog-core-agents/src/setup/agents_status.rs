@@ -69,4 +69,4 @@ impl StatusReader for AgentsStatus {
 }
 
 #[cfg(test)]
-mod tests;
+mod status_tests;

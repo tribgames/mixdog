@@ -7,7 +7,10 @@
 //! [`RoomRowsSource`].
 
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::task::{Context, Poll, Waker};
 
 use async_trait::async_trait;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
@@ -32,7 +35,7 @@ use super::runner::RoomRowsSource;
 use super::service::{new_room_id, route_params};
 use super::sessions::{AgentCatalog, SessionOps};
 use super::turn_post::approval_id;
-use super::turn_host::{MemberLabel, RoomRecord, RoomTurnHost, TurnState};
+use super::turn_host::{Activity, MemberLabel, RoomRecord, RoomTurnHost, TurnState};
 use super::turn_prompt::RoomPrompt;
 
 /// The rows this host posted that are kept per room (`RECENT_ROWS`).
@@ -44,8 +47,10 @@ const PREVIEW_CAP: usize = 200;
 /// The daemon calls a room makes (`AgentRoomDeps`): the log's rows and the members' sessions.
 #[async_trait]
 pub trait RoomDaemon: Send + Sync {
-    /// Appends stored room messages (`roomRowMessage`) to a log session, those it holds skipped.
-    async fn append_rows(&self, session_id: &str, messages: Vec<Value>) -> Result<(), String>;
+    /// Appends stored room messages (`roomRowMessage`) to a log session, those it holds skipped. `view` is the room's
+    /// activity as it stands with these rows: the log takes both in one update, so no client revision holds the rows without
+    /// the activity that goes with them.
+    async fn append_rows(&self, session_id: &str, messages: Vec<Value>, view: RoomViewUpdate) -> Result<(), String>;
     /// The room rows of a log session in log order (`roomRowsOfItems` of `readItems`).
     async fn room_rows(&self, session_id: &str) -> Result<Vec<Value>, String>;
     /// A member's turn; false when the daemon did not accept it.
@@ -54,6 +59,13 @@ pub trait RoomDaemon: Send + Sync {
     /// (`agent-room-turn.ts:270`, `:278`).
     async fn read_snapshot(&self, session_id: &str) -> Result<Value, String>;
     async fn abort(&self, session_id: &str) -> Result<(), String>;
+    /// A user Stop of exactly the member submissions `submissions` in `session_id`, durable before it answers
+    /// ([`MemberHost::stop_work`]).
+    async fn stop_work(&self, _session_id: &str, _submissions: &[String]) -> Result<(), String> {
+        Ok(())
+    }
+    /// The synchronous half of [`Self::stop_work`] ([`MemberHost::latch_work`]).
+    fn latch_work(&self, _session_id: &str, _submissions: &[String]) {}
     fn republish_catalog(&self);
     /// `redactSensitiveText(sessionId, text)`: the session's sensitive values in `text` as the marker.
     fn redact_text(&self, _session_id: &str, text: &str) -> String {
@@ -70,6 +82,16 @@ pub struct ExchangeView {
     pub typing_id: String,
     /// The speaking member's `toolApproval`, as its snapshot showed it.
     pub approval: Option<Value>,
+    /// Nobody types: the supervisor is choosing who speaks next (`speaking` is empty then).
+    pub deciding: bool,
+}
+
+/// The room's whole view as the log shows it: what the running exchange lays over it (`None` when none runs) and the
+/// members' handed-off questions.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RoomViewUpdate {
+    pub exchange: Option<ExchangeView>,
+    pub questions: Vec<Value>,
 }
 
 /// A client's answer to a request the room shows (the core's server-request decision; the
@@ -94,8 +116,9 @@ pub trait RoomApprovals: Send + Sync {
     fn member_questions(&self, room_id: &str, members: &[String]) -> Vec<Value>;
     /// `deps.republish(roomSessionId)` (`agent-rooms.ts:124-125`): the room log published again
     /// through `decorate` (`agent-rooms.ts:453-456`): the running exchange's `view` (`None` when
-    /// none runs) and the members' handed-off questions.
-    fn publish_view(&self, room_session_id: &str, view: Option<ExchangeView>, questions: Vec<Value>);
+    /// none runs) and the members' handed-off questions. Done when the log holds it; the room awaits it
+    /// inside its one publication, so the views reach the log in the order the room made them.
+    async fn publish_view(&self, room_session_id: &str, view: Option<ExchangeView>, questions: Vec<Value>);
 }
 
 /// The members as the room names them (`memberLabels`): display name, route, description and
@@ -164,6 +187,13 @@ struct Live {
     /// Handed-off questions answered through the room: their cards leave at once, before the
     /// member's own list confirms it (`agent-rooms.ts:444-449`).
     answered: Mutex<HashSet<String>>,
+    /// The room's one publication: every row post and every activity publication of this room takes its turn here, in
+    /// arrival order, and builds the view it sends from the exchange's state when the turn comes. Nothing older can show
+    /// again after a newer one went out.
+    publication: Arc<SerialChain>,
+    /// Activity publications started and not finished (what [`LiveRooms::published`] waits on).
+    publishing: AtomicUsize,
+    published: tokio::sync::Notify,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -193,6 +223,9 @@ impl Live {
             tracked: Mutex::new(None),
             recent: Mutex::new(Vec::new()),
             answered: Mutex::new(HashSet::new()),
+            publication: SerialChain::new(),
+            publishing: AtomicUsize::new(0),
+            published: tokio::sync::Notify::new(),
         }
     }
 
@@ -217,6 +250,20 @@ impl Live {
         }
     }
 
+    /// `reset` of `agent-rooms.ts`: the room log is forgotten, and cursors, `seen`, the last speaker and preview and what is owed
+    /// start over, the last time being the reset's.
+    fn reset(&self, stored: &Stored) {
+        lock(&self.recent).clear();
+        let mut record = lock(&self.record);
+        record.cursors.clear();
+        record.seen = None;
+        record.last_speaker = None;
+        record.last_at = stored.last_at;
+        let mut extra = lock(&self.extra);
+        extra.owed = None;
+        extra.last_preview = None;
+    }
+
     fn fields(&self) -> TurnFields {
         let record = lock(&self.record);
         let extra = lock(&self.extra);
@@ -239,7 +286,13 @@ struct Shared {
     /// The one writer of member sessions (`ensureMemberSession` runs in the room writes' queue).
     writer: Arc<SerialChain>,
     relays: OnceLock<FailRelays>,
+    #[cfg(any(test, feature = "test-support"))]
+    before_send_post: OnceLock<SendPostHold>,
 }
+
+/// What a replay holds a user's send at: asked once per send, right before its row is posted; the future it returns is awaited.
+#[cfg(any(test, feature = "test-support"))]
+pub type SendPostHold = Arc<dyn Fn() -> Option<std::pin::Pin<Box<dyn Future<Output = ()> + Send>>> + Send + Sync>;
 
 pub struct LiveRooms {
     shared: Arc<Shared>,
@@ -253,6 +306,8 @@ impl LiveRooms {
             live: Mutex::new(HashMap::new()),
             writer: SerialChain::new(),
             relays: OnceLock::new(),
+            #[cfg(any(test, feature = "test-support"))]
+            before_send_post: OnceLock::new(),
         });
         let follower = Arc::downgrade(&shared);
         rooms.on_change(Arc::new(move |doc: &RoomDoc| {
@@ -260,7 +315,26 @@ impl LiveRooms {
                 shared.follow(doc);
             }
         }));
+        let resetter = Arc::downgrade(&shared);
+        rooms.on_reset(Arc::new(move |room: &Stored| {
+            if let Some(shared) = resetter.upgrade()
+                && let Some(live) = lock(&shared.live).get(&room.id).cloned()
+            {
+                live.reset(room);
+            }
+        }));
+        let viewer = Arc::downgrade(&shared);
+        rooms.show_turns_of(Arc::new(move |room_id: &str| {
+            let shared = viewer.upgrade()?;
+            let live = lock(&shared.live).get(room_id).cloned()?;
+            Some(live.fields())
+        }));
         Arc::new(Self { shared })
+    }
+
+    /// Whether a room is hosted under `room_id` (`agentRooms.isRoom`).
+    pub fn hosts(&self, room_id: &str) -> bool {
+        lock(&self.shared.live).contains_key(room_id)
     }
 
     /// `rooms.approve(sessionId, approvalId, decision)` (`agent-rooms.ts:439-451`): a request the
@@ -306,6 +380,22 @@ impl LiveRooms {
         }
         state.set_approval(None);
         View { shared: self.shared.clone(), live, room_id: room_id.to_owned() }.republish();
+    }
+
+    /// Resolves once every activity publication this room has started is done (the log holds the views). A barrier for a
+    /// caller that must read the log after `republish`, which returns before its publication ends.
+    pub async fn published(&self, room_id: &str) {
+        let Some(live) = lock(&self.shared.live).get(room_id).cloned() else { return };
+        loop {
+            let done = live.published.notified();
+            tokio::pin!(done);
+            // Registered before the count is read, so a publication ending in between still wakes it.
+            done.as_mut().enable();
+            if live.publishing.load(Ordering::SeqCst) == 0 {
+                return;
+            }
+            done.await;
+        }
     }
 
     /// `noteMemberRows` for one room (`agent-rooms.ts:424-433`): its members' handed-off questions
@@ -360,6 +450,10 @@ impl LiveRooms {
         if let Some(upload) = upload {
             row.insert("upload".into(), upload);
         }
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(wait) = self.shared.before_send_post.get().and_then(|hold| hold()) {
+            wait.await;
+        }
         view.post(vec![Value::Object(row)]).await.map_err(RoomError::Refused)?;
         {
             let mut record = lock(&live.record);
@@ -379,6 +473,13 @@ impl LiveRooms {
         held?;
         saved?;
         Ok(true)
+    }
+
+    /// Binds the hold a send waits at right before its row is posted (once): Node's recorder holds `messages`' `post` there, after
+    /// every check of the send and before the post enters the log's delivery.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn hold_sends_before_post(&self, hold: SendPostHold) {
+        let _ = self.shared.before_send_post.set(hold);
     }
 
     /// Hands the scheduler's relay queue to the rooms (`failRelays`). Until then no room is hosted.
@@ -404,6 +505,7 @@ impl LiveRooms {
     /// pass reads the rooms before a mutation that awaited the same load writes (`ready::recover`).
     pub async fn recover<S: RoomStore + 'static>(&self, rooms: &Rooms<S>) -> Result<Vec<String>, RoomError> {
         let cut = rooms.recover().await?;
+        let mut failure = None;
         for room in &cut {
             let Some(live) = lock(&self.shared.live).get(&room.id).cloned() else { continue };
             lock(&live.extra).running = None;
@@ -413,10 +515,19 @@ impl LiveRooms {
                 }
             }
             let view = View { shared: self.shared.clone(), live, room_id: room.id.clone() };
-            let notice = json!({ "id": format!("row_{}", view.new_id()), "kind": "interrupted", "at": view.now(), "text": "" });
-            if let Err(error) = view.post(vec![notice]).await {
-                view.log(&format!("room {} interrupted notice: {error}", room.id));
+            // The log deduplicates row IDs, so a crash after append but before
+            // the room acknowledgement cannot post a second notice.
+            for &started_at in &room.interrupted_rounds {
+                let notice = json!({ "id": format!("row_restart_{started_at}"), "kind": "interrupted", "at": view.now(), "text": "" });
+                if let Err(error) = view.post(vec![notice]).await {
+                    failure.get_or_insert_with(|| RoomError::Port(format!("room {} interrupted notice: {error}", room.id)));
+                    break;
+                }
+                rooms.interrupted_notice_committed(&room.id, started_at).await?;
             }
+        }
+        if let Some(error) = failure {
+            return Err(error);
         }
         Ok(cut.into_iter().map(|room| room.id).collect())
     }
@@ -605,13 +716,26 @@ impl RoomTurnHost for View {
 
     /// `deps.republish(roomSessionId)` through `decorate`: the log with what the running exchange
     /// shows (`scheduler.state(roomId)`, the tracked state; nothing when none runs) and its
-    /// members' handed-off questions.
+    /// members' handed-off questions. Queued on the room's one publication at once (its turn is taken in call order);
+    /// the view is made when the turn comes, so it is the exchange's state then, never an older one.
     fn republish(&self) {
-        let view = lock(&self.live.tracked).as_ref().map(|state| {
-            let (speaking, speaking_name, typing_id) = state.speaking();
-            ExchangeView { speaking, speaking_name, typing_id, approval: state.approval() }
+        let (view, live) = (View { shared: self.shared.clone(), live: self.live.clone(), room_id: self.room_id.clone() }, self.live.clone());
+        live.publishing.fetch_add(1, Ordering::SeqCst);
+        let mut publishing = Box::pin(async move {
+            {
+                let _turn = view.live.publication.acquire().await;
+                let update = view.update();
+                view.shared.ports.approvals.publish_view(&view.session_id(), update.exchange, update.questions).await;
+            }
+            if view.live.publishing.fetch_sub(1, Ordering::SeqCst) == 1 {
+                view.live.published.notify_waiters();
+            }
         });
-        self.shared.ports.approvals.publish_view(&self.session_id(), view, self.questions());
+        // A publication whose turn is free and whose log takes it at once is done before this returns; the rest goes on in
+        // the background, already queued in order.
+        if publishing.as_mut().poll(&mut Context::from_waker(Waker::noop())) == Poll::Pending {
+            mixdog_rt::spawn("rooms.publish-view", mixdog_rt::TaskClass::Work, publishing);
+        }
     }
 
     fn log(&self, line: &str) {
@@ -625,7 +749,44 @@ impl RoomTurnHost for View {
     /// `roomLog.post`: the rows' files taken in, each row stored in its canonical shape, and the
     /// list preview following the last spoken line.
     async fn post(&self, rows: Vec<Value>) -> Result<(), String> {
+        self.post_with(rows, None).await
+    }
+
+    async fn post_ending_turn(&self, rows: Vec<Value>, state: &TurnState) -> Result<(), String> {
+        self.post_with(rows, Some(state)).await
+    }
+
+    fn retire_turn(&self, state: &TurnState) {
+        state.end_turn();
+        self.republish();
+    }
+
+    async fn read_snapshot(&self, session_id: &str) -> Result<Value, String> {
+        self.shared.ports.daemon.read_snapshot(session_id).await
+    }
+}
+
+impl View {
+    /// The room's view as the exchange's state holds it now, with the members' handed-off questions.
+    fn update(&self) -> RoomViewUpdate {
+        let exchange = lock(&self.live.tracked).as_ref().map(|state| {
+            let (speaking, speaking_name, typing_id, deciding) = match state.activity() {
+                Activity::Typing { speaker, name, typing_id } => (speaker, name, typing_id, false),
+                Activity::Deciding => (String::new(), String::new(), String::new(), true),
+            };
+            ExchangeView { speaking, speaking_name, typing_id, approval: state.approval(), deciding }
+        });
+        RoomViewUpdate { exchange, questions: self.questions() }
+    }
+
+    /// `post`, and `ending` (the speaker whose words or pass these rows are) retired in the same update: the retirement is
+    /// made inside the room's one publication, and the log takes the rows with the view that results.
+    async fn post_with(&self, rows: Vec<Value>, ending: Option<&TurnState>) -> Result<(), String> {
         let ports = &self.shared.ports;
+        // Every post takes its place in the room's one publication before its rows are prepared (their files taken in), so a
+        // later post of any kind cannot overtake it meanwhile (`append` of `agent-room-delivery.mjs` reserves the place in
+        // `serialized` first). What is not serialized is what comes before the post: a send's own intake in the scheduler.
+        let _turn = self.live.publication.acquire().await;
         let mut kept = Vec::with_capacity(rows.len());
         for row in &rows {
             let mut row = normalize_room_row(&ports.files.take_in(&self.room_id, row.clone()).await?)?;
@@ -644,7 +805,11 @@ impl RoomTurnHost for View {
         }
         let now = self.now();
         let messages = kept.iter().map(|row| room_row_message(row, now)).collect::<Result<Vec<_>, _>>()?;
-        ports.daemon.append_rows(&self.session_id(), messages).await?;
+        if let Some(state) = ending {
+            state.end_turn();
+        }
+        ports.daemon.append_rows(&self.session_id(), messages, self.update()).await?;
+        drop(_turn);
         // The preview follows the row as stored: a speech's sensitive values are the marker there too.
         let said = kept.iter().rev().find(|row| matches!(row.get("kind").and_then(Value::as_str), Some("user" | "speech")));
         let words = said.map(|said| said.get("text").and_then(Value::as_str).unwrap_or("").to_owned());
@@ -659,10 +824,6 @@ impl RoomTurnHost for View {
             ports.daemon.republish_catalog();
         }
         Ok(())
-    }
-
-    async fn read_snapshot(&self, session_id: &str) -> Result<Value, String> {
-        self.shared.ports.daemon.read_snapshot(session_id).await
     }
 }
 
@@ -716,6 +877,14 @@ impl MemberHost for View {
 
     async fn abort(&self, session_id: &str) -> Result<(), String> {
         self.shared.ports.daemon.abort(session_id).await
+    }
+
+    async fn stop_work(&self, session_id: &str, submissions: &[String]) -> Result<(), String> {
+        self.shared.ports.daemon.stop_work(session_id, submissions).await
+    }
+
+    fn latch_work(&self, session_id: &str, submissions: &[String]) {
+        self.shared.ports.daemon.latch_work(session_id, submissions);
     }
 
     /// The record as of this call is saved; the returned future is the save finishing.

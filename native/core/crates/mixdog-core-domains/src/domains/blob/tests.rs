@@ -157,3 +157,75 @@ async fn a_page_is_never_larger_than_the_advertised_page() {
     // "hello " is 6 bytes.
     assert_eq!(page, json!({ "bytesB64": "aGVsbG8g" }));
 }
+
+/// Two uploaders of the same content (two pages that carry the same library) send their chunks at the same time: the one that
+/// completes the blob removes the staging while the other still has chunks to send, and the other's chunk finds neither the
+/// staging nor, yet, the published file. Neither may be refused.
+#[tokio::test]
+async fn two_uploaders_of_the_same_content_both_finish() {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+    for round in 0..30u8 {
+        let dir = tempfile::tempdir().unwrap();
+        let service = service(dir.path());
+        let bytes = vec![round, 1, 2, 3, 4, 5, 6];
+        let digest = mixdog_store::blobs::digest_of(&bytes).as_str().to_owned();
+        let upload = || async {
+            for (index, chunk) in bytes.chunks(2).enumerate() {
+                call(&service, "blob/put", put(&digest, (index * 2) as u64, &STANDARD.encode(chunk))).await?;
+            }
+            Ok::<_, CoreError>(())
+        };
+        let (a, b) = tokio::join!(upload(), upload());
+        a.unwrap();
+        b.unwrap();
+        let read = call(&service, "blob/read", json!({ "digest": digest, "length": 6 })).await.unwrap();
+        assert_eq!(read, json!({ "bytesB64": STANDARD.encode(&bytes[..6]) }));
+    }
+}
+
+/// A sender's existence probe (a read of one byte) of a blob another connection has just completed, and that is still being
+/// written, waits for the publication like the continuation chunks do: it must not answer not-found, or the sender uploads
+/// the content again. `join!` polls the completing chunk first, which announces the blob before its first wait.
+#[tokio::test]
+async fn a_probe_of_a_blob_being_published_waits_for_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let service = service(dir.path());
+    call(&service, "blob/put", put(ABC, 0, "YWI=")).await.unwrap();
+    let (put_last, probe) = tokio::join!(
+        call(&service, "blob/put", put(ABC, 2, "Yw==")),
+        call(&service, "blob/read", json!({ "digest": ABC, "length": 1 })),
+    );
+    put_last.unwrap();
+    assert_eq!(probe.unwrap(), json!({ "bytesB64": "YQ==" }));
+}
+
+/// A blob's file is verified once, streamed, and its pages after that are ranged reads of the file: a corrupt file is
+/// refused on the first read, a verified one is paged at any offset, and one removed since answers not-found and is
+/// verified again when it returns.
+#[tokio::test]
+async fn pages_are_ranged_reads_of_a_file_verified_once() {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+    let dir = tempfile::tempdir().unwrap();
+    let store = BlobStore::new(dir.path());
+    let service = BlobService::new(store.clone(), &mixdog_rt::testing::tokens(), &Limits { max_blob_page_bytes: 6, ..Limits::default() });
+    let bytes: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
+    let digest = mixdog_store::blobs::digest_of(&bytes);
+    let path = store.path(&digest);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let mut corrupt = bytes.clone();
+    corrupt[100] ^= 1;
+    std::fs::write(&path, &corrupt).unwrap();
+    let read = |offset: u64| call(&service, "blob/read", json!({ "digest": digest.as_str(), "offset": offset }));
+    assert!(matches!(read(0).await, Err(CoreError::BlobCorrupt { .. })));
+    std::fs::write(&path, &bytes).unwrap();
+    assert_eq!(read(4000).await.unwrap(), json!({ "bytesB64": STANDARD.encode(&bytes[4000..4006]) }));
+    assert_eq!(read(4094).await.unwrap(), json!({ "bytesB64": STANDARD.encode(&bytes[4094..]) }));
+    assert_eq!(read(5000).await.unwrap(), json!({ "bytesB64": "" }));
+    std::fs::remove_file(&path).unwrap();
+    assert!(matches!(read(0).await, Err(CoreError::BlobNotFound { .. })));
+    // Forgotten on the not-found: a corrupt file in its place is caught by a fresh verification.
+    std::fs::write(&path, &corrupt).unwrap();
+    assert!(matches!(read(0).await, Err(CoreError::BlobCorrupt { .. })));
+}

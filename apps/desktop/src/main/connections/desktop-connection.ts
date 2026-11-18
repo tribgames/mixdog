@@ -83,12 +83,18 @@ export function createDesktopConnection(spec: DesktopConnectionSpec, deps: Deskt
   // Each attachment of the core (the first, and every redial after a lost link or a restarted core) is a service ready.
   let generation = 0;
   let started = false;
+  // The first connection failed: the core's first attachment is then the one a reopen brings, and is announced as the first.
+  let firstFailed = false;
   const attached = (): void => {
     generation += 1;
     deps.onServiceReady?.(identity, { generation });
   };
   const stopWatching = protocol.onEvent((event) => {
-    if (started && event.type === 'status' && (event as { status: { state: string } }).status.state === 'ready') attached();
+    if ((started || firstFailed) && event.type === 'status' && (event as { status: { state: string } }).status.state === 'ready') {
+      started = true;
+      firstFailed = false;
+      attached();
+    }
   });
   let disposal: Promise<void> | null = null;
   return {
@@ -103,7 +109,12 @@ export function createDesktopConnection(spec: DesktopConnectionSpec, deps: Deskt
     async start() {
       await client.start();
       // The core is serving once its connection is open; windows read sections from here on.
-      await protocol.start();
+      try {
+        await protocol.start();
+      } catch (error) {
+        firstFailed = true;
+        throw error;
+      }
       started = true;
       attached();
     },

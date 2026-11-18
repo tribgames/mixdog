@@ -108,6 +108,10 @@ pub struct WorkerLive {
 pub trait Workers: Send + Sync {
     /// Reads stored sessions too (workerResultText), so it waits on the store.
     async fn session(&self, session_id: &str) -> Option<WorkerFacts>;
+    /// The session's record without its result: what a status lookup reads (`loadSessionStatus`), no transcript read.
+    async fn session_status(&self, session_id: &str) -> Option<WorkerFacts> {
+        self.session(session_id).await
+    }
     fn live(&self, session_id: &str) -> WorkerLive;
     /// `agentSessionEntries`: the tag-bound sessions (and, when `scan_sessions`, stored ones)
     /// visible in `scope`, as `(tag, session)`.
@@ -214,7 +218,7 @@ impl JobViews {
 
     /// `sessionProgressExtras`.
     async fn progress_of(&self, session_id: &str, task_status: Option<&str>) -> Progress {
-        let facts = self.workers.session(session_id).await;
+        let facts = self.workers.session_status(session_id).await;
         let live = self.workers.live(session_id);
         progress_fields(&ProgressInput {
             now: self.clock.now_ms(),

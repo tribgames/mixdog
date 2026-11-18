@@ -207,6 +207,139 @@ pub struct CursorDecoder {
     dedupe: Dedupe,
 }
 
+fn drift_named(code: &str, message: &str) -> ProviderError {
+    let mut error = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::Accepted);
+    error.code = Some(code.to_owned());
+    error.status = Some(400);
+    error.message = message.to_owned();
+    error
+}
+
+fn drift(message: &str) -> ProviderError {
+    drift_named("protocol_drift", message)
+}
+
+impl WireDecoder for CursorDecoder {
+    fn feed(&mut self, unit: &[u8]) -> Result<Vec<StreamEvent>, ProviderError> {
+        let frames = self.frames.push(unit).map_err(|e| {
+            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+            error.code = Some("protocol_error".to_owned());
+            error.message = format!("Cursor frame exceeds {} bytes", e.max);
+            error
+        })?;
+        let mut events = Vec::new();
+        for frame in frames {
+            if self.terminal {
+                break;
+            }
+            if frame.is_compressed() {
+                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+                error.code = Some("protocol_error".to_owned());
+                error.message = "Cursor returned an unsupported compressed frame".to_owned();
+                return Err(error);
+            }
+            if frame.flags & !crate::providers::connect::frame::END_STREAM != 0 {
+                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+                error.code = Some("protocol_error".to_owned());
+                error.message = format!("Cursor returned unsupported frame flags: {}", frame.flags);
+                return Err(error);
+            }
+            if frame.is_end_stream() {
+                self.saw_end = true;
+                if let Some(mut error) = self.end_stream_error(&frame.payload) {
+                    error.exposure = self.exposure;
+                    return Err(error);
+                }
+                if !self.pending.is_empty() || self.saw_turn_ended {
+                    events.extend(self.finalize());
+                    return Ok(events);
+                }
+                return Err(self.incomplete("Cursor stream ended before turnEnded"));
+            }
+            let announced = self.pending.len();
+            self.message(&frame.payload, &mut events)?;
+            // Each announced call is one chat chunk with `tool_calls` in Node's stream sink (`cursor-wire-stream-messages.mjs`).
+            events.extend((announced..self.pending.len()).map(|_| StreamEvent::Progress(ProgressKind::Tool)));
+        }
+        // Never hand over a batch with a partial frame still buffered.
+        if !self.terminal && self.boundary_ready && !self.pending.is_empty() && self.frames.buffered() == 0 {
+            events.extend(self.finalize());
+        }
+        Ok(events)
+    }
+
+    fn finish(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
+        if self.terminal {
+            return Ok(Vec::new());
+        }
+        if self.frames.buffered() > 0 {
+            return Err(self.incomplete("Cursor stream ended with a truncated frame"));
+        }
+        // Tool calls already announced stay actionable even if the transport
+        // vanished; a close after turnEnded only ends a completed turn.
+        if !self.pending.is_empty() || self.saw_turn_ended {
+            return Ok(self.finalize());
+        }
+        if !self.saw_end {
+            return Err(self.incomplete("Cursor stream closed before its end frame"));
+        }
+        Ok(self.finalize())
+    }
+
+    fn terminal_seen(&self) -> bool {
+        self.terminal
+    }
+
+    fn exposure(&self) -> Exposure {
+        self.exposure
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A pinned suffix id's catalog model rides the terminal event, not the usage.
+    #[test]
+    fn the_pricing_model_rides_the_completed_event() {
+        let mut decoder = CursorDecoder::new(BlobStore::default(), Vec::new(), None)
+            .with_pricing_model(Some("zen-3".to_owned()));
+        let events = decoder.finalize();
+        assert!(matches!(
+            events.last(),
+            Some(StreamEvent::Completed { pricing_model: Some(model), .. }) if model == "zen-3"
+        ));
+        assert!(events.iter().all(|e| !matches!(e, StreamEvent::Usage(u) if u.raw.as_ref().is_some_and(|r| r.get("pricingModel").is_some()))));
+    }
+
+    #[test]
+    fn think_tags_split_reasoning_from_content() {
+        let mut f = ThinkFilter::default();
+        assert_eq!(f.process("a<think>b</think>c"), ("ac".into(), "b".into()));
+    }
+
+    #[test]
+    fn partial_tag_is_held_until_it_completes() {
+        let mut f = ThinkFilter::default();
+        assert_eq!(f.process("hi <thi"), ("hi ".into(), String::new()));
+        assert_eq!(f.process("nk>x"), (String::new(), "x".into()));
+        assert_eq!(f.flush(), (String::new(), String::new()));
+    }
+
+    #[test]
+    fn non_tag_angle_brackets_pass_through() {
+        let mut f = ThinkFilter::default();
+        assert_eq!(f.process("a < b <c> d"), ("a < b <c> d".into(), String::new()));
+    }
+
+    #[test]
+    fn tag_names_match_case_insensitively_with_space() {
+        let mut f = ThinkFilter::default();
+        assert_eq!(f.process("<THINKING >z</Thinking>"), (String::new(), "z".into()));
+    }
+}
+
+
 impl CursorDecoder {
     /// Recover tool calls leaked into the answer text, naming only these tools (the request's).
     pub fn with_known_tools(mut self, names: HashSet<String>) -> Self {
@@ -773,137 +906,5 @@ impl CursorDecoder {
         error.message = message.to_owned();
         error.exposure = self.exposure;
         error
-    }
-}
-
-fn drift_named(code: &str, message: &str) -> ProviderError {
-    let mut error = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::Accepted);
-    error.code = Some(code.to_owned());
-    error.status = Some(400);
-    error.message = message.to_owned();
-    error
-}
-
-fn drift(message: &str) -> ProviderError {
-    drift_named("protocol_drift", message)
-}
-
-impl WireDecoder for CursorDecoder {
-    fn feed(&mut self, unit: &[u8]) -> Result<Vec<StreamEvent>, ProviderError> {
-        let frames = self.frames.push(unit).map_err(|e| {
-            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
-            error.code = Some("protocol_error".to_owned());
-            error.message = format!("Cursor frame exceeds {} bytes", e.max);
-            error
-        })?;
-        let mut events = Vec::new();
-        for frame in frames {
-            if self.terminal {
-                break;
-            }
-            if frame.is_compressed() {
-                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
-                error.code = Some("protocol_error".to_owned());
-                error.message = "Cursor returned an unsupported compressed frame".to_owned();
-                return Err(error);
-            }
-            if frame.flags & !crate::providers::connect::frame::END_STREAM != 0 {
-                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
-                error.code = Some("protocol_error".to_owned());
-                error.message = format!("Cursor returned unsupported frame flags: {}", frame.flags);
-                return Err(error);
-            }
-            if frame.is_end_stream() {
-                self.saw_end = true;
-                if let Some(mut error) = self.end_stream_error(&frame.payload) {
-                    error.exposure = self.exposure;
-                    return Err(error);
-                }
-                if !self.pending.is_empty() || self.saw_turn_ended {
-                    events.extend(self.finalize());
-                    return Ok(events);
-                }
-                return Err(self.incomplete("Cursor stream ended before turnEnded"));
-            }
-            let announced = self.pending.len();
-            self.message(&frame.payload, &mut events)?;
-            // Each announced call is one chat chunk with `tool_calls` in Node's stream sink (`cursor-wire-stream-messages.mjs`).
-            events.extend((announced..self.pending.len()).map(|_| StreamEvent::Progress(ProgressKind::Tool)));
-        }
-        // Never hand over a batch with a partial frame still buffered.
-        if !self.terminal && self.boundary_ready && !self.pending.is_empty() && self.frames.buffered() == 0 {
-            events.extend(self.finalize());
-        }
-        Ok(events)
-    }
-
-    fn finish(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
-        if self.terminal {
-            return Ok(Vec::new());
-        }
-        if self.frames.buffered() > 0 {
-            return Err(self.incomplete("Cursor stream ended with a truncated frame"));
-        }
-        // Tool calls already announced stay actionable even if the transport
-        // vanished; a close after turnEnded only ends a completed turn.
-        if !self.pending.is_empty() || self.saw_turn_ended {
-            return Ok(self.finalize());
-        }
-        if !self.saw_end {
-            return Err(self.incomplete("Cursor stream closed before its end frame"));
-        }
-        Ok(self.finalize())
-    }
-
-    fn terminal_seen(&self) -> bool {
-        self.terminal
-    }
-
-    fn exposure(&self) -> Exposure {
-        self.exposure
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A pinned suffix id's catalog model rides the terminal event, not the usage.
-    #[test]
-    fn the_pricing_model_rides_the_completed_event() {
-        let mut decoder = CursorDecoder::new(BlobStore::default(), Vec::new(), None)
-            .with_pricing_model(Some("zen-3".to_owned()));
-        let events = decoder.finalize();
-        assert!(matches!(
-            events.last(),
-            Some(StreamEvent::Completed { pricing_model: Some(model), .. }) if model == "zen-3"
-        ));
-        assert!(events.iter().all(|e| !matches!(e, StreamEvent::Usage(u) if u.raw.as_ref().is_some_and(|r| r.get("pricingModel").is_some()))));
-    }
-
-    #[test]
-    fn think_tags_split_reasoning_from_content() {
-        let mut f = ThinkFilter::default();
-        assert_eq!(f.process("a<think>b</think>c"), ("ac".into(), "b".into()));
-    }
-
-    #[test]
-    fn partial_tag_is_held_until_it_completes() {
-        let mut f = ThinkFilter::default();
-        assert_eq!(f.process("hi <thi"), ("hi ".into(), String::new()));
-        assert_eq!(f.process("nk>x"), (String::new(), "x".into()));
-        assert_eq!(f.flush(), (String::new(), String::new()));
-    }
-
-    #[test]
-    fn non_tag_angle_brackets_pass_through() {
-        let mut f = ThinkFilter::default();
-        assert_eq!(f.process("a < b <c> d"), ("a < b <c> d".into(), String::new()));
-    }
-
-    #[test]
-    fn tag_names_match_case_insensitively_with_space() {
-        let mut f = ThinkFilter::default();
-        assert_eq!(f.process("<THINKING >z</Thinking>"), (String::new(), "z".into()));
     }
 }

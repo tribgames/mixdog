@@ -24,6 +24,7 @@ mod tests;
 mod uuid7;
 
 pub use self::digest::PayloadDigest;
+pub use self::digest::replay_audience;
 pub use self::gate::AppliedOp;
 pub use self::gate::Begin;
 pub use self::gate::OpGate;
@@ -34,7 +35,9 @@ pub use self::gate::PruneStep;
 pub use self::index::CoreOpIndex;
 pub use self::index::ThreadOpGates;
 pub use self::state_store::StateOpStore;
+pub use self::state_store::op_record;
 pub use self::state_store::op_row;
+pub use self::state_store::set_op_row_outcome;
 pub use self::store::OpRecord;
 pub use self::store::OpRetention;
 pub use self::store::OpState;

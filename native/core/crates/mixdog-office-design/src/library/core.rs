@@ -85,49 +85,6 @@ pub struct Environment {
     pub now_ms: Arc<dyn Fn() -> f64 + Send + Sync>,
 }
 
-fn env_text(names: &[&str]) -> String {
-    names.iter().filter_map(|name| std::env::var(name).ok()).find(|value| !value.is_empty()).unwrap_or_default()
-}
-
-impl Environment {
-    /// The environment of this process. The packaged templates are read from `assets/templates` beside the executable.
-    pub fn process() -> Self {
-        let bundled = std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(Path::to_path_buf))
-            .unwrap_or_default()
-            .join("assets")
-            .join("templates");
-        Self {
-            library_config: env_text(&["MIXDOG_OFFICE_DESIGN_LIBRARY_CONFIG"]),
-            pack_url: env_text(&["MIXDOG_OFFICE_DESIGN_PACK_URL"]),
-            pack_key_id: env_text(&["MIXDOG_OFFICE_DESIGN_PACK_KEY_ID"]),
-            pack_public_key: env_text(&["MIXDOG_OFFICE_DESIGN_PACK_PUBLIC_KEY"]),
-            template_dirs: env_text(&["MIXDOG_OFFICE_TEMPLATE_DIRS"]),
-            windows: cfg!(windows),
-            program_files: env_text(&["ProgramFiles", "PROGRAMFILES"]),
-            program_files_x86: env_text(&["ProgramFiles(x86)", "PROGRAMFILES_X86"]),
-            app_data: env_text(&["APPDATA"]),
-            home: std::env::home_dir().map(|home| home.to_string_lossy().into_owned()).unwrap_or_default(),
-            cwd: std::env::current_dir().unwrap_or_default(),
-            bundled_templates: bundled,
-            now_ms: Arc::new(|| {
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |since| since.as_millis() as f64)
-            }),
-        }
-    }
-
-    /// `Date.now()`.
-    pub fn now(&self) -> f64 {
-        (self.now_ms)()
-    }
-
-    /// `path.resolve(path)` against the working directory.
-    pub fn resolve(&self, path: &str) -> PathBuf {
-        resolve_path(&self.cwd, Path::new(path))
-    }
-}
-
 /// `safeId` of a text (`String(value || '')` already taken).
 pub fn safe_id_text(value: &str, label: &str) -> Result<String, String> {
     let normalized = js_to_lowercase(js_trim(value));
@@ -406,12 +363,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_packaged_templates_are_read_from_assets_templates_beside_the_executable() {
-        let exe_dir = std::env::current_exe().unwrap().parent().unwrap().to_path_buf();
-        assert_eq!(Environment::process().bundled_templates, exe_dir.join("assets").join("templates"));
-    }
-
-    #[test]
     fn safe_ids_are_trimmed_lower_case_and_bounded() {
         assert_eq!(safe_id_text("  Pack_1.x ", "id").unwrap(), "pack_1.x");
         assert!(safe_id_text("", "pack id").unwrap_err().contains("Office design pack id must use 1-64"));
@@ -437,5 +388,55 @@ mod tests {
     fn windows_template_locations_fold_dots() {
         assert_eq!(win32_path(&["C:\\Program Files", "Microsoft Office", "root", "Templates"]), "C:\\Program Files\\Microsoft Office\\root\\Templates");
         assert_eq!(win32_path(&["C:/a/b", "..", "c"]), "C:\\a\\c");
+    }
+
+
+    #[test]
+    fn the_packaged_templates_are_read_from_assets_templates_beside_the_executable() {
+        let exe_dir = std::env::current_exe().unwrap().parent().unwrap().to_path_buf();
+        assert_eq!(Environment::process().bundled_templates, exe_dir.join("assets").join("templates"));
+    }
+}
+
+
+fn env_text(names: &[&str]) -> String {
+    names.iter().filter_map(|name| std::env::var(name).ok()).find(|value| !value.is_empty()).unwrap_or_default()
+}
+impl Environment {
+    /// The environment of this process. The packaged templates are read from `assets/templates` beside the executable.
+    pub fn process() -> Self {
+        let bundled = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(Path::to_path_buf))
+            .unwrap_or_default()
+            .join("assets")
+            .join("templates");
+        Self {
+            library_config: env_text(&["MIXDOG_OFFICE_DESIGN_LIBRARY_CONFIG"]),
+            pack_url: env_text(&["MIXDOG_OFFICE_DESIGN_PACK_URL"]),
+            pack_key_id: env_text(&["MIXDOG_OFFICE_DESIGN_PACK_KEY_ID"]),
+            pack_public_key: env_text(&["MIXDOG_OFFICE_DESIGN_PACK_PUBLIC_KEY"]),
+            template_dirs: env_text(&["MIXDOG_OFFICE_TEMPLATE_DIRS"]),
+            windows: cfg!(windows),
+            program_files: env_text(&["ProgramFiles", "PROGRAMFILES"]),
+            program_files_x86: env_text(&["ProgramFiles(x86)", "PROGRAMFILES_X86"]),
+            app_data: env_text(&["APPDATA"]),
+            home: std::env::home_dir().map(|home| home.to_string_lossy().into_owned()).unwrap_or_default(),
+            cwd: std::env::current_dir().unwrap_or_default(),
+            bundled_templates: bundled,
+            now_ms: Arc::new(|| {
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |since| since.as_millis() as f64)
+            }),
+        }
+    }
+
+    /// `Date.now()`.
+    pub fn now(&self) -> f64 {
+        (self.now_ms)()
+    }
+
+    /// `path.resolve(path)` against the working directory.
+    pub fn resolve(&self, path: &str) -> PathBuf {
+        resolve_path(&self.cwd, Path::new(path))
     }
 }

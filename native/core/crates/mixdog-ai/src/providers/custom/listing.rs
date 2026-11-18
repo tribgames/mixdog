@@ -258,6 +258,218 @@ pub struct CustomListing {
     discovery_error: Mutex<Option<ProviderError>>,
 }
 
+/// The error safe to surface: the key redacted, the status kept, and a timer's expiry coded `EPROVIDERTIMEOUT`
+/// (`sanitizeDiscoveryError`: a `TimeoutError` becomes one too).
+fn sanitized(mut error: ProviderError, key: &str) -> ProviderError {
+    if !key.is_empty() {
+        error.message = error.message.split(key).collect::<Vec<_>>().join("[redacted]");
+    }
+    if error.timed_out {
+        error.code = Some("EPROVIDERTIMEOUT".to_owned());
+    }
+    error
+}
+
+impl CustomListing {
+    /// `listModels({ timeoutMs })`: the discovery under the window the caller waits (the runtime's refresh waits
+    /// [`MODEL_LIST_WAIT`], the settings page's probe longer).
+    pub async fn list_models_within(&self, wait: Duration) -> Result<Vec<ModelRecord>, ProviderError> {
+        let mut key = String::new();
+        let failure = match self.discover(&mut key, wait).await {
+            Ok(rows) => {
+                *self.discovered.lock().unwrap_or_else(PoisonError::into_inner) = rows;
+                *self.discovery_error.lock().unwrap_or_else(PoisonError::into_inner) = None;
+                None
+            }
+            Err(error) => {
+                let error = sanitized(error, &key);
+                *self.discovery_error.lock().unwrap_or_else(PoisonError::into_inner) = Some(error.clone());
+                Some(error)
+            }
+        };
+        let rows = self.cached_rows();
+        match failure {
+            Some(error) if rows.is_empty() => Err(error),
+            _ => Ok(rows),
+        }
+    }
+}
+
+#[async_trait]
+impl ModelListing for CustomListing {
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        self.list_models_within(MODEL_LIST_WAIT).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::connect::rewrite::StaticCredential;
+    use crate::providers::listing_row::testing::Replay;
+    #[cfg(node_twin)]
+    use crate::providers::listing_row::testing::fixture;
+
+    #[cfg(node_twin)]
+    fn script(scenario: &str, golden: &Value) -> (u16, Value) {
+        match scenario {
+            "failed-with-manual" => (403, json!({ "error": { "message": "bad key fixture-custom-key" } })),
+            "failed-with-nothing" => (500, json!({ "error": "boom" })),
+            "anthropic" => (200, json!({ "data": golden["anthropicRoster"] })),
+            "catalog-replay" | "catalog-replay-overridden" => (200, json!({ "data": golden["catalogRoster"] })),
+            "keyless" => (200, json!({ "data": golden["roster"].as_array().unwrap()[..3] })),
+            _ => (200, json!({ "data": golden["roster"] })),
+        }
+    }
+
+    /// `res.json()` of a 200 that is not JSON throws (`openai-compat-models.mjs:116`): the user sees the request
+    /// error, not an empty list.
+    #[tokio::test]
+    async fn a_model_list_that_is_not_json_is_a_request_error() {
+        let page = b"<html>nope</html>".to_vec();
+        let http = Arc::new(Replay::new(move |_| (200, page.clone())));
+        let listing = CustomListing::new(
+            "custom-listing",
+            Protocol::OpenaiChat,
+            "http://x.test/v1",
+            Vec::new(),
+            http,
+            Arc::new(StaticCredential(Some(("authorization".to_owned(), "Bearer fixture-list-key".to_owned())))),
+            false,
+            &json!({}),
+            ListingLookup::new(),
+        );
+        let error = listing.list_models().await.expect_err("not a list");
+        assert!(error.message.contains("Unexpected token '<', \"<html>nope</html>\" is not valid JSON"), "{}", error.message);
+    }
+
+    /// A discovery whose request outlives the timer its protocol arms throws what the real Node provider's discovery
+    /// threw (`sites.customOpenaiChatListing`, `customAnthropicListing`): the labelled compat timer on the OpenAI
+    /// protocols, `AbortSignal.timeout` on the Anthropic one, each coded `EPROVIDERTIMEOUT` by the sanitizer.
+        #[tokio::test(start_paused = true)]
+    async fn a_discovery_that_outlives_its_timer_throws_what_nodes_provider_throws() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::thrown_code;
+
+        for (site, protocol, base) in [
+            ("customOpenaiChatListing", Protocol::OpenaiChat, "http://x.test/v1"),
+            ("customAnthropicListing", Protocol::Anthropic, "http://x.test"),
+        ] {
+            let transport = TimingOut::new();
+            let listing = CustomListing::new(
+                "custom-listing",
+                protocol,
+                base,
+                Vec::new(),
+                transport.clone(),
+                Arc::new(StaticCredential(Some(("authorization".to_owned(), "Bearer k".to_owned())))),
+                false,
+                &json!({}),
+                ListingLookup::new(),
+            );
+            let error = listing.list_models().await.expect_err("nothing is listed");
+            assert_transport(site, &transport);
+            assert_thrown(site, &error.message);
+            assert_eq!(error.code.as_deref(), thrown_code(site), "{site}: code");
+        }
+    }
+
+
+    /// Every recorded scenario gives Node's rows (overrides, hidden-by-default,
+    /// manual rows, a failed discovery) and asks Node's URL with Node's headers.
+    #[cfg(node_twin)]
+    #[tokio::test]
+    async fn every_recorded_custom_listing_gives_nodes_rows() {
+        let golden = fixture("oracles/custom-listing.json");
+        for case in golden["cases"].as_array().unwrap() {
+            let scenario = case["scenario"].as_str().unwrap();
+            let config = &case["config"];
+            let protocol: Protocol = serde_json::from_value(config["protocol"].clone()).unwrap();
+            let keyless = config["auth"] == "none";
+            let (status, body) = script(scenario, &golden);
+            let bytes = serde_json::to_vec(&body).unwrap();
+            let http = Arc::new(Replay::new(move |_| (status, bytes.clone())));
+            let header = match protocol {
+                Protocol::Anthropic => ("x-api-key", "fixture-custom-key".to_owned()),
+                _ => ("authorization", "Bearer fixture-custom-key".to_owned()),
+            };
+            let headers: Vec<(String, String)> = config["headers"]
+                .as_object()
+                .map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect())
+                .unwrap_or_default();
+            let listing = CustomListing::new(
+                "custom-fixture",
+                protocol,
+                config["baseURL"].as_str().unwrap(),
+                headers,
+                http.clone(),
+                Arc::new(StaticCredential((!keyless).then(|| (header.0.to_owned(), header.1)))),
+                keyless,
+                config,
+                ListingLookup::with_models_dev(&json!({ "deepseek": { "models": golden["modelsDev"] } })),
+            );
+            let result = listing.list_models().await;
+
+            let sent = http.requests.lock().unwrap();
+            let want = &case["requests"][0];
+            assert_eq!(sent[0].url, want["url"].as_str().unwrap(), "{scenario}");
+            for (name, value) in want["headers"].as_object().unwrap() {
+                let has = sent[0].headers.iter().any(|(k, v)| k.eq_ignore_ascii_case(name) && v == value.as_str().unwrap());
+                assert!(has, "{scenario}: header {name}");
+            }
+            if case["error"].is_string() {
+                let error = result.err().unwrap_or_else(|| panic!("{scenario}: Node failed with {}", case["error"]));
+                assert_eq!(error.message, case["error"].as_str().unwrap(), "{scenario}");
+                assert_eq!(error.status.map(u64::from), case["status"].as_u64(), "{scenario}");
+                continue;
+            }
+            let rows = result.unwrap_or_else(|e| panic!("{scenario}: {e:?}"));
+            let expected = case["rows"].as_array().unwrap();
+            assert_eq!(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), expected.iter().map(|r| r["id"].as_str().unwrap()).collect::<Vec<_>>(), "{scenario}: ids");
+            for (row, node) in rows.iter().zip(expected) {
+                let what = format!("{scenario}: {}", node["id"]);
+                let raw = row.raw.as_ref().unwrap();
+                assert_eq!(row.name.as_deref(), node["name"].as_str(), "{what} name");
+                assert_eq!(row.context_window.unwrap_or(0), node["contextWindow"].as_u64().unwrap_or(0), "{what} contextWindow");
+                assert_eq!(row.max_output_tokens, node["outputTokens"].as_u64(), "{what} outputTokens");
+                assert_eq!(row.hidden, node["hidden"].as_bool().unwrap(), "{what} hidden");
+                assert_eq!(json!(row.manual), node["manual"], "{what} manual");
+                assert!(row.provider_name.is_none(), "{what}: the listing states no providerName; hydration sets it from the config");
+                assert_eq!(row.reasoning_content_field.as_deref(), node["reasoningContentField"].as_str(), "{what} reasoningContentField");
+                assert_eq!(raw["inherited"], node["inherited"], "{what} inherited");
+                assert_eq!(row.supports_images, node["supportsVision"].as_bool(), "{what} supportsVision");
+                assert_eq!(row.supports_reasoning, node["supportsReasoning"].as_bool(), "{what} supportsReasoning");
+                assert_eq!(json!(row.reasoning_levels), node.get("reasoningLevels").cloned().unwrap_or(json!([])), "{what} reasoningLevels");
+                assert_eq!(json!(row.picker.reasoning_options), node.get("reasoningOptions").cloned().unwrap_or(json!([])), "{what} reasoningOptions");
+                // The row the catalog keeps as stated is Node's row, key for key (`getCachedModelInfo`).
+                let mut node_row = node.clone();
+                node_row.as_object_mut().unwrap().remove("provider");
+                assert_eq!(crate::catalog::listed_row_of(&"custom-fixture".into(), row.clone()), Some(node_row.clone()), "{what} stated row");
+                // The provider answers it as its `getCachedModelInfo` (`custom-provider.mjs:109`), manual rows included.
+                assert_eq!(crate::catalog::CachedModelInfo::cached_row(&listing, &row.id).as_deref(), Some(&node_row), "{what} cached row");
+                let custom = row.picker.custom_reasoning.as_ref().unwrap();
+                assert_eq!(custom.replay, node["customReasoning"]["replay"], "{what} replay");
+                assert_eq!(json!(custom.wire_format), node["customReasoning"]["wireFormat"], "{what} wireFormat");
+                assert_eq!(json!(custom.wire_values), node["customReasoning"]["wireValues"], "{what} wireValues");
+            }
+        }
+    }
+}
+
+
+/// `getCachedModelInfo`: the effective rows, which hold the config's own manual models from the moment the provider is
+/// built (`_applyCustomRows(_customRows())`) and the discovered ones under their overrides once it has listed.
+impl crate::catalog::CachedModelInfo for CustomListing {
+    fn cached_row(&self, model: &str) -> Option<std::sync::Arc<Value>> {
+        let provider = mixdog_protocol::ProviderId::from(self.id.as_str());
+        let row = self.cached_rows().into_iter().find(|row| row.id == model)?;
+        crate::catalog::listed_row_of(&provider, row).map(std::sync::Arc::new)
+    }
+}
+
+
 impl CustomListing {
     /// `credential` supplies the discovery header (`authorization: Bearer …` on
     /// the OpenAI protocols, `x-api-key` on `anthropic`).
@@ -373,8 +585,9 @@ impl CustomListing {
             error.message = format!("{} models {status}", self.id);
             return Err(error);
         }
-        // A reachable endpoint that answers something else lists nothing.
-        Ok(serde_json::from_slice(&body.body).unwrap_or(Value::Null))
+        // `res.json()` (`custom-provider.mjs:127`, `openai-compat-models.mjs:116`): a body that is not JSON is the
+        // request's error.
+        crate::providers::compat::listing::json_answer(&body.body)
     }
 
     /// The protocol's own discovery, rows enriched.
@@ -403,190 +616,5 @@ impl CustomListing {
             })
             .collect();
         Ok(self.lookup.enrich_listed(&self.id, rows))
-    }
-}
-
-/// The error safe to surface: the key redacted, the status kept, and a timer's expiry coded `EPROVIDERTIMEOUT`
-/// (`sanitizeDiscoveryError`: a `TimeoutError` becomes one too).
-fn sanitized(mut error: ProviderError, key: &str) -> ProviderError {
-    if !key.is_empty() {
-        error.message = error.message.split(key).collect::<Vec<_>>().join("[redacted]");
-    }
-    if error.timed_out {
-        error.code = Some("EPROVIDERTIMEOUT".to_owned());
-    }
-    error
-}
-
-/// `getCachedModelInfo`: the effective rows, which hold the config's own manual models from the moment the provider is
-/// built (`_applyCustomRows(_customRows())`) and the discovered ones under their overrides once it has listed.
-impl crate::catalog::CachedModelInfo for CustomListing {
-    fn cached_row(&self, model: &str) -> Option<std::sync::Arc<Value>> {
-        let provider = mixdog_protocol::ProviderId::from(self.id.as_str());
-        let row = self.cached_rows().into_iter().find(|row| row.id == model)?;
-        crate::catalog::listed_row_of(&provider, row).map(std::sync::Arc::new)
-    }
-}
-
-impl CustomListing {
-    /// `listModels({ timeoutMs })`: the discovery under the window the caller waits (the runtime's refresh waits
-    /// [`MODEL_LIST_WAIT`], the settings page's probe longer).
-    pub async fn list_models_within(&self, wait: Duration) -> Result<Vec<ModelRecord>, ProviderError> {
-        let mut key = String::new();
-        let failure = match self.discover(&mut key, wait).await {
-            Ok(rows) => {
-                *self.discovered.lock().unwrap_or_else(PoisonError::into_inner) = rows;
-                *self.discovery_error.lock().unwrap_or_else(PoisonError::into_inner) = None;
-                None
-            }
-            Err(error) => {
-                let error = sanitized(error, &key);
-                *self.discovery_error.lock().unwrap_or_else(PoisonError::into_inner) = Some(error.clone());
-                Some(error)
-            }
-        };
-        let rows = self.cached_rows();
-        match failure {
-            Some(error) if rows.is_empty() => Err(error),
-            _ => Ok(rows),
-        }
-    }
-}
-
-#[async_trait]
-impl ModelListing for CustomListing {
-    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
-        self.list_models_within(MODEL_LIST_WAIT).await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::providers::connect::rewrite::StaticCredential;
-    use crate::providers::listing_row::testing::Replay;
-    use crate::providers::listing_row::testing::fixture;
-
-    fn script(scenario: &str, golden: &Value) -> (u16, Value) {
-        match scenario {
-            "failed-with-manual" => (403, json!({ "error": { "message": "bad key fixture-custom-key" } })),
-            "failed-with-nothing" => (500, json!({ "error": "boom" })),
-            "anthropic" => (200, json!({ "data": golden["anthropicRoster"] })),
-            "catalog-replay" | "catalog-replay-overridden" => (200, json!({ "data": golden["catalogRoster"] })),
-            "keyless" => (200, json!({ "data": golden["roster"].as_array().unwrap()[..3] })),
-            _ => (200, json!({ "data": golden["roster"] })),
-        }
-    }
-
-    /// A discovery whose request outlives the timer its protocol arms throws what the real Node provider's discovery
-    /// threw (`sites.customOpenaiChatListing`, `customAnthropicListing`): the labelled compat timer on the OpenAI
-    /// protocols, `AbortSignal.timeout` on the Anthropic one, each coded `EPROVIDERTIMEOUT` by the sanitizer.
-    #[tokio::test(start_paused = true)]
-    async fn a_discovery_that_outlives_its_timer_throws_what_nodes_provider_throws() {
-        use crate::transport::site_probe::TimingOut;
-        use crate::transport::site_probe::assert_thrown;
-        use crate::transport::site_probe::assert_transport;
-        use crate::transport::site_probe::recorded;
-
-        for (site, protocol, base) in [
-            ("customOpenaiChatListing", Protocol::OpenaiChat, "http://x.test/v1"),
-            ("customAnthropicListing", Protocol::Anthropic, "http://x.test"),
-        ] {
-            let transport = TimingOut::new();
-            let listing = CustomListing::new(
-                "custom-listing",
-                protocol,
-                base,
-                Vec::new(),
-                transport.clone(),
-                Arc::new(StaticCredential(Some(("authorization".to_owned(), "Bearer k".to_owned())))),
-                false,
-                &json!({}),
-                ListingLookup::new(),
-            );
-            let error = listing.list_models().await.expect_err("nothing is listed");
-            assert_transport(site, &transport);
-            assert_thrown(site, &error.message);
-            assert_eq!(error.code.as_deref(), recorded(site)["thrown"]["code"].as_str(), "{site}: code");
-        }
-    }
-
-    /// Every recorded scenario gives Node's rows (overrides, hidden-by-default,
-    /// manual rows, a failed discovery) and asks Node's URL with Node's headers.
-    #[tokio::test]
-    async fn every_recorded_custom_listing_gives_nodes_rows() {
-        let golden = fixture("oracles/custom-listing.json");
-        for case in golden["cases"].as_array().unwrap() {
-            let scenario = case["scenario"].as_str().unwrap();
-            let config = &case["config"];
-            let protocol: Protocol = serde_json::from_value(config["protocol"].clone()).unwrap();
-            let keyless = config["auth"] == "none";
-            let (status, body) = script(scenario, &golden);
-            let bytes = serde_json::to_vec(&body).unwrap();
-            let http = Arc::new(Replay::new(move |_| (status, bytes.clone())));
-            let header = match protocol {
-                Protocol::Anthropic => ("x-api-key", "fixture-custom-key".to_owned()),
-                _ => ("authorization", "Bearer fixture-custom-key".to_owned()),
-            };
-            let headers: Vec<(String, String)> = config["headers"]
-                .as_object()
-                .map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect())
-                .unwrap_or_default();
-            let listing = CustomListing::new(
-                "custom-fixture",
-                protocol,
-                config["baseURL"].as_str().unwrap(),
-                headers,
-                http.clone(),
-                Arc::new(StaticCredential((!keyless).then(|| (header.0.to_owned(), header.1)))),
-                keyless,
-                config,
-                ListingLookup::with_models_dev(&json!({ "deepseek": { "models": golden["modelsDev"] } })),
-            );
-            let result = listing.list_models().await;
-
-            let sent = http.requests.lock().unwrap();
-            let want = &case["requests"][0];
-            assert_eq!(sent[0].url, want["url"].as_str().unwrap(), "{scenario}");
-            for (name, value) in want["headers"].as_object().unwrap() {
-                let has = sent[0].headers.iter().any(|(k, v)| k.eq_ignore_ascii_case(name) && v == value.as_str().unwrap());
-                assert!(has, "{scenario}: header {name}");
-            }
-            if case["error"].is_string() {
-                let error = result.err().unwrap_or_else(|| panic!("{scenario}: Node failed with {}", case["error"]));
-                assert_eq!(error.message, case["error"].as_str().unwrap(), "{scenario}");
-                assert_eq!(error.status.map(u64::from), case["status"].as_u64(), "{scenario}");
-                continue;
-            }
-            let rows = result.unwrap_or_else(|e| panic!("{scenario}: {e:?}"));
-            let expected = case["rows"].as_array().unwrap();
-            assert_eq!(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), expected.iter().map(|r| r["id"].as_str().unwrap()).collect::<Vec<_>>(), "{scenario}: ids");
-            for (row, node) in rows.iter().zip(expected) {
-                let what = format!("{scenario}: {}", node["id"]);
-                let raw = row.raw.as_ref().unwrap();
-                assert_eq!(row.name.as_deref(), node["name"].as_str(), "{what} name");
-                assert_eq!(row.context_window.unwrap_or(0), node["contextWindow"].as_u64().unwrap_or(0), "{what} contextWindow");
-                assert_eq!(row.max_output_tokens, node["outputTokens"].as_u64(), "{what} outputTokens");
-                assert_eq!(row.hidden, node["hidden"].as_bool().unwrap(), "{what} hidden");
-                assert_eq!(json!(row.manual), node["manual"], "{what} manual");
-                assert!(row.provider_name.is_none(), "{what}: the listing states no providerName; hydration sets it from the config");
-                assert_eq!(row.reasoning_content_field.as_deref(), node["reasoningContentField"].as_str(), "{what} reasoningContentField");
-                assert_eq!(raw["inherited"], node["inherited"], "{what} inherited");
-                assert_eq!(row.supports_images, node["supportsVision"].as_bool(), "{what} supportsVision");
-                assert_eq!(row.supports_reasoning, node["supportsReasoning"].as_bool(), "{what} supportsReasoning");
-                assert_eq!(json!(row.reasoning_levels), node.get("reasoningLevels").cloned().unwrap_or(json!([])), "{what} reasoningLevels");
-                assert_eq!(json!(row.picker.reasoning_options), node.get("reasoningOptions").cloned().unwrap_or(json!([])), "{what} reasoningOptions");
-                // The row the catalog keeps as stated is Node's row, key for key (`getCachedModelInfo`).
-                let mut node_row = node.clone();
-                node_row.as_object_mut().unwrap().remove("provider");
-                assert_eq!(crate::catalog::listed_row_of(&"custom-fixture".into(), row.clone()), Some(node_row.clone()), "{what} stated row");
-                // The provider answers it as its `getCachedModelInfo` (`custom-provider.mjs:109`), manual rows included.
-                assert_eq!(crate::catalog::CachedModelInfo::cached_row(&listing, &row.id).as_deref(), Some(&node_row), "{what} cached row");
-                let custom = row.picker.custom_reasoning.as_ref().unwrap();
-                assert_eq!(custom.replay, node["customReasoning"]["replay"], "{what} replay");
-                assert_eq!(json!(custom.wire_format), node["customReasoning"]["wireFormat"], "{what} wireFormat");
-                assert_eq!(json!(custom.wire_values), node["customReasoning"]["wireValues"], "{what} wireValues");
-            }
-        }
     }
 }

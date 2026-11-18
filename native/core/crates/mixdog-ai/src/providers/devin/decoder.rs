@@ -48,9 +48,12 @@ struct Call {
 pub struct DevinDecoder {
     provider: ProviderId,
     model: String,
+    served: Option<String>,
+    assigned: Option<String>,
     secrets: Vec<String>,
     frames: FrameReader,
     terminated: bool,
+    pending_error: Option<ProviderError>,
     message_id: String,
     thinking: String,
     signatures: Vec<String>,
@@ -89,9 +92,12 @@ impl DevinDecoder {
         Self {
             provider,
             model: model.into(),
+            served: None,
+            assigned: None,
             secrets,
             frames: FrameReader::new(MAX_FRAME_BYTES),
             terminated: false,
+            pending_error: None,
             message_id: String::new(),
             thinking: String::new(),
             signatures: Vec::new(),
@@ -108,13 +114,25 @@ impl DevinDecoder {
         }
     }
 
+    pub(crate) fn with_assignment(mut self, model: &str) -> Self {
+        self.assigned = (!model.is_empty() && model != self.model).then(|| model.to_owned());
+        self
+    }
+
     fn apply(&mut self, msg: ChatResponse, events: &mut Vec<StreamEvent>) {
+        let model = (!msg.actual_model_uid.is_empty()).then_some(msg.actual_model_uid.as_str())
+            .or_else(|| self.served.is_none().then_some(self.assigned.as_deref()).flatten());
+        if let Some(model) = model && self.served.as_deref() != Some(model) {
+            self.served = Some(model.to_owned());
+            events.push(StreamEvent::ServedModel(model.to_owned()));
+        }
         if self.message_id.is_empty() && !msg.message_id.is_empty() {
             self.message_id = msg.message_id;
         }
         if msg.stop_reason != 0 {
             self.stop_reason = msg.stop_reason;
         }
+        let reported_usage = msg.usage.is_some();
         if let Some(stats) = msg.usage {
             let read = stats.cache_read_tokens;
             let write = stats.cache_write_tokens;
@@ -156,6 +174,14 @@ impl DevinDecoder {
             if acu != 0.0 {
                 credits["acuCost"] = json!(acu);
             }
+        }
+        if (reported_usage || cost != 0 || committed != 0 || acu != 0.0)
+            && let Some(mut usage) = self.usage.clone()
+        {
+            if let (Some(raw), Some(credits)) = (usage.raw.as_mut(), self.credits.as_ref()) {
+                raw["credits"] = credits.clone();
+            }
+            events.push(StreamEvent::Usage(usage));
         }
         if !msg.delta_thinking.is_empty() {
             if !self.in_thinking {
@@ -253,7 +279,7 @@ impl DevinDecoder {
         }
     }
 
-    /// The events of a clean end: tool calls, usage, replay, `Completed`.
+    /// The events of a clean end: tool calls, replay, `Completed`.
     fn terminal(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
         let mut events = Vec::new();
         // The terminal chunk names the calls (`devinChunks`): one more `tool_calls` chunk.
@@ -285,12 +311,6 @@ impl DevinDecoder {
             }));
         }
         let tool_use = self.exposure.tool_dispatched;
-        if let Some(mut usage) = self.usage.take() {
-            if let (Some(raw), Some(credits)) = (usage.raw.as_mut(), self.credits.take()) {
-                raw["credits"] = credits;
-            }
-            events.push(StreamEvent::Usage(usage));
-        }
         let signature = self.signatures.iter().find(|s| !s.is_empty());
         let mut item = json!({ "type": REPLAY_ITEM_TYPE, "model": self.model });
         if !self.message_id.is_empty() {
@@ -331,43 +351,61 @@ impl DevinDecoder {
         error.exposure = self.exposure;
         error
     }
+
+    fn decode_frame(&mut self, frame: crate::providers::connect::frame::Frame, events: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
+        let end_stream = frame.is_end_stream();
+        let bytes = if frame.is_compressed() { inflate(&frame.payload)? } else { frame.payload };
+        if end_stream {
+            self.terminated = true;
+            if let Some(error) = trailer_error(&bytes, OPERATION, &self.secrets) {
+                return Err(error);
+            }
+            events.extend(self.terminal()?);
+        } else {
+            let msg = ChatResponse::decode(&bytes)
+                .map_err(|e| protocol_error(&format!("malformed GetChatMessageResponse: {e}")))?;
+            self.apply(msg, events);
+        }
+        Ok(())
+    }
 }
 
 impl WireDecoder for DevinDecoder {
     fn feed(&mut self, unit: &[u8]) -> Result<Vec<StreamEvent>, ProviderError> {
-        let frames = self
-            .frames
-            .push(unit)
-            .map_err(|e| protocol_error(&format!("frame length {} exceeds {}-byte cap", e.length, e.max)))?;
+        let (frames, framing_error) = self.frames.push_prefix(unit);
         let mut events = Vec::new();
         for frame in frames {
             if self.terminated {
                 // Nothing after the trailer is part of the response.
                 continue;
             }
-            let end_stream = frame.is_end_stream();
-            let bytes = if frame.is_compressed() {
-                inflate(&frame.payload)?
-            } else {
-                frame.payload
-            };
-            if end_stream {
-                if let Some(mut error) = trailer_error(&bytes, OPERATION, &self.secrets) {
-                    error.exposure = self.exposure;
+            if let Err(mut error) = self.decode_frame(frame, &mut events) {
+                error.exposure = self.exposure;
+                self.terminated = true;
+                if events.is_empty() {
                     return Err(error);
                 }
-                self.terminated = true;
-                events.extend(self.terminal()?);
-                continue;
+                // A refusal sharing a network chunk with billable frames must not discard those frames.
+                self.pending_error = Some(error);
+                break;
             }
-            let msg = ChatResponse::decode(&bytes)
-                .map_err(|e| protocol_error(&format!("malformed GetChatMessageResponse: {e}")))?;
-            self.apply(msg, &mut events);
+        }
+        if !self.terminated && let Some(failure) = framing_error {
+            let mut error = protocol_error(&format!("frame length {} exceeds {}-byte cap", failure.length, failure.max));
+            error.exposure = self.exposure;
+            self.terminated = true;
+            if events.is_empty() {
+                return Err(error);
+            }
+            self.pending_error = Some(error);
         }
         Ok(events)
     }
 
     fn finish(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
+        if let Some(error) = self.pending_error.take() {
+            return Err(error);
+        }
         if self.terminated {
             return Ok(Vec::new());
         }
@@ -405,6 +443,7 @@ fn parse_call_arguments(args: &str) -> Value {
 mod progress_tests {
     use super::super::schema::ChatToolCall;
     use super::*;
+    #[cfg(node_twin)]
     use crate::providers::progress_golden::{golden, node_names, rust_names};
 
     fn message(wire: &Value) -> ChatResponse {
@@ -431,9 +470,64 @@ mod progress_tests {
         }
     }
 
+    #[tokio::test]
+    async fn devin_makes_billed_usage_visible_before_a_cut_or_failing_trailer() {
+        use crate::providers::connect::{frame, pb::Writer, stream::DecodedStream};
+        use crate::transport::BodyStream;
+        use mixdog_core_api::domain::provider::ModelStream;
+
+        struct Chunks(std::collections::VecDeque<Result<bytes::Bytes, TransportFault>>);
+        #[async_trait::async_trait]
+        impl BodyStream for Chunks {
+            async fn next(&mut self) -> Option<Result<bytes::Bytes, TransportFault>> {
+                self.0.pop_front()
+            }
+        }
+
+        let mut stats = Writer::new();
+        stats.varint(2, 12);
+        stats.varint(3, 4);
+        let mut response = Writer::new();
+        response.message(7, stats);
+        response.varint(14, 6);
+        let billed = frame::encode(&response.finish(), 0);
+        let mut with_trailer = billed.clone();
+        with_trailer.extend(frame::encode(br#"{"error":{"code":"resource_exhausted"}}"#, frame::END_STREAM));
+        let mut with_bad_frame = billed.clone();
+        let mut served = Writer::new();
+        served.string(23, "actual-served");
+        with_bad_frame.extend(frame::encode(&served.finish(), 0));
+        with_bad_frame.extend([0, 0xff, 0xff, 0xff, 0xff]);
+        for (chunks, kind, model) in [
+            (vec![Ok(billed.clone().into()), Err(TransportFault::Reset)], ErrorKind::Transient, "assigned"),
+            (vec![Ok(billed.into())], ErrorKind::Transient, "assigned"),
+            (vec![Ok(with_trailer.into())], ErrorKind::RateLimited, "assigned"),
+            (vec![Ok(with_bad_frame.into())], ErrorKind::Unknown, "actual-served"),
+        ] {
+            let decoder = DevinDecoder::new(ProviderId::from("devin-oauth"), "m", Vec::new()).with_assignment("assigned");
+            let mut stream = DecodedStream::new(Box::new(Chunks(chunks.into())), Box::new(decoder)).with_billed_usage("m".into());
+            let Some(Ok(StreamEvent::Usage(usage))) = stream.next().await else { panic!("usage must reach accounting before cancellation or failure") };
+            assert_eq!((usage.input_tokens, usage.output_tokens), (12, 4));
+            assert_eq!(usage.raw.as_ref().unwrap()["credits"]["cost"], 6);
+            let mut served_model = None;
+            let error = loop {
+                match stream.next().await.expect("stream must end with its fault") {
+                    Ok(StreamEvent::ServedModel(model)) => served_model = Some(model),
+                    Err(error) => break error,
+                    _ => {}
+                }
+            };
+            assert_eq!(error.kind, kind);
+            assert_eq!(error.partial_usage.as_deref(), Some(&usage));
+            assert_eq!(served_model.as_deref(), Some(model));
+            assert_eq!(error.partial_model.as_deref(), Some(model));
+        }
+    }
+
     /// Node turns each Devin message into a chat chunk, and its chat consumer reported these kinds
     /// (`golden/stream_progress.json`): thinking, text, one `tool` per chunk that carries call deltas, and one more for
     /// the terminal chunk that names the calls.
+    #[cfg(node_twin)]
     #[test]
     fn the_decoder_reports_the_progress_kinds_node_s_chat_consumer_does() {
         let mut decoder = DevinDecoder::new(ProviderId::from("devin"), "m", Vec::new());
@@ -464,9 +558,11 @@ mod progress_tests {
         assert!(!progressed(&mut decoder, "{\"a\":1"), "nor the next repeat");
     }
 
+
     /// Node's `JSON.parse` over the recorded corpora (`mixdog-js/testdata`), through this decoder's argument parse: an input V8 rejects
     /// is an invalid call carrying V8's text, an input V8 accepts is a call (an object) or the not-an-object marker; and a call the
     /// decoder takes from the wire carries the same arguments.
+    #[cfg(node_twin)]
     #[test]
     fn malformed_arguments_carry_v8s_parse_text() {
         let errors: Vec<Value> = serde_json::from_str(mixdog_testkit::fixture!("../mixdog-js/testdata/json_error.json")).unwrap();
@@ -506,4 +602,5 @@ mod progress_tests {
         let done = decoder.terminal().expect("terminal");
         let call = done.iter().find_map(|e| if let StreamEvent::ToolCallDone(c) = e { Some(c) } else { None }).expect("a call");
         assert_eq!(call.arguments, parse_call_arguments(input), "the wire's call carries the parse's arguments");
-    }}
+    }
+}

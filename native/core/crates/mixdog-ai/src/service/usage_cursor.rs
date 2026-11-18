@@ -19,6 +19,8 @@ use serde_json::Value;
 use mixdog_js::to_number_of;
 
 use super::oauth_usage::UsageError;
+use super::oauth_usage::credential_stamp;
+use super::oauth_usage::stamp_reading;
 use super::usage_normalize::jn;
 use super::usage_normalize::round;
 use crate::client_versions::Live;
@@ -32,6 +34,7 @@ use crate::transport::http::HttpSend;
 
 /// The provider whose plan usage this reads.
 pub const PROVIDER_ID: &str = "cursor-oauth";
+pub const API_PROVIDER_ID: &str = "cursor-api";
 pub const USAGE_PATH: &str = "/aiserver.v1.DashboardService/GetCurrentPeriodUsage";
 pub const PLAN_PATH: &str = "/aiserver.v1.DashboardService/GetPlanInfo";
 /// Node's `AUTO_POOL_MODELS`: Auto under both of its ids and the Composer family.
@@ -234,6 +237,36 @@ fn with_reset(mut row: Map<String, Value>, reset_at: Option<f64>) -> Map<String,
     row
 }
 
+/// One spend pool's figures, in cents; a value is `None` unless the wire reported it or its own pool implies it.
+struct SpendPool {
+    limit: Option<f64>,
+    used: Option<f64>,
+    remaining: Option<f64>,
+}
+
+impl SpendPool {
+    fn exhausted(&self) -> bool {
+        self.limit.is_some_and(|limit| limit > 0.0 && (self.used.is_some_and(|u| u >= limit) || self.remaining.is_some_and(|r| r <= 0.0)))
+    }
+}
+
+/// The figures of the first pool (overall, individual, pooled) that reports a limit, never mixing pools; with no
+/// limit anywhere, whatever the first reporting pool or the bare total shows, for display only.
+fn spend_pool(spend: &Map<String, Value>) -> Option<SpendPool> {
+    let reported = |key: &str| spend.get(key).filter(|v| !v.is_null()).map(|v| to_number_of(Some(v))).filter(|n| n.is_finite());
+    let pools = [("overallLimit", "overallUsed", "overallRemaining"), ("individualLimit", "individualUsed", "individualRemaining"), ("pooledLimit", "pooledUsed", "pooledRemaining")];
+    let row = |(limit, used, remaining): (&str, &str, &str)| (reported(limit), reported(used), reported(remaining));
+    let (limit, used, remaining) = pools
+        .into_iter()
+        .map(row)
+        .find(|(limit, _, _)| limit.is_some_and(|l| l > 0.0))
+        .or_else(|| pools.into_iter().map(row).find(|(l, u, r)| l.is_some() || u.is_some() || r.is_some()))
+        .or_else(|| reported("totalSpend").map(|total| (None, Some(total), None)))?;
+    let used = used.or_else(|| limit.zip(remaining).map(|(l, r)| l - r));
+    let remaining = remaining.or_else(|| limit.zip(used).map(|(l, u)| (l - u).max(0.0)));
+    Some(SpendPool { limit, used, remaining })
+}
+
 /// `normalizeCursorUsage(usage, planResponse)` (without the provider name `getUsageSnapshot` adds).
 pub fn normalize_cursor_usage(usage: &Map<String, Value>, plan_response: &Map<String, Value>) -> Value {
     let empty = Map::new();
@@ -259,6 +292,13 @@ pub fn normalize_cursor_usage(usage: &Map<String, Value>, plan_response: &Map<St
         b
     });
 
+    // The usage-based spend allowance (optional, account-configured). While it has room, a full
+    // included lane is a usage counter, not a refusal: Cursor bills the overage and keeps serving.
+    let spend = spend_pool(&spend);
+    // Only a reported cap that its own pool shows used up proves the included lanes refuse. A cap with room, or no
+    // spend data at all (proto3 omits zeros, so absence cannot say "disabled"), leaves eligibility unknown.
+    let spend_exhausted = spend.as_ref().is_some_and(SpendPool::exhausted);
+
     // The included-plan windows: per-lane progress percentages when reported, else one dollar window.
     let lanes = [("Basic", included.get("autoPercentUsed"), true), ("API", included.get("apiPercentUsed"), false)];
     let mut windows: Vec<Value> = Vec::new();
@@ -272,7 +312,11 @@ pub fn normalize_cursor_usage(usage: &Map<String, Value>, plan_response: &Map<St
         row.insert("source".into(), "cursor-dashboard".into());
         row.insert("usedPct".into(), usage_percent(n).map_or(Value::Null, jn));
         let mut row = with_reset(row, reset_at);
+        // The scope is which models the lane covers; `binding` is whether a full lane refuses them.
         row.insert(if auto { "models" } else { "except" }.into(), serde_json::json!(AUTO_POOL_MODELS));
+        if !spend_exhausted {
+            row.insert("binding".into(), Value::Bool(false));
+        }
         windows.push(Value::Object(row));
     }
     if let Some(b) = balance.as_ref().filter(|_| windows.is_empty()) {
@@ -286,17 +330,15 @@ pub fn normalize_cursor_usage(usage: &Map<String, Value>, plan_response: &Map<St
         windows.push(Value::Object(with_reset(row, reset_at)));
     }
     // The usage-based spend window; none when the account has no spend limit data.
-    let pick = |keys: [&str; 3]| number(first_truthy(&keys.map(|k| spend.get(k))));
-    let limit_cents = pick(["overallLimit", "individualLimit", "pooledLimit"]);
-    let used_cents = number(first_truthy(&[spend.get("overallUsed"), spend.get("individualUsed"), spend.get("pooledUsed"), spend.get("totalSpend")]));
-    let remaining_cents = pick(["overallRemaining", "individualRemaining", "pooledRemaining"]);
-    if !(limit_cents <= 0.0 && used_cents <= 0.0 && remaining_cents <= 0.0) {
+    if let Some(spend) = &spend {
         let mut row = Map::new();
         row.insert("label".into(), "Usage-based spend".into());
         row.insert("source".into(), "cursor-dashboard".into());
-        row.insert("limitUsd".into(), cents_to_usd(limit_cents));
-        row.insert("usedUsd".into(), cents_to_usd(used_cents));
-        row.insert("remainingUsd".into(), cents_to_usd(remaining_cents));
+        for (key, cents) in [("limitUsd", spend.limit), ("usedUsd", spend.used), ("remainingUsd", spend.remaining)] {
+            if let Some(cents) = cents {
+                row.insert(key.into(), cents_to_usd(cents));
+            }
+        }
         windows.push(Value::Object(with_reset(row, reset_at)));
     }
 
@@ -328,6 +370,13 @@ pub struct CursorUsage {
     version: Live,
     tokens: Arc<dyn AccessToken>,
     provider: String,
+}
+
+/// The shared credential stamp of the access token a request carried; the stored sign-in document names the same
+/// token as `access_token` and no account identity, so a rotated or foreign credential stamps differently and its
+/// reading stays unbound (nonbinding).
+fn sent_credential_stamp(token: &str) -> Option<String> {
+    credential_stamp(PROVIDER_ID, serde_json::json!({ "access_token": token }).as_object()?)
 }
 
 fn failure(error: ProviderError) -> UsageError {
@@ -376,10 +425,63 @@ impl CursorUsage {
         };
         let Value::Object(mut snapshot) = normalize_cursor_usage(&usage, &plan) else { unreachable!("a snapshot is an object") };
         snapshot.insert("provider".into(), self.provider.clone().into());
-        Ok(Value::Object(snapshot))
+        // The usage call that just succeeded carried `token`; it, not the stored file before or after, is the
+        // credential this meter was measured under.
+        let mut reading = Value::Object(snapshot);
+        if self.provider == PROVIDER_ID {
+            stamp_reading(&mut reading, sent_credential_stamp(&token));
+        }
+        Ok(reading)
     }
 }
 
+#[cfg(test)]
+mod quota_scope_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn lanes(auto: f64, api: f64, spend: Value) -> Vec<Value> {
+        let usage = json!({"billingCycleEnd": 1_900_000_000_000_u64, "planUsage": {"autoPercentUsed": auto, "apiPercentUsed": api}, "spendLimitUsage": spend});
+        let snapshot = normalize_cursor_usage(usage.as_object().unwrap(), &Map::new());
+        snapshot["quotaWindows"].as_array().unwrap().clone()
+    }
+
+    #[test]
+    fn lanes_keep_their_coverage_and_refuse_only_on_a_proven_spend_cap() {
+        // Unknown or open spend: a full lane is shown as measured, covers its models, and refuses nothing.
+        for spend in [json!({}), json!({"overallLimit": 1000, "overallUsed": 400, "overallRemaining": 600})] {
+            let windows = lanes(100.0, 40.0, spend);
+            assert_eq!((windows[0]["usedPct"].clone(), windows[0]["binding"].clone()), (json!(100.0), json!(false)));
+            assert_eq!(windows[0]["models"], json!(AUTO_POOL_MODELS), "a Basic refusal still names only Basic models");
+            assert_eq!(windows[1]["except"], json!(AUTO_POOL_MODELS));
+            assert_eq!(windows[1]["usedPct"], json!(40.0), "a partly used lane stays positive evidence");
+        }
+        // A cap used up in its own pool makes the full lane binding.
+        let windows = lanes(100.0, 40.0, json!({"overallLimit": 1000, "overallUsed": 1000}));
+        assert!(windows[0].get("binding").is_none());
+    }
+
+    #[test]
+    fn a_sent_token_stamps_as_the_stored_sign_in_does_and_another_does_not() {
+        let stored = |token: &str| crate::providers::cursor::auth::StoredTokens { access_token: token.into(), refresh_token: None, expires_at: 0, reauth_required: false };
+        let doc = |token: &str| serde_json::to_value(stored(token)).unwrap();
+        let from_file = credential_stamp(PROVIDER_ID, doc("tok").as_object().unwrap());
+        assert!(from_file.is_some());
+        assert_eq!(sent_credential_stamp("tok"), from_file);
+        assert_ne!(sent_credential_stamp("rotated"), from_file, "a different credential's reading is not bound");
+    }
+
+    #[test]
+    fn spend_figures_never_mix_pools_or_invent_values() {
+        let windows = lanes(100.0, 100.0, json!({"overallLimit": 1000, "individualUsed": 1000}));
+        let spend = windows.last().unwrap();
+        assert_eq!(spend["limitUsd"], json!(10.0));
+        assert!(spend.get("usedUsd").is_none(), "another pool's usage is not this cap's usage");
+        assert!(windows[0].get("binding").is_some(), "an unmatched figure proves no exhaustion");
+    }
+}
+
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "usage_cursor_tests.rs"]
 mod tests;

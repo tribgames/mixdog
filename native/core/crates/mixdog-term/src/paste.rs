@@ -379,44 +379,6 @@ pub fn image_attachment_from_buffer(
     })
 }
 
-/// Read an image named by a pasted path. `Ok(None)` when the text is not an image path or no such file exists; an error
-/// when the file cannot be read or the resize refuses it. A relative path is taken from `cwd` (the current directory when
-/// `None`).
-pub fn read_image_attachment_from_path(
-    raw_path: &str,
-    cwd: Option<&Path>,
-    provider: &str,
-    platform: Platform,
-    resize: Resizer<'_>,
-) -> Result<Option<ImageAttachment>, String> {
-    let cleaned = clean_path_text(raw_path, platform);
-    let Some(mime_type) = mime_for_path(&cleaned) else {
-        return Ok(None);
-    };
-    // `isAbsolute(cleaned) ? cleaned : resolve(cwd || process.cwd(), cleaned)`: an empty `cwd` is skipped by `resolve`,
-    // which then starts from the process directory.
-    let full_path = if mixdog_js::nodepath::is_absolute_host(&cleaned) {
-        PathBuf::from(&cleaned)
-    } else {
-        let base = cwd.map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default();
-        PathBuf::from(mixdog_js::nodepath::resolve_host(&[&base, &cleaned]))
-    };
-    match mixdog_fsio::metadata(&Unlaned, &full_path) {
-        Ok(metadata) if metadata.is_file() => {}
-        _ => return Ok(None),
-    }
-    let buffer = mixdog_fsio::read(&Unlaned, &full_path).map_err(|error| error.to_string())?;
-    let filename = full_path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-    let source_path = full_path.to_string_lossy().into_owned();
-    image_attachment_from_buffer(
-        &buffer,
-        mime_type,
-        &AttachmentSource { filename: &filename, source_path: &source_path, provider },
-        resize,
-    )
-    .map(Some)
-}
-
 // ---- the clipboard readers -----------------------------------------------------------------------------------------
 
 /// What a helper may write to stdout (Node's `maxBuffer`).
@@ -458,68 +420,6 @@ pub fn macos_clipboard_image_script(out: &str) -> String {
 /// `mixdog-clipboard-<pid>-<millis>-<8 hex digits>.png` in `dir`.
 pub fn temp_png_path(dir: &Path, pid: u32, millis: u128, random: u32) -> PathBuf {
     dir.join(format!("mixdog-clipboard-{pid}-{millis}-{random:08x}.png"))
-}
-
-fn fresh_temp_png_path() -> PathBuf {
-    use std::hash::{BuildHasher, Hasher};
-    let millis = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis());
-    let random = std::collections::hash_map::RandomState::new().build_hasher().finish() as u32;
-    temp_png_path(&std::env::temp_dir(), std::process::id(), millis, random)
-}
-
-/// The clipboard image saved to a temporary file by the system's own tool (Windows PowerShell, macOS `osascript`), read
-/// and removed. `None` when the clipboard holds no image.
-fn read_clipboard_image_via_file(
-    platform: Platform,
-    runner: &dyn Runner,
-    source: &AttachmentSource<'_>,
-    resize: Resizer<'_>,
-) -> Result<Option<ImageAttachment>, String> {
-    let out = fresh_temp_png_path();
-    let out_text = out.to_string_lossy().into_owned();
-    let outcome = match platform {
-        Platform::Windows => {
-            let mut command = powershell(WINDOWS_CLIPBOARD_IMAGE_SCRIPT, IMAGE_TIMEOUT);
-            command.env.push(("MIXDOG_CLIPBOARD_IMAGE_PATH".to_owned(), out_text.clone()));
-            runner.run(&command)
-        }
-        Platform::Macos => runner.run(&capture("osascript", &["-e", &macos_clipboard_image_script(&out_text)], IMAGE_TIMEOUT)),
-        _ => return Ok(None),
-    };
-    if !outcome.succeeded() || !mixdog_fsio::exists(&Unlaned, &out).unwrap_or(false) {
-        return Ok(None);
-    }
-    let result = mixdog_fsio::read(&Unlaned, &out)
-        .map_err(|error| error.to_string())
-        .and_then(|buffer| image_attachment_from_buffer(&buffer, "image/png", source, resize));
-    let _ = mixdog_fsio::remove_file(&Unlaned, &out);
-    result.map(Some)
-}
-
-/// The image on the clipboard as an attachment: Linux asks `wl-paste` then `xclip` (3 s each); Windows and macOS save it
-/// to a temporary file (5 s). `Ok(None)` when there is no image; an error when no Linux reader is installed.
-pub fn read_clipboard_image_attachment(
-    platform: Platform,
-    runner: &dyn Runner,
-    provider: &str,
-    resize: Resizer<'_>,
-) -> Result<Option<ImageAttachment>, String> {
-    let source = AttachmentSource { provider, ..AttachmentSource::default() };
-    if platform != Platform::Linux {
-        return read_clipboard_image_via_file(platform, runner, &source, resize);
-    }
-    let wl = runner.run(&capture("wl-paste", &["--type", "image/png"], READ_TIMEOUT));
-    if wl.succeeded() && !wl.stdout().is_empty() {
-        return image_attachment_from_buffer(wl.stdout(), "image/png", &source, resize).map(Some);
-    }
-    let xc = runner.run(&capture("xclip", &["-selection", "clipboard", "-t", "image/png", "-o"], READ_TIMEOUT));
-    if xc.succeeded() && !xc.stdout().is_empty() {
-        return image_attachment_from_buffer(xc.stdout(), "image/png", &source, resize).map(Some);
-    }
-    if wl.not_found() && xc.not_found() {
-        return Err(no_clipboard_reader_error().0);
-    }
-    Ok(None)
 }
 
 /// The text on the clipboard, `""` on any miss. Windows asks PowerShell (base64 of UTF-8, 3 s), macOS `pbpaste`, Linux
@@ -672,4 +572,102 @@ mod tests {
             Path::new("/tmp").join("mixdog-clipboard-42-1700000000000-000000ab.png")
         );
     }
+}
+
+
+/// Read an image named by a pasted path. `Ok(None)` when the text is not an image path or no such file exists; an error
+/// when the file cannot be read or the resize refuses it. A relative path is taken from `cwd` (the current directory when
+/// `None`).
+pub fn read_image_attachment_from_path(
+    raw_path: &str,
+    cwd: Option<&Path>,
+    provider: &str,
+    platform: Platform,
+    resize: Resizer<'_>,
+) -> Result<Option<ImageAttachment>, String> {
+    let cleaned = clean_path_text(raw_path, platform);
+    let Some(mime_type) = mime_for_path(&cleaned) else {
+        return Ok(None);
+    };
+    // `isAbsolute(cleaned) ? cleaned : resolve(cwd || process.cwd(), cleaned)`: an empty `cwd` is skipped by `resolve`,
+    // which then starts from the process directory.
+    let full_path = if mixdog_js::nodepath::is_absolute_host(&cleaned) {
+        PathBuf::from(&cleaned)
+    } else {
+        let base = cwd.map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default();
+        PathBuf::from(mixdog_js::nodepath::resolve_host(&[&base, &cleaned]))
+    };
+    match mixdog_fsio::metadata(&Unlaned, &full_path) {
+        Ok(metadata) if metadata.is_file() => {}
+        _ => return Ok(None),
+    }
+    let buffer = mixdog_fsio::read(&Unlaned, &full_path).map_err(|error| error.to_string())?;
+    let filename = full_path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    let source_path = full_path.to_string_lossy().into_owned();
+    image_attachment_from_buffer(
+        &buffer,
+        mime_type,
+        &AttachmentSource { filename: &filename, source_path: &source_path, provider },
+        resize,
+    )
+    .map(Some)
+}
+fn fresh_temp_png_path() -> PathBuf {
+    use std::hash::{BuildHasher, Hasher};
+    let millis = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis());
+    let random = std::collections::hash_map::RandomState::new().build_hasher().finish() as u32;
+    temp_png_path(&std::env::temp_dir(), std::process::id(), millis, random)
+}
+/// The clipboard image saved to a temporary file by the system's own tool (Windows PowerShell, macOS `osascript`), read
+/// and removed. `None` when the clipboard holds no image.
+fn read_clipboard_image_via_file(
+    platform: Platform,
+    runner: &dyn Runner,
+    source: &AttachmentSource<'_>,
+    resize: Resizer<'_>,
+) -> Result<Option<ImageAttachment>, String> {
+    let out = fresh_temp_png_path();
+    let out_text = out.to_string_lossy().into_owned();
+    let outcome = match platform {
+        Platform::Windows => {
+            let mut command = powershell(WINDOWS_CLIPBOARD_IMAGE_SCRIPT, IMAGE_TIMEOUT);
+            command.env.push(("MIXDOG_CLIPBOARD_IMAGE_PATH".to_owned(), out_text.clone()));
+            runner.run(&command)
+        }
+        Platform::Macos => runner.run(&capture("osascript", &["-e", &macos_clipboard_image_script(&out_text)], IMAGE_TIMEOUT)),
+        _ => return Ok(None),
+    };
+    if !outcome.succeeded() || !mixdog_fsio::exists(&Unlaned, &out).unwrap_or(false) {
+        return Ok(None);
+    }
+    let result = mixdog_fsio::read(&Unlaned, &out)
+        .map_err(|error| error.to_string())
+        .and_then(|buffer| image_attachment_from_buffer(&buffer, "image/png", source, resize));
+    let _ = mixdog_fsio::remove_file(&Unlaned, &out);
+    result.map(Some)
+}
+/// The image on the clipboard as an attachment: Linux asks `wl-paste` then `xclip` (3 s each); Windows and macOS save it
+/// to a temporary file (5 s). `Ok(None)` when there is no image; an error when no Linux reader is installed.
+pub fn read_clipboard_image_attachment(
+    platform: Platform,
+    runner: &dyn Runner,
+    provider: &str,
+    resize: Resizer<'_>,
+) -> Result<Option<ImageAttachment>, String> {
+    let source = AttachmentSource { provider, ..AttachmentSource::default() };
+    if platform != Platform::Linux {
+        return read_clipboard_image_via_file(platform, runner, &source, resize);
+    }
+    let wl = runner.run(&capture("wl-paste", &["--type", "image/png"], READ_TIMEOUT));
+    if wl.succeeded() && !wl.stdout().is_empty() {
+        return image_attachment_from_buffer(wl.stdout(), "image/png", &source, resize).map(Some);
+    }
+    let xc = runner.run(&capture("xclip", &["-selection", "clipboard", "-t", "image/png", "-o"], READ_TIMEOUT));
+    if xc.succeeded() && !xc.stdout().is_empty() {
+        return image_attachment_from_buffer(xc.stdout(), "image/png", &source, resize).map(Some);
+    }
+    if wl.not_found() && xc.not_found() {
+        return Err(no_clipboard_reader_error().0);
+    }
+    Ok(None)
 }

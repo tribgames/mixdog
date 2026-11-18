@@ -428,35 +428,6 @@ mod tests {
         assert!(helper.sent.lock().unwrap().is_empty());
     }
 
-    /// `host/humanOnly/begin` holds Computer Use at once but answers only once the operation already
-    /// running ended (`withHumanOnlyApproval` waits for `activeComputerOperations`); `end` frees it.
-    #[tokio::test]
-    async fn begin_answers_once_the_running_operation_ended() {
-        let lock = free_lock();
-        let (started, running) = oneshot::channel();
-        let (release, held) = oneshot::channel();
-        let helper = Arc::new(Helper { started: Mutex::new(Some(started)), release: Mutex::new(Some(held)), ..Helper::default() });
-        let gated = Arc::new(GatedComputerBackend::new(helper.clone(), lock.clone()));
-        let run = tokio::spawn({
-            let gated = gated.clone();
-            async move { gated.run(act(ComputerAction::Act), CancellationToken::new()).await }
-        });
-        awaiting(|| "the first call to reach the helper".to_owned(), running).await.unwrap();
-        let service = HumanOnlyService::new(lock.clone());
-        let mut begin = std::pin::pin!(value(&service, request(HUMAN_ONLY_BEGIN, json!({ "label": "Allow all actions" }), None)));
-        assert!(futures::poll!(begin.as_mut()).is_pending(), "begin waits for the running call");
-        assert_eq!(gated.run(act(ComputerAction::Act), CancellationToken::new()).await.unwrap_err(), blocked("Allow all actions"));
-        assert!(futures::poll!(begin.as_mut()).is_pending());
-        release.send(()).unwrap();
-        awaiting(|| "the running call to end".to_owned(), run).await.unwrap().unwrap();
-        let answer = awaiting(|| "begin to answer".to_owned(), begin).await.unwrap();
-        let hold_id = answer["holdId"].as_str().unwrap().to_owned();
-        assert_eq!(gated.run(act(ComputerAction::Act), CancellationToken::new()).await.unwrap_err(), blocked("Allow all actions"));
-        assert_eq!(value(&service, request(HUMAN_ONLY_END, json!({ "holdId": hold_id }), None)).await.unwrap(), json!({}));
-        gated.run(act(ComputerAction::Act), CancellationToken::new()).await.unwrap();
-        assert_eq!(helper.sent.lock().unwrap().len(), 2, "only the calls made while free reached the helper");
-    }
-
     /// A hold ends with the connection that declared it, so a desktop that went away leaves Computer Use free.
     #[tokio::test]
     async fn a_hold_ends_with_its_connection() {
@@ -494,5 +465,35 @@ mod tests {
         assert_eq!(lock.refusal(), Some(format!("{BLOCKED}: Allow all actions")), "another connection's end leaves it held");
         assert_eq!(value(&service, on(1, HUMAN_ONLY_END, end)).await.unwrap(), json!({}));
         assert_eq!(lock.refusal(), None);
+    }
+
+
+    /// `host/humanOnly/begin` holds Computer Use at once but answers only once the operation already
+    /// running ended (`withHumanOnlyApproval` waits for `activeComputerOperations`); `end` frees it.
+    #[tokio::test]
+    async fn begin_answers_once_the_running_operation_ended() {
+        let lock = free_lock();
+        let (started, running) = oneshot::channel();
+        let (release, held) = oneshot::channel();
+        let helper = Arc::new(Helper { started: Mutex::new(Some(started)), release: Mutex::new(Some(held)), ..Helper::default() });
+        let gated = Arc::new(GatedComputerBackend::new(helper.clone(), lock.clone()));
+        let run = tokio::spawn({
+            let gated = gated.clone();
+            async move { gated.run(act(ComputerAction::Act), CancellationToken::new()).await }
+        });
+        awaiting(|| "the first call to reach the helper".to_owned(), running).await.unwrap();
+        let service = HumanOnlyService::new(lock.clone());
+        let mut begin = std::pin::pin!(value(&service, request(HUMAN_ONLY_BEGIN, json!({ "label": "Allow all actions" }), None)));
+        assert!(futures::poll!(begin.as_mut()).is_pending(), "begin waits for the running call");
+        assert_eq!(gated.run(act(ComputerAction::Act), CancellationToken::new()).await.unwrap_err(), blocked("Allow all actions"));
+        assert!(futures::poll!(begin.as_mut()).is_pending());
+        release.send(()).unwrap();
+        awaiting(|| "the running call to end".to_owned(), run).await.unwrap().unwrap();
+        let answer = awaiting(|| "begin to answer".to_owned(), begin).await.unwrap();
+        let hold_id = answer["holdId"].as_str().unwrap().to_owned();
+        assert_eq!(gated.run(act(ComputerAction::Act), CancellationToken::new()).await.unwrap_err(), blocked("Allow all actions"));
+        assert_eq!(value(&service, request(HUMAN_ONLY_END, json!({ "holdId": hold_id }), None)).await.unwrap(), json!({}));
+        gated.run(act(ComputerAction::Act), CancellationToken::new()).await.unwrap();
+        assert_eq!(helper.sent.lock().unwrap().len(), 2, "only the calls made while free reached the helper");
     }
 }

@@ -304,6 +304,87 @@ pub struct Outcome {
     pub has_existing_recovery: bool,
 }
 
+/// One archived full capture.
+pub struct Recovery {
+    pub stream: &'static str,
+    pub path: String,
+    pub bytes: usize,
+}
+
+/// `renderLosslessRecoveryHint`.
+pub fn recovery_hint(kind: &str, recovery: &[Recovery]) -> String {
+    if recovery.is_empty() {
+        return String::new();
+    }
+    let mut lines = vec![format!("[lossless compact: {kind}; full captured output preserved]")];
+    for item in recovery {
+        lines.push(format!("[full {}: {} ({} bytes) — use read to recover]", item.stream, item.path, item.bytes));
+    }
+    lines.join("\n")
+}
+
+/// `renderShellOutputBody` with the recovery hint.
+pub fn body_with_hint(stdout: &str, stderr: &str, hint: &str) -> String {
+    let body = super::delivery::render_shell_output_body(stdout, stderr);
+    if hint.is_empty() { body } else { format!("{body}\n\n{hint}") }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ok() -> Outcome {
+        Outcome { exit_code: Some(0), signal: false, timed_out: false, has_existing_recovery: false }
+    }
+
+    #[test]
+    fn the_hint_names_each_archived_stream() {
+        let hint = recovery_hint(
+            "command-success",
+            &[Recovery { stream: "stdout", path: "/a/b.txt".into(), bytes: 7 }],
+        );
+        assert_eq!(
+            hint,
+            "[lossless compact: command-success; full captured output preserved]\n[full stdout: /a/b.txt (7 bytes) — use read to recover]"
+        );
+    }
+
+    #[test]
+    fn to_fixed_rounds_half_up_like_javascript() {
+        assert_eq!(to_fixed_2(0.125), "0.13");
+        assert_eq!(to_fixed_2(1.005), "1.00");
+        assert_eq!(to_fixed_2(2.5), "2.50");
+    }
+
+
+    #[test]
+    fn cargo_test_output_collapses_to_one_line() {
+        let mut out = String::new();
+        for i in 0..40 {
+            out.push_str(&format!("test tests::case_{i} ... ok\n"));
+        }
+        out.push_str("\ntest result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.125s\n");
+        let plan = plan("cargo test", &out, "", &ok()).unwrap();
+        assert_eq!((plan.kind, plan.stdout.as_str()), ("command-success", "Cargo test: 40 passed in 1 suites (0.13s)"));
+        // A pipeline hands back someone else's exit status.
+        assert!(super::plan("cargo test | tail", &out, "", &ok()).is_none());
+        assert!(super::plan("cargo test", &out, "", &Outcome { exit_code: Some(1), ..ok() }).is_none());
+    }
+    #[test]
+    fn json_loses_only_its_whitespace_and_repeated_lines_fold() {
+        let json = format!("{{\n  \"a\": [\n{}  ]\n}}\n", "    1,\n".repeat(120) + "    2\n");
+        let plan = plan("curl x", &json, "", &ok()).unwrap();
+        assert_eq!(plan.kind, "structured-json");
+        assert!(plan.stdout.starts_with("{\"a\":[1,1,"));
+        let repeated = "tick\n".repeat(200);
+        let plan = super::plan("run", &repeated, "", &ok()).unwrap();
+        assert_eq!(plan.kind, "consecutive-duplicates");
+        assert!(plan.stdout.contains("[previous line repeated 199 more times]"));
+        assert!(super::plan("run", "error: x\n".repeat(200).as_str(), "", &ok()).is_none());
+    }
+}
+
+
 /// `evaluateShellCompaction`: `stdout` and `stderr` are the ANSI-stripped streams.
 pub fn plan(command: &str, stdout: &str, stderr: &str, outcome: &Outcome) -> Option<Plan> {
     if !super::env::env_flag("MIXDOG_SHELL_LOSSLESS_COMPACT", true)
@@ -337,32 +418,6 @@ pub fn plan(command: &str, stdout: &str, stderr: &str, outcome: &Outcome) -> Opt
     }
     None
 }
-
-/// One archived full capture.
-pub struct Recovery {
-    pub stream: &'static str,
-    pub path: String,
-    pub bytes: usize,
-}
-
-/// `renderLosslessRecoveryHint`.
-pub fn recovery_hint(kind: &str, recovery: &[Recovery]) -> String {
-    if recovery.is_empty() {
-        return String::new();
-    }
-    let mut lines = vec![format!("[lossless compact: {kind}; full captured output preserved]")];
-    for item in recovery {
-        lines.push(format!("[full {}: {} ({} bytes) — use read to recover]", item.stream, item.path, item.bytes));
-    }
-    lines.join("\n")
-}
-
-/// `renderShellOutputBody` with the recovery hint.
-pub fn body_with_hint(stdout: &str, stderr: &str, hint: &str) -> String {
-    let body = super::delivery::render_shell_output_body(stdout, stderr);
-    if hint.is_empty() { body } else { format!("{body}\n\n{hint}") }
-}
-
 /// The archive step's final gate: the published body, hint included, must still save enough.
 pub fn still_worthwhile(stdout: &str, stderr: &str, plan: &Plan, hint: &str) -> bool {
     worthwhile(
@@ -371,59 +426,4 @@ pub fn still_worthwhile(stdout: &str, stderr: &str, plan: &Plan, hint: &str) -> 
         &body_with_hint(&plan.stdout, &plan.stderr, hint),
         "",
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn ok() -> Outcome {
-        Outcome { exit_code: Some(0), signal: false, timed_out: false, has_existing_recovery: false }
-    }
-
-    #[test]
-    fn cargo_test_output_collapses_to_one_line() {
-        let mut out = String::new();
-        for i in 0..40 {
-            out.push_str(&format!("test tests::case_{i} ... ok\n"));
-        }
-        out.push_str("\ntest result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.125s\n");
-        let plan = plan("cargo test", &out, "", &ok()).unwrap();
-        assert_eq!((plan.kind, plan.stdout.as_str()), ("command-success", "Cargo test: 40 passed in 1 suites (0.13s)"));
-        // A pipeline hands back someone else's exit status.
-        assert!(super::plan("cargo test | tail", &out, "", &ok()).is_none());
-        assert!(super::plan("cargo test", &out, "", &Outcome { exit_code: Some(1), ..ok() }).is_none());
-    }
-
-    #[test]
-    fn json_loses_only_its_whitespace_and_repeated_lines_fold() {
-        let json = format!("{{\n  \"a\": [\n{}  ]\n}}\n", "    1,\n".repeat(120) + "    2\n");
-        let plan = plan("curl x", &json, "", &ok()).unwrap();
-        assert_eq!(plan.kind, "structured-json");
-        assert!(plan.stdout.starts_with("{\"a\":[1,1,"));
-        let repeated = "tick\n".repeat(200);
-        let plan = super::plan("run", &repeated, "", &ok()).unwrap();
-        assert_eq!(plan.kind, "consecutive-duplicates");
-        assert!(plan.stdout.contains("[previous line repeated 199 more times]"));
-        assert!(super::plan("run", "error: x\n".repeat(200).as_str(), "", &ok()).is_none());
-    }
-
-    #[test]
-    fn the_hint_names_each_archived_stream() {
-        let hint = recovery_hint(
-            "command-success",
-            &[Recovery { stream: "stdout", path: "/a/b.txt".into(), bytes: 7 }],
-        );
-        assert_eq!(
-            hint,
-            "[lossless compact: command-success; full captured output preserved]\n[full stdout: /a/b.txt (7 bytes) — use read to recover]"
-        );
-    }
-
-    #[test]
-    fn to_fixed_rounds_half_up_like_javascript() {
-        assert_eq!(to_fixed_2(0.125), "0.13");
-        assert_eq!(to_fixed_2(1.005), "1.00");
-        assert_eq!(to_fixed_2(2.5), "2.50");
-    }
 }

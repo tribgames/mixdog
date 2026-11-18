@@ -45,12 +45,27 @@ use super::quota_channel::message_of;
 use super::single_flight::{Core, SingleFlight};
 
 const CACHE_TTL_MS: i64 = 15_000;
+/// The setup's read (`waitMs: 1000`).
 const WAIT: Duration = Duration::from_millis(1_000);
+/// A registry init's read (`MODEL_PROXY_CONFIG_WAIT_MS`): how long it waits for a client to connect and for its PC to
+/// answer with a loaded registry.
+const REGISTRY_WAIT: Duration = Duration::from_millis(15_000);
 const RETRY_FIRST: Duration = Duration::from_millis(250);
 const RETRY_MAX: Duration = Duration::from_millis(2_000);
 
 type Providers = Map<String, Value>;
 type Outcome = Result<Option<Providers>, Failure>;
+/// What one read ended on: the providers, or the text of the last `MODEL_PROXY_UNAVAILABLE` it met (Node's `lastError`).
+type Fetched = Result<Result<Providers, &'static str>, Failure>;
+
+/// `new ModelProxyUnavailableError('the desktop client has not loaded its model providers yet')`.
+const NOT_LOADED: &str = "model proxy unavailable: the desktop client has not loaded its model providers yet";
+/// `new ModelProxyUnavailableError('the desktop provider request timed out')`.
+const TIMED_OUT: &str = "model proxy unavailable: the desktop provider request timed out";
+
+fn no_client() -> &'static str {
+    mixdog_core_api::model_proxy_unavailable_text(&CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: NO_CLAIMANT.into() })
+}
 
 struct Cached {
     at: i64,
@@ -60,14 +75,14 @@ struct Cached {
 
 /// The cache and the read in flight (Node `_providerConfigCache`, `_providerConfigInFlight`); the flight's
 /// key is the client generation it started under.
-type Reads = SingleFlight<Option<Cached>, u64, Outcome>;
+type Reads = SingleFlight<Option<Cached>, u64, Fetched>;
 
 /// Why one ask did not give an answer.
 enum Ask {
     /// No client is connected: wait for one.
     NoClient,
-    /// `MODEL_PROXY_UNAVAILABLE` of a client that went away or stopped answering: worth retrying.
-    Unavailable,
+    /// `MODEL_PROXY_UNAVAILABLE` of a client that went away or stopped answering: worth retrying; the text is why.
+    Unavailable(&'static str),
     Failed(String),
 }
 
@@ -76,6 +91,8 @@ struct Inner {
     /// The client generation: an answer learned under one is not served to the next.
     epoch: Arc<dyn ClientEpoch>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
+    /// The budget of one read.
+    wait: Duration,
     reads: Reads,
 }
 
@@ -85,7 +102,25 @@ pub struct HostProxyProviders {
 
 impl HostProxyProviders {
     pub fn new(host: Arc<dyn HostChannel>, epoch: Arc<dyn ClientEpoch>, now: Arc<dyn Fn() -> i64 + Send + Sync>) -> Self {
-        Self { inner: Arc::new(Inner { host, epoch, now, reads: Reads::default() }) }
+        Self { inner: Arc::new(Inner { host, epoch, now, wait: WAIT, reads: Reads::default() }) }
+    }
+
+    /// The provider registry's reads (Node's `initProviders` in the client mode): each waits up to 15 s; their cache and
+    /// flight are their own, as Node joins only a read of the same budget.
+    pub fn for_registry(host: Arc<dyn HostChannel>, epoch: Arc<dyn ClientEpoch>, now: Arc<dyn Fn() -> i64 + Send + Sync>) -> Self {
+        Self { inner: Arc::new(Inner { host, epoch, now, wait: REGISTRY_WAIT, reads: Reads::default() }) }
+    }
+}
+
+#[async_trait]
+impl mixdog_ai::registry::providers::RemoteProviders for HostProxyProviders {
+    /// A read that gave no providers fails with the last thing it met, as Node's `throw lastError ?? no desktop client`.
+    async fn providers(&self, force: bool) -> Result<Providers, String> {
+        match self.read(force).await {
+            Ok(Ok(providers)) => Ok(providers),
+            Ok(Err(text)) => Err(text.to_owned()),
+            Err(failure) => Err(failure.message().to_owned()),
+        }
     }
 }
 
@@ -94,7 +129,7 @@ impl Inner {
         *self.epoch.client_epoch().borrow()
     }
 
-    fn state(&self) -> std::sync::MutexGuard<'_, Core<Option<Cached>, u64, Outcome>> {
+    fn state(&self) -> std::sync::MutexGuard<'_, Core<Option<Cached>, u64, Fetched>> {
         self.reads.lock()
     }
 
@@ -118,41 +153,44 @@ impl Inner {
                 _ => Ok((Map::new(), false)),
             },
             Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. })) if &*detail == NO_CLAIMANT => Err(Ask::NoClient),
-            Err(HostError::Core(_)) => Err(Ask::Unavailable),
+            Err(HostError::Core(error)) => Err(Ask::Unavailable(mixdog_core_api::model_proxy_unavailable_text(&error))),
             Err(HostError::Rpc { data, .. }) => Err(Ask::Failed(failure_message(data))),
         }
     }
 
-    async fn fetch(self: Arc<Self>, id: u64, generation: u64) -> Outcome {
-        let deadline = Instant::now() + WAIT;
+    async fn fetch(self: Arc<Self>, id: u64, generation: u64) -> Fetched {
+        let deadline = Instant::now() + self.wait;
         let mut delay = RETRY_FIRST;
+        let mut last: Option<&'static str> = None;
         // Taken before the first ask, so a client that connects while it runs wakes the wait below.
         let mut changes = self.epoch.client_epoch();
         let outcome = loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             // The request is bounded by what is left of the budget ("the desktop provider request timed out").
             match mixdog_rt::time::timeout(remaining, self.ask()).await {
-                Ok(Ok((providers, true))) => break Ok(Some(providers)),
+                Ok(Ok((providers, true))) => break Ok(Ok(providers)),
                 Ok(Err(Ask::Failed(message))) => break Err(Failure::error(message)),
                 Ok(Err(Ask::NoClient)) => {
                     // `whenConnected(remaining)`: until a client connects, or the budget is spent.
                     let remaining = deadline.saturating_duration_since(Instant::now());
                     match mixdog_rt::time::timeout(remaining, changes.changed()).await {
                         Ok(Ok(())) => continue,
-                        _ => break Ok(None),
+                        _ => break Ok(Err(last.unwrap_or_else(no_client))),
                     }
                 }
-                Ok(Ok((_, false)) | Err(Ask::Unavailable)) | Err(_) => {}
+                Ok(Ok((_, false))) => last = Some(NOT_LOADED),
+                Ok(Err(Ask::Unavailable(text))) => last = Some(text),
+                Err(_) => last = Some(TIMED_OUT),
             }
             if Instant::now() + delay > deadline {
-                break Ok(None);
+                break Ok(Err(last.unwrap_or_else(no_client)));
             }
             mixdog_rt::time::sleep(delay).await;
             delay = (delay * 2).min(RETRY_MAX);
         };
         // An older read may finish after a forced one: only the newest read, under the generation it started in, publishes.
         // The slot itself is emptied by the flight's guard when this task ends, however it ends.
-        if let Ok(Some(value)) = &outcome
+        if let Ok(Ok(value)) = &outcome
             && self.generation() == generation
         {
             let mut core = self.state();
@@ -166,7 +204,14 @@ impl Inner {
 
 #[async_trait]
 impl ProxyProviders for HostProxyProviders {
+    /// The setup's read: a PC that cannot be reached, whatever the reason, is `None`.
     async fn providers(&self, force: bool) -> Outcome {
+        self.read(force).await.map(Result::ok)
+    }
+}
+
+impl HostProxyProviders {
+    async fn read(&self, force: bool) -> Fetched {
         let generation = self.inner.generation();
         // The cache check, the join of the read in flight and the start of a new one happen under one
         // lock, so concurrent callers share one fetch; the guard ends with this block, before any await.
@@ -176,7 +221,7 @@ impl ProxyProviders for HostProxyProviders {
                 None
             } else {
                 if let Some(cached) = core.state.as_ref().filter(|c| c.generation == generation && (self.inner.now)() - c.at < CACHE_TTL_MS) {
-                    return Ok(Some(cached.value.clone()));
+                    return Ok(Ok(cached.value.clone()));
                 }
                 core.joinable().filter(|(started, _)| **started == generation).map(|(_, task)| task)
             };
@@ -203,18 +248,27 @@ impl ProxyProviders for HostProxyProviders {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::collections::VecDeque;
+    #[cfg(node_twin)]
     use std::sync::Mutex;
+    #[cfg(node_twin)]
     use std::sync::atomic::AtomicBool;
+    #[cfg(node_twin)]
     use std::sync::atomic::AtomicI64;
     use std::sync::atomic::Ordering;
 
-    use mixdog_app_protocol::v2::model_proxy::{ProxyDelivery, ProxyErrorKind, ProxyFailure, ProxyOutcome};
+    #[cfg(node_twin)]
+    use mixdog_app_protocol::v2::model_proxy::ProxyDelivery;
+    #[cfg(node_twin)]
+    use mixdog_app_protocol::v2::model_proxy::ProxyErrorKind;
+    #[cfg(node_twin)]
+    use mixdog_app_protocol::v2::model_proxy::ProxyFailure;
+    #[cfg(node_twin)]
+    use mixdog_app_protocol::v2::model_proxy::ProxyOutcome;
     use mixdog_core_api::ids::Method;
 
     use super::*;
-
-    const GOLDEN: &str = include_str!("../../../../fixtures/proxy-provider-config/golden.json");
 
     struct Epoch(tokio::sync::watch::Sender<u64>);
 
@@ -223,6 +277,7 @@ mod tests {
             Arc::new(Self(tokio::sync::watch::channel(1).0))
         }
 
+        #[cfg(node_twin)]
         fn changed(&self) {
             self.0.send_modify(|epoch| *epoch += 1);
         }
@@ -235,6 +290,7 @@ mod tests {
     }
 
     /// The PC: answers each ask from the scenario's queue and counts them.
+    #[cfg(node_twin)]
     struct Pc {
         replies: Mutex<VecDeque<Value>>,
         connected: AtomicBool,
@@ -242,6 +298,7 @@ mod tests {
     }
 
     #[async_trait]
+    #[cfg(node_twin)]
     impl HostChannel for Pc {
         async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
             unreachable!("a provider question is a streamed request")
@@ -281,6 +338,7 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     fn failure(message: &str) -> ProxyFailure {
         ProxyFailure {
             outcome: ProxyOutcome::Provider,
@@ -317,12 +375,14 @@ mod tests {
     }
 
     #[derive(PartialEq)]
+    #[cfg(node_twin)]
     enum Op {
         Call,
         Reconnect,
     }
 
     /// The recording lists only calls; the scenarios with a reconnect between them.
+    #[cfg(node_twin)]
     fn scenario_ops(name: &str) -> Vec<Op> {
         match name {
             "a reconnect is a new generation: the cache is not served" => vec![Op::Call, Op::Reconnect, Op::Call],
@@ -331,7 +391,129 @@ mod tests {
         }
     }
 
+    /// A PC whose answer is held until the test lets it go.
+    struct GatedPc {
+        started: tokio::sync::Notify,
+        gate: tokio::sync::Notify,
+        answered: tokio::sync::Notify,
+        asked: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl HostChannel for GatedPc {
+        async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
+            unreachable!("a provider question is a streamed request")
+        }
+
+        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+            unreachable!("a provider question sends no notification")
+        }
+
+        async fn request_streamed(&self, _: HostCapability, _: Method, _: Value, _: &mut (dyn FnMut(Value) + Send)) -> Result<Value, HostError> {
+            self.asked.fetch_add(1, Ordering::SeqCst);
+            self.started.notify_one();
+            self.gate.notified().await;
+            self.answered.notify_one();
+            let info = json!({ "enabled": true, "type": "api-key", "authState": "present", "modelProxy": {} });
+            Ok(json!({ "result": { "result": "providerConfig", "providers": { "openai": info }, "ready": true } }))
+        }
+    }
+
+    /// A PC whose handling of the question panics, which ends the read's task abnormally.
+    struct PanickingPc;
+
+    #[async_trait]
+    impl HostChannel for PanickingPc {
+        async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
+            unreachable!("a provider question is a streamed request")
+        }
+
+        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+            unreachable!("a provider question sends no notification")
+        }
+
+        async fn request_streamed(&self, _: HostCapability, _: Method, _: Value, _: &mut (dyn FnMut(Value) + Send)) -> Result<Value, HostError> {
+            panic!("the host died while answering");
+        }
+    }
+
+    /// A PC that is connected and answers, but whose registry never reports loaded.
+    struct Unloaded;
+
+    #[async_trait]
+    impl HostChannel for Unloaded {
+        async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
+            unreachable!("a provider question is a streamed request")
+        }
+
+        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+            unreachable!("a provider question sends no notification")
+        }
+
+        async fn request_streamed(&self, _: HostCapability, _: Method, _: Value, _: &mut (dyn FnMut(Value) + Send)) -> Result<Value, HostError> {
+            Ok(json!({ "result": { "result": "providerConfig", "providers": {}, "ready": false } }))
+        }
+    }
+
+    /// No PC at all.
+    struct Absent;
+
+    #[async_trait]
+    impl HostChannel for Absent {
+        async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
+            unreachable!("a provider question is a streamed request")
+        }
+
+        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+            unreachable!("a provider question sends no notification")
+        }
+
+        async fn request_streamed(&self, _: HostCapability, _: Method, _: Value, _: &mut (dyn FnMut(Value) + Send)) -> Result<Value, HostError> {
+            Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: NO_CLAIMANT.into() }))
+        }
+    }
+
+    /// The registry's read says why it gave nothing: a PC that is there but has not loaded its providers is not "no
+    /// desktop client", while the setup's read of the same PC still reads as unreachable.
     #[tokio::test(start_paused = true)]
+    async fn a_connected_pc_that_has_not_loaded_is_not_reported_as_no_client() {
+        mixdog_rt::testing::tokens();
+        let providers = HostProxyProviders::for_registry(Arc::new(Unloaded), Epoch::new(), Arc::new(|| 1_000_000));
+        let error = mixdog_ai::registry::providers::RemoteProviders::providers(&providers, false).await.unwrap_err();
+        assert_eq!(error, "model proxy unavailable: the desktop client has not loaded its model providers yet");
+        assert_eq!(ProxyProviders::providers(&providers, true).await.unwrap(), None, "the setup's read keeps its unreachable answer");
+        let none = HostProxyProviders::for_registry(Arc::new(Absent), Epoch::new(), Arc::new(|| 1_000_000));
+        let error = mixdog_ai::registry::providers::RemoteProviders::providers(&none, false).await.unwrap_err();
+        assert_eq!(error, "model proxy unavailable: no desktop client is connected to run model calls");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_read_whose_task_ends_abnormally_rejects_its_callers_and_clears_its_slot() {
+        mixdog_rt::testing::tokens();
+        let providers = HostProxyProviders::new(Arc::new(PanickingPc), Epoch::new(), Arc::new(|| 1_000_000));
+        let failure = providers.providers(false).await.unwrap_err();
+        assert!(failure.message().contains("panicked"), "{}", failure.message());
+        let state = providers.inner.state();
+        assert!(state.is_idle(), "the slot is empty, so the next call reads again");
+        assert!(state.state.is_none(), "nothing was published");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_read_reaches_both_waiters_and_the_next_call_reads_again() {
+        mixdog_rt::testing::tokens();
+        let providers = HostProxyProviders::new(Arc::new(PanickingPc), Epoch::new(), Arc::new(|| 1_000_000));
+        let (first, second) = futures::join!(providers.providers(false), providers.providers(false));
+        let (first, second) = (first.unwrap_err(), second.unwrap_err());
+        assert!(first.message().contains("panicked"), "{}", first.message());
+        assert_eq!(first.message(), second.message(), "the second call joined the first one's read");
+        assert!(providers.inner.state().is_idle(), "the failure is not retained in the slot");
+    }
+
+
+    #[cfg(node_twin)]
+    const GOLDEN: &str = include_str!("../../../../fixtures/proxy-provider-config/golden.json");
+    #[tokio::test(start_paused = true)]
+    #[cfg(node_twin)]
     async fn the_read_is_nodes_load_model_proxy_provider_config() {
         mixdog_rt::testing::tokens();
         let golden: Value = serde_json::from_str(GOLDEN).unwrap();
@@ -385,74 +567,6 @@ mod tests {
             }
         }
         assert!(checked >= 17, "the recording is replayed: {checked}");
-    }
-
-    /// A PC whose answer is held until the test lets it go.
-    struct GatedPc {
-        started: tokio::sync::Notify,
-        gate: tokio::sync::Notify,
-        answered: tokio::sync::Notify,
-        asked: std::sync::atomic::AtomicUsize,
-    }
-
-    #[async_trait]
-    impl HostChannel for GatedPc {
-        async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
-            unreachable!("a provider question is a streamed request")
-        }
-
-        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
-            unreachable!("a provider question sends no notification")
-        }
-
-        async fn request_streamed(&self, _: HostCapability, _: Method, _: Value, _: &mut (dyn FnMut(Value) + Send)) -> Result<Value, HostError> {
-            self.asked.fetch_add(1, Ordering::SeqCst);
-            self.started.notify_one();
-            self.gate.notified().await;
-            self.answered.notify_one();
-            let info = json!({ "enabled": true, "type": "api-key", "authState": "present", "modelProxy": {} });
-            Ok(json!({ "result": { "result": "providerConfig", "providers": { "openai": info }, "ready": true } }))
-        }
-    }
-
-    /// A PC whose handling of the question panics, which ends the read's task abnormally.
-    struct PanickingPc;
-
-    #[async_trait]
-    impl HostChannel for PanickingPc {
-        async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
-            unreachable!("a provider question is a streamed request")
-        }
-
-        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
-            unreachable!("a provider question sends no notification")
-        }
-
-        async fn request_streamed(&self, _: HostCapability, _: Method, _: Value, _: &mut (dyn FnMut(Value) + Send)) -> Result<Value, HostError> {
-            panic!("the host died while answering");
-        }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_read_whose_task_ends_abnormally_rejects_its_callers_and_clears_its_slot() {
-        mixdog_rt::testing::tokens();
-        let providers = HostProxyProviders::new(Arc::new(PanickingPc), Epoch::new(), Arc::new(|| 1_000_000));
-        let failure = providers.providers(false).await.unwrap_err();
-        assert!(failure.message().contains("panicked"), "{}", failure.message());
-        let state = providers.inner.state();
-        assert!(state.is_idle(), "the slot is empty, so the next call reads again");
-        assert!(state.state.is_none(), "nothing was published");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_failed_read_reaches_both_waiters_and_the_next_call_reads_again() {
-        mixdog_rt::testing::tokens();
-        let providers = HostProxyProviders::new(Arc::new(PanickingPc), Epoch::new(), Arc::new(|| 1_000_000));
-        let (first, second) = futures::join!(providers.providers(false), providers.providers(false));
-        let (first, second) = (first.unwrap_err(), second.unwrap_err());
-        assert!(first.message().contains("panicked"), "{}", first.message());
-        assert_eq!(first.message(), second.message(), "the second call joined the first one's read");
-        assert!(providers.inner.state().is_idle(), "the failure is not retained in the slot");
     }
 
     #[tokio::test(start_paused = true)]

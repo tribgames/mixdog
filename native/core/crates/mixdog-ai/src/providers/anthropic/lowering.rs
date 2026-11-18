@@ -6,8 +6,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::providers::file_text::{FileKind, file_decoded_text, file_fallback_text, file_kind};
-use mixdog_core_api::domain::provider::Content;
+use crate::providers::file_text::{FileKind, file_decoded_text, file_fallback_text, file_kind};use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::DocumentSource;
 use mixdog_core_api::domain::provider::ImageSource;
@@ -149,6 +148,7 @@ fn file_block(filename: Option<&str>, mime_type: &str, data: &str) -> Value {
 fn part_to_block(part: &ContentPart) -> Value {
     match part {
         ContentPart::Text(text, _) => json!({ "type": "text", "text": text }),
+        // An image's media type is the one its bytes have: `prepare_images` set it before the request was built.
         ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => json!({
             "type": "image",
             "source": { "type": "base64", "media_type": mime_type, "data": data },

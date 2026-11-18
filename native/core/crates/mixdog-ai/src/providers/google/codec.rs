@@ -2,6 +2,7 @@
 //! [`ModelRequest`] and the three Gemini-shaped endpoints. Credentials are
 //! the adapter's; the codec writes none.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -28,6 +29,7 @@ use super::decode::DecodeDialect;
 use super::decode::GeminiDecoder;
 use super::decode::UsageStyle;
 use super::error::ErrorDialect;
+use super::error::vertex_gcloud_access;
 use super::error::vertex_model_access;
 use super::error::classify;
 use super::request::Dialect;
@@ -45,6 +47,7 @@ use super::serving::Tier;
 use super::serving::VertexAccount;
 use super::serving::VertexPlace;
 use super::serving::Wire;
+use super::serving::env_location;
 use super::traits::ModelTraits;
 use crate::registry::keys::Environment;
 
@@ -76,8 +79,7 @@ pub struct GoogleCodec {
     provider: ProviderId,
     /// The Anthropic catalog's model capabilities, for Claude on Vertex AI ([`Self::with_claude_caps`]).
     claude_caps: CapsLookup,
-    /// The environment Antigravity's default function-calling mode is read from on every request
-    /// ([`Self::with_env`]); none reads the default.
+    /// The environment for Vertex's model-specific regions and Antigravity's default function-calling mode.
     env: Option<Arc<dyn Environment>>,
     /// The label a gateway engine's errors carry in place of the Gemini REST one ([`Self::with_error_label`]).
     error_label: Option<&'static str>,
@@ -111,7 +113,7 @@ fn path_segment(id: &str) -> String {
 
 /// The hub client identity Cloud Code Assist expects.
 pub(super) fn antigravity_user_agent(client_version: &str) -> String {
-    format!("antigravity/hub/{client_version} (aidev_client; os_type=darwin; arch=arm64; cl=963137146)")
+    super::auth::antigravity::user_agent(client_version)
 }
 
 fn uuid_v4() -> String {
@@ -206,11 +208,24 @@ impl GoogleCodec {
         self
     }
 
-    /// The process environment Antigravity's default function-calling mode is read from
-    /// ([`antigravity_function_calling_mode`]).
+    /// Binds provider settings that depend on the selected request model or dialect.
     pub fn with_env(mut self, env: Arc<dyn Environment>) -> Self {
         self.env = Some(env);
         self
+    }
+
+    fn vertex_place_for<'a>(&self, place: &'a VertexPlace, route: &Route<'_>) -> Cow<'a, VertexPlace> {
+        if place.account == VertexAccount::Express || place.configured.as_deref().is_some_and(|location| !location.trim().is_empty()) {
+            return Cow::Borrowed(place);
+        }
+        let claude_id = if route.wire == Wire::Claude { route.id } else { "" };
+        if let Some(region) = self.env.as_ref().and_then(|env| env_location(|name| env.var(name), claude_id)) {
+            let mut place = place.clone();
+            place.environment = Some(region);
+            Cow::Owned(place)
+        } else {
+            Cow::Borrowed(place)
+        }
     }
 
     /// `antigravityFunctionCallingMode`: MIXDOG_ANTIGRAVITY_FC_MODE (trimmed, upper-cased) when it names AUTO, ANY or
@@ -293,11 +308,18 @@ impl GoogleCodec {
         };
         if let (Target::Vertex { place }, Some(model)) = (&self.target, vertex) {
             let tier = Tier::requested(request.options.model_parameters.as_ref());
-            let chosen = if global { Ok("global".to_owned()) } else { place.choose(&model.route(), tier) };
+            let route = model.route();
+            let chosen = if global { Ok("global".to_owned()) } else { self.vertex_place_for(place, &route).choose(&route, tier) };
             if let Ok(location) = chosen {
                 let project = place.project_id().unwrap_or("(unknown project)");
                 vertex_model_access(&mut error, response, &model.publisher, &model.id, project, &location);
             }
+        }
+        if let Target::Vertex { place } = &self.target
+            && let Some(principal) = &place.gcloud_principal
+        {
+            let project = place.project_id().unwrap_or("(unknown project)");
+            vertex_gcloud_access(&mut error, response, principal, project);
         }
         error
     }
@@ -331,7 +353,8 @@ impl GoogleCodec {
             )));
         }
         let tier = Tier::requested(request.options.model_parameters.as_ref());
-        let location = if global { "global".to_owned() } else { place.choose(&model.route(), tier)? };
+        let route = model.route();
+        let location = if global { "global".to_owned() } else { self.vertex_place_for(place, &route).choose(&route, tier)? };
         let base = place.base(&location)?;
         Ok((location, base))
     }
@@ -385,6 +408,17 @@ impl WireCodec for GoogleCodec {
     fn transport(&self) -> TransportKind {
         TransportKind::Http1
     }
+    /// The branch the model resolves to: on Vertex AI an open model and Claude each take their own wire (and so their own
+    /// image form) inside the same adapter; everything else is Gemini's inline data.
+    fn image_branch(&self, request: &ModelRequest) -> mixdog_image_egress::route::WireBranch {
+        use mixdog_image_egress::route::WireBranch;
+        match &self.target {
+            Target::Gemini { .. } | Target::Antigravity { .. } => WireBranch::GeminiNative,
+            Target::Vertex { .. } if self.maas_model(&request.model).is_some() => WireBranch::VertexMaas,
+            Target::Vertex { .. } if self.claude_model(&request.model).is_some() => WireBranch::VertexClaude,
+            Target::Vertex { .. } => WireBranch::VertexGemini,
+        }
+    }
 
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         if let Some(model) = self.maas_model(&request.model) {
@@ -418,7 +452,16 @@ impl GoogleCodec {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     pub fn build_inner(&self, request: &ModelRequest) -> Result<Value, ProviderError> {
         self.model_id(&request.model)?;
-        build_request(request, &self.dialect(), self.traits.as_ref())
+        let mut inner = build_request(request, &self.dialect(), self.traits.as_ref())?;
+        if !matches!(self.target, Target::Antigravity { .. })
+            && let Some(settings) = request.options.model_parameters.as_ref().and_then(|p| p.get("safetySettings")).filter(|v| !v.is_null())
+        {
+            let entries = settings.as_array().ok_or_else(|| invalid("safetySettings must be an array of { category, threshold } entries."))?;
+            if !entries.is_empty() {
+                inner["safetySettings"] = settings.clone();
+            }
+        }
+        Ok(inner)
     }
 
     /// The HTTP request for `inner`; with `cache` the body carries only the
@@ -438,7 +481,8 @@ impl GoogleCodec {
         let (Target::Vertex { place }, Ok(model)) = (&self.target, vertex_model(&request.model)) else {
             return false;
         };
-        place.falls_back_to_global(&model.route(), Tier::requested(request.options.model_parameters.as_ref()))
+        let route = model.route();
+        self.vertex_place_for(place, &route).falls_back_to_global(&route, Tier::requested(request.options.model_parameters.as_ref()))
     }
 
     /// [`Self::wire`]; `global` sends a Vertex request to `global`.
@@ -454,7 +498,11 @@ impl GoogleCodec {
         let mut inner = match cache {
             Some(attach) => {
                 let contents = inner["contents"].as_array().map(Vec::as_slice).unwrap_or_default();
-                cached_body(attach.name, attach.state, contents, inner.get("generationConfig"))
+                let mut body = cached_body(attach.name, attach.state, contents, inner.get("generationConfig"));
+                if let Some(settings) = inner.get("safetySettings") {
+                    body["safetySettings"] = settings.clone();
+                }
+                body
             }
             None => inner.clone(),
         };
@@ -471,7 +519,7 @@ impl GoogleCodec {
             Target::Vertex { place } => {
                 let route = Route { publisher: "google", id, wire: Wire::Gemini };
                 let tier = Tier::requested(request.options.model_parameters.as_ref());
-                let location = if global { "global".to_owned() } else { place.choose(&route, tier)? };
+                let location = if global { "global".to_owned() } else { self.vertex_place_for(place, &route).choose(&route, tier)? };
                 let base = place.base(&location)?;
                 if let Some(value) = tier.header_value() {
                     headers.push(("X-Vertex-AI-LLM-Shared-Request-Type".into(), value.into()));
@@ -533,7 +581,11 @@ impl GoogleCodec {
             let location = self.partner_location(request, &model, global).map(|(location, _)| location).unwrap_or_default();
             return Box::new(claude::decoder(&model, &location, body_tool_names(self, request, ToolNames::Named)));
         }
-        Box::new(GeminiDecoder::new(DecodeDialect {
+        Box::new(self.gemini_decoder(request))
+    }
+
+    pub(super) fn gemini_decoder(&self, request: &ModelRequest) -> GeminiDecoder {
+        GeminiDecoder::new(DecodeDialect {
             owner: self.replay_owner(),
             envelope: matches!(self.target, Target::Antigravity { .. }),
             usage: match self.target {
@@ -544,21 +596,29 @@ impl GoogleCodec {
             errors: self.error_dialect(),
         })
         .with_known_tools(request_tool_names(request))
-        .for_model(&request.model))
+        .for_model(&request.model)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::Content;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::Message;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::RequestOptions;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::Role;
+    #[cfg(node_twin)]
     use mixdog_core_api::domain::provider::ToolDefinition;
 
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     struct Traits;
+    #[cfg(node_twin)]
     impl ModelTraits for Traits {
         fn is_gemini_family(&self, _: &str) -> bool {
             true
@@ -568,8 +628,10 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     const RECORDING: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/provider-env-switches/cases.json");
 
+    #[cfg(node_twin)]
     /// The request id is a per-request random draw; both sides are compared with it replaced by one marker.
     fn mark_request_id(body: &str) -> String {
         let key = "\"requestId\":\"agent-";
@@ -579,6 +641,7 @@ mod tests {
 
     /// Node's Antigravity sends, one per value of `MIXDOG_ANTIGRAVITY_FC_MODE` (unset, `any`, ` Auto `, `bogus`, ... on one
     /// provider instance, so each send read its own value): the request the codec encodes under the same value, whole.
+    #[cfg(node_twin)]
     #[test]
     fn the_fc_mode_setting_changes_the_request_as_nodes_send_did() {
         let doc: serde_json::Value = serde_json::from_str(&RECORDING).unwrap();

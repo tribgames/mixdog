@@ -47,15 +47,20 @@ fn record(id: &str, ts: i64) -> UsageRecord {
 /// The rollup of one local `day` with its hourly view, over a ledger holding `events`, and the
 /// day's hourly series.
 fn day_view(day: &str, events: &[i64]) -> (Value, Vec<Value>) {
-    let dir = tempfile::tempdir().unwrap();
-    let mut conn = Connection::open(dir.path().join("ledger.sqlite")).unwrap();
-    prepare(&mut conn).unwrap();
     let rows: Vec<UsageRecord> = events
         .iter()
         .enumerate()
         .map(|(i, ts)| record(&format!("r{i}"), *ts))
         .collect();
-    append_batch(&mut conn, &rows).unwrap();
+    day_view_of(day, &rows)
+}
+
+/// [`day_view`] over the given records.
+fn day_view_of(day: &str, rows: &[UsageRecord]) -> (Value, Vec<Value>) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = Connection::open(dir.path().join("ledger.sqlite")).unwrap();
+    prepare(&mut conn).unwrap();
+    append_batch(&mut conn, rows).unwrap();
     while !build_sums_step(&mut conn, 100).unwrap() {}
 
     let mut query = RollupQuery::days(day, day);
@@ -163,5 +168,35 @@ fn fall_back_day_has_25_hours() {
             .filter(|(_, t)| *t > 0)
             .collect();
         assert_eq!(filled, [(1, 1), (2, 1), (24, 1)]);
+    });
+}
+
+/// The hourly view holds the day's events as typed rows, not JSON objects, and reads them as the rollup document writes
+/// them: a measured event counts its four amounts and its price; one of a provider that does not measure usage counts
+/// only its output, as one unmeasured turn with no known cost.
+#[test]
+fn the_hourly_view_reads_typed_rows_as_the_document_writes_them() {
+    with_local_zone(Tz::America__New_York, || {
+        let day = "2026-06-10";
+        let at = utc("2026-06-10T15:20:00Z");
+        let mut cursor = record("c1", at + 60_000);
+        cursor.provider = "cursor-oauth".into();
+        let (rollup, series) = day_view_of(day, &[record("r1", at), cursor]);
+        let rows = rollup["hourly"]["rows"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["input"], 10);
+        assert_eq!(rows[0]["cost_usd"], 0.1);
+        assert_eq!(rows[0]["unmeasuredTurns"], 0);
+        assert_eq!(rows[1]["provider"], "cursor-oauth");
+        assert_eq!((rows[1]["input"].clone(), rows[1]["output"].clone(), rows[1]["cost_usd"].clone()), (0.into(), 5.into(), 0.into()));
+        assert_eq!(rows[1]["unmeasuredTurns"], 1);
+
+        let hour = series.iter().find(|b| turns(b) > 0).expect("the events' hour");
+        assert_eq!(hour["label"], "11:00");
+        assert_eq!(turns(hour), 2);
+        assert_eq!(hour["tokens"], 18 + 5);
+        assert_eq!(hour["costKnownTurns"], 1);
+        assert_eq!(hour["unmeasuredTurns"], 1);
+        assert_eq!(hour["costUsd"], 0.1);
     });
 }

@@ -1,8 +1,0 @@
-# Desktop wiring after wave 11: reduced by the wire audit (t19). The s2a-del-* and s1-del-grants-page lines listed as applied there stay applied. Still waiting:
-
-- s2a-del-terminal.wire, contract-ipc.ts: the term* / terminalRunClaim channels of DESKTOP_IPC (and the other DIRECT channel rows; contract-ipc.ts lines 143 and 226 still name them) are dropped by s2a-del-preload-contract; ipc.ts's eventChannels set still names them until then. shared/desktop-ipc-preload.parity.test.mjs test 2 excludes DIRECT keys and their event channels from "main names it".
-- ipc-state-bridge.ts: the session/engine state handlers (setVisibleSessions, prefetchSession, readTranscriptHistory, getSnapshot, state/sessionState pushes and resyncs) are DIRECT keys no preload calls; they and their tests (ipc-state-bridge-late-read, -resync, -notices) go with s2a-del-preload-contract.
-- Tests still exercising removed DIRECT handlers through registerDesktopIpc (s2a-del-ipc-tests did not rewrite them; the test files exist): chat-file-ipc.test.mjs cases 2-5 (readProjectFile / listProjectDir / ...), settings-store.test.mjs cases 3, 8, 9 (updateSessionRetention, updateSetting), local-page-permissions.test.mjs cases 9-10 (failing before G11 too). Owner: a follow-up of s2a-del-ipc-tests (move them to renderer/core-direct api-files / api-settings tests).
-- x-del-notify-ts: listSystemFonts / getNotificationPreferences / sendTestNotification (main/notification-center.ts still names sendTestNotification).
-- Rust names readSessionTranscript / readSessionHistory: see native/core/crates/pending-wire/deferred-g11.md.
-- The .kept files (g97-fu-screen, s4-bridge-forward): unchanged, real-screen check.

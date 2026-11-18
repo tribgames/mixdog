@@ -1,4 +1,4 @@
-// Shared OAuth login flow: the begin/poll/cancel state machine and the
+// Shared OAuth login flow: the begin/follow/cancel state machine and the
 // `.settings-oauth-dialog` wait window used by the provider login and the MCP
 // server login.
 import { Copy, ExternalLink, X } from 'lucide-react';
@@ -26,7 +26,8 @@ type OAuthLoginFlowOptions = {
   /** Names the cancel run key. */
   keyId: string;
   cancelCapability: Parameters<PanelContext['run']>[0];
-  /** Shown when the flow's pushed progress cannot be followed any more. */
+  /** Read authoritative progress if the feed is lost or unavailable. */
+  statusCapability: Parameters<PanelContext['run']>[0];
   statusError: string;
   /** Runs once when the flow reports `complete`; resolves to an error message
    *  when the refreshed data could not be read, otherwise undefined. */
@@ -39,12 +40,15 @@ type OAuthLoginFlowOptions = {
 
 const STICKY_FLOW_FIELDS = ['url', 'manualUrl', 'userCode'] as const;
 
+const terminal = (state: unknown) =>
+  state === 'complete' || state === 'failed' || state === 'cancelled' || state === 'expired';
+
 /** A status reply replaces the flow, but keeps the sign-in fields it omits. */
 function mergeFlowStatus(current: RecordValue | null, next: RecordValue): RecordValue {
-  if (!current || String(current.flowId || '') !== String(next.flowId || '')) return next;
   const merged = { ...next };
   for (const field of STICKY_FLOW_FIELDS) {
-    if (merged[field] === undefined || merged[field] === null || merged[field] === '') {
+    if (terminal(next.state)) delete merged[field];
+    else if (current && current.flowId === next.flowId && !merged[field]) {
       if (current[field] !== undefined) merged[field] = current[field];
     }
   }
@@ -70,55 +74,94 @@ export function useOAuthLoginFlow(options: OAuthLoginFlowOptions) {
   useEffect(() => {
     if (!flowId || flowState !== 'pending') return undefined;
     const sections = window.mixdogDesktop?.sections;
-    // A client without the pushed feed (a remote device) would wait for progress that never comes.
-    if (!sections) {
-      setError(latest.current.statusError);
-      return undefined;
-    }
     let cancelled = false;
-    const fail = () => setError(latest.current.statusError);
-    const adopt = (state: unknown) => {
-      const nextFlow = record(state);
-      setFlow((current) => mergeFlowStatus(current, { flowId, ...nextFlow }));
+    let settled = false;
+    let recovering = false;
+    let receivedUpdate = false;
+    let timer = 0;
+    const fail = () => {
+      if (!cancelled && !settled) setError(latest.current.statusError);
+    };
+    const adopt = (next: RecordValue) => {
+      if (cancelled || settled || (!terminal(next.state) && next.state !== 'pending')) return;
+      if (next.flowId && next.flowId !== flowId) return;
+      if (terminal(next.state)) {
+        settled = true;
+        window.clearTimeout(timer);
+      }
+      setError('');
+      setFlow((current) =>
+        current?.flowId === flowId && current.state === 'pending'
+          ? mergeFlowStatus(current, { ...next, flowId })
+          : current
+      );
+    };
+    const recover = () => {
+      if (cancelled || settled || recovering) return;
+      const { statusCapability } = latest.current;
+      recovering = true;
+      const readStatus = async () => {
+        if (cancelled || settled) return;
+        const { run, keyId } = latest.current;
+        const status = await run<RecordValue>(statusCapability, [flowId], `oauth-status-${keyId}`, false, true).catch(
+          () => undefined
+        );
+        if (cancelled || settled) return;
+        if (status && status.flowId === flowId && (status.state === 'pending' || terminal(status.state))) {
+          adopt(status);
+          if (settled) return;
+        } else {
+          fail();
+        }
+        // The link may still be down, or the host flow may still be pending.
+        timer = window.setTimeout(() => void readStatus(), 500);
+      };
+      void readStatus();
     };
     // Progress is pushed on the flow's scoped feed (`login:<flowId>`, `login/updated`; desktop-services.md §15 P8). A
-    // feed that cannot deliver any more ends the wait with the status-failure notice, as a failed status read did.
-    const stopUpdates = sections.subscribeLoginUpdated((update) => {
-      if (!cancelled && update.flowId === flowId) adopt(update.state);
+    // broken feed can outlive the window's connection to it, so follow the host's status directly after a loss.
+    const stopUpdates = sections?.subscribeLoginUpdated((update) => {
+      if (update.flowId !== flowId) return;
+      const next = record(update.state);
+      receivedUpdate = true;
+      if (terminal(next.state) || !recovering) adopt(next);
     });
-    const stopLost = sections.subscribeLoginFeedLost((lost) => {
-      if (!cancelled && lost.flowId === flowId) fail();
+    const stopLost = sections?.subscribeLoginFeedLost((lost) => {
+      if (lost.flowId === flowId) recover();
     });
-    // What the feed delivered, or lost, before the listeners above existed.
-    sections.loginFeed(flowId).then(
-      (held) => {
-        if (cancelled) return;
-        if (held.lost) fail();
-        else if (held.state) adopt(held.state);
-      },
-      () => {
-        if (!cancelled) fail();
-      }
-    );
+    if (sections) {
+      // What the feed delivered, or lost, before the listeners above existed.
+      sections.loginFeed(flowId).then(
+        (held) => {
+          const next = record(held.state);
+          if (terminal(next.state) || (!held.lost && !receivedUpdate && !recovering)) adopt(next);
+          if (held.lost) recover();
+        },
+        recover
+      );
+    } else {
+      recover();
+    }
     return () => {
       cancelled = true;
-      stopUpdates();
-      stopLost();
+      window.clearTimeout(timer);
+      stopUpdates?.();
+      stopLost?.();
     };
   }, [flowId, flowState]);
   useEffect(() => {
     if (!flowId || flowState !== 'complete' || completedFlowRef.current === flowId) return;
     completedFlowRef.current = flowId;
-    void latest.current.refresh().then((failure) => {
+    const finish = (failure: string | undefined) => {
       if (completedFlowRef.current !== flowId) return;
       if (failure) {
-        completedFlowRef.current = '';
         setError(failure);
         return;
       }
       setFlow((current) => (String(current?.flowId || '') === flowId ? null : current));
       latest.current.onDone?.();
-    });
+    };
+    void latest.current.refresh().then(finish, () => finish(latest.current.statusError));
   }, [flowId, flowState]);
   const start = async (begin: (remote: boolean) => Promise<unknown>) => {
     setError('');
@@ -127,8 +170,8 @@ export function useOAuthLoginFlow(options: OAuthLoginFlowOptions) {
       const next = await begin(remote);
       if (next) {
         const started = record(next);
-        setFlow(started);
-        if (remote) openSignInPage(started.manualUrl || started.url);
+        setFlow(mergeFlowStatus(null, started));
+        if (remote && started.state === 'pending') openSignInPage(started.manualUrl || started.url);
       }
     } catch (reason) {
       setError(errorMessage(reason));
@@ -137,10 +180,11 @@ export function useOAuthLoginFlow(options: OAuthLoginFlowOptions) {
   const close = () => {
     const currentFlowId = String(flow?.flowId || '');
     const currentState = String(flow?.state || '');
+    completedFlowRef.current = '';
     setFlow(null);
     setError('');
     setPasteError('');
-    if (currentFlowId && currentState !== 'complete' && currentState !== 'cancelled') {
+    if (currentFlowId && currentState === 'pending') {
       void options.run(options.cancelCapability, [currentFlowId], `oauth-cancel-${keyId}`, false);
     }
   };
@@ -150,8 +194,13 @@ export function useOAuthLoginFlow(options: OAuthLoginFlowOptions) {
     if (!flowOpen) return undefined;
     return registerMobileBack(() => closeRef.current());
   }, [flowOpen]);
-  const mergeFlow = (next: RecordValue) => setFlow((current) => mergeFlowStatus(current, next));
-  return { flow, setFlow, mergeFlow, error, setError, pasteError, setPasteError, remote, start, close };
+  const mergeFlow = (next: RecordValue) =>
+    setFlow((current) =>
+      current && current.state === 'pending' && current.flowId === next.flowId
+        ? mergeFlowStatus(current, next)
+        : current
+    );
+  return { flow, mergeFlow, error, pasteError, setPasteError, remote, start, close };
 }
 
 // The runtime's fixed message for a pasted address that is not the sign-in redirect.
@@ -299,7 +348,7 @@ export function OAuthLoginDialog({
               <input readOnly value={String(flow.userCode)} />
             </label>
           )}
-          {paste && flow.state !== 'complete' && (
+          {paste && pending && (
             <form
               className="settings-oauth-code"
               onSubmit={(event) => {

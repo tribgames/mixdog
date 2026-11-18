@@ -108,6 +108,15 @@ fn reply(snapshot: &GoalSnapshot, full: bool) -> String {
     compact(&Reply { goal: view, remaining_ms })
 }
 
+fn extension_reply(snapshot: &GoalSnapshot) -> String {
+    let goal = snapshot.goal.as_ref().map(|goal| serde_json::json!({
+        "id": goal.get("id"),
+        "status": goal.get("status"),
+        "timeLimitMs": goal.get("timeLimitMs"),
+    }));
+    compact(&Reply { goal, remaining_ms: snapshot.remaining_ms })
+}
+
 /// The action of a call, or the existing refusal text.
 fn validate(args: &Value) -> Result<String, String> {
     let object = args
@@ -157,6 +166,15 @@ fn time_limit_ms(args: &Value) -> Result<Option<u64>, String> {
     }
 }
 
+/// `clean(args.objective)` (`newGoalRecord`): `String(value ?? '').trim()`, so a non-string objective is coerced to its
+/// JavaScript text (`[]` is empty, `[1,2]` is `1,2`, an object `[object Object]`), not refused as empty.
+fn objective_arg(args: &Value) -> String {
+    match args.get("objective") {
+        None | Some(Value::Null) => String::new(),
+        Some(value) => mixdog_js::js_trim(&mixdog_js::value_to_string(value)).to_owned(),
+    }
+}
+
 pub struct GoalTool {
     spec: ToolSpec,
     goals: Arc<dyn GoalPort>,
@@ -192,14 +210,14 @@ impl Tool for GoalTool {
             "status" => reply(&self.goals.status(thread).await?, true),
             "create" => {
                 let limit = time_limit_ms(&args).map_err(|m| invalid("time_limit_minutes", m))?;
-                let objective = args.get("objective").and_then(Value::as_str).unwrap_or_default().to_owned();
+                let objective = objective_arg(&args);
                 reply(&self.goals.create(thread, objective, limit).await?, true)
             }
             // The user's explicit ask for more time (the description restricts it to that).
             "extend" => {
                 let added = minutes_ms(args.get("extend_minutes").unwrap_or(&Value::Null), "extend_minutes")
                     .map_err(|m| invalid("extend_minutes", m))?;
-                reply(&self.goals.extend(thread, added).await?, true)
+                extension_reply(&self.goals.extend(thread, added).await?)
             }
             "block" => {
                 let blocker = clean(args.get("blocker"));
@@ -211,13 +229,11 @@ impl Tool for GoalTool {
                 let list = self.todos.read(thread).await;
                 let open = list.open_items();
                 if !open.is_empty() {
-                    let named: Vec<&str> = open.iter().map(|t| t.content.as_str()).collect();
                     return Err(refused(
                         "open-todo",
                         format!(
-                            "goal: cannot complete with {} open todo item(s) ({}); finish them, or drop or block each with its reason",
-                            open.len(),
-                            named.join("; ")
+                            "goal: cannot complete with {} open todo item(s); finish them or drop each with its reason; use todo view if needed",
+                            open.len()
                         ),
                     ));
                 }
@@ -235,6 +251,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn extending_reports_the_new_cap_without_repeating_the_objective() {
+        let snapshot = GoalSnapshot {
+            goal: Some(json!({ "id": "g", "status": "active", "objective": "Original objective", "timeLimitMs": 90_000 })),
+            remaining_ms: Some(80_000),
+        };
+        assert_eq!(
+            serde_json::from_str::<Value>(&extension_reply(&snapshot)).unwrap(),
+            json!({ "goal": { "id": "g", "status": "active", "timeLimitMs": 90_000 }, "remaining_ms": 80_000 })
+        );
+    }
+
+    #[test]
     fn settlement_view_is_compact_and_ordered() {
         let snapshot = GoalSnapshot {
             goal: Some(json!({"id":"g1","status":"blocked","timeUsedMs":5,"blocker":"stuck","objective":"x"})),
@@ -245,6 +273,21 @@ mod tests {
             r#"{"goal":{"id":"g1","status":"blocked","timeUsedMs":5,"blocker":"stuck"},"remaining_ms":10}"#
         );
         assert_eq!(reply(&GoalSnapshot::default(), true), r#"{"goal":null,"remaining_ms":null}"#);
+    }
+
+    #[test]
+    fn a_non_string_objective_is_coerced_like_nodes_clean() {
+        assert_eq!(objective_arg(&json!({"objective": 12345})), "12345");
+        assert_eq!(objective_arg(&json!({"objective": "  ship it \n"})), "ship it");
+        assert_eq!(objective_arg(&json!({"objective": null})), "");
+        assert_eq!(objective_arg(&json!({})), "");
+        assert_eq!(objective_arg(&json!({"objective": []})), "");
+        assert_eq!(objective_arg(&json!({"objective": [1, 2]})), "1,2");
+        assert_eq!(objective_arg(&json!({"objective": [1, null, "a"]})), "1,,a");
+        assert_eq!(objective_arg(&json!({"objective": {"a": 1}})), "[object Object]");
+        assert_eq!(objective_arg(&json!({"objective": true})), "true");
+        assert_eq!(objective_arg(&json!({"objective": 1.0})), "1");
+        assert_eq!(objective_arg(&json!({"objective": 1.5})), "1.5");
     }
 
     #[test]
@@ -266,22 +309,6 @@ mod tests {
             validate(&json!({"action":"extend","bogus":1})).unwrap_err(),
             "goal arguments contain unknown fields: bogus. Allowed for extend: action, extend_minutes"
         );
-    }
-
-    /// Node's own `executeGoalTool` create over every case of the recorder (`record-goal-time-limit.mjs`): strings,
-    /// booleans and out-of-range numbers are refused, nothing is coerced.
-    #[test]
-    fn the_time_limit_equals_nodes_for_every_recorded_case() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/goal-time-limit/golden.json")).expect("golden");
-        let cases = golden["cases"].as_array().expect("cases");
-        assert!(cases.iter().any(|c| c["error"] == "goal time_limit_minutes must be a number from 1 to 10080 minutes" && c["args"]["time_limit_minutes"].is_string()));
-        for case in cases {
-            let got = time_limit_ms(&case["args"]);
-            match case.get("error") {
-                Some(error) => assert_eq!(got, Err(error.as_str().expect("error").to_owned()), "{}", case["args"]),
-                None => assert_eq!(got.map(|ms| ms.map(|ms| json!(ms))), Ok(case.get("timeLimitMs").cloned()), "{}", case["args"]),
-            }
-        }
     }
 
     #[test]
@@ -310,5 +337,30 @@ mod tests {
         let props = &def["inputSchema"]["properties"];
         assert_eq!(props["action"]["enum"], json!(ACTIONS));
         assert_eq!(props["extend_minutes"]["maximum"], json!(10080));
+    }
+
+
+    #[test]
+    fn a_time_limit_in_minutes_becomes_the_budget_in_milliseconds() {
+        for (minutes, ms) in [(json!(1), 60_000), (json!(2.5), 150_000), (json!(10080), 604_800_000)] {
+            assert_eq!(time_limit_ms(&json!({"time_limit_minutes": minutes})), Ok(Some(ms)), "{minutes}");
+        }
+    }
+
+    /// Node's own `executeGoalTool` create over every case of the recorder (`record-goal-time-limit.mjs`): strings,
+    /// booleans and out-of-range numbers are refused, nothing is coerced.
+    #[cfg(node_twin)]
+    #[test]
+    fn the_time_limit_equals_nodes_for_every_recorded_case() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/goal-time-limit/golden.json")).expect("golden");
+        let cases = golden["cases"].as_array().expect("cases");
+        assert!(cases.iter().any(|c| c["error"] == "goal time_limit_minutes must be a number from 1 to 10080 minutes" && c["args"]["time_limit_minutes"].is_string()));
+        for case in cases {
+            let got = time_limit_ms(&case["args"]);
+            match case.get("error") {
+                Some(error) => assert_eq!(got, Err(error.as_str().expect("error").to_owned()), "{}", case["args"]),
+                None => assert_eq!(got.map(|ms| ms.map(|ms| json!(ms))), Ok(case.get("timeLimitMs").cloned()), "{}", case["args"]),
+            }
+        }
     }
 }

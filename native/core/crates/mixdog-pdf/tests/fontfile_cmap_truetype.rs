@@ -7,6 +7,7 @@
 //! corpus PDFs.
 
 use std::collections::BTreeSet;
+#[cfg(node_twin)]
 use std::io::Read;
 
 use mixdog_pdf::Guard;
@@ -16,33 +17,15 @@ use mixdog_pdf::fontfile::truetype::{
     CmapMapping, MAC_STANDARD_GLYPH_ORDERING, TrueTypeFont,
 };
 
-// ---- the recorded CMaps ------------------------------------------------------------------------------------------
-
-const RECORDED: &str = include_str!("../../../fixtures/pdf-cmap/cmaps.txt");
-
+// The comparison tests at the end read local-only material and exist only under `cfg(node_twin)`; so do the helpers
+// that only they use.
+#[cfg(node_twin)]
 struct Block {
     head: Vec<String>,
     body: Vec<String>,
 }
 
-fn blocks() -> Vec<Block> {
-    let mut out = Vec::new();
-    let mut current: Option<Block> = None;
-    for line in RECORDED.lines() {
-        if line.starts_with("predef ") || line.starts_with("case ") {
-            current = Some(Block {
-                head: line.split(' ').map(str::to_owned).collect(),
-                body: Vec::new(),
-            });
-        } else if line == "end" {
-            out.extend(current.take());
-        } else if let Some(block) = current.as_mut() {
-            block.body.push(line.to_owned());
-        }
-    }
-    out
-}
-
+#[cfg(node_twin)]
 fn unhex(text: &str) -> Vec<u8> {
     if text == "-" {
         return Vec::new();
@@ -53,6 +36,7 @@ fn unhex(text: &str) -> Vec<u8> {
         .collect()
 }
 
+#[cfg(node_twin)]
 fn repr(value: &CMapValue) -> String {
     match value {
         CMapValue::Cid(n) => format!("c{n}"),
@@ -68,6 +52,7 @@ fn repr(value: &CMapValue) -> String {
     }
 }
 
+#[cfg(node_twin)]
 fn parse_repr(text: &str) -> CMapValue {
     if let Some(number) = text.strip_prefix('c') {
         return CMapValue::Cid(number.parse().expect("number"));
@@ -86,6 +71,7 @@ fn parse_repr(text: &str) -> CMapValue {
     })
 }
 
+#[cfg(node_twin)]
 fn fnv(text: &str) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in text.bytes() {
@@ -95,6 +81,7 @@ fn fnv(text: &str) -> u64 {
     hash
 }
 
+#[cfg(node_twin)]
 fn codespace_list(cmap: &CMap) -> Vec<(usize, u32, u32)> {
     let mut out = Vec::new();
     for (width, ranges) in cmap.codespace_ranges().iter().enumerate() {
@@ -106,6 +93,7 @@ fn codespace_list(cmap: &CMap) -> Vec<(usize, u32, u32)> {
 }
 
 /// Checks a CMap against the lines recorded for it.
+#[cfg(node_twin)]
 fn check_block(block: &Block) {
     let label = block.head[1].clone();
     let predefined = block.head[0] == "predef";
@@ -192,40 +180,6 @@ fn check_block(block: &Block) {
         for (index, recorded) in listed.iter().enumerate() {
             assert_eq!(&entries[index], recorded, "{label}: entry {index} in order");
         }
-    }
-}
-
-#[test]
-fn every_predefined_cmap_matches_pdfjs() {
-    let recorded: BTreeSet<String> = blocks()
-        .iter()
-        .filter(|block| block.head[0] == "predef")
-        .map(|block| block.head[1].clone())
-        .collect();
-    let embedded: BTreeSet<String> = BUILT_IN_CMAPS
-        .iter()
-        .map(|(name, _)| (*name).to_owned())
-        .collect();
-    assert_eq!(BUILT_IN_CMAPS.len(), 168);
-    assert_eq!(recorded, embedded, "the recording covers the embedded CMaps");
-    for (name, data) in BUILT_IN_CMAPS {
-        assert!(!data.is_empty(), "{name} has data");
-        assert_eq!(built_in_cmap_data(name), Some(*data));
-    }
-    for block in blocks().iter().filter(|block| block.head[0] == "predef") {
-        check_block(block);
-    }
-}
-
-#[test]
-fn embedded_cmaps_match_pdfjs() {
-    let cases: Vec<Block> = blocks()
-        .into_iter()
-        .filter(|block| block.head[0] == "case")
-        .collect();
-    assert!(cases.len() >= 20);
-    for block in &cases {
-        check_block(block);
     }
 }
 
@@ -1107,9 +1061,22 @@ fn a_collection_gives_the_font_with_the_requested_name() {
     assert!(TrueTypeFont::parse(&version3, "Beta").is_err());
 }
 
+#[test]
+fn every_predefined_cmap_ships_its_data_under_its_own_unique_name() {
+    assert_eq!(BUILT_IN_CMAPS.len(), 168);
+    let names: BTreeSet<&str> = BUILT_IN_CMAPS.iter().map(|(name, _)| *name).collect();
+    assert_eq!(names.len(), BUILT_IN_CMAPS.len(), "no name is listed twice");
+    for (name, data) in BUILT_IN_CMAPS {
+        assert!(!data.is_empty(), "{name} has data");
+        assert_eq!(built_in_cmap_data(name), Some(*data), "{name}");
+    }
+    assert_eq!(built_in_cmap_data("No-Such-CMap"), None);
+}
+
 // ---- the fonts of the corpus PDFs --------------------------------------------------------------------------------
 
 /// The decoded streams of a PDF that are TrueType fonts (found by scanning for streams, no PDF parsing).
+#[cfg(node_twin)]
 fn embedded_truetype_fonts(pdf: &[u8]) -> Vec<Vec<u8>> {
     let mut fonts = Vec::new();
     let mut from = 0;
@@ -1137,6 +1104,7 @@ fn embedded_truetype_fonts(pdf: &[u8]) -> Vec<Vec<u8>> {
     fonts
 }
 
+#[cfg(node_twin)]
 fn find(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     haystack
         .get(from..)?
@@ -1145,6 +1113,64 @@ fn find(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
         .map(|at| at + from)
 }
 
+
+// ---- the recorded CMaps ------------------------------------------------------------------------------------------
+
+#[cfg(node_twin)]
+const RECORDED: &str = include_str!("../../../fixtures/pdf-cmap/cmaps.txt");
+#[cfg(node_twin)]
+fn blocks() -> Vec<Block> {
+    let mut out = Vec::new();
+    let mut current: Option<Block> = None;
+    for line in RECORDED.lines() {
+        if line.starts_with("predef ") || line.starts_with("case ") {
+            current = Some(Block {
+                head: line.split(' ').map(str::to_owned).collect(),
+                body: Vec::new(),
+            });
+        } else if line == "end" {
+            out.extend(current.take());
+        } else if let Some(block) = current.as_mut() {
+            block.body.push(line.to_owned());
+        }
+    }
+    out
+}
+#[cfg(node_twin)]
+#[test]
+fn every_predefined_cmap_matches_pdfjs() {
+    let recorded: BTreeSet<String> = blocks()
+        .iter()
+        .filter(|block| block.head[0] == "predef")
+        .map(|block| block.head[1].clone())
+        .collect();
+    let embedded: BTreeSet<String> = BUILT_IN_CMAPS
+        .iter()
+        .map(|(name, _)| (*name).to_owned())
+        .collect();
+    assert_eq!(BUILT_IN_CMAPS.len(), 168);
+    assert_eq!(recorded, embedded, "the recording covers the embedded CMaps");
+    for (name, data) in BUILT_IN_CMAPS {
+        assert!(!data.is_empty(), "{name} has data");
+        assert_eq!(built_in_cmap_data(name), Some(*data));
+    }
+    for block in blocks().iter().filter(|block| block.head[0] == "predef") {
+        check_block(block);
+    }
+}
+#[cfg(node_twin)]
+#[test]
+fn embedded_cmaps_match_pdfjs() {
+    let cases: Vec<Block> = blocks()
+        .into_iter()
+        .filter(|block| block.head[0] == "case")
+        .collect();
+    assert!(cases.len() >= 20);
+    for block in &cases {
+        check_block(block);
+    }
+}
+#[cfg(node_twin)]
 const CORPUS_FONT_FILES: [(&str, &[u8]); 4] = [
     (
         "ttf-subsets-latin",
@@ -1163,7 +1189,7 @@ const CORPUS_FONT_FILES: [(&str, &[u8]); 4] = [
         include_bytes!("../../../fixtures/pdf-reader/samples/libreoffice-writer-report.pdf"),
     ),
 ];
-
+#[cfg(node_twin)]
 #[test]
 fn the_truetype_fonts_of_the_corpus_read_consistently() {
     let mut read = 0;

@@ -18,15 +18,6 @@ use mixdog_rt::{CancellationToken, DurabilityIo, InLane};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha512};
 
-/// Runs `job` as a durability-lane job (the inline test backend runs it on this thread).
-fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
-    let lanes = mixdog_rt::testing::tokens();
-    tokio::runtime::Builder::new_current_thread()
-        .build()
-        .expect("runtime")
-        .block_on(async { lanes.durability_io.submit(&CancellationToken::new(), job).expect("submit").await.expect("job") })
-}
-
 const FAKE_BINARY: &str = "ooxml-validator-test";
 
 fn fake_package() -> PlatformPackage {
@@ -118,145 +109,6 @@ impl Fixture {
             .join(node_platform())
             .join(FAKE_BINARY)
     }
-}
-
-fn ensure(environment: &Environment, data_dir: &Path, download: bool) -> Result<ValidatorRuntime, String> {
-    let (environment, data_dir) = (environment.clone(), data_dir.to_owned());
-    on_lane(move |lane| {
-        let request = Request { download, ..Request::new(&data_dir) };
-        ensure_in(lane, &environment, &request).map_err(|error| error.to_string())
-    })
-}
-
-#[test]
-fn isolated_document_sessions_reuse_the_same_cached_validator_without_a_network_request() {
-    let fixture = Fixture::new();
-    // Nothing listens here: a request would fail the test.
-    let environment = fixture.environment("http://127.0.0.1:1", fake_package());
-    let (first, second) = (fixture.session("session-a"), fixture.session("session-b"));
-    let missing = ensure(&environment, &first, false).expect("lookup");
-    assert_eq!(missing.download_required, Some(true));
-    assert!(!missing.available);
-
-    let binary = fixture.binary();
-    std::fs::create_dir_all(binary.parent().expect("parent")).expect("dir");
-    std::fs::write(&binary, vec![0_u8; 1024 * 1024 + 1]).expect("binary");
-    for data_dir in [&first, &second] {
-        let result = ensure(&environment, data_dir, false).expect("lookup");
-        assert!(result.available);
-        assert_eq!(result.cached, Some(true));
-        assert!(!result.downloaded);
-        assert_eq!(result.path.as_deref(), Some(binary.as_path()));
-    }
-
-    // Without the shared directory the application cache is its own: nothing there.
-    let isolated = Environment { shared_cache: None, ..environment };
-    assert_eq!(ensure(&isolated, &first, false).expect("lookup").download_required, Some(true));
-}
-
-#[test]
-fn a_binary_of_a_megabyte_or_less_is_a_failed_download_not_a_validator() {
-    let fixture = Fixture::new();
-    let environment = fixture.environment("http://127.0.0.1:1", fake_package());
-    let binary = fixture.binary();
-    std::fs::create_dir_all(binary.parent().expect("parent")).expect("dir");
-    std::fs::write(&binary, vec![0_u8; 1024 * 1024]).expect("binary");
-    assert_eq!(ensure(&environment, &fixture.session("a"), false).expect("lookup").download_required, Some(true));
-}
-
-#[test]
-fn shared_caches_preserve_disabled_validation_and_explicit_validator_paths() {
-    let fixture = Fixture::new();
-    let mut environment = fixture.environment("http://127.0.0.1:1", fake_package());
-    let first = fixture.session("session-a");
-    environment.disabled = true;
-    assert_eq!(ensure(&environment, &first, true).expect("lookup").disabled, Some(true));
-
-    let custom = fixture.session("custom-validator");
-    std::fs::write(&custom, "").expect("custom");
-    environment.cli_override = Some(custom.clone());
-    let result = ensure(&environment, &first, true).expect("lookup");
-    assert_eq!(result.path.as_deref(), Some(custom.as_path()));
-    assert_eq!(result.version.as_deref(), Some("override"));
-
-    environment.cli_override = Some(fixture.session("missing-validator"));
-    let error = ensure(&environment, &first, true).expect_err("missing override");
-    assert!(error.starts_with("ENOENT: no such file or directory, access"), "{error}");
-}
-
-#[test]
-fn an_unsupported_platform_reports_its_name() {
-    let fixture = Fixture::new();
-    let environment = Environment { platform: "plan9-mips".into(), ..fixture.environment("http://127.0.0.1:1", fake_package()) };
-    let result = ensure(&environment, &fixture.session("a"), true).expect("lookup");
-    assert!(!result.available);
-    assert_eq!(result.reason.as_deref(), Some("OOXML schema validation is unavailable on plan9-mips."));
-}
-
-#[test]
-fn a_corrupt_download_fails_integrity_validation_and_leaves_no_executable_or_install_lock() {
-    let fixture = Fixture::new();
-    let (registry, hits) = serve(b"not the pinned archive".to_vec());
-    let package = PlatformPackage { integrity: integrity_of(b"the pinned archive"), ..fake_package() };
-    let environment = fixture.environment(&registry, package);
-    let first = fixture.session("session-a");
-    let error = ensure(&environment, &first, true).expect_err("corrupt archive");
-    assert!(error.contains("integrity check failed"), "{error}");
-    assert_eq!(hits.load(Ordering::SeqCst), 1);
-    let left: Vec<_> = std::fs::read_dir(fixture.binary().parent().expect("parent")).expect("dir").collect();
-    assert!(left.is_empty(), "{left:?}");
-    assert_eq!(ensure(&environment, &first, false).expect("lookup").download_required, Some(true));
-}
-
-#[test]
-fn a_verified_download_installs_the_binary_once_and_is_cached() {
-    let fixture = Fixture::new();
-    let tarball = fake_tarball(1024 * 1024 + 5);
-    let (registry, hits) = serve(tarball.clone());
-    let package = PlatformPackage { integrity: integrity_of(&tarball), ..fake_package() };
-    let environment = fixture.environment(&registry, package);
-    let first = fixture.session("session-a");
-    let installed = ensure(&environment, &first, true).expect("install");
-    assert!(installed.available && installed.downloaded);
-    assert_eq!(installed.cached, Some(false));
-    assert_eq!(installed.bytes, Some(1024 * 1024 + 5));
-    assert_eq!(installed.path.as_deref(), Some(fixture.binary().as_path()));
-    assert_eq!(std::fs::read(fixture.binary()).expect("binary"), vec![7_u8; 1024 * 1024 + 5]);
-    let names: Vec<String> = std::fs::read_dir(fixture.binary().parent().expect("parent"))
-        .expect("dir")
-        .map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(names, vec![FAKE_BINARY.to_owned()], "no temporary file and no lock stays");
-
-    let again = ensure(&environment, &fixture.session("session-b"), true).expect("cached");
-    assert_eq!((again.cached, again.downloaded), (Some(true), false));
-    assert_eq!(hits.load(Ordering::SeqCst), 1);
-}
-
-#[test]
-fn an_archive_without_the_binary_names_what_is_missing() {
-    let fixture = Fixture::new();
-    let tarball = fake_tarball(8);
-    let (registry, _) = serve(tarball.clone());
-    let package = PlatformPackage { integrity: integrity_of(&tarball), binary: "other-binary".into(), ..fake_package() };
-    let environment = fixture.environment(&registry, package);
-    let error = ensure(&environment, &fixture.session("a"), true).expect_err("missing entry");
-    assert_eq!(error, "OOXML validator archive is missing package/other-binary");
-}
-
-#[test]
-fn an_aborted_install_is_refused_before_any_request() {
-    let fixture = Fixture::new();
-    let (registry, hits) = serve(Vec::new());
-    let environment = fixture.environment(&registry, fake_package());
-    let data_dir = fixture.session("a");
-    let result = on_lane(move |lane| {
-        let cancel = std::sync::atomic::AtomicBool::new(true);
-        let request = Request { cancel: Some(&cancel), ..Request::new(&data_dir) };
-        ensure_in(lane, &environment, &request).map_err(|error| error.to_string())
-    });
-    assert_eq!(result.expect_err("aborted"), "This operation was aborted");
-    assert_eq!(hits.load(Ordering::SeqCst), 0);
 }
 
 #[test]
@@ -377,6 +229,145 @@ fn unreadable_output_is_reported_with_the_parser_message() {
     );
 }
 
+
+/// Runs `job` as a durability-lane job (the inline test backend runs it on this thread).
+fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
+    let lanes = mixdog_rt::testing::tokens();
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("runtime")
+        .block_on(async { lanes.durability_io.submit(&CancellationToken::new(), job).expect("submit").await.expect("job") })
+}
+fn ensure(environment: &Environment, data_dir: &Path, download: bool) -> Result<ValidatorRuntime, String> {
+    let (environment, data_dir) = (environment.clone(), data_dir.to_owned());
+    on_lane(move |lane| {
+        let request = Request { download, ..Request::new(&data_dir) };
+        ensure_in(lane, &environment, &request).map_err(|error| error.to_string())
+    })
+}
+#[test]
+fn isolated_document_sessions_reuse_the_same_cached_validator_without_a_network_request() {
+    let fixture = Fixture::new();
+    // Nothing listens here: a request would fail the test.
+    let environment = fixture.environment("http://127.0.0.1:1", fake_package());
+    let (first, second) = (fixture.session("session-a"), fixture.session("session-b"));
+    let missing = ensure(&environment, &first, false).expect("lookup");
+    assert_eq!(missing.download_required, Some(true));
+    assert!(!missing.available);
+
+    let binary = fixture.binary();
+    std::fs::create_dir_all(binary.parent().expect("parent")).expect("dir");
+    std::fs::write(&binary, vec![0_u8; 1024 * 1024 + 1]).expect("binary");
+    for data_dir in [&first, &second] {
+        let result = ensure(&environment, data_dir, false).expect("lookup");
+        assert!(result.available);
+        assert_eq!(result.cached, Some(true));
+        assert!(!result.downloaded);
+        assert_eq!(result.path.as_deref(), Some(binary.as_path()));
+    }
+
+    // Without the shared directory the application cache is its own: nothing there.
+    let isolated = Environment { shared_cache: None, ..environment };
+    assert_eq!(ensure(&isolated, &first, false).expect("lookup").download_required, Some(true));
+}
+#[test]
+fn a_binary_of_a_megabyte_or_less_is_a_failed_download_not_a_validator() {
+    let fixture = Fixture::new();
+    let environment = fixture.environment("http://127.0.0.1:1", fake_package());
+    let binary = fixture.binary();
+    std::fs::create_dir_all(binary.parent().expect("parent")).expect("dir");
+    std::fs::write(&binary, vec![0_u8; 1024 * 1024]).expect("binary");
+    assert_eq!(ensure(&environment, &fixture.session("a"), false).expect("lookup").download_required, Some(true));
+}
+#[test]
+fn shared_caches_preserve_disabled_validation_and_explicit_validator_paths() {
+    let fixture = Fixture::new();
+    let mut environment = fixture.environment("http://127.0.0.1:1", fake_package());
+    let first = fixture.session("session-a");
+    environment.disabled = true;
+    assert_eq!(ensure(&environment, &first, true).expect("lookup").disabled, Some(true));
+
+    let custom = fixture.session("custom-validator");
+    std::fs::write(&custom, "").expect("custom");
+    environment.cli_override = Some(custom.clone());
+    let result = ensure(&environment, &first, true).expect("lookup");
+    assert_eq!(result.path.as_deref(), Some(custom.as_path()));
+    assert_eq!(result.version.as_deref(), Some("override"));
+
+    environment.cli_override = Some(fixture.session("missing-validator"));
+    let error = ensure(&environment, &first, true).expect_err("missing override");
+    assert!(error.starts_with("ENOENT: no such file or directory, access"), "{error}");
+}
+#[test]
+fn an_unsupported_platform_reports_its_name() {
+    let fixture = Fixture::new();
+    let environment = Environment { platform: "plan9-mips".into(), ..fixture.environment("http://127.0.0.1:1", fake_package()) };
+    let result = ensure(&environment, &fixture.session("a"), true).expect("lookup");
+    assert!(!result.available);
+    assert_eq!(result.reason.as_deref(), Some("OOXML schema validation is unavailable on plan9-mips."));
+}
+#[test]
+fn a_corrupt_download_fails_integrity_validation_and_leaves_no_executable_or_install_lock() {
+    let fixture = Fixture::new();
+    let (registry, hits) = serve(b"not the pinned archive".to_vec());
+    let package = PlatformPackage { integrity: integrity_of(b"the pinned archive"), ..fake_package() };
+    let environment = fixture.environment(&registry, package);
+    let first = fixture.session("session-a");
+    let error = ensure(&environment, &first, true).expect_err("corrupt archive");
+    assert!(error.contains("integrity check failed"), "{error}");
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    let left: Vec<_> = std::fs::read_dir(fixture.binary().parent().expect("parent")).expect("dir").collect();
+    assert!(left.is_empty(), "{left:?}");
+    assert_eq!(ensure(&environment, &first, false).expect("lookup").download_required, Some(true));
+}
+#[test]
+fn a_verified_download_installs_the_binary_once_and_is_cached() {
+    let fixture = Fixture::new();
+    let tarball = fake_tarball(1024 * 1024 + 5);
+    let (registry, hits) = serve(tarball.clone());
+    let package = PlatformPackage { integrity: integrity_of(&tarball), ..fake_package() };
+    let environment = fixture.environment(&registry, package);
+    let first = fixture.session("session-a");
+    let installed = ensure(&environment, &first, true).expect("install");
+    assert!(installed.available && installed.downloaded);
+    assert_eq!(installed.cached, Some(false));
+    assert_eq!(installed.bytes, Some(1024 * 1024 + 5));
+    assert_eq!(installed.path.as_deref(), Some(fixture.binary().as_path()));
+    assert_eq!(std::fs::read(fixture.binary()).expect("binary"), vec![7_u8; 1024 * 1024 + 5]);
+    let names: Vec<String> = std::fs::read_dir(fixture.binary().parent().expect("parent"))
+        .expect("dir")
+        .map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, vec![FAKE_BINARY.to_owned()], "no temporary file and no lock stays");
+
+    let again = ensure(&environment, &fixture.session("session-b"), true).expect("cached");
+    assert_eq!((again.cached, again.downloaded), (Some(true), false));
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
+#[test]
+fn an_archive_without_the_binary_names_what_is_missing() {
+    let fixture = Fixture::new();
+    let tarball = fake_tarball(8);
+    let (registry, _) = serve(tarball.clone());
+    let package = PlatformPackage { integrity: integrity_of(&tarball), binary: "other-binary".into(), ..fake_package() };
+    let environment = fixture.environment(&registry, package);
+    let error = ensure(&environment, &fixture.session("a"), true).expect_err("missing entry");
+    assert_eq!(error, "OOXML validator archive is missing package/other-binary");
+}
+#[test]
+fn an_aborted_install_is_refused_before_any_request() {
+    let fixture = Fixture::new();
+    let (registry, hits) = serve(Vec::new());
+    let environment = fixture.environment(&registry, fake_package());
+    let data_dir = fixture.session("a");
+    let result = on_lane(move |lane| {
+        let cancel = std::sync::atomic::AtomicBool::new(true);
+        let request = Request { cancel: Some(&cancel), ..Request::new(&data_dir) };
+        ensure_in(lane, &environment, &request).map_err(|error| error.to_string())
+    });
+    assert_eq!(result.expect_err("aborted"), "This operation was aborted");
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+}
 /// Runs the real validator (downloads it into the data directory's cache) on a blank document of each kind. Ignored: it
 /// fetches 30 MB and starts the validator.
 #[test]

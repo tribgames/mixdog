@@ -49,7 +49,7 @@ pub struct StageMeta<'a> {
 /// 'post_compact' })` of a pass that changed the transcript: `input` carries the compacted
 /// transcript, `used_tokens` the gauge's post-compaction figure.
 pub fn post_compact_snapshot(input: &StatusInput<'_>, used_tokens: f64, now: f64) -> Option<HeaderPatch> {
-    let Some(Worker::Policy(policy)) = worker_policy(input.session, &input.request_tools, input.agent_mode) else { return None };
+    let Some(Worker::Policy(policy)) = worker_policy(input.env, input.session, &input.request_tools, input.agent_mode) else { return None };
     let estimate = input.meter.messages(input.messages) as f64;
     let args = UsageSnapshotArgs { used_tokens, message_tokens_est: Some(estimate), source: "post_compact", updated_at: Some(now), now };
     record_context_usage_snapshot(input.session, &super::commit::policy_header(&policy), input.messages, input.signer, &args)
@@ -66,7 +66,7 @@ pub fn pre_send_check(input: &StatusInput<'_>, now: f64, reactive: bool) -> Opti
 /// else an unanchored session's last actual reading (`provider_resume`). `None` when the session has no worker policy
 /// that compacts or the estimate prices it.
 pub fn provider_pressure(input: &StatusInput<'_>) -> Option<f64> {
-    let Some(Worker::Policy(policy)) = worker_policy(input.session, &input.request_tools, input.agent_mode) else { return None };
+    let Some(Worker::Policy(policy)) = worker_policy(input.env, input.session, &input.request_tools, input.agent_mode) else { return None };
     baseline_pressure_tokens(input.session, input.messages, &policy, input).or_else(|| resume_tokens(input.session))
 }
 
@@ -77,7 +77,7 @@ pub fn provider_pressure(input: &StatusInput<'_>) -> Option<f64> {
 /// (`compactionTelemetryPressureTokens`).
 pub fn compact_telemetry(input: &StatusInput<'_>, now: f64, reactive: bool, stage: &str, meta: &StageMeta<'_>) -> Option<HeaderPatch> {
     let session = input.session;
-    let Some(Worker::Policy(policy)) = worker_policy(session, &input.request_tools, input.agent_mode) else { return None };
+    let Some(Worker::Policy(policy)) = worker_policy(input.env, session, &input.request_tools, input.agent_mode) else { return None };
     let messages = input.messages;
     let estimate = input.meter.messages(messages) as f64;
     let mut pressure = resolve_tokens(session, estimate, &policy, messages, input).0;
@@ -99,8 +99,8 @@ pub fn compact_telemetry(input: &StatusInput<'_>, now: f64, reactive: bool, stag
     let context_window = policy.context_window;
     let raw_context_window = positive_int(nullish(get(session, "rawContextWindow"), get(cfg, "rawContextWindow"))).or(context_window);
     let effective_percent = Some(number(nullish(get(session, "effectiveContextWindowPercent"), get(cfg, "effectiveContextWindowPercent")))).filter(|v| finite(*v));
-    let auto_limit = session_compact_policy(session, policy.boundary_tokens).auto_compact_token_limit;
-    let handoff_timeout = positive_int(get(cfg, "timeoutMs")).or_else(|| env_positive_int("MIXDOG_AGENT_COMPACT_TIMEOUT_MS")).unwrap_or(HANDOFF_TIMEOUT_MAX_MS as f64);
+    let auto_limit = session_compact_policy(input.env, session, policy.boundary_tokens).auto_compact_token_limit;
+    let handoff_timeout = positive_int(get(cfg, "timeoutMs")).or_else(|| env_positive_int(input.env, "MIXDOG_AGENT_COMPACT_TIMEOUT_MS")).unwrap_or(HANDOFF_TIMEOUT_MAX_MS as f64);
     let last_api = positive_int(get(session, "lastContextTokens")).map_or_else(|| or_null(prev.get("lastApiRequestTokens")), num);
     // The last compaction's wall time is replaced only by a stage that reports a finished one.
     let last_duration = match meta.duration_ms.filter(|ms| ms.is_finite()) {

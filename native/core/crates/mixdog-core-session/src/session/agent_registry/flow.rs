@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use mixdog_agent::agent_tool::flow::handoff::handoff_content;
 use mixdog_agent::agent_tool::flow::seams::AssistantText;
 use mixdog_agent::agent_tool::flow::seams::TurnError;
+use crate::session::failure_record::{Route, failure_text, log_failure};
 use mixdog_agent::agent_tool::flow::seams::TurnRequest;
 use mixdog_agent::agent_tool::flow::seams::TurnResult;
 use mixdog_agent::agent_tool::flow::seams::TurnSessions;
@@ -110,6 +111,10 @@ impl AgentTaskStarts {
 }
 
 impl TaskStarts for AgentTaskStarts {
+    fn take(&self, tool_call_id: &str) -> Vec<String> {
+        AgentTaskStarts::take(self, tool_call_id)
+    }
+
     /// `recordAgentTaskStart`: a call seen again keeps its place, as a JS `Map` does.
     fn record(&self, tool_call_id: &str, task_id: &str) {
         let (call, id) = (mixdog_js::js_trim(tool_call_id), mixdog_js::js_trim(task_id));
@@ -244,25 +249,6 @@ pub trait RuntimeRelease: Send + Sync {
     fn release(&self, thread: &ThreadId, reason: &str);
 }
 
-/// The session layer as a worker's turn uses it (`TurnSessions`): reads over the stored model
-/// context, the todo list, and the turn started through the internal `turn/start`.
-pub struct SessionTurns {
-    directory: Arc<SessionDirectory>,
-    release: Arc<dyn RuntimeRelease>,
-    /// The background shells a stalled turn's stop ended (`takeStoppedShellJobs`); without it a
-    /// handoff names none.
-    shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
-    /// The registry whose cancellations a turn is admitted against (`registry.assertAdmission`,
-    /// `agent-turns.mjs:96,108,116`); a turn with none is not checked.
-    admission: Option<Arc<AgentRegistry>>,
-    /// The sessions' MCP scopes: a spawned agent's first turn waits for its scope's servers still connecting.
-    mcp: Option<Arc<dyn mixdog_mcp::mcp_glue::McpScopes>>,
-}
-
-/// How long a spawned agent's first turn waits for the MCP servers still connecting
-/// (`MIXDOG_MCP_AGENT_GRACE_MS`, 3 s).
-const AGENT_MCP_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
-
 /// `assistantMessageText(content)`: a string, else the `text`/`output_text` parts joined by a
 /// line break.
 fn assistant_message_text(content: Option<&Value>) -> String {
@@ -292,15 +278,6 @@ fn replay_item_text(item: &Value) -> String {
     }
 }
 
-/// The result a worker's turn hands its owner, with the worker's sensitive values as the marker (its own context keeps
-/// them; the report leaves the session).
-fn report_redacted(marks: &dyn crate::session::seams::SensitiveMarks, worker: &ThreadId, result: &TurnResult) -> TurnResult {
-    let mut out = result.clone();
-    out.content = marks.redact_text(worker, &out.content);
-    out.report_content = out.report_content.map(|text| marks.redact_text(worker, &text));
-    out
-}
-
 /// `providerReplayText(replay)`: the visible text of a replay envelope's items.
 fn provider_replay_text(replay: Option<&Value>) -> String {
     let items = replay.and_then(|replay| replay.get("items")).and_then(Value::as_array);
@@ -311,223 +288,6 @@ fn provider_replay_text(replay: Option<&Value>) -> String {
         .filter(|text| !text.is_empty())
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-impl SessionTurns {
-    pub fn new(directory: Arc<SessionDirectory>, release: Arc<dyn RuntimeRelease>) -> Self {
-        Self { directory, release, shells: None, admission: None, mcp: None }
-    }
-
-    /// Admits each turn against the agent registry's cancellations: a turn on a session being
-    /// cancelled, or cancelled since the turn began, is refused with
-    /// `agent session <id> was cancelled during admission`.
-    pub fn with_admission(mut self, registry: Arc<AgentRegistry>) -> Self {
-        self.admission = Some(registry);
-        self
-    }
-
-    /// The MCP scopes a spawned agent's first turn waits on for connecting servers (`awaitMcpGrace`, agent grace).
-    pub fn with_mcp(mut self, scopes: Arc<dyn mixdog_mcp::mcp_glue::McpScopes>) -> Self {
-        self.mcp = Some(scopes);
-        self
-    }
-
-    /// `awaitMcpGrace({ untilConnected })`: a spawned agent's first turn starts with the tools of the servers that
-    /// connect within the agent grace; never fails.
-    async fn await_first_connect(&self, handle: &crate::session::handle::SessionHandle, kind: mixdog_agent::agent_tool::flow::seams::TurnKind) {
-        let Some(scopes) = &self.mcp else { return };
-        if kind != mixdog_agent::agent_tool::flow::seams::TurnKind::Spawn {
-            return;
-        }
-        let header = handle.live_header().header();
-        let scope = header.get("mcpScopeId").and_then(Value::as_str).map(mixdog_js::js_trim).filter(|scope| !scope.is_empty());
-        if let Some(scope) = scope {
-            scopes.await_initial_within(scope, AGENT_MCP_GRACE).await;
-        }
-    }
-
-    /// `registry.assertAdmission(sessionId, epoch)`.
-    fn admitted(&self, session_id: &str, epoch: Option<u64>) -> Result<Option<u64>, TurnError> {
-        match &self.admission {
-            Some(registry) => registry.assert_admission(session_id, epoch).map(Some).map_err(TurnError::new),
-            None => Ok(None),
-        }
-    }
-
-    /// The shell control the progress watchdog's stop reaps through (the one runtime the turns'
-    /// shells run in).
-    pub fn with_shells(mut self, shells: Arc<mixdog_tools::exec::ShellControl>) -> Self {
-        self.shells = Some(shells);
-        self
-    }
-
-    /// `session.messages` without its first `start`: the model rows since the thread's last compaction, from the `start`th;
-    /// the store does not read the frames before it.
-    async fn messages_from(&self, session_id: &str, start: usize) -> Vec<Value> {
-        let thread = ThreadId::from(clean_str(session_id).as_str());
-        match self.directory.model_context(&thread).read_from(start).await {
-            Ok(rows) => rows.into_iter().map(|(_, body)| body).collect(),
-            Err(error) => {
-                tracing::warn!("[agent-turn] the model context of {session_id} is unreadable: {error:?}");
-                Vec::new()
-            }
-        }
-    }
-}
-
-#[async_trait]
-impl TurnSessions for SessionTurns {
-    fn take_stopped_shell_jobs(&self, session_id: &str) -> mixdog_agent::agent_tool::flow::seams::StoppedShellJobs {
-        let Some(shells) = &self.shells else { return Default::default() };
-        let (stopped, stopping) = shells.take_reaped(&ThreadId::from(clean_str(session_id).as_str()));
-        mixdog_agent::agent_tool::flow::seams::StoppedShellJobs { stopped, stopping }
-    }
-
-    async fn message_count(&self, session_id: &str) -> usize {
-        let thread = ThreadId::from(clean_str(session_id).as_str());
-        match self.directory.model_context(&thread).len().await {
-            Ok(count) => count,
-            Err(error) => {
-                tracing::warn!("[agent-turn] the model context of {session_id} is unreadable: {error:?}");
-                0
-            }
-        }
-    }
-
-    /// The rows a stopped turn's handoff is read from, with the worker's sensitive values as the marker: the handoff leaves
-    /// the session.
-    async fn assistant_texts(&self, session_id: &str, start: usize) -> Vec<AssistantText> {
-        let (marks, worker) = (self.directory.deps().sensitive.clone(), ThreadId::from(clean_str(session_id).as_str()));
-        self.messages_from(session_id, start)
-            .await
-            .into_iter()
-            .filter(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
-            .map(|message| AssistantText {
-                content: marks.redact_text(&worker, &assistant_message_text(message.get("content"))),
-                replay: marks.redact_text(&worker, &provider_replay_text(message.get("providerReplay"))),
-            })
-            .collect()
-    }
-
-    fn carry_marks(&self, session_id: &str, owner_session_id: &str) {
-        let (worker, owner) = (ThreadId::from(clean_str(session_id).as_str()), ThreadId::from(clean_str(owner_session_id).as_str()));
-        self.directory.deps().sensitive.carry(&worker, &owner);
-    }
-
-    fn redact_text(&self, session_id: &str, text: &str) -> String {
-        self.directory.deps().sensitive.redact_text(&ThreadId::from(clean_str(session_id).as_str()), text)
-    }
-
-    /// `notDoneReport(session)` over the todo list of the loaded session's latest acked header
-    /// (Node reads the session object in memory); a session that is not loaded has none.
-    fn not_done_report(&self, session_id: &str) -> String {
-        let thread = ThreadId::from(clean_str(session_id).as_str());
-        self.directory
-            .handle(&thread)
-            .map(|handle| mixdog_core_ports::ports::todo_list::list_of(&handle.live_header().header()).not_done_report())
-            .unwrap_or_default()
-    }
-
-    /// Starts the turn through the internal `turn/start` (the worker's input row carries
-    /// `handoffContent(prompt, attachments)` and the submission), then waits for the run's
-    /// outcome: the final result, or the failure's message.
-    async fn run_turn(&self, request: TurnRequest) -> Result<TurnResult, TurnError> {
-        self.turn(request, false).await
-    }
-
-    /// `unloadSessionRuntime`: vetoed while the session still owns work (a running turn, or a
-    /// closing thread); else the process-local state a settled turn left is released.
-    fn unload_runtime(&self, session_id: &str, reason: &str) {
-        let thread = ThreadId::from(clean_str(session_id).as_str());
-        if let Some(handle) = self.directory.handle(&thread)
-            && (handle.cell.run.load().is_some() || handle.cell.closed.load(Ordering::SeqCst))
-        {
-            return;
-        }
-        self.directory.deps().side.forget(&thread, true);
-        self.release.release(&thread, reason);
-    }
-}
-
-impl SessionTurns {
-    /// [`TurnSessions::run_turn`] for a caller that runs the turn's progress watchdog itself (an
-    /// agent dispatch): the run arms none of its own.
-    pub async fn run_watched_turn(&self, request: TurnRequest) -> Result<TurnResult, TurnError> {
-        self.turn(request, true).await
-    }
-
-    async fn turn(&self, request: TurnRequest, caller_watchdog: bool) -> Result<TurnResult, TurnError> {
-        let thread = ThreadId::from(clean_str(&request.session_id).as_str());
-        let ctx = CallContext::internal("agent-turn");
-        // `const cancelEpoch = registry.assertAdmission(sessionId)` (`agent-turns.mjs:96`).
-        let epoch = self.admitted(thread.as_str(), None)?;
-        let handle = self
-            .directory
-            .open_handle(&thread, &ctx)
-            .await
-            .map_err(|error| TurnError::new(format!("agent session {} is unavailable: {error:?}", request.session_id)))?;
-        self.await_first_connect(&handle, request.kind).await;
-        // After `entryForSession` (`:108`), and again before the turn is submitted (`:116`, after
-        // the transcript length is read).
-        self.admitted(thread.as_str(), epoch)?;
-        let submission = request.hooks.submission_id.clone();
-        let op = OpId::from(format!("agent-turn:{}", if submission.is_empty() { uuid::Uuid::new_v4().to_string() } else { submission.clone() }));
-        let input = TurnInput {
-            prompt: PromptContent::Text(request.prompt.clone()),
-            options: Some(SubmitOptions { client_submission_id: Some(submission).filter(|id| !id.is_empty()), ..SubmitOptions::default() }),
-        };
-        self.admitted(thread.as_str(), epoch)?;
-        // The report and the failure leave the worker for its owner: the worker's sensitive values as the marker.
-        let marks = self.directory.deps().sensitive.clone();
-        let mut hooks = request.hooks;
-        if let Some(terminal) = hooks.on_terminal_result.take() {
-            let (marks, worker) = (marks.clone(), thread.clone());
-            hooks.on_terminal_result = Some(Arc::new(move |result: &TurnResult| terminal(&report_redacted(&*marks, &worker, result))));
-        }
-        let (done, outcome) = oneshot::channel();
-        *handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()) = Some(AgentStart {
-            content: handoff_content(&request.prompt, &request.attachments),
-            turn: AgentTurn {
-                kind: request.kind,
-                hooks,
-                slot: request.slot,
-                context: request.context,
-                skill_selection: request.skill_selection,
-                caller_watchdog,
-            },
-            done,
-        });
-        let params = json!({ "threadId": thread, "opId": op, "input": input });
-        let started = handle
-            .request(CoreRequest { method: Method("turn/start"), params, op: Some(op.clone()), ctx: ctx.clone() })
-            .await;
-        let unstarted = |message: String| {
-            handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()).take();
-            TurnError::new(message)
-        };
-        match started {
-            Ok(Reply::Value(value)) if value["kind"] == "started" => {}
-            Ok(Reply::Value(value)) => {
-                if let Some(queued) = value["queuedId"].as_str() {
-                    let params = json!({ "threadId": thread, "opId": format!("{op}:unqueue"), "queuedId": queued, "restore": false });
-                    // The refusal below stands whatever this answers, but a turn left queued would run
-                    // later with nobody waiting for it.
-                    if let Err(error) = handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(OpId::from(format!("{op}:unqueue"))), ctx }).await {
-                        tracing::warn!(session = %request.session_id, "a refused turn was not taken off the queue: {error:?}");
-                    }
-                }
-                return Err(unstarted(format!("agent session {} is busy with another turn", request.session_id)));
-            }
-            Ok(_) => return Err(unstarted("turn/start answered no value".to_owned())),
-            Err(error) => return Err(unstarted(format!("the turn did not start: {error:?}"))),
-        }
-        match outcome.await {
-            Ok(RunOutcome::Completed(result)) => Ok(report_redacted(&*marks, &thread, &result)),
-            Ok(RunOutcome::Failed(error)) => Err(TurnError::new(marks.redact_text(&thread, &error.message))),
-            Ok(RunOutcome::Interrupted) => Err(TurnError::new("The turn was interrupted")),
-            Err(_) => Err(TurnError::new(format!("agent session {} closed during its turn", request.session_id))),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -593,6 +353,14 @@ mod tests {
         }
     }
 
+    struct Released(Mutex<Vec<String>>);
+    impl RuntimeRelease for Released {
+        fn release(&self, thread: &ThreadId, reason: &str) {
+            self.0.lock().unwrap().push(format!("{thread} {reason}"));
+        }
+    }
+
+
     /// `session.messages.length` of a worker with a long conversation: counted from the store's index. The rows are not read: a
     /// turn start and a status read would otherwise read the whole context to return one number.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -633,7 +401,6 @@ mod tests {
         assert_eq!(count, directory.model_context(&handle.id).read().await.expect("the context").len(), "the length of what a read returns");
         assert!(count >= ROWS);
     }
-
     /// What a stopped turn's handoff and a worker's result read of a long conversation: the rows after the turn's start, and the
     /// newest assistant message. Each equals what the whole context gives and is asked of the store without the rows before it
     /// (`context_from_io`): the whole read (`context_io`) is never made.
@@ -699,14 +466,6 @@ mod tests {
         let none = directory.model_context(&handle.id).read_tail_until(|_| false).await.expect("whole");
         assert_eq!(none, whole);
     }
-
-    struct Released(Mutex<Vec<String>>);
-    impl RuntimeRelease for Released {
-        fn release(&self, thread: &ThreadId, reason: &str) {
-            self.0.lock().unwrap().push(format!("{thread} {reason}"));
-        }
-    }
-
     /// `notDoneReport(session)`: the unfinished items of the session's own list under `Not done:`,
     /// nothing when the list is empty or every item is completed or dropped, or the session is not
     /// loaded.
@@ -733,7 +492,6 @@ mod tests {
         assert_eq!(list_of(&mixed).not_done_report(), "Not done:\n- Write the summary\n- Verify");
         assert_eq!(list_of(&todo(json!([{ "content": "Measure the build", "status": "completed" }]))).not_done_report(), "");
     }
-
     /// A worker's turn: the input row carries `handoffContent` and the submission, the run
     /// is handed the turn's pieces, the final result reaches the terminal hook and the caller,
     /// the reads see only the rows the turn added, and a failure is the turn's own message.
@@ -820,7 +578,6 @@ mod tests {
         turns.unload_runtime(handle.id.as_str(), "agent-turn-complete");
         assert_eq!(*released.0.lock().unwrap(), [format!("{} agent-turn-complete", handle.id)]);
     }
-
     /// A worker's report leaves the worker: a value it marked sensitive is the marker in the result its owner gets, in the
     /// terminal hook's copy and in the rows a stopped turn's handoff is read from; carried, the value is the owner's too.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -878,7 +635,67 @@ mod tests {
         assert_eq!(turns.assistant_texts(worker.id.as_str(), 1).await, [AssistantText { content: marked.into(), replay: String::new() }]);
         assert_eq!(rig.sensitive.redact_text(owner.id.as_str(), CODE), "[redacted]", "the owner holds the worker's mark");
     }
-
+    /// The report the owner receives, and the one the terminal hook is given (the board's), both name the files the turn wrote
+    /// that its reply does not (`agent-turns.mjs`: files are collected before the hook is invoked).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup writes a fixture file")]
+    async fn the_terminal_hook_hears_the_report_with_the_files_produced() {
+        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
+        use mixdog_core_api::ThreadDirectory as _;
+        let dir = tempfile::tempdir().unwrap();
+        let root = mixdog_workspace::pathguard::canonical(dir.path()).unwrap();
+        let file = root.join("made.txt");
+        std::fs::write(&file, "x").unwrap();
+        let rig = crate::session::testing::Rig::new();
+        let path = file.to_string_lossy().into_owned();
+        rig.set_script(Arc::new(move |run| {
+            let path = path.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let reply = crate::session::ItemCommit {
+                    iid: mixdog_core_api::ids::ItemId::from("a-1"),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "role": "assistant", "content": "done", "toolCalls": [{ "name": "edit", "arguments": { "file_path": path } }] }),
+                    prompt: None,
+                };
+                run.port.commit_item(reply).await.expect("commit");
+                crate::session::RunOutcome::Completed(Box::new(TurnResult { content: "done".into(), iterations: 1, ..Default::default() }))
+            })
+        }));
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        // The session's folder is its own project: the turn's rewrites of the header keep it (a header edited in place is not).
+        let reply = directory
+            .request(crate::session::tests::request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": root.to_string_lossy() }), "op-start"))
+            .await
+            .expect("thread/start");
+        let mixdog_core_api::Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let worker = directory.handle(&ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"))).expect("loaded");
+        let turns = SessionTurns::new(directory.clone(), Arc::new(Released(Mutex::default())))
+            .with_files(mixdog_rt::testing::tokens().durability_io, Vec::new());
+        let heard: Arc<Mutex<Vec<String>>> = Arc::default();
+        let sink = heard.clone();
+        let request = TurnRequest {
+            kind: TurnKind::Spawn,
+            session_id: worker.id.as_str().to_owned(),
+            prompt: "make it".into(),
+            attachments: Vec::new(),
+            context: None,
+            cwd: String::new(),
+            skill_selection: None,
+            hooks: TurnHooks {
+                submission_id: "sub-files".into(),
+                notify: Arc::new(|_, _| true),
+                on_tool_result: Arc::new(|_: &ToolResultMessage| {}),
+                on_terminal_result: Some(Arc::new(move |result: &TurnResult| sink.lock().unwrap().push(result.report_text().to_owned()))),
+            },
+            slot: None,
+        };
+        let result = turns.run_turn(request).await.expect("turn");
+        assert!(result.report_text().contains("Files produced:") && result.report_text().contains("made.txt"), "{}", result.report_text());
+        assert_eq!(*heard.lock().unwrap(), [result.report_text().to_owned()]);
+    }
     /// A worker's turn asked of a session that is busy is refused, and the entry it queued is taken
     /// off the queue again: left there it would run later with nobody waiting for it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -929,7 +746,6 @@ mod tests {
         hold.notify_one();
         eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     }
-
     /// `observeSessionTurns`: the observer hears each turn start and the run host's final
     /// result unchanged, until it stops observing; a session not hosted here reports nothing.
     #[tokio::test(start_paused = true)]
@@ -964,7 +780,6 @@ mod tests {
         assert_eq!(heard.0.lock().unwrap().len(), 2, "no longer observed");
         assert!(directory.observe_session_turns("sess_elsewhere", heard).is_none());
     }
-
     /// A completion handed to a worker reaches its queue; a closed owner takes none.
     #[tokio::test(start_paused = true)]
     async fn a_completion_reaches_the_session_queue() {
@@ -990,7 +805,32 @@ mod tests {
         assert!(!owner_queued, "a closed owner keeps nothing for the model");
         assert!(!completions.notify(" ", envelope, &meta));
     }
+    /// A completion enqueued at hop 3 (the hop of the turn that started its job) wakes an idle session into a turn at hop 3:
+    /// the production wake builds the input row from the queued entry and the turn start stamps its `meta.transcript.hop`.
+    #[tokio::test(start_paused = true)]
+    async fn a_completion_queued_at_a_hop_wakes_its_turn_at_that_hop() {
+        use crate::eventually_on;
+        use crate::session::tests::start_thread;
+        use mixdog_tools::exec::TaskNotifier;
 
+        let rig = crate::session::testing::Rig::new();
+        let hold = Arc::new(tokio::sync::Notify::new());
+        let gate = hold.clone();
+        rig.set_script(Arc::new(move |run| {
+            let gate = gate.clone();
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                gate.notified().await;
+                crate::session::RunOutcome::Completed(Box::default())
+            })
+        }));
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let handle = start_thread(&directory).await;
+        assert_eq!(handle.cell.turn_chain.hop(), 0);
+        directory.finished_at_hop(&handle.id, "agent", "t1", "completed", ENVELOPE.to_owned(), 3).await;
+        eventually_on!(&[&handle.cell.stepped], || (handle.cell.run.load_full().is_some() && handle.cell.turn_chain.hop() == 3).then_some(())).await;
+        hold.notify_one();
+    }
     /// `suppressDisplay`: the completion the live session showed wakes a turn whose input row is
     /// durable but adds no row; one queued without a listener shows its row when taken in.
     #[tokio::test(start_paused = true)]
@@ -1021,7 +861,6 @@ mod tests {
         eventually_on!(&[&handle.cell.stepped], || (rows(&rig.store.records(&handle.id)) == 2 && idle(&handle)).then_some(())).await;
         eventually_on!(&[&handle.cell.stepped], || (handle.cell.view.load_full().items.len() == 2).then_some(())).await;
     }
-
     /// The live owner's cards (`execution-delivery.mjs`): a failed bodyless preview shows a card,
     /// a successful one does not, and the body that follows shows its own card.
     #[tokio::test(start_paused = true)]
@@ -1066,5 +905,305 @@ mod tests {
         directory.finished(&handle.id, "agent", "t1", "completed", body.to_owned()).await;
         mixdog_rt::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(cards(), 1, "one card for the execution; its body shows once");
+    }
+}
+
+
+/// The session layer as a worker's turn uses it (`TurnSessions`): reads over the stored model
+/// context, the todo list, and the turn started through the internal `turn/start`.
+pub struct SessionTurns {
+    directory: Arc<SessionDirectory>,
+    release: Arc<dyn RuntimeRelease>,
+    /// The background shells a stalled turn's stop ended (`takeStoppedShellJobs`); without it a
+    /// handoff names none.
+    shells: Option<Arc<mixdog_tools::exec::ShellControl>>,
+    /// The registry whose cancellations a turn is admitted against (`registry.assertAdmission`,
+    /// `agent-turns.mjs:96,108,116`); a turn with none is not checked.
+    admission: Option<Arc<AgentRegistry>>,
+    /// The sessions' MCP scopes: a spawned agent's first turn waits for its scope's servers still connecting.
+    mcp: Option<Arc<dyn mixdog_mcp::mcp_glue::McpScopes>>,
+    /// The lane the files a turn wrote are read on, and the folders no report names a file of (`sensitive_scopes`); without it
+    /// a report lists no produced files.
+    files: Option<(mixdog_rt::DurabilityIo, Vec<Vec<String>>)>,
+}
+/// How long a spawned agent's first turn waits for the MCP servers still connecting
+/// (`MIXDOG_MCP_AGENT_GRACE_MS`, 3 s).
+const AGENT_MCP_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
+#[async_trait]
+impl TurnSessions for SessionTurns {
+    fn take_stopped_shell_jobs(&self, session_id: &str) -> mixdog_agent::agent_tool::flow::seams::StoppedShellJobs {
+        let Some(shells) = &self.shells else { return Default::default() };
+        let (stopped, stopping) = shells.take_reaped(&ThreadId::from(clean_str(session_id).as_str()));
+        mixdog_agent::agent_tool::flow::seams::StoppedShellJobs { stopped, stopping }
+    }
+
+    async fn message_count(&self, session_id: &str) -> usize {
+        let thread = ThreadId::from(clean_str(session_id).as_str());
+        match self.directory.model_context(&thread).len().await {
+            Ok(count) => count,
+            Err(error) => {
+                tracing::warn!("[agent-turn] the model context of {session_id} is unreadable: {error:?}");
+                0
+            }
+        }
+    }
+
+    /// The rows a stopped turn's handoff is read from, with the worker's sensitive values as the marker: the handoff leaves
+    /// the session.
+    async fn assistant_texts(&self, session_id: &str, start: usize) -> Vec<AssistantText> {
+        let (marks, worker) = (self.directory.deps().sensitive.clone(), ThreadId::from(clean_str(session_id).as_str()));
+        self.messages_from(session_id, start)
+            .await
+            .into_iter()
+            .filter(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
+            .map(|message| AssistantText {
+                content: marks.redact_text(&worker, &assistant_message_text(message.get("content"))),
+                replay: marks.redact_text(&worker, &provider_replay_text(message.get("providerReplay"))),
+            })
+            .collect()
+    }
+
+    fn carry_marks(&self, session_id: &str, owner_session_id: &str) {
+        let (worker, owner) = (ThreadId::from(clean_str(session_id).as_str()), ThreadId::from(clean_str(owner_session_id).as_str()));
+        self.directory.deps().sensitive.carry(&worker, &owner);
+    }
+
+    fn redact_text(&self, session_id: &str, text: &str) -> String {
+        self.directory.deps().sensitive.redact_text(&ThreadId::from(clean_str(session_id).as_str()), text)
+    }
+
+    /// `notDoneReport(session)` over the todo list of the loaded session's latest acked header
+    /// (Node reads the session object in memory); a session that is not loaded has none.
+    fn not_done_report(&self, session_id: &str) -> String {
+        let thread = ThreadId::from(clean_str(session_id).as_str());
+        self.directory
+            .handle(&thread)
+            .map(|handle| mixdog_core_ports::ports::todo_list::list_of(&handle.live_header().header()).not_done_report())
+            .unwrap_or_default()
+    }
+
+    /// Starts the turn through the internal `turn/start` (the worker's input row carries
+    /// `handoffContent(prompt, attachments)` and the submission), then waits for the run's
+    /// outcome: the final result, or the failure's message.
+    async fn run_turn(&self, request: TurnRequest) -> Result<TurnResult, TurnError> {
+        self.turn(request, false).await
+    }
+
+    /// `unloadSessionRuntime`: vetoed while the session still owns work (a running turn, or a
+    /// closing thread); else the process-local state a settled turn left is released.
+    fn unload_runtime(&self, session_id: &str, reason: &str) {
+        let thread = ThreadId::from(clean_str(session_id).as_str());
+        if let Some(handle) = self.directory.handle(&thread)
+            && (handle.cell.run.load().is_some() || handle.cell.closed.load(Ordering::SeqCst))
+        {
+            return;
+        }
+        self.directory.deps().side.forget(&thread, true);
+        self.release.release(&thread, reason);
+    }
+}
+
+
+/// The result a worker's turn hands its owner, with the worker's sensitive values as the marker (its own context keeps
+/// them; the report leaves the session).
+fn report_redacted(marks: &dyn crate::session::seams::SensitiveMarks, worker: &ThreadId, result: &TurnResult) -> TurnResult {
+    let mut out = result.clone();
+    out.content = marks.redact_text(worker, &out.content);
+    out.report_content = out.report_content.map(|text| marks.redact_text(worker, &text));
+    out
+}
+impl SessionTurns {
+    pub fn new(directory: Arc<SessionDirectory>, release: Arc<dyn RuntimeRelease>) -> Self {
+        Self { directory, release, shells: None, admission: None, mcp: None, files: None }
+    }
+
+    /// Lets a turn's report name the files it wrote that the report does not (`Files produced:`).
+    pub fn with_files(mut self, lane: mixdog_rt::DurabilityIo, scopes: Vec<Vec<String>>) -> Self {
+        self.files = Some((lane, scopes));
+        self
+    }
+
+    /// `turnArtifactLines`: the `Files produced:` lines for the files the turn that began at `message_start` created or
+    /// modified and `report` does not name; none on any failure to read it (the handoff still goes out).
+    pub async fn produced_file_lines(&self, handle: &crate::session::handle::SessionHandle, message_start: usize, report: &str) -> Vec<String> {
+        use mixdog_services::task_reports::collect::{Options, collect_unreported_writes, session_roots};
+        let Some((lane, scopes)) = &self.files else { return Vec::new() };
+        let header = handle.live_header().header();
+        let text = |value: Option<&Value>| value.and_then(Value::as_str).unwrap_or_default().to_owned();
+        let cwd = text(header.get("cwd"));
+        let workspace = header.get("workspace");
+        let candidates = vec![
+            cwd.clone(),
+            text(workspace.and_then(|w| w.get("projectPath"))),
+            text(workspace.and_then(|w| w.get("worktreePath"))),
+            text(header.get("desktopSession").and_then(|d| d.get("projectPath"))),
+        ];
+        let messages = Value::Array(self.messages_from(handle.id.as_str(), message_start).await);
+        let (scopes, report) = (scopes.clone(), report.to_owned());
+        let Ok(found) = mixdog_rt::LaneToken::submit(*lane, &mixdog_rt::CancellationToken::new(), move |lane| {
+            let options = Options { cwd, roots: session_roots(&candidates), scopes };
+            collect_unreported_writes(lane, &messages, &options, &report)
+        }) else {
+            return Vec::new();
+        };
+        match found.await {
+            Ok(found) => mixdog_services::bots::delivery::rows::produced_file_lines(&found.files, found.omitted as f64),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Admits each turn against the agent registry's cancellations: a turn on a session being
+    /// cancelled, or cancelled since the turn began, is refused with
+    /// `agent session <id> was cancelled during admission`.
+    pub fn with_admission(mut self, registry: Arc<AgentRegistry>) -> Self {
+        self.admission = Some(registry);
+        self
+    }
+
+    /// The MCP scopes a spawned agent's first turn waits on for connecting servers (`awaitMcpGrace`, agent grace).
+    pub fn with_mcp(mut self, scopes: Arc<dyn mixdog_mcp::mcp_glue::McpScopes>) -> Self {
+        self.mcp = Some(scopes);
+        self
+    }
+
+    /// `awaitMcpGrace({ untilConnected })`: a spawned agent's first turn starts with the tools of the servers that
+    /// connect within the agent grace; never fails.
+    async fn await_first_connect(&self, handle: &crate::session::handle::SessionHandle, kind: mixdog_agent::agent_tool::flow::seams::TurnKind) {
+        let Some(scopes) = &self.mcp else { return };
+        if kind != mixdog_agent::agent_tool::flow::seams::TurnKind::Spawn {
+            return;
+        }
+        let header = handle.live_header().header();
+        let scope = header.get("mcpScopeId").and_then(Value::as_str).map(mixdog_js::js_trim).filter(|scope| !scope.is_empty());
+        if let Some(scope) = scope {
+            scopes.await_initial_within(scope, AGENT_MCP_GRACE).await;
+        }
+    }
+
+    /// `registry.assertAdmission(sessionId, epoch)`.
+    fn admitted(&self, session_id: &str, epoch: Option<u64>) -> Result<Option<u64>, TurnError> {
+        match &self.admission {
+            Some(registry) => registry.assert_admission(session_id, epoch).map(Some).map_err(TurnError::new),
+            None => Ok(None),
+        }
+    }
+
+    /// The shell control the progress watchdog's stop reaps through (the one runtime the turns'
+    /// shells run in).
+    pub fn with_shells(mut self, shells: Arc<mixdog_tools::exec::ShellControl>) -> Self {
+        self.shells = Some(shells);
+        self
+    }
+
+    /// `session.messages` without its first `start`: the model rows since the thread's last compaction, from the `start`th;
+    /// the store does not read the frames before it.
+    async fn messages_from(&self, session_id: &str, start: usize) -> Vec<Value> {
+        let thread = ThreadId::from(clean_str(session_id).as_str());
+        match self.directory.model_context(&thread).read_from(start).await {
+            Ok(rows) => rows.into_iter().map(|(_, body)| body).collect(),
+            Err(error) => {
+                tracing::warn!("[agent-turn] the model context of {session_id} is unreadable: {error:?}");
+                Vec::new()
+            }
+        }
+    }
+}
+impl SessionTurns {
+    /// [`TurnSessions::run_turn`] for a caller that runs the turn's progress watchdog itself (an
+    /// agent dispatch): the run arms none of its own.
+    pub async fn run_watched_turn(&self, request: TurnRequest) -> Result<TurnResult, TurnError> {
+        self.turn(request, true).await
+    }
+
+    async fn turn(&self, request: TurnRequest, caller_watchdog: bool) -> Result<TurnResult, TurnError> {
+        let thread = ThreadId::from(clean_str(&request.session_id).as_str());
+        let ctx = CallContext::internal("agent-turn");
+        // `const cancelEpoch = registry.assertAdmission(sessionId)` (`agent-turns.mjs:96`).
+        let epoch = self.admitted(thread.as_str(), None)?;
+        let handle = self
+            .directory
+            .open_handle(&thread, &ctx)
+            .await
+            .map_err(|error| TurnError::new(format!("agent session {} is unavailable: {error:?}", request.session_id)))?;
+        self.await_first_connect(&handle, request.kind).await;
+        // Where the turn's own rows begin, for the files it produced.
+        let message_start = self.message_count(thread.as_str()).await;
+        // After `entryForSession` (`:108`), and again before the turn is submitted (`:116`, after
+        // the transcript length is read).
+        self.admitted(thread.as_str(), epoch)?;
+        let submission = request.hooks.submission_id.clone();
+        let op = OpId::from(format!("agent-turn:{}", if submission.is_empty() { uuid::Uuid::new_v4().to_string() } else { submission.clone() }));
+        let input = TurnInput {
+            prompt: PromptContent::Text(request.prompt.clone()),
+            options: Some(SubmitOptions { client_submission_id: Some(submission).filter(|id| !id.is_empty()), ..SubmitOptions::default() }),
+        };
+        self.admitted(thread.as_str(), epoch)?;
+        // The report and the failure leave the worker for its owner: the worker's sensitive values as the marker.
+        let marks = self.directory.deps().sensitive.clone();
+        let mut hooks = request.hooks;
+        // The terminal hook is not given to the run: Node collects the turn's files, builds the result and only then invokes
+        // it (`agent-turns.mjs`), so it is called below with the report that carries them.
+        let terminal = hooks.on_terminal_result.take();
+        let (done, outcome) = oneshot::channel();
+        *handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()) = Some(AgentStart {
+            content: handoff_content(&request.prompt, &request.attachments),
+            turn: AgentTurn {
+                kind: request.kind,
+                hooks,
+                slot: request.slot,
+                context: request.context,
+                skill_selection: request.skill_selection,
+                caller_watchdog,
+            },
+            done,
+        });
+        let params = json!({ "threadId": thread, "opId": op, "input": input });
+        let started = handle
+            .request(CoreRequest { method: Method("turn/start"), params, op: Some(op.clone()), ctx: ctx.clone() })
+            .await;
+        let unstarted = |message: String| {
+            handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()).take();
+            TurnError::new(message)
+        };
+        match started {
+            Ok(Reply::Value(value)) if value["kind"] == "started" => {}
+            Ok(Reply::Value(value)) => {
+                if let Some(queued) = value["queuedId"].as_str() {
+                    let params = json!({ "threadId": thread, "opId": format!("{op}:unqueue"), "queuedId": queued, "restore": false });
+                    // The refusal below stands whatever this answers, but a turn left queued would run
+                    // later with nobody waiting for it.
+                    if let Err(error) = handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(OpId::from(format!("{op}:unqueue"))), ctx }).await {
+                        tracing::warn!(session = %request.session_id, "a refused turn was not taken off the queue: {error:?}");
+                    }
+                }
+                return Err(unstarted(format!("agent session {} is busy with another turn", request.session_id)));
+            }
+            Ok(_) => return Err(unstarted("turn/start answered no value".to_owned())),
+            Err(error) => return Err(unstarted(format!("the turn did not start: {error:?}"))),
+        }
+        match outcome.await {
+            Ok(RunOutcome::Completed(result)) => {
+                // The owner gets the turn's whole report with the files the turn produced (`agent-turns.mjs`).
+                let mut result = report_redacted(&*marks, &thread, &result);
+                let files = self.produced_file_lines(&handle, message_start, result.report_text()).await;
+                if !files.is_empty() {
+                    result.content = [result.report_text().to_owned(), files.join("\n")].join("\n\n");
+                    result.report_content = None;
+                }
+                if let Some(terminal) = terminal {
+                    terminal(&result);
+                }
+                Ok(result)
+            }
+            Ok(RunOutcome::Failed(error)) => {
+                // The task keeps the cause of the failure the turn ended on: its text is the error's, or what its kind, delivery
+                // and fault say, never an empty message.
+                let route = Route { provider: "", model: "" };
+                log_failure("agent-task-error", request.session_id.as_str(), &op.to_string(), &error, &route);
+                Err(TurnError::new(marks.redact_text(&thread, &failure_text(&error, &route))))
+            }
+            Ok(RunOutcome::Interrupted) => Err(TurnError::new("The turn was interrupted")),
+            Err(_) => Err(TurnError::new(format!("agent session {} closed during its turn", request.session_id))),
+        }
     }
 }

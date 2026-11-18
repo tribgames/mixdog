@@ -4,7 +4,9 @@
 //! stops on shutdown, and the transcript watcher on a real directory. Needs `MIXDOG_PG_RUNTIME`.
 
 use std::collections::VecDeque;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(node_twin)]
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -24,8 +26,6 @@ use crate::memory::schema::ensure_memory_schema;
 use crate::memory::tests::support::TestPg;
 use crate::memory::transcript::watcher::{TranscriptSink, start_transcript_watcher};
 use crate::memory::transcript::{TranscriptIngest, TranscriptIo};
-
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/memory-jobs/golden.json");
 
 async fn memory_db(pg: &TestPg) -> Db {
     let db = pg.db(Schema::Memory).await;
@@ -59,165 +59,7 @@ fn line(value: &Value) -> String {
     value.to_string()
 }
 
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
-async fn the_tail_ingest_matches_the_recorded_node_run() {
-    let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
-    let frozen = golden["frozenNow"].as_i64().unwrap();
-    let pg = TestPg::start().await;
-    let db = memory_db(&pg).await;
-    let ingest = TranscriptIngest::new(db.clone(), io(), Arc::new(move || frozen));
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("sess-1.jsonl");
-    let project = dir.path().join(".mixdog").join("project.id");
-    std::fs::create_dir_all(project.parent().unwrap()).unwrap();
-    std::fs::write(&project, "proj-a").unwrap();
-    let steps = golden["tail"].as_array().unwrap();
-    let mut expected_rows: Vec<Value> = Vec::new();
-    let run = |step: &Value, rows: &mut Vec<Value>| {
-        rows.extend(step["inserts"].as_array().unwrap().iter().map(|i| {
-            json!({"ts": i["ts"], "role": i["role"], "content": i["content"], "sourceRef": i["sourceRef"], "sessionId": i["sessionId"], "turn": i["turn"], "project": i["project"], "timeSource": i["timeSource"]})
-        }));
-        step["count"].as_u64().unwrap() as usize
-    };
-
-    let user = |text: &str, extra: Value| {
-        let mut v = json!({"type": "user", "message": {"content": text}});
-        v.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-        v
-    };
-    let first = [
-        line(&user("first question", json!({"timestamp": "2026-01-02T03:04:05.000Z"}))),
-        String::new(),
-        line(&json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "first answer"}]}, "ts": 1_700_000_000})),
-        "{broken json".to_owned(),
-        line(&json!({"type": "summary"})),
-    ]
-    .join("\r\n")
-        + "\r\n"
-        + "{\"type\":\"user\",\"message\":{\"content\":\"par";
-    std::fs::write(&file, first).unwrap();
-    let count = ingest.ingest_transcript_file(&file, Some(dir.path())).await.unwrap();
-    assert_eq!(count, run(&steps[0], &mut expected_rows), "{}", steps[0]["label"]);
-    assert_eq!(stored_rows(&db).await, expected_rows);
-    assert_offset(&ingest, &file, &steps[0]["offset"]);
-
-    let mut more = std::fs::read(&file).unwrap();
-    more.extend_from_slice(format!("tial\"}}}}\n\u{0}\u{0}{}\n", line(&user("after a NUL run", json!({"ts": 1_700_000_100})))).as_bytes());
-    std::fs::write(&file, more).unwrap();
-    let count = ingest.ingest_transcript_file(&file, Some(dir.path())).await.unwrap();
-    assert_eq!(count, run(&steps[1], &mut expected_rows), "{}", steps[1]["label"]);
-    assert_eq!(stored_rows(&db).await, expected_rows);
-    assert_offset(&ingest, &file, &steps[1]["offset"]);
-
-    assert_eq!(ingest.ingest_transcript_file(&file, Some(dir.path())).await.unwrap(), 0, "nothing new");
-
-    std::fs::remove_file(&project).unwrap();
-    std::fs::write(&file, format!("{}\n", line(&user("rewritten", json!({"ts": 1_700_000_200}))))).unwrap();
-    let count = ingest.ingest_transcript_file(&file, Some(dir.path())).await.unwrap();
-    assert_eq!(count, run(&steps[3], &mut expected_rows), "{}", steps[3]["label"]);
-    assert_eq!(stored_rows(&db).await, expected_rows);
-    assert_offset(&ingest, &file, &steps[3]["offset"]);
-
-    // The positions survive a restart: a new ingest loads them from the meta row.
-    let reloaded = TranscriptIngest::new(db.clone(), io(), Arc::new(move || frozen));
-    reloaded.load_transcript_offsets().await;
-    assert_offset(&reloaded, &file, &steps[3]["offset"]);
-    assert_eq!(reloaded.forget_transcripts(std::slice::from_ref(&file)).await, 1);
-    assert!(reloaded.get_offset(&file).is_none());
-}
-
-/// A session whose own ingest (a close or a recall) and whose transcript both reach memory is stored once, in either order:
-/// the transcript line takes over the row the session's ingest stored, and the session's ingest skips what the transcript holds.
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
-async fn a_session_in_both_the_session_ingest_and_the_transcript_is_stored_once() {
-    let pg = TestPg::start().await;
-    let db = memory_db(&pg).await;
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("sess_both.jsonl");
-    let user = |text: &str| json!({"type": "user", "message": {"content": text}, "ts": 1_700_000_000});
-    let messages = json!([{"role": "user", "content": "the same question", "ts": 1_700_000_000}]);
-    let sessions = crate::memory::ingest::SessionIngest::new(
-        db.clone(),
-        Arc::new(crate::memory::ingest::embed_flush::RawEmbedFlush::new(db.clone(), None)),
-        None,
-        Arc::new(now_ms),
-        mixdog_rt::testing::tokens().durability_io,
-    );
-    let transcripts = TranscriptIngest::new(db.clone(), io(), Arc::new(now_ms));
-    let sources = || async { stored_rows(&db).await.iter().map(|row| row["sourceRef"].as_str().unwrap().to_owned()).collect::<Vec<_>>() };
-
-    // The session's ingest first: the transcript line takes its row over.
-    sessions.ingest_session(&json!({"sessionId": "sess_both", "cwd": dir.path(), "messages": messages})).await.unwrap();
-    assert!(sources().await[0].starts_with("session:"));
-    std::fs::write(&file, format!("{}\n", line(&user("the same question")))).unwrap();
-    assert_eq!(transcripts.ingest_transcript_file(&file, Some(dir.path())).await.unwrap(), 0);
-    assert_eq!(sources().await, vec!["transcript:sess_both#1".to_owned()]);
-
-    // The session's ingest again: the transcript holds the message, nothing is added.
-    sessions.ingest_session(&json!({"sessionId": "sess_both", "cwd": dir.path(), "messages": messages})).await.unwrap();
-    assert_eq!(sources().await, vec!["transcript:sess_both#1".to_owned()]);
-    sessions.settle().await;
-}
-
-/// `fixtures/session-transcript/restart.json`: the turn's transcript was written and the writing runtime was gone before
-/// any ingest ran (the kill between save and feed). Node's watcher ingest then stores every line once, across a start
-/// killed after its inserts but before its read position was persisted (the next start sends the same rows again, which
-/// the unique source reference keeps single) and a start with nothing new. The same starts here over the same file.
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
-async fn a_transcript_written_before_a_restart_is_stored_once_as_node_stores_it() {
-    if std::env::var_os("MIXDOG_KILL_CHILD").is_some() {
-        return restart_kill_child().await;
-    }
-    let writer: Value = serde_json::from_str(include_str!("../../../../../fixtures/session-transcript/writer.json")).expect("writer recording");
-    let restart: Value = serde_json::from_str(include_str!("../../../../../fixtures/session-transcript/restart.json")).expect("restart recording");
-    let now = 1_772_600_767_890_i64;
-    assert_eq!(writer["now"], "2026-03-04T05:06:07.890Z");
-    let source = writer["cases"].as_array().unwrap().iter().find(|c| c["name"] == "restart-source").expect("the written turn");
-    let pg = TestPg::start().await;
-    let db = memory_db(&pg).await;
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("sess_restart.jsonl");
-    let escaped = serde_json::to_string(&dir.path().to_string_lossy()).unwrap();
-    let text = source["file"]["text"].as_str().unwrap().replace("<cwd>", &escaped[1..escaped.len() - 1]);
-    std::fs::write(&file, &text).unwrap();
-    let starts = restart["starts"].as_array().unwrap();
-    let rows_of = |inserts: &Value| -> Vec<Value> { inserts.as_array().unwrap().clone() };
-    let start = || async {
-        let ingest = TranscriptIngest::new(db.clone(), io(), Arc::new(move || now));
-        ingest.load_transcript_offsets().await;
-        let count = ingest.ingest_transcript_file(&file, Some(dir.path())).await.unwrap();
-        (ingest, count)
-    };
-
-    // The first start is killed (the ingest's kill point) after its last insert returned and before its position was
-    // persisted: the core's own ingest in a child process over this database. What it leaves is Node's recording: every
-    // line stored, and the blob a kill there leaves (none: Node's `persisted` of the first start is empty).
-    assert_eq!(starts[0]["count"].as_u64().unwrap(), starts[0]["inserts"].as_array().unwrap().len() as u64, "{}", starts[0]["label"]);
-    kill_ingest_at("a_transcript_written_before_a_restart_is_stored_once_as_node_stores_it", &pg, starts[0]["inserts"].as_array().unwrap().len() as u64, &file, dir.path()).await;
-    assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
-    let (_, left) = on_disk(&db).await;
-    assert_eq!(if left.is_null() { json!({}) } else { left }, starts[0]["persisted"], "the blob the kill left");
-
-    // The next start reads the file from where the blob says (its start) and sends the same rows again: still one each.
-    assert_eq!(starts[1]["inserts"], starts[0]["inserts"], "Node resends the same rows");
-    let (ingest, count) = start().await;
-    assert_eq!(count, 0, "every row it sends is already stored");
-    assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
-    let position = ingest.get_offset(&file).expect("a position");
-    assert_eq!(position.bytes as usize, text.len());
-    assert_eq!(position.line_index, starts[1]["position"]["lineIndex"].as_f64().unwrap());
-    assert_eq!(position.generation, starts[1]["position"]["generation"].as_f64().unwrap());
-
-    // A start with nothing new stores nothing.
-    let (_, count) = start().await;
-    assert_eq!(count as u64, starts[2]["count"].as_u64().unwrap(), "{}", starts[2]["label"]);
-    assert!(starts[2]["inserts"].as_array().unwrap().is_empty());
-    assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
-}
-
+#[cfg(node_twin)]
 /// Every `entries` row whole, as Node's recorder reads them (`to_jsonb`), in id order, and the positions blob.
 async fn on_disk(db: &Db) -> (Value, Value) {
     let rows = db.query("SELECT to_jsonb(e) FROM entries e ORDER BY id", &[]).await.expect("rows");
@@ -225,95 +67,7 @@ async fn on_disk(db: &Db) -> (Value, Value) {
     (Value::Array(rows.iter().map(|r| r.get::<_, Value>(0)).collect()), positions.unwrap_or(Value::Null))
 }
 
-/// `fixtures/transcript-restart/restart-kill.json` (`record-transcript-restart.mjs`): Node's watcher ingest over its real
-/// memory database, killed (SIGKILL) right after its k-th row insert returned, k = 1 .. n (the last, the point between
-/// the last insert and the position save), then started again. Here the same file: the core's own ingest, never killed,
-/// stores what Node's stores; then, for each point, the core's ingest in a child process killed at the same boundary
-/// (after its k-th insert returned, `transcript/tail.rs`'s kill point) leaves Node's disk, and the core's restart on that
-/// database stores every line once and leaves Node's rows, ids and position.
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
-async fn a_watcher_killed_between_a_store_and_its_position_save_restarts_as_nodes_does() {
-    if std::env::var_os("MIXDOG_KILL_CHILD").is_some() {
-        return restart_kill_child().await;
-    }
-    let path = |rel: &str| format!("{}/../../fixtures/{rel}", env!("CARGO_MANIFEST_DIR"));
-    let read = |rel: &str| -> Value { serde_json::from_str(&std::fs::read_to_string(path(rel)).expect("recording")).expect("json") };
-    let writer = read("session-transcript/writer.json");
-    let recorded = read("transcript-restart/restart-kill.json");
-    let now = RESTART_NOW;
-    assert_eq!(writer["now"], "2026-03-04T05:06:07.890Z");
-    let source = writer["cases"].as_array().unwrap().iter().find(|c| c["name"] == "restart-source").expect("the written turn");
-    let pg = TestPg::start().await;
-    // One database per run: each point starts from an empty store.
-    let fresh = || async {
-        let db = memory_db(&pg).await;
-        db.batch("TRUNCATE entries RESTART IDENTITY CASCADE; DELETE FROM meta WHERE key = 'state.transcript_offsets';").await.expect("empty store");
-        db
-    };
-    let dir = tempfile::tempdir().unwrap();
-    let work = dir.path().join("work");
-    std::fs::create_dir(&work).unwrap();
-    let file = work.join("sess_restart.jsonl");
-    let escaped = serde_json::to_string(&work.to_string_lossy()).unwrap();
-    let cwd = escaped[1..escaped.len() - 1].to_owned();
-    let text = source["file"]["text"].as_str().unwrap().replace("<cwd>", &cwd);
-    std::fs::write(&file, &text).unwrap();
-    // The file's length follows its directory's: a position Node saved at the end of its file (`fileBytes`) is the
-    // end of this one.
-    let key = format!("<cwd>{}sess_restart.jsonl", std::path::MAIN_SEPARATOR);
-    let named = |value: Value, node_bytes: &Value| -> Value {
-        let mut value: Value = serde_json::from_str(&value.to_string().replace(&cwd, "<cwd>")).unwrap();
-        if let Some(position) = value.pointer_mut("/positions").and_then(|p| p.get_mut(&key)) {
-            if position["bytes"] == json!(text.len()) {
-                position["bytes"] = node_bytes.clone();
-            }
-        }
-        value
-    };
-    let start = |db: Db| {
-        let file = file.clone();
-        let work = work.clone();
-        async move {
-            let ingest = TranscriptIngest::new(db, io(), Arc::new(move || now));
-            ingest.load_transcript_offsets().await;
-            ingest.ingest_transcript_file(&file, Some(&work)).await.unwrap()
-        }
-    };
-
-    let db = fresh().await;
-    let count = start(db.clone()).await;
-    let (rows, positions) = on_disk(&db).await;
-    let unkilled = &recorded["unkilled"];
-    assert_eq!(
-        named(json!({ "fileBytes": unkilled["fileBytes"], "count": count, "rows": rows, "positions": positions }), &unkilled["fileBytes"]),
-        *unkilled,
-        "the watcher never killed"
-    );
-
-    for point in recorded["points"].as_array().unwrap() {
-        let k = point["k"].as_u64().unwrap();
-        let db = fresh().await;
-        // The core's own ingest in a child process, killed after its k-th insert returned (the ingest's kill point),
-        // over this database.
-        kill_ingest_at("a_watcher_killed_between_a_store_and_its_position_save_restarts_as_nodes_does", &pg, k, &file, &work).await;
-        let (rows, positions) = on_disk(&db).await;
-        assert_eq!(
-            named(json!({ "rows": rows, "positions": positions }), &point["fileBytes"]),
-            json!({ "rows": point["atKill"]["rows"], "positions": point["atKill"]["positions"] }),
-            "point {k}: the disk the kill left"
-        );
-        // The restart on the same database.
-        let count = start(db.clone()).await;
-        let (rows, positions) = on_disk(&db).await;
-        assert_eq!(
-            named(json!({ "count": count, "rows": rows, "positions": positions }), &point["fileBytes"]),
-            point["restart"],
-            "point {k}: after the restart"
-        );
-    }
-}
-
+#[cfg(node_twin)]
 /// The core's ingest of `file` (working folder `work`) in a child process over `pg`'s database, killed at the kill point after
 /// its `k`-th insert returned (`restart_kill_child`). The child is hidden, ended when this future is dropped, and waited for
 /// under one deadline.
@@ -340,9 +94,11 @@ async fn kill_ingest_at(parent: &str, pg: &TestPg, k: u64, file: &Path, work: &P
     assert!(!status.success() && status.code() != Some(101), "point {k}: the child dies at its kill point, it neither ends nor fails: {status:?}");
 }
 
+#[cfg(node_twin)]
 /// The instant the restart recording ran at (`writer.json`'s `now`).
 const RESTART_NOW: i64 = 1_772_600_767_890;
 
+#[cfg(node_twin)]
 /// The killed child of the tests that call [`kill_ingest_at`]: the test itself, re-run by its exact name with
 /// `MIXDOG_KILL_CHILD` set, takes this role instead of its own (so no test passes without doing its work). The core's
 /// ingest of the recorded file over the parent's database, which dies at the kill point the environment names
@@ -357,6 +113,7 @@ async fn restart_kill_child() {
     panic!("the ingest ended without reaching {:?}", std::env::var("MIXDOG_KILL_AT"));
 }
 
+#[cfg(node_twin)]
 fn assert_offset(ingest: &TranscriptIngest, file: &Path, expected: &Value) {
     let got = ingest.get_offset(file).expect("a stored position");
     assert_eq!(
@@ -691,11 +448,305 @@ async fn shutdown_joins_the_ingestion_a_fired_timer_started() {
     assert!(timer.armed.lock().unwrap().iter().all(|(d, _)| *d != debounce), "no debounce timer after stop");
 }
 
+/// Many debounces complete while the watcher lives: each one's bookkeeping is its slot in the owner's registry and retires with it, so only the event
+/// and sweep tasks stay outstanding (no list of finished waiters grows with the watcher's life).
+#[tokio::test(flavor = "multi_thread")]
+async fn completed_debounces_retire_their_bookkeeping_while_the_watcher_lives() {
+    mixdog_rt::testing::tokens();
+    let pg = TestPg::start().await;
+    let db = memory_db(&pg).await;
+    let root = mixdog_workspace::pathguard::canonical(&pg.dir.path().join("projects")).unwrap_or_else(|_| pg.dir.path().join("projects"));
+    let project_dir = root.join("proj");
+    std::fs::create_dir_all(&project_dir).unwrap();
+    let file = project_dir.join("sess-r.jsonl");
+    let user = |text: &str| json!({"type": "user", "message": {"content": text}, "ts": 1_700_000_000}).to_string();
+    std::fs::write(&file, format!("{}\n", user("before the watcher"))).unwrap();
+    let root = mixdog_workspace::pathguard::canonical(&root).unwrap();
+    let ingest = TranscriptIngest::new(db.clone(), io(), Arc::new(now_ms));
+    let sink = TranscriptSink::default();
+    let folders = Arc::new(FolderWatcher::new(sink.change_sink()).unwrap());
+    let timer = Arc::new(ManualTimer::default());
+    let watcher = start_transcript_watcher(root, Arc::clone(&ingest), Arc::clone(&folders), &sink, timer.clone()).await;
+    let resident = watcher.outstanding();
+    let debounce = Duration::from_millis(500);
+    for round in 0..5 {
+        let mut text = std::fs::read_to_string(&file).unwrap();
+        text.push_str(&format!("{}\n", user(&format!("round {round}"))));
+        std::fs::write(&file, text).unwrap();
+        timer.armed_at(debounce).await;
+        crate::memory::tests::awaiting::awaiting("the debounce to complete and retire", async {
+            // A late OS event of the same write arms another debounce: it is fired too.
+            while watcher.outstanding() > resident {
+                timer.fire(debounce);
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+    }
+    assert_eq!(stored_rows(&db).await.len(), 6, "every round was ingested");
+    assert_eq!(watcher.outstanding(), resident, "the completed debounces left nothing behind");
+    watcher.stop();
+    watcher.finished().await.unwrap();
+    assert_eq!(watcher.outstanding(), 0);
+}
+
+/// A session whose own ingest (a close or a recall) and whose transcript both reach memory is stored once, in either order:
+/// the transcript line takes over the row the session's ingest stored, and the session's ingest skips what the transcript holds.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+async fn a_session_in_both_the_session_ingest_and_the_transcript_is_stored_once() {
+    let pg = TestPg::start().await;
+    let db = memory_db(&pg).await;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("sess_both.jsonl");
+    let user = |text: &str| json!({"type": "user", "message": {"content": text}, "ts": 1_700_000_000});
+    let messages = json!([{"role": "user", "content": "the same question", "ts": 1_700_000_000}]);
+    let sessions = crate::memory::ingest::SessionIngest::new(
+        db.clone(),
+        Arc::new(crate::memory::ingest::embed_flush::RawEmbedFlush::new(db.clone(), None)),
+        None,
+        Arc::new(now_ms),
+        mixdog_rt::testing::tokens().durability_io,
+    );
+    let transcripts = TranscriptIngest::new(db.clone(), io(), Arc::new(now_ms));
+    let sources = || async { stored_rows(&db).await.iter().map(|row| row["sourceRef"].as_str().unwrap().to_owned()).collect::<Vec<_>>() };
+
+    // The session's ingest first: the transcript line takes its row over.
+    sessions.ingest_session(&json!({"sessionId": "sess_both", "cwd": dir.path(), "messages": messages})).await.unwrap();
+    assert!(sources().await[0].starts_with("session:"));
+    std::fs::write(&file, format!("{}\n", line(&user("the same question")))).unwrap();
+    assert_eq!(transcripts.ingest_transcript_file(&file, Some(dir.path())).await.unwrap(), 0);
+    assert_eq!(sources().await, vec!["transcript:sess_both#1".to_owned()]);
+
+    // The session's ingest again: the transcript holds the message, nothing is added.
+    sessions.ingest_session(&json!({"sessionId": "sess_both", "cwd": dir.path(), "messages": messages})).await.unwrap();
+    assert_eq!(sources().await, vec!["transcript:sess_both#1".to_owned()]);
+    sessions.settle().await;
+}
+
+
+#[cfg(node_twin)]
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/memory-jobs/golden.json");
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+#[cfg(node_twin)]
+async fn the_tail_ingest_matches_the_recorded_node_run() {
+    let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
+    let frozen = golden["frozenNow"].as_i64().unwrap();
+    let pg = TestPg::start().await;
+    let db = memory_db(&pg).await;
+    let ingest = TranscriptIngest::new(db.clone(), io(), Arc::new(move || frozen));
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("sess-1.jsonl");
+    let project = dir.path().join(".mixdog").join("project.id");
+    std::fs::create_dir_all(project.parent().unwrap()).unwrap();
+    std::fs::write(&project, "proj-a").unwrap();
+    let steps = golden["tail"].as_array().unwrap();
+    let mut expected_rows: Vec<Value> = Vec::new();
+    let run = |step: &Value, rows: &mut Vec<Value>| {
+        rows.extend(step["inserts"].as_array().unwrap().iter().map(|i| {
+            json!({"ts": i["ts"], "role": i["role"], "content": i["content"], "sourceRef": i["sourceRef"], "sessionId": i["sessionId"], "turn": i["turn"], "project": i["project"], "timeSource": i["timeSource"]})
+        }));
+        step["count"].as_u64().unwrap() as usize
+    };
+
+    let user = |text: &str, extra: Value| {
+        let mut v = json!({"type": "user", "message": {"content": text}});
+        v.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        v
+    };
+    let first = [
+        line(&user("first question", json!({"timestamp": "2026-01-02T03:04:05.000Z"}))),
+        String::new(),
+        line(&json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "first answer"}]}, "ts": 1_700_000_000})),
+        "{broken json".to_owned(),
+        line(&json!({"type": "summary"})),
+    ]
+    .join("\r\n")
+        + "\r\n"
+        + "{\"type\":\"user\",\"message\":{\"content\":\"par";
+    std::fs::write(&file, first).unwrap();
+    let count = ingest.ingest_transcript_file(&file, Some(dir.path())).await.unwrap();
+    assert_eq!(count, run(&steps[0], &mut expected_rows), "{}", steps[0]["label"]);
+    assert_eq!(stored_rows(&db).await, expected_rows);
+    assert_offset(&ingest, &file, &steps[0]["offset"]);
+
+    let mut more = std::fs::read(&file).unwrap();
+    more.extend_from_slice(format!("tial\"}}}}\n\u{0}\u{0}{}\n", line(&user("after a NUL run", json!({"ts": 1_700_000_100})))).as_bytes());
+    std::fs::write(&file, more).unwrap();
+    let count = ingest.ingest_transcript_file(&file, Some(dir.path())).await.unwrap();
+    assert_eq!(count, run(&steps[1], &mut expected_rows), "{}", steps[1]["label"]);
+    assert_eq!(stored_rows(&db).await, expected_rows);
+    assert_offset(&ingest, &file, &steps[1]["offset"]);
+
+    assert_eq!(ingest.ingest_transcript_file(&file, Some(dir.path())).await.unwrap(), 0, "nothing new");
+
+    std::fs::remove_file(&project).unwrap();
+    std::fs::write(&file, format!("{}\n", line(&user("rewritten", json!({"ts": 1_700_000_200}))))).unwrap();
+    let count = ingest.ingest_transcript_file(&file, Some(dir.path())).await.unwrap();
+    assert_eq!(count, run(&steps[3], &mut expected_rows), "{}", steps[3]["label"]);
+    assert_eq!(stored_rows(&db).await, expected_rows);
+    assert_offset(&ingest, &file, &steps[3]["offset"]);
+
+    // The positions survive a restart: a new ingest loads them from the meta row.
+    let reloaded = TranscriptIngest::new(db.clone(), io(), Arc::new(move || frozen));
+    reloaded.load_transcript_offsets().await;
+    assert_offset(&reloaded, &file, &steps[3]["offset"]);
+    assert_eq!(reloaded.forget_transcripts(std::slice::from_ref(&file)).await, 1);
+    assert!(reloaded.get_offset(&file).is_none());
+}
+/// `fixtures/session-transcript/restart.json`: the turn's transcript was written and the writing runtime was gone before
+/// any ingest ran (the kill between save and feed). Node's watcher ingest then stores every line once, across a start
+/// killed after its inserts but before its read position was persisted (the next start sends the same rows again, which
+/// the unique source reference keeps single) and a start with nothing new. The same starts here over the same file.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+#[cfg(node_twin)]
+async fn a_transcript_written_before_a_restart_is_stored_once_as_node_stores_it() {
+    if std::env::var_os("MIXDOG_KILL_CHILD").is_some() {
+        return restart_kill_child().await;
+    }
+    let writer: Value = serde_json::from_str(include_str!("../../../../../fixtures/session-transcript/writer.json")).expect("writer recording");
+    let restart: Value = serde_json::from_str(include_str!("../../../../../fixtures/session-transcript/restart.json")).expect("restart recording");
+    let now = 1_772_600_767_890_i64;
+    assert_eq!(writer["now"], "2026-03-04T05:06:07.890Z");
+    let source = writer["cases"].as_array().unwrap().iter().find(|c| c["name"] == "restart-source").expect("the written turn");
+    let pg = TestPg::start().await;
+    let db = memory_db(&pg).await;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("sess_restart.jsonl");
+    let escaped = serde_json::to_string(&dir.path().to_string_lossy()).unwrap();
+    let text = source["file"]["text"].as_str().unwrap().replace("<cwd>", &escaped[1..escaped.len() - 1]);
+    std::fs::write(&file, &text).unwrap();
+    let starts = restart["starts"].as_array().unwrap();
+    let rows_of = |inserts: &Value| -> Vec<Value> { inserts.as_array().unwrap().clone() };
+    let start = || async {
+        let ingest = TranscriptIngest::new(db.clone(), io(), Arc::new(move || now));
+        ingest.load_transcript_offsets().await;
+        let count = ingest.ingest_transcript_file(&file, Some(dir.path())).await.unwrap();
+        (ingest, count)
+    };
+
+    // The first start is killed (the ingest's kill point) after its last insert returned and before its position was
+    // persisted: the core's own ingest in a child process over this database. What it leaves is Node's recording: every
+    // line stored, and the blob a kill there leaves (none: Node's `persisted` of the first start is empty).
+    assert_eq!(starts[0]["count"].as_u64().unwrap(), starts[0]["inserts"].as_array().unwrap().len() as u64, "{}", starts[0]["label"]);
+    kill_ingest_at("a_transcript_written_before_a_restart_is_stored_once_as_node_stores_it", &pg, starts[0]["inserts"].as_array().unwrap().len() as u64, &file, dir.path()).await;
+    assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
+    let (_, left) = on_disk(&db).await;
+    assert_eq!(if left.is_null() { json!({}) } else { left }, starts[0]["persisted"], "the blob the kill left");
+
+    // The next start reads the file from where the blob says (its start) and sends the same rows again: still one each.
+    assert_eq!(starts[1]["inserts"], starts[0]["inserts"], "Node resends the same rows");
+    let (ingest, count) = start().await;
+    assert_eq!(count, 0, "every row it sends is already stored");
+    assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
+    let position = ingest.get_offset(&file).expect("a position");
+    assert_eq!(position.bytes as usize, text.len());
+    assert_eq!(position.line_index, starts[1]["position"]["lineIndex"].as_f64().unwrap());
+    assert_eq!(position.generation, starts[1]["position"]["generation"].as_f64().unwrap());
+
+    // A start with nothing new stores nothing.
+    let (_, count) = start().await;
+    assert_eq!(count as u64, starts[2]["count"].as_u64().unwrap(), "{}", starts[2]["label"]);
+    assert!(starts[2]["inserts"].as_array().unwrap().is_empty());
+    assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
+}
+/// `fixtures/transcript-restart/restart-kill.json` (`record-transcript-restart.mjs`): Node's watcher ingest over its real
+/// memory database, killed (SIGKILL) right after its k-th row insert returned, k = 1 .. n (the last, the point between
+/// the last insert and the position save), then started again. Here the same file: the core's own ingest, never killed,
+/// stores what Node's stores; then, for each point, the core's ingest in a child process killed at the same boundary
+/// (after its k-th insert returned, `transcript/tail.rs`'s kill point) leaves Node's disk, and the core's restart on that
+/// database stores every line once and leaves Node's rows, ids and position.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+#[cfg(node_twin)]
+async fn a_watcher_killed_between_a_store_and_its_position_save_restarts_as_nodes_does() {
+    if std::env::var_os("MIXDOG_KILL_CHILD").is_some() {
+        return restart_kill_child().await;
+    }
+    let path = |rel: &str| format!("{}/../../fixtures/{rel}", env!("CARGO_MANIFEST_DIR"));
+    let read = |rel: &str| -> Value { serde_json::from_str(&std::fs::read_to_string(path(rel)).expect("recording")).expect("json") };
+    let writer = read("session-transcript/writer.json");
+    let recorded = read("transcript-restart/restart-kill.json");
+    let now = RESTART_NOW;
+    assert_eq!(writer["now"], "2026-03-04T05:06:07.890Z");
+    let source = writer["cases"].as_array().unwrap().iter().find(|c| c["name"] == "restart-source").expect("the written turn");
+    let pg = TestPg::start().await;
+    // One database per run: each point starts from an empty store.
+    let fresh = || async {
+        let db = memory_db(&pg).await;
+        db.batch("TRUNCATE entries RESTART IDENTITY CASCADE; DELETE FROM meta WHERE key = 'state.transcript_offsets';").await.expect("empty store");
+        db
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let file = work.join("sess_restart.jsonl");
+    let escaped = serde_json::to_string(&work.to_string_lossy()).unwrap();
+    let cwd = escaped[1..escaped.len() - 1].to_owned();
+    let text = source["file"]["text"].as_str().unwrap().replace("<cwd>", &cwd);
+    std::fs::write(&file, &text).unwrap();
+    // The file's length follows its directory's: a position Node saved at the end of its file (`fileBytes`) is the
+    // end of this one.
+    let key = format!("<cwd>{}sess_restart.jsonl", std::path::MAIN_SEPARATOR);
+    let named = |value: Value, node_bytes: &Value| -> Value {
+        let mut value: Value = serde_json::from_str(&value.to_string().replace(&cwd, "<cwd>")).unwrap();
+        if let Some(position) = value.pointer_mut("/positions").and_then(|p| p.get_mut(&key)) {
+            if position["bytes"] == json!(text.len()) {
+                position["bytes"] = node_bytes.clone();
+            }
+        }
+        value
+    };
+    let start = |db: Db| {
+        let file = file.clone();
+        let work = work.clone();
+        async move {
+            let ingest = TranscriptIngest::new(db, io(), Arc::new(move || now));
+            ingest.load_transcript_offsets().await;
+            ingest.ingest_transcript_file(&file, Some(&work)).await.unwrap()
+        }
+    };
+
+    let db = fresh().await;
+    let count = start(db.clone()).await;
+    let (rows, positions) = on_disk(&db).await;
+    let unkilled = &recorded["unkilled"];
+    assert_eq!(
+        named(json!({ "fileBytes": unkilled["fileBytes"], "count": count, "rows": rows, "positions": positions }), &unkilled["fileBytes"]),
+        *unkilled,
+        "the watcher never killed"
+    );
+
+    for point in recorded["points"].as_array().unwrap() {
+        let k = point["k"].as_u64().unwrap();
+        let db = fresh().await;
+        // The core's own ingest in a child process, killed after its k-th insert returned (the ingest's kill point),
+        // over this database.
+        kill_ingest_at("a_watcher_killed_between_a_store_and_its_position_save_restarts_as_nodes_does", &pg, k, &file, &work).await;
+        let (rows, positions) = on_disk(&db).await;
+        assert_eq!(
+            named(json!({ "rows": rows, "positions": positions }), &point["fileBytes"]),
+            json!({ "rows": point["atKill"]["rows"], "positions": point["atKill"]["positions"] }),
+            "point {k}: the disk the kill left"
+        );
+        // The restart on the same database.
+        let count = start(db.clone()).await;
+        let (rows, positions) = on_disk(&db).await;
+        assert_eq!(
+            named(json!({ "count": count, "rows": rows, "positions": positions }), &point["fileBytes"]),
+            point["restart"],
+            "point {k}: after the restart"
+        );
+    }
+}
 /// The recorded chunk-root cases through the real row boundary: ids and timestamps pass through
 /// the database's bigint columns, so a member that is not a number is refused there and left out
 /// of the root choice, as Node's `Number.isFinite` check leaves it out.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+#[cfg(node_twin)]
 async fn the_recorded_root_cases_cross_the_row_boundary() {
     use crate::memory::cycles::rows::{row_of, select_root_id};
     mixdog_rt::testing::tokens();

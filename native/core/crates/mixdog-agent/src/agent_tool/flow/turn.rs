@@ -183,13 +183,11 @@ impl TurnRunner {
         // `noteStoppedShellJobsOnError`: a failure with no partial output still names the shells
         // the stop ended, so the owner learns them.
         let jobs = self.sessions.take_stopped_shell_jobs(&plan.session_id);
-        if let Some(note) = stopped_jobs_note(&jobs.stopped, &jobs.stopping) {
-            failure.message = format!("{} {note}", failure.message);
-        }
+        failure.notes.extend(stopped_jobs_note(&jobs.stopped, &jobs.stopping));
         if let Some(job) = job {
             reconcile_failed(job, &failure, &plan.identity);
         }
-        Err(failure.message)
+        Err(failure.text_with_notes())
     }
 
     /// Runs the turn and settles everything around it; a failed turn is its message.

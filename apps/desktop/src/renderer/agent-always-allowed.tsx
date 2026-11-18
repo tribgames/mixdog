@@ -34,7 +34,7 @@ function permissionLabel(row: { action: string; shared?: unknown }): string {
 }
 
 /** The host's two answers as rows: allowed action kinds and tools (those an
- *  "Always allow (all conversations)" saved for every agent, marked as such),
+ *  "Always allow" saved for every agent, marked as such),
  *  then allowed connector tools. */
 export function alwaysAllowedItems(agentId: string, permissions: unknown, tools: unknown): AlwaysAllowedItem[] {
   const actions = (Array.isArray(permissions) ? permissions : [])

@@ -370,6 +370,38 @@ test('subscription usage lists Fast calls as a second model row marked Fast', as
   );
 });
 
+test('quota rows, series and a slot tooltip distinguish all three speeds of one model', async (context) => {
+  const render = harness(context);
+  const models = ['standard', 'fast', 'ultrafast'].map((speedTier) => ({
+    model: 'model-a', speedTier, consumed: 1,
+  }));
+  const domain = { fromMs: opened, toMs: resetAt };
+  const answer = {
+    generatedAt: now,
+    view: 'window',
+    selection: { provider: 'anthropic-oauth', account: 'default', label: '5H' },
+    subscriptions: [{ provider: 'anthropic-oauth', account: 'default', windows: ['5H'] }],
+    period: domain,
+    domain,
+    points: [[opened, 0, 1], [now, 3, 1]],
+    models,
+    modelSeries: models.map(({ model, speedTier }) => ({
+      key: model, speedTier, points: [[opened, 0], [now, 1]],
+    })),
+    slots: [{ ...domain, models, startPct: 0, endPct: 3 }],
+  };
+  const api = { invokeCapability: async () => ({ value: answer }) };
+  focusQuotaUsage('anthropic-oauth');
+  await render({ surface: 'stats', open: true, onClose() {}, api });
+  const names = ['model-a', `model-a · ${t('Fast')}`, `model-a · ${t('Ultrafast')}`];
+  assert.deepEqual(texts('.quota-table .stats-model-cell'), names);
+  assert.deepEqual(texts('.quota-legend li'), names);
+  const inks = [...document.querySelectorAll('.quota-legend [data-series]')].map((node) => node.dataset.series);
+  assert.equal(new Set(inks).size, 3);
+  await act(async () => document.querySelector('button.quota-chart-slot').click());
+  assert.deepEqual(texts('.stats-trend-detail .usage-model-label'), names);
+});
+
 test('a limit window is valued at Mixdog’s own rate over the whole limit, outside use excluded', () => {
   // $40 of Mixdog requests and $30 of outside use; Mixdog's rate is $2 per point.
   const summary = { costUsd: 40, outsideCostUsd: 30, estimatedTotalCostUsd: 70, costPerPercent: 2 };

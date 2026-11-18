@@ -43,6 +43,29 @@ test('the toggle reads the setting, writes it optimistically and reverts a faile
   await settle();
   assert.deepEqual(writes, [false, true]);
   assert.equal(document.querySelector('input[type="checkbox"]').checked, false, 'failed write reverts');
+  assert.ok(document.querySelector('[role="alert"]')?.textContent.trim(), 'the failed save is reported');
+});
+
+test('a failed first read stays hidden, and a settings announcement shows the stored value', async (t) => {
+  let read = () => Promise.reject(new Error('core not ready'));
+  const listeners = new Set();
+  const { root, document } = mount(t, {
+    getQuotaAutoResume: () => read(),
+    setQuotaAutoResume: async (next) => next,
+    subscribeSettingsChanged: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  });
+  await act(async () => root.render(React.createElement(QuotaAutoResumeToggle)));
+  await settle();
+  assert.equal(document.querySelector('.settings-group'), null, 'unknown is not shown as off');
+  read = async () => false;
+  await act(async () => {
+    for (const listener of [...listeners]) listener({ scope: 'desktop' });
+  });
+  await settle();
+  assert.equal(document.querySelector('input[type="checkbox"]').checked, false);
 });
 
 test('the group stays hidden until the setting has been read', async (t) => {

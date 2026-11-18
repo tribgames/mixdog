@@ -218,7 +218,12 @@ impl CatalogHead {
 /// The catalog row of `head` with `stats` (the list row JSON is `_sessionSummary`'s
 /// shape). `now` is `Date.now()` for a header without `updatedAt`.
 pub fn catalog_row(head: &CatalogHead, stats: &MessageStats, now: f64) -> CatalogRow {
-    let h = &head.header;
+    catalog_row_of(&head.session, &head.log_id, head.base_session.as_deref(), &head.header, stats, now)
+}
+
+/// [`catalog_row`] of a header that is read where it is: a caller that holds the header (a session's view, rebuilt on
+/// every published note) does not copy it to ask for its row.
+pub fn catalog_row_of(session: &str, log_id: &str, base_session: Option<&str>, h: &Map<String, Value>, stats: &MessageStats, now: f64) -> CatalogRow {
     let str_field = |k: &str| get(h, k).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
     let updated_at = positive(get(h, "updatedAt"), now);
     let last_used = positive(get(h, "lastUsedAt"), 0.0);
@@ -227,7 +232,7 @@ pub fn catalog_row(head: &CatalogHead, stats: &MessageStats, now: f64) -> Catalo
     let owner_session = if truthy(get(h, "ownerSessionId")) { or_null(get(h, "ownerSessionId")) } else { parent.clone() };
     let visibility = session_visibility(h);
     let mut s = Map::new();
-    s.insert("id".into(), json!(head.session));
+    s.insert("id".into(), json!(session));
     s.insert("updatedAt".into(), num(updated_at));
     s.insert("lastUsedAt".into(), num(last_used));
     s.insert("createdAt".into(), num(positive(get(h, "createdAt"), 0.0)));
@@ -345,9 +350,9 @@ pub fn catalog_row(head: &CatalogHead, stats: &MessageStats, now: f64) -> Catalo
     }
     let as_str = |v: &Value| v.as_str().map(str::to_owned);
     CatalogRow {
-        id: head.session.clone(),
-        log_id: head.log_id.clone(),
-        base_session: head.base_session.clone(),
+        id: session.to_owned(),
+        log_id: log_id.to_owned(),
+        base_session: base_session.map(str::to_owned),
         activity: if last_used > 0.0 { last_used } else { updated_at },
         created_at: Some(positive(get(h, "createdAt"), 0.0)).filter(|v| *v > 0.0),
         updated_at: Some(updated_at),
@@ -368,9 +373,10 @@ pub fn catalog_row(head: &CatalogHead, stats: &MessageStats, now: f64) -> Catalo
         source_name: str_field("sourceName"),
         summary: Value::Object(s).to_string(),
         worker: crate::worker::WorkerKeys::of(h),
-        agent_tag: crate::worker::TagKeys::of(&head.session, h),
+        agent_tag: crate::worker::TagKeys::of(session, h),
         deleted: is_deleted(h),
-        user_name: if get(h, "titleSource").and_then(Value::as_str) == Some("user") { str_field("title") } else { None },
+        listed: crate::worker::listed_row(h),
+        user_name:if get(h, "titleSource").and_then(Value::as_str) == Some("user") { str_field("title") } else { None },
     }
 }
 

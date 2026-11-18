@@ -327,6 +327,59 @@ test('a release builds server bundles once and verifies its actual Linux package
   for (const name of ['verify', 'build-next', 'update-path', 'container-smoke']) assert.equal(failed[name], 'skipped');
 });
 
+test('release: the Linux verification starts beside the packagers, waits for their package artifact, and repeats no x64 suite', () => {
+  const full = release.jobs['linux-verify-full'];
+  for (const job of ['desktop-linux-x64', 'desktop-linux-arm64']) {
+    assert.ok(!needsOf(full).includes(job), `${job} must not delay the start of the verification`);
+    assert.ok(needsOf(release.jobs.publish).includes(job), `publish still needs ${job}`);
+  }
+  assert.equal(full.permissions.actions, 'read', 'the verify jobs poll this run for the package artifact');
+  assert.equal(full.with.arm64_tests_only, true);
+  // verify waits for the packager's job by name, per arch, before it downloads the artifact.
+  const steps = verify.jobs.verify.steps;
+  const wait = steps.findIndex((step) => step.name === 'Wait for the release package');
+  const download = steps.findIndex((step) => step.name === 'Download the release packages under verification');
+  assert.ok(wait >= 0 && wait < download);
+  assert.equal(steps[wait].if, '${{ inputs.packages_prebuilt }}');
+  assert.match(steps[wait].run, /wait-for-artifact\.sh mixdog-linux-packages-\$\{\{ matrix\.arch \}\} desktop-linux-\$\{\{ matrix\.arch \}\}/);
+  assert.equal(verify.permissions.actions, 'read');
+  // The producer's job name is what the wait script matches.
+  const packager = parse(read('desktop-package.yml')).jobs.package;
+  assert.equal(packager.name, 'desktop-${{ inputs.platform }}-${{ inputs.arch }}');
+  const upload = parse(read('desktop-package.yml')).jobs.package.steps.find((step) => step.name === 'Upload the Linux packages for verification');
+  assert.equal(upload.with.name, 'mixdog-linux-packages-${{ inputs.arch }}');
+  // The matrix of the tests job: the standalone lane keeps all six legs, the release's call the three arm64 ones.
+  const matrix = verify.jobs.tests.strategy.matrix;
+  const [, arm64Only, all] = /fromJSON\(inputs\.arm64_tests_only && '(.*?)' \|\| '(.*?)'\)/.exec(matrix);
+  assert.deepEqual(JSON.parse(arm64Only).include.map((leg) => leg.arch), ['arm64', 'arm64', 'arm64']);
+  assert.deepEqual(JSON.parse(all).include.map((leg) => `${leg.arch}-${leg.suite}-${leg.shard}`), [
+    'x64-root-1', 'x64-desktop-1', 'x64-desktop-2', 'arm64-root-1', 'arm64-desktop-1', 'arm64-desktop-2',
+  ]);
+  assert.equal(verify.on.workflow_call.inputs.arm64_tests_only.default, false);
+});
+
+test('release: the process-tree helper is built once per target and every smoke takes it', () => {
+  const targets = release.jobs['tree-helper'].strategy.matrix.include.map((leg) => leg.target).sort();
+  assert.deepEqual(targets, [
+    'aarch64-apple-darwin', 'aarch64-unknown-linux-gnu', 'x86_64-apple-darwin', 'x86_64-pc-windows-msvc', 'x86_64-unknown-linux-gnu',
+  ]);
+  const smoke = release.jobs['core-smoke'];
+  assert.ok(needsOf(smoke).includes('tree-helper'));
+  assert.ok(!needsOf(smoke).includes('mixdogd'), 'core-smoke prepares while mixdogd builds and waits for its artifact');
+  assert.equal(smoke.permissions.actions, 'read');
+  const text = JSON.stringify(smoke.steps);
+  assert.doesNotMatch(text, /cargo build|rust-toolchain/);
+  assert.match(text, /treerun-\$\{\{ matrix\.target \}\}/);
+  assert.match(text, /wait-for-artifact\.sh mixdogd-\$\{\{ matrix\.target \}\} mixdogd-\$\{\{ matrix\.target \}\}/);
+  const pack = JSON.stringify(parse(read('desktop-package.yml')).jobs.package.steps);
+  assert.doesNotMatch(pack, /cargo build --release --locked --manifest-path scripts\/rust-core\/tree-helper/);
+  assert.match(pack, /treerun-\$\{\{ steps\.helper\.outputs\.target \}\}/);
+  assert.match(pack, /tree-helper-\$HELPER_TARGET/);
+  // Only the x86_64 relay is built and used.
+  const include = load('mixdogd-build.yml').jobs.build.strategy.matrix.include;
+  assert.deepEqual(include.filter((leg) => leg.relay).map((leg) => leg.target), ['x86_64-unknown-linux-gnu']);
+});
+
 test('Linux verification never destroys adopted bundles by calling the restaging package script', () => {
   for (const name of ['verify', 'build-next']) {
     const steps = verify.jobs[name].steps;

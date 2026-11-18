@@ -242,12 +242,15 @@ mod tests {
         assert!(store.excluded(&thread, &gemini)[0].1.contains("(now)"));
     }
 
+
+    #[cfg(node_twin)]
     /// Node's `recordProviderToolExclusion` / `dropSessionTool` / `providerToolExclusionReason` and
     /// the answer `preDispatchDenyForSession` gives a call of an excluded tool, replayed step by
     /// step (`fixtures/tool-exclusions`, recorded by `record-tool-exclusions.mjs`). The notice text
     /// is compared whole; its `tone` ("warn") is not carried by the turn's `Stage::Notice`.
     #[test]
     fn it_notices_and_answers_as_nodes_provider_exclusions_do() {
+        #[cfg(node_twin)]
         const GOLDEN: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/tool-exclusions/golden.json"));
         let golden: Value = serde_json::from_str(GOLDEN).unwrap();
         let cases = golden["cases"].as_array().unwrap();

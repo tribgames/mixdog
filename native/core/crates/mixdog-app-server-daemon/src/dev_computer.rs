@@ -263,7 +263,7 @@ impl DevComputerRun {
                 ToolPart::Text(text) => texts.push(text),
                 ToolPart::Json(value) => texts.push(value.to_string()),
                 ToolPart::Image { mime, data, .. } if image.is_none() => image = Some((mime, data)),
-                ToolPart::Image { .. } | ToolPart::Document { .. } => {}
+                ToolPart::Image { .. } | ToolPart::Document { .. } | ToolPart::File { .. } => {}
             }
         }
         let mut answer = json!({ "ok": true, "text": texts.join("\n") });
@@ -273,7 +273,7 @@ impl DevComputerRun {
                 ImageData::Bytes(bytes) => {
                     on_lane(self.durability, &req.ctx.cancel, move |lane| {
                         let length = bytes.len() as u64;
-                        store.put(lane, &bytes).map(|pin| (pin.digest().as_str().to_owned(), length))
+                        store.put(lane, &bytes).map(|digest| (digest.as_str().to_owned(), length))
                     })
                     .await?
                 }

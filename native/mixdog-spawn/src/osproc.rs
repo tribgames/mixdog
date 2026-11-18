@@ -49,6 +49,11 @@ impl Signals for OsSignals {
         Self::send(pid as libc::pid_t, signal)
     }
 
+    #[cfg(target_os = "linux")]
+    fn kill_identified(&self, target: &Identity) -> bool {
+        sys::kill_identified(target)
+    }
+
     async fn exited(&self, watched: &[Identity]) -> bool {
         sys::exited(watched).await
     }
@@ -143,6 +148,19 @@ mod sys {
             return Err(io::Error::last_os_error().raw_os_error().unwrap_or(0));
         }
         Ok(unsafe { OwnedFd::from_raw_fd(fd as i32) })
+    }
+
+    pub(super) fn kill_identified(target: &Identity) -> bool {
+        let Ok(fd) = pidfd_open(target.pid) else {
+            return false;
+        };
+        if !matches!(super::row_of(target.pid), Ok(Row::Readable(proc)) if proc.token == target.token) {
+            return false;
+        }
+        // A recycled numeric PID cannot redirect this signal after the check.
+        unsafe {
+            libc::syscall(libc::SYS_pidfd_send_signal, fd.as_raw_fd(), libc::SIGKILL, std::ptr::null::<libc::siginfo_t>(), 0) == 0
+        }
     }
 
     fn pidfd_supported() -> bool {
@@ -270,6 +288,9 @@ mod sys {
         let got = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes) };
         if got <= 0 {
             return Err(io::Error::last_os_error());
+        }
+        if got as usize >= pids.len() {
+            return Err(io::Error::other("process listing reached its capacity"));
         }
         pids.truncate(got as usize);
         let mut procs = Vec::new();

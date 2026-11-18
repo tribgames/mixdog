@@ -53,13 +53,21 @@ impl PromptIntake for PdfPromptIntake {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use super::*;
-    use mixdog_core_api::domain::ext::{ExtError, PdfCounts, PdfIntake};
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::ext::ExtError;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::ext::PdfCounts;
+    #[cfg(node_twin)]
+    use mixdog_core_api::domain::ext::PdfIntake;
 
     /// The inspector's answer for each recorded PDF, by its bytes: what Node's `inspectPdfBuffer` answered there
     /// (the counts of an accepted one, the parser's message of a rejected one, 101 pages for the 101-page one).
+    #[cfg(node_twin)]
     struct Inspected(Vec<(Vec<u8>, Result<PdfCounts, String>)>);
     #[async_trait]
+    #[cfg(node_twin)]
     impl DocumentText for Inspected {
         async fn office_text(&self, _: &ThreadId, _: &str, _: &str) -> Result<Option<String>, ExtError> {
             unreachable!("no Office file")
@@ -76,8 +84,10 @@ mod tests {
             })
         }
     }
+    #[cfg(node_twin)]
     struct NoStore;
     #[async_trait]
+    #[cfg(node_twin)]
     impl AttachmentReader for NoStore {
         async fn read(&self, _: &str) -> Result<Vec<u8>, ReadError> {
             unreachable!("the prompts carry their PDFs inline")
@@ -89,6 +99,7 @@ mod tests {
     /// accepted where Node accepted. The inspector answers what Node's parser answered for the same bytes (the
     /// extension host runs Node's own `inspectPdfBuffer`); the limits are the intake's.
     #[tokio::test]
+    #[cfg(node_twin)]
     async fn a_pdf_is_admitted_or_refused_at_the_turn_intake_as_node_does() {
         let dir = format!("{}/../../fixtures/pdf-intake", env!("CARGO_MANIFEST_DIR"));
         let cases: Vec<Value> = ["size-at-limit", "size-over-limit", "pages-100", "pages-101", "pages-101-text", "encrypted", "damaged", "scanned-text-only"]
@@ -135,3 +146,5 @@ mod tests {
         }
     }
 }
+
+

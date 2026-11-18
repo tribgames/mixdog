@@ -64,6 +64,7 @@ pub fn send(events: &[StreamEvent], requested: &str) -> Send {
             }
             StreamEvent::FinalContent(text) => content.clone_from(text),
             StreamEvent::ReasoningDelta(_) => deltas.push(Exact::String("reasoning".into())),
+            StreamEvent::ProgressDelta(_) => deltas.push(Exact::String("text".into())),
             StreamEvent::Progress(kind) => deltas.push(Exact::String(kind.name().into())),
             StreamEvent::ChunkProgress(Some(kind)) => deltas.push(Exact::String(kind.name().into())),
             StreamEvent::ProviderKeepalive => deltas.push(Exact::String("keepalive".into())),

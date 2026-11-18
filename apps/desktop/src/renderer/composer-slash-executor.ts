@@ -473,12 +473,12 @@ async function runFast(run: SlashRun, argument: string): Promise<boolean | undef
       window.mixdogDesktop.setModelRoute(selection, deps.sessionId || undefined)
     );
     if (next === undefined) return false;
-    deps.applySnapshot(next);
+    if (!deps.sessionId) deps.applySnapshot(next);
     deps.onRoutePreferenceApplied?.(selection);
   } else {
     const next = await deps.invokeResult(() => window.mixdogDesktop.setFast(nextFast, deps.sessionId || undefined));
     if (next === undefined) return false;
-    deps.applySnapshot(next);
+    if (!deps.sessionId) deps.applySnapshot(next);
     if (deps.provider && deps.model) deps.onRoutePreferenceApplied?.(selection);
   }
   const labels = { standard: 'off', fast: 'on', ultrafast: 'ultra' };

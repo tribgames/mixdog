@@ -146,6 +146,47 @@ export interface ScmRowWindow {
   leading: number;
   trailing: number;
   measured: boolean;
+  /** The viewport's scroll offset, height and width as last measured. */
+  top: number;
+  height: number;
+  width: number;
+  /** Where a row starts, and the whole list's extent. */
+  offsetOf(index: number): number;
+  total: number;
+}
+
+/** A row taller than the list's uniform row: its index and how much taller. */
+export type RowExtent = { index: number; extra: number };
+const NO_EXTENTS: readonly RowExtent[] = [];
+
+/** Uniform rows of `rowHeight`, except the few `extents` (sorted by index):
+ *  every lookup walks the exceptions, never the rows. */
+export function rowWindowLayout(count: number, rowHeight: number, extents: readonly RowExtent[]) {
+  const offsetOf = (index: number) => {
+    let offset = index * rowHeight;
+    for (const extent of extents) {
+      if (extent.index >= index) break;
+      offset += extent.extra;
+    }
+    return offset;
+  };
+  /** Rows starting before `y` (or at it, `inclusive`). */
+  const rowsStartingBefore = (y: number, inclusive: boolean) => {
+    const uniform = (base: number) =>
+      inclusive ? Math.floor((y - base) / rowHeight) + 1 : Math.ceil((y - base) / rowHeight);
+    let base = 0;
+    for (const extent of extents) {
+      const start = extent.index * rowHeight + base;
+      if (inclusive ? y < start : y <= start) return Math.max(0, Math.min(count, uniform(base)));
+      const end = start + rowHeight + extent.extra;
+      if (inclusive ? y < end : y <= end) return Math.min(count, extent.index + 1);
+      base += extent.extra;
+    }
+    return Math.max(0, Math.min(count, uniform(base)));
+  };
+  let extra = 0;
+  for (const extent of extents) extra += extent.extra;
+  return { offsetOf, rowsStartingBefore, total: count * rowHeight + extra };
 }
 
 export function useRowWindow(
@@ -153,9 +194,10 @@ export function useRowWindow(
   rowHeight: number,
   count: number,
   active: boolean,
-  resetKey: string
+  resetKey: string,
+  extents: readonly RowExtent[] = NO_EXTENTS
 ): ScmRowWindow {
-  const [metrics, setMetrics] = useState({ top: 0, height: 0 });
+  const [metrics, setMetrics] = useState({ top: 0, height: 0, width: 0 });
   /** The viewport NODE is tracked as state, not read once from the ref: the
    *  dock swaps its whole body (InitialSurface → list, tab switches, remounts)
    *  without `active` or `count` changing, and a listener bound to the old
@@ -172,7 +214,10 @@ export function useRowWindow(
     const measure = () => {
       const top = node.scrollTop;
       const height = node.clientHeight;
-      setMetrics((current) => (current.top === top && current.height === height ? current : { top, height }));
+      const width = node.clientWidth;
+      setMetrics((current) =>
+        current.top === top && current.height === height && current.width === width ? current : { top, height, width }
+      );
     };
     measure();
     node.addEventListener('scroll', measure, { passive: true });
@@ -193,32 +238,70 @@ export function useRowWindow(
     setMetrics((current) => (current.top === 0 ? current : { ...current, top: 0 }));
   }, [node, resetKey]);
   return useMemo(() => {
-    const { top, height } = metrics;
-    if (height <= 0) {
-      // First commit, viewport not measured yet: mount only what the tallest
-      // plausible viewport could show. Mounting EVERY row here and windowing
-      // on the next commit made a dock with a few hundred changes pay a full
-      // list build — rows, path measurement, layout — for one frame that the
-      // real window immediately threw away (user: 소스 제어 누르면 히칭).
-      const viewportGuess = typeof window === 'undefined' ? 800 : window.innerHeight;
-      const end = Math.min(count, Math.ceil(viewportGuess / rowHeight) + SCM_ROW_OVERSCAN);
-      return { start: 0, end, leading: 0, trailing: (count - end) * rowHeight, measured: false };
-    }
-    if (count * rowHeight <= height) {
-      return { start: 0, end: count, leading: 0, trailing: 0, measured: true };
-    }
-    const start = Math.max(0, Math.floor(top / rowHeight) - SCM_ROW_OVERSCAN);
-    const end = Math.min(count, Math.max(start, Math.ceil((top + height) / rowHeight) + SCM_ROW_OVERSCAN));
-    return {
+    const { top, height, width } = metrics;
+    const { offsetOf, rowsStartingBefore, total } = rowWindowLayout(count, rowHeight, extents);
+    const window_ = (start: number, end: number, measured: boolean) => ({
       start,
       end,
-      leading: start * rowHeight,
-      trailing: (count - end) * rowHeight,
-      measured: true,
-    };
-  }, [count, metrics, rowHeight]);
+      leading: offsetOf(start),
+      trailing: total - offsetOf(end),
+      measured,
+      top,
+      height,
+      width,
+      offsetOf,
+      total,
+    });
+    if (height <= 0) {
+      // Viewport not measured yet (first commit, a box-less scroller): mount
+      // only what the tallest plausible viewport could show at the offset.
+      // Mounting EVERY row here and windowing on the next commit made a dock
+      // with a few hundred changes pay a full list build — rows, path
+      // measurement, layout — for one frame that the real window immediately
+      // threw away (user: 소스 제어 누르면 히칭).
+      const viewportGuess = typeof window === 'undefined' ? 800 : window.innerHeight;
+      const start = Math.max(0, rowsStartingBefore(top, true) - 1 - SCM_ROW_OVERSCAN);
+      const end = Math.min(count, Math.max(start, rowsStartingBefore(top + viewportGuess, false) + SCM_ROW_OVERSCAN));
+      return window_(start, end, false);
+    }
+    if (total <= height) return window_(0, count, true);
+    const start = Math.max(0, rowsStartingBefore(top, true) - 1 - SCM_ROW_OVERSCAN);
+    const end = Math.min(count, Math.max(start, rowsStartingBefore(top + height, false) + SCM_ROW_OVERSCAN));
+    return window_(start, end, true);
+  }, [count, metrics, rowHeight, extents]);
 }
 
 export function RowSpacer({ height, edge }: { height: number; edge: 'leading' | 'trailing' }) {
   return <div className="dock-scm-row-spacer" data-scm-spacer={edge} aria-hidden="true" style={{ height }} />;
+}
+
+/** A window's rows in order — its range plus any pinned rows outside it — with
+ *  spacers standing in for every row between them, at the layout's heights. */
+export function windowedRows(
+  rowWindow: Pick<ScmRowWindow, 'start' | 'end' | 'offsetOf' | 'total'>,
+  count: number,
+  pinned: readonly number[],
+  render: (index: number) => React.ReactNode
+): React.ReactNode[] {
+  const mounted: number[] = [];
+  for (let index = rowWindow.start; index < rowWindow.end; index += 1) mounted.push(index);
+  for (const index of pinned) {
+    if (index >= 0 && index < count && !(index >= rowWindow.start && index < rowWindow.end) && !mounted.includes(index))
+      mounted.push(index);
+  }
+  mounted.sort((left, right) => left - right);
+  const nodes: React.ReactNode[] = [];
+  let next = 0;
+  for (const index of mounted) {
+    if (index > next) {
+      const height = rowWindow.offsetOf(index) - rowWindow.offsetOf(next);
+      nodes.push(<RowSpacer key={`gap:${next}`} edge="leading" height={height} />);
+    }
+    nodes.push(render(index));
+    next = index + 1;
+  }
+  if (next < count) {
+    nodes.push(<RowSpacer key="gap:end" edge="trailing" height={rowWindow.total - rowWindow.offsetOf(next)} />);
+  }
+  return nodes;
 }

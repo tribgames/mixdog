@@ -57,6 +57,8 @@ export function createHostApi({ invokeIpc, subscribeIpc, ipcRenderer, webUtils, 
     // without being read whole; a server window's file is streamed from its server there.
     previewProjectFile: (projectPath, relPath, accessToken) =>
       invokeIpc(DESKTOP_IPC.previewProjectFile, projectPath, relPath, accessToken),
+    previewConvertedDocument: (projectPath, relPath, accessToken) =>
+      invokeIpc(DESKTOP_IPC.previewDocumentFile, projectPath, relPath, accessToken),
     localPageUrl: (projectPath, relPath, accessToken) =>
       invokeIpc(DESKTOP_IPC.localPageUrl, projectPath, relPath, accessToken),
     requestLinuxInputAccess: () => invokeIpc(DESKTOP_IPC.requestLinuxInputAccess),

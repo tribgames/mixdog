@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, watch as watchDirectory } from 'node:fs';
 import * as nodeModule from 'node:module';
 import { constants as osConstants, freemem, hostname, setPriority, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -58,7 +58,7 @@ import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
 import { AgentAwakeService } from './agent-awake';
 import { createBackgroundWindow } from './background-window';
 import { createDesktopTray, type DesktopTray } from './desktop-tray';
-import { createDesktopQuitSequence, DESKTOP_DAEMON_STOP_TIMEOUT_MS } from './quit-sequence';
+import { createDesktopQuitSequence, stopCoreForQuit } from './quit-sequence';
 import { loginShellOverrides, readLoginShellEnvironment, withHomebrewPath } from './login-shell-environment';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import type { InitializeResponse, WindowFocusEntry } from '../../../../packages/protocol/src/index.ts';
@@ -107,14 +107,14 @@ import { readOrCreateHostId, createLocalHostRole } from './protocol/desktop-host
 import { showRemoteScreenIndicator } from './remote-screen/screen-indicator';
 import { openCore } from './protocol/open-core';
 import type { WsEndpoint } from './protocol/ws-connector';
-import { type CoreProcess, coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, readCoreState, requestCoreStop, resolveLocalCore } from './protocol/local-core';
+import { type CoreProcess, coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, desktopConfirmationWriter, forceEndCore, readCoreState, requestCoreStop, resolveLocalCore } from './protocol/local-core';
 import { watchCore } from '../../../../packages/protocol-client/src/launch/ensure-core.mjs';
 import { createOpenRequestedHandler } from './protocol/open-requested';
 import { createVisualizePublisher } from './protocol/visualize-publish';
 import type { VisualizeHostEvent } from '../shared/visualize';
 import { createBootTimeline } from './boot-timeline';
 import { reportDefaultsSeparation } from './protocol/defaults-separation';
-import { resolveRuntimeRoot } from '../shared/core-src/runtime/shared/runtime-root.mjs';
+import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../shared/core-src/runtime/shared/runtime-root.mjs';
 import { createBrowserHost } from './browser/host';
 import { BROWSER_PARTITION, type BrowserHost } from './browser/host-types';
 import { claimResources } from './host/claim-resources';
@@ -131,6 +131,8 @@ import { defaultBrowserPermissionPolicy } from '../shared/browser-permission-pol
 import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
 import { coreLocalPages, createCoreLocalPages, setCoreLocalPages } from './core-local-pages';
+import { BootReports } from './core-port/boot-progress';
+import { watchRecovery } from './core-port/failure-recovery';
 import { CorePortRelay } from './core-port/relay';
 import { windowIdFor } from './core-port/window-ids';
 import { createLinkLog } from '../../../../packages/protocol-client/src/link-log.mjs';
@@ -138,6 +140,7 @@ import { readComputerPermissions, requestComputerPermissions } from './computer/
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
 import { createComputerPillControls, createCoreUserControl } from './host/computer-user-control';
+import { createComputerSwitch } from './host/computer-scope';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
 import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
@@ -262,10 +265,22 @@ if (process.env.MIXDOG_DESKTOP_USER_DATA) {
 // probes must never register electron.exe under the installed sender identity.
 const desktopBrand = desktopIdentity(app.isPackaged ? 'installed' : 'development');
 const desktopUserData = app.getPath('userData');
+// What started the quit, for the diagnostics log: the first named entry wins,
+// and before-quit writes it as `quit-requested` (`unattributed`: an entry with
+// no name here — the application menu, the renderer's quit IPC, another
+// app.quit()).
+let quitCause: string | null = null;
+function noteQuitCause(cause: string): void {
+  quitCause ??= cause;
+}
 // With no window to close, a start check ends the app by creating this file in its profile.
 if (desktopWindowHeldHidden) {
   const quitRequest = join(desktopUserData, 'quit-request');
-  setInterval(() => existsSync(quitRequest) && app.quit(), 250);
+  setInterval(() => {
+    if (!existsSync(quitRequest)) return;
+    noteQuitCause('quit-request-file');
+    app.quit();
+  }, 250);
 }
 app.setName(desktopBrand.name);
 app.setPath('userData', desktopUserData);
@@ -502,6 +517,22 @@ function adoptLoginShellEnvironment(): Promise<void> {
 /** Where each connection's core listens (the same resolver its own link dials with), by connection id: a window's
  *  direct port to its core (core-port/relay.ts) opens with it. */
 const coreEndpoints = new Map<string, () => Promise<WsEndpoint>>();
+/** How far this PC's core has come in rebuilding its conversation index at start: the windows waiting for their core port are told. */
+const bootReports = new BootReports();
+// While a failure is confirmed nothing launches the core, so a core that comes up some other way is noticed here and the parked windows attach.
+watchRecovery({
+  reports: bootReports,
+  runtimeRoot: resolveRuntimeRoot(),
+  readState: () => readCoreState(resolveRuntimeRoot()),
+  ensureRoot: () => void ensurePrivateRuntimeRoot(resolveRuntimeRoot()),
+  log: writeBootDiagnostic,
+  watch: (directory, onChange, onEnd) => {
+    const watcher = watchDirectory(directory, { persistent: false }, () => onChange());
+    watcher.on('error', onEnd);
+    watcher.on('close', onEnd);
+    return watcher;
+  },
+});
 /** The last initialize reply each connection's core gave main (window scope, limits). */
 const coreInitialized = new Map<string, InitializeResponse>();
 const connectionDependencies: DesktopConnectionDependencies = {
@@ -521,11 +552,14 @@ const connectionDependencies: DesktopConnectionDependencies = {
       connection.kind === 'local'
         ? resolveLocalCore({
             runtimeRoot: resolveRuntimeRoot(),
-            bin: coreLaunchPath(app.isPackaged, process.resourcesPath),
+            bin: () => coreLaunchPath(app.isPackaged, process.resourcesPath),
             env: () => coreEnvironment(app.isPackaged, process.resourcesPath, app.getPath('userData')),
             environmentReady: () => loginShellEnvironmentReady,
+            reports: bootReports,
+            desktopConfirmationPipe: true,
             onLaunched: (child) => {
               localCoreProcess = child;
+              localCoreConfirmation = desktopConfirmationWriter(child);
               // A core of this app that stops answering is ended, and the next dial starts a replacement.
               coreWatcher ??= watchCore({
                 readDiscovery: () => readCoreState(resolveRuntimeRoot()),
@@ -603,7 +637,11 @@ const connectionDependencies: DesktopConnectionDependencies = {
     // replacement that dropped the relay leg with the old process, and
     // nothing else would ever dial it again: the deferred schedule runs once
     // per window, and this window is already open. The relay is this PC's.
-    if (connection.kind !== 'local' || generation <= 1) return;
+    if (connection.kind !== 'local') return;
+    if (generation <= 1) {
+      firstLocalAttachment.resolve();
+      return;
+    }
     diagnostics?.write('relay-redial-after-daemon-restart', { generation });
     void startDeferredDesktopServices();
   },
@@ -619,12 +657,14 @@ const ipcRouter = createConnectionIpcRouter({
 // MessagePort over it. A server window gets its server's core (`primary`) and this PC's (`pc`), both under its role.
 const corePortRelay = new CorePortRelay({
   diagnostic: writeBootDiagnostic,
-  endpointFor: async (webContentsId) => {
+  bootReports,
+  endpointFor: async (webContentsId, slot) => {
     const connectionId = windowRoutes.connectionIdFor(webContentsId);
     if (connectionId === undefined) {
       throw new ConnectionError('connection-route-missing', 'This window is not attached to a Mixdog connection.');
     }
-    return serverWindows.endpointsFor(connectionId);
+    const endpoint = await serverWindows.endpointFor(connectionId, slot);
+    return endpoint ? [endpoint] : [];
   },
   coreWindowScope: async () => {
     const scope = coreInitialized.get(LOCAL_CONNECTION_ID)?.capabilities?.windowScope;
@@ -644,7 +684,11 @@ const localService = localConnection.client;
 // File pages (project pages, granted files) and their owner revocations are served by the core page server; every
 // window's local page IPC and the visualize html panes ask it through this client.
 setCoreLocalPages(
-  createCoreLocalPages(<T,>(name: string, args: unknown[]) => localService.invokeDesktopOperation(name, args) as Promise<T>)
+  createCoreLocalPages(
+    <T,>(name: string, args: unknown[]) => localService.invokeDesktopOperation(name, args) as Promise<T>,
+    // Large page files go to this PC's core as blobs (`blob/put`) on its own connection.
+    localConnection.protocol
+  )
 );
 // MIXDOG_SSH_TARGET (development and tests): the main window stays on this PC
 // and a server window for that target opens beside it at startup.
@@ -704,6 +748,8 @@ let browserPermissionPolicy = defaultBrowserPermissionPolicy();
 let computerHost: ComputerHost | null = null;
 let computerUseOverlay: ComputerUseOverlay | null = null;
 let computerControlEnabled = false;
+// What every core connection's automation scopes follow: off revokes them at once (host/computer-scope.ts).
+const computerSwitch = createComputerSwitch(false);
 // The first application is the stored state at launch, not a user's toggle.
 let computerControlApplied = false;
 // Observation-only opt-in travels with the host the same way, so a toggle made
@@ -739,7 +785,7 @@ const liveNotifications = new Set<unknown>();
 let browserFeatureInstalled = false;
 let hostRoleReady = false;
 /** One diagnostics record for every failed visualize publish: change events and the claim-time snapshot. */
-const reportVisualizePublishFailure = (target: 'node' | 'host', error: unknown): void =>
+const reportVisualizePublishFailure = (target: 'host', error: unknown): void =>
   diagnostics?.write('visualize-publish-failed', {
     target,
     errorName: error instanceof Error ? error.name : 'Error',
@@ -750,10 +796,10 @@ const visualize = createDesktopVisualize({
   invokeDesktopOperation: (method, args) => localService.invokeDesktopOperation(method, args),
   browserAvailable: () => browserFeatureInstalled,
   watchBrowserTab: (sessionId, requestId) => browserHost?.watchNewTab(sessionId, requestId),
-  // Paired remote clients: the daemon mirrors the tabs and serves pane bytes.
-  // The same event also reaches the core as `host/state/set{section:'visualize'}`; the host role is built later.
+  // Paired remote clients: the core mirrors the tabs (`host/state/set{key:'visualize'}`, section `hostState`) and serves pane
+  // bytes. The host role's publication queue is the only path: it slims and orders every publication; the host role
+  // is built later.
   publishRemote: createVisualizePublisher<VisualizeHostEvent>({
-    node: (event) => localService.invokeDesktopOperation('visualizeRemotePublish', [event]),
     host: () => (hostRoleReady ? hostRole.host.publishVisualize : undefined),
     onFailure: reportVisualizePublishFailure,
   }),
@@ -773,14 +819,10 @@ const visualizeBridge = new VisualizeBridgeServer<object>({
   execute: (command) => visualize.execute(command),
 });
 // File and visualize pages come from the core page server: its origin is read once the core is up and again after each
-// reconnect (a restarted core listens on a new port).
-let corePageFrameOrigin = '';
+// reconnect (a restarted core listens on a new port), which also sends the page revokes a lost link left queued.
 function refreshCorePageOrigin(): void {
   void coreLocalPages()
     .refresh()
-    .then((origin) => {
-      corePageFrameOrigin = origin;
-    })
     .catch((error: unknown) => console.error('core page server origin read failed:', error));
 }
 // Keep-awake spans the app lifetime, not one window: agents keep working
@@ -844,7 +886,8 @@ setBrowserApprovalHooks({
   audit: browserApprovalGrants.audit,
   downloadsDir: () => app.getPath('downloads'),
   surfaceSessionId: (sessionId) => approvalSurfaceSessionId(sessionId, approvalSources),
-  // Paired devices see a browser approval as the core's own request (item/browser/requestApproval); nothing is published from here.
+  // These Electron dialogs are not core requests. Paired phones get only their waiting session ids.
+  onPendingSessions: (sessionIds) => hostRole.host.reports.browserApprovalSessions(sessionIds),
   notify: (window, { sessionId, name }) => {
     if (!Notification.isSupported()) return;
     const target = sessionId ? approvalSurfaceSessionId(sessionId, approvalSources) : '';
@@ -903,6 +946,8 @@ function applyComputerControlSetting(enabled: boolean): void {
   if (enabled && !computerControlEnabled && computerControlApplied) requestComputerPermissions();
   computerControlApplied = true;
   computerControlEnabled = enabled;
+  // First, so that no host/computer/* effect commits once the setting went off, whatever the bridge's stop is still doing.
+  computerSwitch.set(enabled);
   applyComputerBridge();
   // GNOME window control comes from Mixdog's own shell extension: the core keeps it in place and enabled exactly while
   // Computer Use is on (s3-15).
@@ -1076,6 +1121,7 @@ const hostRole = createLocalHostRole({
         answerBridgeCommand: (command, signal) => host.answerBridgeCommand(command as ComputerCommand, signal),
       };
     },
+    computerSwitch,
   },
   notifications: {
     // A server's fixed words arrive in English (its core has no UI language): shown in this PC's.
@@ -1098,10 +1144,22 @@ const hostRole = createLocalHostRole({
   },
   windows: {
     // The core asks for a saved server's window (it has connected the server already): a record is made from the params and its window opens.
-    open: (params) => serverWindows.open(params),
+    open: async (params) => {
+      const existing = connectionWindows.get(params.connectionId);
+      const opened = await serverWindows.open(params);
+      const current = connectionWindows.get(params.connectionId);
+      if (!opened || !current || current.isDestroyed()) return { opened: false };
+      if (params.windowToken) serverWindowTokens.set(current, params.windowToken);
+      else serverWindowTokens.delete(current);
+      return { opened: true, created: current !== existing };
+    },
     close: (connectionId) => {
       const window = connectionWindows.get(connectionId);
-      if (window && !window.isDestroyed()) window.close();
+      if (window && !window.isDestroyed()) {
+        closingByCore.add(window);
+        // Acknowledge only after this window can no longer be focused by the next open.
+        window.destroy();
+      }
     },
     focus: (connectionId, sessionId) => focusConnectionWindow(connectionId, sessionId),
   },
@@ -1240,11 +1298,20 @@ function syncDesktopTray(): void {
   if (desktopTray) return;
   const iconPath = trayIconPath();
   if (!iconPath) return;
-  desktopTray = createDesktopTray({ iconPath, open: activatePrimaryWindow, quit: () => app.quit() });
+  desktopTray = createDesktopTray({
+    iconPath,
+    open: activatePrimaryWindow,
+    quit: () => {
+      noteQuitCause('tray');
+      app.quit();
+    },
+  });
 }
 
 let disposalPromise: Promise<void> | null = null;
 const DESKTOP_DISPOSE_TIMEOUT_MS = 4_000;
+/** The whole quit teardown's bound: the dispose (4 s), the core's stop request and exit wait (5 s), and margin. */
+const DESKTOP_QUIT_TEARDOWN_TIMEOUT_MS = 15_000;
 // Bounds persist per connection: each open window's writer, and the final
 // flushes of the ones already closed.
 const windowStates = new Map<BrowserWindow, ReturnType<typeof persistWindowState>>();
@@ -1254,6 +1321,15 @@ let idleReclaim: IdleReclaim | null = null;
 let diagnosticsEventLoopTimer: NodeJS.Timeout | null = null;
 let deferredServicesPromise: Promise<void> | null = null;
 let deferredServicesScheduled = false;
+// The first successful attachment to the local core, whenever it happens: a first connection that failed is opened again by
+// the next call, and what waits for "the core is up" (deferred services, the updater) must still run after that attachment.
+const firstLocalAttachment = (() => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+})();
 let gpuCrashTimes: number[] = [];
 let gpuFallbackScheduled = softwareRenderingThisLaunch;
 let gpuFallbackPromptOpen = false;
@@ -1434,7 +1510,7 @@ function scheduleDeferredDesktopServices(window: BrowserWindow): void {
   if (deferredServicesScheduled || deferredServicesPromise) return;
   deferredServicesScheduled = true;
   scheduleAfterServiceQuiet(window, {
-    awaitServiceReady: () => localConnection.start(),
+    awaitServiceReady: () => localConnection.start().catch(() => firstLocalAttachment.promise),
     start: () => {
       void startDeferredDesktopServices().catch((error: unknown) => {
         console.error('Failed to start deferred Desktop services:', error);
@@ -1444,6 +1520,10 @@ function scheduleDeferredDesktopServices(window: BrowserWindow): void {
         async () => {
           await disposeDesktopResources();
           quitAfterDispose = true;
+        },
+        async () => {
+          const update = (await localProtocol.call('config/getUpdateSettings', {})) as { autoUpdate?: boolean } | null;
+          return typeof update?.autoUpdate === 'boolean' ? update.autoUpdate : undefined;
         },
         (message, data) => {
           diagnostics?.write('updater', { message, ...data });
@@ -1548,6 +1628,7 @@ function disposeDesktopResources(): Promise<void> {
 
 /** The core process this app started (none while it runs on one it found). */
 let localCoreProcess: CoreProcess | null = null;
+let localCoreConfirmation: (() => Promise<void>) | undefined;
 let coreWatcher: { stop(): void } | null = null;
 
 // Windows vanish the moment a quit begins; detach, daemon stop and the
@@ -1558,19 +1639,36 @@ const quitSequence = createDesktopQuitSequence({
     for (const removeWindowIpc of windowIpcDisposers.values()) removeWindowIpc();
     windowIpcDisposers.clear();
     await disposeDesktopResources();
-    // The core this app started is asked to stop now that the app has left it (its own no-client grace is longer than
-    // this quit waits), then waited for: the app's exit would end it, and the PostgreSQL it runs, at once.
-    const deadline = Date.now() + DESKTOP_DAEMON_STOP_TIMEOUT_MS;
+    // The core this app started is told to stop with its running work aborted (the app has left it, so nobody could confirm an
+    // abort), then waited for: the app's exit would end it, and the PostgreSQL it runs, at once and without an exit hook.
     coreWatcher?.stop();
-    await requestCoreStop({
-      child: localCoreProcess,
-      bin: coreBinaryPath(app.isPackaged, process.resourcesPath),
-      runtimeRoot: resolveRuntimeRoot(),
-      env: coreEnvironment(app.isPackaged, process.resourcesPath, app.getPath('userData')),
-      timeoutMs: DESKTOP_DAEMON_STOP_TIMEOUT_MS,
+    const core = localCoreProcess;
+    await stopCoreForQuit({
+      request: (timeoutMs) =>
+        requestCoreStop({
+          child: core,
+          bin: coreBinaryPath(app.isPackaged, process.resourcesPath),
+          runtimeRoot: resolveRuntimeRoot(),
+          env: coreEnvironment(app.isPackaged, process.resourcesPath, app.getPath('userData')),
+          timeoutMs,
+        }),
+      exit: (remainingMs) => coreExit(core, remainingMs),
+      record: async (outcome) => {
+        diagnostics?.write('desktop-daemon-stop', { pid: core?.pid ?? null, ...outcome });
+        await diagnostics?.flush();
+        if (!outcome.exited) {
+          console.error(`The Mixdog core did not stop within ${outcome.timeoutMs}ms of the quit; it is ended now.`);
+          forceEndCore(core);
+        }
+      },
     });
-    const stopped = await coreExit(localCoreProcess, Math.max(0, deadline - Date.now()));
-    if (!stopped) console.error(`The Mixdog core did not stop within ${DESKTOP_DAEMON_STOP_TIMEOUT_MS}ms of the quit; it ends with the app.`);
+  },
+  // A teardown step that never settles (a detach or a stop waiting on a hung core) must not keep the quitting app, its core and
+  // the single-instance lock alive: the next launch would wait on them behind a black window.
+  teardownTimeoutMs: DESKTOP_QUIT_TEARDOWN_TIMEOUT_MS,
+  onTeardownTimeout: () => {
+    diagnostics?.write('desktop-quit-teardown-timeout', { timeoutMs: DESKTOP_QUIT_TEARDOWN_TIMEOUT_MS, corePid: localCoreProcess?.pid ?? null });
+    forceEndCore(localCoreProcess);
   },
   exit: () => {
     quitAfterDispose = true;
@@ -1634,6 +1732,7 @@ function handleGpuChildCrash(reason: string, exitCode: number): void {
         return;
       }
       diagnostics?.write('gpu-fallback-restart');
+      noteQuitCause('gpu-fallback-restart');
       quitApproved = true;
       app.relaunch();
       app.quit();
@@ -1791,10 +1890,10 @@ function installRendererSessionPolicy(target: Electron.Session): void {
       return;
     }
     const development = Boolean(process.env.ELECTRON_RENDERER_URL);
-    // Visualize panes frame pages from one loopback page server only (tokenized): the core's (file, project and
-    // inline visualize pages); no other http origin may be framed.
-    const pageOrigins = [corePageFrameOrigin].filter(Boolean).map((origin) => ` ${origin}`);
-    const frameSrc = `frame-src 'self' blob: ${MEDIA_SCHEME}:${pageOrigins.join('')}`;
+    // Visualize panes frame pages of the core's loopback page server (tokenized leases). Its port is picked when the
+    // core starts, which is after this document and its policy are loaded, and again each time the core restarts, so
+    // the policy names the loopback host, not one port. No other http host may be framed.
+    const frameSrc = `frame-src 'self' blob: ${MEDIA_SCHEME}: http://127.0.0.1:*`;
     // GitHub avatar hosts are allowed in img-src for the onboarding /
     // settings account cards (github.com redirects to avatars host).
     // media-src mirrors img-src: Studio tiles load from the mixdog-media
@@ -2359,7 +2458,9 @@ function installLocalWindowFeatures(
     idleReclaim?.onFocus();
   });
   window.on('blur', () => idleReclaim?.onBlur());
-  window.on('close', (event) => backgroundWindow.onClose(event, () => window.hide()));
+  window.on('close', (event) => {
+    backgroundWindow.onClose(event, () => window.hide());
+  });
   window.on('closed', () => {
     stopScreenSessions();
     stopSurfaceReport();
@@ -2394,6 +2495,8 @@ const showConnectionWindow = createConnectionWindowOpener<DesktopConnection, Bro
  *  for as long as the window lives this process's service connection to that server's core (the window's desktop
  *  operations, terminals, uploads and previews). The ssh session, the tunnel and the link are the core's. */
 const serverHostSettings = createServerHostSettings(localProtocol);
+const serverWindowTokens = new WeakMap<BrowserWindow, string>();
+const closingByCore = new WeakSet<BrowserWindow>();
 const serverConnections = createServerConnections<DesktopConnection>({
   pool: connectionPool,
   create: (record) => createDesktopConnection({ id: record.id, kind: record.kind, name: record.name }, connectionDependencies),
@@ -2403,7 +2506,16 @@ const serverWindows = createServerWindows({
   showWindow: async (record) => {
     // The window's quota rules read the saved server as it is now.
     await serverHostSettings.refresh().catch(() => undefined);
-    await showConnectionWindow(await serverConnections.attach(record));
+    const existing = connectionPool.get(record.id);
+    const connection = await serverConnections.attach(record);
+    try {
+      await showConnectionWindow(connection);
+    } catch (error) {
+      if (!existing && connectionPool.get(record.id) === connection) {
+        await serverConnections.detach(record.id).catch(() => undefined);
+      }
+      throw error;
+    }
   },
   localEndpoint: async () => {
     const resolve = coreEndpoints.get(LOCAL_CONNECTION_ID);
@@ -2490,6 +2602,7 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
   installViewportGuard(window);
   // Windows logoff/shutdown: the OS ends the session, nobody is asked.
   window.on('session-end', () => {
+    noteQuitCause('os-session-end');
     quitApproved = true;
   });
   // Pin only the application shell; Browser Use guests keep their own zoom.
@@ -2598,6 +2711,7 @@ function installWindowIpc(
     },
     protocol: connection.protocol,
     pcCore: localProtocol,
+    ...(local ? { prepareConfirmedAllowAllActions: () => localCoreConfirmation } : {}),
     corePort: corePortRelay,
     // The updater and the notification sound are this PC's: a server window
     // gets neither (its channels are refused by the feature gates).
@@ -2681,18 +2795,21 @@ function installWindowCloseCleanup(
     );
     windowIpcDisposers.get(window)?.();
     windowIpcDisposers.delete(window);
-    if (connectionWindows.get(connection.id) === window) connectionWindows.delete(connection.id);
+    const current = connectionWindows.get(connection.id) === window;
+    if (current) connectionWindows.delete(connection.id);
     publishWindowFocus();
     // Closing a server window detaches: this process's connection to the server's core closes, and the core is told its
     // window is gone (by the user unless the app is quitting): it closes the tunnel and keeps the server's daemon running,
     // and forgets the window for the next launch only when the user closed it. The record goes first: the core may answer by
     // opening the window again, which makes a new one.
     if (connection.kind !== 'local') {
-      serverWindows.release(connection.id);
-      void serverConnections.detach(connection.id).catch((error: unknown) => {
-        console.error(`Failed to detach from ${connection.name}:`, error);
-      });
-      hostRole.host.windowHost?.windowClosed(connection.id, !quitApproved);
+      if (current) {
+        serverWindows.release(connection.id);
+        void serverConnections.detach(connection.id).catch((error: unknown) => {
+          console.error(`Failed to detach from ${connection.name}:`, error);
+        });
+      }
+      hostRole.host.windowHost?.windowClosed(connection.id, !quitApproved && !closingByCore.has(window), serverWindowTokens.get(window));
     }
   });
 }
@@ -2765,6 +2882,7 @@ function subscribeSessionLanes(): void {
 function watchPowerAndNetwork(): void {
   // macOS/Linux shutdown or logoff: the OS ends the session, nobody is asked.
   powerMonitor.on('shutdown', () => {
+    noteQuitCause('os-shutdown');
     quitApproved = true;
   });
   powerMonitor.on('resume', () => {
@@ -2801,6 +2919,7 @@ if (!app.requestSingleInstanceLock()) {
         'Close the running app, or set MIXDOG_DESKTOP_USER_DATA to run an isolated profile.'
     );
   }
+  noteQuitCause('second-instance-lock');
   quitApproved = true;
   app.quit();
 } else {
@@ -2921,12 +3040,26 @@ if (!app.requestSingleInstanceLock()) {
             : '',
       });
       console.error('Failed to initialize the Mixdog desktop window:', error);
+      noteQuitCause('desktop-initialize-failed');
       quitApproved = true;
       app.quit();
     });
 }
 
+let quitRequestLogged = false;
 app.on('before-quit', (event) => {
+  // The first before-quit of this run names its cause; the one after the
+  // disposal (quitAfterDispose) is the same quit finishing.
+  if (!quitRequestLogged) {
+    quitRequestLogged = true;
+    const focused = BrowserWindow.getFocusedWindow();
+    diagnostics?.write('quit-requested', {
+      cause: quitCause ?? 'unattributed',
+      windows: BrowserWindow.getAllWindows().length,
+      windowFocused: focused !== null,
+      uptimeMs: Math.round(process.uptime() * 1000),
+    });
+  }
   // Every quit entry (menu, tray, Cmd+Q, last window) quits without asking;
   // the flag lets a window hidden to the tray close for real.
   quitApproved = true;
@@ -2943,5 +3076,8 @@ app.on('before-quit', (event) => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin' || !runInBackground) {
+    noteQuitCause('window-all-closed');
+    app.quit();
+  }
 });

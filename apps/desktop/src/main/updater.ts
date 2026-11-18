@@ -4,7 +4,12 @@ import { join } from 'node:path';
 
 import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import type { DesktopUpdaterState } from '../shared/contract';
-import { createUpdaterController, startUnattendedInstall, type UpdaterReadyRecord } from './updater-controller';
+import {
+  createUpdaterController,
+  startUnattendedInstall,
+  type AutoUpdatePreference,
+  type UpdaterReadyRecord,
+} from './updater-controller';
 import { createCoreUpdateGate, ctlWaitExit } from './updater-core';
 import { normalizeUpdaterDevFeed } from './updater-feed';
 
@@ -68,7 +73,11 @@ export const desktopUpdater = {
 };
 
 /** `stop` disposes the app's own resources after the local core has exited. */
-export function startAutoUpdater(stop: () => Promise<void> = async () => {}, report?: UpdaterLog): void {
+export function startAutoUpdater(
+  stop: () => Promise<void>,
+  readAutoUpdate: () => Promise<AutoUpdatePreference>,
+  report?: UpdaterLog
+): void {
   if (controller || checkInterval || startPromise) return;
   if (!app.isPackaged || process.env.ELECTRON_RENDERER_URL) {
     // Dev/unpackaged builds silently disable updates; the state is already
@@ -79,6 +88,16 @@ export function startAutoUpdater(stop: () => Promise<void> = async () => {}, rep
   }
 
   publish({ status: 'idle' });
+  const automaticAllowed = async (): Promise<AutoUpdatePreference> => {
+    try {
+      return await readAutoUpdate();
+    } catch (error) {
+      report?.('automatic update preference unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
+  };
   startPromise = (async () => {
     // Keep the import off the critical Electron bootstrap module evaluation,
     // while starting the updater immediately after app.whenReady().
@@ -111,6 +130,7 @@ export function startAutoUpdater(stop: () => Promise<void> = async () => {}, rep
       service: autoUpdater,
       persistence: readyPersistence(join(app.getPath('userData'), 'updater-ready.json')),
       stop,
+      automaticAllowed,
       // The packaged app's own core (extraResources `core/`) reports the old core's exit.
       core: createCoreUpdateGate({
         waitExit: ctlWaitExit(join(process.resourcesPath, 'core', process.platform === 'win32' ? 'mixdogd.exe' : 'mixdogd')),
@@ -129,15 +149,16 @@ export function startAutoUpdater(stop: () => Promise<void> = async () => {}, rep
     // running-work hold, so a busy loop run waits and retries.
     const stopUnattendedInstall = devAutoInstall
       ? startUnattendedInstall(controller, {
+          allowed: automaticAllowed,
           log(message, data) {
             console.warn(`Mixdog ${message}`, data ?? '');
             report?.(message, data as Readonly<Record<string, unknown>> | undefined);
           },
         })
       : undefined;
-    void controller.start();
+    const startup = controller.start();
     checkInterval = setInterval(() => {
-      void controller?.check();
+      void controller?.check(true);
     }, UPDATE_CHECK_INTERVAL_MS);
     checkInterval.unref();
     app.once('will-quit', () => {
@@ -145,11 +166,13 @@ export function startAutoUpdater(stop: () => Promise<void> = async () => {}, rep
       checkInterval = undefined;
       stopUnattendedInstall?.();
     });
+    await startup;
   })().catch((error) => {
     // Missing or unreachable publish metadata must never delay application startup.
     console.warn('Mixdog auto-update initialization skipped:', error);
     report?.('updater initialization skipped', {
       error: error instanceof Error ? error.message : String(error),
     });
+    publish({ status: 'error', message: error instanceof Error ? error.message : String(error) });
   });
 }

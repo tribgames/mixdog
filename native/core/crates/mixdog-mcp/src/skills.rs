@@ -221,19 +221,33 @@ fn required_features(frontmatter: &Value) -> Vec<String> {
     items.into_iter().map(|s| js_trim(&s).to_owned()).filter(|s| !s.is_empty()).collect()
 }
 
-#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
+/// Every `SKILL.md` under `dir`, through links: Node lists with `readdirSync(dir, { recursive: true })`, which decides
+/// "directory" by `stat` and so follows a link (a symlink, a Windows junction) to a directory, and reads a link to a file.
+/// Node has no cycle guard of its own (a link to an ancestor repeats the tree until the OS refuses the path, and the
+/// repeats are dropped by name); here a directory already being walked is not entered again.
 fn skill_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    walk_skill_dir(dir, out, &mut Vec::new());
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
+fn walk_skill_dir(dir: &Path, out: &mut Vec<PathBuf>, walking: &mut Vec<PathBuf>) {
+    let Ok(real) = std::fs::canonicalize(dir) else { return };
+    if walking.contains(&real) {
+        return;
+    }
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut entries: Vec<_> = entries.flatten().collect();
     entries.sort_by_key(|e| e.file_name());
+    walking.push(real);
     for entry in entries {
         let path = entry.path();
-        match entry.file_type() {
-            Ok(t) if t.is_dir() => skill_files(&path, out),
-            Ok(t) if t.is_file() && entry.file_name() == "SKILL.md" => out.push(path),
+        match std::fs::metadata(&path) {
+            Ok(meta) if meta.is_dir() => walk_skill_dir(&path, out, walking),
+            Ok(meta) if meta.is_file() && entry.file_name() == "SKILL.md" => out.push(path),
             _ => {}
         }
     }
+    walking.pop();
 }
 
 /// Collects skills from `roots` in order (global, plugins, bundled): the first skill of a name
@@ -384,19 +398,6 @@ fn escape_xml(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-/// The `<skill>` envelope a `Skill` call delivers; `${MIXDOG_SKILL_NODE}` and
-/// `${MIXDOG_SKILL_DIR}` in the body are resolved here.
-pub fn result_envelope(name: &str, body: &str, skill_dir: Option<&Path>) -> String {
-    let mut body = body.replace("${MIXDOG_SKILL_NODE}", crate::launcher::SKILL_LAUNCHER_COMMAND);
-    let mut dir_line = String::new();
-    if let Some(dir) = skill_dir {
-        let normalized = dir.to_string_lossy().replace('\\', "/");
-        body = body.replace("${MIXDOG_SKILL_DIR}", &normalized);
-        dir_line = format!("<base-dir>{}</base-dir>\n", escape_xml(&normalized));
-    }
-    format!("<skill>\n<name>{}</name>\n{dir_line}{body}\n</skill>", escape_xml(name))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,6 +411,49 @@ mod tests {
         assert_eq!(doc.when_to_use, "when asked");
         assert!(doc.body.starts_with("\nBody") || doc.body.starts_with("Body"));
         assert_eq!(required_features(&doc.frontmatter), vec!["jsRuntime", "git"]);
+    }
+
+    /// Makes `link` a link to the directory `target`: a symlink, or a junction where symlinks need a privilege.
+    #[allow(clippy::disallowed_methods, reason = "a test fixture on a scratch directory")]
+    fn link_dir(target: &Path, link: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+        #[cfg(windows)]
+        assert!(std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(link).arg(target).output().unwrap().status.success());
+    }
+
+    /// Node's recursive listing follows a link to a directory and reads a `SKILL.md` that is a link; a link back to an
+    /// ancestor is entered once and ends.
+    #[test]
+    #[allow(clippy::disallowed_methods, reason = "a test fixture on a scratch directory")]
+    fn skills_are_found_through_links_and_a_cycle_ends() {
+        let root = tempfile::tempdir().unwrap();
+        let skills = root.path().join("skills");
+        let outside = root.path().join("outside").join("linked");
+        std::fs::create_dir_all(skills.join("plain")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(skills.join("plain").join("SKILL.md"), "plain").unwrap();
+        std::fs::write(outside.join("SKILL.md"), "linked").unwrap();
+        link_dir(&outside, &skills.join("linked"));
+        link_dir(&skills, &skills.join("plain").join("back"));
+        let mut found = Vec::new();
+        skill_files(&skills, &mut found);
+        let names: Vec<String> = found.iter().map(|p| p.strip_prefix(&skills).unwrap().components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/")).collect();
+        assert_eq!(names, ["linked/SKILL.md", "plain/SKILL.md"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[allow(clippy::disallowed_methods, reason = "a test fixture on a scratch directory")]
+    fn a_skill_file_that_is_a_symlink_is_listed() {
+        let root = tempfile::tempdir().unwrap();
+        let skill = root.path().join("skills").join("dev");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(root.path().join("real.md"), "body").unwrap();
+        std::os::unix::fs::symlink(root.path().join("real.md"), skill.join("SKILL.md")).unwrap();
+        let mut found = Vec::new();
+        skill_files(&root.path().join("skills"), &mut found);
+        assert_eq!(found, [skill.join("SKILL.md")]);
     }
 
     #[test]
@@ -473,6 +517,11 @@ mod tests {
         assert!(!manifest.contains("skill-089"));
     }
 
+    const BROWSER_USE: &str = include_str!("../../../../../src/defaults/skills/browser-use/SKILL.md");
+    const BROWSER_TOOL: &str = include_str!("../../mixdog-tools/src/desktop/defs/browser.json");
+    const BROWSER_DEVTOOLS_TOOL: &str = include_str!("../../mixdog-tools/src/desktop/defs/browser_devtools.json");
+
+
     #[test]
     fn envelope_resolves_placeholders() {
         let out = result_envelope("a<b", "run ${MIXDOG_SKILL_NODE} in ${MIXDOG_SKILL_DIR}", Some(Path::new("C:\\s\\d")));
@@ -480,11 +529,6 @@ mod tests {
         assert!(out.contains("<base-dir>C:/s/d</base-dir>"));
         assert!(out.contains("run mixdog-skill-node in C:/s/d"));
     }
-
-    const BROWSER_USE: &str = include_str!("../../../../../src/defaults/skills/browser-use/SKILL.md");
-    const BROWSER_TOOL: &str = include_str!("../../mixdog-tools/src/desktop/defs/browser.json");
-    const BROWSER_DEVTOOLS_TOOL: &str = include_str!("../../mixdog-tools/src/desktop/defs/browser_devtools.json");
-
     /// The step that gets the bundled browser-use skill in front of the model before its first browser call: both browser tool
     /// definitions tell it to load the skill, the skill is offered (named in the prompt manifest with the tools it arms) exactly while the
     /// browser feature is active, and loading it delivers its body, which the next provider request carries.
@@ -524,4 +568,18 @@ mod tests {
         assert!(envelope.starts_with("<skill>\n<name>browser-use</name>\n<base-dir>C:/s/browser-use</base-dir>\n"));
         assert!(envelope.contains("# Browser Use"));
     }
+}
+
+
+/// The `<skill>` envelope a `Skill` call delivers; `${MIXDOG_SKILL_NODE}` and
+/// `${MIXDOG_SKILL_DIR}` in the body are resolved here.
+pub fn result_envelope(name: &str, body: &str, skill_dir: Option<&Path>) -> String {
+    let mut body = body.replace("${MIXDOG_SKILL_NODE}", crate::launcher::SKILL_LAUNCHER_COMMAND);
+    let mut dir_line = String::new();
+    if let Some(dir) = skill_dir {
+        let normalized = dir.to_string_lossy().replace('\\', "/");
+        body = body.replace("${MIXDOG_SKILL_DIR}", &normalized);
+        dir_line = format!("<base-dir>{}</base-dir>\n", escape_xml(&normalized));
+    }
+    format!("<skill>\n<name>{}</name>\n{dir_line}{body}\n</skill>", escape_xml(name))
 }

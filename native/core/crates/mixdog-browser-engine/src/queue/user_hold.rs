@@ -159,32 +159,6 @@ mod tests {
         QueueKey::new("foreground", Some(id.into()))
     }
 
-    #[tokio::test]
-    async fn a_held_page_refuses_agent_commands_until_released_and_quiet() {
-        let hold = UserHold::with_quiet(Duration::from_millis(40));
-        assert_eq!(hold.takeover_error(&page("p1")), Ok(()));
-        hold.on_user_input(input("p1", true, None));
-        assert_eq!(hold.takeover_error(&page("p1")), Err(QueueError::LocalInput));
-        assert_eq!(hold.takeover_error(&page("p2")), Ok(()), "another page is not held");
-        time::sleep(Duration::from_millis(60)).await;
-        assert_eq!(hold.takeover_error(&page("p1")), Err(QueueError::LocalInput), "held is held however long it is quiet");
-        hold.on_user_input(input("p1", false, None));
-        assert_eq!(hold.takeover_error(&page("p1")), Err(QueueError::LocalInput), "released, but not yet quiet");
-        time::sleep(Duration::from_millis(60)).await;
-        assert_eq!(hold.takeover_error(&page("p1")), Ok(()));
-        assert!(lock(&hold.state).holds.is_empty(), "a quiet, released hold is forgotten");
-    }
-
-    #[tokio::test]
-    async fn the_host_may_name_when_the_hold_ends() {
-        let hold = UserHold::with_quiet(Duration::from_millis(1));
-        hold.on_user_input(input("p1", false, Some(epoch_ms() + 80)));
-        time::sleep(Duration::from_millis(20)).await;
-        assert_eq!(hold.takeover_error(&page("p1")), Err(QueueError::LocalInput), "past the quiet period, before `until`");
-        time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(hold.takeover_error(&page("p1")), Ok(()));
-    }
-
     #[test]
     fn an_input_aborts_the_agents_of_that_page_only() {
         let hold = UserHold::new();
@@ -216,6 +190,31 @@ mod tests {
         assert_eq!(hold.takeover_error(&page("p1")), Ok(()));
     }
 
+
+    #[tokio::test]
+    async fn a_held_page_refuses_agent_commands_until_released_and_quiet() {
+        let hold = UserHold::with_quiet(Duration::from_millis(40));
+        assert_eq!(hold.takeover_error(&page("p1")), Ok(()));
+        hold.on_user_input(input("p1", true, None));
+        assert_eq!(hold.takeover_error(&page("p1")), Err(QueueError::LocalInput));
+        assert_eq!(hold.takeover_error(&page("p2")), Ok(()), "another page is not held");
+        time::sleep(Duration::from_millis(60)).await;
+        assert_eq!(hold.takeover_error(&page("p1")), Err(QueueError::LocalInput), "held is held however long it is quiet");
+        hold.on_user_input(input("p1", false, None));
+        assert_eq!(hold.takeover_error(&page("p1")), Err(QueueError::LocalInput), "released, but not yet quiet");
+        time::sleep(Duration::from_millis(60)).await;
+        assert_eq!(hold.takeover_error(&page("p1")), Ok(()));
+        assert!(lock(&hold.state).holds.is_empty(), "a quiet, released hold is forgotten");
+    }
+    #[tokio::test]
+    async fn the_host_may_name_when_the_hold_ends() {
+        let hold = UserHold::with_quiet(Duration::from_millis(1));
+        hold.on_user_input(input("p1", false, Some(epoch_ms() + 80)));
+        time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(hold.takeover_error(&page("p1")), Err(QueueError::LocalInput), "past the quiet period, before `until`");
+        time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(hold.takeover_error(&page("p1")), Ok(()));
+    }
     #[tokio::test]
     async fn the_quiet_period_runs_on_the_core_timers() {
         let hold = UserHold::with_quiet(Duration::from_millis(30));

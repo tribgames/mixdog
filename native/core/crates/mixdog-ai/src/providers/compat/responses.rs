@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::{
-    ErrorResponse, ModelRequest, ProviderError, WireCodec, WireDecoder, WireRequest,
+    ErrorResponse, ModelRequest, ProviderError, RequestOptions, WireCodec, WireDecoder, WireRequest,
 };
 use mixdog_protocol::{JsonObject, JsonValue, ProviderId};
 use serde_json::json;
@@ -52,6 +52,25 @@ pub(crate) fn normalize_cache_key(value: &str) -> String {
     format!("pc_{}", &hex[..32])
 }
 
+/// The per-request capability wins over provider config; absent both, only
+/// custom endpoints send the key. On shared calls the named key wins.
+pub(crate) fn session_cache_key(options: &RequestOptions, configured: Option<bool>, custom: bool) -> String {
+    let parameter = |name| options.model_parameters.as_ref().and_then(|p| p.get(name));
+    let enabled = match parameter("responsesPromptCacheKey").filter(|v| !v.is_null()) {
+        Some(value) => value.as_bool().unwrap_or(custom),
+        None => configured.unwrap_or(custom),
+    };
+    if !enabled {
+        return String::new();
+    }
+    let explicit = ["promptCacheKey", "providerCacheKey"].into_iter()
+        .find_map(|name| parameter(name).and_then(JsonValue::as_str).filter(|s| !s.is_empty()))
+        .or(options.prompt_cache_key.as_deref().filter(|s| !s.is_empty()));
+    let session = options.session_id.as_deref().filter(|s| !s.is_empty());
+    let key = if options.prompt_cache_scope.as_deref() == Some("shared") { explicit.or(session) } else { session.or(explicit) };
+    key.map(normalize_cache_key).unwrap_or_default()
+}
+
 /// Values the neutral decoder reads from its context; a compat provider has
 /// no per-request identity beyond the credential the adapter adds.
 struct ClockOnly;
@@ -75,6 +94,8 @@ pub struct CompatResponsesCodec {
     config: CompatConfig,
     transport: TransportKind,
     schemas: Arc<SchemaMemo>,
+    custom_effort_history: bool,
+    prompt_cache_key: Option<bool>,
     /// The unbounded cache lane's slots; shared by clones of this codec.
     lanes: Arc<Mutex<LaneBook>>,
 }
@@ -90,15 +111,37 @@ impl CompatResponsesCodec {
             owner: ProviderId::from(owner),
             schemas: Arc::new(SchemaMemo::default()),
             lanes: Arc::default(),
+            custom_effort_history: false,
+            prompt_cache_key: None,
             profile,
             config,
             transport,
         }
     }
 
+    pub(crate) fn with_custom_effort_history(mut self) -> Self {
+        self.custom_effort_history = true;
+        self
+    }
+
+    /// Configured capability of a generic Responses endpoint; a request may override it.
+    pub fn with_prompt_cache_key(mut self, enabled: Option<bool>) -> Self {
+        self.prompt_cache_key = enabled;
+        self
+    }
+
     /// The replay owner of this wire's envelopes.
     pub fn owner(&self) -> &ProviderId {
         &self.owner
+    }
+
+    pub(crate) fn xai_websocket(&self) -> Self {
+        let mut codec = self.clone();
+        codec.transport = TransportKind::WebSocket;
+        // The tagged xAI socket is public and must not inherit a different gateway's base URL.
+        codec.config.base_url = None;
+        codec.config.extra_headers.clear();
+        codec
     }
 
     fn base_url(&self) -> &str {
@@ -341,6 +384,9 @@ impl WireCodec for CompatResponsesCodec {
     fn transport(&self) -> TransportKind {
         self.transport
     }
+    fn image_branch(&self, _: &ModelRequest) -> mixdog_image_egress::route::WireBranch {
+        mixdog_image_egress::route::WireBranch::OpenAiResponses
+    }
 
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         let routed;
@@ -363,16 +409,28 @@ impl WireCodec for CompatResponsesCodec {
         let info = self.config.models.get(&request.model);
         let profile = self.responses_profile(request, info.as_deref());
         let continuation = profile.resume(request)?;
-        let built = build_body(
+        let effort = request.options.effort_projection.as_ref()
+            .filter(|_| self.custom_effort_history)
+            .map(crate::effort::EffortProjection::from);
+        let mut built = build_body(
             &profile,
             &BuildInputs {
                 schemas: Some(&self.schemas),
                 continuation: Some(&continuation),
+                effort: effort.as_ref(),
                 ..BuildInputs::new(request)
             },
         );
         for exclusion in built.excluded {
             report_exclusion(&request.options, exclusion);
+        }
+        // Custom routes apply this with their session headers. xAI and Muse
+        // retain their own key policies.
+        if self.profile.responses == ResponsesShape::Gateway && !self.profile.id.starts_with("custom-") {
+            let key = session_cache_key(&request.options, self.prompt_cache_key, false);
+            if !key.is_empty() {
+                built.body.insert("prompt_cache_key".into(), key.into());
+            }
         }
         let mut body = if self.profile.responses == ResponsesShape::Muse {
             self.shape_muse(request, info.as_deref(), built.body)

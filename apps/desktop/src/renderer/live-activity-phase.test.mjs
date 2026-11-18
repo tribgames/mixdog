@@ -57,6 +57,23 @@ test('a new phase paints after 150 ms, once the painted one stood 650 ms', async
   assert.equal(mode(), 'thinking');
 });
 
+test('a task wait paints as waiting for tasks, and the working verb returns once it settles', async (t) => {
+  fakeClock(t);
+  const { host, render } = mount(t);
+  const band = () => host.querySelector('.live-activity');
+  await render({ snapshot: spinner({ mode: 'tool-use' }) });
+  await act(async () => sleep(700));
+  await render({ snapshot: spinner({ mode: 'task-wait' }) });
+  await act(async () => sleep(200));
+  assert.equal(band()?.getAttribute('data-mode'), 'task-wait');
+  assert.match(band()?.textContent ?? '', /Waiting for tasks/);
+  await act(async () => sleep(700));
+  await render({ snapshot: spinner({ mode: 'tool-use' }) });
+  await act(async () => sleep(200));
+  assert.equal(band()?.getAttribute('data-mode'), 'tool-use');
+  assert.doesNotMatch(band()?.textContent ?? '', /Waiting for tasks/);
+});
+
 test('a phase withdrawn before it paints never paints later; the painted phase stays', async (t) => {
   fakeClock(t);
   const { host, render } = mount(t);

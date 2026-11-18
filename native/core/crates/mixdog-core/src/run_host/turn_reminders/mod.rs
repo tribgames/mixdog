@@ -25,6 +25,8 @@ pub use self::listing::agent_list_entries;
 pub use self::retained::is_retained;
 pub use self::retained::resubmit;
 
+/// The name of the todo tool (`TODO_TOOL.name`).
+const TODO_TOOL: &str = "todo";
 
 /// What the turn's reminders are read from.
 pub struct Facts<'a> {
@@ -64,6 +66,23 @@ pub struct Reminders {
 pub fn carried_mode(header: &Header) -> Option<String> {
     reminders::orchestration_notice(header).filter(|pending| pending.overlay.is_none()).map(|pending| pending.mode)
 }
+
+/// `todoStartReminder(session)` of a genuine prompt: a delegated agent's brief with no open list asks for one.
+fn todo_start(header: &Header, hidden_agent: bool) -> Option<String> {
+    let delegated = header.get("owner").and_then(Value::as_str) == Some("agent");
+    let has_todo_tool = header.get("tools").and_then(Value::as_array).is_some_and(|tools| tools.iter().any(|tool| tool.get("name").and_then(Value::as_str) == Some(TODO_TOOL)));
+    let open = mixdog_core_ports::ports::todo_list::list_of(header).open_items().len();
+    mixdog_core_run::run_host::guards::todo_start_reminder(delegated, hidden_agent, has_todo_tool, open)
+}
+
+impl Reminders {
+    /// `withRuntimeUserContext(message, { suffix: suffixUserTurnReminders('', block) })` over the reminders' meta;
+    /// `None` for content that is neither text nor blocks.
+    pub fn carry(&self, message: &Value) -> Option<Value> {
+        notice::carry_reminders(message, &self.block, self.agent_listing.as_ref(), self.revisions.settings)
+    }
+}
+
 
 /// The turn's reminder block, in Node's order.
 pub fn build(facts: &Facts<'_>) -> Result<Reminders, String> {
@@ -117,15 +136,10 @@ pub fn build(facts: &Facts<'_>) -> Result<Reminders, String> {
     if let Some(goal) = facts.goal {
         push(goal.to_owned());
     }
-    // Node's `todoStartReminder` (a hidden reminder on a delegated agent's brief to make a list) is not sent: the
-    // shared rules say when a list is set (`rules/shared/25-plan.md`).
-    Ok(Reminders { block: parts.join("\n\n"), agent_listing: listed.map(|listed| listed.meta), revisions })
-}
-
-impl Reminders {
-    /// `withRuntimeUserContext(message, { suffix: suffixUserTurnReminders('', block) })` over the reminders' meta;
-    /// `None` for content that is neither text nor blocks.
-    pub fn carry(&self, message: &Value) -> Option<Value> {
-        notice::carry_reminders(message, &self.block, self.agent_listing.as_ref(), self.revisions.settings)
+    if facts.genuine
+        && let Some(start) = todo_start(header, facts.hidden_agent)
+    {
+        push(start);
     }
+    Ok(Reminders { block: parts.join("\n\n"), agent_listing: listed.map(|listed| listed.meta), revisions })
 }

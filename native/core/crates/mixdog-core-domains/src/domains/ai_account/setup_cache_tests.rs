@@ -213,15 +213,11 @@ async fn the_proxy_mode_is_never_cached_and_a_failed_build_is_an_error() {
     assert!(!setup.has_cached(), "a failure is not cached, so the next read tries again");
 }
 
-/// Node's two reads of a cold start (`fixtures/provider-setup-warmup/golden.json`, `record-provider-setup-warmup.mjs`):
-/// the snapshot flagged `pendingSecrets`, then, once the warm-up built the setup, the authoritative one.
-fn warmup_golden() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/provider-setup-warmup/golden.json")).unwrap()
-}
-
 /// Builds Node's recorded documents: the snapshot for the no-secrets build, the full setup otherwise.
+#[cfg(node_twin)]
 struct Recorded(Value);
 
+#[cfg(node_twin)]
 #[async_trait]
 impl SetupBuilder for Recorded {
     async fn build(&self, options: SetupOptions) -> Result<Value, Failure> {
@@ -233,8 +229,10 @@ impl SetupBuilder for Recorded {
 }
 
 /// The recording has no keyring alert and no catalog failure, so both overlays leave the document as it is.
+#[cfg(node_twin)]
 struct Plain;
 
+#[cfg(node_twin)]
 impl SetupOverlays for Plain {
     fn with_live_keychain(&self, setup: Value) -> Value {
         setup
@@ -244,6 +242,14 @@ impl SetupOverlays for Plain {
     }
 }
 
+
+/// Node's two reads of a cold start (`fixtures/provider-setup-warmup/golden.json`, `record-provider-setup-warmup.mjs`):
+/// the snapshot flagged `pendingSecrets`, then, once the warm-up built the setup, the authoritative one.
+#[cfg(node_twin)]
+fn warmup_golden() -> Value {
+    serde_json::from_str(include_str!("../../../../../fixtures/provider-setup-warmup/golden.json")).unwrap()
+}
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_pushed_section_follows_the_warmup_to_the_setup_nodes_next_read_answers() {
     use mixdog_core_api::mock::MockStatePublisher;

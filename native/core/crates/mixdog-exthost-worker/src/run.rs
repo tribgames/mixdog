@@ -196,7 +196,10 @@ fn answer(link: &CallLink, joined: Result<HandlerResult, JoinError>) -> Value {
         Ok(payload) => Err(CodedError::failed(panic_text(&*payload))),
         Err(error) => Err(CodedError::failed(error.to_string())),
     });
-    let pin = matches!(&outcome, Ok(outcome) if outcome.pin);
+    let pin = match &outcome {
+        Ok(outcome) => outcome.pin,
+        Err(error) => error.pin,
+    };
     if link.is_cancelled() {
         let cancelled = CodedError::cancelled();
         return json!({"err": {"code": cancelled.code, "message": cancelled.message}, "pin": pin});

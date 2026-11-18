@@ -490,15 +490,15 @@ test('C6: another Mixdog asks before it is stopped; confirming connects again wi
   await settle();
   const dialog = document.querySelector('.conn-dialog');
   assert.equal(dialog.getAttribute('role'), 'alertdialog');
-  assert.equal(dialog.querySelector('h3').textContent, 'Stop Mixdog on the server?');
-  assert.match(dialog.querySelector('header p').textContent, /\(pid 1667\)/);
+  assert.equal(dialog.querySelector('h3').textContent, 'Stop the app on the server?');
+  assert.match(dialog.querySelector('header p').textContent, /\(process 1667\)/);
   assert.deepEqual(footerButtons(document), ['Cancel', 'Stop and connect']);
   await click(buttonNamed(document, 'Cancel'));
   assert.equal(attempts, 1, 'Cancel connects nothing');
   assert.equal(document.querySelector('input.conn-input').value, 'root@123.45.67.89');
   await click(buttonNamed(document, 'Connect'));
   await settle();
-  assert.equal(document.querySelector('h3').textContent, 'Stop Mixdog on the server?');
+  assert.equal(document.querySelector('h3').textContent, 'Stop the app on the server?');
   await click(buttonNamed(document, 'Stop and connect'));
   await settle();
   assert.deepEqual(
@@ -575,7 +575,7 @@ test('Settings → Connection: SSH servers group, toolbar button, and the per-ro
     sshForgetHost: (id) => {
       calls.push(['forget', id]);
       state.hosts = state.hosts.filter((host) => host.id !== id);
-      return Promise.resolve(state.hosts);
+      return Promise.resolve({ ok: true, hosts: state.hosts });
     },
     sshConfigHosts: () => Promise.resolve([]),
     subscribeSshProgress: () => () => undefined,
@@ -598,7 +598,7 @@ test('Settings → Connection: SSH servers group, toolbar button, and the per-ro
   const rowButton = (name) => [...row().querySelectorAll('button')].find((b) => b.textContent === name);
   assert.deepEqual(
     [...row().querySelectorAll('button')].map((b) => b.textContent),
-    ['Open', 'Rename', 'Settings', 'Clean up Mixdog on the server…', 'Forget']
+    ['Open', 'Rename', 'Settings', 'Clean up the server…', 'Forget']
   );
 
   await click(rowButton('Open'));
@@ -616,10 +616,14 @@ test('Settings → Connection: SSH servers group, toolbar button, and the per-ro
 
   await click(rowButton('Forget'));
   const confirm = document.querySelector('.conn-dialog');
-  assert.match(confirm.querySelector('header p').textContent, /Only the saved entry for My VPS is removed\./);
+  assert.match(
+    confirm.querySelector('header p').textContent,
+    /Only the saved entry for My VPS is removed\. The server itself is not changed\./
+  );
   await click(confirm.querySelector('.conn-btn--danger'));
   await settle();
   assert.deepEqual(calls.at(-1), ['forget', 'h1']);
+  assert.equal(document.querySelector('.conn-dialog'), null, 'nothing more is asked or told');
   assert.equal(
     [...document.querySelectorAll('.conn-group')].some((g) =>
       g.querySelector('h4')?.textContent.startsWith('SSH servers')
@@ -732,6 +736,15 @@ test('C5: replacing a changed key needs the server name typed in full, and conne
   assert.ok(calls.some((call) => call[0] === 'connect'));
 });
 
+test('C5: the replace step says only the key saved for this address is replaced, without a count', async (t) => {
+  const { document } = await mountDialog(t, { ...NO_CONFIG, check: CHANGED });
+  await startConnect(document);
+  await click(buttonNamed(document, 'Advanced · Replace the key'));
+  const text = dialogText(document);
+  assert.match(text, /Only the key saved for this address is replaced\./);
+  assert.doesNotMatch(text, /other saved server/);
+});
+
 test('C2: behind a jump host every hop’s fingerprint is listed with the server’s, and the ssh -G summary is shown', async (t) => {
   const { document } = await mountDialog(t, {
     ...NO_CONFIG,
@@ -778,7 +791,7 @@ const FAILURES = [
   [
     'an unsupported platform',
     { kind: 'unsupported-platform', message: 'FreeBSD is not supported' },
-    'This server can’t run Mixdog',
+    'The app can’t run on this server',
     /FreeBSD/,
   ],
   [
@@ -790,25 +803,25 @@ const FAILURES = [
   [
     'a failed dependency install',
     { kind: 'deps-install', message: 'npm ERR! network' },
-    'The server couldn’t install what Mixdog needs',
+    'The server couldn’t install what the app needs',
     /npm ERR! network/,
   ],
   [
     'a daemon that would not stop',
     { kind: 'daemon-stop', message: 'pid 9 survived' },
-    'The old Mixdog could not be stopped',
+    'The older version could not be stopped',
     /pid 9 survived/,
   ],
   [
     'a daemon that could not be replaced',
     { kind: 'daemon-replace', message: 'start failed' },
-    'Mixdog could not be replaced',
+    'The older version could not be replaced',
     /start failed/,
   ],
   [
     'a process not proven to be Mixdog',
     { kind: 'daemon-unproven', message: 'pid 9' },
-    'This Mixdog can’t be confirmed',
+    'The program on the server can’t be confirmed',
     /pid 9/,
   ],
   ['a locked install', { kind: 'install-locked' }, 'Another installation is running', /Wait a moment/],
@@ -875,7 +888,7 @@ test('a cancelled question returns to the address; a busy daemon of another vers
   );
   await click(buttonNamed(document, 'Connect'));
   await settle();
-  assert.equal(document.querySelector('h3').textContent, 'Restart Mixdog on the server?');
+  assert.equal(document.querySelector('h3').textContent, 'Restart the app on the server?');
   assert.deepEqual(
     [...document.querySelectorAll('.conn-dialog footer button')].map((b) => b.textContent),
     ['Cancel', 'Restart and connect']
@@ -1063,10 +1076,10 @@ test('cleanup: confirm with the work-history checkbox, progress, the result and 
   const { document, calls, rowButton, ask, cleanupProgress } = await mountPanel(t, {
     sshCleanupHost: (id, request) => (calls.push(['cleanup', id, request]), done.promise),
   });
-  await click(rowButton('Clean up Mixdog on the server…'));
+  await click(rowButton('Clean up the server…'));
   const dialog = document.querySelector('.conn-dialog');
   assert.equal(dialog.getAttribute('role'), 'alertdialog');
-  assert.equal(dialog.querySelector('h3').textContent, 'Clean up Mixdog on vps');
+  assert.equal(dialog.querySelector('h3').textContent, 'Clean up vps');
   const [history, forget] = dialog.querySelectorAll('input[type="checkbox"]');
   assert.equal(history.parentElement.textContent, 'Delete the work history too');
   assert.equal(history.checked, false, 'the work history stays unless asked');
@@ -1099,12 +1112,36 @@ test('cleanup: confirm with the work-history checkbox, progress, the result and 
   await typeInto(document.querySelector('.conn-dialog input'), 'pw');
   await click(buttonNamed(document, 'Continue'));
   assert.deepEqual(calls.at(-1), ['reply', request.operationId, 'q1', 'pw']);
-  await act(async () => done.resolve({ ok: true, hosts: [], detail: 'Removed 12 files' }));
+  await act(async () =>
+    done.resolve({
+      ok: true,
+      hosts: [],
+      detail: 'Removed 12 files',
+      forget: { ok: true },
+    })
+  );
   await settle();
   assert.equal(document.querySelector('h3').textContent, 'Cleaned up vps');
   assert.match(document.querySelector('.conn-dialog').textContent, /Removed 12 files/);
+  assert.match(document.querySelector('.conn-dialog').textContent, /The server was removed from the list\./);
   await click(buttonNamed(document, 'Close'));
   assert.equal(document.querySelector('.conn-dialog'), null);
+});
+
+test('cleanup: a server cleaned remotely whose local forget failed says so and stays in the list to retry', async (t) => {
+  const { document, rowButton } = await mountPanel(t, {
+    sshCleanupHost: () =>
+      Promise.resolve({ ok: true, hosts: [], forget: { ok: false, error: 'The host-key file could not be read.' } }),
+  });
+  await click(rowButton('Clean up the server…'));
+  const [, forget] = document.querySelectorAll('.conn-dialog input[type="checkbox"]');
+  await click(forget);
+  await click(document.querySelector('.conn-dialog .conn-btn--danger'));
+  await settle();
+  const text = document.querySelector('.conn-dialog').textContent;
+  assert.match(text, /The server was cleaned up, but it could not be removed from this PC’s list\. Click Forget to try again\./);
+  assert.match(text, /The host-key file could not be read\./);
+  assert.doesNotMatch(text, /removed from the list/);
 });
 
 test('cleanup: Cancel changes nothing; a failure shows its view and Try again repeats the cleanup', async (t) => {
@@ -1115,12 +1152,12 @@ test('cleanup: Cancel changes nothing; a failure shows its view and Try again re
       return Promise.resolve({ ok: false, failure: { kind: 'install-locked' } });
     },
   });
-  await click(rowButton('Clean up Mixdog on the server…'));
+  await click(rowButton('Clean up the server…'));
   await click(buttonNamed(document, 'Cancel'));
   await settle();
   assert.equal(document.querySelector('.conn-dialog'), null);
   assert.equal(runs, 0);
-  await click(rowButton('Clean up Mixdog on the server…'));
+  await click(rowButton('Clean up the server…'));
   await click(document.querySelector('.conn-dialog .conn-btn--danger'));
   await settle();
   assert.equal(document.querySelector('h3').textContent, 'Another installation is running');
@@ -1187,13 +1224,13 @@ test('C2: a hop that is read only after the earlier one is trusted says so; conf
 const MORE_GUIDANCE = [
   {
     failure: { kind: 'daemon-unmanaged', message: 'A Mixdog (pid 77) not started by the desktop app is running.' },
-    title: 'Mixdog on the server was started by someone else',
-    text: /It was left running; Mixdog will not stop it for you/,
+    title: 'The app on the server was started by someone else',
+    text: /It was left running; this app will not stop it for you/,
     body: /pid 77/,
   },
   {
     failure: { kind: 'daemon-data-in-use', message: 'The data folder is locked by pid 81.' },
-    title: 'The server’s Mixdog data is in use',
+    title: 'The app’s data on the server is in use',
     text: /It was left running/,
     body: /pid 81/,
   },
@@ -1415,8 +1452,8 @@ test('a server log that cannot be read shows why instead of an empty box', async
 const CODE_CASES = [
   [
     { kind: 'protocol-mismatch', message: 'protocol 3 vs 4', code: 'protocol-mismatch' },
-    'The Mixdog version on the server doesn’t match',
-    /Connecting again installs the matching version[\s\S]*Clean up Mixdog on the server/,
+    'The version on the server doesn’t match this app',
+    /Connecting again installs the matching version[\s\S]*Clean up the server/,
     'protocol-mismatch',
   ],
   [
@@ -1446,6 +1483,32 @@ for (const [failure, title, body, code] of CODE_CASES) {
   });
 }
 
+test('a first connection that failed because an older version stays offers the clean-up by its address, then returns to the failure', async (t) => {
+  const calls = [];
+  const { document } = await mountDialog(t, {
+    ...NO_CONFIG,
+    sshConnect: () => Promise.resolve({ ok: false, failure: { kind: 'protocol-mismatch', message: 'protocol 3 vs 4', code: 'protocol-mismatch' } }),
+    sshCleanupTarget: (target, request) => (calls.push([target, request]), Promise.resolve({ ok: true, hosts: [] })),
+  });
+  await startConnect(document, 'root@vps.example.com');
+  await click(buttonNamed(document, 'Clean up the server…'));
+  assert.equal(document.querySelectorAll('input[type="checkbox"]').length, 1, 'only the work history is asked: there is no entry to remove');
+  await click(buttonNamed(document, 'Clean up'));
+  await settle();
+  assert.deepEqual(calls, [['root@vps.example.com', { operationId: calls[0][1].operationId, removeUserData: false, forget: false }]]);
+  await click(buttonNamed(document, 'Close'));
+  assert.equal(document.querySelector('h3').textContent, 'The version on the server doesn’t match this app');
+});
+
+test('a failure with nothing an older version could cause offers no clean-up', async (t) => {
+  const { document } = await mountDialog(t, {
+    ...NO_CONFIG,
+    sshConnect: () => Promise.resolve({ ok: false, failure: { kind: 'failed', message: 'refused', code: 'ssh-transient' } }),
+  });
+  await startConnect(document, 'root@vps.example.com');
+  assert.equal(buttonNamed(document, 'Clean up the server…'), undefined);
+});
+
 test('the log dialog says copies hide the server address and user name, while the shown log is the user’s own unredacted text', async (t) => {
   stubClipboard(t);
   const { document } = await mountDialog(t, {
@@ -1462,3 +1525,5 @@ test('the log dialog says copies hide the server address and user name, while th
   );
   assert.equal(document.querySelector('pre.ssh-log').textContent, 'ssh root@vps.example.com');
 });
+
+

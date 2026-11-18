@@ -46,7 +46,6 @@ function makeRenderer(sessions) {
     paneSubmitFor: () => async () => undefined,
     paneDraftSubmitFor: () => async () => undefined,
     submit: async () => undefined,
-    applySessionLaneResult: () => {},
     applySnapshot: () => {},
     composerFocusRequest: 0,
     conversationNewTask: () => {},

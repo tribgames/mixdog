@@ -427,6 +427,7 @@ impl AgentHomeSessions {
         Ok(json!({ "sessionId": session_id, "archivedSessionId": archived }))
     }
 
+    #[cfg(node_twin)]
     /// Aborts the task of the `index`th flight started.
     #[cfg(test)]
     pub(super) fn abort_flight(&self, index: usize) {

@@ -99,7 +99,7 @@ test('rail_pins_markdown_view_and_conversation_overrides_write_one_config_key', 
   await api.updateActivityRailPins(['sessions']);
   assert.equal(sent[1].params.mode, undefined);
   assert.equal(await api.writeMarkdownDefaultView('source'), 'source');
-  assert.deepEqual(sent[2], { method: 'config/value/write', params: { path: 'desktop.editor.markdownDefaultView', value: 'source' } });
+  assert.deepEqual(sent[2], { method: 'config/value/write', params: { path: 'desktop.editor.markdownDefaultView', value: 'source', announce: 'desktop' } });
   const target = { kind: 'session', sessionId: 's1' };
   await api.setConversationNotification(target, { muted: true });
   assert.deepEqual(sent[3], {
@@ -115,7 +115,7 @@ test('provider_models_announcement_is_fire_and_forget', async () => {
   assert.deepEqual(sent, [{ method: 'ui/providerModels/announce', params: { origin: 'settings' } }]);
 });
 
-test('notification_preferences_write_announces_notifications_and_answers_the_state', async () => {
+test('notification_preferences_write_uses_the_core_announcement_and_answers_the_state', async () => {
   const { api, sent } = world({
     replies: {
       'remoteAccess/state': { settings: { name: '', defaultName: 'BENCH' }, clients: [] },
@@ -131,7 +131,6 @@ test('notification_preferences_write_announces_notifications_and_answers_the_sta
     path: `notifications.devices.${NOTIFICATION_PC_DEVICE_ID}`,
     value: { enabled: false },
     mode: 'mergePatch',
-    announce: 'notifications',
   });
   assert.equal(state.currentDeviceId, NOTIFICATION_PC_DEVICE_ID);
   assert.equal(state.devices[0].name, 'BENCH');
@@ -233,6 +232,11 @@ test('remote_access_reads_come_from_the_held_section', async () => {
   assert.deepEqual(live.sent, [{ method: 'remoteAccess/activate', params: {} }]);
   assert.equal(info.enabled, true);
   assert.equal(info.relayConnectUrl, 'https://relay.example/connect');
+
+  const offline = { disabled: false, info: null, settings: null, clients: [{ id: 'c1' }] };
+  const paged = world({ entries: [entry('remote', null, null)], replies: { 'remoteAccess/state': offline } });
+  assert.deepEqual(await paged.api.getRemoteConnectionState(), offline);
+  assert.deepEqual(paged.sent, [{ method: 'remoteAccess/state', params: {} }]);
 });
 
 test('a_core_failure_reaches_the_page_as_the_ipc_path_gave_it', async () => {

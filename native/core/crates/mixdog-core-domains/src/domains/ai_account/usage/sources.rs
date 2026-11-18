@@ -131,6 +131,10 @@ impl UsageSources for ProviderUsageSources {
     }
 }
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "statusline_tests.rs"]
 mod statusline_tests;

@@ -1,15 +1,17 @@
 // What the phone UI shows about its connection, derived from the client library's `ConnectionStatus` and the relay socket's
 // close codes. The renderer applies these to its existing connection indicator and pairing screen.
-import type { ConnectionStatus } from '../../../packages/protocol-client/src/index.ts';
+import type { ClientErrorDetail, ConnectionStatus } from '../../../packages/protocol-client/src/index.ts';
 import { DESKTOP_OFFLINE_CLOSE } from '../../relay/lib/relay-close-codes.mjs';
 import { isInvalidRemotePairingClose } from '../../desktop/src/renderer/remote-pairing-recovery.ts';
+
+export type VersionRefusal = Extract<ClientErrorDetail, { kind: 'versionRefused' }>['reason'];
 
 export type PhoneConnection =
   | { readonly state: 'connecting' }
   | { readonly state: 'reconnecting' }
   | { readonly state: 'connected' }
-  /** The core runs another version than this page (initialize refusal, or close 4002): the page must be reloaded from the relay after the update. */
-  | { readonly state: 'update-required' }
+  /** An authenticated initialize refusal, not an offline WebSocket close. */
+  | { readonly state: 'update-required'; readonly reason: VersionRefusal }
   /** The PC revoked this device or refused its credential: only a new pairing recovers. */
   | { readonly state: 'pairing-lost' }
   | { readonly state: 'closed' };
@@ -31,6 +33,8 @@ export function phoneConnectionOf(status: ConnectionStatus): PhoneConnection {
     case 'reconnecting':
       return { state: 'reconnecting' };
     case 'closed':
-      return status.reason.kind === 'versionRefused' ? { state: 'update-required' } : { state: 'closed' };
+      return status.reason.kind === 'versionRefused'
+        ? { state: 'update-required', reason: status.reason.reason }
+        : { state: 'closed' };
   }
 }

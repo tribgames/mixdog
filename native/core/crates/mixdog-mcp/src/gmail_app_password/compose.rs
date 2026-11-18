@@ -109,21 +109,6 @@ fn format_list(mailboxes: &[Mailbox]) -> String {
     mailboxes.iter().map(format_mailbox).collect::<Vec<_>>().join(", ")
 }
 
-/// `Date:` as RFC 5322 spells it, in UTC.
-fn date_header(now_ms: f64) -> String {
-    let Some(f) = mixdog_js::time::local_fields_in(Tz::UTC, now_ms) else { return String::new() };
-    format!(
-        "{}, {} {} {:04} {:02}:{:02}:{:02} +0000",
-        WEEKDAYS[f.weekday as usize % 7],
-        f.day,
-        MONTHS[(f.month as usize).saturating_sub(1) % 12],
-        f.year,
-        f.hour,
-        f.minute,
-        f.second
-    )
-}
-
 /// A header line whose items go on continuation lines once it passes 76 characters.
 fn folded(name: &str, items: &[String]) -> String {
     let mut out = format!("{name}:");
@@ -156,6 +141,85 @@ fn body_part(body: &str) -> (&'static str, String) {
     ("base64", lines.join("\r\n"))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn outgoing<'a>(to: &'a str, subject: &'a str, body: &'a str) -> Outgoing<'a> {
+        Outgoing { from: "me@gmail.com", to, cc: "", bcc: "", subject, body, in_reply_to: None, references: &[] }
+    }
+
+    #[test]
+    fn an_address_list_splits_outside_quotes_and_angles() {
+        let list = parse_list("a@x.org, \"Last, First\" <b@y.org>;  Name <c@z.org>");
+        assert_eq!(
+            list,
+            [
+                Mailbox { name: String::new(), address: "a@x.org".into() },
+                Mailbox { name: "Last, First".into(), address: "b@y.org".into() },
+                Mailbox { name: "Name".into(), address: "c@z.org".into() },
+            ]
+        );
+        assert_eq!(format_list(&list), "a@x.org, \"Last, First\" <b@y.org>, Name <c@z.org>");
+    }
+
+
+    #[test]
+    fn the_envelope_lists_to_cc_and_bcc_once_each_and_bcc_is_not_a_header() {
+        let mut message = outgoing("a@x.org, b@x.org", "Hi", "text");
+        message.cc = "b@x.org, c@x.org";
+        message.bcc = "d@x.org";
+        let built = build(&message, 0.0, "u");
+        assert_eq!(built.recipients, ["a@x.org", "b@x.org", "c@x.org", "d@x.org"]);
+        let text = String::from_utf8(built.data).unwrap();
+        assert!(text.contains("Cc: b@x.org, c@x.org\r\n"));
+        assert!(!text.contains("d@x.org"));
+        assert_eq!(built.message_id, "<u@gmail.com>");
+        assert!(text.contains("Date: Thu, 1 Jan 1970 00:00:00 +0000\r\n"));
+    }
+    #[test]
+    fn plain_text_goes_as_7bit_and_other_text_as_wrapped_base64_with_an_encoded_subject() {
+        let plain = String::from_utf8(build(&outgoing("a@x.org", "Hi", "one\ntwo"), 0.0, "u").data).unwrap();
+        assert!(plain.contains("Content-Transfer-Encoding: 7bit\r\n"));
+        assert!(plain.ends_with("\r\n\r\none\r\ntwo"));
+
+        let long = "한".repeat(60);
+        let other = String::from_utf8(build(&outgoing("a@x.org", "안녕", &long), 0.0, "u").data).unwrap();
+        assert!(other.contains(&format!("Subject: =?UTF-8?B?{}?=\r\n", STANDARD.encode("안녕"))));
+        assert!(other.contains("Content-Transfer-Encoding: base64\r\n"));
+        let body = other.split("\r\n\r\n").nth(1).unwrap();
+        assert!(body.split("\r\n").all(|line| line.len() <= 76));
+        assert_eq!(STANDARD.decode(body.replace("\r\n", "")).unwrap(), long.as_bytes());
+    }
+    #[test]
+    fn a_reply_carries_in_reply_to_and_folded_references() {
+        let references: Vec<String> = (0..8).map(|n| format!("<reference-number-{n}@mail.example.org>")).collect();
+        let mut message = outgoing("a@x.org", "Re: Hi", "x");
+        message.in_reply_to = Some("<parent@x>");
+        message.references = &references;
+        let text = String::from_utf8(build(&message, 0.0, "u").data).unwrap();
+        assert!(text.contains("In-Reply-To: <parent@x>\r\n"));
+        let block = text.split("References:").nth(1).unwrap().split("\r\nMessage-ID").next().unwrap();
+        assert!(block.contains("\r\n "));
+        assert_eq!(block.split_whitespace().count(), 8);
+    }
+}
+
+
+/// `Date:` as RFC 5322 spells it, in UTC.
+fn date_header(now_ms: f64) -> String {
+    let Some(f) = mixdog_js::time::local_fields_in(Tz::UTC, now_ms) else { return String::new() };
+    format!(
+        "{}, {} {} {:04} {:02}:{:02}:{:02} +0000",
+        WEEKDAYS[f.weekday as usize % 7],
+        f.day,
+        MONTHS[(f.month as usize).saturating_sub(1) % 12],
+        f.year,
+        f.hour,
+        f.minute,
+        f.second
+    )
+}
 /// The message, its Message-ID (`unique` makes it, at the sender's domain) and the addresses it is sent to.
 pub(super) fn build(message: &Outgoing<'_>, now_ms: f64, unique: &str) -> Built {
     let to = parse_list(message.to);
@@ -191,69 +255,4 @@ pub(super) fn build(message: &Outgoing<'_>, now_ms: f64, unique: &str) -> Built 
     headers.push(format!("Content-Transfer-Encoding: {encoding}"));
     let data = format!("{}\r\n\r\n{body}", headers.join("\r\n")).into_bytes();
     Built { message_id, data, recipients }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn outgoing<'a>(to: &'a str, subject: &'a str, body: &'a str) -> Outgoing<'a> {
-        Outgoing { from: "me@gmail.com", to, cc: "", bcc: "", subject, body, in_reply_to: None, references: &[] }
-    }
-
-    #[test]
-    fn an_address_list_splits_outside_quotes_and_angles() {
-        let list = parse_list("a@x.org, \"Last, First\" <b@y.org>;  Name <c@z.org>");
-        assert_eq!(
-            list,
-            [
-                Mailbox { name: String::new(), address: "a@x.org".into() },
-                Mailbox { name: "Last, First".into(), address: "b@y.org".into() },
-                Mailbox { name: "Name".into(), address: "c@z.org".into() },
-            ]
-        );
-        assert_eq!(format_list(&list), "a@x.org, \"Last, First\" <b@y.org>, Name <c@z.org>");
-    }
-
-    #[test]
-    fn the_envelope_lists_to_cc_and_bcc_once_each_and_bcc_is_not_a_header() {
-        let mut message = outgoing("a@x.org, b@x.org", "Hi", "text");
-        message.cc = "b@x.org, c@x.org";
-        message.bcc = "d@x.org";
-        let built = build(&message, 0.0, "u");
-        assert_eq!(built.recipients, ["a@x.org", "b@x.org", "c@x.org", "d@x.org"]);
-        let text = String::from_utf8(built.data).unwrap();
-        assert!(text.contains("Cc: b@x.org, c@x.org\r\n"));
-        assert!(!text.contains("d@x.org"));
-        assert_eq!(built.message_id, "<u@gmail.com>");
-        assert!(text.contains("Date: Thu, 1 Jan 1970 00:00:00 +0000\r\n"));
-    }
-
-    #[test]
-    fn plain_text_goes_as_7bit_and_other_text_as_wrapped_base64_with_an_encoded_subject() {
-        let plain = String::from_utf8(build(&outgoing("a@x.org", "Hi", "one\ntwo"), 0.0, "u").data).unwrap();
-        assert!(plain.contains("Content-Transfer-Encoding: 7bit\r\n"));
-        assert!(plain.ends_with("\r\n\r\none\r\ntwo"));
-
-        let long = "한".repeat(60);
-        let other = String::from_utf8(build(&outgoing("a@x.org", "안녕", &long), 0.0, "u").data).unwrap();
-        assert!(other.contains(&format!("Subject: =?UTF-8?B?{}?=\r\n", STANDARD.encode("안녕"))));
-        assert!(other.contains("Content-Transfer-Encoding: base64\r\n"));
-        let body = other.split("\r\n\r\n").nth(1).unwrap();
-        assert!(body.split("\r\n").all(|line| line.len() <= 76));
-        assert_eq!(STANDARD.decode(body.replace("\r\n", "")).unwrap(), long.as_bytes());
-    }
-
-    #[test]
-    fn a_reply_carries_in_reply_to_and_folded_references() {
-        let references: Vec<String> = (0..8).map(|n| format!("<reference-number-{n}@mail.example.org>")).collect();
-        let mut message = outgoing("a@x.org", "Re: Hi", "x");
-        message.in_reply_to = Some("<parent@x>");
-        message.references = &references;
-        let text = String::from_utf8(build(&message, 0.0, "u").data).unwrap();
-        assert!(text.contains("In-Reply-To: <parent@x>\r\n"));
-        let block = text.split("References:").nth(1).unwrap().split("\r\nMessage-ID").next().unwrap();
-        assert!(block.contains("\r\n "));
-        assert_eq!(block.split_whitespace().count(), 8);
-    }
 }

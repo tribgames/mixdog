@@ -5,7 +5,7 @@ import { DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES } from '../shared/contr
 import { SECTION_READS } from '../renderer/settings/capability-data.ts';
 import { CAPTURE_SETTINGS_VALUES } from './capture-host.ts';
 import { SESSION_CONFIGURE_ACTIONS, SESSION_READ_ACTIONS } from './test-support/session-protocol-actions.recorded.mjs';
-import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-validation.ts';
+import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
 
 test('the reactions getter is a read capability and the setter a configure one, in the contract and the session protocol', () => {
   assert.equal(DESKTOP_CAPABILITIES.includes('getReactionSettings'), true);

@@ -28,7 +28,10 @@ use crate::env::Clock;
 use crate::env::DrainRequest;
 use crate::env::JitterSource;
 use crate::env::NoGuards;
-use crate::env::NullObserver;
+use crate::env::Retracted;
+use crate::env::RunEvent;
+use crate::env::RunObserver;
+use crate::env::TextRetraction;
 use crate::env::RetryWait;
 use crate::env::RunEnv;
 use crate::env::SteerEntry;
@@ -69,6 +72,20 @@ impl TranscriptSink for DiscardSink {
     async fn durable(&self, _ticket: Ticket) {}
 }
 
+/// Nothing a one-shot call streams is shown anywhere, so a cut stream's text is withdrawn for free: the cut is
+/// replayed by the transport rules like any other, never kept as a partial answer.
+struct DiscardObserver;
+
+impl RunObserver for DiscardObserver {
+    fn event(&self, _event: RunEvent) {}
+    fn can_retract(&self) -> bool {
+        true
+    }
+    fn retract_text(&self, _retraction: TextRetraction) -> Retracted {
+        Retracted::Withdrawn
+    }
+}
+
 /// A run outside any session: the host's clock, jitter, retry wait and decider,
 /// with steering, compaction, routing fallback, hooks and sinks off.
 pub(crate) fn isolated_env(host: &RunEnv) -> RunEnv {
@@ -88,7 +105,7 @@ pub(crate) fn isolated(
         waiter,
         decider,
         steer: Arc::new(NoSteer),
-        observer: Arc::new(NullObserver),
+        observer: Arc::new(DiscardObserver),
         sink: Arc::new(DiscardSink),
         gate: Arc::new(AllowAll),
         guards: Arc::new(NoGuards),
@@ -148,8 +165,8 @@ impl CallShape {
 #[derive(Clone, Debug)]
 pub struct OneShotCall {
     pub model: String,
-    /// The output cap of this request, kept on every retry of it.
-    pub max_output_tokens: u32,
+    /// The output cap of this request, kept on every retry of it; `None` leaves the model's own limit.
+    pub max_output_tokens: Option<u32>,
     pub fast: bool,
     pub shape: CallShape,
 }
@@ -174,6 +191,8 @@ pub struct OneShotOutput {
     /// The model answered with a tool call instead of text.
     pub tool_call: bool,
     pub stop: Option<StopReason>,
+    /// The stream broke after text and the answer is what arrived: not a finished answer.
+    pub cut: bool,
     pub usage: Usage,
 }
 
@@ -238,7 +257,7 @@ impl OneShot {
                 PromptCache::Route => self.options.model_parameters.clone(),
                 PromptCache::Off => without_prompt_cache(self.options.model_parameters.clone()),
             },
-            max_output_tokens_override: Some(call.max_output_tokens),
+            max_output_tokens_override: call.max_output_tokens,
             ..self.options.clone()
         };
         let mut config = RunConfig::new(self.tool_env.thread_id.clone(), self.tool_env.turn_id.clone(), call.model.clone());
@@ -264,6 +283,7 @@ impl OneShot {
                         tool_call: !response.tool_calls.is_empty(),
                         text: response.content,
                         stop: response.stop,
+                        cut: response.stream_cut || response.truncated,
                         usage: response.usage,
                     });
                 }
@@ -291,7 +311,7 @@ fn summary_failure(error: AgentError) -> SummaryFailure {
     match error {
         AgentError::Aborted => SummaryFailure::Aborted,
         AgentError::Provider(e) if falls_to_next_route(&e) => SummaryFailure::NextRoute(e.message),
-        AgentError::Provider(e) => SummaryFailure::Failed(e.message),
+        AgentError::Provider(e) => SummaryFailure::Failed(mixdog_ai::service::error_text::provider_error_text(&e, "agent")),
         AgentError::ContextOverflow(o) => {
             let text = o.cause.clone().unwrap_or_else(|| AgentError::ContextOverflow(o).to_string());
             SummaryFailure::Overflow(text)
@@ -305,12 +325,16 @@ impl SummarySender for OneShot {
     async fn send(&self, system: &str, prompt: &str, call: &SummaryCall) -> Result<SummaryResponse, SummaryFailure> {
         let call = OneShotCall {
             model: call.model.clone(),
-            max_output_tokens: u32::try_from(call.max_output_tokens).unwrap_or(u32::MAX),
+            max_output_tokens: call.max_output_tokens.map(|n| u32::try_from(n).unwrap_or(u32::MAX)),
             fast: call.fast,
             shape: call.shape.clone(),
         };
         let out = self.call_prompt(&call, system, prompt).await.map_err(summary_failure)?;
+        if out.cut {
+            // Reached only when the retraction was refused; a summary the stream broke in is never an answer.
+            return Err(SummaryFailure::Failed("compact summary rejected: the answer was cut by a broken stream; the conversation and the previous summary are kept".into()));
+        }
         let reported = out.usage != Usage::default();
-        Ok(SummaryResponse { text: out.text, tool_call: out.tool_call, usage: reported.then_some(out.usage), input_excludes_cache: mixdog_ai::registry::accounted::adapter_input_excludes_cache(&*self.provider) })
+        Ok(SummaryResponse { text: out.text, tool_call: out.tool_call, stop: out.stop, usage: reported.then_some(out.usage), input_excludes_cache: mixdog_ai::registry::accounted::adapter_input_excludes_cache(&*self.provider) })
     }
 }

@@ -13,6 +13,7 @@
 // section (phone-sections.ts).
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { readDesktopNotice } from '../shared/desktop-notice';
+import { requiredString } from '../shared/remote-arguments';
 import { failure } from './remote-protocol-files';
 import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
 
@@ -40,6 +41,11 @@ function followNotices(host: PhoneProtocolHost, client: Client): () => void {
 export const adapter: PhoneProtocolAdapter = {
   group: 'notifications',
   calls: {
+    // The PC-signed Web Push fallback (remote-push-methods.ts at 0bf8fe0457): the core mints the key, this browser subscribes with it and
+    // hands its endpoint back over the encrypted channel. The core's `remoteAccess` methods hold Node's argument checks and sentences.
+    pushPublicKey: (_params, host) => rpc(host, 'remoteAccess/pushPublicKey', {}),
+    registerPushSubscription: ([input], host) => rpc(host, 'remoteAccess/registerPushSubscription', { input: input ?? null }),
+    removePushSubscription: ([endpoint], host) => rpc(host, 'remoteAccess/removePushSubscription', { endpoint: requiredString(endpoint, 'endpoint') }),
     registerNativePush: ([input], host) => rpc(host, 'remoteAccess/registerNativePush', { input: input ?? null }),
     // A notification's Allow / Deny (native-push-bridge.ts `answerApproval`). Which Allow is taken, and with which decision, is the
     // core's rule (`thread/approval/answerNotification`, remote-session-methods.ts:200-215), never the phone's.

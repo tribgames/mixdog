@@ -15,7 +15,6 @@ use mixdog_core_config::config::agent_disabled;
 use mixdog_core_session::session::session_title::{TitleError, TitleModel};
 use mixdog_protocol::TurnId;
 use mixdog_rt::CancellationToken;
-use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value, json};
 
 use crate::run_host::retry::{RandomJitter, TimerWait};
@@ -127,7 +126,7 @@ impl TitleModel for TitleCompletion {
             return Err(TitleError::Failed(format!("Error: Session title provider is unavailable: {provider_name}")));
         };
         // `roleProviderCacheOpts(provider, 'title-agent')`: the one-shot role's shared prefix.
-        let cache = session_provider_cache_opts(&provider_name, "", Some(TITLE_AGENT), &Header::new(), &json!({}));
+        let cache = session_provider_cache_opts(&provider_name, Some(TITLE_AGENT), &json!({}));
         let scope = cache.as_ref().and_then(|c| c.get("promptCacheScope")).and_then(Value::as_str).map(str::to_owned);
         let strategy = cache.as_ref().and_then(|c| c.get("cacheStrategy")).cloned();
         let tool_env = ToolEnv {
@@ -165,7 +164,7 @@ impl TitleModel for TitleCompletion {
         .with_options(options);
         let call = OneShotCall {
             model,
-            max_output_tokens: MAX_OUTPUT_TOKENS,
+            max_output_tokens: Some(MAX_OUTPUT_TOKENS),
             fast,
             // A background call: an overloaded provider is not retried.
             shape: CallShape { request_kind: None, effort: if effort.is_empty() { "low".to_owned() } else { effort }, retry_529: false, prompt_cache: PromptCache::Route },
@@ -179,24 +178,9 @@ impl TitleModel for TitleCompletion {
 mod tests {
     use super::*;
 
-    fn golden() -> Value {
-        serde_json::from_str(include_str!("../../../../fixtures/session-titles/golden.json")).unwrap()
-    }
-
     /// The config file's agent section for a config built the way Node's recording builds it: its roster in memory form.
     fn config(value: Value) -> Map<String, Value> {
         mixdog_core_config::config::agent_routes::stored_file_of(&value)["agent"].as_object().unwrap().clone()
-    }
-
-    /// The system prompt Node sent in the recorded title requests, with and without a locale.
-    #[test]
-    fn the_system_prompt_equals_the_one_nodes_title_request_carried() {
-        let golden = golden();
-        let cases = golden["completion"].as_array().unwrap();
-        for (index, locale) in [(0, "ko-KR"), (1, "")] {
-            let sent = cases[index]["sent"].as_array().unwrap().iter().find(|s| s.get("messages").is_some()).unwrap();
-            assert_eq!(sent["messages"][0]["content"].as_str().unwrap(), system_prompt(locale).as_str(), "{}", cases[index]["name"]);
-        }
     }
 
     /// `resolveMaintenanceRoute` for the title agent: a disabled or unconfigured Maintainer
@@ -214,5 +198,22 @@ mod tests {
         assert_eq!(title_route(&config(json!({ "default": { "provider": "anthropic", "model": " " } }))), Route::None);
         assert_eq!(title_route(&config(json!({ "default": "preset" }))), Route::NotAnObject);
         assert_eq!(title_route(&config(json!({ "default": [1] }))), Route::Incomplete);
+    }
+
+
+    #[cfg(node_twin)]
+    fn golden() -> Value {
+        serde_json::from_str(include_str!("../../../../fixtures/session-titles/golden.json")).unwrap()
+    }
+    /// The system prompt Node sent in the recorded title requests, with and without a locale.
+    #[test]
+    #[cfg(node_twin)]
+    fn the_system_prompt_equals_the_one_nodes_title_request_carried() {
+        let golden = golden();
+        let cases = golden["completion"].as_array().unwrap();
+        for (index, locale) in [(0, "ko-KR"), (1, "")] {
+            let sent = cases[index]["sent"].as_array().unwrap().iter().find(|s| s.get("messages").is_some()).unwrap();
+            assert_eq!(sent["messages"][0]["content"].as_str().unwrap(), system_prompt(locale).as_str(), "{}", cases[index]["name"]);
+        }
     }
 }

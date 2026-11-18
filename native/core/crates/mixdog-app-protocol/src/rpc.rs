@@ -182,6 +182,10 @@ impl InboundText {
     }
 }
 
+/// How deep a frame's JSON may nest: `serde_json`'s recursion limit, which [`decode_inbound_text`]'s parse enforces (a deeper
+/// frame is [`InboundText::Invalid`]). Text that stands in for a part of a frame is held to it too.
+pub const MAX_JSON_DEPTH: usize = 128;
+
 /// Decodes one inbound WebSocket text frame under the frame bound. A string escape of an unpaired
 /// UTF-16 surrogate (`"\ud800"`, what JSON.stringify writes for text cut inside an emoji) is read as
 /// U+FFFD: Node's `JSON.parse` accepts it, and a Rust string cannot hold the lone unit

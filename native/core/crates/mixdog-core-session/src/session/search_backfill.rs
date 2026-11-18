@@ -4,10 +4,9 @@
 //! - The ids are the store dir's listing (`sessionIdsOfNames(readdirSync(dir))`): every folder
 //!   of `<data>/sessions` named by a session id, in the order the OS lists them. A session
 //!   carrying the delete mark is gone, as a deleted record is in Node once its files are removed.
-//! - The record stamp changes whenever the record does, as Node's file-stat stamp
-//!   (`sessionRecordStampOfSync`): here the next frame the index projects of the session's log,
-//!   which moves with every record appended and stays put across an index rebuild. It is taken
-//!   before the read, and the read sees at least what the stamp covers.
+//! - The record stamp combines the next projected frame with the first log file's
+//!   filesystem version. The cursor follows appends; a log rewrite replaces the
+//!   first file even if no frame positions move. Neither depends on the index generation.
 //! - The read is the stored session (`storedSessionSync(dir, id, false)`): its model context,
 //!   and `isAgentOnlySession` of its header with its id; `None` for a session absent, deleted or
 //!   unreadable (Node's `readSession` null).
@@ -23,6 +22,7 @@ use mixdog_services::memory::error::Result;
 use mixdog_services::memory::session_search::ingest::IngestSession;
 use mixdog_services::memory::session_search::ingest::StoredSessions;
 use mixdog_store::schema::record::Header;
+use mixdog_store::sqlite::lead::LeadRow;
 
 use super::SessionLanes;
 use super::delete::is_session_id;
@@ -48,6 +48,13 @@ impl StoredSearchSessions {
     /// [`StoreThreads::retention`]: moves when a favorite or archive mark is written.
     pub(super) fn retention(&self) -> u64 {
         self.threads.retention()
+    }
+
+    /// Every stored session's catalog row, listed or not (its `favoriteAt`, and its archived flag as the archive authority resolves it) in one
+    /// index read, as one observation with the mark projections' state ([`StoreThreads::marked_catalog`]). Node read the sidebar marks from one small file; a
+    /// header read per stored session opens that session's record.
+    pub(super) async fn catalog_rows(&self) -> Result<Vec<LeadRow>, String> {
+        self.threads.marked_catalog().await
     }
 
     /// The stored header of a session; `None` for one absent, deleted or unreadable (Node's
@@ -87,13 +94,8 @@ impl StoredSearchSessions {
             .map_err(std::io::Error::other)?
             .await
             .map_err(std::io::Error::other)??;
-        let mut ids = Vec::new();
-        for name in names.into_iter().filter(|name| is_session_id(name)) {
-            if self.threads.index().deleted(&name).await.map_err(std::io::Error::other)? != Some(true) {
-                ids.push(name);
-            }
-        }
-        Ok(ids)
+        let deleted = self.threads.index().deleted_ids().await.map_err(std::io::Error::other)?;
+        Ok(names.into_iter().filter(|name| is_session_id(name) && !deleted.contains(name)).collect())
     }
 }
 
@@ -103,17 +105,43 @@ impl StoredSessions for StoredSearchSessions {
         self.listed().await.map_err(|e| failed("list sessions", e))
     }
 
-    async fn record_stamp(&self, session_id: &str) -> Option<String> {
-        let at = self.threads.index().projected(session_id).await.ok()??;
-        Some(format!("frame:{}:{}:{}", at.ordinal, at.file_no, at.offset))
+    async fn record_stamp(&self, session_id: &str) -> Result<Option<String>> {
+        let Some(epoch) = mixdog_store::log_epoch::settled(session_id) else { return Ok(None) };
+        let Some(at) = self.threads.search_position(session_id).await.map_err(|e| failed("read session stamp", e))? else {
+            return Ok(None);
+        };
+        let first = self.sessions_dir().join(session_id).join(mixdog_store::log::log_name(0));
+        let version = self.lanes.io
+            .submit_wait(&CancellationToken::new(), move |_| mixdog_workspace::ident::stat_version(&first))
+            .await.map_err(|e| failed("schedule session stamp", e))?
+            .await.map_err(|e| failed("read session stamp", e))?;
+        if mixdog_store::log_epoch::settled(session_id) != Some(epoch) {
+            return Ok(None);
+        }
+        let version = match version {
+            Ok(version) => version,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(failed("stat first session log", e)),
+        };
+        Ok(Some(format!("frame-v2:{}:{}:{}:{}:{}:{}:{}:{}",
+            at.ordinal, at.file_no, at.offset, version.dev, version.ino, version.size, version.mtime_ns, version.ctime_ns)))
     }
 
     async fn read(&self, session_id: &str) -> Option<IngestSession> {
         let id = ThreadId::from(session_id);
+        let (threads, shape_id) = (self.threads.clone(), id.clone());
+        let shape = self.lanes.io
+            .submit_wait(&CancellationToken::new(), move |lane| threads.search_shape(lane, &shape_id))
+            .await.ok()?.await.ok()?.ok()?;
+        if !shape.is_current() {
+            return None;
+        }
         let store: Arc<dyn ThreadStore> = self.threads.clone();
         let header = self.header(session_id).await?;
         let messages = read_context(&store, &self.lanes, &id).await.ok()?;
-        Some(search_session(&id, &header, messages.into_iter().map(|(_, body)| body).collect()))
+        // The context reader can restart between pages; neither a restarted context
+        // nor a changed fork base can be paired with an earlier header.
+        shape.is_current().then(|| search_session(&id, &header, messages.into_iter().map(|(_, body)| body).collect()))
     }
 }
 

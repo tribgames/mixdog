@@ -12,9 +12,9 @@ use mixdog_term::os::{FolderPick, FolderPickOptions};
 use mixdog_tui::app::AppCtx;
 use mixdog_tui::pickers::PickerKind;
 use mixdog_tui::pickers::extensions::disabled_skills::SkillSet;
-use mixdog_tui::pickers::extensions::message_selector::{
-    has_user_messages, message_selector_label, open_message_selector, selectable_user_items,
-};
+use mixdog_tui::pickers::extensions::message_selector::{has_user_messages, message_selector_label, selectable_user_items};
+#[cfg(node_twin)]
+use mixdog_tui::pickers::extensions::message_selector::open_message_selector;
 use mixdog_tui::pickers::extensions::panel::{read_status, scope_note};
 use mixdog_tui::pickers::extensions::resume::{format_session_message_count, format_session_updated_at};
 use mixdog_tui::pickers::extensions::{Action, ExtPanel, Extensions, ExtensionsHost, Handler};
@@ -23,14 +23,10 @@ use mixdog_tui::surface::epoch::PanelValue;
 use mixdog_tui::surface::owner::PanelSurface;
 use mixdog_tui::surface::{SurfaceClaim, SurfaceKind};
 use mixdog_tui_widgets::picker::IndexMode;
-use serde_json::{Map, Value, json};
-
-const GOLDEN: &str = include_str!("goldens/pickers-extensions.json");
+use serde_json::{Value, json};
+#[cfg(node_twin)]
+use serde_json::Map;
 const NOW_MS: u64 = 1_000_000;
-
-fn golden() -> Value {
-    serde_json::from_str(GOLDEN).expect("pickers-extensions.json is valid JSON")
-}
 
 /// What the recorder logs apart.
 const CHANNELS: [&str; 9] = ["calls", "notices", "paints", "prompts", "returns", "clipboard", "hints", "errors", "values"];
@@ -178,6 +174,7 @@ impl Fake {
         self.surface.live_picker().cloned()
     }
 
+    #[cfg(node_twin)]
     fn row(&self, value: &str) -> Option<usize> {
         self.surface.live_picker()?.items.iter().position(|item| item.value == value)
     }
@@ -374,6 +371,7 @@ impl ExtensionsHost for Fake {
 }
 
 /// One step of a scenario.
+#[cfg(node_twin)]
 fn run_step(ext: &mut Extensions, host: &mut Fake, step: &[Value]) {
     let name = step[0].as_str().expect("a step name");
     let text = |at: usize| step.get(at).and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -452,6 +450,7 @@ fn run_step(ext: &mut Extensions, host: &mut Fake, step: &[Value]) {
 }
 
 /// Runs a scenario and answers the log of every step in the recorder's shape.
+#[cfg(node_twin)]
 fn run_scenario(spec: &Value) -> Vec<Value> {
     let mut ext = Extensions::new();
     let mut host = Fake::new(spec);
@@ -470,35 +469,6 @@ fn run_scenario(spec: &Value) -> Vec<Value> {
         steps.push(Value::Object(entry));
     }
     steps
-}
-
-#[test]
-fn every_recorded_scenario_does_what_node_does() {
-    let golden = golden();
-    let scenarios = golden["scenarios"].as_array().expect("scenarios");
-    assert!(scenarios.len() >= 30, "the recording is not trimmed");
-    let mut failures = Vec::new();
-    for scenario in scenarios {
-        let got = run_scenario(&scenario["spec"]);
-        let want = scenario["steps"].as_array().expect("steps");
-        assert_eq!(got.len(), want.len(), "{}", scenario["name"]);
-        for (at, (got, want)) in got.iter().zip(want).enumerate() {
-            if got == want {
-                continue;
-            }
-            let differing: Vec<String> = want
-                .as_object()
-                .expect("a step record")
-                .keys()
-                .filter(|key| got[key.as_str()] != want[key.as_str()])
-                .map(|key| format!("{key}: got {} want {}", got[key.as_str()], want[key.as_str()]))
-                .collect();
-            if failures.len() < 6 {
-                failures.push(format!("{} step {at} {}:\n  {}", scenario["name"], want["step"], differing.join("\n  ")));
-            }
-        }
-    }
-    assert!(failures.is_empty(), "{} mismatches, first:\n{}", failures.len(), failures.join("\n"));
 }
 
 fn fake(store: Value) -> Fake {
@@ -672,28 +642,6 @@ fn the_login_prompt_is_recognised_and_a_prompt_that_was_replaced_is_left_alone()
 }
 
 #[test]
-fn session_formatters_follow_app_format() {
-    assert_eq!(format_session_message_count(None), "0 msgs");
-    assert_eq!(format_session_message_count(Some(&json!(1))), "1 msg");
-    assert_eq!(format_session_message_count(Some(&json!(12.6))), "13 msgs");
-    assert_eq!(format_session_message_count(Some(&json!("3"))), "3 msgs");
-    assert_eq!(format_session_message_count(Some(&json!(-4))), "0 msgs");
-    assert_eq!(format_session_updated_at(None, 1.0e12), "--:--");
-    assert_eq!(format_session_updated_at(Some(&json!(0)), 1.0e12), "--:--");
-    assert_eq!(format_session_updated_at(Some(&json!("soon")), 1.0e12), "--:--");
-    assert_eq!(format_session_updated_at(Some(&json!(-5)), 1.0e12), "--:--");
-    let now = 1_794_735_000_000.0;
-    let shown = mixdog_js::time::with_local_zone(mixdog_js::time::Tz::UTC, || {
-        (
-            format_session_updated_at(Some(&json!(1_794_735_000_000_i64)), now),
-            format_session_updated_at(Some(&json!(1_700_000_000_000_i64)), now),
-        )
-    });
-    assert_eq!(shown.0, "11-15 09:30");
-    assert_eq!(shown.1, "2023-11-14 22:13");
-}
-
-#[test]
 fn the_message_selector_lists_the_newest_twenty_rewindable_prompts_oldest_first() {
     let items: Vec<Value> = (0..25).map(|id| json!({"kind": "user", "id": id, "text": format!("message {id}")})).collect();
     let rows = selectable_user_items(&items, 20);
@@ -796,3 +744,29 @@ fn a_panel_becomes_picker_props_with_the_marker_colours_and_the_entry_footer() {
     assert_eq!(props.items[0].marker, "\u{25cf}");
     assert!(props.items[0].marker_color.is_some());
 }
+
+#[test]
+fn session_formatters_follow_app_format() {
+    assert_eq!(format_session_message_count(None), "0 msgs");
+    assert_eq!(format_session_message_count(Some(&json!(1))), "1 msg");
+    assert_eq!(format_session_message_count(Some(&json!(12.6))), "13 msgs");
+    assert_eq!(format_session_message_count(Some(&json!("3"))), "3 msgs");
+    assert_eq!(format_session_message_count(Some(&json!(-4))), "0 msgs");
+    assert_eq!(format_session_updated_at(None, 1.0e12), "--:--");
+    assert_eq!(format_session_updated_at(Some(&json!(0)), 1.0e12), "--:--");
+    assert_eq!(format_session_updated_at(Some(&json!("soon")), 1.0e12), "--:--");
+    assert_eq!(format_session_updated_at(Some(&json!(-5)), 1.0e12), "--:--");
+    let now = 1_794_735_000_000.0;
+    let shown = mixdog_js::time::with_local_zone(mixdog_js::time::Tz::UTC, || {
+        (
+            format_session_updated_at(Some(&json!(1_794_735_000_000_i64)), now),
+            format_session_updated_at(Some(&json!(1_700_000_000_000_i64)), now),
+        )
+    });
+    assert_eq!(shown.0, "11-15 09:30");
+    assert_eq!(shown.1, "2023-11-14 22:13");
+}
+
+#[cfg(node_twin)]
+#[path = "node-twin/pickers_extensions.rs"]
+mod node_twin;

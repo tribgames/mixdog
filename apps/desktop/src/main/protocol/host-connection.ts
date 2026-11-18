@@ -36,6 +36,16 @@ export function createHostConnection(source: Source, onFault: HostFault = () => 
       source.respond(id, body);
     } catch (error) {
       fault(`answer of ${method}`, error);
+      // Any answer the link refused to carry (a result or an error over the frame limit) is replaced by a small error, so
+      // the core's request ends with a reason instead of waiting for a timeout; a link that is down fails this too and has
+      // nobody to tell.
+      const why = (error as { detail?: { what?: unknown } } | null)?.detail?.what;
+      const message = `${method} answer could not be sent: ${typeof why === 'string' ? why : error instanceof Error ? error.message : String(error)}`;
+      try {
+        source.respond(id, { error: { code: -32000, message } });
+      } catch {
+        /* the link is down: the core fails its open requests with the socket */
+      }
     }
   };
   const requestHandlers = new Map<string, (params: unknown, signal: AbortSignal) => Promise<unknown>>();

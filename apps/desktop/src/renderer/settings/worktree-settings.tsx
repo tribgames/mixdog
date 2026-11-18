@@ -95,6 +95,8 @@ export function WorktreeSettings({ active = true }: { active?: boolean }) {
           description={t('Worktrees with uncommitted or unmerged work are never deleted. Turning this off asks first.')}
           showDescription
           checked={settings.autoCleanup}
+          // Turning off asks first, so the switch follows the saved setting, not the click.
+          optimistic={false}
           onChange={(autoCleanup) => {
             if (autoCleanup) {
               save({ autoCleanup });
@@ -157,6 +159,7 @@ export function WorktreeSettings({ active = true }: { active?: boolean }) {
 /** The collapsed "Advanced" group: branch prefix and the size warning. */
 export function WorktreeAdvancedSettings({ active = true }: { active?: boolean }) {
   const settings = useWorktreeSettings(active);
+  const [sizeError, setSizeError] = useState(false);
   if (!settings) return null;
   return (
     <details className="worktree-advanced">
@@ -164,15 +167,23 @@ export function WorktreeAdvancedSettings({ active = true }: { active?: boolean }
       <Group>
         <BranchPrefixRows prefix={settings.branchPrefix} />
         <AutoSaveRow
-          title={t('Size warning threshold (GB)')}
+          title={t('Size warning threshold (GiB)')}
           name="worktreeSizeWarnGb"
-          value={String(Math.round((settings.sizeWarnBytes / GIB) * 100) / 100)}
+          value={String(settings.sizeWarnBytes / GIB)}
           placeholder="2"
+          required
+          onInput={() => setSizeError(false)}
           onSave={(value) => {
-            const gb = Number(value.trim());
-            if (Number.isFinite(gb) && gb >= 0) saveWorktreeSettings({ sizeWarnBytes: Math.round(gb * GIB) });
+            const bytes = Math.round(Number(value.trim()) * GIB);
+            if (!value.trim() || !Number.isSafeInteger(bytes) || Number(value) < 0) {
+              setSizeError(true);
+              return;
+            }
+            setSizeError(false);
+            saveWorktreeSettings({ sizeWarnBytes: bytes });
           }}
         />
+        {sizeError && <p className="settings-error" role="alert">{t('Enter a valid non-negative size in GiB.')}</p>}
       </Group>
     </details>
   );
@@ -237,6 +248,8 @@ function BranchPrefixRows({ prefix }: { prefix: string }) {
             }
             setError('');
             if (next === '') return;
+            setTyped(null);
+            setCustomOpen(false);
             saveWorktreeSettings({ branchPrefix: next });
           }}
         />

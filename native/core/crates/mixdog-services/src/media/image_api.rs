@@ -14,18 +14,13 @@ use super::adapter_http::JsonPost;
 use super::catalog_fetch::Auth;
 use super::download::{AdapterError, Limits, PublicFetch, download_public_media};
 use super::lanes::LaneError;
+use super::references::{References, Target, account_of};
 use super::upstream::{decode_base64_media, upstream_error};
 use super::usage::{image_api_usage, reported_usage};
 
 const IMAGE_TIMEOUT: Duration = Duration::from_secs(180);
 /// Request field per Studio option; values come from the model's own enums.
 const PARAMS: [(&str, &str); 4] = [("aspectRatio", "aspect_ratio"), ("resolution", "resolution"), ("quality", "quality"), ("background", "background")];
-
-/// A reference image: base64 data (or a data URL) and its mime type.
-pub struct ImageReference {
-    pub base64: String,
-    pub mime: String,
-}
 
 /// What a generation returns.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,14 +37,6 @@ fn label_of(lane: &str) -> &'static str {
         "nano-gpt" => "NanoGPT image",
         _ => "Image API",
     }
-}
-
-pub(super) fn reference_url(reference: &ImageReference) -> String {
-    if reference.base64.starts_with("data:") {
-        return reference.base64.clone();
-    }
-    let mime = if reference.mime.is_empty() { "image/png" } else { reference.mime.as_str() };
-    format!("data:{mime};base64,{}", reference.base64)
 }
 
 /// The stored format comes from the bytes, not a label: only rasters the store keeps.
@@ -83,8 +70,11 @@ fn media(message: String, code: &'static str, status: u16) -> AdapterError {
 /// `generateImage({ lane, model, prompt, options, references, signal })`.
 #[allow(clippy::too_many_arguments, reason = "the adapter's own parameters, one per field of Node's call")]
 #[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
-pub async fn generate_image(http: &dyn JsonPost, public: &dyn PublicFetch, auth: &Auth, lane: &str, model: &str, prompt: &str, options: &Value, references: &[ImageReference], cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
+pub async fn generate_image(http: &dyn JsonPost, public: &dyn PublicFetch, auth: &Auth, lane: &str, model: &str, prompt: &str, options: &Value, references: &References, cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
     let label = label_of(lane);
+    let url = format!("{}/images", auth.base_url);
+    let account = account_of(auth);
+    let references = references.prepare(&Target { endpoint: &url, account: &account, model, operation: "image-edit" }).await?;
     let mut body = Map::new();
     body.insert("model".into(), json!(model));
     body.insert("prompt".into(), json!(prompt));
@@ -98,10 +88,9 @@ pub async fn generate_image(http: &dyn JsonPost, public: &dyn PublicFetch, auth:
         }
     }
     if !references.is_empty() {
-        body.insert("input_references".into(), references.iter().map(|r| json!({ "type": "image_url", "image_url": { "url": reference_url(r) } })).collect());
+        body.insert("input_references".into(), references.iter().map(|r| json!({ "type": "image_url", "image_url": { "url": r.data_url() } })).collect());
     }
     let headers = [("Content-Type".to_owned(), "application/json".to_owned()), ("Authorization".to_owned(), format!("Bearer {}", auth.token))];
-    let url = format!("{}/images", auth.base_url);
     let reply = match http.post(&url, &headers, &Value::Object(body), IMAGE_TIMEOUT, cancel).await {
         Ok(reply) => reply,
         Err(failure) if failure.timed_out => return Err(media(format!("{label} timed out"), "MEDIA_TIMEOUT", 504)),

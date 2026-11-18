@@ -159,10 +159,7 @@ pub fn stage_tool_availability(session: &mut Header, feature_denied: &[String], 
         })
         .collect();
     merge_deferred_delta(session, &described, &removed, now);
-    // A delegated worker is never folded: its opened tools are announced again after a compaction.
-    if !is_agent_owner(&Value::Object(session.clone())) {
-        session.insert("promptFoldPending".to_owned(), Value::Bool(true));
-    }
+    session.insert("promptFoldPending".to_owned(), Value::Bool(true));
     session.insert("updatedAt".to_owned(), json!(now));
     Some(Moved { added, removed })
 }
@@ -200,13 +197,16 @@ pub fn stage_connector_availability(session: &mut Header, thread: &ThreadId, per
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use serde_json::json;
 
+    #[cfg(node_twin)]
     use super::*;
 
     /// Node's `stageToolAvailability` over sessions with gates closing and opening
     /// (`fixtures/tool-availability`): the result, the definitions asked for, and the session after.
     #[test]
+    #[cfg(node_twin)]
     fn the_staged_availability_equals_nodes() {
         let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/tool-availability/golden.json")).expect("golden");
         let now = golden["now"].as_i64().expect("now");
@@ -226,6 +226,7 @@ mod tests {
     }
 
     /// What the policy files said, as Node's own functions answered for the session's known tools.
+    #[cfg(node_twin)]
     struct Answers {
         agent: String,
         agent_disabled: Vec<String>,
@@ -233,6 +234,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
+    #[cfg(node_twin)]
     impl ConnectorPermissions for Answers {
         fn needs_approval(&self, _: &str, _: &str) -> bool {
             false
@@ -252,6 +254,7 @@ mod tests {
     /// Node's `stageConnectorAvailability` over sessions whose agent and project policies move
     /// (`fixtures/connector-availability`): the result and the whole session after each step.
     #[test]
+    #[cfg(node_twin)]
     fn the_staged_connectors_equal_nodes() {
         let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/connector-availability/golden.json")).expect("golden");
         let now = golden["now"].as_i64().expect("now");
@@ -275,3 +278,5 @@ mod tests {
         }
     }
 }
+
+

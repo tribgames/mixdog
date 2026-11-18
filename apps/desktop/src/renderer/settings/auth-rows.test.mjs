@@ -17,7 +17,7 @@ const login = (origin, username, extra = {}) => ({
 
 test('rows merge a login with its site cookies, and a cookie-only site stands alone', () => {
   const logins = [
-    login('https://github.com', 'tempest', { hasTotp: true, source: 'chat' }),
+    login('https://github.com', 'sample', { hasTotp: true, source: 'chat' }),
     login('https://notion.so', 'me@example.com', { source: 'csv' }),
   ];
   const sites = [

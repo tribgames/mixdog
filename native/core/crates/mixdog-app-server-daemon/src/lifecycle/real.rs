@@ -30,6 +30,7 @@ use super::DrainNotice;
 use super::Running;
 use super::ports::CorePort;
 use super::ports::Exiter;
+use super::ports::ManagedDrain;
 use super::ports::Publication;
 use crate::discovery;
 use crate::discovery::CoreState;
@@ -126,7 +127,7 @@ pub struct CoreWiring {
     /// The core's stop steps (`ComposedCore::run_stop_steps`, wired in `serving.rs`). Product limit: the stopped core still holds `state/core.sqlite` and
     /// `index/store.sqlite` open in this process (the parts holding them outlive the stop and the runtime); only the process exit that ends the
     /// release (`ProcessExiter::exit`) closes them.
-    pub close_data_handles: Hook,
+    pub close_data_handles: Arc<dyn Fn(&ManagedDrain) + Send + Sync>,
     /// The release's Node-text reason (`CorePort::release_started`), kept for the stop steps.
     pub release_started: Arc<dyn Fn(&str) + Send + Sync>,
     /// Writes out the queued daemon-log lines (`DaemonLog::flush`), right before the process ends.
@@ -214,8 +215,8 @@ impl CorePort for RuntimeCore {
         self.wiring.runtime.block_on(self.wiring.ext_host.close());
     }
 
-    fn close_data_handles(&self) {
-        (self.wiring.close_data_handles)();
+    fn close_data_handles(&self, drain: &ManagedDrain) {
+        (self.wiring.close_data_handles)(drain);
     }
 
     fn flush_log(&self) {
@@ -225,6 +226,8 @@ impl CorePort for RuntimeCore {
 
 enum Job {
     Publish(Box<Discovery>),
+    /// The index rebuild moved: the last document is written again with the progress as it is when this one is handled.
+    Refresh,
     /// Everything queued before it has been written; `withdraw` removes the file as well.
     Barrier { withdraw: bool, done: mpsc::Sender<()> },
 }
@@ -247,7 +250,23 @@ pub struct DiscoveryPublication {
     base: Discovery,
     /// The RPC port, published only while serving.
     rpc: Mutex<Option<discovery::Port>>,
-    jobs: Mutex<mpsc::Sender<Job>>,
+    /// The ssh listener's port, published with `rpc` and only while serving.
+    ssh_rpc: Mutex<Option<discovery::Port>>,
+    /// The core runs its models through the desktop's model proxy; the serving document then advertises it.
+    model_proxy: std::sync::atomic::AtomicBool,
+    jobs: Arc<Mutex<mpsc::Sender<Job>>>,
+    /// This boot's index rebuild: its sessions done and total are named by the document while the core boots. The writer
+    /// thread reads it when it writes, so what is written never goes backwards.
+    rebuild: Arc<mixdog_store::sqlite::RebuildProgress>,
+}
+
+/// Whether a document is of a core that has not yet begun to serve: only then is a rebuild under way.
+fn booting(state: CoreState) -> bool {
+    matches!(state, CoreState::Booting | CoreState::Migrating)
+}
+
+fn rebuild_of(progress: &mixdog_store::sqlite::RebuildProgress) -> Option<discovery::Rebuild> {
+    progress.snapshot().map(|(done, total)| discovery::Rebuild { done, total })
 }
 
 impl DiscoveryPublication {
@@ -273,16 +292,49 @@ impl DiscoveryPublication {
         on_fatal: OnFatal,
     ) -> Self {
         let (jobs, inbox) = mpsc::channel::<Job>();
+        let jobs = Arc::new(Mutex::new(jobs));
         let instance_id = base.core.instance_id.clone();
+        let rebuild = Arc::new(mixdog_store::sqlite::RebuildProgress::default());
+        // One wake-up is queued at a time, whatever the number of sessions that finish before it is handled. The reporter holds no
+        // strong reference to the queue: a boot that is dropped ends the writer thread.
+        let wake = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        rebuild.on_change(Box::new({
+            let (jobs, wake) = (Arc::downgrade(&jobs), wake.clone());
+            move || {
+                if wake.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+                if let Some(jobs) = jobs.upgrade() {
+                    let _ = locked(&jobs).send(Job::Refresh);
+                }
+            }
+        }));
+        let (reporter, reporter_handle) = (rebuild.clone(), rebuild);
         std::thread::Builder::new()
             .name("mixdog-discovery".into())
             .spawn(move || {
+                let mut last: Option<Box<Discovery>> = None;
+                let put = |document: &mut Discovery| {
+                    if let Err(error) = write(&root, document) {
+                        tracing::error!(%error, "discovery was not published");
+                        if document.core.state != CoreState::Draining { on_fatal(&error); }
+                    }
+                };
                 for job in inbox {
                     match job {
-                        Job::Publish(document) => {
-                            if let Err(error) = write(&root, &document) {
-                                tracing::error!(%error, "discovery was not published");
-                                if document.core.state != CoreState::Draining { on_fatal(&error); }
+                        Job::Publish(mut document) => {
+                            document.core.rebuild = booting(document.core.state).then(|| rebuild_of(&reporter)).flatten();
+                            put(&mut document);
+                            last = Some(document);
+                        }
+                        Job::Refresh => {
+                            wake.store(false, std::sync::atomic::Ordering::SeqCst);
+                            if let Some(document) = last.as_mut().filter(|document| booting(document.core.state)) {
+                                let now = rebuild_of(&reporter);
+                                if document.core.rebuild != now {
+                                    document.core.rebuild = now;
+                                    put(document);
+                                }
                             }
                         }
                         Job::Barrier { withdraw, done } => {
@@ -301,12 +353,37 @@ impl DiscoveryPublication {
                 }
             })
             .expect("the OS refused a discovery thread");
-        Self { base, rpc: Mutex::new(None), jobs: Mutex::new(jobs) }
+        Self {
+            base,
+            rpc: Mutex::new(None),
+            ssh_rpc: Mutex::new(None),
+            model_proxy: std::sync::atomic::AtomicBool::new(false),
+            jobs,
+            rebuild: reporter_handle,
+        }
+    }
+
+    /// This boot's rebuild reporter: the store open that rebuilds the index advances it, and the document names it.
+    pub fn rebuild_progress(&self) -> Arc<mixdog_store::sqlite::RebuildProgress> {
+        self.rebuild.clone()
+    }
+
+    /// Marks the core as running its models through the model proxy: the next `serving` publish carries
+    /// `endpoints.modelProxy`. The proxy rides the RPC listener (a PC's connection declares `capabilities.modelProxy`
+    /// there, DS §12.4), so that listener is the endpoint.
+    pub fn set_model_proxy(&self, on: bool) {
+        self.model_proxy.store(on, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Records the bound RPC listener; the next `serving` publish names it.
     pub fn set_rpc_port(&self, port: u16) {
         *locked(&self.rpc) = Some(discovery::Port { port });
+    }
+
+    /// Records the bound ssh listener; the next `serving` publish names it as `core.sshRpc`, beside `core.rpc`. Both are set
+    /// before the core is set serving (`serving::attach`), so no document carries one without the other.
+    pub fn set_ssh_rpc_port(&self, port: u16) {
+        *locked(&self.ssh_rpc) = Some(discovery::Port { port });
     }
 
     /// The bound RPC listener's port, once `set_rpc_port` has recorded it.
@@ -343,7 +420,18 @@ impl Publication for DiscoveryPublication {
             DiscoveryPhase::Serving => locked(&self.rpc).clone(),
             _ => None,
         };
-        // Sent under the sender's lock, so concurrent publishes keep the order `apply` decided.
+        document.core.ssh_rpc = match state.phase {
+            DiscoveryPhase::Serving => locked(&self.ssh_rpc).clone(),
+            _ => None,
+        };
+        document.endpoints.model_proxy = document
+            .core
+            .rpc
+            .as_ref()
+            .filter(|_| self.model_proxy.load(std::sync::atomic::Ordering::SeqCst))
+            .map(|rpc| discovery::SessionEndpoint { port: rpc.port, token: self.base.endpoints.session.token.clone() });
+        // Sent under the sender's lock, so concurrent publishes keep the order `apply` decided. The rebuild's progress is added
+        // where the document is written.
         let _ = locked(&self.jobs).send(Job::Publish(Box::new(document)));
     }
 
@@ -367,3 +455,48 @@ impl Exiter for ProcessExiter {
 #[cfg(test)]
 #[path = "real_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod model_proxy_tests {
+    use super::*;
+
+    #[test]
+    fn serving_advertises_the_model_proxy_only_for_a_core_that_runs_through_it() {
+        let state = DiscoveryState { phase: DiscoveryPhase::Serving, blocked: None, drain_id: None };
+        let read = |root: &Path| -> serde_json::Value { serde_json::from_slice(&std::fs::read(discovery::path(root)).unwrap()).unwrap() };
+        let template = || Discovery {
+            pid: 1,
+            endpoints: discovery::Endpoints { session: discovery::SessionEndpoint { port: 4001, token: "tok".into() }, model_proxy: None },
+            core: discovery::CoreSection {
+                version: "1.5.0".into(),
+                build: "b".into(),
+                instance_id: "inst".into(),
+                process_start_time: "1".into(),
+                state: discovery::CoreState::Booting,
+                blocked: None,
+                drain: None,
+                rpc: None,
+                ssh_rpc: None,
+                rebuild: None,
+                control: discovery::Port { port: 4001 },
+            },
+        };
+        let own = tempfile::tempdir().unwrap();
+        let own_login = DiscoveryPublication::new(own.path().to_path_buf(), template(), Box::new(|_| {}));
+        own_login.set_rpc_port(5005);
+        own_login.publish(&state);
+        own_login.flush();
+        assert!(read(own.path())["endpoints"].get("modelProxy").is_none());
+
+        let proxied = tempfile::tempdir().unwrap();
+        let publication = DiscoveryPublication::new(proxied.path().to_path_buf(), template(), Box::new(|_| {}));
+        publication.set_rpc_port(5005);
+        publication.set_model_proxy(true);
+        publication.publish(&DiscoveryState { phase: DiscoveryPhase::Booting, blocked: None, drain_id: None });
+        publication.flush();
+        assert!(read(proxied.path())["endpoints"].get("modelProxy").is_none(), "nothing is advertised before the core serves");
+        publication.publish(&state);
+        publication.flush();
+        assert_eq!(read(proxied.path())["endpoints"]["modelProxy"], serde_json::json!({ "port": 5005, "token": "tok" }));
+    }
+}

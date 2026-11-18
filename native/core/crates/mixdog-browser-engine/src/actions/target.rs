@@ -72,8 +72,6 @@ impl fmt::Display for ActionError {
     }
 }
 
-impl std::error::Error for ActionError {}
-
 impl From<HostCallError> for ActionError {
     fn from(error: HostCallError) -> Self {
         Self::Host(error)
@@ -659,3 +657,6 @@ mod tests {
         assert_eq!(page.get(|state| state.dropped_grounding), 1);
     }
 }
+
+
+impl std::error::Error for ActionError {}

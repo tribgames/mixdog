@@ -164,12 +164,6 @@ impl ProcessComputerBackend {
             frame_of(&pixels.result, &id, &frame_window, frame_related, idle)
         });
         let capture = computer_ocr::Capture { command, mode, ask: ocr.as_ref(), accessibility: read.result.as_ref().filter(|_| read.error.is_empty()), budget };
-        if let (Some(frame), Some(ToolPart::Text(shown))) = (&frame, parts.first_mut()) {
-            let cut = computer_ocr::rows_beyond_reservation(&capture, frame);
-            if !cut.is_empty() {
-                *shown = without_element_lines(shown, &cut);
-            }
-        }
         self.observe(&mut parts, command, mode, &window_id, &related, &read, &resolved, budget, ocr_content);
         if let Some(pixels) = pixels {
             let marked = frame.clone().filter(|_| mode == "som");
@@ -365,13 +359,6 @@ impl ProcessComputerBackend {
 fn recognized_words(result: &Map<String, Value>) -> bool {
     let rows = |key: &str| result.get("ocr").and_then(|ocr| ocr.get(key)).and_then(Value::as_array).is_some_and(|rows| !rows.is_empty());
     rows("lines") || rows("words")
-}
-
-/// The text of a capture without the lines the helper wrote for the elements whose refs are named (`elements.splice` of
-/// `mergeCaptureOcr`, which cut the rows beyond the budget less the words' reservation).
-fn without_element_lines(shown: &str, refs: &[String]) -> String {
-    let prefixes: Vec<String> = refs.iter().map(|reference| format!("[{reference}] ")).collect();
-    shown.split('\n').filter(|line| !prefixes.iter().any(|prefix| line.starts_with(prefix.as_str()))).collect::<Vec<_>>().join("\n")
 }
 
 /// The text of a capture with the delta in place of its element lines: each line the helper wrote for an element (`[<ref>] ...`)
@@ -1193,13 +1180,6 @@ mod tests {
         marks.insert("max_elements".into(), json!(80));
         let full = texts(&backend.capture(marks, "", &CancellationToken::new()).await.unwrap()).remove(0);
         assert!(!full.contains("Elements delta") && full.contains("Item 0"), "{full}");
-    }
-
-    #[test]
-    fn the_lines_of_the_cut_rows_leave_the_text() {
-        let shown = "Window\n[e1] Button \"a\"\n[e2] Button \"b\"\n[e10] Text \"c\"\nfooter";
-        assert_eq!(without_element_lines(shown, &["e2".to_string()]), "Window\n[e1] Button \"a\"\n[e10] Text \"c\"\nfooter");
-        assert_eq!(without_element_lines(shown, &["e2".to_string(), "e10".to_string(), "e1".to_string()]), "Window\nfooter");
     }
 
     /// The marks of a frame are the snapshot's elements in its pixels, clipped to it; one entirely outside is not drawn.

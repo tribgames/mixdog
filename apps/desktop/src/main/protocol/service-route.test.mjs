@@ -195,7 +195,6 @@ const CASES = [
     [['turn/interrupt', { threadId: 't1', restorePrompt: true, submissionId: 'sub1' }]],
   ],
   ['listProviderModels', [{ force: true, quick: false }], [['model/list', { force: true, quick: false }]]],
-  ['setFast', [true, 't1'], [['fast/set', { threadId: 't1', on: true }]]],
   [
     'searchProjectFiles',
     ['/p', 'q', 50, false, true, 'mention'],
@@ -224,9 +223,8 @@ for (const [method, args, expected] of CASES) {
   });
 }
 
-test('the snapshot-returning methods answer with the held snapshot, the others with the core reply', async () => {
+test('listAgentPool answers with the core reply', async () => {
   const { service } = lane(async () => ({ reply: 1 }));
-  assert.equal(await service.call('setFast', [true]), HELD);
   assert.deepEqual(await service.call('listAgentPool', []), { reply: 1 });
 });
 
@@ -263,6 +261,9 @@ test('setModelRoute writes the pick as Node sent it and answers the thread state
   assert.deepEqual(calls.filter(({ method }) => method === 'route/set'), [
     { method: 'route/set', params: { threadId: 'control-1', route: { ...pick, applyToCurrentSession: true, keepMainModel: false } } },
   ]);
+  calls.length = 0;
+  assert.equal((await client.setFast(false)).sessionId, 'control-1');
+  assert.deepEqual(calls.filter(({ method }) => method === 'fast/set'), [{ method: 'fast/set', params: { threadId: 'control-1', on: false } }]);
 });
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -1463,4 +1464,45 @@ test('a client with a capability lane sends an approval decision through it, and
   await Promise.resolve();
   assert.deepEqual(notified, [{ method: 'client/perfLog', params: { line: 'x' } }]);
   assert.deepEqual(calls, []);
+});
+
+test('a thread the client follows without the lane wanting it is released once it stays unwanted past the grace', async () => {
+  const sweeps = [];
+  const unsubscribed = [];
+  const threads = new Map([['stray', {}], ['shown', {}]]);
+  const service = createServiceLane({
+    protocol: {
+      call: async () => ({}),
+      notify: () => {},
+      resumeThread: async () => ({}),
+      unsubscribeThread: async (threadId) => {
+        unsubscribed.push(threadId);
+        threads.delete(threadId);
+      },
+      onEvent: () => () => {},
+      client: () => ({ status: { state: 'ready' }, store: { threads }, threadSubscription: (id) => ({ followed: threads.has(id), restoring: false, restoresStarted: 0, connection: 1 }) }),
+    },
+    snapshot: () => HELD,
+    schedule: () => () => undefined,
+    sweep: (run) => (sweeps.push(run), () => sweeps.splice(sweeps.indexOf(run), 1)),
+  });
+  await service.call('setVisibleSessions', [['shown'], 1]);
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    sweeps.shift()();
+    assert.deepEqual(unsubscribed, [], 'a stray is first only noted');
+    now += 30_000;
+    sweeps.shift()();
+    assert.deepEqual(unsubscribed, [], 'still inside the grace');
+    now += 31_000;
+    sweeps.shift()();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(unsubscribed, ['stray'], 'released past the grace; the shown thread stays');
+  } finally {
+    Date.now = realNow;
+    service.dispose();
+  }
+  assert.equal(sweeps.length, 0, 'dispose cancels the sweep');
 });

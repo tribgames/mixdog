@@ -119,6 +119,7 @@ impl Shared {
             if preimage.is_empty() && !next.contains_key(DEFAULTS_VERSION_KEY) {
                 next.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
             }
+            super::require_allow_all_actions_confirmation(super::allow_all_actions_enabled(&preimage), &next, false)?;
             self.guard.write(lane, &next, "post-config-write")?;
             Ok(Some(next))
         })?;

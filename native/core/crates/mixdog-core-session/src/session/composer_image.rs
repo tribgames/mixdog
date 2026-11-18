@@ -11,10 +11,6 @@ use mixdog_core_api::ids::ThreadId;
 use serde_json::Value;
 use serde_json::json;
 
-/// `API_IMAGE_MAX_BASE64_SIZE`.
-const API_IMAGE_MAX_BASE64_SIZE: usize = 5 * 1024 * 1024;
-/// `IMAGE_TARGET_RAW_SIZE`: `API_IMAGE_MAX_BASE64_SIZE * 3 / 4`.
-const IMAGE_TARGET_RAW_SIZE: usize = API_IMAGE_MAX_BASE64_SIZE * 3 / 4;
 /// The payload cap of `resizeImage` and `stageAttachmentOriginal` (base64 characters).
 pub const MAX_PAYLOAD_CHARS: usize = 40_000_000;
 
@@ -145,19 +141,10 @@ pub async fn image_attachment(
             content: r.data_base64,
             media_type: r.mime,
         }),
-        Ok(None) => {
-            if buffer.len() > IMAGE_TARGET_RAW_SIZE {
-                return Err(format!(
-                    "image is {}MB; install optional sharp support or resize it first",
-                    mixdog_js::math::to_fixed(buffer.len() as f64 / 1024.0 / 1024.0, 1)
-                ));
-            }
-            let data = base64_of(buffer);
-            if data.len() > API_IMAGE_MAX_BASE64_SIZE {
-                return Err("image exceeds inline API size limit; resize it first".into());
-            }
-            Ok(Resized { content: data, media_type: mime_text.to_owned(), metadata_text: None })
-        }
+        // The resizer is the codec of this build and is always present (the composer is constructed with it);
+        // it answers nothing only for an empty buffer, which was refused above. The picked bytes are never
+        // passed on as they are: only what the resizer wrote (PNG, JPEG, GIF or WebP) may become an attachment.
+        Ok(None) => Err("the image resizer returned no image".into()),
         Err(ProfiledResizeError::Invalid(message)) => Err(message),
         Err(ProfiledResizeError::Host(error)) => Err(format!("{error:?}")),
     }

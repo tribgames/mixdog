@@ -1,10 +1,4 @@
-//! The phone legs: the `/ws` decision and what each answer does on a transport (`upgradePhoneLeg`, `closeOfflinePhone`, `closeAnswered`,
-//! `closeUnpairedPhone`), the three cases of `lib/relay-sweep.test.mjs`, and the phone-level cases of `apps/relay/security.test.mjs`
-//! (the PC-offline close, its rate limit and bounded sockets, the malformed frame on an answered-and-closing socket).
-//!
-//! The sweep runs over in-process sockets that count their pings; the upgrades run over in-memory duplex streams through the crate's
-//! WebSocket server. A pass of the sweep is called by the test, so nothing waits for the 10 s interval. Time is the real clock: the
-//! device store waits for a lane thread, which a paused clock would read as idle time; the only waits are bounded polls.
+//! The phone leg: the liveness sweep, the upgrade gate and its refusals, the desktop-offline close, closing sockets and per-device limits.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -155,7 +149,7 @@ fn leg_of(socket: &Arc<Fake>) -> SweepLeg {
     SweepLeg { socket: socket.clone(), liveness: Liveness::new(), ingress: None }
 }
 
-// ---- lib/relay-sweep.test.mjs ----
+// ---- the liveness sweep ----
 
 #[test]
 fn a_leg_that_never_answers_its_ping_is_terminated_on_the_next_sweep() {
@@ -218,7 +212,7 @@ fn a_leg_that_answers_is_pinged_every_pass_and_never_cut() {
     assert!(!live.terminated());
 }
 
-// ---- security.test.mjs: the PC-offline close ----
+// ---- the PC-offline close ----
 
 #[test]
 fn the_pc_offline_close_is_its_own_code_and_never_a_pairing_revoking_one() {
@@ -240,36 +234,12 @@ fn the_phone_numbers_are_the_relays() {
     assert!(!phone_client_capacity_available(33));
 }
 
-// ---- rigs ----
-
-fn io() -> mixdog_rt::DurabilityIo {
-    mixdog_rt::testing::tokens().durability_io
-}
-
 struct Rig {
     hub: Arc<Hub>,
     legs: Arc<PhoneLegs>,
     unauthorized: Arc<Mutex<RateLimiter>>,
     token: String,
     _dir: tempfile::TempDir,
-}
-
-async fn build(limits: PhoneLimits) -> Rig {
-    build_with(limits, HubConfig::default().max_frame_bytes).await
-}
-
-async fn build_with(limits: PhoneLimits, max_frame_bytes: usize) -> Rig {
-    let dir = tempfile::tempdir().expect("a temporary directory");
-    let store = DeviceStore::open(dir.path(), io()).await.expect("the store opens");
-    assert!(store.authenticate(DEVICE, SECRET).await);
-    let registered = store.register_client(DEVICE, "bbbbbbbb", &ProfileInput::default()).await.expect("a browser credential");
-    // A watchdog that never fires within a test.
-    let config = HubConfig { max_frame_bytes, handshake: HandshakeTiming { stall: Duration::from_secs(600), probe: Duration::from_secs(600) }, ..HubConfig::default() };
-    let hub = Hub::new(store, config, IngressPool::new());
-    let unauthorized = Arc::new(Mutex::new(RateLimiter::new(1000, 60_000)));
-    let sockets = Arc::new(WebSocketServer::new(ServerOptions::new(64 * 1024 * 1024)));
-    let legs = PhoneLegs::new(Arc::clone(&hub), sockets, Arc::clone(&unauthorized), limits);
-    Rig { hub, legs, unauthorized, token: registered.token, _dir: dir }
 }
 
 fn headers(origin: Option<&str>) -> Headers {
@@ -299,12 +269,6 @@ fn decide_with(rig: &Rig, target: &str, origin: Option<&str>) -> Decision {
     rig.legs.decide(&PhoneRequest { url: &url, headers: &headers, handshake: &handshake, encrypted: false, remote_address: Some("203.0.113.7") })
 }
 
-fn desktop_leg(rig: &Rig) -> (Arc<Fake>, mixdog_relay::legs::desktop::DesktopHandle) {
-    let socket = Fake::new();
-    let handle = rig.hub.attach_desktop(DEVICE, socket.clone(), None);
-    (socket, handle)
-}
-
 fn attach(rig: &Rig) -> (Arc<Fake>, mixdog_relay::legs::hub::PhoneHandle) {
     let socket = Fake::new();
     let handle = rig.hub.attach_phone(DEVICE, socket.clone(), mixdog_relay::legs::hub::PhoneOptions::default()).expect("a desktop leg is live");
@@ -325,6 +289,50 @@ fn answered(decision: &Decision) -> Option<(u16, &'static str)> {
     }
 }
 
+// ---- on a transport ----
+
+fn masked_frame(first: u8, payload: &[u8]) -> Vec<u8> {
+    let mut out = vec![first, 0x80 | u8::try_from(payload.len()).expect("a short payload")];
+    out.extend_from_slice(&MASK);
+    out.extend(payload.iter().enumerate().map(|(index, byte)| byte ^ MASK[index % 4]));
+    out
+}
+
+async fn eventually(what: &str, mut condition: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !condition() {
+        assert!(Instant::now() < deadline, "timed out waiting for: {what}");
+        sleep(Duration::from_millis(10)).await;
+    }
+}
+
+
+// ---- rigs ----
+
+fn io() -> mixdog_rt::DurabilityIo {
+    mixdog_rt::testing::tokens().durability_io
+}
+async fn build(limits: PhoneLimits) -> Rig {
+    build_with(limits, HubConfig::default().max_frame_bytes).await
+}
+async fn build_with(limits: PhoneLimits, max_frame_bytes: usize) -> Rig {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let store = DeviceStore::open(dir.path(), io()).await.expect("the store opens");
+    assert!(store.authenticate(DEVICE, SECRET).await);
+    let registered = store.register_client(DEVICE, "bbbbbbbb", &ProfileInput::default()).await.expect("a browser credential");
+    // A watchdog that never fires within a test.
+    let config = HubConfig { max_frame_bytes, handshake: HandshakeTiming { stall: Duration::from_secs(600), probe: Duration::from_secs(600) }, ..HubConfig::default() };
+    let hub = Hub::new(store, config, IngressPool::new());
+    let unauthorized = Arc::new(Mutex::new(RateLimiter::new(1000, 60_000)));
+    let sockets = Arc::new(WebSocketServer::new(ServerOptions::new(64 * 1024 * 1024)));
+    let legs = PhoneLegs::new(Arc::clone(&hub), sockets, Arc::clone(&unauthorized), limits);
+    Rig { hub, legs, unauthorized, token: registered.token, _dir: dir }
+}
+fn desktop_leg(rig: &Rig) -> (Arc<Fake>, mixdog_relay::legs::desktop::DesktopHandle) {
+    let socket = Fake::new();
+    let handle = rig.hub.attach_desktop(DEVICE, socket.clone(), None);
+    (socket, handle)
+}
 // ---- the /ws decision ----
 
 #[tokio::test]
@@ -337,7 +345,6 @@ async fn a_browser_upgrade_from_another_origin_is_refused_403_before_anything_is
     }
     assert_eq!(rig.hub.client_count(DEVICE), 0);
 }
-
 #[tokio::test]
 async fn a_missing_stale_or_legacy_token_is_answered_4005_and_a_flood_of_them_is_throttled() {
     let rig = build(PhoneLimits::default()).await;
@@ -353,7 +360,6 @@ async fn a_missing_stale_or_legacy_token_is_answered_4005_and_a_flood_of_them_is
     assert!(answered(&decide(&rig, "nope")).is_some());
     assert_eq!(refused(&decide(&rig, "nope")), Some((429, "Too Many Requests")), "charged to the unauthorized limiter of the caller");
 }
-
 #[tokio::test]
 async fn the_first_token_of_the_query_is_the_one_read() {
     let rig = build(PhoneLimits::default()).await;
@@ -364,7 +370,6 @@ async fn the_first_token_of_the_query_is_the_one_read() {
     let target = format!("/ws?token=other&token={}", rig.token);
     assert_eq!(answered(&decide_with(&rig, &target, Some(&origin))), Some((4005, "pairing rescan required")));
 }
-
 #[tokio::test]
 async fn a_paired_phone_of_a_live_pc_is_attached_as_its_browser() {
     let rig = build(PhoneLimits::default()).await;
@@ -377,7 +382,6 @@ async fn a_paired_phone_of_a_live_pc_is_attached_as_its_browser() {
         _ => panic!("a paired phone of a live PC is attached"),
     }
 }
-
 #[tokio::test]
 async fn an_offline_pc_is_answered_4002_whether_it_never_connected_or_its_leg_is_closed() {
     let rig = build(PhoneLimits::default()).await;
@@ -387,7 +391,6 @@ async fn an_offline_pc_is_answered_4002_whether_it_never_connected_or_its_leg_is
     desktop.set_open(false);
     assert_eq!(answered(&decide(&rig, &rig.token)), Some((4002, "desktop offline")), "a parked entry is not a live PC");
 }
-
 #[tokio::test]
 async fn pc_offline_answers_are_rate_limited_and_bounded() {
     // The offline answer is charged to the per-device connect limit.
@@ -417,11 +420,9 @@ async fn pc_offline_answers_are_rate_limited_and_bounded() {
     drop(held.pop());
     assert!(answered(&decide(&rig, &rig.token)).is_some(), "a slot freed is available again");
 }
-
 async fn build_unlimited() -> Rig {
     build(PhoneLimits { connects_per_window: 10_000, ..PhoneLimits::default() }).await
 }
-
 #[tokio::test]
 async fn one_device_cannot_hold_more_than_32_phone_legs_and_a_rate_limited_device_is_refused_before_the_pc_is_asked() {
     let rig = build_unlimited().await;
@@ -441,22 +442,11 @@ async fn one_device_cannot_hold_more_than_32_phone_legs_and_a_rate_limited_devic
     assert!(matches!(decide(&rig, &rig.token), Decision::Attach { .. }));
     assert_eq!(refused(&decide(&rig, &rig.token)), Some((429, "Too Many Requests")));
 }
-
-// ---- on a transport ----
-
-fn masked_frame(first: u8, payload: &[u8]) -> Vec<u8> {
-    let mut out = vec![first, 0x80 | u8::try_from(payload.len()).expect("a short payload")];
-    out.extend_from_slice(&MASK);
-    out.extend(payload.iter().enumerate().map(|(index, byte)| byte ^ MASK[index % 4]));
-    out
-}
-
 /// What the relay's side of a transport did, as the peer sees it.
 struct Peer {
     io: DuplexStream,
     buffer: Vec<u8>,
 }
-
 /// The peer end of an upgrade served on the other end of an in-memory transport.
 fn dial(rig: &Rig, target: &str, origin: bool) -> Peer {
     let (client, server) = tokio::io::duplex(64 * 1024);
@@ -470,7 +460,6 @@ fn dial(rig: &Rig, target: &str, origin: bool) -> Peer {
     });
     Peer { io: client, buffer: Vec::new() }
 }
-
 impl Peer {
     /// The status the relay answered the upgrade with (the HTTP layer has read the head; what is written here is the answer).
     async fn start(&mut self) -> u16 {
@@ -537,15 +526,6 @@ impl Peer {
         }
     }
 }
-
-async fn eventually(what: &str, mut condition: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while !condition() {
-        assert!(Instant::now() < deadline, "timed out waiting for: {what}");
-        sleep(Duration::from_millis(10)).await;
-    }
-}
-
 #[tokio::test]
 async fn a_refusal_is_the_raw_status_line_and_the_connection_ends() {
     let rig = build(PhoneLimits::default()).await;
@@ -554,7 +534,6 @@ async fn a_refusal_is_the_raw_status_line_and_the_connection_ends() {
     timeout(Duration::from_secs(10), peer.io.read_to_end(&mut answer)).await.expect("the connection ends").expect("read");
     assert_eq!(String::from_utf8_lossy(&answer), "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
 }
-
 #[tokio::test]
 async fn an_unpaired_phone_gets_the_handshake_and_then_close_4005() {
     let rig = build(PhoneLimits::default()).await;
@@ -562,7 +541,6 @@ async fn an_unpaired_phone_gets_the_handshake_and_then_close_4005() {
     assert_eq!(peer.start().await, 101);
     assert_eq!(peer.close_frame().await, Some((4005, "pairing rescan required".to_owned())));
 }
-
 #[tokio::test]
 async fn a_phone_of_an_offline_pc_is_closed_4002_and_the_pairing_is_untouched() {
     let rig = build(PhoneLimits::default()).await;
@@ -571,7 +549,6 @@ async fn a_phone_of_an_offline_pc_is_closed_4002_and_the_pairing_is_untouched() 
     assert_eq!(peer.close_frame().await, Some((4002, "desktop offline".to_owned())));
     assert!(rig.hub.store().has_client(DEVICE, "bbbbbbbb"));
 }
-
 #[tokio::test]
 async fn peers_that_never_acknowledge_the_close_hold_a_slot_each_and_the_next_is_refused() {
     let rig = build_unlimited().await;
@@ -584,7 +561,6 @@ async fn peers_that_never_acknowledge_the_close_hold_a_slot_each_and_the_next_is
     let mut extra = dial(&rig, &format!("/ws?token={}", rig.token), true);
     assert_eq!(extra.start().await, 429, "outstanding closing sockets are bounded");
 }
-
 #[tokio::test]
 async fn a_malformed_frame_on_an_answered_closing_socket_cannot_crash_and_frees_its_slot() {
     let rig = build_unlimited().await;
@@ -608,7 +584,6 @@ async fn a_malformed_frame_on_an_answered_closing_socket_cannot_crash_and_frees_
     let mut again = dial(&rig, &format!("/ws?token={}", rig.token), true);
     assert_eq!(again.start().await, 101, "a cut socket no longer holds a PC-offline slot");
 }
-
 #[tokio::test]
 async fn a_peer_that_never_replies_to_the_close_is_cut_after_the_grace_and_its_slot_returns() {
     let rig = build(PhoneLimits { answered_close_grace: Duration::from_millis(100), ..PhoneLimits::default() }).await;
@@ -619,7 +594,6 @@ async fn a_peer_that_never_replies_to_the_close_is_cut_after_the_grace_and_its_s
     assert!(peer.ended().await, "cut after the grace");
     eventually("the socket left the sweep's table", || rig.hub.legs().is_empty()).await;
 }
-
 #[tokio::test]
 async fn a_phone_leg_answers_its_probe_locally_and_tells_its_pc_when_it_leaves() {
     let rig = build(PhoneLimits::default()).await;
@@ -652,7 +626,6 @@ async fn a_phone_leg_answers_its_probe_locally_and_tells_its_pc_when_it_leaves()
     assert_eq!(desktop.frames_of("client-close")[0]["clientId"], open["clientId"]);
     eventually("the phone left its entry", || rig.hub.client_count(DEVICE) == 0).await;
 }
-
 #[tokio::test]
 async fn one_phone_cannot_shrink_the_path_of_the_phone_beside_it() {
     let rig = build_with(PhoneLimits::default(), 1024 * 1024).await;

@@ -364,7 +364,7 @@ impl SecretSlots {
     }
 }
 
-/// `approval/provideSecret`: the card's or a paired phone's value into the slot of a request.
+/// `approval/provideSecret`: a Local or SSH desktop card's value into the slot of a request.
 pub struct SecretInputService {
     slots: Arc<SecretSlots>,
 }
@@ -384,6 +384,9 @@ impl DomainService for SecretInputService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         match req.method.as_str() {
             PROVIDE_SECRET => {
+                if req.ctx.origin == mixdog_protocol::Origin::Relay {
+                    return Err(CoreError::PermissionDenied { method: PROVIDE_SECRET.into(), origin: req.ctx.origin });
+                }
                 // The op record would hold the request: it is refused before the value is read.
                 req.op.as_ref().ok_or(CoreError::OpIdRequired)?;
                 let params: ApprovalProvideSecretParams = decode(&req)?;

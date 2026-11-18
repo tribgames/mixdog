@@ -14,11 +14,30 @@ pub(crate) struct Fake {
     pub fail: AtomicBool,
     pub entered: Notify,
     pub release: Notify,
+    /// Per run, in order, the member submission it registers as it begins (its member's turn being submitted).
+    pub registers: Mutex<std::collections::VecDeque<Owned>>,
+    /// Every run, in order.
+    pub runs: Mutex<Vec<Arc<Run>>>,
+    /// Every targeted member stop, in order.
+    pub stopped_work: Mutex<Vec<(String, Vec<String>)>>,
+    /// The member session whose stop cannot be saved.
+    pub stop_fails: Mutex<Option<String>>,
+    /// Every synchronous latch at a seal, in order.
+    pub latched: Mutex<Vec<(String, Vec<String>)>>,
+    /// The member session whose stop's save is held until the notify.
+    pub stop_hold: Mutex<Option<(String, Arc<Notify>)>>,
+    /// The member sessions whose stop's save completed, in order; `stop_changed` is told each time.
+    pub stop_done: Mutex<Vec<String>>,
+    pub stop_changed: Notify,
 }
 
 #[async_trait]
 impl CallRunner for Fake {
     async fn run(&self, _: &str, request: &Request, run: &Arc<Run>) -> Result<(), String> {
+        self.runs.lock().unwrap().push(run.clone());
+        if let Some(owned) = self.registers.lock().unwrap().pop_front() {
+            assert!(run.register(&owned.session, &owned.submission), "an unsealed exchange registers");
+        }
         self.seen.lock().unwrap().push((request.to.clone(), request.only, run.calls().len()));
         self.entered.notify_one();
         if self.holds.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
@@ -40,12 +59,28 @@ impl CallRunner for Fake {
     async fn cut_off(&self, _: &str) {
         self.cut_offs.fetch_add(1, Ordering::SeqCst);
     }
+
+    async fn stop_work(&self, _: &str, session: &str, submissions: &[String]) -> Result<(), String> {
+        self.stopped_work.lock().unwrap().push((session.to_owned(), submissions.to_vec()));
+        let held = self.stop_hold.lock().unwrap().clone().filter(|(held, _)| held == session);
+        if let Some((_, release)) = held {
+            release.notified().await;
+        }
+        self.stop_done.lock().unwrap().push(session.to_owned());
+        self.stop_changed.notify_waiters();
+        match self.stop_fails.lock().unwrap().as_deref() {
+            Some(failing) if failing == session => Err("EIO: injected".into()),
+            _ => Ok(()),
+        }
+    }
+
+    fn latch_work(&self, _: &str, session: &str, submissions: &[String]) {
+        self.latched.lock().unwrap().push((session.to_owned(), submissions.to_vec()));
+    }
 }
 
-pub(crate) fn scheduler(runner: &Arc<Fake>) -> Arc<RoomCalls<Fake>> {
-    // The scheduler spawns through mixdog_rt, which needs its backend installed.
-    mixdog_rt::testing::tokens();
-    RoomCalls::new(runner.clone(), Arc::new(|_| {}))
+fn owned(session: &str, submission: &str) -> Owned {
+    Owned { session: session.into(), submission: submission.into() }
 }
 
 pub(crate) async fn status(receiver: oneshot::Receiver<String>) -> String {
@@ -56,6 +91,126 @@ fn relay(agent: &str, id: &str) -> (RoomCall, oneshot::Receiver<String>) {
     RoomCall::relay(agent, "REPORT", id, 0, None)
 }
 
+#[test]
+fn a_call_settles_once() {
+    let (call, mut settled) = relay("bench", "awake_1");
+    assert!(!call.is_settled());
+    call.settle("done");
+    call.settle("failed");
+    assert!(call.is_settled());
+    assert_eq!(settled.try_recv().unwrap(), "done");
+}
+
+
+/// The seal makes every target ineligible in its member session at once, before any storage wait, and the member records are
+/// written concurrently: one member's held save holds no other's, and the ticket answers only once all of them landed.
+#[tokio::test]
+async fn the_seal_latches_every_member_at_once_and_their_saves_run_concurrently() {
+    let runner = Arc::new(Fake::default());
+    runner.holds.store(1, Ordering::SeqCst);
+    let calls = scheduler(&runner);
+    calls.route("room01", Request { to: vec!["bench".into()], ..Request::default() });
+    runner.entered.notified().await;
+    let run = runner.runs.lock().unwrap()[0].clone();
+    assert!(run.register("sess_alpha", "sub_a") && run.register("sess_bench", "sub_b"));
+    let release = Arc::new(Notify::new());
+    *runner.stop_hold.lock().unwrap() = Some(("sess_alpha".into(), release.clone()));
+    let ticket = calls.stop_ticket("room01");
+    assert_eq!(
+        *runner.latched.lock().unwrap(),
+        [("sess_alpha".to_owned(), vec!["sub_a".to_owned()]), ("sess_bench".to_owned(), vec!["sub_b".to_owned()])],
+        "both members latched at the seal, before any save"
+    );
+    assert!(runner.stopped_work.lock().unwrap().is_empty());
+    let saving = tokio::spawn(async move { ticket.saved().await });
+    // Fence: bench's save completed while alpha's is held.
+    loop {
+        let changed = runner.stop_changed.notified();
+        tokio::pin!(changed);
+        changed.as_mut().enable();
+        if runner.stop_done.lock().unwrap().iter().any(|done| done == "sess_bench") {
+            break;
+        }
+        changed.await;
+    }
+    assert!(!runner.stop_done.lock().unwrap().iter().any(|done| done == "sess_alpha"), "alpha's save is still held");
+    assert!(!saving.is_finished(), "no success before every member stop is saved");
+    release.notify_one();
+    saving.await.expect("task").expect("saved");
+    runner.release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(60), calls.settled("room01")).await.expect("the room settled");
+}
+/// The Stop's linearization point seals the exchange in flight and freezes exactly the member submissions it owns: the one
+/// being submitted (registered, in flight) is among them, a registration after the seal is refused (that member turn never
+/// submits), the member's stop is made durable through the targeted operation, and a repeated Stop joins the same frozen set.
+#[tokio::test]
+async fn a_room_stop_freezes_the_submissions_its_exchange_owns_and_seals_it() {
+    let runner = Arc::new(Fake::default());
+    runner.holds.store(1, Ordering::SeqCst);
+    runner.registers.lock().unwrap().push_back(owned("sess_bench", "sub_1"));
+    let calls = scheduler(&runner);
+    calls.route("room01", Request { to: vec!["bench".into()], ..Request::default() });
+    runner.entered.notified().await;
+    let ticket = calls.stop_ticket("room01");
+    assert!(ticket.found);
+    assert_eq!(ticket.targets(), [owned("sess_bench", "sub_1")]);
+    let run = runner.runs.lock().unwrap()[0].clone();
+    assert!(!run.register("sess_alpha", "sub_late"), "a sealed exchange registers nothing more: that turn never submits");
+    assert!(runner.stopped_work.lock().unwrap().is_empty(), "the ticket latched; nothing saved yet");
+    ticket.saved().await.expect("saved");
+    assert_eq!(*runner.stopped_work.lock().unwrap(), [("sess_bench".to_owned(), vec!["sub_1".to_owned()])]);
+    assert_eq!(runner.cut_offs.load(Ordering::SeqCst), 0, "a Stop cuts no member off: only its frozen submissions are stopped");
+    let again = calls.stop_ticket("room01");
+    assert_eq!(again.targets(), [owned("sess_bench", "sub_1")], "a repeated Stop joins the frozen set");
+    runner.release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(60), calls.settled("room01")).await.expect("the room settled");
+}
+/// One member's stop cannot be saved: the room Stop's completion is that failure, naming the member session, while the
+/// other members' stops are saved (terminal) all the same.
+#[tokio::test]
+async fn a_room_stop_whose_member_stop_cannot_be_saved_fails_as_a_whole() {
+    let runner = Arc::new(Fake::default());
+    runner.holds.store(1, Ordering::SeqCst);
+    let calls = scheduler(&runner);
+    calls.route("room01", Request { to: vec!["bench".into()], ..Request::default() });
+    runner.entered.notified().await;
+    let run = runner.runs.lock().unwrap()[0].clone();
+    assert!(run.register("sess_bench", "sub_1") && run.register("sess_alpha", "sub_2"));
+    *runner.stop_fails.lock().unwrap() = Some("sess_alpha".into());
+    let error = calls.stop_ticket("room01").saved().await.expect_err("a member stop that is not saved fails the room Stop");
+    assert!(error.contains("sess_alpha") && !error.contains("sess_bench"), "{error}");
+    assert_eq!(runner.stopped_work.lock().unwrap().len(), 2, "the other member's stop was still made");
+    runner.release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(60), calls.settled("room01")).await.expect("the room settled");
+}
+/// A retry of an old Stop acts on the set it froze: an exchange started after that one was sealed is not touched.
+#[tokio::test]
+async fn a_retry_of_an_old_stop_never_touches_an_exchange_started_after_its_seal() {
+    let runner = Arc::new(Fake::default());
+    runner.holds.store(2, Ordering::SeqCst);
+    runner.registers.lock().unwrap().extend([owned("sess_bench", "sub_1"), owned("sess_bench", "sub_2")]);
+    let calls = scheduler(&runner);
+    calls.route("room01", Request { to: vec!["bench".into()], ..Request::default() });
+    runner.entered.notified().await;
+    let old = calls.stop_ticket("room01");
+    runner.release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(60), calls.settled("room01")).await.expect("the stopped exchange ended");
+    calls.route("room01", Request { to: vec!["bench".into()], ..Request::default() });
+    runner.entered.notified().await;
+    let newer = runner.runs.lock().unwrap()[1].clone();
+    old.saved().await.expect("saved");
+    old.saved().await.expect("the retry is saved too");
+    assert_eq!(*runner.stopped_work.lock().unwrap(), [("sess_bench".to_owned(), vec!["sub_1".to_owned()]), ("sess_bench".to_owned(), vec!["sub_1".to_owned()])]);
+    assert!(!newer.stopped(), "the newer exchange is not stopped");
+    assert!(newer.register("sess_alpha", "sub_3"), "nor sealed");
+    runner.release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(60), calls.settled("room01")).await.expect("the room settled");
+}
+pub(crate) fn scheduler(runner: &Arc<Fake>) -> Arc<RoomCalls<Fake>> {
+    // The scheduler spawns through mixdog_rt, which needs its backend installed.
+    mixdog_rt::testing::tokens();
+    RoomCalls::new(runner.clone(), Arc::new(|_| {}))
+}
 #[tokio::test]
 async fn a_relay_in_an_idle_room_is_one_exchange_for_that_member_alone() {
     let runner = Arc::new(Fake::default());
@@ -66,7 +221,6 @@ async fn a_relay_in_an_idle_room_is_one_exchange_for_that_member_alone() {
     assert_eq!(*runner.seen.lock().unwrap(), vec![(vec!["bench".to_string()], true, 1)]);
     assert_eq!(runner.cut_offs.load(Ordering::SeqCst), 0);
 }
-
 #[tokio::test]
 async fn relays_held_while_the_room_talks_run_after_it_as_one_exchange_each_member_once() {
     let runner = Arc::new(Fake::default());
@@ -90,7 +244,6 @@ async fn relays_held_while_the_room_talks_run_after_it_as_one_exchange_each_memb
         vec![(vec!["bench".to_string()], true, 1), (vec!["lead".to_string(), "bench".to_string()], true, 2)]
     );
 }
-
 /// `settled` waits out the exchange in flight, the relays it held back and a message on its way: it resolves only once the
 /// last of them has run, so nothing is routed into the room after it.
 #[tokio::test]
@@ -114,7 +267,6 @@ async fn settled_waits_for_the_exchange_its_held_relays_and_messages_on_their_wa
     assert_eq!(runner.seen.lock().unwrap().len(), 2, "the held relay ran before the room settled");
     assert!(!calls.is_running("room01"));
 }
-
 /// A sender routes and only then drops its intake. An observation that read the exchanges, let go, and read the intakes
 /// afterwards could see "no exchange", then the route and the drop, then "no intake": settled while the exchange runs. Here the
 /// route and the drop happen while the observer waits at the intakes' lock (the gate); it must see the exchange.
@@ -146,7 +298,6 @@ async fn a_sender_routing_and_leaving_between_two_reads_is_never_seen_as_neither
     runner.release.notify_one();
     tokio::time::timeout(std::time::Duration::from_secs(60), calls.settled("room01")).await.expect("the room settled once the exchange ended");
 }
-
 #[tokio::test]
 async fn a_request_routed_into_a_running_room_merges_cuts_off_and_carries_the_unsettled_calls() {
     let runner = Arc::new(Fake::default());
@@ -168,7 +319,6 @@ async fn a_request_routed_into_a_running_room_merges_cuts_off_and_carries_the_un
     assert_eq!(seen[1], (vec!["lead".to_string(), "bench".to_string()], false, 3), "the interrupted turn's call rides on");
     assert!(runner.cut_offs.load(Ordering::SeqCst) >= 1, "the speaking member is cut off");
 }
-
 #[tokio::test]
 async fn stop_cancels_the_held_relays_the_next_request_and_leaves_the_running_turn_to_the_exchange() {
     let runner = Arc::new(Fake::default());
@@ -181,7 +331,7 @@ async fn stop_cancels_the_held_relays_the_next_request_and_leaves_the_running_tu
     calls.relay_when_idle("room01", held);
     let (next, next_settled) = RoomCall::relay("lead", "ask", "ask_1", 0, None);
     calls.route("room01", Request { to: vec!["lead".into()], only: true, calls: vec![next], ..Request::default() });
-    assert!(calls.stop("room01"));
+    assert!(calls.stop_ticket("room01").found);
     assert_eq!(status(held_settled).await, "cancelled");
     assert_eq!(status(next_settled).await, "cancelled");
     let (late, late_settled) = relay("lead", "awake_3");
@@ -190,9 +340,8 @@ async fn stop_cancels_the_held_relays_the_next_request_and_leaves_the_running_tu
     runner.release.notify_one();
     assert_eq!(status(running_settled).await, "cancelled");
     assert_eq!(runner.seen.lock().unwrap().len(), 1, "no one else got a turn");
-    assert!(!calls.stop("room01"), "nothing left to stop");
+    assert!(!calls.stop_ticket("room01").found, "nothing left to stop");
 }
-
 #[tokio::test]
 async fn relays_held_back_when_a_save_fails_end_failed_with_the_error_and_the_running_turn_goes_on() {
     let runner = Arc::new(Fake::default());
@@ -213,7 +362,6 @@ async fn relays_held_back_when_a_save_fails_end_failed_with_the_error_and_the_ru
     assert_eq!(status(running_settled).await, "done");
     assert_eq!(runner.seen.lock().unwrap().len(), 1, "the failed relay never ran");
 }
-
 #[tokio::test]
 async fn a_member_that_left_has_what_is_owed_to_it_cancelled() {
     let runner = Arc::new(Fake::default());
@@ -233,7 +381,6 @@ async fn a_member_that_left_has_what_is_owed_to_it_cancelled() {
     assert_eq!(status(held_stays_settled).await, "done");
     assert_eq!(runner.seen.lock().unwrap()[1].0, vec!["stays".to_string()]);
 }
-
 #[tokio::test]
 async fn an_exchange_that_fails_ends_its_calls_failed_and_the_room_is_free_again() {
     let runner = Arc::new(Fake::default());
@@ -248,7 +395,6 @@ async fn an_exchange_that_fails_ends_its_calls_failed_and_the_room_is_free_again
     assert_eq!(status(again_settled).await, "done");
     assert!(!calls.is_running("room01"));
 }
-
 #[tokio::test]
 async fn a_failed_exchange_is_logged_with_nodes_text_and_ends_so_the_room_runs_again() {
     // Node `start`: `log(`room ${roomId} exchange failed: ${message}`)`, the calls fail, the room is free.
@@ -268,14 +414,4 @@ async fn a_failed_exchange_is_logged_with_nodes_text_and_ends_so_the_room_runs_a
     calls.relay_when_idle("room01", again);
     assert_eq!(status(again_settled).await, "done");
     assert_eq!(lines.lock().unwrap().len(), 1, "a good exchange logs nothing");
-}
-
-#[test]
-fn a_call_settles_once() {
-    let (call, mut settled) = relay("bench", "awake_1");
-    assert!(!call.is_settled());
-    call.settle("done");
-    call.settle("failed");
-    assert!(call.is_settled());
-    assert_eq!(settled.try_recv().unwrap(), "done");
 }

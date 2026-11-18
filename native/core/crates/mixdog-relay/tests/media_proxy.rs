@@ -1,10 +1,4 @@
-//! The media byte lane: the cases of `lib/relay-media-proxy.test.mjs`, the media cases of `apps/relay/security.test.mjs`, and the
-//! parts of the lane those do not reach (the credential, the health probe, the stream limit, the timeouts, the abort, the flow
-//! control, a leg that goes away).
-//!
-//! A phone is a raw HTTP client of this crate's http1 server with a `MediaProxy` as the handler; the desktop is an in-process
-//! stand-in leg of a real `Hub` that records what the relay sent it and is fed frames through `DesktopHandle::frame`, exactly as
-//! a socket's messages are. The timeouts of the lane are shortened through `MediaOptions`, on the real clock.
+//! The media byte lane: route and path validation, encrypted bytes passed as sent, header neutralisation, credentials, per-desktop stream limits, timeouts, cancellation and backpressure.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -118,6 +112,78 @@ fn wire(value: &Value) -> Bytes {
     Bytes::from(mixdog_relay::js::wire(value))
 }
 
+fn media_options() -> MediaOptions {
+    MediaOptions::default()
+}
+
+// ---- the phone: a raw HTTP client ----
+
+struct Reply {
+    status: u16,
+    head: String,
+    body: Vec<u8>,
+}
+
+impl Reply {
+    fn header(&self, name: &str) -> Option<String> {
+        self.head.lines().skip(1).find_map(|line| {
+            let (key, value) = line.split_once(':')?;
+            key.eq_ignore_ascii_case(name).then(|| value.trim().to_owned())
+        })
+    }
+
+    fn text(&self) -> String {
+        String::from_utf8_lossy(&self.body).into_owned()
+    }
+}
+
+fn dechunk(raw: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut rest = raw;
+    while let Some(at) = rest.windows(2).position(|pair| pair == b"\r\n") {
+        let Ok(size) = usize::from_str_radix(String::from_utf8_lossy(&rest[..at]).split(';').next().unwrap_or("").trim(), 16) else { break };
+        let tail = &rest[at + 2..];
+        if size == 0 || tail.len() < size {
+            break;
+        }
+        out.extend_from_slice(&tail[..size]);
+        rest = tail[size..].strip_prefix(b"\r\n").unwrap_or(&[]);
+    }
+    out
+}
+
+fn request_bytes(method: &str, target: &str, headers: &[(&str, &str)]) -> Vec<u8> {
+    let mut head = format!("{method} {target} HTTP/1.1\r\nHost: relay\r\nConnection: close\r\n");
+    for (name, value) in headers {
+        head.push_str(&format!("{name}: {value}\r\n"));
+    }
+    head.push_str("\r\n");
+    head.into_bytes()
+}
+
+// ---- the media lane and the relay's origin ----
+
+#[test]
+fn desktop_media_metadata_cannot_make_the_relay_origin_serve_active_content() {
+    let headers = media_response_headers(Some(&json!({
+        "content-type": "image/svg+xml",
+        "content-length": 12,
+        "set-cookie": "session=stolen",
+        "content-security-policy": "default-src *",
+    })));
+    let get = |name: &str| headers.iter().find(|(existing, _)| *existing == name).map(|(_, value)| value.as_str());
+    assert_eq!(get("Content-Type"), Some("application/octet-stream"));
+    assert_eq!(get("Content-Length"), Some("12"));
+    assert_eq!(get("Set-Cookie"), None);
+    assert_eq!(get("X-Content-Type-Options"), Some("nosniff"));
+    assert_eq!(get("Content-Disposition"), Some("attachment"));
+    assert_eq!(get("Content-Security-Policy"), Some("default-src 'none'; sandbox"));
+    let passthrough = media_response_headers(Some(&json!({ "content-type": "video/mp4", "accept-ranges": "bytes" })));
+    assert!(passthrough.contains(&("Content-Type", "video/mp4".to_owned())));
+    assert!(passthrough.contains(&("Accept-Ranges", "bytes".to_owned())));
+}
+
+
 impl Rig {
     async fn send(&self, frame: Value) {
         self.handle.frame(wire(&frame), false).await;
@@ -168,11 +234,6 @@ impl Rig {
         call(self.addr, "GET", target, &[]).await
     }
 }
-
-fn media_options() -> MediaOptions {
-    MediaOptions::default()
-}
-
 async fn rig(options: MediaOptions, lane: bool, unauthorized_limit: usize) -> Rig {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let io = mixdog_rt::testing::tokens().durability_io;
@@ -192,43 +253,6 @@ async fn rig(options: MediaOptions, lane: bool, unauthorized_limit: usize) -> Ri
     }
     rig
 }
-
-// ---- the phone: a raw HTTP client ----
-
-struct Reply {
-    status: u16,
-    head: String,
-    body: Vec<u8>,
-}
-
-impl Reply {
-    fn header(&self, name: &str) -> Option<String> {
-        self.head.lines().skip(1).find_map(|line| {
-            let (key, value) = line.split_once(':')?;
-            key.eq_ignore_ascii_case(name).then(|| value.trim().to_owned())
-        })
-    }
-
-    fn text(&self) -> String {
-        String::from_utf8_lossy(&self.body).into_owned()
-    }
-}
-
-fn dechunk(raw: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut rest = raw;
-    while let Some(at) = rest.windows(2).position(|pair| pair == b"\r\n") {
-        let Ok(size) = usize::from_str_radix(String::from_utf8_lossy(&rest[..at]).split(';').next().unwrap_or("").trim(), 16) else { break };
-        let tail = &rest[at + 2..];
-        if size == 0 || tail.len() < size {
-            break;
-        }
-        out.extend_from_slice(&tail[..size]);
-        rest = tail[size..].strip_prefix(b"\r\n").unwrap_or(&[]);
-    }
-    out
-}
-
 /// Reads until the server closes the connection (every request asks for `Connection: close`).
 async fn read_reply(stream: &mut TcpStream) -> Reply {
     let mut out = Vec::new();
@@ -249,22 +273,11 @@ async fn read_reply(stream: &mut TcpStream) -> Reply {
     let chunked = head.lines().any(|line| line.eq_ignore_ascii_case("Transfer-Encoding: chunked"));
     Reply { status, head, body: if chunked { dechunk(&body) } else { body } }
 }
-
-fn request_bytes(method: &str, target: &str, headers: &[(&str, &str)]) -> Vec<u8> {
-    let mut head = format!("{method} {target} HTTP/1.1\r\nHost: relay\r\nConnection: close\r\n");
-    for (name, value) in headers {
-        head.push_str(&format!("{name}: {value}\r\n"));
-    }
-    head.push_str("\r\n");
-    head.into_bytes()
-}
-
 async fn call(addr: SocketAddr, method: &str, target: &str, headers: &[(&str, &str)]) -> Reply {
     let mut stream = TcpStream::connect(addr).await.expect("connect");
     stream.write_all(&request_bytes(method, target, headers)).await.expect("write the request");
     read_reply(&mut stream).await
 }
-
 /// A request that is not read yet, as a task.
 fn pending_call(addr: SocketAddr, method: &'static str, target: String, headers: Vec<(&'static str, String)>) -> tokio::task::JoinHandle<Reply> {
     tokio::spawn(async move {
@@ -272,8 +285,7 @@ fn pending_call(addr: SocketAddr, method: &'static str, target: String, headers:
         call(addr, method, &target, &pairs).await
     })
 }
-
-// ---- the cases of lib/relay-media-proxy.test.mjs ----
+// ---- the media lane's streams ----
 
 #[tokio::test]
 async fn the_media_route_accepts_the_download_variant_and_still_refuses_unknown_ones() {
@@ -290,7 +302,6 @@ async fn the_media_route_accepts_the_download_variant_and_still_refuses_unknown_
         assert_eq!(phone.await.expect("the phone").status, 502);
     }
 }
-
 #[tokio::test]
 async fn malformed_media_paths_answer_400_without_consulting_the_store() {
     let rig = rig(media_options(), true, 60).await;
@@ -303,7 +314,6 @@ async fn malformed_media_paths_answer_400_without_consulting_the_store() {
     assert_eq!(reply.status, 405);
     assert!(reply.body.is_empty());
 }
-
 #[tokio::test]
 async fn a_malformed_media_path_answers_400_and_leaves_the_relay_serving() {
     let rig = rig(media_options(), true, 60).await;
@@ -312,7 +322,6 @@ async fn a_malformed_media_path_answers_400_and_leaves_the_relay_serving() {
     // The relay still answers: an unknown route under the lane is a plain 404 after a good credential.
     assert_eq!(rig.get(&format!("/media/nothex?token={}", rig.token)).await.status, 404);
 }
-
 #[tokio::test]
 async fn encrypted_media_bytes_reach_the_phone_exactly_as_the_desktop_sent_them() {
     let rig = rig(media_options(), true, 60).await;
@@ -338,7 +347,6 @@ async fn encrypted_media_bytes_reach_the_phone_exactly_as_the_desktop_sent_them(
     assert_eq!(reply.header("Content-Type").as_deref(), Some("application/octet-stream"));
     assert_eq!(reply.body, ciphertext);
 }
-
 #[tokio::test]
 async fn a_plaintext_era_request_is_forwarded_without_the_scheme_marker_so_the_desktop_can_refuse_it() {
     let rig = rig(media_options(), true, 60).await;
@@ -355,7 +363,6 @@ async fn a_plaintext_era_request_is_forwarded_without_the_scheme_marker_so_the_d
     assert_eq!(rig.get(&rig.path(&format!("enc={}&", "x".repeat(17)))).await.status, 400);
     assert_eq!(rig.fake.frames_of("media-request").len(), 1);
 }
-
 #[tokio::test]
 async fn a_malformed_session_label_is_refused_before_the_desktop_is_asked() {
     let rig = rig(media_options(), true, 60).await;
@@ -363,7 +370,6 @@ async fn a_malformed_session_label_is_refused_before_the_desktop_is_asked() {
     assert_eq!((reply.status, reply.text().as_str()), (400, "Bad request."));
     assert!(rig.fake.frames_of("media-request").is_empty());
 }
-
 #[tokio::test]
 async fn an_older_desktop_that_announced_media_false_is_answered_503_without_a_request() {
     let rig = rig(media_options(), false, 60).await;
@@ -372,7 +378,6 @@ async fn an_older_desktop_that_announced_media_false_is_answered_503_without_a_r
     assert_eq!((reply.status, reply.text().as_str()), (503, "Desktop media lane unsupported."));
     assert!(rig.fake.frames_of("media-request").is_empty());
 }
-
 #[tokio::test]
 async fn a_vanished_desktop_closes_half_written_media_responses() {
     let rig = rig(media_options(), true, 60).await;
@@ -394,29 +399,6 @@ async fn a_vanished_desktop_closes_half_written_media_responses() {
     assert_eq!(half.status, 200);
     assert_eq!(half.body, b"partial");
 }
-
-// ---- the media cases of security.test.mjs ----
-
-#[test]
-fn desktop_media_metadata_cannot_make_the_relay_origin_serve_active_content() {
-    let headers = media_response_headers(Some(&json!({
-        "content-type": "image/svg+xml",
-        "content-length": 12,
-        "set-cookie": "session=stolen",
-        "content-security-policy": "default-src *",
-    })));
-    let get = |name: &str| headers.iter().find(|(existing, _)| *existing == name).map(|(_, value)| value.as_str());
-    assert_eq!(get("Content-Type"), Some("application/octet-stream"));
-    assert_eq!(get("Content-Length"), Some("12"));
-    assert_eq!(get("Set-Cookie"), None);
-    assert_eq!(get("X-Content-Type-Options"), Some("nosniff"));
-    assert_eq!(get("Content-Disposition"), Some("attachment"));
-    assert_eq!(get("Content-Security-Policy"), Some("default-src 'none'; sandbox"));
-    let passthrough = media_response_headers(Some(&json!({ "content-type": "video/mp4", "accept-ranges": "bytes" })));
-    assert!(passthrough.contains(&("Content-Type", "video/mp4".to_owned())));
-    assert!(passthrough.contains(&("Accept-Ranges", "bytes".to_owned())));
-}
-
 #[tokio::test]
 async fn a_proxied_media_answer_is_neutralised_at_the_relay_origin() {
     let rig = rig(media_options(), true, 60).await;
@@ -446,7 +428,6 @@ async fn a_proxied_media_answer_is_neutralised_at_the_relay_origin() {
     assert!(reply.header("Content-Security-Policy").is_some_and(|policy| policy.contains("default-src 'none'")));
     assert_eq!(reply.text(), "<h1>x");
 }
-
 // ---- the rest of the lane ----
 
 #[tokio::test]
@@ -459,7 +440,6 @@ async fn a_caller_without_a_known_credential_is_refused_and_throttled() {
     assert_eq!((throttled.status, throttled.header("Retry-After").as_deref()), (429, Some("60")));
     assert!(rig.fake.frames_of("media-request").is_empty());
 }
-
 #[tokio::test]
 async fn the_credential_may_ride_the_pairing_cookie() {
     let rig = rig(media_options(), true, 60).await;
@@ -469,7 +449,6 @@ async fn the_credential_may_ride_the_pairing_cookie() {
     rig.end(frame["id"].as_str().expect("an id")).await;
     assert_eq!(phone.await.expect("the phone").status, 502);
 }
-
 #[tokio::test]
 async fn the_health_probe_reports_the_lane_of_the_desktop_that_would_serve_the_bytes() {
     let silent = rig(media_options(), false, 60).await;
@@ -483,7 +462,6 @@ async fn the_health_probe_reports_the_lane_of_the_desktop_that_would_serve_the_b
     assert_eq!(head.status, 200);
     assert_eq!(silent.get("/media/healthz").await.status, 401);
 }
-
 #[tokio::test]
 async fn a_device_without_a_desktop_is_answered_offline() {
     let dir = tempfile::tempdir().expect("a temporary directory");
@@ -499,7 +477,6 @@ async fn a_device_without_a_desktop_is_answered_offline() {
     let health = call(addr, "GET", &format!("/media/healthz?token={token}"), &[]).await;
     assert_eq!((health.status, health.text().as_str()), (503, "{\"status\":\"unsupported\"}"));
 }
-
 #[tokio::test]
 async fn a_desktop_holds_at_most_the_streams_the_lane_allows() {
     let rig = rig(MediaOptions { max_streams: 2, ..media_options() }, true, 60).await;
@@ -520,7 +497,6 @@ async fn a_desktop_holds_at_most_the_streams_the_lane_allows() {
         assert_eq!(phone.await.expect("a phone").status, 502);
     }
 }
-
 #[tokio::test]
 async fn a_desktop_that_never_answers_times_out_with_504_and_is_told_to_stop() {
     let rig = rig(MediaOptions { head_timeout: Duration::from_millis(200), ..media_options() }, true, 60).await;
@@ -533,7 +509,6 @@ async fn a_desktop_that_never_answers_times_out_with_504_and_is_told_to_stop() {
     // A late frame finds nothing waiting and is ignored.
     rig.head(frame["id"].as_str().expect("an id"), 200, json!({})).await;
 }
-
 #[tokio::test]
 async fn a_desktop_that_goes_quiet_mid_clip_ends_the_response_and_is_told_to_stop() {
     let rig = rig(MediaOptions { stall_timeout: Duration::from_millis(200), ..media_options() }, true, 60).await;
@@ -548,7 +523,6 @@ async fn a_desktop_that_goes_quiet_mid_clip_ends_the_response_and_is_told_to_sto
     assert_eq!(reply.body, b"0123456789");
     assert_eq!(rig.frames("media-abort", 1).await[0]["id"], frame["id"]);
 }
-
 #[tokio::test]
 async fn a_desktop_error_before_any_head_is_a_502_and_one_after_it_ends_the_body() {
     let rig = rig(media_options(), true, 60).await;
@@ -569,7 +543,6 @@ async fn a_desktop_error_before_any_head_is_a_502_and_one_after_it_ends_the_body
     assert_eq!(reply.status, 502);
     assert_eq!(reply.body, b"kept");
 }
-
 #[tokio::test]
 async fn a_head_request_is_forwarded_as_a_head_and_gets_no_body() {
     let rig = rig(media_options(), true, 60).await;
@@ -585,7 +558,6 @@ async fn a_head_request_is_forwarded_as_a_head_and_gets_no_body() {
     assert_eq!(reply.header("ETag").as_deref(), Some("\"a\""));
     assert!(reply.body.is_empty());
 }
-
 #[tokio::test]
 async fn a_phone_that_goes_away_mid_clip_tells_the_desktop_to_stop() {
     let rig = rig(media_options(), true, 60).await;
@@ -608,7 +580,6 @@ async fn a_phone_that_goes_away_mid_clip_tells_the_desktop_to_stop() {
     }
     assert_eq!(rig.frames("media-abort", 1).await[0]["id"], frame["id"]);
 }
-
 #[tokio::test]
 async fn a_response_that_fills_up_pauses_the_desktop_and_resumes_it_once_it_drains() {
     let rig = rig(MediaOptions { pause_bytes: 64 * 1024, ..media_options() }, true, 60).await;
@@ -631,7 +602,6 @@ async fn a_response_that_fills_up_pauses_the_desktop_and_resumes_it_once_it_drai
     assert_eq!(rig.frames("media-resume", 1).await[0]["id"], frame["id"]);
     rig.end(&id).await;
 }
-
 #[tokio::test]
 async fn a_response_that_stops_draining_is_cut_and_the_desktop_is_told_to_stop() {
     let rig = rig(MediaOptions { pause_bytes: 16 * 1024, kill_bytes: 256 * 1024, ..media_options() }, true, 60).await;

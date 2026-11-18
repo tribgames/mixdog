@@ -5,6 +5,7 @@
 //! Node loop's behaviour for the same script.
 
 use std::collections::VecDeque;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicI64;
@@ -70,14 +71,27 @@ use mixdog_protocol::TurnId;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+#[cfg(node_twin)]
 #[path = "loop_node_cases.rs"]
 mod loop_node_cases;
 
+#[cfg(node_twin)]
 #[path = "eager_node_cases.rs"]
 mod eager_node_cases;
 
+#[cfg(node_twin)]
 #[path = "ids_node_cases.rs"]
 mod ids_node_cases;
+
+#[path = "stream_cut_cases.rs"]
+mod stream_cut_cases;
+
+#[path = "stream_cut_burst_cases.rs"]
+mod stream_cut_burst_cases;
+
+#[path = "loop_behaviours.rs"]
+mod loop_behaviours;
+
 
 // ---------------------------------------------------------------------------
 // Scripted provider
@@ -87,6 +101,9 @@ enum Step {
     Event(StreamEvent),
     Fail(ProviderError),
     Hang,
+    /// The open stream raises a stage the way an adapter does from inside `next` (a resumed WebSocket's retry): a name and
+    /// its payload.
+    Raise(&'static str, Option<serde_json::Value>),
     /// The stream goes on once the count reaches the number: a response still streaming while the calls it handed over run.
     Until(tokio::sync::watch::Receiver<usize>, usize, &'static str),
     /// The response is still waiting for the wire until the future ends.
@@ -103,7 +120,7 @@ enum Attempt {
 }
 
 /// The stream, and the count of completed tool calls it has handed to the core.
-struct ScriptedStream(VecDeque<Step>, Option<Arc<dyn Fn() + Send + Sync>>, Arc<std::sync::atomic::AtomicU64>);
+struct ScriptedStream(VecDeque<Step>, Option<Arc<dyn Fn() + Send + Sync>>, Arc<std::sync::atomic::AtomicU64>, Option<mixdog_core_api::domain::provider::SendIdentity>);
 
 #[async_trait]
 impl ModelStream for ScriptedStream {
@@ -119,6 +136,15 @@ impl ModelStream for ScriptedStream {
                 }
                 Some(Step::Fail(error)) => Some(Err(error)),
                 Some(Step::Hang) => std::future::pending().await,
+                Some(Step::Raise(stage, payload)) => {
+                    let identity = self.3.as_ref().expect("a stream that raises stages is built with its send identity");
+                    match payload {
+                        Some(payload) => identity.raise_stage_with(stage, payload),
+                        None => identity.raise_stage(stage),
+                    }
+                    tokio::task::yield_now().await;
+                    continue;
+                }
                 Some(Step::Until(mut count, at, what)) => {
                     let reached = tokio::time::timeout(Duration::from_secs(30), count.wait_for(|n| *n >= at)).await;
                     assert!(reached.is_ok(), "the stream waited 30 s for {what}");
@@ -162,6 +188,8 @@ struct Scripted {
     /// The display stages the provider declares (`send_stages`), and whether its attempt raises `requesting` itself.
     stages: mixdog_core_api::domain::provider::SendStages,
     raises_requesting: bool,
+    /// Display stages with a payload the attempt raises from inside itself.
+    raised: Mutex<Vec<(&'static str, serde_json::Value)>>,
     /// An attempt that raised `requesting` holds its response until this resolves (the run's observer saw the stage).
     hold: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
     /// The log each request is appended to as it arrives, where the sends of other senders (a summary route) are too.
@@ -191,6 +219,7 @@ impl Scripted {
         Arc::new(Self {
             stages: Default::default(),
             raises_requesting: false,
+            raised: Mutex::new(Vec::new()),
             hold: Mutex::new(None),
             id: ProviderId::from("scripted"),
             policy,
@@ -247,13 +276,17 @@ impl ProviderAdapter for Scripted {
                 assert!(seen.is_ok(), "the attempt waited 30 s for the run to be told `requesting` while it still held the response");
             }
         }
+        for (stage, payload) in std::mem::take(&mut *self.raised.lock().unwrap()) {
+            request.options.send_identity.raise_stage_with(stage, payload);
+        }
         if let Some(log) = &self.order {
             let messages = request.messages.iter().map(|m| (wire_role(&AgentMessage::new(m.clone())).to_owned(), AgentMessage::new(m.clone()).text())).collect();
             log.0.lock().unwrap().push((false, messages));
         }
+        let identity = request.options.send_identity.clone();
         self.requests.lock().unwrap().push(request);
         match self.script.lock().unwrap().pop_front() {
-            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), None, self.calls_handed.clone()))),
+            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), None, self.calls_handed.clone(), Some(identity)))),
             Some(Attempt::Reject(error)) => Err(error),
             None => panic!("provider script exhausted"),
         }
@@ -338,6 +371,8 @@ impl Steer {
                 ids: vec!["q1".into()],
                 submitted_at: None,
                 message_id: None,
+                originals_missing: 0,
+                transcript_meta: None,
                 mode: SteerMode::Prompt,
                 execution: None,
             },
@@ -442,8 +477,6 @@ impl TranscriptSink for Sink {
 #[derive(Default)]
 struct Compactor100 {
     requests: Mutex<Vec<(usize, CompactTrigger)>>,
-    /// The agent cache tail expired.
-    cache_expired: bool,
     /// Tool-result media arms a pass.
     request_media: bool,
     /// The pass finds no token reduction.
@@ -494,9 +527,6 @@ impl Compactor for Compactor100 {
     }
     async fn reduces(&self, request: &CompactRequest<'_>) -> bool {
         request.messages.len() > 2
-    }
-    fn cache_expired(&self) -> bool {
-        self.cache_expired
     }
     fn request_media(&self, _: &[AgentMessage]) -> bool {
         self.request_media
@@ -563,7 +593,7 @@ impl Tool for Echo {
 }
 
 /// `echo` whose result carries `meta.complete`, as `code_graph` marks a partial answer.
-struct Marked(bool);
+struct Marked(bool, bool);
 #[async_trait]
 impl Tool for Marked {
     fn spec(&self) -> &ToolSpec {
@@ -572,7 +602,11 @@ impl Tool for Marked {
     }
     async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
         Ok(ToolOutput {
-            parts: vec![ToolPart::Text("body".into())],
+            parts: if self.1 {
+                vec![ToolPart::Text("body".into()), ToolPart::Document { mime: "application/pdf".into(), data: vec![1] }]
+            } else {
+                vec![ToolPart::Text("body".into())]
+            },
             meta: Some(json!({ "complete": self.0 })),
             ..ToolOutput::default()
         })
@@ -581,30 +615,260 @@ impl Tool for Marked {
 
 /// Records what the loop admits to the tool-result cache.
 #[derive(Default)]
-struct Stored(Mutex<Vec<String>>);
+struct Stored(Arc<Mutex<Vec<String>>>);
 #[async_trait]
 impl ResultReuse for Stored {
-    async fn lookup(&self, _call: &ToolCall, _touch: bool) -> Option<Reused> {
+    async fn lookup(&self, _call: &ToolCall, _cwd: &Path, _touch: bool) -> Option<Reused> {
         None
     }
-    async fn store(&self, _call: &ToolCall, content: &str, _tool_use_id: &str, _output: &ToolOutput) {
+    async fn prepare(&self, _call: &ToolCall, _cwd: &Path) -> Option<Box<dyn ReuseWrite>> {
+        Some(Box::new(Stored(self.0.clone())))
+    }
+}
+#[async_trait]
+impl ReuseWrite for Stored {
+    async fn store(self: Box<Self>, content: &str, _output: &ToolOutput) {
         self.0.lock().unwrap().push(content.to_owned());
     }
-    async fn after_call(&self, _call: &ToolCall, _failed: bool) {}
 }
 
 #[tokio::test]
-async fn a_partial_result_is_never_admitted_to_the_cache() {
-    for (complete, stored) in [(true, vec!["body".to_owned()]), (false, Vec::new())] {
+async fn cache_admission_keeps_text_but_not_partial_or_structured_results() {
+    for (complete, rich, stored) in [(true, false, vec!["body"]), (false, false, vec![]), (true, true, vec![])] {
         let reuse = Arc::new(Stored::default());
         let mut h = Harness::new(vec![
             turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
             turn(vec![text("ok"), done(StopReason::EndTurn)]),
         ]);
         h.reuse = Some(reuse.clone());
-        finish(h.run(config(), vec![Arc::new(Marked(complete))], vec![AgentMessage::user("go")])).await;
-        assert_eq!(*reuse.0.lock().unwrap(), stored, "complete = {complete}");
+        finish(h.run(config(), vec![Arc::new(Marked(complete, rich))], vec![AgentMessage::user("go")])).await;
+        assert_eq!(*reuse.0.lock().unwrap(), stored, "complete = {complete}, rich = {rich}");
     }
+}
+
+#[derive(Default)]
+struct WarmResults {
+    lookups: std::sync::atomic::AtomicUsize,
+    pointer: bool,
+}
+#[async_trait]
+impl ResultReuse for WarmResults {
+    async fn has_candidate(&self, call: &ToolCall, _cwd: &Path) -> bool {
+        matches!(call.name.as_str(), "read" | "list")
+    }
+    async fn lookup(&self, call: &ToolCall, _cwd: &Path, _touch: bool) -> Option<Reused> {
+        let (kind, content) = match call.name.as_str() {
+            "read" if self.pointer => (ReuseKind::Read, "[tool output offloaded: read → /art/r.txt (29 KB, 1 lines)]\npreview"),
+            "read" => (ReuseKind::Read, "source body"),
+            "list" => (ReuseKind::Scoped, "listing body"),
+            _ => return None,
+        };
+        self.lookups.fetch_add(1, Ordering::SeqCst);
+        Some(Reused { kind, content: content.into(), first_tool_use_id: format!("prior-{}", call.name), explicit_success: false })
+    }
+}
+
+#[derive(Default)]
+struct ReuseEvents(Mutex<Vec<String>>);
+impl ToolFailureLog for ReuseEvents {
+    fn failed(&self, call: FailedCall) {
+        panic!("unexpected failure: {}", call.tool_name);
+    }
+    fn stall_abort(&self, _: serde_json::Map<String, JsonValue>) {}
+    fn tool(&self, call: TracedCall) {
+        assert!(call.tool_args.is_null() && call.result.is_null());
+        assert!(call.execution_intervals.is_empty());
+        self.0.lock().unwrap().push(format!("{} {}", call.tool_call_id, call.result_kind));
+    }
+}
+
+#[tokio::test]
+async fn the_loop_keeps_recoverable_bodies_and_traces_cross_turn_scoped_hits() {
+    let mut h = Harness::new(vec![
+        turn(vec![call("r", "read", json!({"path": "a"})), call("l", "list", json!({"path": "."})), done(StopReason::ToolUse)]),
+        turn(vec![call("again", "list", json!({"path": "."})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    h.reuse = Some(Arc::new(WarmResults::default()));
+    let trace = Arc::new(ReuseEvents::default());
+    h.failures = Some(trace.clone());
+    let named = |name: &str| -> Arc<dyn Tool> {
+        let mut spec = Echo::tool().spec().clone();
+        spec.name = name.into();
+        Arc::new(Echo(spec))
+    };
+    let out = finish(h.run(config(), vec![named("read"), named("list")], vec![AgentMessage::user("go")])).await;
+    let rows = dump(&out.transcript);
+    assert!(rows.iter().any(|row| row == "tool#r(CacheHit):source body"));
+    assert!(rows.iter().any(|row| row == "tool#l(CacheHit):listing body"));
+    assert!(rows.iter().any(|row| row == "tool#again(CacheHit):listing body"));
+    let requests = h.provider.requests();
+    let live = |id: &str| requests[1].messages.iter().find(|m| m.tool_call_id.as_deref() == Some(id)).unwrap();
+    let result = out.transcript.iter().find(|m| m.tool_call_id() == Some("l")).unwrap();
+    let stored = mixdog_agent::message_row::row_of(result);
+    let replayed = mixdog_agent::message_row::message_of(&stored).unwrap();
+    assert_eq!(stored["content"], "listing body", "recovery keeps the complete hit");
+    let source = live("l").scoped_cache_source.as_ref().unwrap();
+    assert_eq!(source.call_id, "prior-list");
+    assert_eq!(replayed.wire().scoped_cache_source.as_ref(), Some(source));
+    assert!(live("r").scoped_cache_source.is_none(), "explicit reads still deliver their body");
+    assert_eq!(*trace.0.lock().unwrap(), ["r cache-hit", "l scoped-cache-hit", "again scoped-cache-hit"]);
+}
+
+struct RewriteWarmRead;
+
+#[async_trait]
+impl ToolGate for RewriteWarmRead {
+    async fn check_call(&self, _: &str, call: &GateCall) -> GateDecision {
+        let mut rewritten = call.clone();
+        rewritten.args = json!({"path": "other.txt"});
+        GateDecision::Rewrite(rewritten)
+    }
+}
+
+#[tokio::test]
+async fn warm_results_cannot_bypass_policy_rewrites_or_denied_approval() {
+    let run = |gate: Arc<dyn ToolGate>| {
+        let mut h = Harness::new(vec![
+            turn(vec![call("read-it", "read", json!({"path": "a.txt"})), done(StopReason::ToolUse)]),
+            turn(vec![text("ok"), done(StopReason::EndTurn)]),
+        ]);
+        let reuse = Arc::new(WarmResults::default());
+        h.reuse = Some(reuse.clone());
+        h.gate = gate;
+        let mut spec = Echo::tool().spec().clone();
+        spec.name = "read".into();
+        (h, Arc::new(Echo(spec)) as Arc<dyn Tool>, reuse)
+    };
+    let (h, tool, reuse) = run(Arc::new(RewriteWarmRead));
+    let out = finish(h.run(config(), vec![tool], vec![AgentMessage::user("go")])).await;
+    assert!(dump(&out.transcript).iter().any(|r| r == r#"tool#read-it(Normal):echo:{"path":"other.txt"}"#));
+    assert_eq!(reuse.lookups.load(Ordering::SeqCst), 0, "rewritten calls never validate the original");
+
+    for approved in [false, true] {
+        let (h, tool, reuse) = run(Arc::new(AskFirst));
+        h.approvals.script.lock().unwrap().push_back(ApprovalResolution::Decided {
+            decision: ToolApprovalDecision {
+                approved, reason: Some("Not now.".into()), answers: None, reply: None, response: None,
+                edited_args: None, remember: None, scope: None,
+            },
+            device: "desk".into(), connection_kind: mixdog_protocol::ConnectionKind::Desktop, at: 0,
+        });
+        let out = finish(h.run(config(), vec![tool], vec![AgentMessage::user("go")])).await;
+        assert_eq!(h.approvals.asks.lock().unwrap().len(), 1);
+        assert_eq!(reuse.lookups.load(Ordering::SeqCst), usize::from(approved));
+        let rows = dump(&out.transcript);
+        if approved {
+            assert!(rows.iter().any(|r| r == "tool#read-it(CacheHit):source body"));
+        } else {
+            assert!(rows.iter().any(|r| r.starts_with("tool#read-it(Error):Error: tool \"read\" was not approved: Not now.")));
+        }
+    }
+}
+
+#[derive(Default)]
+struct RefuseRead(Mutex<Vec<String>>);
+#[async_trait]
+impl ToolHooks for RefuseRead {
+    async fn after_tool(&self, _: &str, _: &GateCall, body: &str) -> Option<String> {
+        self.0.lock().unwrap().push(body.to_owned());
+        Some("Error: permission denied by the post-tool hook".into())
+    }
+}
+
+#[tokio::test]
+async fn post_tool_refusals_have_the_fresh_error_status_and_hooks_never_receive_previews() {
+    for (reuse, full_body) in [
+        (None, r#"echo:{"path":"a"}"#),
+        (Some(WarmResults::default()), "source body"),
+        (Some(WarmResults { pointer: true, ..WarmResults::default() }), r#"echo:{"path":"a"}"#),
+    ] {
+        let mut h = Harness::new(vec![
+            turn(vec![call("r", "read", json!({"path": "a"})), done(StopReason::ToolUse)]),
+            turn(vec![text("ok"), done(StopReason::EndTurn)]),
+        ]);
+        h.reuse = reuse.map(|reuse| Arc::new(reuse) as Arc<dyn ResultReuse>);
+        let hooks = Arc::new(RefuseRead::default());
+        h.hooks = Some(hooks.clone());
+        let mut spec = Echo::tool().spec().clone();
+        spec.name = "read".into();
+        let out = finish(h.run(config(), vec![Arc::new(Echo(spec))], vec![AgentMessage::user("go")])).await;
+        assert_eq!(*hooks.0.lock().unwrap(), [full_body]);
+        let result = out.transcript.iter().find(|m| m.tool_call_id() == Some("r")).unwrap();
+        assert_eq!(result.tool_kind, Some(ToolKind::Error));
+        let requests = h.provider.requests();
+        let sent = requests[1].messages.iter().find(|m| m.tool_call_id.as_deref() == Some("r")).unwrap();
+        assert!(sent.is_error);
+    }
+}
+
+struct OrderedWorkspace {
+    changed: std::sync::atomic::AtomicBool,
+    allow_change: tokio::sync::Notify,
+    lookups: Mutex<Vec<bool>>,
+}
+
+#[async_trait]
+impl ResultReuse for OrderedWorkspace {
+    async fn lookup(&self, call: &ToolCall, _cwd: &Path, _touch: bool) -> Option<Reused> {
+        if call.name == "list" {
+            self.lookups.lock().unwrap().push(self.changed.load(Ordering::Acquire));
+        }
+        None
+    }
+}
+
+struct WorkspaceTool(ToolSpec, Arc<OrderedWorkspace>);
+#[async_trait]
+impl Tool for WorkspaceTool {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    async fn call(&self, _: &ToolContext, _: JsonValue) -> ToolOutcome {
+        let body = if self.0.name == "shell" {
+            self.1.allow_change.notified().await;
+            self.1.changed.store(true, Ordering::Release);
+            "wrote files"
+        } else if self.1.changed.load(Ordering::Acquire) {
+            "after the write"
+        } else {
+            "before the write"
+        };
+        Ok(ToolOutput { parts: vec![ToolPart::Text(body.into())], ..ToolOutput::default() })
+    }
+}
+
+#[tokio::test]
+async fn a_scoped_call_after_a_streamed_shell_waits_for_the_mutation_before_lookup_and_execution() {
+    let workspace = Arc::new(OrderedWorkspace {
+        changed: false.into(),
+        allow_change: tokio::sync::Notify::new(),
+        lookups: Mutex::new(Vec::new()),
+    });
+    let release = workspace.clone();
+    let mut h = Harness::new(vec![
+        turn(vec![
+            call("w", "shell", json!({"command": "change files"})),
+            call("l", "list", json!({})),
+            Step::Wire(Box::pin(async move { release.allow_change.notify_one(); }), "release the write after streaming both calls"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    h.reuse = Some(workspace.clone());
+    let mut shell = Echo::tool().spec().clone();
+    shell.name = "shell".into();
+    shell.annotations = ToolAnnotations::default();
+    let mut list = Echo::tool().spec().clone();
+    list.name = "list".into();
+    let tools: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(WorkspaceTool(shell, workspace.clone())),
+        Arc::new(WorkspaceTool(list, workspace.clone())),
+    ];
+    let out = finish(h.run(config(), tools, vec![AgentMessage::user("go")])).await;
+    assert!(dump(&out.transcript).iter().any(|row| row == "tool#l(Normal):after the write"));
+    assert!(!workspace.lookups.lock().unwrap().is_empty());
+    assert!(workspace.lookups.lock().unwrap().iter().all(|changed| *changed));
 }
 
 /// `edit` of one file kept in memory, answering as the str-replace adapter does: a unique anchor is replaced, one found more than
@@ -914,8 +1178,10 @@ async fn a_tool_results_tool_meta_rides_its_message_and_its_stored_row() {
     }
 }
 
+#[cfg(node_twin)]
 /// A loading tool (named `name`) that answers `text`, as `Skill` answers with a native tool-search payload.
 struct Loader(ToolSpec, String);
+#[cfg(node_twin)]
 #[async_trait]
 impl Tool for Loader {
     fn spec(&self) -> &ToolSpec {
@@ -924,34 +1190,6 @@ impl Tool for Loader {
     async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
         Ok(ToolOutput { parts: vec![ToolPart::Text(self.1.clone())], ..ToolOutput::default() })
     }
-}
-
-/// `finalizeBatchResults` turns a loading tool's result that carries `nativeToolSearch` into the
-/// message's `native_tool_search` and keeps its summary as the text; the next request carries
-/// both (`fixtures/native-tool-search/golden.json`, the recorded Node results).
-#[tokio::test]
-async fn a_loading_tools_native_search_payload_rides_its_message_to_the_next_request() {
-    let golden: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/native-tool-search/golden.json")).unwrap();
-    let mut ran = 0;
-    for case in golden["parse"].as_array().unwrap().iter().filter(|case| case["toolName"] != "read") {
-        let mut spec = Echo::tool().spec().clone();
-        spec.name = case["toolName"].as_str().unwrap().to_owned();
-        let h = Harness::new(vec![
-            turn(vec![call("c1", &spec.name, json!({})), done(StopReason::ToolUse)]),
-            turn(vec![text("ok"), done(StopReason::EndTurn)]),
-        ]);
-        let loader = Arc::new(Loader(spec, case["result"].as_str().unwrap().to_owned()));
-        let out = finish(h.run(config(), vec![loader], vec![AgentMessage::user("go")])).await;
-        let result = out.transcript.iter().find(|m| m.tool_call_id() == Some("c1")).expect("tool result");
-        let want = Some(case["parsed"].clone()).filter(|parsed| !parsed.is_null());
-        assert_eq!(result.message.native_tool_search, want, "{}", case["name"]);
-        assert_eq!(result.text(), case["content"].as_str().unwrap(), "{}", case["name"]);
-        let sent = h.provider.requests();
-        let wire = sent[1].messages.iter().find(|m| m.tool_call_id.as_deref() == Some("c1")).expect("sent tool result");
-        assert_eq!(wire.native_tool_search, want, "{}: sent", case["name"]);
-        ran += 1;
-    }
-    assert_eq!(ran, 16);
 }
 
 /// Never finishes on its own; ends when its token is cancelled.
@@ -1036,122 +1274,6 @@ impl mixdog_agent::env::ToolFailureLog for FailureLog {
     }
 }
 
-impl Harness {
-    fn new(script: Vec<Attempt>) -> Self {
-        Self {
-            provider: Scripted::new(script),
-            steer: Arc::new(Steer::default()),
-            observer: Observer::new(Retracted::Withdrawn),
-            sink: Arc::new(Sink::default()),
-            waiter: Arc::new(RecordedWait::default()),
-            approvals: Arc::new(MockApprovalGate::default()),
-            gate: Arc::new(AllowAll),
-            compactor: None,
-            real_compactor: None,
-            tail: None,
-            side: None,
-            reuse: None,
-            route: None,
-            mcp: None,
-            failures: None,
-            artifacts: None,
-            hooks: None,
-            cancel: CancellationToken::new(),
-            clock: Arc::new(FixedClock(AtomicI64::new(1_000))),
-            sandbox: None,
-            real: None,
-        }
-    }
-
-    fn with_adapter(provider: Arc<dyn ProviderAdapter>) -> Self {
-        Self { real: Some((provider, Arc::new(mixdog_ai::retry::StandardRetryDecider))), ..Self::new(Vec::new()) }
-    }
-
-    fn with_policy(script: Vec<Attempt>, policy: RetryPolicy) -> Self {
-        Self { provider: Scripted::with_policy(script, policy), ..Self::new(Vec::new()) }
-    }
-
-    fn with_tail(mut self, context: mixdog_agent::tail_rules::TailContext) -> Self {
-        self.tail = Some(Arc::new(mixdog_agent::tail_rules::RuleTailReminder { context }));
-        self
-    }
-
-    fn run(&self, config: RunConfig, tools: Vec<Arc<dyn Tool>>, messages: Vec<AgentMessage>) -> Run {
-        let names = tools.iter().map(|t| t.spec().name.clone()).collect();
-        self.run_with_builtins(config, tools, names, messages)
-    }
-
-    fn run_env(&self) -> RunEnv {
-        RunEnv {
-            clock: self.clock.clone(),
-            jitter: Arc::new(HalfJitter),
-            waiter: self.waiter.clone(),
-            decider: self.real.as_ref().map_or_else(|| Arc::new(MockRetryDecider) as Arc<dyn mixdog_core_api::domain::retry::RetryDecider>, |(_, decider)| decider.clone()),
-            steer: self.steer.clone(),
-            observer: self.observer.clone(),
-            sink: self.sink.clone(),
-            gate: Arc::clone(&self.gate),
-            guards: Arc::new(NoGuards),
-            compactor: self.compactor.clone().map(|c| c as Arc<dyn Compactor>).or_else(|| self.real_compactor.clone()),
-            route: self.route.clone(),
-            skills: None,
-            hooks: self.hooks.clone(),
-            reuse: self.reuse.clone(),
-            reactions: None,
-            tail: self.tail.clone(),
-            mcp: self.mcp.clone(),
-            side: self.side.clone(),
-            step_judge: None,
-            artifacts: self.artifacts.clone(),
-            images: None,
-            failures: self.failures.clone(),
-        }
-    }
-
-    fn tool_env(&self) -> ToolEnv {
-        let tokens = mixdog_rt::testing::tokens();
-        ToolEnv {
-            thread_id: ThreadId::from("t"),
-            turn_id: TurnId::from("r"),
-            cwd: self.sandbox.as_ref().map_or_else(|| mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).unwrap(), |(cwd, _)| cwd.clone()),
-            surface: SurfaceKind::Lead,
-            io: ToolIo {
-                interactive: tokens.interactive_io,
-                durability: tokens.durability_io,
-                maintenance: tokens.maintenance_io,
-            },
-            approvals: self.approvals.clone(),
-            files: self.sandbox.as_ref().map_or_else(|| Arc::new(MockFileService::default()), |(_, files)| files.clone()),
-            processes: Arc::new(MockProcessManager::default()),
-            progress: Arc::new(MockProgress::default()),
-            deadline_of: None,
-            notify: None,
-            review: None,
-        }
-    }
-
-    fn run_with_builtins(
-        &self,
-        config: RunConfig,
-        tools: Vec<Arc<dyn Tool>>,
-        builtins: Vec<String>,
-        messages: Vec<AgentMessage>,
-    ) -> Run {
-        let env = self.run_env();
-        let tool_env = self.tool_env();
-        Run::new(
-            env,
-            self.cancel.clone(),
-            self.real.as_ref().map_or_else(|| self.provider.clone() as Arc<dyn ProviderAdapter>, |(provider, _)| provider.clone()),
-            ToolSet::with_builtins(tools, builtins),
-            tool_env,
-            config,
-            messages,
-            RunCarry::default(),
-        )
-    }
-}
-
 fn config() -> RunConfig {
     RunConfig::new(ThreadId::from("t"), TurnId::from("r"), "m")
 }
@@ -1220,6 +1342,70 @@ async fn tool_round_then_final_text() {
     assert_eq!(wire_dump(second), ["User:go", "Assistant:looking", "Tool:echo:{\"a\":1}"]);
     // the assistant turn with calls and each result reached the sink in order
     assert_eq!(h.sink.committed.lock().unwrap().len(), 2);
+}
+
+/// A cache owner the scripted provider never asks: its refusals come from the script.
+struct NoBook;
+
+impl mixdog_core_api::domain::cache_tail::TailGate for NoBook {
+    fn admit<'a>(&'a self, _: mixdog_core_api::domain::cache_tail::Admission<'a>) -> std::pin::Pin<Box<dyn std::future::Future<Output = mixdog_core_api::domain::cache_tail::Verdict> + Send + 'a>> {
+        unreachable!("the scripted provider asks no gate")
+    }
+    fn settle(&self, _: &mixdog_core_api::domain::cache_tail::Permit, _: Option<mixdog_core_api::domain::cache_tail::Counters>) {}
+    fn claim(&self, _: mixdog_core_api::domain::cache_tail::ColdRequest) -> mixdog_core_api::domain::cache_tail::Claim {
+        unreachable!("no rewrite is offered")
+    }
+    fn resolve(&self, _: u64, _: mixdog_core_api::domain::cache_tail::Resolution) -> Option<mixdog_core_api::domain::cache_tail::Unreduced> {
+        None
+    }
+    fn rebuilt(&self) -> u64 {
+        unreachable!("the run compacts nothing")
+    }
+    fn snapshot(&self) -> Option<serde_json::Value> {
+        None
+    }
+    fn generation(&self) -> u64 {
+        unreachable!("the run reads the generation of the history it holds, never the gate's")
+    }
+    fn wait_for(&self, _: u64) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        unreachable!("no rewrite is waited for")
+    }
+}
+
+/// The store's history after a rewrite the run did not make, at that history's generation; counts its reloads.
+struct Rewritten(Mutex<u32>);
+
+#[async_trait]
+impl StoredHistory for Rewritten {
+    async fn reload(&self) -> Result<(Vec<AgentMessage>, u64), String> {
+        *self.0.lock().unwrap() += 1;
+        Ok((vec![AgentMessage::user("compacted: go")], 3))
+    }
+}
+
+/// A request the cache owner refuses as stale (its transcript predates a rewrite this run did not make) is never stamped
+/// again and resent: the run goes on from the history the store holds, with that history's generation on its request.
+#[tokio::test]
+async fn a_stale_request_goes_on_from_the_stored_history_at_its_generation() {
+    use mixdog_core_api::domain::cache_tail::{TailGateHandle, TailRefusal};
+    let h = Harness::new(vec![Attempt::Reject(ProviderError::tail_refused(TailRefusal::Stale)), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let history = Arc::new(Rewritten(Mutex::new(0)));
+    let mut config = config();
+    config.options.tail_gate = Some(TailGateHandle(Arc::new(NoBook)));
+    config.options.tail_generation = Some(1);
+    let retired = serde_json::from_value(serde_json::json!({
+        "compatResponses": { "previousResponseId": "resp_retired", "store": true, "seenMessageCount": 1 }
+    })).unwrap();
+    config.options.provider_state = Some(retired);
+    config.history = Some(history.clone());
+    let output = finish(h.run(config, vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.response.content, "ok");
+    assert_eq!(*history.0.lock().unwrap(), 1, "reloaded once");
+    let requests = h.provider.requests();
+    assert_eq!((wire_dump(&requests[0]), requests[0].options.tail_generation), (vec!["User:go".to_owned()], Some(1)));
+    assert_eq!((wire_dump(&requests[1]), requests[1].options.tail_generation), (vec!["User:compacted: go".to_owned()], Some(3)), "the stored history, at its own generation");
+    assert!(requests[0].options.provider_state.is_some());
+    assert!(requests[1].options.provider_state.is_none(), "the rebuilt history cannot reuse an anchor into the retired transcript");
 }
 
 /// A Stop hook that blocks the stop `blocks` times, asked with each `stop_hook_active`.
@@ -1330,81 +1516,7 @@ async fn provider_state_is_sent_updated_by_the_provider_and_handed_back() {
     assert_eq!(output.provider_state, None);
 }
 
-/// What Node's `agentLoop` calls the observer's callbacks with when the provider raises a notice among the other
-/// things a send reports (`fixtures/wire-anthropic-gemini/observer.json`, recorded by
-/// `benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs`): the whole ordered stream, notices included,
-/// compared with every event the run loop gave its observer. An event with no Node callback to compare with is
-/// rendered as what it is, so it shows as a difference instead of being left out.
-#[tokio::test]
-async fn the_observer_stream_of_a_provider_notice_is_nodes_whole() {
-    let recording: JsonValue = serde_json::from_str(include_str!("../../../../fixtures/wire-anthropic-gemini/observer.json")).expect("observer.json");
-    let mut differences = Vec::new();
-    for scenario in recording["scenarios"].as_array().expect("scenarios") {
-        let id = scenario["id"].as_str().expect("id");
-        let mut steps = Vec::new();
-        let mut notices = Vec::new();
-        let mut refusal = None;
-        for step in scenario["steps"].as_array().expect("steps") {
-            match step[0].as_str().expect("kind") {
-                "notice" => {
-                    let warn = step[1] == "warn";
-                    let message = step[2].as_str().expect("message").to_owned();
-                    steps.push(Step::Event(StreamEvent::Notice { message: message.clone(), warn }));
-                    notices.push((message, warn));
-                }
-                "text" => steps.push(text(step[1].as_str().expect("text"))),
-                "fail" => {
-                    // The adapter hands the notices it raised before the failure over with it.
-                    let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted);
-                    error.status = step[1].as_u64().map(|s| s as u16);
-                    error.message = step[2].as_str().expect("message").to_owned();
-                    error.notices = std::mem::take(&mut notices);
-                    refusal = Some(error);
-                }
-                other => panic!("{other}"),
-            }
-        }
-        let script = vec![match refusal {
-            Some(error) => Attempt::Reject(error),
-            None => {
-                steps.push(done(StopReason::EndTurn));
-                turn(steps)
-            }
-        }];
-        // The two requesting of the send are the provider's own stages (preparing): Node's admission scheduler and its
-        // adapter raise them.
-        let stages = mixdog_core_api::domain::provider::SendStages { preparing: 2, ..Default::default() };
-        let h = Harness { provider: Scripted::staged(script, stages, false), ..Harness::new(Vec::new()) };
-        let ended = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await;
-        let mut stream: Vec<JsonValue> = Vec::new();
-        for event in h.observer.events() {
-            stream.extend(callbacks_of(event));
-        }
-        // Events of the loop's own with no callback in this recording: the turn's effort when the run starts (Node's
-        // `runtime.turnEffort` is a getter the client reads, not a callback), the two `Stage(Requesting)` of the send (Node's
-        // admission scheduler and provider adapter raise them, and the recording's scripted `send` is neither),
-        // `Stage(Streaming)` when the stream opens, and the send's `Usage` when it ends (Node's loop keeps its usage in the
-        // result and makes no `onUsage` call). They are part of the compared stream at their place, so any other event,
-        // or one of them anywhere else, is a difference.
-        let mut node: Vec<JsonValue> = scenario["observed"].as_array().expect("observed").clone();
-        node.insert(0, json!(["no Node callback", "TurnEffort(None)"]));
-        for _ in 0..2 {
-            node.insert(2, json!(["no Node callback", "Stage(Requesting)"]));
-        }
-        if scenario["outcome"]["content"].is_string() {
-            node.insert(4, json!(["no Node callback", "Stage(Streaming)"]));
-            node.push(json!(["no Node callback", "Usage"]));
-        }
-        if JsonValue::Array(stream.clone()) != JsonValue::Array(node.clone()) {
-            differences.push(format!("{id}: observer stream: Node {} / Rust {}", JsonValue::Array(node), JsonValue::Array(stream)));
-        }
-        if ended.is_err() != scenario["outcome"]["error"].is_string() {
-            differences.push(format!("{id}: outcome: Node {} / Rust failed: {}", scenario["outcome"], ended.is_err()));
-        }
-    }
-    assert!(differences.is_empty(), "{} difference(s):\n{}", differences.len(), differences.join("\n"));
-}
-
+#[cfg(node_twin)]
 /// The Node callback(s) one run event is: a text delta is the provider's `onStreamDelta('text')` then `onTextDelta`
 /// (`StreamEvent::progress_kind`), a notice is `onStageChange('notice', { tone, message })`.
 fn callbacks_of(event: RunEvent) -> Vec<JsonValue> {
@@ -1413,6 +1525,8 @@ fn callbacks_of(event: RunEvent) -> Vec<JsonValue> {
         RunEvent::Stage(Stage::Notice { message, tone }) => vec![json!(["onStageChange", "notice", { "tone": tone.as_str(), "message": message }])],
         RunEvent::Usage { .. } => vec![json!(["no Node callback", "Usage"])],
         RunEvent::ProviderSendStarted => vec![json!(["onProviderSendStarted"])],
+        // The attempt clock's boundaries are the run's own watchdog facts: Node has no callback for them.
+        RunEvent::Boundary { .. } | RunEvent::SubmissionStarted { .. } => vec![],
         other => vec![json!(["no Node callback", format!("{other:?}")])],
     }
 }
@@ -1447,7 +1561,9 @@ async fn steering_enters_after_the_tool_batch_and_before_the_next_request() {
         })
         .expect("steer event");
     assert_eq!(injected.ids, ["q1"]);
-    assert_eq!(injected.message_id, "m1");
+    // The second id of the run: the assistant message that called the tool took the first.
+    assert_eq!(injected.message_id, "m2");
+    assert_eq!(output.transcript[1].message_id.as_deref(), Some("m1"), "the message the run keeps has the id its row is stored under");
 }
 
 #[tokio::test]
@@ -1609,6 +1725,7 @@ async fn a_reissued_stream_raises_requesting_again() {
     assert_eq!(stages(vec![Attempt::Reject(reset()), ok()]).await, ["requesting", "reconnecting"]);
 }
 
+#[cfg(node_twin)]
 /// The transport fault Node's provider error ended in: the last link of the recorded cause chain
 /// (`connect_errors.json`, `ended.chain`), which is what the provider's classifier reads.
 fn recorded_fault(ended: &JsonValue) -> TransportFault {
@@ -1622,94 +1739,11 @@ fn recorded_fault(ended: &JsonValue) -> TransportFault {
         other => panic!("an unrecorded terminal error {other:?}"),
     }
 }
-
-/// Replays one case of `golden/connect_errors.json`: a send Node's real `OpenAICompatProvider.send` and `sendWithRecovery`
-/// (`connect-errors/record.mjs`) failed every time, before the first byte or after the headers (`after_headers`: the stream
-/// starts and is cut). The provider answers the recorded terminal error each time; the run must make as many attempts as
-/// Node did, wait as long between them (provider ladder, then the loop's own wait, each lap), show the same reconnect
-/// stages, replay as often as Node's loop did, and end with the error Node's loop ended with: its text, its fault, and
-/// whether it is a connect failure (the class `providerRecoveryEnded`, `send-with-recovery.mjs:190`, keeps waiting out).
-/// Returns the reconnect stages and the replays the recording shows.
-async fn replay_connect_case(name: &str, after_headers: bool) -> (Vec<(u32, u32)>, usize) {
-    let golden: JsonValue =
-        serde_json::from_str(&std::fs::read_to_string(golden_dir().join("connect-errors/golden/connect_errors.json")).unwrap()).unwrap();
-    let case = &golden["cases"][name];
-    let ended = &case["ended"];
-    assert_eq!(ended["kind"], "threw", "{name}");
-    let fault = recorded_fault(ended);
-    let mut error = ProviderError::transport(
-        fault.clone(),
-        if after_headers { DeliveryState::Accepted } else { DeliveryState::NotSent },
-    );
-    error.message = ended["message"].as_str().unwrap().to_owned();
-    let laps = case["laps"].as_array().unwrap();
-    let attempts: usize = laps.iter().map(|lap| lap["providerWaitsMs"].as_array().unwrap().len() + 1).sum();
-    let script = |error: &ProviderError| if after_headers { turn(vec![Step::Fail(error.clone())]) } else { Attempt::Reject(error.clone()) };
-    let h = Harness::with_policy(
-        (0..attempts).map(|_| script(&error)).collect(),
-        mixdog_ai::providers::compat::retry::unprofiled(),
-    );
-    let failure = h
-        .run(config(), vec![], vec![AgentMessage::user("go")])
-        .run()
-        .await
-        .expect_err("the send fails as Node's did");
-    let AgentError::Provider(ended_with) = &failure.error else { panic!("{name}: not a provider error: {:?}", failure.error) };
-    assert_eq!(ended_with.message, error.message, "{name}: message");
-    assert_eq!(ended_with.transport, Some(fault.clone()), "{name}: fault");
-    assert_eq!(ended["connectFailure"], matches!(fault, TransportFault::Connect { .. } | TransportFault::Dns), "{name}: connect failure");
-    assert_eq!(h.provider.requests().len(), attempts, "{name}: attempts");
-    let mut waits = Vec::new();
-    let mut shown = Vec::new();
-    for lap in laps {
-        waits.extend(lap["providerWaitsMs"].as_array().unwrap().iter().map(|ms| Duration::from_millis(ms.as_u64().unwrap())));
-        if let Some(ms) = lap["loopWaitMs"].as_u64() {
-            waits.push(Duration::from_millis(ms));
-            shown.push((lap["shown"]["attempt"].as_u64().unwrap() as u32, lap["shown"]["max"].as_u64().unwrap() as u32));
-        }
-    }
-    assert_eq!(*h.waiter.0.lock().unwrap(), waits, "{name}: waits");
-    let loop_stages = h
-        .observer
-        .events()
-        .into_iter()
-        .filter_map(|e| match e {
-            RunEvent::Stage(Stage::Reconnecting { attempt, max, .. }) if max > 4 => Some((attempt, max)),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(loop_stages, shown, "{name}: reconnect stages");
-    let replays = laps.iter().filter(|lap| lap["verdict"] == "retry_transport").count();
-    assert_eq!(loop_stages.len(), replays, "{name}: replays");
-    (loop_stages, replays)
-}
-
-#[tokio::test]
-async fn an_unreachable_network_is_retried_on_the_outage_ladder_then_fails_as_nodes_loop_does() {
-    for name in ["refused", "dns"] {
-        let (stages, replays) = replay_connect_case(name, false).await;
-        assert!(replays > 0 && stages.len() == replays, "{name}: the outage ladder replays");
-    }
-}
-
-#[tokio::test]
-async fn a_reset_or_a_refused_port_before_any_header_is_not_replayed_by_the_loop() {
-    for name in ["reset", "badPort"] {
-        let (stages, replays) = replay_connect_case(name, false).await;
-        assert_eq!((stages.len(), replays), (0, 0), "{name}");
-    }
-}
-
-/// Repeated post-header cuts spend what Node's did: the provider's one ladder (five attempts), and no loop replay, since
-/// the exhausted ladder of a cut stream is final (`providerRecoveryEnded`: not a connect failure, not an unavailable server).
-#[tokio::test]
-async fn repeated_cuts_after_the_headers_spend_one_provider_ladder_and_are_not_replayed() {
-    let (stages, replays) = replay_connect_case("cutRole", true).await;
-    assert_eq!((stages.len(), replays), (0, 0));
-}
+#[cfg(node_twin)]
 /// The handshake headers the WebSocket client library adds below the dial; every other header is the product's.
 const LIBRARY_HEADERS: [&str; 6] = ["sec-websocket-version", "sec-websocket-key", "sec-websocket-extensions", "connection", "upgrade", "host"];
 
+#[cfg(node_twin)]
 /// An upgrade request as the comparison reads it: header names lower-cased, the library's headers left out, the
 /// per-request random id (the recording holds the marker `<random:hex32>`) required to be 32 hex digits.
 fn upgrade(method: &str, target: &str, headers: Vec<(String, String)>) -> JsonValue {
@@ -1728,6 +1762,7 @@ fn upgrade(method: &str, target: &str, headers: Vec<(String, String)>) -> JsonVa
     json!({"upgrade": {"method": method, "target": target, "headers": headers}})
 }
 
+#[cfg(node_twin)]
 fn wire_of(wire: &[mixdog_ai::providers::openai::scripted::Wire]) -> Vec<JsonValue> {
     use mixdog_ai::providers::openai::scripted::Wire;
     wire.iter()
@@ -1738,6 +1773,7 @@ fn wire_of(wire: &[mixdog_ai::providers::openai::scripted::Wire]) -> Vec<JsonVal
         .collect()
 }
 
+#[cfg(node_twin)]
 /// What Node's server saw from the client: the upgrade requests and the request frames, in the order recorded.
 /// The other events (the server's answers, which the script feeds, and the socket and telemetry events) are the ones the
 /// manifest declares as not compared.
@@ -1755,92 +1791,6 @@ fn node_wire(events: &[JsonValue]) -> Vec<JsonValue> {
         }
     }
     seen
-}
-
-/// Node's recordings of a WebSocket outage (`provider-openai-ws-send-attempts`, the `outage` cases: handshake resets,
-/// stuck upgrades, refusals and stream drops in every order, each sent by the public OpenAI provider): the real OpenAI
-/// adapter over a scripted dial, driven by the real agent loop and retry decider, puts on the wire what Node's send did
-/// (every upgrade request and every request frame, whole and in the recorded order) and surfaces the error Node's send
-/// surfaced, worded as the user reads it. The server side of each recording is the script; the manifest declares what a
-/// replay leaves out.
-#[tokio::test(start_paused = true)]
-async fn an_outage_surfaces_the_error_nodes_websocket_send_surfaced() {
-    const RECORDING: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/provider-openai-ws-send-attempts/cases.json");
-    let recording: JsonValue = serde_json::from_str(&RECORDING).unwrap();
-    let mut replayed = 0;
-    for case in recording["cases"].as_array().unwrap() {
-        let id = case["id"].as_str().unwrap();
-        let Some(attempts) = case["input"]["attempts"].as_array() else { continue };
-        let mut script = Vec::new();
-        for attempt in attempts {
-            match &attempt["upgrade"] {
-                JsonValue::String(kind) if kind == "reset" => script.push(mixdog_ai::providers::openai::scripted::Dialed::Reset),
-                JsonValue::String(_) => script.extend((0..5).map(|_| mixdog_ai::providers::openai::scripted::Dialed::Stuck)),
-                JsonValue::Object(refusal) => script.push(mixdog_ai::providers::openai::scripted::Dialed::Rejected {
-                    status: refusal["status"].as_u64().unwrap() as u16,
-                    body: refusal["body"].as_str().unwrap().to_owned(),
-                }),
-                _ => {
-                    let close = &attempt["close"];
-                    let (code, reason) = match close[0].as_u64() {
-                        Some(code) => (code as u16, close[1].as_str().unwrap().to_owned()),
-                        None => (1006, String::new()),
-                    };
-                    let frames = attempt["frames"].as_array().unwrap().iter().map(|frame| frame.to_string()).collect();
-                    script.push(mixdog_ai::providers::openai::scripted::Dialed::Socket { frames, close: (code, reason) });
-                }
-            }
-        }
-        // Past the recorded attempts every upgrade is left unanswered, as in the recording.
-        script.extend((0..40).map(|_| mixdog_ai::providers::openai::scripted::Dialed::Stuck));
-        let dial = mixdog_ai::providers::openai::scripted::ScriptedDial::with(script);
-        let h = Harness::with_adapter(mixdog_ai::providers::openai::scripted::adapter(dial.clone(), mixdog_rt::testing::tokens().cpu_bulk, mixdog_ai::providers::openai::switch::TransportMode::WsDelta));
-        let request = &case["input"]["request"];
-        let model = request["model"].as_str().unwrap();
-        let message = request["messages"][0]["content"].as_str().unwrap();
-        let mut run_config = RunConfig::new(ThreadId::from("t"), TurnId::from("r"), model);
-        run_config.options.session_id = Some(case["input"]["sessionId"].as_str().unwrap().into());
-        let failure = h
-            .run(run_config, vec![], vec![AgentMessage::user(message)])
-            .run()
-            .await
-            .expect_err("the outage ends in a failure");
-        let AgentError::Provider(error) = failure.error else { panic!("{id}: a provider error") };
-
-        let node = &case["result"]["error"];
-        let events = case["result"]["events"].as_array().unwrap();
-        let node_message = node["message"].as_str().unwrap();
-        if node_message.starts_with("OpenAI OAuth WS closed before response.completed") {
-            assert_eq!(error.message, node_message, "{id}: the error that surfaced");
-        } else if node["code"] == "EWSACQUIRETIMEOUT" {
-            assert_eq!(error.code.as_deref(), Some("EWSACQUIRETIMEOUT"), "{id}: the error that surfaced");
-        } else if node["code"] == "ECONNRESET" {
-            assert_eq!(error.transport, Some(TransportFault::Reset), "{id}: the error that surfaced");
-        } else {
-            assert_eq!(error.status.map(u64::from), node["props"]["httpStatus"].as_u64(), "{id}: the error that surfaced");
-        }
-        // The requests and frames in recorded order, compared whole.
-        let (sent, seen) = (wire_of(&dial.wire()), node_wire(events));
-        if sent != seen {
-            let at = sent.iter().zip(&seen).position(|(a, b)| a != b).unwrap_or(sent.len().min(seen.len()));
-            panic!(
-                "{id}: what reached the server differs at event {at} (the replay sent {}, Node's server saw {}):\n  replay: {:?}\n  node:   {:?}",
-                sent.len(),
-                seen.len(),
-                sent.get(at),
-                seen.get(at)
-            );
-        }
-        // What the user reads. Node's text is the same with the first failure's cause dropped, so the cause is no part of it.
-        let text = mixdog_ai::service::error_text::present_error_text(
-            &mixdog_ai::service::error_text::ErrorView::from(&*error),
-            &mixdog_ai::service::error_text::PresentOptions::default(),
-        );
-        assert_eq!(case["result"]["presented"], case["result"]["presentedWithoutCause"], "{id}: the cause changes nothing the user reads");
-        assert_eq!(text, case["result"]["presented"].as_str().unwrap(), "{id}: the text the user reads");
-        replayed += 1;
-    }
-    assert_eq!(replayed, 11, "every recorded outage");
 }
 
 #[tokio::test]
@@ -1933,62 +1883,6 @@ async fn websocket_connection_limit_continues_the_agent_without_consulting_fallb
     assert_eq!(dial.wire().iter().filter(|event| matches!(event, Wire::Upgrade { .. })).count(), 3);
 }
 
-#[tokio::test(start_paused = true)]
-async fn websocket_close_1000_uses_owner_retraction_without_refilling_the_send_budget() {
-    use mixdog_ai::providers::openai::scripted::{self, Dialed, ScriptedDial, Wire};
-    use mixdog_ai::providers::openai::switch::TransportMode;
-
-    for (reasoning, reset_channel, ack, failures, succeeds, waits) in [
-        (false, true, Retracted::Withdrawn, 1, true, 1),
-        (false, true, Retracted::Refused, 1, false, 0),
-        (false, false, Retracted::Refused, 1, true, 0),
-        (true, false, Retracted::Refused, 1, true, 1),
-        (false, true, Retracted::Withdrawn, 4, false, 3),
-        (true, false, Retracted::Refused, 4, false, 3),
-    ] {
-        let delta = if reasoning {
-            r#"{"type":"response.reasoning_summary_text.delta","delta":"thinking"}"#
-        } else {
-            r#"{"type":"response.output_text.delta","output_index":0,"item_id":"msg","delta":"visible"}"#
-        };
-        let mut script: Vec<_> = (0..failures).map(|_| Dialed::Socket {
-            frames: vec![
-                r#"{"type":"response.created","response":{"id":"cut"}}"#.into(),
-                delta.into(),
-            ],
-            close: (1000, String::new()),
-        }).collect();
-        script.push(Dialed::Socket {
-            frames: vec![r#"{"type":"response.completed","response":{"id":"continued","status":"completed","output":[{"type":"message","id":"msg","role":"assistant","content":[{"type":"output_text","text":"continued"}]}],"usage":{"input_tokens":1,"output_tokens":1}}}"#.into()],
-            close: (1000, String::new()),
-        });
-        let dial = ScriptedDial::with(script);
-        let mut h = Harness::with_adapter(scripted::adapter(dial.clone(), mixdog_rt::testing::tokens().cpu_bulk, TransportMode::WsDelta));
-        h.observer = Observer::new(ack);
-        Arc::get_mut(&mut h.observer).unwrap().reset_channel = reset_channel;
-        let route = PlayRoute::new(RouteDecision::Fail("fallback must not be entered".into()), Vec::new());
-        if succeeds {
-            h.route = Some(route.clone());
-        }
-        let result = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await;
-        if succeeds {
-            let output = result.expect("Node's owner recovery continues this close");
-            // Text shown with no way to withdraw it is kept, and the next response continues it.
-            let kept = if !reasoning && !reset_channel { "visible" } else { "" };
-            assert_eq!(output.response.content, format!("{kept}continued"));
-            assert!(route.asked.lock().unwrap().is_empty());
-        } else {
-            let failure = result.expect_err("a refused text reset or spent outer budget ends replay");
-            let AgentError::Provider(error) = failure.error else { panic!("the close must surface") };
-            assert_eq!(error.transport, Some(TransportFault::WsClose { code: Some(1000) }));
-        }
-        let upgrades = dial.wire().iter().filter(|event| matches!(event, Wire::Upgrade { .. })).count();
-        assert_eq!(upgrades, failures + usize::from(succeeds), "every owner replay opens a fresh socket");
-        assert_eq!(*h.waiter.0.lock().unwrap(), [5, 15, 30][..waits].iter().map(|s| Duration::from_secs(*s)).collect::<Vec<_>>(),
-            "Node's bounded outer transport ladder, not another five-retry send ladder");
-    }
-}
-
 #[tokio::test]
 async fn parsed_tool_calls_survive_a_cut_stream() {
     let cut = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
@@ -2004,38 +1898,175 @@ async fn parsed_tool_calls_survive_a_cut_stream() {
     assert!(h.waiter.0.lock().unwrap().is_empty(), "continued, not replayed");
 }
 
-/// A cut WebSocket stream keeps the replay envelope of the items it had finished (`partialProviderReplay`), and the
-/// recovered assistant turn carries it, so the next request replays it. The turn is compared with what Node's
-/// `sendWithRecovery` returned for the same cut (`golden/stream_progress.json`, "a cutoff after finished items",
-/// `recovered`): its text, its call ids and its replay items.
+fn idle_stall(text_emitted: bool) -> ProviderError {
+    let mut stall = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
+    stall.code = Some("ESTREAMSTALL".into());
+    stall.timed_out = true;
+    stall.timeout_phase = Some(mixdog_core_api::domain::provider::StreamTimeoutPhase::Idle);
+    stall.exposure.text_emitted = text_emitted;
+    stall
+}
+
+/// A stalled stream is a cut stream (`isStreamCut` reads `stallObserved`): text already shown to an owner that cannot
+/// withdraw it is kept and continued, not failed with a timeout.
 #[tokio::test]
-async fn a_cut_stream_s_partial_replay_is_kept_on_the_recovered_message() {
-    let golden: JsonValue =
-        serde_json::from_str(&std::fs::read_to_string(golden_dir().join("compact/golden/stream_progress.json")).unwrap()).unwrap();
-    let node = golden["decoders"]["responses"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find_map(|s| s.get("recovered"))
-        .expect("a recorded recovery");
-    assert_eq!(node["action"], "proceed");
-    let content = node["content"].as_str().unwrap();
-    let node_calls: Vec<&str> = node["toolCalls"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
-    let mut cut = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
-    cut.partial_replay = Some(Box::new(mixdog_core_api::domain::provider::ProviderReplay {
-        owner: ProviderId::from("scripted"),
-        items: node["providerReplay"]["items"].clone(),
-    }));
-    let h = Harness::new(vec![
-        turn(vec![text(content), call(node_calls[0], "echo", json!({})), Step::Fail(cut)]),
-        turn(vec![text("fin"), done(StopReason::EndTurn)]),
+async fn a_stalled_stream_after_shown_text_continues_from_the_shown_text() {
+    let mut h = Harness::new(vec![
+        turn(vec![text("part"), Step::Fail(idle_stall(true))]),
+        turn(vec![text(" rest"), done(StopReason::EndTurn)]),
     ]);
-    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
-    let recovered = output.transcript.iter().find(|m| m.text() == content).expect("the recovered assistant message");
-    let calls: Vec<&str> = recovered.tool_calls().iter().map(|c| c.id.as_str()).collect();
-    assert_eq!(calls, node_calls);
-    let kept: Vec<&JsonValue> = recovered.message.provider_replay().iter().map(|r| &r.items).collect();
-    assert_eq!(kept, [&node["providerReplay"]["items"]]);
+    h.observer = Observer::new(Retracted::Refused);
+    Arc::get_mut(&mut h.observer).unwrap().reset_channel = false;
+    let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+    assert!(output.response.content.starts_with("part"), "{}", output.response.content);
+}
+
+/// A stall is not "server unavailable": once the provider's rows are spent the loop does not add recovery laps.
+#[tokio::test(start_paused = true)]
+async fn a_spent_stall_ladder_surfaces_without_recovery_laps() {
+    let h = Harness::new((0..6).map(|_| turn(vec![Step::Fail(idle_stall(false))])).collect());
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the stall surfaces");
+    assert!(matches!(failure.error, AgentError::Provider(_)));
+    assert!(h.waiter.0.lock().unwrap().iter().all(|wait| *wait < Duration::from_secs(15)), "no 15 s recovery lap");
+}
+
+/// `stopAfterRepeated529`: the repeated-overload stop is the provider's verdict that recovery is over, so the loop adds
+/// no recovery lap after it and the send surfaces.
+#[tokio::test(start_paused = true)]
+async fn repeated_overloads_under_the_stop_rule_surface_without_a_recovery_lap() {
+    let mut policy = RetryPolicy::codex_default();
+    policy.overload.fallback_after = Some(3);
+    policy.overload.stop_after_repeated = true;
+    let overloaded = || {
+        let mut error = ProviderError::new(ErrorKind::Overloaded, DeliveryState::Accepted);
+        error.status = Some(529);
+        Attempt::Reject(error)
+    };
+    let script = vec![overloaded(), overloaded(), overloaded(), turn(vec![text("late"), done(StopReason::EndTurn)])];
+    let (h, provider) = judged(script, policy);
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the send ends on the third overload");
+    assert!(matches!(failure.error, AgentError::Provider(_)));
+    assert_eq!(provider.requests().len(), 3);
+}
+
+/// A `notice` the provider raises from inside its attempt (the model it moved to) reaches the run's observer as a
+/// transcript notice.
+#[tokio::test]
+async fn a_notice_raised_inside_an_attempt_reaches_the_observer_as_a_notice() {
+    let provider = Scripted::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let payload = serde_json::json!({ "tone": "info", "message": "claude-a is no longer offered — continuing on claude-b" });
+    provider.raised.lock().unwrap().push(("notice", payload));
+    let h = Harness { provider, ..Harness::new(Vec::new()) };
+    finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+    let seen: Vec<_> = h
+        .observer
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            RunEvent::Stage(Stage::Notice { message, tone }) => Some((message, tone)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(seen, vec![("claude-a is no longer offered — continuing on claude-b".to_owned(), Tone::Info)]);
+}
+
+/// The count belongs to the logical send: a send that returns a recovered partial turn (a completed call, then a cut)
+/// ends it, and the next request's one overload is the first, not the third.
+#[tokio::test(start_paused = true)]
+async fn a_recovered_partial_turn_ends_the_overload_count_of_its_send() {
+    let mut policy = RetryPolicy::codex_default();
+    policy.overload.fallback_after = Some(3);
+    policy.overload.stop_after_repeated = true;
+    let overloaded = || {
+        let mut error = ProviderError::new(ErrorKind::Overloaded, DeliveryState::Accepted);
+        error.status = Some(529);
+        error
+    };
+    let script = vec![
+        Attempt::Reject(overloaded()),
+        Attempt::Reject(overloaded()),
+        turn(vec![call("c1", "echo", json!({})), Step::Fail(truncated())]),
+        Attempt::Reject(overloaded()),
+        turn(vec![text("done"), done(StopReason::EndTurn)]),
+    ];
+    let (h, provider) = judged(script, policy);
+    finish(h.run(config(), vec![Arc::new(Marked(true, false))], vec![AgentMessage::user("go")])).await;
+    assert_eq!(provider.requests().len(), 5, "the next request's overload is retried, not counted as the third");
+}
+
+/// The response head a provider reports from inside its attempt (`onStreamDelta('transport')`) reaches the run as
+/// transport health, which is what moves the agent watchdog from its first-transport window to its first-output one.
+#[tokio::test]
+async fn a_transport_mark_raised_inside_an_attempt_reaches_the_observer_as_transport_health() {
+    let provider = Scripted::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    provider.raised.lock().unwrap().push(("transport", serde_json::Value::Null));
+    let h = Harness { provider, ..Harness::new(Vec::new()) };
+    finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+    let events = h.observer.events();
+    assert_eq!(events.iter().filter(|e| matches!(e, RunEvent::Transport)).count(), 1);
+    assert!(!events.iter().any(|e| matches!(e, RunEvent::Stage(Stage::WaitingOnProvider))), "a transport mark is no keepalive stage");
+}
+
+/// A stage the provider raises while its stream is open (a resumed WebSocket's retry, an attempt's start) reaches the run when it
+/// is raised, before the output that follows it, not at the end of the stream; so does the transport mark.
+#[tokio::test]
+async fn stages_raised_inside_an_open_stream_reach_the_observer_before_its_output() {
+    let payload = json!({ "attempt": 1, "max": 2, "waitMs": 1500, "message": "Connection interrupted · retry 1/2 in 1.5s" });
+    let h = Harness::new(vec![turn(vec![
+        Step::Raise("reconnecting", Some(payload.clone())),
+        Step::Raise("requesting", None),
+        Step::Raise("transport", None),
+        text("ok"),
+        done(StopReason::EndTurn),
+    ])]);
+    finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+    let events = h.observer.events();
+    let at = |wanted: &dyn Fn(&RunEvent) -> bool| events.iter().position(wanted).expect("the event was observed");
+    let reconnecting = at(&|e| matches!(e, RunEvent::Stage(Stage::Reconnecting { payload: Some(p), attempt: 1, max: 2, .. }) if *p == payload));
+    let requesting = at(&|e| matches!(e, RunEvent::Stage(Stage::Requesting)));
+    let transport = at(&|e| matches!(e, RunEvent::Transport));
+    let text_at = at(&|e| matches!(e, RunEvent::TextDelta(_)));
+    assert!(reconnecting < text_at && requesting < text_at && transport < text_at, "{events:?}");
+}
+
+/// One counter of consecutive overloads serves the refusals of the request and the errors of the stream
+/// (`createAnthropicOverloadTracker`): two refused requests and an overload in the stream are the third.
+#[tokio::test(start_paused = true)]
+async fn overloads_of_the_request_and_of_the_stream_share_one_counter() {
+    let mut policy = RetryPolicy::codex_default();
+    policy.overload.fallback_after = Some(3);
+    policy.overload.stop_after_repeated = true;
+    let overloaded = || {
+        let mut error = ProviderError::new(ErrorKind::Overloaded, DeliveryState::Accepted);
+        error.status = Some(529);
+        error
+    };
+    let script = vec![
+        Attempt::Reject(overloaded()),
+        Attempt::Reject(overloaded()),
+        turn(vec![Step::Fail(overloaded())]),
+        turn(vec![text("late"), done(StopReason::EndTurn)]),
+    ];
+    let (h, provider) = judged(script, policy);
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the stream's overload is the third");
+    assert!(matches!(failure.error, AgentError::Provider(_)));
+    assert_eq!(provider.requests().len(), 3, "no fourth request goes out");
+}
+
+/// Reasoning already delivered to the surface cannot be regenerated behind the user's back either.
+#[tokio::test(start_paused = true)]
+async fn a_stall_after_reasoning_is_not_replayed_if_the_owner_refuses_the_reset() {
+    let h = {
+        let mut h = Harness::new(vec![
+            turn(vec![Step::Event(StreamEvent::ReasoningDelta("thinking".into())), Step::Fail(idle_stall(true))]),
+            turn(vec![text("ok"), done(StopReason::EndTurn)]),
+        ]);
+        h.observer = Observer::new(Retracted::Refused);
+        h
+    };
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("reasoning is still visible");
+    assert!(matches!(failure.error, AgentError::Provider(_)));
+    assert_eq!(h.provider.requests().len(), 1);
 }
 #[tokio::test]
 async fn turn_limits_answer_extra_calls_unrun_and_forbid_tools_after_the_notice() {
@@ -2087,11 +2118,9 @@ async fn identical_read_only_calls_in_one_turn_run_once() {
 struct Epochs(std::sync::atomic::AtomicUsize);
 #[async_trait]
 impl ResultReuse for Epochs {
-    async fn lookup(&self, _call: &ToolCall, _touch: bool) -> Option<Reused> {
+    async fn lookup(&self, _call: &ToolCall, _cwd: &Path, _touch: bool) -> Option<Reused> {
         None
     }
-    async fn store(&self, _call: &ToolCall, _content: &str, _tool_use_id: &str, _output: &ToolOutput) {}
-    async fn after_call(&self, _call: &ToolCall, _failed: bool) {}
     fn after_compaction(&self) {
         self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
@@ -2357,18 +2386,6 @@ async fn a_provider_reading_below_the_trigger_outranks_the_estimate_of_the_same_
         finish(h.run(cfg, vec![], eleven_messages())).await;
         assert_eq!(compact_marker(&h).is_empty(), count == 11, "{count}");
     }
-}
-
-/// The mark holds only the pressure: an expired cache tail still compacts an unanchored session (`cacheExpired` is
-/// outside `shouldCompactForSession`).
-#[tokio::test]
-async fn an_expired_cache_tail_still_compacts_an_unanchored_session() {
-    let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
-    h.compactor = Some(Arc::new(Compactor100 { cache_expired: true, session_unanchored: true, ..Default::default() }));
-    let mut cfg = config();
-    cfg.compact = Some(compact_settings());
-    finish(h.run(cfg, vec![], three_messages())).await;
-    assert_eq!(*h.compactor.as_ref().unwrap().requests.lock().unwrap(), [(3, CompactTrigger::CacheExpired)]);
 }
 
 /// A send the run measured re-anchors the session (`recordProviderContextBaseline` drops the mark) while its header may
@@ -2771,6 +2788,29 @@ async fn abort_during_a_tool_cancels_its_token_and_keeps_finished_results() {
     );
 }
 
+/// A call of a parallel batch that finishes while an earlier one still runs is told finished at once, and its row still waits for
+/// its place in call order: nothing is committed past the running call.
+#[tokio::test]
+async fn a_finished_call_is_told_at_once_while_an_earlier_call_runs_and_rows_keep_call_order() {
+    let h = Harness::new(vec![turn(vec![
+        call("c1", "hang", json!({})),
+        call("c2", "echo", json!({})),
+        done(StopReason::ToolUse),
+    ])]);
+    let run = h.run(config(), vec![Echo::tool(), Hang::tool()], vec![AgentMessage::user("go")]);
+    let task = tokio::spawn(run.run());
+    let told = |id: &str| h.observer.events().iter().any(|e| matches!(e, RunEvent::EarlyResult(m) if m.tool_call_id() == Some(id)));
+    while !told("c2") {
+        let arrived = tokio::time::timeout(Duration::from_secs(30), h.observer.early_arrived.notified()).await;
+        assert!(arrived.is_ok(), "c2 finished while c1 runs and was not told");
+    }
+    assert!(!told("c1"), "c1 is still running");
+    let committed: Vec<Option<String>> = h.sink.committed.lock().unwrap().iter().map(|m| m.tool_call_id().map(str::to_owned)).collect();
+    assert!(!committed.iter().any(|id| id.as_deref() == Some("c2")), "c2's row waits for c1's: {committed:?}");
+    h.cancel.cancel();
+    assert!(matches!(task.await.unwrap().expect_err("aborted").error, AgentError::Aborted));
+}
+
 #[tokio::test]
 async fn a_denied_approval_answers_the_call_without_running_it() {
     let mut h = Harness::new(vec![
@@ -2832,7 +2872,6 @@ async fn refusal_gets_one_recovery_prompt_then_ends() {
     let dumped = dump(&output.transcript);
     assert_eq!(dumped.len(), 2);
     assert!(dumped[1].starts_with("user<RefusalRecovery>:[mixdog-runtime] The previous completion was refused"));
-    let _ = (Source::Steering, ToolKind::Normal);
 }
 
 // ---------------------------------------------------------------------------
@@ -2866,6 +2905,7 @@ impl Tool for Boom {
     }
 }
 
+#[cfg(node_twin)]
 fn stop_of(text: &str) -> StopReason {
     match text {
         "end_turn" => StopReason::EndTurn,
@@ -2876,6 +2916,7 @@ fn stop_of(text: &str) -> StopReason {
     }
 }
 
+#[cfg(node_twin)]
 fn source_name(source: Source) -> &'static str {
     match source {
         Source::Steering => "steering",
@@ -2908,6 +2949,7 @@ fn source_name(source: Source) -> &'static str {
     }
 }
 
+#[cfg(node_twin)]
 fn kind_name(kind: ToolKind) -> &'static str {
     match kind {
         ToolKind::Normal => "normal",
@@ -2917,6 +2959,7 @@ fn kind_name(kind: ToolKind) -> &'static str {
     }
 }
 
+#[cfg(node_twin)]
 fn normalized(message: &AgentMessage) -> JsonValue {
     json!({
         "role": format!("{:?}", message.role()).to_lowercase(),
@@ -2928,133 +2971,6 @@ fn normalized(message: &AgentMessage) -> JsonValue {
         "toolKind": message.tool_kind.map(kind_name),
         "turnReminder": message.turn_reminder,
     })
-}
-
-fn golden_dir() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent")
-}
-
-async fn replay(scenario: &JsonValue) -> (JsonValue, JsonValue, JsonValue, JsonValue) {
-    let entries = scenario["script"].as_array().unwrap();
-    let copies = if scenario["repeatLast"].as_bool() == Some(true) { 8 } else { 1 };
-    let mut script = Vec::new();
-    for (i, entry) in entries.iter().enumerate() {
-        let n = if i + 1 == entries.len() { copies } else { 1 };
-        for _ in 0..n {
-            // A send Node's provider throws as Gemini does for a cut function call: the decoder's transient `malformed_function_call`.
-            if entry["throw"] == "malformed_function_call" {
-                let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
-                error.code = Some("malformed_function_call".into());
-                script.push(Attempt::Reject(error));
-                continue;
-            }
-            let mut steps = Vec::new();
-            let content = entry["content"].as_str().unwrap_or("");
-            // A reply that names its deltas streams them one by one (their join is its content).
-            if let Some(deltas) = entry["deltas"].as_array() {
-                steps.extend(deltas.iter().map(|d| text(d.as_str().unwrap())));
-            } else if !content.is_empty() {
-                steps.push(text(content));
-            }
-            for c in entry["toolCalls"].as_array().into_iter().flatten() {
-                steps.push(call(c["id"].as_str().unwrap(), c["name"].as_str().unwrap(), c["arguments"].clone()));
-            }
-            steps.push(done(stop_of(entry["stopReason"].as_str().unwrap_or("end_turn"))));
-            script.push(turn(steps));
-        }
-    }
-    let h = Harness::new(script);
-    for (stage, queue) in scenario["steer"].as_object().into_iter().flatten() {
-        let stage = if stage == "terminal" { DrainStage::Terminal } else { DrainStage::PreSend };
-        for entry in queue.as_array().unwrap() {
-            h.steer.push(stage, entry.as_str().unwrap());
-        }
-    }
-    let mut cfg = config();
-    let h = match scenario["model"].as_str() {
-        Some(model) => {
-            cfg.model = model.to_owned();
-            let language = scenario["language"].as_object().map(|l| mixdog_agent::tail_rules::TailLanguage {
-                id: l["id"].as_str().unwrap().to_owned(),
-                name: l["name"].as_str().unwrap().to_owned(),
-            });
-            h.with_tail(mixdog_agent::tail_rules::TailContext {
-                provider: scenario["provider"].as_str().unwrap().to_owned(),
-                language,
-                role: mixdog_agent::tail_rules::TailRole::Lead,
-            })
-        }
-        None => h,
-    };
-    cfg.escalated_max_output_tokens = scenario["escalated"].as_u64().map(|v| v as u32);
-    if let Some(limit) = scenario["limits"]["maxToolCalls"].as_u64() {
-        cfg.limits = Some(TurnLimits { max_tool_calls: Some(limit), ..TurnLimits::default() });
-    }
-    let messages: Vec<AgentMessage> = scenario["messages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|m| AgentMessage::user(m["content"].as_str().unwrap()))
-        .collect();
-    let run = h.run_with_builtins(cfg, vec![Echo::tool(), Boom::tool()], vec!["read".into()], messages);
-    let output = finish(run).await;
-    let transcript: Vec<JsonValue> = output.transcript.iter().map(normalized).collect();
-    let termination = output.termination.map(|t| format!("{t:?}").to_lowercase());
-    let result = json!({
-        "content": output.response.content,
-        "historyContent": output.response.history_content,
-        "reportContent": output.response.report_content,
-        "terminationReason": termination,
-        "iterations": output.iterations,
-        "toolCallsTotal": output.tool_calls_total,
-        "maxOutputRecoveryAttempts": output.response.max_output_recovery_attempts,
-        "providerContinuations": output.provider_continuations,
-    });
-    let requests: Vec<JsonValue> = h
-        .provider
-        .requests()
-        .iter()
-        .map(|r| {
-            json!({
-                "override": r.options.max_output_tokens_override,
-                "toolChoice": r.options.tool_choice,
-                "messages": r.messages.iter().map(|m| json!({
-                    "role": format!("{:?}", m.role).to_lowercase(),
-                    "content": match &m.content { Content::Text(t) => t.clone(), Content::Parts(_) => String::new() },
-                    "toolCallId": m.tool_call_id,
-                })).collect::<Vec<_>>(),
-            })
-        })
-        .collect();
-    // What the turn's text-delta hook was handed, in order (compared when the scenario records it). The run's other events
-    // (stage, tool calls, usage, ...) have no Node recording: the recorder installs no hook for them (agent set manifest,
-    // exclusions "run events other than the text deltas").
-    let deltas: Vec<JsonValue> = h.observer.events().into_iter().filter_map(|e| if let RunEvent::TextDelta(chunk) = e { Some(json!(chunk)) } else { None }).collect();
-    (JsonValue::Array(transcript), result, JsonValue::Array(requests), JsonValue::Array(deltas))
-}
-
-#[tokio::test]
-async fn rust_loop_matches_the_recorded_node_transcripts() {
-    let dir = golden_dir();
-    let mut names: Vec<String> = std::fs::read_dir(dir.join("scenarios"))
-        .expect("scenarios recorded by fixtures/agent/record.mjs")
-        .map(|e| e.unwrap().path().file_stem().unwrap().to_string_lossy().into_owned())
-        .collect();
-    names.sort();
-    assert!(!names.is_empty());
-    for name in names {
-        let scenario: JsonValue =
-            serde_json::from_str(&std::fs::read_to_string(dir.join(format!("scenarios/{name}.json"))).unwrap()).unwrap();
-        let golden: JsonValue =
-            serde_json::from_str(&std::fs::read_to_string(dir.join(format!("golden/{name}.json"))).unwrap()).unwrap();
-        let (transcript, result, requests, deltas) = replay(&scenario).await;
-        assert_eq!(transcript, golden["messages"], "{name}: transcript");
-        assert_eq!(result, golden["result"], "{name}: result");
-        assert_eq!(requests, golden["requests"], "{name}: requests");
-        if scenario["captureDeltas"] == true {
-            assert_eq!(deltas, golden["deltas"], "{name}: text deltas");
-        }
-    }
 }
 
 fn rejection(kind: ErrorKind, code: Option<&str>) -> Attempt {
@@ -3116,7 +3032,54 @@ async fn a_stored_text_reference_reaches_the_request_as_its_text_and_stays_a_ref
 }
 
 #[tokio::test]
-async fn a_rejected_image_is_stripped_from_the_latest_turn_and_replayed_once() {
+async fn an_image_the_person_chose_to_continue_without_leaves_the_request_and_stays_in_the_transcript() {
+    use mixdog_core_api::domain::image_overlay::ImageOverlay;
+    use mixdog_core_api::domain::image_overlay::PartKey;
+    use mixdog_core_api::domain::provider::ContentPart;
+    use mixdog_core_api::domain::provider::ImageSource;
+    let h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let mut prompt = AgentMessage::user_content(Content::Parts(vec![
+        ContentPart::Text("look".into(), None),
+        ContentPart::Image(ImageSource::Url("u".into())),
+    ]));
+    prompt.message_id = Some("m0".into());
+    let mut overlay = ImageOverlay::default();
+    overlay.omit(PartKey { message_id: "m0".into(), part: 1 });
+    let mut cfg = config();
+    cfg.image_overlay = Some(Arc::new(move || Ok(overlay.clone())));
+    let output = finish(h.run(cfg, vec![], vec![prompt])).await;
+    let requests = h.provider.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].messages[0].content, Content::Parts(vec![ContentPart::Text("look".into(), None)]));
+    assert!(matches!(&output.transcript[0].message.content, Content::Parts(p) if p.len() == 2 && matches!(p[1], ContentPart::Image(_))), "the transcript keeps the original");
+}
+
+#[tokio::test]
+async fn image_choices_that_cannot_be_read_refuse_the_send_before_anything_is_sent() {
+    let h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let mut cfg = config();
+    cfg.image_overlay = Some(Arc::new(|| Err("the file is damaged".to_owned())));
+    let failure = h.run(cfg, vec![], vec![AgentMessage::user("go")]).run().await.expect_err("refused");
+    let AgentError::Provider(error) = &failure.error else { panic!("a provider-shaped refusal: {:?}", failure.error) };
+    assert_eq!(error.delivery, DeliveryState::NotSent);
+    assert!(error.message.starts_with("Nothing was sent.") && error.message.contains("Start again from your last message"), "{}", error.message);
+    assert!(!error.message.contains("damaged"), "the reader's own wording stays out of the sentence: {}", error.message);
+    assert!(h.provider.requests().is_empty());
+}
+
+#[tokio::test]
+async fn a_message_recorded_without_an_id_is_sent_under_the_id_its_image_choices_use() {
+    let h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let mut cfg = config();
+    cfg.image_overlay = Some(Arc::new(|| Ok(mixdog_core_api::domain::image_overlay::ImageOverlay::default())));
+    let _ = finish(h.run(cfg, vec![], vec![AgentMessage::user("go")])).await;
+    let requests = h.provider.requests();
+    let ids: Vec<Option<String>> = requests[0].messages.iter().map(|m| m.message_id.clone()).collect();
+    assert!(ids.contains(&Some(mixdog_core_api::domain::image_overlay::stable_message_id(None, 0))), "{ids:?}");
+}
+
+#[tokio::test]
+async fn an_image_the_provider_rejects_is_never_removed_and_replayed_the_failure_surfaces_with_one_send() {
     use mixdog_core_api::domain::provider::ContentPart;
     use mixdog_core_api::domain::provider::ImageSource;
     let h = Harness::new(vec![
@@ -3127,249 +3090,13 @@ async fn a_rejected_image_is_stripped_from_the_latest_turn_and_replayed_once() {
         ContentPart::Text("look".into(), None),
         ContentPart::Image(ImageSource::Url("u".into())),
     ]));
-    let output = finish(h.run(config(), vec![], vec![prompt])).await;
-    assert_eq!(output.response.content, "ok");
+    let failure = h.run(config(), vec![], vec![prompt]).run().await.expect_err("the provider's rejection surfaces");
+    let AgentError::Provider(error) = &failure.error else { panic!("a provider failure: {:?}", failure.error) };
+    assert_eq!(error.kind, ErrorKind::ImageRejected);
+    // No second request with the image removed or replaced by text.
     let requests = h.provider.requests();
+    assert_eq!(requests.len(), 1);
     assert!(matches!(&requests[0].messages[0].content, Content::Parts(p) if p.len() == 2 && matches!(p[1], ContentPart::Image(_))));
-    assert_eq!(
-        requests[1].messages[0].content,
-        Content::Parts(vec![
-            ContentPart::Text("look".into(), None),
-            ContentPart::Text(mixdog_agent::recovery_placeholder().into(), None),
-        ])
-    );
-    // the stored transcript keeps the image
-    assert!(matches!(&output.transcript[0].message.content, Content::Parts(p) if matches!(p[1], ContentPart::Image(_))));
-}
-
-/// Node's agent loop (`sendWithRecovery` → `retryWithImageStrip`, `settleImageStrip`) over each case of
-/// `fixtures/session-gaps/image-strip.json` (`record-session-gaps.mjs`): the run loop is sent what Node's provider was
-/// sent at every attempt, ends as Node's did, leaves the transcript Node left (a healed image is gone from it, a
-/// request-local strip is not), and the text-only next turn over that transcript is sent what Node's was.
-#[tokio::test]
-async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
-    use mixdog_core_api::domain::provider::BinarySource;
-    use mixdog_core_api::domain::provider::ContentPart;
-    use mixdog_core_api::domain::provider::Message;
-    use mixdog_core_api::domain::provider::Role;
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-gaps/image-strip.json");
-    let recorded: JsonValue = serde_json::from_slice(&std::fs::read(path).expect("the recording")).expect("json");
-    let content_of = |value: &JsonValue| match value {
-        JsonValue::String(text) => Content::Text(text.clone()),
-        JsonValue::Array(parts) => Content::Parts(
-            parts
-                .iter()
-                .map(|p| match p["type"].as_str() {
-                    Some("text") => ContentPart::Text(p["text"].as_str().expect("text").into(), None),
-                    Some("image") => ContentPart::File {
-                        source: BinarySource::AttachmentRef(p["attachmentRef"].as_str().expect("ref").into()),
-                        mime_type: p["mimeType"].as_str().expect("mimeType").into(),
-                        filename: p["filename"].as_str().map(str::to_owned),
-                        text: None,
-                    },
-                    other => panic!("part {other:?}"),
-                })
-                .collect(),
-        ),
-        other => panic!("content {other}"),
-    };
-    let message_of = |row: &JsonValue| match row["role"].as_str().expect("role") {
-        "user" => AgentMessage::user_content(content_of(&row["content"])),
-        "assistant" => {
-            let calls = row["toolCalls"]
-                .as_array()
-                .map(|calls| {
-                    calls
-                        .iter()
-                        .map(|c| ToolCall {
-                            id: c["id"].as_str().expect("id").into(),
-                            name: c["name"].as_str().expect("name").into(),
-                            arguments: c["arguments"].clone(),
-                            native_type: None,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            AgentMessage::assistant(row["content"].as_str().expect("text"), calls)
-        }
-        "tool" => AgentMessage::tool_result(row["toolCallId"].as_str().expect("id"), content_of(&row["content"]), ToolKind::Normal),
-        other => panic!("role {other}"),
-    };
-    let content_row = |content: &Content| match content {
-        Content::Text(text) => json!(text),
-        Content::Parts(parts) => JsonValue::Array(
-            parts
-                .iter()
-                .map(|p| match p {
-                    ContentPart::Text(text, _) => json!({ "type": "text", "text": text }),
-                    ContentPart::File { source: BinarySource::AttachmentRef(r), mime_type, filename, .. } => {
-                        let mut row = json!({ "type": "image", "attachmentRef": r, "mimeType": mime_type });
-                        if let Some(name) = filename {
-                            row["filename"] = json!(name);
-                        }
-                        row
-                    }
-                    other => panic!("part {other:?}"),
-                })
-                .collect(),
-        ),
-    };
-    let sent_row = |m: &Message| {
-        let mut row = json!({ "role": format!("{:?}", m.role).to_lowercase(), "content": content_row(&m.content) });
-        if !m.tool_calls.is_empty() {
-            row["toolCalls"] =
-                m.tool_calls.iter().map(|c| json!({ "id": c.id, "name": c.name, "arguments": c.arguments })).collect();
-        }
-        if let Some(id) = &m.tool_call_id {
-            row["toolCallId"] = json!(id);
-        }
-        row
-    };
-    let sent = |h: &Harness| -> Vec<JsonValue> {
-        h.provider.requests().iter().map(|r| r.messages.iter().map(sent_row).collect()).collect()
-    };
-    // A recorded value whole (`lib/exact.mjs`): plain JSON, an object's keys compared as a set.
-    let whole = |v: &JsonValue| mixdog_testkit::exact::Exact::decode(v).and_then(|e| e.to_plain()).expect("a plain recorded value");
-    // The error the turn ended with as Node's loop throws it (the provider's own error): name, message, status, code,
-    // and its `streamOutcome` (`providers/lib/stream-outcome.mjs`), every field of it built from the core's error:
-    // the stream's `Exposure` (its three facts), the transport fault that ended it and the fact that an error is no
-    // terminal event, put through Node's own derivations (`_signalsOf`, `deriveStreamOutcome`: `continuation`,
-    // `visibleOutput`, `observedOutput`, `sideEffectDispatched`, `replayUnsafe`, `replaySafe`, `successEligible`).
-    // The core keeps no provider name and no transport label on an error: `provider` is null and `transport` is
-    // 'unknown' as for an error that carries neither. The counts are what the core's stream delivered before it failed
-    // (`seen`: the characters of its text deltas as JS counts them, and the tool calls it completed), a call counting
-    // as dispatched when the error's exposure says one was.
-    let seen: std::cell::RefCell<(String, u64)> = std::cell::RefCell::new((String::new(), 0));
-    let stream_outcome = |e: &ProviderError| {
-        let truncated = e.transport == Some(TransportFault::TruncatedStream);
-        let stalled = matches!(e.transport, Some(TransportFault::KeepaliveExpired { .. }));
-        let (text, dispatched, pending) = (e.exposure.text_emitted, e.exposure.tool_dispatched, e.exposure.tool_input_cut);
-        let (reasoning, ambiguous, aborted, terminal) = (false, false, false, false);
-        let (chars, calls) = (seen.borrow().0.encode_utf16().count() as u64, seen.borrow().1);
-        let started = text || dispatched || chars > 0 || calls > 0;
-        let continuation = !terminal && (truncated || stalled || started);
-        let visible = text || reasoning;
-        let observed = visible || chars > 0 || calls > 0 || dispatched;
-        let unsafe_replay = visible || dispatched || ambiguous;
-        json!({
-            "version": 1, "provider": null, "transport": "unknown",
-            "terminalObserved": terminal, "continuation": continuation, "declaredContinuation": false,
-            "textEmitted": text, "textObservedChars": chars, "reasoningEmitted": reasoning,
-            "toolCallsStarted": dispatched || calls > 0, "toolCallsComplete": calls, "toolCallsDispatched": if dispatched { calls } else { 0 },
-            "dispatchAmbiguous": ambiguous, "pendingToolInput": pending, "userAbort": aborted,
-            "stallObserved": stalled, "truncatedStream": truncated,
-            "visibleOutput": visible, "observedOutput": observed, "sideEffectDispatched": dispatched,
-            "replayUnsafe": unsafe_replay, "replaySafe": !unsafe_replay && !aborted,
-            "successEligible": terminal && !continuation && !pending,
-        })
-    };
-    let error_row = |error: &mixdog_agent::AgentError| match error {
-        mixdog_agent::AgentError::Provider(e) => {
-            let mut props = json!({ "httpStatus": e.status });
-            if let Some(code) = &e.code {
-                props["code"] = json!(code);
-            }
-            let outcome = stream_outcome(e);
-            // What the provider's stream tracker put on the error (`partialContent`, `partialToolCalls`,
-            // `toolCallsDispatched`: the stream's text and completed calls) and what `stampStreamOutcome` then marks on it.
-            let (partial, calls) = seen.borrow().clone();
-            if !partial.is_empty() {
-                props["partialContent"] = json!(partial);
-            }
-            if calls > 0 {
-                props["partialToolCalls"] = (1..=calls).map(|i| json!({ "id": format!("call_{i}"), "name": "read" })).collect();
-                props["toolCallsDispatched"] = outcome["toolCallsDispatched"].clone();
-            }
-            let marks = [("textEmitted", &["liveTextEmitted", "emittedText"][..]), ("toolCallsStarted", &["partialToolCall"]), ("sideEffectDispatched", &["emittedToolCall", "toolCallEmitted"]), ("replayUnsafe", &["unsafeToRetry"])];
-            for (fact, keys) in marks {
-                if outcome[fact] == json!(true) {
-                    for key in keys {
-                        props[*key] = json!(true);
-                    }
-                }
-            }
-            props["streamOutcome"] = outcome;
-            json!({ "name": "Error", "message": e.message, "props": props })
-        }
-        other => panic!("{other:?}"),
-    };
-    let node_error = |v: &JsonValue| {
-        let mut props = v["props"].clone();
-        if let Some(code) = v.get("code") {
-            props["code"] = code.clone();
-        }
-        json!({ "name": v["name"], "message": v["message"], "props": props })
-    };
-    let attempt_of = |step: &JsonValue| match (&step["error"], &step["reply"]) {
-        (JsonValue::Object(e), _) => {
-            let mut error = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::Accepted);
-            error.status = e.get("status").and_then(JsonValue::as_u64).map(|s| s as u16);
-            error.code = e.get("code").and_then(JsonValue::as_str).map(str::to_owned);
-            // The image a preparation refusal names (Node's non-enumerable `failingImageData`).
-            // The provider's preparation decoded and hashed it where it refused it.
-            error.failing_image = e.get("failingImageData").and_then(JsonValue::as_str).map(|data| {
-                use base64::Engine as _;
-                use sha2::Digest as _;
-                let sha256 = base64::engine::general_purpose::STANDARD
-                    .decode(data)
-                    .ok()
-                    .map(|bytes| sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect::<String>().into());
-                Box::new(mixdog_core_api::domain::provider::FailingImage { data: data.into(), sha256 })
-            });
-            error.message = e["message"].as_str().expect("message").into();
-            match step.get("partial") {
-                // The stream gives its text and completes its calls, then fails.
-                Some(partial) => {
-                    let mut steps = vec![text(partial["text"].as_str().expect("text"))];
-                    steps.extend((1..=partial["calls"].as_u64().expect("calls")).map(|i| call(&format!("call_{i}"), "read", json!({}))));
-                    // The stream's exposure: what it had shown and handed over when it failed.
-                    error.exposure.text_emitted = true;
-                    error.exposure.tool_dispatched = true;
-                    steps.push(Step::Fail(error));
-                    Attempt::Stream(steps)
-                }
-                None => Attempt::Reject(error),
-            }
-        }
-        (_, JsonValue::String(reply)) => turn(vec![text(reply), done(StopReason::EndTurn)]),
-        other => panic!("step {other:?}"),
-    };
-    let cases = recorded["cases"].as_array().expect("cases");
-    assert_eq!(cases.len(), 11);
-    for case in cases {
-        let name = case["name"].as_str().expect("name");
-        let messages: Vec<AgentMessage> = case["messages"].as_array().expect("messages").iter().map(message_of).collect();
-        let first = &case["first"];
-        let attempts: Vec<Attempt> = case["script"].as_array().expect("script").iter().map(attempt_of).collect();
-        let h = Harness::new(attempts);
-        let ended = h.run(config(), vec![], messages).run().await;
-        // What the core took from the stream before it failed: the text of the deltas it emitted to its observer and the
-        // completed calls the stream handed it. The recording's counts (the error's `partialContent`, `partialToolCalls`)
-        // are what the error row is compared with.
-        let emitted: String = h.observer.events().into_iter().filter_map(|e| if let RunEvent::TextDelta(t) = e { Some(t) } else { None }).collect();
-        *seen.borrow_mut() = (emitted, h.provider.calls_handed.load(Ordering::SeqCst));
-        let (result, error, mut transcript) = match ended {
-            Ok(output) => (Some(output.response.content), JsonValue::Null, output.transcript),
-            Err(failure) => (None, error_row(&failure.error), failure.transcript),
-        };
-        let recorded_sends: Vec<JsonValue> = first["sends"].as_array().expect("sends").iter().map(whole).collect();
-        assert_eq!(sent(&h), recorded_sends, "{name}: what the provider was sent");
-        assert_eq!(result.as_deref(), first["result"].as_str(), "{name}: how the turn ended");
-        let recorded_error = if first["error"].is_null() { JsonValue::Null } else { node_error(&first["error"]) };
-        assert_eq!(error, recorded_error, "{name}: the error the turn ended with");
-        let kept: Vec<JsonValue> = transcript.iter().map(|m| sent_row(&m.message)).collect();
-        assert_eq!(JsonValue::Array(kept), whole(&first["transcript"]), "{name}: the transcript the turn left");
-
-        transcript.push(AgentMessage::user("next turn"));
-        let next = Harness::new(vec![turn(vec![text("still usable"), done(StopReason::EndTurn)])]);
-        let output = finish(next.run(config(), vec![], transcript)).await;
-        assert_eq!(output.response.content, case["next"]["result"].as_str().expect("next result"), "{name}");
-        let next_sends: Vec<JsonValue> = case["next"]["sends"].as_array().expect("sends").iter().map(whole).collect();
-        assert_eq!(sent(&next), next_sends, "{name}: the next turn's request");
-        assert_eq!(case["next"]["error"], JsonValue::Null, "{name}: the next turn ended");
-        let next_kept: Vec<JsonValue> = output.transcript.iter().map(|m| sent_row(&m.message)).collect();
-        assert_eq!(JsonValue::Array(next_kept), whole(&case["next"]["transcript"]), "{name}: the transcript the next turn left");
-    }
 }
 
 
@@ -3389,72 +3116,15 @@ impl ToolFailureLog for CacheBreaks {
     }
 }
 
-/// `fixtures/cache-break` (record-cache-break.mjs): Node's loop over a provider that refuses the turn's image once and
-/// answers the replay traces one intentional `image_strip_nonpersistent_rebaseline` cache break; the loop's record makes
-/// the same trace line and stderr line, after the same requests.
-#[tokio::test]
-async fn an_image_strip_replay_traces_the_cache_break_node_traces() {
-    use mixdog_core_api::domain::provider::ContentPart;
-    use mixdog_core_api::domain::provider::ImageSource;
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/cache-break/golden.json");
-    let golden: JsonValue = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let node = &golden["loop"];
-    let mut h = Harness::new(Vec::new());
-    h.provider = Arc::new(Scripted {
-        id: ProviderId::from(node["provider"].as_str().unwrap()),
-        policy: RetryPolicy::codex_default(),
-        keepalive: KeepaliveSchedule::SPEC,
-        codec: MockCodec,
-        script: Mutex::new(vec![rejection(ErrorKind::ImageRejected, None), turn(vec![text("ok"), done(StopReason::EndTurn)])].into()),
-        requests: Mutex::new(Vec::new()),
-        settled: Mutex::new(Vec::new()),
-        calls_handed: Arc::default(),
-        order: None,
-        released: Mutex::new(Vec::new()),
-        stages: Default::default(),
-        raises_requesting: false,
-        hold: Mutex::new(None),
-    });
-    let breaks = Arc::new(CacheBreaks::default());
-    h.failures = Some(breaks.clone());
-    let config = RunConfig::new(ThreadId::from(node["session"].as_str().unwrap()), TurnId::from("r"), node["model"].as_str().unwrap());
-    let system = AgentMessage::new(mixdog_core_api::domain::provider::Message::new(
-        mixdog_core_api::domain::provider::Role::System,
-        Content::Text("Stable instructions.".into()),
-    ));
-    let prompt = AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("look".into(), None), ContentPart::Image(ImageSource::Url("u".into()))]));
-    finish(h.run(config, vec![], vec![system, prompt])).await;
-
-    let images = |request: &ModelRequest| {
-        request.messages.iter().map(|m| match &m.content {
-            Content::Parts(parts) => parts.iter().filter(|p| matches!(p, ContentPart::Image(_))).count(),
-            _ => 0,
-        }).sum::<usize>()
-    };
-    let requests: Vec<JsonValue> = h.provider.requests().iter().map(|r| json!({ "messages": r.messages.len(), "images": images(&**r) })).collect();
-    assert_eq!(JsonValue::Array(requests), node["requests"], "the refused send and its replay");
-    let records = breaks.0.lock().unwrap().clone();
-    let now = golden["now"].as_i64().unwrap();
-    let rows: Vec<String> = records
-        .iter()
-        .map(|record| mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))
-        .collect();
-    assert_eq!(json!(rows), node["rows"], "the trace rows");
-    let lines: Vec<String> = records.iter().map(mixdog_trace::cache_break_line).collect();
-    assert_eq!(json!(lines), node["stderr"], "the stderr lines");
-}
-
-fn cache_break_golden() -> JsonValue {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/cache-break/golden.json");
-    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
-}
-
+#[cfg(node_twin)]
 /// Each distinct digest named by its order of appearance: the core digests its own wire values, not Node's JSON, so a break
 /// is compared by which requests its digests name, not by their bytes.
 #[derive(Default)]
 struct Digests(Vec<String>);
 
+#[cfg(node_twin)]
 impl Digests {
+    #[cfg(node_twin)]
     fn label(&mut self, digest: &str) -> String {
         let at = self.0.iter().position(|d| d == digest).unwrap_or_else(|| {
             self.0.push(digest.to_owned());
@@ -3463,6 +3133,7 @@ impl Digests {
         format!("<digest {at}>")
     }
 
+    #[cfg(node_twin)]
     /// A trace row with its payload's digests labelled.
     fn row(&mut self, row: &str) -> String {
         let mut row: JsonValue = serde_json::from_str(row).unwrap();
@@ -3476,6 +3147,7 @@ impl Digests {
         serde_json::to_string(&row).unwrap()
     }
 
+    #[cfg(node_twin)]
     /// A stderr line with its `previousHash`/`nextHash` labelled.
     fn line(&mut self, line: &str) -> String {
         let mut out = String::new();
@@ -3493,168 +3165,7 @@ impl Digests {
     }
 }
 
-/// `fixtures/cache-break` `turns` (record-cache-break.mjs): one Anthropic session through six turns of the loop, each answered
-/// with the recorded usage, its record carrying between turns what the host saves of the run's carry (and the send time the
-/// usage change saves): the usage-detected `actual_cache_miss`, the `model_changed` and `tool_schema_changed` request breaks
-/// and the `manual_compaction` break a compaction between turns tags are the rows and stderr lines Node traced, turn by turn.
-#[tokio::test]
-async fn a_sessions_turns_trace_the_cache_breaks_node_traces() {
-    use mixdog_core_api::domain::provider::Message;
-    use mixdog_core_api::domain::provider::Role;
-    use mixdog_core_api::domain::provider::Usage;
-    let golden = cache_break_golden();
-    let node = &golden["turns"];
-    let now = golden["now"].as_i64().unwrap();
-    let thread = node["session"].as_str().unwrap();
-    let assistant = |text: &str| AgentMessage::new(Message::new(Role::Assistant, Content::Text(text.into())));
-    let mut header = serde_json::Map::new();
-    header.insert("providerCacheOpts".into(), json!({ "cacheStrategy": node["cacheStrategy"] }));
-    let mut messages = vec![AgentMessage::new(Message::new(Role::System, Content::Text(node["system"].as_str().unwrap().into())))];
-    let mut guard = None;
-    let (mut ours, mut theirs) = (Digests::default(), Digests::default());
-    for step in node["steps"].as_array().unwrap() {
-        let name = step["name"].as_str().unwrap();
-        if step["compact"] == true {
-            // What the manual compaction left: a rewritten transcript, and the intent the host's assembly takes from the record.
-            messages.truncate(1);
-            messages.push(AgentMessage::user("Summary of the earlier turns."));
-            messages.push(assistant("Noted."));
-        }
-        messages.push(AgentMessage::user(step["prompt"].as_str().unwrap()));
-        let usage = &step["usage"];
-        let count = |key: &str| usage[key].as_u64().unwrap();
-        let reported = Usage { input_tokens: count("inputTokens"), output_tokens: count("outputTokens"), cache_read_tokens: count("cachedTokens"), cache_write_tokens: count("cacheWriteTokens"), ..Default::default() };
-        let answer = step["answer"].as_str().unwrap();
-        let mut h = Harness::new(Vec::new());
-        h.provider = Arc::new(Scripted {
-            id: ProviderId::from(node["provider"].as_str().unwrap()),
-            policy: RetryPolicy::codex_default(),
-            keepalive: KeepaliveSchedule::SPEC,
-            codec: MockCodec,
-            script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text(answer), done(StopReason::EndTurn)])].into()),
-            requests: Mutex::new(Vec::new()),
-            settled: Mutex::new(Vec::new()),
-            calls_handed: Arc::default(),
-            order: None,
-            released: Mutex::new(Vec::new()),
-            stages: Default::default(),
-            raises_requesting: false,
-            hold: Mutex::new(None),
-        });
-        let breaks = Arc::new(CacheBreaks::default());
-        h.failures = Some(breaks.clone());
-        let mut config = RunConfig::new(ThreadId::from(thread), TurnId::from("r"), step["model"].as_str().unwrap());
-        if step["compact"] == true {
-            config.cache_break_intent = Some("manual_compaction".into());
-        }
-        let tools: Vec<Arc<dyn Tool>> = if step["tools"].as_array().unwrap().is_empty() { Vec::new() } else { vec![Echo::tool()] };
-        let names = tools.iter().map(|t| t.spec().name.clone()).collect();
-        let carry = RunCarry { prefix_guard: guard.take(), ..RunCarry::from_saved(&header) };
-        let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(tools, names), h.tool_env(), config, messages.clone(), carry);
-        let output = finish(run).await;
-        // The host saves the run's carry with the record; the usage change saves the send's time (`lastProviderSendAt`).
-        header.extend(output.carry.to_saved());
-        header.insert("lastProviderSendAt".into(), json!(h.clock.0.load(Ordering::SeqCst)));
-        guard = output.carry.prefix_guard.clone();
-        messages.push(assistant(answer));
-
-        let records = breaks.0.lock().unwrap().clone();
-        let rows: Vec<String> = records.iter().map(|record| ours.row(&mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))).collect();
-        let want: Vec<String> = step["rows"].as_array().unwrap().iter().map(|row| theirs.row(row.as_str().unwrap())).collect();
-        assert_eq!(rows, want, "{name}: the trace rows");
-        let lines: Vec<String> = records.iter().map(|record| ours.line(&mixdog_trace::cache_break_line(record))).collect();
-        let want: Vec<String> = step["stderr"].as_array().unwrap().iter().map(|line| theirs.line(line.as_str().unwrap())).collect();
-        assert_eq!(lines, want, "{name}: the stderr lines");
-        assert_eq!(header.get("lastProviderCachedPrefixTokens").cloned().unwrap_or(JsonValue::Null), step["record"]["lastProviderCachedPrefixTokens"], "{name}: the record's cache read plus write");
-    }
-}
-
-/// `fixtures/cache-break` `routes` (record-cache-break.mjs): Node's loop over sessions whose turns change what the guard
-/// compares: a history that shrank and a prefix that was rewritten (each an unexpected break Node traces and then refuses
-/// with `ProviderPrefixMutationError`, before anything is sent), a session routed to another provider (`provider_changed`)
-/// and a native tool added (`native_tool_schema_changed`). Each step is a real turn of the loop over the transcript the step
-/// names, the session's guard carried from the last send that settled, as the loop keeps it: the rows, the stderr lines, what
-/// reached the provider and the refusal are Node's. `deferred_body_compaction` and `request_properties_changed` have no
-/// product path, and the compactions are not recorded through a real compaction; the manifest's `exclusions` name each.
-#[tokio::test]
-async fn real_turns_trace_and_refuse_the_breaks_node_does() {
-    use mixdog_core_api::domain::provider::HostedTool;
-    use mixdog_core_api::domain::provider::HostedWebSearch;
-    use mixdog_core_api::domain::provider::Message;
-    use mixdog_core_api::domain::provider::Role;
-    use mixdog_core_api::domain::provider::Usage;
-    let golden = cache_break_golden();
-    let now = golden["now"].as_i64().unwrap();
-    let mut refused = 0;
-    for scenario in golden["routes"].as_array().unwrap() {
-        let (mut ours, mut theirs) = (Digests::default(), Digests::default());
-        let mut guard = None;
-        for step in scenario["steps"].as_array().unwrap() {
-            let name = format!("{}: {}", scenario["name"].as_str().unwrap(), step["name"].as_str().unwrap());
-            let messages: Vec<AgentMessage> = step["convo"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|row| {
-                    let text = row[1].as_str().unwrap();
-                    match row[0].as_str().unwrap() {
-                        "system" => AgentMessage::new(Message::new(Role::System, Content::Text(text.into()))),
-                        "assistant" => AgentMessage::new(Message::new(Role::Assistant, Content::Text(text.into()))),
-                        _ => AgentMessage::user(text),
-                    }
-                })
-                .collect();
-            let reported = Usage { input_tokens: 10, output_tokens: 2, ..Default::default() };
-            let mut h = Harness::new(Vec::new());
-            h.provider = Arc::new(Scripted {
-                id: ProviderId::from(step["provider"].as_str().unwrap()),
-                policy: RetryPolicy::codex_default(),
-                keepalive: KeepaliveSchedule::SPEC,
-                codec: MockCodec,
-                script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text("answer"), done(StopReason::EndTurn)])].into()),
-                requests: Mutex::new(Vec::new()),
-                settled: Mutex::new(Vec::new()),
-                calls_handed: Arc::default(),
-                order: None,
-                released: Mutex::new(Vec::new()),
-                stages: Default::default(),
-                raises_requesting: false,
-                hold: Mutex::new(None),
-            });
-            let breaks = Arc::new(CacheBreaks::default());
-            h.failures = Some(breaks.clone());
-            let mut config = RunConfig::new(ThreadId::from(scenario["session"].as_str().unwrap()), TurnId::from("r"), scenario["model"].as_str().unwrap());
-            config.options.hosted_tools = step["nativeTools"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|tool| HostedTool::WebSearch(HostedWebSearch { tool_type: tool["type"].as_str().unwrap().into(), allowed_domains: Vec::new(), user_location: None, max_uses: None, context_size: None, include_sources: false }))
-                .collect();
-            let carry = RunCarry { prefix_guard: guard.clone(), ..RunCarry::from_saved(&serde_json::Map::new()) };
-            let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(Vec::new(), Vec::new()), h.tool_env(), config, messages, carry);
-            match (run.run().await, step["thrown"].is_null()) {
-                (Ok(output), true) => guard = output.carry.prefix_guard.clone(),
-                (Err(failure), false) => {
-                    let AgentError::PrefixMutation(message) = &failure.error else { panic!("{name}: refused as {:?}", failure.error) };
-                    assert_eq!(message, step["thrown"]["message"].as_str().unwrap(), "{name}: the refusal");
-                    refused += 1;
-                }
-                (Ok(_), false) => panic!("{name}: Node refused ({}), the core sent", step["thrown"]),
-                (Err(failure), true) => panic!("{name}: Node sent, the core failed: {}", failure.error),
-            }
-            assert_eq!(h.provider.requests().len() as u64, step["sent"].as_u64().unwrap(), "{name}: what reached the provider");
-            let records = breaks.0.lock().unwrap().clone();
-            let rows: Vec<String> = records.iter().map(|record| ours.row(&mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))).collect();
-            let want: Vec<String> = step["rows"].as_array().unwrap().iter().map(|row| theirs.row(row.as_str().unwrap())).collect();
-            assert_eq!(rows, want, "{name}: the trace rows");
-            let lines: Vec<String> = records.iter().map(|record| ours.line(&mixdog_trace::cache_break_line(record))).collect();
-            let want: Vec<String> = step["stderr"].as_array().unwrap().iter().map(|line| theirs.line(line.as_str().unwrap())).collect();
-            assert_eq!(lines, want, "{name}: the stderr lines");
-        }
-    }
-    assert_eq!(refused, 2, "a shrunk history and a rewritten prefix");
-}
-
+#[cfg(node_twin)]
 /// What the compaction replays summarize with: one fixed text, the calls counted.
 struct FixedSummary {
     text: String,
@@ -3663,6 +3174,7 @@ struct FixedSummary {
     log: Arc<SendLog>,
 }
 
+#[cfg(node_twin)]
 #[async_trait]
 impl mixdog_agent::compact::summary_run::SummarySender for FixedSummary {
     async fn send(
@@ -3676,12 +3188,14 @@ impl mixdog_agent::compact::summary_run::SummarySender for FixedSummary {
         Ok(mixdog_agent::compact::summary_run::SummaryResponse {
             text: self.text.clone(),
             tool_call: false,
+            stop: None,
             usage: Some(mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 2, cache_write_tokens: 100, ..Default::default() }),
             input_excludes_cache: false,
         })
     }
 }
 
+#[cfg(node_twin)]
 /// The conversation's own model is the only summary route (`summaryMode: session`).
 struct OwnRoute {
     sender: Arc<FixedSummary>,
@@ -3690,6 +3204,7 @@ struct OwnRoute {
     calibration: f64,
 }
 
+#[cfg(node_twin)]
 #[async_trait]
 impl mixdog_agent::compact::summary_run::RouteResolver for OwnRoute {
     async fn resolve(
@@ -3710,8 +3225,10 @@ impl mixdog_agent::compact::summary_run::RouteResolver for OwnRoute {
     }
 }
 
+#[cfg(node_twin)]
 /// A forked summary is never available: the pipeline sends the isolated request, as Node's does for a session that has no warm cache.
 struct NoFork;
+#[cfg(node_twin)]
 #[async_trait]
 impl mixdog_agent::compact::summary_run::ForkSource for NoFork {
     fn warm(&self) -> bool {
@@ -3728,47 +3245,21 @@ impl mixdog_agent::compact::summary_run::ForkSource for NoFork {
     }
 }
 
+#[cfg(node_twin)]
 /// A transcript of plain text: a media part is a failure of the replay.
 struct PlainText;
-impl mixdog_agent::compact::estimate::MediaMeter for PlainText {
-    fn part(&self, part: &mixdog_core_api::domain::provider::ContentPart) -> mixdog_agent::compact::estimate::PartMeter {
-        panic!("media part in a text-only replay: {part:?}")
-    }
-}
+#[cfg(node_twin)]
 impl mixdog_agent::compact::pressure::ImageIdentities for PlainText {
     fn images(&self, _: &AgentMessage) -> Vec<mixdog_agent::compact::pressure::ImageDescriptor> {
         Vec::new()
     }
 }
+#[cfg(node_twin)]
 impl mixdog_agent::compact::triggers::ToolMediaMeter for PlainText {
     fn bytes(&self, _: &Content, _: bool) -> u64 {
         0
     }
     fn count(&self, _: &Content, _: bool) -> u64 {
-        0
-    }
-}
-
-/// A user's session: no agent cache tail to expire.
-impl mixdog_agent::compact::triggers::CacheWarmLedger for PlainText {
-    fn last_use_at(&self) -> u64 {
-        0
-    }
-    fn route_use_at(&self) -> Option<u64> {
-        None
-    }
-}
-impl mixdog_agent::compact::triggers::CacheTail for PlainText {
-    fn agent_owner(&self) -> bool {
-        false
-    }
-    fn five_minute_tail(&self) -> bool {
-        false
-    }
-    fn last_provider_send_at(&self) -> u64 {
-        0
-    }
-    fn now_ms(&self) -> u64 {
         0
     }
 }
@@ -3781,226 +3272,6 @@ fn wire_role(message: &AgentMessage) -> &'static str {
         Role::Assistant => "assistant",
         other => panic!("a role the recording has none of: {other:?}"),
     }
-}
-
-/// `fixtures/cache-break` `compactions` (record-cache-break.mjs): a session whose transcript is compacted for real, then the
-/// send that follows it. The core's own compactor (`FreshCompactor`, over a summary route that answers one fixed text, the only
-/// replaced part) rewrites the transcript, and the loop's trace rows, stderr lines, sends and final transcript are Node's:
-/// - `manual`: three settled turns, a forced compaction (the budget the forced plan asks for) that parks the intent
-///   `manual_compaction`, then the next turn's first send tagged by it;
-/// - `automatic`: the turn whose transcript crosses the window is compacted by the loop's own pre-send pass, which tags the
-///   send itself (`automatic_compaction`); the summary requests it made are Node's count.
-/// `post_turn_compaction` has no product path (the manifest's exclusion names Node's lines).
-#[tokio::test]
-async fn real_compactions_trace_the_cache_breaks_node_traces() {
-    use mixdog_agent::compact::compactor::{FreshCompactor, FreshParts, SessionCompactor, TriggerSeams};
-    use mixdog_agent::compact::estimate::MessageMeter;
-    use mixdog_agent::compact::pressure::{Route, StatusInput, TranscriptSigner, forced_target_budget};
-    use mixdog_agent::compact::summary_run::SummaryMode;
-    use mixdog_agent::compact::tool_schema::RequestTools;
-    use mixdog_core_api::domain::provider::{Message, Role, Usage};
-
-    let golden = cache_break_golden();
-    let now = golden["now"].as_i64().unwrap();
-    let mut compared = 0;
-    for scenario in golden["compactions"].as_array().unwrap() {
-        let name = scenario["name"].as_str().unwrap();
-        let session = scenario["header"].as_object().unwrap();
-        let (provider, model) = (session["provider"].as_str().unwrap(), session["model"].as_str().unwrap());
-        let window = session["contextWindow"].as_u64().unwrap();
-        let calibration = scenario["tokenCalibration"].as_f64().unwrap();
-        let auto = session["compaction"]["auto"] == true;
-        let settings = CompactSettings { auto: true, context_window: Some(window), token_calibration: calibration, ..CompactSettings::default() };
-        let log = Arc::new(SendLog::default());
-        let summary = Arc::new(FixedSummary { text: scenario["summaryText"].as_str().unwrap().into(), calls: Default::default(), log: log.clone() });
-        let plain = Arc::new(PlainText);
-        let compactor = FreshCompactor::for_session(SessionCompactor {
-            settings: settings.clone(),
-            parts: Arc::new(FreshParts {
-                media: plain.clone(),
-                replay_owner: crate::compact_support::replay_owner(),
-                rows: Arc::new(crate::compact_support::Rows),
-                archive: Arc::new(crate::compact_support::PreviewArchive { session: session["id"].as_str().unwrap().into() }),
-                attachments: Arc::new(crate::compact_support::NoAttachments),
-                redactor: Arc::new(crate::compact_support::NoRedaction),
-                blobs: Arc::new(crate::compact_support::NoBlobs),
-            }),
-            triggers: TriggerSeams { tool_media: plain.clone(), native_pdf: false, cache: plain.clone() },
-            fork: Arc::new(NoFork),
-            resolver: Arc::new(OwnRoute { sender: summary.clone(), model: model.into(), window, calibration }),
-            summary_mode: SummaryMode::Session,
-            conversation_threshold_tokens: session["compaction"]["conversationThresholdTokens"].as_u64(),
-        })
-        .expect("a compactor");
-
-        let mut header = serde_json::Map::new();
-        header.insert("providerCacheOpts".into(), session["providerCacheOpts"].clone());
-        let mut messages = vec![AgentMessage::new(Message::new(Role::System, Content::Text(scenario["system"].as_str().unwrap().into())))];
-        let mut guard = None;
-        let (mut ours, mut theirs) = (Digests::default(), Digests::default());
-        for step in scenario["steps"].as_array().unwrap() {
-            let step_name = format!("{name}: {}", step["name"].as_str().unwrap());
-            let mut config = RunConfig::new(ThreadId::from(session["id"].as_str().unwrap()), TurnId::from("r"), model);
-            if let Some(compaction) = scenario["compaction"].as_object().filter(|_| step["name"] == "after") {
-                // The forced pass: the budget its plan asks for over the session as the recorder had it, then the compaction itself.
-                let owner = crate::compact_support::replay_owner();
-                let meter = MessageMeter { media: &*plain, replay_owner: &owner };
-                let rows = crate::compact_support::Rows;
-                let signer = TranscriptSigner { meter: &meter, images: &*plain, rows: &rows };
-                let status = StatusInput {
-                    session,
-                    route: Route { provider, model, context_window: JsonValue::Null },
-                    cwd: JsonValue::Null,
-                    mode: JsonValue::Null,
-                    messages: &messages,
-                    active: true,
-                    request_tools: RequestTools { native: &[], defined: &[] },
-                    session_tools: RequestTools { native: &[], defined: &[] },
-                    tool_breakdown: &JsonValue::Null,
-                    agent_mode: false,
-                    meter: &meter,
-                    signer: &signer,
-                };
-                let budget = forced_target_budget(&status).expect("a window") as u64;
-                let request = CompactRequest { messages: &messages[1..], budget_tokens: budget, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: false, latest_user_prefix: "" };
-                let compacted = compactor.compact(request).await.expect("the compaction");
-                assert!(!compacted.skipped, "{step_name}: the pass changed the transcript");
-                messages.truncate(1);
-                messages.extend(compacted.messages);
-                assert_eq!(summary.calls.load(Ordering::SeqCst) as u64, compaction["summaryRequests"].as_u64().unwrap(), "{step_name}: the summary requests of the forced pass");
-                summary.calls.store(0, Ordering::SeqCst);
-                // The intent the core's own manual compaction parks is checked where that path runs (`mixdog-core`
-                // `manual_compaction`); the loop is handed it here, as the session header hands it on.
-                config.cache_break_intent = compaction["pending"].as_str().map(str::to_owned);
-            }
-            messages.push(AgentMessage::user(step["prompt"].as_str().unwrap()));
-            let answer = step["answer"].as_str().unwrap();
-            let reported = Usage { input_tokens: 10, output_tokens: 2, cache_write_tokens: 100, ..Default::default() };
-            let mut h = Harness::new(Vec::new());
-            h.provider = Arc::new(Scripted {
-                id: ProviderId::from(provider),
-                policy: RetryPolicy::codex_default(),
-                keepalive: KeepaliveSchedule::SPEC,
-                codec: MockCodec,
-                script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text(answer), done(StopReason::EndTurn)])].into()),
-                requests: Mutex::new(Vec::new()),
-                settled: Mutex::new(Vec::new()),
-                calls_handed: Arc::default(),
-                order: Some(log.clone()),
-                released: Mutex::new(Vec::new()),
-                stages: Default::default(),
-                raises_requesting: false,
-                hold: Mutex::new(None),
-            });
-            let breaks = Arc::new(CacheBreaks::default());
-            h.failures = Some(breaks.clone());
-            if auto {
-                h.real_compactor = Some(compactor.clone());
-                config.compact = Some(settings.clone());
-            }
-            let carry = RunCarry { prefix_guard: guard.take(), ..RunCarry::from_saved(&header) };
-            let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(Vec::new(), Vec::new()), h.tool_env(), config, messages.clone(), carry);
-            let output = finish(run).await;
-            header.extend(output.carry.to_saved());
-            header.insert("lastProviderSendAt".into(), json!(h.clock.0.load(Ordering::SeqCst)));
-            guard = output.carry.prefix_guard.clone();
-            messages = output.transcript;
-            if messages.last().is_none_or(|m| m.role() != Role::Assistant) {
-                messages.push(AgentMessage::assistant(answer, Vec::new()));
-            }
-
-            summary.calls.store(0, Ordering::SeqCst);
-            let records = breaks.0.lock().unwrap().clone();
-            let rows: Vec<String> = records.iter().map(|record| ours.row(&mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))).collect();
-            let want: Vec<String> = step["rows"].as_array().unwrap().iter().map(|row| theirs.row(row.as_str().unwrap())).collect();
-            assert_eq!(rows, want, "{step_name}: the trace rows");
-            let lines: Vec<String> = records.iter().map(|record| ours.line(&mixdog_trace::cache_break_line(record))).collect();
-            let want: Vec<String> = step["stderr"].as_array().unwrap().iter().map(|line| theirs.line(line.as_str().unwrap())).collect();
-            assert_eq!(lines, want, "{step_name}: the stderr lines");
-        }
-        let transcript: Vec<(String, String)> = messages.iter().map(|m| (wire_role(m).to_owned(), m.text())).collect();
-        let want: Vec<(String, String)> = scenario["transcript"].as_array().unwrap().iter().map(|m| (m["role"].as_str().unwrap().to_owned(), m["content"].as_str().unwrap().to_owned())).collect();
-        assert_eq!(transcript, want, "{name}: the transcript the compaction and the turns left");
-        // Every send of the scenario, summary requests and turns, whole and in the order the provider received them.
-        let want: Vec<Sent> = scenario["sends"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|send| (send["summary"].as_bool().unwrap(), send["messages"].as_array().unwrap().iter().map(|m| (m["role"].as_str().unwrap().to_owned(), m["content"].as_str().unwrap().to_owned())).collect()))
-            .collect();
-        assert_eq!(*log.0.lock().unwrap(), want, "{name}: the sends, in the order they arrived");
-        compared += 1;
-    }
-    assert_eq!(compared, 2, "a manual and an automatic compaction");
-}
-
-/// `fixtures/cache-break` `guard`: the comparison over Node's own request fingerprints tells each break Node told, with the
-/// same details. The comparison alone: the loop's use of it is `real_turns_trace_and_refuse_the_breaks_node_does`.
-#[test]
-fn the_prefix_guard_tells_every_break_node_tells() {
-    use mixdog_agent::prefix_guard::GuardOptions;
-    use mixdog_agent::prefix_guard::Snapshot;
-    let golden = cache_break_golden();
-    let snapshot = |value: &JsonValue| Snapshot {
-        message_hashes: value["messageHashes"].as_array().unwrap().iter().map(|h| h.as_str().unwrap().to_owned()).collect(),
-        request_prefix_hash: value["requestPrefixHash"].as_str().unwrap().into(),
-        provider: value["provider"].as_str().unwrap().into(),
-        model: value["model"].as_str().unwrap().into(),
-        tool_schema_hash: value["toolSchemaHash"].as_str().unwrap().into(),
-        native_tool_schema_hash: value["nativeToolSchemaHash"].as_str().unwrap().into(),
-    };
-    for case in golden["guard"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
-        let options = &case["options"];
-        let told = mixdog_agent::prefix_guard::compare(
-            Some(&snapshot(&case["previous"])),
-            &snapshot(&case["next"]),
-            &GuardOptions { provider: options["provider"].as_str().unwrap(), model: options["model"].as_str().unwrap(), intent: options["cacheBreakIntent"].as_str(), mutation_source: options["mutationSource"].as_str() },
-        );
-        let want: Vec<JsonValue> = case["breaks"].as_array().unwrap().clone();
-        assert_eq!(told.map(JsonValue::Object).into_iter().collect::<Vec<_>>(), want, "{name}");
-        assert_eq!(case["thrown"].is_null(), want.first().is_none_or(|b| b["classification"] != "unexpected"), "{name}: Node refuses exactly the unexpected breaks");
-    }
-}
-
-/// `fixtures/cache-break` `guard` (the deferred-tool cases): an Anthropic request's fingerprint leaves a deferred tool out of
-/// its prefix, any other provider's keeps it; whether the prefix moved is what Node's comparison found.
-#[test]
-fn a_deferred_tool_moves_the_request_prefix_where_node_says() {
-    use mixdog_core_api::domain::provider::ToolDefinition;
-    let golden = cache_break_golden();
-    let tool = |name: &str, deferred: bool| ToolDefinition { name: name.into(), description: format!("{name}."), input_schema: json!({ "type": "object" }), defer_loading: deferred, freeform: None };
-    for name in ["a deferred tool on anthropic", "a deferred tool elsewhere"] {
-        let case = golden["guard"].as_array().unwrap().iter().find(|c| c["name"] == name).unwrap();
-        let provider = case["options"]["provider"].as_str().unwrap();
-        let before = mixdog_agent::prefix_guard::snapshot::<JsonValue>(&[], &[tool("a", false)], &[], provider, "m1");
-        let after = mixdog_agent::prefix_guard::snapshot::<JsonValue>(&[], &[tool("a", false), tool("d", true)], &[], provider, "m1");
-        assert_eq!(before.request_prefix_hash == after.request_prefix_hash, case["previous"]["requestPrefixHash"] == case["next"]["requestPrefixHash"], "{name}");
-    }
-}
-
-/// `fixtures/cache-break` `prefix`, `seeded`: the Anthropic request fingerprints the cache-miss row names its moved blocks from:
-/// the persisted fingerprint of every body, the changes from the body before, and a restarted process's seed.
-#[test]
-fn the_anthropic_prefix_fingerprints_are_nodes() {
-    use mixdog_ai::providers::anthropic::prefix_trace;
-    let golden = cache_break_golden();
-    // The recording's session ids, kept apart from any other test's by a suffix.
-    let ours = |session: &str| format!("{session}:run_loop");
-    for case in golden["prefix"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
-        let session = ours(case["session"].as_str().unwrap());
-        prefix_trace::record(Some(&session), prefix_trace::fingerprint(case["body"].as_object().unwrap()));
-        assert_eq!(prefix_trace::latest_persistable(&session).unwrap_or(JsonValue::Null), case["persisted"], "{name}: the persisted fingerprint");
-        assert_eq!(prefix_trace::changes(&session).map_or(JsonValue::Null, JsonValue::Object), case["changes"], "{name}: the changes");
-    }
-    let seeded = &golden["seeded"];
-    let session = ours("sess_prefix_seeded");
-    prefix_trace::seed(&session, Some(&seeded["from"]));
-    prefix_trace::seed(&session, Some(&golden["prefix"][3]["persisted"]));
-    assert_eq!(prefix_trace::changes(&session).map_or(JsonValue::Null, JsonValue::Object), seeded["changesBefore"], "a seed alone");
-    prefix_trace::record(Some(&session), prefix_trace::fingerprint(seeded["body"].as_object().unwrap()));
-    assert_eq!(prefix_trace::changes(&session).map_or(JsonValue::Null, JsonValue::Object), seeded["changes"], "the request after a seed");
 }
 
 #[tokio::test]
@@ -4271,6 +3542,7 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     assert_eq!(output.transcript[2].effort.as_ref().map(|s| s.effort.as_str()), Some("high"));
 }
 
+#[cfg(node_twin)]
 /// Sends through the provider, keeping what the run had published as the turn's effort when each request went out,
 /// and the effort the request itself carries (`RequestOptions.effort`, Anthropic's `output_config.effort`).
 struct SampledEffort {
@@ -4278,6 +3550,7 @@ struct SampledEffort {
     observer: Arc<Observer>,
     at_sends: Mutex<Vec<serde_json::Value>>,
 }
+#[cfg(node_twin)]
 #[async_trait]
 impl mixdog_agent::effort::EffortAdapter for SampledEffort {
     async fn attempt_with(
@@ -4291,78 +3564,15 @@ impl mixdog_agent::effort::EffortAdapter for SampledEffort {
     }
 }
 
+#[cfg(node_twin)]
 /// The judge model's answer as the turn-effort recording scripted it (`judgeTurn` answering `JUDGE.step`): the core's
 /// judge resolves it through its own ladder.
 struct RecordedProbs(Vec<f64>);
+#[cfg(node_twin)]
 #[async_trait]
 impl mixdog_services::effort_judge::judge::StepProbs for RecordedProbs {
     async fn probs(&self, _: mixdog_agent::step_effort::StepInput) -> Result<Vec<f64>, mixdog_services::effort_judge::error::JudgeError> {
         Ok(self.0.clone())
-    }
-}
-
-/// `fixtures/turn-effort/*.json` (`record-turn-effort.mjs`): Node's exec turn over its real runtime, a tool call and a
-/// final reply on an Anthropic route that takes effort updates, with `runtime.turnEffort` read while each request was in
-/// flight and after the turn settled. The route's effort fixed (`high`), absent, and Auto at `medium` with a step judged
-/// after the tool call. The same turn here runs the loop with the route's effort wiring and the step judgment the
-/// recording's judge gave; what the run published last before each request, and last of all, is what Node's getter
-/// answered then. (The judge's distribution to effort is the step-ladder recording's; the judge here answers the effort.)
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_turn_effort_published_is_the_one_node_answered_at_each_request_and_after_settling() {
-    use mixdog_agent::effort::{EffortMode, EffortRoute, EffortSnapshot, EffortWiring};
-    for name in ["fixed", "none", "auto-step"] {
-        let recorded: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{}/../../fixtures/turn-effort/{name}.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
-        assert_eq!(recorded["code"], 0, "{name}");
-        let effort = recorded["route"]["effort"].as_str().map(str::to_owned);
-        let model = recorded["route"]["model"].as_str().unwrap().to_owned();
-        let auto = recorded["autoEffort"] == "on";
-        let mut h = Harness::new(vec![
-            turn(vec![text("reading"), call("c1", "echo", json!({"path": "a.txt"})), done(StopReason::ToolUse)]),
-            turn(vec![text("all done"), done(StopReason::EndTurn)]),
-        ]);
-        // Node awaited the step's judgment before the next request: here the grace's time never passes, so the judgment
-        // is what the request waits for.
-        h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(Arc::new(HeldTimer::default()))));
-        let adapter = Arc::new(SampledEffort { provider: h.provider.clone(), observer: h.observer.clone(), at_sends: Mutex::new(Vec::new()) });
-        let mut cfg = config();
-        // The route's effort as the host puts it on the turn's requests (`assemble.rs`, the header's `effort`).
-        cfg.options.effort = effort.clone();
-        // The turn's snapshot `prepareTurnEffortConfiguration` stamps: none without an effort on the route.
-        cfg.effort = Some(EffortWiring {
-            route: EffortRoute {
-                provider: "anthropic".into(),
-                model: model.clone(),
-                mode: Some(EffortMode::Anthropic),
-                allowed: ["low", "medium", "high"].map(String::from).to_vec(),
-                seed: effort.clone().map(|e| EffortSnapshot { provider: "anthropic".into(), model: model.clone(), mode: EffortMode::Anthropic, initial_effort: e.clone(), effort: e }),
-                wire: Arc::new(|e| Some(e.to_owned())),
-            },
-            adapter: adapter.clone(),
-        });
-        let sends = recorded["sends"].as_array().unwrap();
-        let mut run = if auto {
-            // The judge model's answers are the recording's script: the turn's distribution sets the base on the route's
-            // ladder (`resolveAutoEffort` at turn start), the step's goes to the core's judge over the same ladder.
-            let options = mixdog_ai::effort::effort_options_for("anthropic", &json!({ "id": model, "reasoningLevels": ["low", "medium", "high"], "customReasoning": true }), None);
-            let probs = |kind: &str| recorded["judge"][kind].as_array().unwrap().iter().map(|p| p.as_f64().unwrap()).collect::<Vec<f64>>();
-            let base = mixdog_services::effort_judge::ladder::resolve_auto_effort(effort.as_deref().unwrap(), &options, &probs("turn")).expect("the route's effort is on its ladder").effort.to_owned();
-            cfg.step_auto_effort = Some(mixdog_agent::step_effort::StepAutoEffort { request: recorded["prompt"].as_str().unwrap().into(), base: base.clone() });
-            let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user(recorded["prompt"].as_str().unwrap())]);
-            let ladder = Arc::new(mixdog_services::effort_judge::AutoLadder { base, options });
-            run.set_step_judge(Arc::new(mixdog_services::effort_judge::EffortJudge::over(Arc::new(RecordedProbs(probs("step"))), ladder)));
-            run
-        } else {
-            h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user(recorded["prompt"].as_str().unwrap())])
-        };
-        run.run().await.expect("run");
-        assert_eq!(h.provider.requests().len(), sends.len(), "{name}");
-        // The published value in force at each request and the effort the request carried, then at the end.
-        let current = h.observer.events().into_iter().filter_map(|e| match e { RunEvent::TurnEffort(effort) => Some(effort), _ => None }).last().flatten();
-        let node: Vec<_> = sends.iter().map(|send| json!({ "turnEffort": send["turnEffort"], "requestEffort": send["requestEffort"] })).collect();
-        assert_eq!(*adapter.at_sends.lock().unwrap(), node, "{name}: at each request");
-        // What a client saw is compared through the session actor (`mixdog-core` `run_host::factory` tests,
-        // `the_actor_publishes_the_turn_effort_sequence_node_published`).
-        assert_eq!(json!(current), recorded["settled"]["turnEffort"], "{name}: after the turn settled");
     }
 }
 
@@ -4445,19 +3655,22 @@ impl Tool for BigTool {
 
 #[tokio::test]
 async fn an_oversized_result_is_stored_and_replaced_by_a_pointer_in_the_transcript() {
-    let h = Harness::new(vec![
+    let mut h = Harness::new(vec![
         turn(vec![call("c1", "grep", json!({})), done(StopReason::ToolUse)]),
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
     ]);
     let mut spec = Echo::tool().spec().clone();
     spec.name = "grep".into();
     let artifacts = Arc::new(Artifacts(Mutex::new(Vec::new())));
+    let reuse = Arc::new(Stored::default());
+    h.reuse = Some(reuse.clone());
     let mut run = h.run(config(), vec![Arc::new(BigTool(spec))], vec![AgentMessage::user("go")]);
     run.set_artifact_store(artifacts.clone());
     let output = finish(run).await;
     let result = output.transcript[2].text();
     assert!(result.starts_with("[tool output offloaded: grep → /art/r.txt (29 KB, 1 lines)]"), "{}", &result[..80]);
     assert_eq!(artifacts.0.lock().unwrap()[0].len(), 30_000);
+    assert!(reuse.0.lock().unwrap().is_empty(), "the transcript preview is not a full result");
 }
 /// `preflightAttachments` runs before every send whether or not automatic compaction is on, and
 /// its rewrite is the transcript a retried turn starts from (issue #150).
@@ -4480,18 +3693,6 @@ async fn the_attachment_preflight_rewrites_the_transcript_with_compaction_off() 
     assert_eq!(replaced.len(), 1, "the rewrite is persisted once");
     assert_eq!(replaced[0].0[0].message.content, Content::Text("referenced".into()));
     assert_eq!(replaced[0].1, Rewrite::default());
-}
-
-/// Far below the pressure trigger, an expired cache tail compacts with its own trigger kind.
-#[tokio::test]
-async fn an_expired_cache_tail_arms_a_cache_expired_compaction() {
-    let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
-    h.compactor = Some(Arc::new(Compactor100 { cache_expired: true, ..Default::default() }));
-    let mut cfg = config();
-    cfg.compact = Some(CompactSettings { auto: true, context_window: Some(100_000), token_calibration: 1.0, ..CompactSettings::default() });
-    let messages = vec![AgentMessage::user("a"), AgentMessage::user("b"), AgentMessage::user("c")];
-    finish(h.run(cfg, vec![], messages)).await;
-    assert_eq!(*h.compactor.as_ref().unwrap().requests.lock().unwrap(), [(3, CompactTrigger::CacheExpired)]);
 }
 
 /// Media pressure compacts without requiring the transcript to shrink.
@@ -4519,7 +3720,7 @@ async fn a_one_shot_call_retries_through_the_decider_keeps_its_cap_and_sends_row
         turn(vec![text("SUMMARY"), done(StopReason::EndTurn)]),
     ]);
     let one = OneShot::new(&h.run_env(), h.tool_env(), h.provider.clone(), h.cancel.clone());
-    let call = OneShotCall { model: "m".into(), max_output_tokens: 4096, fast: true, shape: CallShape::compaction() };
+    let call = OneShotCall { model: "m".into(), max_output_tokens: Some(4096), fast: true, shape: CallShape::compaction() };
     // a prompt that the loop would wrap as a synthetic row goes out as written
     let prompt = "[mixdog-runtime] not a real runtime row";
     let out = one.call_prompt(&call, "sys", prompt).await.expect("one shot");
@@ -4547,7 +3748,7 @@ async fn a_cancelled_one_shot_call_is_an_aborted_summary_failure() {
     use mixdog_agent::one_shot::OneShot;
     let h = Harness::new(vec![turn(vec![text("par"), Step::Hang])]);
     let one = OneShot::new(&h.run_env(), h.tool_env(), h.provider.clone(), h.cancel.clone());
-    let call = SummaryCall { model: "m".into(), max_output_tokens: 4096, fast: false, shape: CallShape::compaction() };
+    let call = SummaryCall { model: "m".into(), max_output_tokens: Some(4096), fast: false, shape: CallShape::compaction() };
     let task = tokio::spawn(async move { one.send("sys", "prompt", &call).await });
     while h.provider.requests().is_empty() {
         tokio::task::yield_now().await;
@@ -4564,7 +3765,7 @@ fn overloaded() -> Attempt {
 }
 
 fn shaped(model: &str, shape: mixdog_agent::one_shot::CallShape) -> mixdog_agent::one_shot::OneShotCall {
-    mixdog_agent::one_shot::OneShotCall { model: model.into(), max_output_tokens: 400, fast: false, shape }
+    mixdog_agent::one_shot::OneShotCall { model: model.into(), max_output_tokens: Some(400), fast: false, shape }
 }
 
 /// The compaction summary keeps Node's values: kind `compaction`, effort `low`, the provider's own
@@ -4647,33 +3848,22 @@ fn refused() -> Attempt {
     Attempt::Reject(ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted))
 }
 
+/// A hop leaves the left model's continuation state and its spent one-shot recoveries behind (`route-fallback.mjs`).
 #[tokio::test]
-async fn a_switch_strips_provider_replay_and_continues_on_the_next_model() {
-    let mut earlier = AgentMessage::assistant("earlier answer", Vec::new());
-    earlier.message.thinking_blocks = Some(json!([{ "type": "thinking", "thinking": "private", "signature": "sig" }]));
+async fn a_switch_drops_the_left_providers_state_and_renews_its_one_shot_recoveries() {
+    let mut state = mixdog_core_api::domain::provider::ProviderState::default();
+    state.rest.insert("slot".into(), json!({ "id": "resp_1" }));
     let next = Scripted::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
-    let segments = vec![UsageSegment { provider: "a".into(), model: "m1".into(), usage: Default::default() }];
     let route = PlayRoute::new(
-        RouteDecision::Switch(RouteSwitch { provider: next.clone(), model: "m2".into(), notice: "m1 refused — switched to m2.".into(), effort: None, text_only: None }),
-        segments.clone(),
+        RouteDecision::Switch(RouteSwitch { provider: next.clone(), model: "m2".into(), notice: "m1 refused — switched to m2.".into(), request: Default::default(), effort: None, text_only: None }),
+        Vec::new(),
     );
-    let mut h = Harness::new(vec![refused()]);
-    h.route = Some(route.clone());
-    let output = finish(h.run(config(), vec![], vec![AgentMessage::user("first"), earlier, AgentMessage::user("go")])).await;
-    // The next provider got the conversation without the first one's reasoning envelopes.
+    let mut h = Harness::new(vec![turn(vec![Step::Event(StreamEvent::ProviderState(state)), Step::Fail(ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted))])]);
+    h.route = Some(route);
+    finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
     let sent = next.requests();
     assert_eq!(sent.len(), 1);
-    assert_eq!(h.provider.requests().len(), 1);
-    assert!(output.transcript.iter().all(|m| m.message.thinking_blocks.is_none()), "replay stripped from the live messages");
-    assert!(sent[0].messages.iter().all(|m| m.thinking_blocks.is_none()), "and from the request");
-    assert_eq!(output.transcript.iter().find(|m| m.text() == "earlier answer").map(|m| m.text()), Some("earlier answer".to_owned()));
-    // The loop told the hop the error and the running usage (none yet), and read the segments at the end.
-    assert_eq!(*route.asked.lock().unwrap(), [(ErrorKind::Auth, None)]);
-    assert_eq!(output.usage_segments, segments);
-    assert_eq!(route.current.lock().unwrap().as_ref().map(|c| c.1.as_str()), Some("m2"));
-    let events = h.observer.events();
-    assert!(events.iter().any(|e| matches!(e, RunEvent::Stage(Stage::ModelFallback { model }) if model == "m2")));
-    assert!(events.iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { message, tone: Tone::Info }) if message == "m1 refused — switched to m2.")));
+    assert!(sent[0].options.provider_state.is_none(), "the left provider's continuation state is not carried to the next");
 }
 
 #[tokio::test]
@@ -4925,8 +4115,7 @@ fn system_message(text: &str) -> AgentMessage {
     AgentMessage::new(Message::new(Role::System, Content::Text(text.to_owned())))
 }
 
-/// Migrates at the first boundary only. A migration after a send settled would rewrite the prefix the loop's guard holds
-/// (`request-boundary.mjs:68-76` leaves the loop's `prefixGuardState` as it is), which the guard refuses outside a compaction.
+/// Migrates at the first boundary, before the loop has a settled request of its own.
 struct MigrateMcp(AtomicU64);
 
 #[async_trait::async_trait]
@@ -4958,9 +4147,38 @@ async fn the_exposure_migration_runs_at_every_request_boundary() {
     assert!(first_system(&sent[1]).unwrap().contains("migrated rules"));
 }
 
-/// Node refreshes the session's MCP catalog once per request (`request-boundary.mjs:77`), at the start of
-/// every tool call (`call-prep.mjs:70`) and, for an MCP call, again once its gate has passed (`tool-exec.mjs:114`):
-/// two requests, one plain and one MCP call make 1 + (1) + (1 + 1) + 1.
+/// Migrates at the second boundary only: after the first send settled, so the loop holds a guard of the old system prompt.
+struct MigrateAfterSendMcp(AtomicU64);
+
+#[async_trait::async_trait]
+impl mixdog_agent::env::McpCatalog for MigrateAfterSendMcp {
+    async fn refresh(&self) {}
+
+    async fn migrate(&self, _: &[AgentMessage]) -> Result<Option<Vec<AgentMessage>>, String> {
+        let boundary = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok((boundary == 1).then(|| vec![system_message("migrated rules")]))
+    }
+}
+
+/// A migration that rewrites the system prompt after a send settled clears the loop's kept prefix guard with the provider state
+/// (`markToolSurfaceMigrated`), so the next send is accepted: its system message is compared with nothing, not with the old one
+/// (the migration's intent is no compaction intent, so the guard would call it a rewritten prefix).
+#[tokio::test]
+async fn a_migration_after_a_send_that_rewrites_the_system_prompt_is_not_a_prefix_mutation() {
+    let mut h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("done"), done(StopReason::EndTurn)]),
+    ]);
+    h.mcp = Some(Arc::new(MigrateAfterSendMcp(AtomicU64::new(0))));
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![system_message("old rules"), AgentMessage::user("go")])).await;
+    let sent = h.provider.requests();
+    let system = |request: &mixdog_core_api::domain::provider::ModelRequest| request.messages.iter().find(|m| m.role == mixdog_core_api::domain::provider::Role::System).map(|m| format!("{:?}", m.content)).unwrap_or_default();
+    assert!(system(&sent[0]).contains("old rules") && system(&sent[1]).contains("migrated rules"), "the second request carries the migrated prompt");
+    assert!(output.carry.prefix_guard.is_some(), "the accepted send is the guard's new baseline");
+}
+
+/// The session's MCP catalog is refreshed once per request, at the start of every tool call and, for an MCP call, again once
+/// its gate has passed: two requests, one plain and one MCP call make 1 + (1) + (1 + 1) + 1.
 #[tokio::test]
 async fn the_mcp_catalog_is_refreshed_where_node_refreshes_it() {
     let mut h = Harness::new(vec![
@@ -4980,6 +4198,7 @@ async fn the_mcp_catalog_is_refreshed_where_node_refreshes_it() {
 // (`fixtures/agent/leaked-toolcall/record.mjs`: the real agent loop over the route's real decoder)
 // ---------------------------------------------------------------------------
 
+#[cfg(node_twin)]
 /// The core's real `read` tool, observed: which call ids it ran for and when each finished. The `failing` scenario's
 /// forced failure (the recorder's `beforeToolExecution` throwing `boom`) replaces the run.
 struct Reader {
@@ -4988,6 +4207,7 @@ struct Reader {
     finished: tokio::sync::Semaphore,
     fail: bool,
 }
+#[cfg(node_twin)]
 #[async_trait]
 impl Tool for Reader {
     fn spec(&self) -> &ToolSpec {
@@ -5005,6 +4225,7 @@ impl Tool for Reader {
     }
 }
 
+#[cfg(node_twin)]
 /// The recorder's sandbox: a directory holding `a.txt` (`record.mjs` `loopCwd`), and where the recorder names its root
 /// in what it writes, `<ROOT>`.
 async fn leak_sandbox() -> (mixdog_core_api::domain::common::AbsPath, Arc<MockFileService>) {
@@ -5021,13 +4242,16 @@ async fn leak_sandbox() -> (mixdog_core_api::domain::common::AbsPath, Arc<MockFi
     (root, files)
 }
 
+#[cfg(node_twin)]
 /// `rooted` of the recorder: the sandbox root, in its native and forward-slash spellings, is written `<ROOT>`.
 fn rooted(text: &str, root: &mixdog_core_api::domain::common::AbsPath) -> String {
     let native = root.as_path().to_string_lossy().into_owned();
     text.replace(&native, "<ROOT>").replace(&native.replace('\\', "/"), "<ROOT>")
 }
 
+#[cfg(node_twin)]
 struct LeakCtx;
+#[cfg(node_twin)]
 impl mixdog_ai::providers::openai::config::WireContext for LeakCtx {
     fn request_id(&self) -> String {
         "0".repeat(32)
@@ -5040,109 +4264,7 @@ impl mixdog_ai::providers::openai::config::WireContext for LeakCtx {
     }
 }
 
-/// The events Rust's decoder of `route` yields for the wire Node's decoder was fed, one unit per wire event.
-fn leaked_events(route: &str, scenario: &JsonValue) -> (Vec<StreamEvent>, Option<ProviderError>) {
-    use mixdog_ai::providers::openai::decoder::{Framing, ResponsesDecoder};
-    let known: std::collections::HashSet<String> =
-        scenario["known"].as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_owned()).collect();
-    let wire = scenario["wire"].as_array().unwrap();
-    let responses = |framing, compat: bool| {
-        let decoder = ResponsesDecoder::new(framing, Arc::new(LeakCtx), ProviderId::from("openai")).with_known_tools(known.clone());
-        let mut decoder = if compat { decoder.compat_events() } else { decoder };
-        let units: Vec<Vec<u8>> = wire
-            .iter()
-            .map(|e| match framing {
-                Framing::WebSocket => e.to_string().into_bytes(),
-                Framing::Sse => format!("data: {e}\n\n").into_bytes(),
-            })
-            .collect();
-        drain(&mut decoder, units)
-    };
-    match route {
-        "responses-ws" => responses(Framing::WebSocket, false),
-        "responses-sse" => responses(Framing::Sse, false),
-        "responses-compat" => responses(Framing::Sse, true),
-        "chat" => {
-            use mixdog_ai::providers::compat::chat::ChatDecoder;
-            use mixdog_ai::providers::compat::profile::{CompatProfile, CredentialKind};
-            let profile = CompatProfile::plain("groq", "https://api.groq.com/v1", CredentialKind::StaticKey { reauth_on_401: false });
-            // The recorder's `providerName`.
-            let mut decoder = ChatDecoder::new(profile, ProviderId::from("custom")).with_known_tools(known);
-            drain(&mut decoder, wire.iter().map(|e| format!("data: {e}\n\n").into_bytes()).collect())
-        }
-        "gemini" => {
-            use mixdog_ai::providers::google::decode::{DecodeDialect, GeminiDecoder, UsageStyle};
-            use mixdog_ai::providers::google::error::ErrorDialect;
-            let mut decoder = GeminiDecoder::new(DecodeDialect {
-                owner: ProviderId::from("gemini"),
-                envelope: false,
-                usage: UsageStyle::Inclusive,
-                errors: ErrorDialect::gemini("Gemini REST streamGenerateContent"),
-            })
-            .with_known_tools(known);
-            drain(&mut decoder, wire.iter().map(|e| format!("data: {e}\r\n\r\n").into_bytes()).collect())
-        }
-        "cursor" => {
-            use mixdog_ai::providers::cursor::decoder::CursorDecoder;
-            use mixdog_ai::providers::cursor::request::BlobStore;
-            let mut decoder = CursorDecoder::new(BlobStore::default(), Vec::new(), None).with_known_tools(known);
-            let units = wire
-                .iter()
-                .map(|e| {
-                    let bytes: Vec<u8> = e
-                        .as_str()
-                        .unwrap()
-                        .as_bytes()
-                        .chunks(2)
-                        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
-                        .collect();
-                    mixdog_ai::providers::connect::frame::encode(&bytes, 0)
-                })
-                .collect();
-            drain(&mut decoder, units)
-        }
-        "anthropic" => {
-            // The decoder type is crate-private; the codec hands it out through the public `WireCodec::decoder`, with the
-            // tools the request body offers.
-            use mixdog_ai::providers::anthropic::{AnthropicCodec, AnthropicConfig, Flavor, ModelCaps};
-            use mixdog_core_api::domain::provider::{Message, RequestOptions, Role, ToolDefinition};
-            let caps = |model: &str| {
-                (model == "claude-sonnet-4-6").then(|| ModelCaps {
-                    adaptive_thinking: true,
-                    manual_thinking: false,
-                    ladder_stated: false,
-                    effort_levels: vec!["low".into(), "medium".into(), "high".into()],
-                    max_output_tokens: Some(16384),
-                    fast_mode: false,
-                    context_window: None,
-                    thinking_display_updates: false,
-                })
-            };
-            let codec = AnthropicCodec::new(Flavor::ApiKey, AnthropicConfig::new(Arc::new(caps)));
-            let tools = known
-                .iter()
-                .map(|name| ToolDefinition {
-                    name: name.clone(),
-                    description: "read a file".into(),
-                    input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}}),
-                    defer_loading: false,
-                    freeform: None,
-                })
-                .collect();
-            let request = ModelRequest {
-                model: "claude-sonnet-4-6".into(),
-                messages: vec![Message::new(Role::User, Content::Text("go".into()))],
-                tools,
-                options: RequestOptions::default(),
-            };
-            let mut decoder = codec.decoder(&request);
-            let units = wire.iter().map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap()).into_bytes()).collect();
-            drain(&mut *decoder, units)
-        }
-        other => panic!("route {other}"),
-    }
-}
-
+#[cfg(node_twin)]
 /// The events the decoder yields, and the failure that ended the stream (a decoder that owes events to its failure hands
 /// them out first, as `DecodedStream` reads it).
 fn drain(decoder: &mut dyn mixdog_core_api::domain::provider::WireDecoder, units: Vec<Vec<u8>>) -> (Vec<StreamEvent>, Option<ProviderError>) {
@@ -5163,6 +4285,7 @@ fn drain(decoder: &mut dyn mixdog_core_api::domain::provider::WireDecoder, units
     }
 }
 
+#[cfg(node_twin)]
 /// A minted id is recorded as `<prefix>_leaked_*`.
 fn id_shape(id: &str) -> String {
     match id.find("_leaked_") {
@@ -5171,204 +4294,15 @@ fn id_shape(id: &str) -> String {
     }
 }
 
+#[cfg(node_twin)]
 /// A gate that denies every call with a fixed text.
 struct DenyAll(String);
+#[cfg(node_twin)]
 #[async_trait]
 impl ToolGate for DenyAll {
     async fn check_call(&self, _call_id: &str, _call: &GateCall) -> GateDecision {
         GateDecision::Deny(self.0.clone())
     }
-}
-
-#[tokio::test]
-async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
-    let golden: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json")).unwrap();
-    let mut compared = 0;
-    for scenario in golden["scenarios"].as_array().unwrap() {
-        let route = scenario["route"].as_str().unwrap();
-        let Some(stored) = scenario.get("stored") else { continue };
-        let label = format!("{route} / {}", scenario["name"]);
-        let (events, failure) = leaked_events(route, scenario);
-        let real_read = mixdog_tools::fs::ReadTool::new(None, None).with_state(Arc::new(mixdog_tools::fs::ReadState::new(None)));
-        let reader = Arc::new(Reader {
-            real: Arc::new(real_read),
-            ran: Mutex::new(Vec::new()),
-            finished: tokio::sync::Semaphore::new(0),
-            fail: scenario["failing"] == true,
-        });
-        let mut steps: Vec<Step> = events.into_iter().map(Step::Event).collect();
-        // A turn Node's send rejected (`normalizeCompatChatResponse`) reaches the loop as the error the decoder fails with.
-        if let Some(error) = &failure {
-            steps.push(Step::Fail(error.clone()));
-        }
-        let mut h = Harness::new(vec![turn(steps), turn(vec![text("final"), done(StopReason::EndTurn)])]);
-        let (root, files) = leak_sandbox().await;
-        h.sandbox = Some((root.clone(), files));
-        // A denying gate answers with the text Node's PreToolUse deny produced; the tool never runs.
-        let denying = scenario["denying"] == true;
-        // A tool the executor does not have is answered with text too, and never runs.
-        let unknown = scenario["name"].as_str().unwrap().contains("the executor does not have");
-        if denying {
-            let recorded = stored["early"][0]["content"].as_str().unwrap().to_owned();
-            h.gate = Arc::new(DenyAll(recorded));
-        }
-        let tool: Arc<dyn Tool> = reader.clone();
-        if let Some(want_error) = stored.get("turnError") {
-            let failed = h.run(config(), vec![tool], vec![AgentMessage::user("go")]).run().await.expect_err(&label);
-            let AgentError::Provider(error) = &failed.error else { panic!("{label}: not a provider error: {:?}", failed.error) };
-            assert_eq!(error.message, want_error.as_str().unwrap(), "{label}: the error the turn ends with");
-            assert_eq!(h.provider.requests().len() as u64, stored["sends"].as_u64().unwrap(), "{label}: the send is not retried");
-            assert!(reader.ran.lock().unwrap().is_empty(), "{label}: no call ran");
-            let stored_assistants = failed.transcript.iter().filter(|m| m.role() == mixdog_core_api::domain::provider::Role::Assistant).count();
-            assert_eq!(stored_assistants, stored["messages"].as_array().unwrap().len(), "{label}: nothing stored for the cut turn");
-            compared += 1;
-            continue;
-        }
-        let output = finish(h.run(config(), vec![tool], vec![AgentMessage::user("go")])).await;
-        // A call no listed call consumed is left to finish, as in Node: wait for every run Node saw.
-        let expected = if denying || unknown { 0 } else { stored["early"].as_array().unwrap().len() };
-        let _ = reader.finished.acquire_many(expected as u32).await.unwrap();
-
-        let assistants: Vec<&AgentMessage> = output.transcript.iter().filter(|m| m.role() == mixdog_core_api::domain::provider::Role::Assistant).collect();
-        let want = stored["messages"].as_array().unwrap();
-        assert_eq!(assistants.len(), want.len(), "{label}: assistant messages");
-        for (message, want) in assistants.iter().zip(want) {
-            assert_eq!(message.text(), want["content"].as_str().unwrap(), "{label}: content");
-            let got: Vec<JsonValue> = message
-                .tool_calls()
-                .iter()
-                .map(|c| json!({"id": id_shape(&c.id), "name": c.name, "arguments": c.arguments}))
-                .collect();
-            assert_eq!(JsonValue::Array(got), want.get("toolCalls").cloned().unwrap_or_else(|| json!([])), "{label}: stored calls");
-            // Node keeps `thinkingBlocks` on the message; Rust holds them there on a turn without a block replay and
-            // inside the replay otherwise.
-            if let Some(want_blocks) = want.get("thinkingBlocks") {
-                let from_replay: Vec<JsonValue> = message
-                    .message
-                    .provider_replay()
-                    .iter()
-                    .filter_map(|replay| replay.items.as_array())
-                    .flatten()
-                    .filter(|b| matches!(b["type"].as_str(), Some("thinking" | "redacted_thinking")))
-                    .cloned()
-                    .collect();
-                let got_blocks = match &message.message.thinking_blocks {
-                    Some(blocks) => blocks.clone(),
-                    None => JsonValue::Array(from_replay),
-                };
-                assert_eq!(&got_blocks, want_blocks, "{label}: thinking blocks");
-            }
-        }
-        let results: Vec<&AgentMessage> = output.transcript.iter().filter(|m| m.role() == mixdog_core_api::domain::provider::Role::Tool).collect();
-        let want_results = stored["toolResults"].as_array().unwrap();
-        assert_eq!(results.len(), want_results.len(), "{label}: tool results");
-        // Where several calls read `a.txt`, which one the real tool answers with the file's lines and which with its dedup stub
-        // (`[file unchanged`) follows the order the runs reached the file: Node ran the streamed call before the batch's, this
-        // loop starts a native call as its event arrives. Those bodies are not compared (manifest); every other body is.
-        let several_runs = stored["executed"].as_array().unwrap().len() > 1;
-        let body_comparable = |body: &str| !several_runs || !(body.starts_with("[file unchanged") || body.starts_with("[lines 1-1]"));
-        for (message, want) in results.iter().zip(want_results) {
-            assert_eq!(id_shape(message.tool_call_id().unwrap()), want["toolCallId"].as_str().unwrap(), "{label}: result id");
-            if body_comparable(want["content"].as_str().unwrap()) {
-                assert_eq!(rooted(&message.text(), &root), want["content"].as_str().unwrap(), "{label}: result body");
-            }
-        }
-        // The UI's early notices (`__earlyNotify`): one per call that ran a tool, whichever path started it, whether or not
-        // any listed call consumed it; sent the instant the call settles, so wait for every one Node sent.
-        let want_early = stored["early"].as_array().unwrap();
-        let early = || -> Vec<(String, String, bool)> {
-            h.observer
-                .events()
-                .into_iter()
-                .filter_map(|event| match event {
-                    RunEvent::EarlyResult(message) => {
-                        Some((id_shape(message.tool_call_id().unwrap_or_default()), rooted(&message.text(), &root), message.tool_kind == Some(ToolKind::Error)))
-                    }
-                    _ => None,
-                })
-                .collect()
-        };
-        while early().len() < want_early.len() {
-            let arrived = tokio::time::timeout(Duration::from_secs(30), h.observer.early_arrived.notified()).await;
-            assert!(arrived.is_ok(), "{label}: waited 30 s for early notice {} of {}", early().len() + 1, want_early.len());
-        }
-        let mut got_early = early();
-        got_early.sort();
-        let mut want_early_sorted: Vec<(String, bool)> =
-            want_early.iter().map(|e| (e["toolCallId"].as_str().unwrap().to_owned(), e["isError"].as_bool().unwrap())).collect();
-        want_early_sorted.sort();
-        assert_eq!(got_early.iter().map(|(id, _, err)| (id.clone(), *err)).collect::<Vec<_>>(), want_early_sorted, "{label}: early notices");
-        if scenario["failing"] == true {
-            // A failed run still tells the UI, with the executor's own text (one `Error: ` prefix, as recorded).
-            for (_, content, is_error) in &got_early {
-                assert!(*is_error, "{label}: early notice is an error");
-                assert_eq!(content, want_early[0]["content"].as_str().unwrap(), "{label}: early notice text");
-            }
-            for (message, want) in results.iter().zip(want_results) {
-                assert_eq!(message.text(), want["content"].as_str().unwrap(), "{label}: stored error text");
-            }
-        }
-        if denying || unknown {
-            // Node returns a gate denial (or the unknown-tool text) as text: its early notice is a normal result carrying the denial.
-            for (_, content, is_error) in &got_early {
-                assert!(!*is_error, "{label}: a returned text is not an error notice");
-                assert_eq!(content, want_early[0]["content"].as_str().unwrap(), "{label}: denial text");
-            }
-            for (message, want) in results.iter().zip(want_results) {
-                assert_eq!(message.text(), want["content"].as_str().unwrap(), "{label}: stored denial text");
-            }
-        }
-        // Minted ids share one shape, so the bodies are compared per id as sorted lists.
-        let mut early_ids: Vec<&str> = want_early.iter().map(|e| e["toolCallId"].as_str().unwrap()).collect();
-        early_ids.dedup();
-        for id in early_ids {
-            let mut want_bodies: Vec<&str> = want_early.iter().filter(|e| e["toolCallId"] == id).map(|e| e["content"].as_str().unwrap()).collect();
-            let mut got_bodies: Vec<&str> = got_early.iter().filter(|(got_id, _, _)| got_id == id).map(|(_, body, _)| body.as_str()).collect();
-            want_bodies.sort();
-            got_bodies.sort();
-            if want_bodies.iter().all(|body| body_comparable(body)) {
-                assert_eq!(got_bodies, want_bodies, "{label}: early notice bodies of {id}");
-            }
-        }
-        let mut ran: Vec<String> = reader.ran.lock().unwrap().iter().map(|id| id_shape(id)).collect();
-        ran.sort();
-        ran.dedup();
-        let want_ran: Vec<String> = stored["executed"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect();
-        if !(denying || unknown) {
-            assert_eq!(ran, want_ran, "{label}: the ids a tool ran for");
-        }
-        compared += 1;
-    }
-    assert!(compared > 100, "scenarios compared: {compared}");
-}
-/// The request snapshot builds its request with `assemble_request`, the function the loop's own send builds through
-/// (`Run::build_request`): for a model with a tail reminder the two are the same request, reminder included.
-#[tokio::test]
-async fn the_request_a_run_sends_is_what_the_shared_assembly_gives_for_a_model_with_a_reminder() {
-    let tail_context = || mixdog_agent::tail_rules::TailContext {
-        provider: "anthropic-oauth".into(),
-        language: Some(mixdog_agent::tail_rules::TailLanguage { id: "ko".into(), name: "Korean".into() }),
-        role: mixdog_agent::tail_rules::TailRole::Lead,
-    };
-    let h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]).with_tail(tail_context());
-    let mut cfg = config();
-    cfg.model = "claude-opus-5-5".into();
-    let messages = vec![AgentMessage::user("hi")];
-    let run = h.run(cfg.clone(), vec![Echo::tool()], messages.clone());
-    finish(run).await;
-    let sent = h.provider.requests()[0].clone();
-    let tail = mixdog_agent::tail_rules::RuleTailReminder { context: tail_context() };
-    let (assembled, reminder) = mixdog_agent::assemble_request(
-        &cfg.model,
-        sent.options.clone(),
-        mixdog_agent::project::project_for_wire(&messages),
-        Some(&tail),
-        ToolSet::with_builtins(vec![Echo::tool()], vec!["echo".into()]).definitions(),
-    );
-    assert_eq!(reminder.as_deref(), Some("<system-reminder>Write all user-facing text in Korean.</system-reminder>"));
-    assert_eq!(format!("{:?}", sent.messages), format!("{:?}", assembled.messages), "the sent messages, tail reminder last");
-    assert_eq!(format!("{:?}", sent.tools), format!("{:?}", assembled.tools));
-    assert_eq!(sent.model, assembled.model);
 }
 
 /// A gate whose surface refuses `blocked` before any call is dispatched.
@@ -5566,7 +4500,7 @@ async fn an_offloaded_returned_error_keeps_its_failure_row() {
 
 /// Every step of a call's post-processing as one sequence: its failure row and its cache write.
 #[derive(Default)]
-struct Steps(Mutex<Vec<String>>);
+struct Steps(Arc<Mutex<Vec<String>>>);
 impl mixdog_agent::env::ToolFailureLog for Steps {
     fn failed(&self, call: mixdog_agent::env::FailedCall) {
         self.0.lock().unwrap().push(format!("failed {}", call.tool_name));
@@ -5577,13 +4511,20 @@ impl mixdog_agent::env::ToolFailureLog for Steps {
 }
 #[async_trait]
 impl ResultReuse for Steps {
-    async fn lookup(&self, _call: &ToolCall, _touch: bool) -> Option<Reused> {
+    async fn lookup(&self, _call: &ToolCall, _cwd: &Path, _touch: bool) -> Option<Reused> {
         None
     }
-    async fn store(&self, call: &ToolCall, _content: &str, _tool_use_id: &str, _output: &ToolOutput) {
-        self.0.lock().unwrap().push(format!("stored {}", call.id));
+    async fn prepare(&self, call: &ToolCall, _cwd: &Path) -> Option<Box<dyn ReuseWrite>> {
+        Some(Box::new(StepWrite(self.0.clone(), call.id.clone())))
     }
-    async fn after_call(&self, _call: &ToolCall, _failed: bool) {}
+}
+
+struct StepWrite(Arc<Mutex<Vec<String>>>, String);
+#[async_trait]
+impl ReuseWrite for StepWrite {
+    async fn store(self: Box<Self>, _content: &str, _output: &ToolOutput) {
+        self.0.lock().unwrap().push(format!("stored {}", self.1));
+    }
 }
 
 /// `postProcessCompleted` (`finalize.mjs:170-177`) runs per call in call order: a call's failure row and its cache write
@@ -5734,22 +4675,28 @@ impl Tool for WhereTool {
     }
 }
 
-/// The reuse lookup of the second call's admission lets the first call's switch land, and does not answer before it has.
+/// The membership check of the second call's admission lets the first call's switch land.
 struct LandsTheSwitch {
     go: Arc<tokio::sync::Notify>,
     landed: tokio::sync::watch::Receiver<bool>,
+    captured: Arc<Mutex<Vec<std::path::PathBuf>>>,
 }
 #[async_trait]
 impl ResultReuse for LandsTheSwitch {
-    async fn lookup(&self, _call: &ToolCall, touch: bool) -> Option<Reused> {
-        if !touch {
-            self.go.notify_one();
-            let _ = self.landed.clone().wait_for(|landed| *landed).await;
+    async fn has_candidate(&self, _call: &ToolCall, _cwd: &Path) -> bool {
+        self.go.notify_one();
+        let _ = self.landed.clone().wait_for(|landed| *landed).await;
+        false
+    }
+    async fn lookup(&self, _call: &ToolCall, _cwd: &Path, _touch: bool) -> Option<Reused> {
+        None
+    }
+    async fn prepare(&self, call: &ToolCall, cwd: &Path) -> Option<Box<dyn ReuseWrite>> {
+        if call.name == "probe" {
+            self.captured.lock().unwrap().push(cwd.to_path_buf());
         }
         None
     }
-    async fn store(&self, _call: &ToolCall, _content: &str, _tool_use_id: &str, _output: &ToolOutput) {}
-    async fn after_call(&self, _call: &ToolCall, _failed: bool) {}
 }
 
 /// Node starts the calls of a batch in order (`startEagerRun`) and prepares each from the folder the session holds as it starts,
@@ -5767,11 +4714,13 @@ async fn a_call_after_a_switch_in_one_batch_runs_in_the_folder_the_batch_began_i
     let mut probe_spec = Echo::tool().spec().clone();
     probe_spec.name = "probe".into();
     let ran = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::new(Mutex::new(Vec::new()));
     let mut h = Harness::new(vec![
         turn(vec![call("c1", "switch", json!({})), call("c2", "probe", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![call("c3", "probe", json!({})), done(StopReason::ToolUse)]),
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
     ]);
-    h.reuse = Some(Arc::new(LandsTheSwitch { go: go.clone(), landed: landed_rx }));
+    h.reuse = Some(Arc::new(LandsTheSwitch { go: go.clone(), landed: landed_rx, captured: captured.clone() }));
     let mut cfg = config();
     cfg.live_cwd = Some(Arc::new({
         let live = live.clone();
@@ -5779,7 +4728,10 @@ async fn a_call_after_a_switch_in_one_batch_runs_in_the_folder_the_batch_began_i
     }));
     let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(SwitchTool { spec: switch_spec, live: live.clone(), go, landed: landed_tx }), Arc::new(WhereTool(probe_spec, ran.clone()))];
     finish(h.run(cfg, tools, vec![AgentMessage::user("go")])).await;
-    assert_eq!(*ran.lock().unwrap(), [a.as_path().to_path_buf()]);
+    let projects = [a.as_path().to_path_buf(), live.lock().unwrap().as_path().to_path_buf()];
+    assert_ne!(projects[0], projects[1]);
+    assert_eq!(*ran.lock().unwrap(), projects);
+    assert_eq!(*captured.lock().unwrap(), projects);
 }
 
 // ---------------------------------------------------------------------------
@@ -5921,7 +4873,7 @@ impl ProviderAdapter for Reissuing {
     async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.reissued.lock().unwrap().push(request);
         match self.reissues.lock().unwrap().pop_front() {
-            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), None, Arc::default()))),
+            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), None, Arc::default(), None))),
             Some(Attempt::Reject(error)) => Err(error),
             None => panic!("re-issue script exhausted"),
         }
@@ -5997,6 +4949,28 @@ async fn a_send_whose_ladder_ended_is_reissued_once_and_its_answer_is_the_turn()
     assert_eq!((provider.inner.requests().len(), provider.reissued.lock().unwrap().len()), (1, 1));
 }
 
+/// A first-byte timeout past the policy's retries is the provider's terminal verdict (`providerRecoveryTerminal`): the
+/// send ends there with the two requests it made, and the non-streaming re-issue that an ordinary exhaustion still gets
+/// once is never made (`canFallbackNonStreaming`).
+#[tokio::test]
+async fn a_terminal_first_byte_verdict_ends_the_send_without_the_non_streaming_reissue() {
+    let first_byte = |terminal: bool| {
+        let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Ambiguous);
+        error.timed_out = true;
+        error.timeout_phase = Some(mixdog_core_api::domain::provider::StreamTimeoutPhase::Headers);
+        error.message = "first byte timed out".into();
+        error.recovery_exhausted = terminal;
+        error.recovery_terminal = terminal;
+        error.should_retry = terminal.then_some(false);
+        Attempt::Reject(error)
+    };
+    let provider = Reissuing::new(vec![first_byte(false), first_byte(true)], vec![whole("recovered")], false, true);
+    let h = Harness::with_adapter(provider.clone());
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the terminal timeout surfaces");
+    assert!(matches!(&failure.error, AgentError::Provider(e) if e.recovery_terminal), "{}", failure.error);
+    assert_eq!((provider.inner.requests().len(), provider.reissued.lock().unwrap().len()), (2, 0), "two sends, no re-issue");
+}
+
 /// `if (!recovered) throw streamErr`: a re-issue that fails too is dropped and the ladder's own failure surfaces.
 #[tokio::test]
 async fn a_failed_reissue_surfaces_the_ladders_failure() {
@@ -6005,4 +4979,1675 @@ async fn a_failed_reissue_surfaces_the_ladders_failure() {
     let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("both failed");
     assert!(matches!(&failure.error, AgentError::Provider(e) if e.message == "ladder"), "{}", failure.error);
     assert_eq!((provider.inner.requests().len(), provider.reissued.lock().unwrap().len()), (1, 1), "the re-issue runs once");
+}
+
+#[tokio::test]
+async fn a_terminal_unary_refusal_replaces_the_cut_stream_error_without_losing_usage() {
+    use mixdog_ai::admission::{Admission, LaneKey};
+    use mixdog_ai::broker::{AttemptSink, ModelBroker, SendError, SendRequest};
+    use mixdog_core_api::domain::provider::Usage;
+
+    #[derive(Default)]
+    struct Bills(Vec<(Usage, Option<String>)>);
+    impl AttemptSink for Bills {
+        fn event(&mut self, event: StreamEvent) {
+            assert!(matches!(event, StreamEvent::Usage(_)), "unexpected output: {event:?}");
+        }
+        fn discard(&mut self) {}
+        fn abandoned(&mut self, usage: &Usage, model: Option<&str>) {
+            self.0.push((usage.clone(), model.map(str::to_owned)));
+        }
+    }
+
+    for (kind, status, unary_input) in [(ErrorKind::Policy, None, Some(13)), (ErrorKind::Permission, Some(403), None)] {
+        let stream_usage = Usage { input_tokens: 11, ..Usage::default() };
+        let mut cut = truncated();
+        cut.should_retry = Some(false);
+        cut.partial_usage = Some(Box::new(stream_usage.clone()));
+        cut.partial_model = Some("served-model".into());
+        let mut unary = ProviderError::new(kind, DeliveryState::Accepted);
+        unary.status = status;
+        unary.recovery_terminal = true;
+        unary.partial_usage = unary_input.map(|input_tokens| Box::new(Usage { input_tokens, ..Usage::default() }));
+        let provider = || Reissuing::new(
+            vec![turn(vec![Step::Event(StreamEvent::Usage(stream_usage.clone())), Step::Fail(cut.clone())])],
+            vec![Attempt::Reject(unary.clone())],
+            false, true,
+        );
+        let check = |error: &ProviderError| {
+            assert_eq!((error.kind, error.status, error.transport.as_ref()), (kind, status, None));
+            assert_eq!(error.partial_usage.as_deref().map(|usage| usage.input_tokens), unary_input);
+        };
+
+        let agent = provider();
+        let h = Harness::with_adapter(agent.clone());
+        let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("unary refused");
+        let AgentError::Provider(error) = &failure.error else { panic!("{}", failure.error) };
+        check(error);
+        assert_eq!((agent.inner.requests().len(), agent.reissued.lock().unwrap().len()), (1, 1));
+
+        let remote = provider();
+        let admission = Arc::new(Admission::new());
+        let lane = admission.lane(&LaneKey::new("scripted".into(), "default"), Default::default());
+        let broker = ModelBroker::new(admission, Arc::new(mixdog_ai::retry::StandardRetryDecider));
+        let mut request = (*agent.inner.requests()[0]).clone();
+        request.options.send_group = None;
+        let request = SendRequest { request: Arc::new(request), lane, admission: Default::default() };
+        let mut bills = Bills::default();
+        let failure = broker.send(remote.as_ref(), request, &mut bills, &CancellationToken::new()).await.expect_err("unary refused");
+        let SendError::Provider(error) = &failure else { panic!("{failure:?}") };
+        check(error);
+        assert_eq!(bills.0, [(stream_usage, Some("served-model".into()))]);
+        assert_eq!((remote.inner.requests().len(), remote.reissued.lock().unwrap().len()), (1, 1));
+    }
+}
+
+#[tokio::test]
+async fn a_summary_cut_by_a_broken_stream_is_not_an_answer_and_a_later_attempt_is() {
+    use mixdog_agent::compact::summary_run::SummaryCall;
+    use mixdog_agent::compact::summary_run::SummaryFailure;
+    use mixdog_agent::compact::summary_run::SummarySender;
+    use mixdog_agent::one_shot::CallShape;
+    use mixdog_agent::one_shot::OneShot;
+    let call = SummaryCall { model: "m".into(), max_output_tokens: None, fast: false, shape: CallShape::compaction() };
+    // text, then the stream dies on every attempt: a one-shot call withdraws the cut text and replays it on the provider's
+    // ladder (every attempt cut again here), so the script covers the whole ladder and the compaction still has no summary
+    let h = Harness::new((0..40).map(|_| turn(vec![text("## Goal\n- par"), Step::Fail(truncated())])).collect());
+    let one = OneShot::new(&h.run_env(), h.tool_env(), h.provider.clone(), h.cancel.clone());
+    let lost = one.send("sys", "prompt", &call).await;
+    assert!(matches!(lost, Err(SummaryFailure::Failed(_))), "a cut summary is never stored: {:?}", lost.map(|r| r.text));
+    // the same cut followed by a successful attempt: the whole answer is the summary
+    let h = Harness::new(vec![turn(vec![text("## Goal\n- par"), Step::Fail(truncated())]), turn(vec![text("whole summary"), done(StopReason::EndTurn)])]);
+    let one = OneShot::new(&h.run_env(), h.tool_env(), h.provider.clone(), h.cancel.clone());
+    let kept = one.send("sys", "prompt", &call).await.expect("the later attempt");
+    assert_eq!(kept.text, "whole summary");
+}
+
+impl Harness {
+    fn new(script: Vec<Attempt>) -> Self {
+        Self {
+            provider: Scripted::new(script),
+            steer: Arc::new(Steer::default()),
+            observer: Observer::new(Retracted::Withdrawn),
+            sink: Arc::new(Sink::default()),
+            waiter: Arc::new(RecordedWait::default()),
+            approvals: Arc::new(MockApprovalGate::default()),
+            gate: Arc::new(AllowAll),
+            compactor: None,
+            real_compactor: None,
+            tail: None,
+            side: None,
+            reuse: None,
+            route: None,
+            mcp: None,
+            failures: None,
+            artifacts: None,
+            hooks: None,
+            cancel: CancellationToken::new(),
+            clock: Arc::new(FixedClock(AtomicI64::new(1_000))),
+            sandbox: None,
+            real: None,
+        }
+    }
+
+    fn with_adapter(provider: Arc<dyn ProviderAdapter>) -> Self {
+        Self { real: Some((provider, Arc::new(mixdog_ai::retry::StandardRetryDecider))), ..Self::new(Vec::new()) }
+    }
+
+    fn with_policy(script: Vec<Attempt>, policy: RetryPolicy) -> Self {
+        Self { provider: Scripted::with_policy(script, policy), ..Self::new(Vec::new()) }
+    }
+
+    fn with_tail(mut self, context: mixdog_agent::tail_rules::TailContext) -> Self {
+        self.tail = Some(Arc::new(mixdog_agent::tail_rules::RuleTailReminder { context }));
+        self
+    }
+
+    fn run(&self, config: RunConfig, tools: Vec<Arc<dyn Tool>>, messages: Vec<AgentMessage>) -> Run {
+        let names = tools.iter().map(|t| t.spec().name.clone()).collect();
+        self.run_with_builtins(config, tools, names, messages)
+    }
+
+    fn run_env(&self) -> RunEnv {
+        RunEnv {
+            clock: self.clock.clone(),
+            jitter: Arc::new(HalfJitter),
+            waiter: self.waiter.clone(),
+            decider: self.real.as_ref().map_or_else(|| Arc::new(MockRetryDecider) as Arc<dyn mixdog_core_api::domain::retry::RetryDecider>, |(_, decider)| decider.clone()),
+            steer: self.steer.clone(),
+            observer: self.observer.clone(),
+            sink: self.sink.clone(),
+            gate: Arc::clone(&self.gate),
+            guards: Arc::new(NoGuards),
+            compactor: self.compactor.clone().map(|c| c as Arc<dyn Compactor>).or_else(|| self.real_compactor.clone()),
+            route: self.route.clone(),
+            skills: None,
+            hooks: self.hooks.clone(),
+            reuse: self.reuse.clone(),
+            reactions: None,
+            tail: self.tail.clone(),
+            mcp: self.mcp.clone(),
+            side: self.side.clone(),
+            step_judge: None,
+            artifacts: self.artifacts.clone(),
+            images: None,
+            failures: self.failures.clone(),
+        }
+    }
+
+    fn tool_env(&self) -> ToolEnv {
+        let tokens = mixdog_rt::testing::tokens();
+        ToolEnv {
+            thread_id: ThreadId::from("t"),
+            turn_id: TurnId::from("r"),
+            cwd: self.sandbox.as_ref().map_or_else(|| mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).unwrap(), |(cwd, _)| cwd.clone()),
+            surface: SurfaceKind::Lead,
+            io: ToolIo {
+                interactive: tokens.interactive_io,
+                durability: tokens.durability_io,
+                maintenance: tokens.maintenance_io,
+            },
+            approvals: self.approvals.clone(),
+            files: self.sandbox.as_ref().map_or_else(|| Arc::new(MockFileService::default()), |(_, files)| files.clone()),
+            processes: Arc::new(MockProcessManager::default()),
+            progress: Arc::new(MockProgress::default()),
+            deadline_of: None,
+            notify: None,
+            review: None,
+        }
+    }
+
+    fn run_with_builtins(
+        &self,
+        config: RunConfig,
+        tools: Vec<Arc<dyn Tool>>,
+        builtins: Vec<String>,
+        messages: Vec<AgentMessage>,
+    ) -> Run {
+        let env = self.run_env();
+        let tool_env = self.tool_env();
+        Run::new(
+            env,
+            self.cancel.clone(),
+            self.real.as_ref().map_or_else(|| self.provider.clone() as Arc<dyn ProviderAdapter>, |(provider, _)| provider.clone()),
+            ToolSet::with_builtins(tools, builtins),
+            tool_env,
+            config,
+            messages,
+            RunCarry::default(),
+        )
+    }
+}
+#[tokio::test(start_paused = true)]
+async fn websocket_close_1000_uses_owner_retraction_without_refilling_the_send_budget() {
+    use mixdog_ai::providers::openai::scripted::{self, Dialed, ScriptedDial, Wire};
+    use mixdog_ai::providers::openai::switch::TransportMode;
+
+    for (reasoning, reset_channel, ack, failures, succeeds, waits) in [
+        (false, true, Retracted::Withdrawn, 1, true, 1),
+        (false, true, Retracted::Refused, 1, false, 0),
+        (false, false, Retracted::Refused, 1, true, 0),
+        (true, false, Retracted::Refused, 1, true, 1),
+        (false, true, Retracted::Withdrawn, 4, false, 3),
+        (true, false, Retracted::Refused, 4, false, 3),
+    ] {
+        let delta = if reasoning {
+            r#"{"type":"response.reasoning_summary_text.delta","delta":"thinking"}"#
+        } else {
+            r#"{"type":"response.output_text.delta","output_index":0,"item_id":"msg","delta":"visible"}"#
+        };
+        let mut script: Vec<_> = (0..failures).map(|_| Dialed::Socket {
+            frames: vec![
+                r#"{"type":"response.created","response":{"id":"cut"}}"#.into(),
+                delta.into(),
+            ],
+            close: (1000, String::new()),
+        }).collect();
+        script.push(Dialed::Socket {
+            frames: vec![r#"{"type":"response.completed","response":{"id":"continued","status":"completed","output":[{"type":"message","id":"msg","role":"assistant","content":[{"type":"output_text","text":"continued"}]}],"usage":{"input_tokens":1,"output_tokens":1}}}"#.into()],
+            close: (1000, String::new()),
+        });
+        let dial = ScriptedDial::with(script);
+        let mut h = Harness::with_adapter(scripted::adapter(dial.clone(), mixdog_rt::testing::tokens().cpu_bulk, TransportMode::WsDelta));
+        h.observer = Observer::new(ack);
+        Arc::get_mut(&mut h.observer).unwrap().reset_channel = reset_channel;
+        let route = PlayRoute::new(RouteDecision::Fail("fallback must not be entered".into()), Vec::new());
+        if succeeds {
+            h.route = Some(route.clone());
+        }
+        let result = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await;
+        if succeeds {
+            let output = result.expect("Node's owner recovery continues this close");
+            // Text shown with no way to withdraw it is kept, and the next response continues it.
+            let kept = if !reasoning && !reset_channel { "visible" } else { "" };
+            assert_eq!(output.response.content, format!("{kept}continued"));
+            assert!(route.asked.lock().unwrap().is_empty());
+        } else {
+            let failure = result.expect_err("a refused text reset or spent outer budget ends replay");
+            let AgentError::Provider(error) = failure.error else { panic!("the close must surface") };
+            assert_eq!(error.transport, Some(TransportFault::WsClose { code: Some(1000) }));
+        }
+        let upgrades = dial.wire().iter().filter(|event| matches!(event, Wire::Upgrade { .. })).count();
+        assert_eq!(upgrades, failures + usize::from(succeeds), "every owner replay opens a fresh socket");
+        assert_eq!(*h.waiter.0.lock().unwrap(), [5, 15, 30][..waits].iter().map(|s| Duration::from_secs(*s)).collect::<Vec<_>>(),
+            "Node's bounded outer transport ladder, not another five-retry send ladder");
+    }
+}
+#[cfg(node_twin)]
+async fn replay(scenario: &JsonValue) -> (JsonValue, JsonValue, JsonValue, JsonValue) {
+    let entries = scenario["script"].as_array().unwrap();
+    let copies = if scenario["repeatLast"].as_bool() == Some(true) { 8 } else { 1 };
+    let mut script = Vec::new();
+    for (i, entry) in entries.iter().enumerate() {
+        let n = if i + 1 == entries.len() { copies } else { 1 };
+        for _ in 0..n {
+            // A send Node's provider throws as Gemini does for a cut function call: the decoder's transient `malformed_function_call`.
+            if entry["throw"] == "malformed_function_call" {
+                let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
+                error.code = Some("malformed_function_call".into());
+                script.push(Attempt::Reject(error));
+                continue;
+            }
+            let mut steps = Vec::new();
+            let content = entry["content"].as_str().unwrap_or("");
+            // A reply that names its deltas streams them one by one (their join is its content).
+            if let Some(deltas) = entry["deltas"].as_array() {
+                steps.extend(deltas.iter().map(|d| text(d.as_str().unwrap())));
+            } else if !content.is_empty() {
+                steps.push(text(content));
+            }
+            for c in entry["toolCalls"].as_array().into_iter().flatten() {
+                steps.push(call(c["id"].as_str().unwrap(), c["name"].as_str().unwrap(), c["arguments"].clone()));
+            }
+            steps.push(done(stop_of(entry["stopReason"].as_str().unwrap_or("end_turn"))));
+            script.push(turn(steps));
+        }
+    }
+    let h = Harness::new(script);
+    for (stage, queue) in scenario["steer"].as_object().into_iter().flatten() {
+        let stage = if stage == "terminal" { DrainStage::Terminal } else { DrainStage::PreSend };
+        for entry in queue.as_array().unwrap() {
+            h.steer.push(stage, entry.as_str().unwrap());
+        }
+    }
+    let mut cfg = config();
+    let h = match scenario["model"].as_str() {
+        Some(model) => {
+            cfg.model = model.to_owned();
+            let language = scenario["language"].as_object().map(|l| mixdog_agent::tail_rules::TailLanguage {
+                id: l["id"].as_str().unwrap().to_owned(),
+                name: l["name"].as_str().unwrap().to_owned(),
+            });
+            h.with_tail(mixdog_agent::tail_rules::TailContext {
+                provider: scenario["provider"].as_str().unwrap().to_owned(),
+                language,
+                role: mixdog_agent::tail_rules::TailRole::Lead,
+            })
+        }
+        None => h,
+    };
+    cfg.escalated_max_output_tokens = scenario["escalated"].as_u64().map(|v| v as u32);
+    if let Some(limit) = scenario["limits"]["maxToolCalls"].as_u64() {
+        cfg.limits = Some(TurnLimits { max_tool_calls: Some(limit), ..TurnLimits::default() });
+    }
+    let messages: Vec<AgentMessage> = scenario["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| AgentMessage::user(m["content"].as_str().unwrap()))
+        .collect();
+    let run = h.run_with_builtins(cfg, vec![Echo::tool(), Boom::tool()], vec!["read".into()], messages);
+    let output = finish(run).await;
+    let transcript: Vec<JsonValue> = output.transcript.iter().map(normalized).collect();
+    let termination = output.termination.map(|t| format!("{t:?}").to_lowercase());
+    let result = json!({
+        "content": output.response.content,
+        "historyContent": output.response.history_content,
+        "reportContent": output.response.report_content,
+        "terminationReason": termination,
+        "iterations": output.iterations,
+        "toolCallsTotal": output.tool_calls_total,
+        "maxOutputRecoveryAttempts": output.response.max_output_recovery_attempts,
+        "providerContinuations": output.provider_continuations,
+    });
+    let requests: Vec<JsonValue> = h
+        .provider
+        .requests()
+        .iter()
+        .map(|r| {
+            json!({
+                "override": r.options.max_output_tokens_override,
+                "toolChoice": r.options.tool_choice,
+                "messages": r.messages.iter().map(|m| json!({
+                    "role": format!("{:?}", m.role).to_lowercase(),
+                    "content": match &m.content { Content::Text(t) => t.clone(), Content::Parts(_) => String::new() },
+                    "toolCallId": m.tool_call_id,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    // What the turn's text-delta hook was handed, in order (compared when the scenario records it). The run's other events
+    // (stage, tool calls, usage, ...) have no Node recording: the recorder installs no hook for them (agent set manifest,
+    // exclusions "run events other than the text deltas").
+    let deltas: Vec<JsonValue> = h.observer.events().into_iter().filter_map(|e| if let RunEvent::TextDelta(chunk) = e { Some(json!(chunk)) } else { None }).collect();
+    (JsonValue::Array(transcript), result, JsonValue::Array(requests), JsonValue::Array(deltas))
+}
+#[cfg(node_twin)]
+impl mixdog_agent::compact::estimate::MediaMeter for PlainText {
+    fn part(&self, part: &mixdog_core_api::domain::provider::ContentPart) -> mixdog_agent::compact::estimate::PartMeter {
+        panic!("media part in a text-only replay: {part:?}")
+    }
+}
+#[tokio::test]
+async fn a_quota_hop_sends_the_destination_tuning_and_keeps_prior_work() {
+    let mut earlier = AgentMessage::assistant("earlier answer", Vec::new());
+    earlier.message.thinking_blocks = Some(json!([{ "type": "thinking", "thinking": "private", "signature": "sig" }]));
+    let next = Scripted::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let segments = vec![UsageSegment { provider: "a".into(), model: "m1".into(), usage: Default::default() }];
+    let route = PlayRoute::new(
+        RouteDecision::Switch(RouteSwitch {
+            provider: next.clone(), model: "gpt-6.2-sol".into(), notice: "m1 refused — switched to m2.".into(),
+            request: mixdog_agent::env::RouteSwitchRequest {
+                options: mixdog_core_api::domain::provider::RequestOptions {
+                    effort: Some("high".into()), fast: true,
+                    model_parameters: Some(json!({ "serviceTier": "ultrafast" })),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            effort: None, text_only: None,
+        }),
+        segments.clone(),
+    );
+    let refused = Attempt::Reject(ProviderError::new(ErrorKind::QuotaExhausted, DeliveryState::NotSent));
+    let mut h = Harness::new(vec![refused]);
+    h.route = Some(route.clone());
+    let mut cfg = config();
+    cfg.options.effort = Some("medium".into());
+    cfg.options.model_parameters = Some(json!({ "verbosity": "low" }));
+    cfg.options.model_max_output_tokens = Some(128_000);
+    let output = finish(h.run(cfg, vec![], vec![AgentMessage::user("first"), earlier, AgentMessage::user("go")])).await;
+    // The next provider got the conversation without the first one's reasoning envelopes.
+    let sent = next.requests();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(h.provider.requests().len(), 1);
+    assert_eq!(sent[0].options.model_max_output_tokens, None, "the departing model's output ceiling does not travel");
+    assert_eq!(sent[0].model, "gpt-6.2-sol");
+    assert_eq!(sent[0].options.effort.as_deref(), Some("high"));
+    assert!(sent[0].options.fast);
+    assert_eq!(sent[0].options.model_parameters, Some(json!({ "serviceTier": "ultrafast" })));
+    assert!(output.transcript.iter().all(|m| m.message.thinking_blocks.is_none()), "replay stripped from the live messages");
+    assert!(sent[0].messages.iter().all(|m| m.thinking_blocks.is_none()), "and from the request");
+    assert_eq!(output.transcript.iter().find(|m| m.text() == "earlier answer").map(|m| m.text()), Some("earlier answer".to_owned()));
+    // The loop told the hop the error and the running usage (none yet), and read the segments at the end.
+    assert_eq!(*route.asked.lock().unwrap(), [(ErrorKind::QuotaExhausted, None)]);
+    assert_eq!(output.usage_segments, segments);
+    assert_eq!(route.current.lock().unwrap().as_ref().map(|c| c.1.as_str()), Some("gpt-6.2-sol"));
+    let events = h.observer.events();
+    assert!(events.iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { message, tone: Tone::Info }) if message == "m1 refused — switched to m2.")));
+}
+/// A route fallback that reconsiders once, on its second ask: the request after a tool round.
+struct ReturnRoute {
+    asked: Mutex<u32>,
+    switch: Mutex<Option<RouteSwitch>>,
+}
+
+#[async_trait]
+impl RouteFallback for ReturnRoute {
+    async fn advance(&self, error: ProviderError, _: Option<&mixdog_core_api::domain::provider::Usage>) -> RouteDecision {
+        RouteDecision::Surface(Box::new(mixdog_agent::env::ChainSurface { error, attempts: Vec::new(), stopped_before: None }))
+    }
+    async fn reconsider(&self, _: Option<&mixdog_core_api::domain::provider::Usage>) -> Option<RouteSwitch> {
+        let mut asked = self.asked.lock().unwrap();
+        *asked += 1;
+        if *asked == 2 { self.switch.lock().unwrap().take() } else { None }
+    }
+    fn usage_segments(&self, _: &mixdog_core_api::domain::provider::Usage, _: (&str, &str)) -> Vec<UsageSegment> {
+        Vec::new()
+    }
+}
+
+/// A route the session's configured order now prefers is taken before the request that follows a tool round: that request
+/// goes to the new route with its own tuning and the work already done, the request before it was not interrupted, and no
+/// request was sent to the route being left to learn it.
+#[tokio::test]
+async fn a_reconsidered_route_takes_the_request_after_a_tool_round() {
+    let next = Scripted::new(vec![turn(vec![text("done"), done(StopReason::EndTurn)])]);
+    let route = Arc::new(ReturnRoute {
+        asked: Mutex::new(0),
+        switch: Mutex::new(Some(RouteSwitch {
+            provider: next.clone(),
+            model: "claude-fable-5-2".into(),
+            notice: "available again".into(),
+            request: mixdog_agent::env::RouteSwitchRequest {
+                options: mixdog_core_api::domain::provider::RequestOptions { effort: Some("medium".into()), ..Default::default() },
+                ..Default::default()
+            },
+            effort: None,
+            text_only: None,
+        })),
+    });
+    let mut h = Harness::new(vec![turn(vec![text("looking"), call("c1", "echo", json!({"a": 1})), done(StopReason::ToolUse)])]);
+    h.route = Some(route.clone());
+    let mut cfg = config();
+    cfg.options.effort = Some("high".into());
+    let output = finish(h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.response.content, "done");
+    assert_eq!(h.provider.requests().len(), 1, "the route being left was sent the one request before the reconsideration");
+    assert_eq!(h.provider.requests()[0].options.effort.as_deref(), Some("high"));
+    let sent = next.requests();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].model, "claude-fable-5-2");
+    assert_eq!(sent[0].options.effort.as_deref(), Some("medium"));
+    assert_eq!(wire_dump(&sent[0]), ["User:go", "Assistant:looking", "Tool:echo:{\"a\":1}"], "the tool round already done is not replayed or lost");
+    assert_eq!(*route.asked.lock().unwrap(), 2);
+    let events = h.observer.events();
+    assert!(events.iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { message, tone: Tone::Info }) if message == "available again")));
+}
+
+/// A capture that records the model of each send and the route changes it was told of.
+struct RouteTap(Arc<SideLog>);
+
+impl mixdog_agent::env::SendTap for RouteTap {
+    fn begin(&self, request: &ModelRequest) -> Box<dyn mixdog_agent::env::SendTicket> {
+        self.0.0.lock().unwrap().push(format!("begin:{}", request.model));
+        Box::new(SideTicket(self.0.clone()))
+    }
+    fn route_changed(&self, provider_name: &str, _: &Arc<dyn ProviderAdapter>) {
+        self.0.0.lock().unwrap().push(format!("route:{provider_name}"));
+    }
+}
+
+/// A compactor that remembers the route it was moved to.
+struct Seating {
+    inner: Arc<Compactor100>,
+    seated: Arc<Mutex<Vec<(String, Option<u64>)>>>,
+}
+
+#[async_trait]
+impl Compactor for Seating {
+    fn estimate_tokens(&self, messages: &[AgentMessage]) -> u64 {
+        self.inner.estimate_tokens(messages)
+    }
+    async fn reduces(&self, request: &CompactRequest<'_>) -> bool {
+        self.inner.reduces(request).await
+    }
+    async fn compact(&self, request: CompactRequest<'_>) -> Result<CompactOutput, CompactError> {
+        self.inner.compact(request).await
+    }
+    fn resized(&self, seated: &mixdog_agent::env::SeatedRoute) -> Option<Arc<dyn Compactor>> {
+        self.seated.lock().unwrap().push((seated.header["provider"].as_str().unwrap().to_owned(), seated.settings.context_window));
+        Some(Arc::new(Seating { inner: self.inner.clone(), seated: self.seated.clone() }))
+    }
+}
+
+/// After a quota hop the run's request capture and its compactor are on the destination: the send that follows is captured
+/// as a send on the destination's provider, and the compactor is told the route (provider and window) it now serves.
+#[tokio::test]
+async fn a_quota_hop_moves_the_request_capture_and_the_compactor_to_the_destination() {
+    let log = Arc::new(SideLog::default());
+    let seated = Arc::new(Mutex::new(Vec::new()));
+    let next = Scripted::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let route = PlayRoute::new(
+        RouteDecision::Switch(RouteSwitch {
+            provider: next.clone(),
+            model: "gpt-6.2-sol".into(),
+            notice: "m refused — switched to gpt-6.2-sol.".into(),
+            request: mixdog_agent::env::RouteSwitchRequest {
+                compact: Some(mixdog_agent::boundary::CompactSettings { auto: true, context_window: Some(640_000), token_calibration: 1.0, ..Default::default() }),
+                header: json!({ "provider": "openai-oauth", "model": "gpt-6.2-sol" }).as_object().unwrap().clone(),
+                ..Default::default()
+            },
+            effort: None,
+            text_only: None,
+        }),
+        Vec::new(),
+    );
+    let mut h = Harness::new(vec![Attempt::Reject(ProviderError::new(ErrorKind::QuotaExhausted, DeliveryState::NotSent))]);
+    h.route = Some(route);
+    h.side = Some(Arc::new(RouteTap(log.clone())));
+    h.real_compactor = Some(Arc::new(Seating { inner: Arc::new(Compactor100::default()), seated: seated.clone() }));
+    finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+    assert_eq!(*log.0.lock().unwrap(), ["begin:m", "route:openai-oauth", "discard", "begin:gpt-6.2-sol", "settle:ok"]);
+    assert_eq!(*seated.lock().unwrap(), [("openai-oauth".to_owned(), Some(640_000))]);
+}
+/// The request snapshot builds its request with `assemble_request`, the function the loop's own send builds through
+/// (`Run::build_request`): for a model with a tail reminder the two are the same request, reminder included.
+#[tokio::test]
+async fn the_request_a_run_sends_is_what_the_shared_assembly_gives_for_a_model_with_a_reminder() {
+    let tail_context = || mixdog_agent::tail_rules::TailContext {
+        provider: "anthropic-oauth".into(),
+        language: Some(mixdog_agent::tail_rules::TailLanguage { id: "ko".into(), name: "Korean".into() }),
+        role: mixdog_agent::tail_rules::TailRole::Lead,
+    };
+    let h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]).with_tail(tail_context());
+    let mut cfg = config();
+    cfg.model = "claude-opus-5-5".into();
+    let messages = vec![AgentMessage::user("hi")];
+    let run = h.run(cfg.clone(), vec![Echo::tool()], messages.clone());
+    finish(run).await;
+    let sent = h.provider.requests()[0].clone();
+    let tail = mixdog_agent::tail_rules::RuleTailReminder { context: tail_context() };
+    let (assembled, reminder) = mixdog_agent::assemble_request(
+        &cfg.model,
+        sent.options.clone(),
+        mixdog_agent::project::project_for_wire(&messages),
+        Some(&tail),
+        ToolSet::with_builtins(vec![Echo::tool()], vec!["echo".into()]).definitions(),
+    );
+    assert_eq!(reminder.as_deref(), Some("<system-reminder>Write all user-facing text in Korean.</system-reminder>"));
+    assert_eq!(format!("{:?}", sent.messages), format!("{:?}", assembled.messages), "the sent messages, tail reminder last");
+    assert_eq!(format!("{:?}", sent.tools), format!("{:?}", assembled.tools));
+    assert_eq!(sent.model, assembled.model);
+}
+
+#[cfg(node_twin)]
+/// The events Rust's decoder of `route` yields for the wire Node's decoder was fed, one unit per wire event.
+fn leaked_events(route: &str, scenario: &JsonValue) -> (Vec<StreamEvent>, Option<ProviderError>) {
+    use mixdog_ai::providers::openai::decoder::{Framing, ResponsesDecoder};
+    let known: std::collections::HashSet<String> =
+        scenario["known"].as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_owned()).collect();
+    let wire = scenario["wire"].as_array().unwrap();
+    let responses = |framing, compat: bool| {
+        let decoder = ResponsesDecoder::new(framing, Arc::new(LeakCtx), ProviderId::from("openai")).with_known_tools(known.clone());
+        let mut decoder = if compat { decoder.compat_events() } else { decoder };
+        let units: Vec<Vec<u8>> = wire
+            .iter()
+            .map(|e| match framing {
+                Framing::WebSocket => e.to_string().into_bytes(),
+                Framing::Sse => format!("data: {e}\n\n").into_bytes(),
+            })
+            .collect();
+        drain(&mut decoder, units)
+    };
+    match route {
+        "responses-ws" => responses(Framing::WebSocket, false),
+        "responses-sse" => responses(Framing::Sse, false),
+        "responses-compat" => responses(Framing::Sse, true),
+        "chat" => {
+            use mixdog_ai::providers::compat::chat::ChatDecoder;
+            use mixdog_ai::providers::compat::profile::{CompatProfile, CredentialKind};
+            let profile = CompatProfile::plain("groq", "https://api.groq.com/v1", CredentialKind::StaticKey { reauth_on_401: false });
+            // The recorder's `providerName`.
+            let mut decoder = ChatDecoder::new(profile, ProviderId::from("custom")).with_known_tools(known);
+            drain(&mut decoder, wire.iter().map(|e| format!("data: {e}\n\n").into_bytes()).collect())
+        }
+        "gemini" => {
+            use mixdog_ai::providers::google::decode::{DecodeDialect, GeminiDecoder, UsageStyle};
+            use mixdog_ai::providers::google::error::ErrorDialect;
+            let mut decoder = GeminiDecoder::new(DecodeDialect {
+                owner: ProviderId::from("gemini"),
+                envelope: false,
+                usage: UsageStyle::Inclusive,
+                errors: ErrorDialect::gemini("Gemini REST streamGenerateContent"),
+            })
+            .with_known_tools(known);
+            drain(&mut decoder, wire.iter().map(|e| format!("data: {e}\r\n\r\n").into_bytes()).collect())
+        }
+        "cursor" => {
+            use mixdog_ai::providers::cursor::decoder::CursorDecoder;
+            use mixdog_ai::providers::cursor::request::BlobStore;
+            let mut decoder = CursorDecoder::new(BlobStore::default(), Vec::new(), None).with_known_tools(known);
+            let units = wire
+                .iter()
+                .map(|e| {
+                    let bytes: Vec<u8> = e
+                        .as_str()
+                        .unwrap()
+                        .as_bytes()
+                        .chunks(2)
+                        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+                        .collect();
+                    mixdog_ai::providers::connect::frame::encode(&bytes, 0)
+                })
+                .collect();
+            drain(&mut decoder, units)
+        }
+        "anthropic" => {
+            // The decoder type is crate-private; the codec hands it out through the public `WireCodec::decoder`, with the
+            // tools the request body offers.
+            use mixdog_ai::providers::anthropic::{AnthropicCodec, AnthropicConfig, Flavor, ModelCaps};
+            use mixdog_core_api::domain::provider::{Message, RequestOptions, Role, ToolDefinition};
+            let caps = |model: &str| {
+                (model == "claude-sonnet-4-6").then(|| ModelCaps {
+                    adaptive_thinking: true,
+                    manual_thinking: false,
+                    ladder_stated: false,
+                    effort_levels: vec!["low".into(), "medium".into(), "high".into()],
+                    max_output_tokens: Some(16384),
+                    fast_mode: false,
+                    context_window: None,
+                    thinking_display_updates: false,
+                })
+            };
+            let codec = AnthropicCodec::new(Flavor::ApiKey, AnthropicConfig::new(Arc::new(caps)));
+            let tools = known
+                .iter()
+                .map(|name| ToolDefinition {
+                    name: name.clone(),
+                    description: "read a file".into(),
+                    input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}}),
+                    defer_loading: false,
+                    freeform: None,
+                })
+                .collect();
+            let request = ModelRequest {
+                model: "claude-sonnet-4-6".into(),
+                messages: vec![Message::new(Role::User, Content::Text("go".into()))],
+                tools,
+                options: RequestOptions::default(),
+            };
+            let mut decoder = codec.decoder(&request);
+            let units = wire.iter().map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap()).into_bytes()).collect();
+            drain(&mut *decoder, units)
+        }
+        other => panic!("route {other}"),
+    }
+}
+
+
+
+
+
+#[tokio::test]
+async fn a_later_loader_keeps_its_receipt_and_only_registers_new_or_changed_schemas() {
+    for (name, definition, want_update) in [("Skill", "original", false), ("load_tool", "original", false), ("load_tool", "revised", true)] {
+        let loader = |name: &str, description| {
+            let mut spec = Echo::tool().spec().clone();
+            spec.name = name.into();
+            Arc::new(Loader(spec, json!({"nativeToolSearch": {
+                "provider": "openai", "toolReferences": ["linked"],
+                "openaiTools": [{"type":"function","name":"linked","description":description}],
+                "summary": "Loaded linked"
+            }}).to_string()))
+        };
+        let h = Harness::new(vec![
+            turn(vec![call("first", "Skill", json!({"name":"alpha"})), done(StopReason::ToolUse)]),
+            turn(vec![call("repeat", name, json!({"name":"linked"})), done(StopReason::ToolUse)]),
+            turn(vec![text("ok"), done(StopReason::EndTurn)]),
+        ]);
+        let mut tools: Vec<Arc<dyn Tool>> = vec![loader("Skill", "original")];
+        if name != "Skill" {
+            tools.push(loader(name, definition));
+        }
+        finish(h.run(config(), tools, vec![AgentMessage::user("go")])).await;
+        let requests = h.provider.requests();
+        let messages = &requests.last().unwrap().messages;
+        let first = messages.iter().find(|m| m.tool_call_id.as_deref() == Some("first")).unwrap();
+        let repeat = messages.iter().find(|m| m.tool_call_id.as_deref() == Some("repeat")).unwrap();
+        assert_eq!(first.native_tool_search.as_ref().unwrap()["openaiTools"][0]["description"], "original");
+        assert_eq!(repeat.content, Content::Text("Loaded linked".into()));
+        if want_update {
+            assert_eq!(repeat.native_tool_search.as_ref().unwrap()["openaiTools"][0]["description"], "revised");
+        } else {
+            assert!(repeat.native_tool_search.is_none(), "{name} repeated an identical schema");
+        }
+    }
+}
+
+#[cfg(node_twin)]
+/// `finalizeBatchResults` turns a loading tool's result that carries `nativeToolSearch` into the
+/// message's `native_tool_search` and keeps its summary as the text; the next request carries
+/// both (`fixtures/native-tool-search/golden.json`, the recorded Node results).
+#[tokio::test]
+async fn a_loading_tools_native_search_payload_rides_its_message_to_the_next_request() {
+    let golden: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/native-tool-search/golden.json")).unwrap();
+    let mut ran = 0;
+    for case in golden["parse"].as_array().unwrap().iter().filter(|case| case["toolName"] != "read") {
+        let mut spec = Echo::tool().spec().clone();
+        spec.name = case["toolName"].as_str().unwrap().to_owned();
+        let h = Harness::new(vec![
+            turn(vec![call("c1", &spec.name, json!({})), done(StopReason::ToolUse)]),
+            turn(vec![text("ok"), done(StopReason::EndTurn)]),
+        ]);
+        let loader = Arc::new(Loader(spec, case["result"].as_str().unwrap().to_owned()));
+        let out = finish(h.run(config(), vec![loader], vec![AgentMessage::user("go")])).await;
+        let result = out.transcript.iter().find(|m| m.tool_call_id() == Some("c1")).expect("tool result");
+        let want = Some(case["parsed"].clone()).filter(|parsed| !parsed.is_null());
+        assert_eq!(result.message.native_tool_search, want, "{}", case["name"]);
+        assert_eq!(result.text(), case["content"].as_str().unwrap(), "{}", case["name"]);
+        let sent = h.provider.requests();
+        let wire = sent[1].messages.iter().find(|m| m.tool_call_id.as_deref() == Some("c1")).expect("sent tool result");
+        assert_eq!(wire.native_tool_search, want, "{}: sent", case["name"]);
+        ran += 1;
+    }
+    assert_eq!(ran, 16);
+}
+#[cfg(node_twin)]
+/// What Node's `agentLoop` calls the observer's callbacks with when the provider raises a notice among the other
+/// things a send reports (`fixtures/wire-anthropic-gemini/observer.json`, recorded by
+/// `benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs`): the whole ordered stream, notices included,
+/// compared with every event the run loop gave its observer. An event with no Node callback to compare with is
+/// rendered as what it is, so it shows as a difference instead of being left out.
+#[tokio::test]
+async fn the_observer_stream_of_a_provider_notice_is_nodes_whole() {
+    let recording: JsonValue = serde_json::from_str(include_str!("../../../../fixtures/wire-anthropic-gemini/observer.json")).expect("observer.json");
+    let mut differences = Vec::new();
+    for scenario in recording["scenarios"].as_array().expect("scenarios") {
+        let id = scenario["id"].as_str().expect("id");
+        let mut steps = Vec::new();
+        let mut notices = Vec::new();
+        let mut refusal = None;
+        for step in scenario["steps"].as_array().expect("steps") {
+            match step[0].as_str().expect("kind") {
+                "notice" => {
+                    let warn = step[1] == "warn";
+                    let message = step[2].as_str().expect("message").to_owned();
+                    steps.push(Step::Event(StreamEvent::Notice { message: message.clone(), warn }));
+                    notices.push((message, warn));
+                }
+                "text" => steps.push(text(step[1].as_str().expect("text"))),
+                "fail" => {
+                    // The adapter hands the notices it raised before the failure over with it.
+                    let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted);
+                    error.status = step[1].as_u64().map(|s| s as u16);
+                    error.message = step[2].as_str().expect("message").to_owned();
+                    error.notices = std::mem::take(&mut notices);
+                    refusal = Some(error);
+                }
+                other => panic!("{other}"),
+            }
+        }
+        let script = vec![match refusal {
+            Some(error) => Attempt::Reject(error),
+            None => {
+                steps.push(done(StopReason::EndTurn));
+                turn(steps)
+            }
+        }];
+        // The two requesting of the send are the provider's own stages (preparing): Node's admission scheduler and its
+        // adapter raise them.
+        let stages = mixdog_core_api::domain::provider::SendStages { preparing: 2, ..Default::default() };
+        let h = Harness { provider: Scripted::staged(script, stages, false), ..Harness::new(Vec::new()) };
+        let ended = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await;
+        let mut stream: Vec<JsonValue> = Vec::new();
+        for event in h.observer.events() {
+            stream.extend(callbacks_of(event));
+        }
+        // Events of the loop's own with no callback in this recording: the turn's effort when the run starts (Node's
+        // `runtime.turnEffort` is a getter the client reads, not a callback), the two `Stage(Requesting)` of the send (Node's
+        // admission scheduler and provider adapter raise them, and the recording's scripted `send` is neither),
+        // `Stage(Streaming)` when the stream opens, and the send's `Usage` when it ends (Node's loop keeps its usage in the
+        // result and makes no `onUsage` call). They are part of the compared stream at their place, so any other event,
+        // or one of them anywhere else, is a difference.
+        let mut node: Vec<JsonValue> = scenario["observed"].as_array().expect("observed").clone();
+        node.insert(0, json!(["no Node callback", "TurnEffort(None)"]));
+        for _ in 0..2 {
+            node.insert(2, json!(["no Node callback", "Stage(Requesting)"]));
+        }
+        if scenario["outcome"]["content"].is_string() {
+            node.insert(4, json!(["no Node callback", "Stage(Streaming)"]));
+            node.push(json!(["no Node callback", "Usage"]));
+        }
+        if JsonValue::Array(stream.clone()) != JsonValue::Array(node.clone()) {
+            differences.push(format!("{id}: observer stream: Node {} / Rust {}", JsonValue::Array(node), JsonValue::Array(stream)));
+        }
+        if ended.is_err() != scenario["outcome"]["error"].is_string() {
+            differences.push(format!("{id}: outcome: Node {} / Rust failed: {}", scenario["outcome"], ended.is_err()));
+        }
+    }
+    assert!(differences.is_empty(), "{} difference(s):\n{}", differences.len(), differences.join("\n"));
+}
+#[cfg(node_twin)]
+/// Replays one case of `golden/connect_errors.json`: a send Node's real `OpenAICompatProvider.send` and `sendWithRecovery`
+/// (`connect-errors/record.mjs`) failed every time, before the first byte or after the headers (`after_headers`: the stream
+/// starts and is cut). The provider answers the recorded terminal error each time; the run must make as many attempts as
+/// Node did, wait as long between them (provider ladder, then the loop's own wait, each lap), show the same reconnect
+/// stages, replay as often as Node's loop did, and end with the error Node's loop ended with: its text, its fault, and
+/// whether it is a connect failure (the class `providerRecoveryEnded`, `send-with-recovery.mjs:190`, keeps waiting out).
+/// Returns the reconnect stages and the replays the recording shows.
+async fn replay_connect_case(name: &str, after_headers: bool) -> (Vec<(u32, u32)>, usize) {
+    let golden: JsonValue =
+        serde_json::from_str(&std::fs::read_to_string(golden_dir().join("connect-errors/golden/connect_errors.json")).unwrap()).unwrap();
+    let case = &golden["cases"][name];
+    let ended = &case["ended"];
+    assert_eq!(ended["kind"], "threw", "{name}");
+    let fault = recorded_fault(ended);
+    let mut error = ProviderError::transport(
+        fault.clone(),
+        if after_headers { DeliveryState::Accepted } else { DeliveryState::NotSent },
+    );
+    error.message = ended["message"].as_str().unwrap().to_owned();
+    let laps = case["laps"].as_array().unwrap();
+    let attempts: usize = laps.iter().map(|lap| lap["providerWaitsMs"].as_array().unwrap().len() + 1).sum();
+    let script = |error: &ProviderError| if after_headers { turn(vec![Step::Fail(error.clone())]) } else { Attempt::Reject(error.clone()) };
+    let h = Harness::with_policy(
+        (0..attempts).map(|_| script(&error)).collect(),
+        mixdog_ai::providers::compat::retry::unprofiled(),
+    );
+    let failure = h
+        .run(config(), vec![], vec![AgentMessage::user("go")])
+        .run()
+        .await
+        .expect_err("the send fails as Node's did");
+    let AgentError::Provider(ended_with) = &failure.error else { panic!("{name}: not a provider error: {:?}", failure.error) };
+    assert_eq!(ended_with.message, error.message, "{name}: message");
+    assert_eq!(ended_with.transport, Some(fault.clone()), "{name}: fault");
+    assert_eq!(ended["connectFailure"], matches!(fault, TransportFault::Connect { .. } | TransportFault::Dns), "{name}: connect failure");
+    assert_eq!(h.provider.requests().len(), attempts, "{name}: attempts");
+    let mut waits = Vec::new();
+    let mut shown = Vec::new();
+    for lap in laps {
+        waits.extend(lap["providerWaitsMs"].as_array().unwrap().iter().map(|ms| Duration::from_millis(ms.as_u64().unwrap())));
+        if let Some(ms) = lap["loopWaitMs"].as_u64() {
+            waits.push(Duration::from_millis(ms));
+            shown.push((lap["shown"]["attempt"].as_u64().unwrap() as u32, lap["shown"]["max"].as_u64().unwrap() as u32));
+        }
+    }
+    assert_eq!(*h.waiter.0.lock().unwrap(), waits, "{name}: waits");
+    let loop_stages = h
+        .observer
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            RunEvent::Stage(Stage::Reconnecting { attempt, max, .. }) if max > 4 => Some((attempt, max)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(loop_stages, shown, "{name}: reconnect stages");
+    let replays = laps.iter().filter(|lap| lap["verdict"] == "retry_transport").count();
+    assert_eq!(loop_stages.len(), replays, "{name}: replays");
+    (loop_stages, replays)
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn an_unreachable_network_is_retried_on_the_outage_ladder_then_fails_as_nodes_loop_does() {
+    for name in ["refused", "dns"] {
+        let (stages, replays) = replay_connect_case(name, false).await;
+        assert!(replays > 0 && stages.len() == replays, "{name}: the outage ladder replays");
+    }
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn a_reset_or_a_refused_port_before_any_header_is_not_replayed_by_the_loop() {
+    for name in ["reset", "badPort"] {
+        let (stages, replays) = replay_connect_case(name, false).await;
+        assert_eq!((stages.len(), replays), (0, 0), "{name}");
+    }
+}
+#[cfg(node_twin)]
+/// Repeated post-header cuts spend what Node's did: the provider's one ladder (five attempts), and no loop replay, since
+/// the exhausted ladder of a cut stream is final (`providerRecoveryEnded`: not a connect failure, not an unavailable server).
+#[tokio::test]
+async fn repeated_cuts_after_the_headers_spend_one_provider_ladder_and_are_not_replayed() {
+    let (stages, replays) = replay_connect_case("cutRole", true).await;
+    assert_eq!((stages.len(), replays), (0, 0));
+}
+#[cfg(node_twin)]
+/// Node's recordings of a WebSocket outage (`provider-openai-ws-send-attempts`, the `outage` cases: handshake resets,
+/// stuck upgrades, refusals and stream drops in every order, each sent by the public OpenAI provider): the real OpenAI
+/// adapter over a scripted dial, driven by the real agent loop and retry decider, puts on the wire what Node's send did
+/// (every upgrade request and every request frame, whole and in the recorded order) and surfaces the error Node's send
+/// surfaced, worded as the user reads it. The server side of each recording is the script; the manifest declares what a
+/// replay leaves out.
+#[tokio::test(start_paused = true)]
+async fn an_outage_surfaces_the_error_nodes_websocket_send_surfaced() {
+    const RECORDING: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/provider-openai-ws-send-attempts/cases.json");
+    let recording: JsonValue = serde_json::from_str(&RECORDING).unwrap();
+    let mut replayed = 0;
+    for case in recording["cases"].as_array().unwrap() {
+        let id = case["id"].as_str().unwrap();
+        let Some(attempts) = case["input"]["attempts"].as_array() else { continue };
+        let mut script = Vec::new();
+        for attempt in attempts {
+            match &attempt["upgrade"] {
+                JsonValue::String(kind) if kind == "reset" => script.push(mixdog_ai::providers::openai::scripted::Dialed::Reset),
+                JsonValue::String(_) => script.extend((0..5).map(|_| mixdog_ai::providers::openai::scripted::Dialed::Stuck)),
+                JsonValue::Object(refusal) => script.push(mixdog_ai::providers::openai::scripted::Dialed::Rejected {
+                    status: refusal["status"].as_u64().unwrap() as u16,
+                    body: refusal["body"].as_str().unwrap().to_owned(),
+                }),
+                _ => {
+                    let close = &attempt["close"];
+                    let (code, reason) = match close[0].as_u64() {
+                        Some(code) => (code as u16, close[1].as_str().unwrap().to_owned()),
+                        None => (1006, String::new()),
+                    };
+                    let frames = attempt["frames"].as_array().unwrap().iter().map(|frame| frame.to_string()).collect();
+                    script.push(mixdog_ai::providers::openai::scripted::Dialed::Socket { frames, close: (code, reason) });
+                }
+            }
+        }
+        // Past the recorded attempts every upgrade is left unanswered, as in the recording.
+        script.extend((0..40).map(|_| mixdog_ai::providers::openai::scripted::Dialed::Stuck));
+        let dial = mixdog_ai::providers::openai::scripted::ScriptedDial::with(script);
+        let h = Harness::with_adapter(mixdog_ai::providers::openai::scripted::adapter(dial.clone(), mixdog_rt::testing::tokens().cpu_bulk, mixdog_ai::providers::openai::switch::TransportMode::WsDelta));
+        let request = &case["input"]["request"];
+        let model = request["model"].as_str().unwrap();
+        let message = request["messages"][0]["content"].as_str().unwrap();
+        let mut run_config = RunConfig::new(ThreadId::from("t"), TurnId::from("r"), model);
+        run_config.options.session_id = Some(case["input"]["sessionId"].as_str().unwrap().into());
+        let failure = h
+            .run(run_config, vec![], vec![AgentMessage::user(message)])
+            .run()
+            .await
+            .expect_err("the outage ends in a failure");
+        let AgentError::Provider(error) = failure.error else { panic!("{id}: a provider error") };
+
+        let node = &case["result"]["error"];
+        let events = case["result"]["events"].as_array().unwrap();
+        let node_message = node["message"].as_str().unwrap();
+        if node_message.starts_with("OpenAI OAuth WS closed before response.completed") {
+            assert_eq!(error.message, node_message, "{id}: the error that surfaced");
+        } else if node["code"] == "EWSACQUIRETIMEOUT" {
+            assert_eq!(error.code.as_deref(), Some("EWSACQUIRETIMEOUT"), "{id}: the error that surfaced");
+        } else if node["code"] == "ECONNRESET" {
+            assert_eq!(error.transport, Some(TransportFault::Reset), "{id}: the error that surfaced");
+        } else {
+            assert_eq!(error.status.map(u64::from), node["props"]["httpStatus"].as_u64(), "{id}: the error that surfaced");
+        }
+        // The requests and frames in recorded order, compared whole.
+        let (sent, seen) = (wire_of(&dial.wire()), node_wire(events));
+        if sent != seen {
+            let at = sent.iter().zip(&seen).position(|(a, b)| a != b).unwrap_or(sent.len().min(seen.len()));
+            panic!(
+                "{id}: what reached the server differs at event {at} (the replay sent {}, Node's server saw {}):\n  replay: {:?}\n  node:   {:?}",
+                sent.len(),
+                seen.len(),
+                sent.get(at),
+                seen.get(at)
+            );
+        }
+        // What the user reads. Node's text is the same with the first failure's cause dropped, so the cause is no part of it.
+        let text = mixdog_ai::service::error_text::present_error_text(
+            &mixdog_ai::service::error_text::ErrorView::from(&*error),
+            &mixdog_ai::service::error_text::PresentOptions::default(),
+        );
+        assert_eq!(case["result"]["presented"], case["result"]["presentedWithoutCause"], "{id}: the cause changes nothing the user reads");
+        assert_eq!(text, case["result"]["presented"].as_str().unwrap(), "{id}: the text the user reads");
+        replayed += 1;
+    }
+    assert_eq!(replayed, 11, "every recorded outage");
+}
+#[cfg(node_twin)]
+/// A cut WebSocket stream keeps the replay envelope of the items it had finished (`partialProviderReplay`), and the
+/// recovered assistant turn carries it, so the next request replays it. The turn is compared with what Node's
+/// `sendWithRecovery` returned for the same cut (`golden/stream_progress.json`, "a cutoff after finished items",
+/// `recovered`): its text, its call ids and its replay items.
+#[tokio::test]
+async fn a_cut_stream_s_partial_replay_is_kept_on_the_recovered_message() {
+    let golden: JsonValue =
+        serde_json::from_str(&std::fs::read_to_string(golden_dir().join("compact/golden/stream_progress.json")).unwrap()).unwrap();
+    let node = golden["decoders"]["responses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find_map(|s| s.get("recovered"))
+        .expect("a recorded recovery");
+    assert_eq!(node["action"], "proceed");
+    let content = node["content"].as_str().unwrap();
+    let node_calls: Vec<&str> = node["toolCalls"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+    let mut cut = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
+    cut.partial_replay = Some(Box::new(mixdog_core_api::domain::provider::ProviderReplay {
+        owner: ProviderId::from("scripted"),
+        items: node["providerReplay"]["items"].clone(),
+    }));
+    let h = Harness::new(vec![
+        turn(vec![text(content), call(node_calls[0], "echo", json!({})), Step::Fail(cut)]),
+        turn(vec![text("fin"), done(StopReason::EndTurn)]),
+    ]);
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    let recovered = output.transcript.iter().find(|m| m.text() == content).expect("the recovered assistant message");
+    let calls: Vec<&str> = recovered.tool_calls().iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(calls, node_calls);
+    let kept: Vec<&JsonValue> = recovered.message.provider_replay().iter().map(|r| &r.items).collect();
+    assert_eq!(kept, [&node["providerReplay"]["items"]]);
+}
+#[cfg(node_twin)]
+fn golden_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent")
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn rust_loop_matches_the_recorded_node_transcripts() {
+    let dir = golden_dir();
+    let mut names: Vec<String> = std::fs::read_dir(dir.join("scenarios"))
+        .expect("scenarios recorded by fixtures/agent/record.mjs")
+        .map(|e| e.unwrap().path().file_stem().unwrap().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert!(!names.is_empty());
+    for name in names {
+        let scenario: JsonValue =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(format!("scenarios/{name}.json"))).unwrap()).unwrap();
+        let golden: JsonValue =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(format!("golden/{name}.json"))).unwrap()).unwrap();
+        let (transcript, result, requests, deltas) = replay(&scenario).await;
+        assert_eq!(transcript, golden["messages"], "{name}: transcript");
+        assert_eq!(result, golden["result"], "{name}: result");
+        assert_eq!(requests, golden["requests"], "{name}: requests");
+        if scenario["captureDeltas"] == true {
+            assert_eq!(deltas, golden["deltas"], "{name}: text deltas");
+        }
+    }
+}
+#[cfg(node_twin)]
+fn cache_break_golden() -> JsonValue {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/cache-break/golden.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+#[cfg(node_twin)]
+/// `fixtures/cache-break` `turns` (record-cache-break.mjs): one Anthropic session through six turns of the loop, each answered
+/// with the recorded usage, its record carrying between turns what the host saves of the run's carry (and the send time the
+/// usage change saves): the usage-detected `actual_cache_miss`, the `model_changed` and `tool_schema_changed` request breaks
+/// and the `manual_compaction` break a compaction between turns tags are the rows and stderr lines Node traced, turn by turn.
+#[tokio::test]
+async fn a_sessions_turns_trace_the_cache_breaks_node_traces() {
+    use mixdog_core_api::domain::provider::Message;
+    use mixdog_core_api::domain::provider::Role;
+    use mixdog_core_api::domain::provider::Usage;
+    let golden = cache_break_golden();
+    let node = &golden["turns"];
+    let now = golden["now"].as_i64().unwrap();
+    let thread = node["session"].as_str().unwrap();
+    let assistant = |text: &str| AgentMessage::new(Message::new(Role::Assistant, Content::Text(text.into())));
+    let mut header = serde_json::Map::new();
+    header.insert("providerCacheOpts".into(), json!({ "cacheStrategy": node["cacheStrategy"] }));
+    let mut messages = vec![AgentMessage::new(Message::new(Role::System, Content::Text(node["system"].as_str().unwrap().into())))];
+    let mut guard = None;
+    let (mut ours, mut theirs) = (Digests::default(), Digests::default());
+    for step in node["steps"].as_array().unwrap() {
+        let name = step["name"].as_str().unwrap();
+        if step["compact"] == true {
+            // What the manual compaction left: a rewritten transcript, and the intent the host's assembly takes from the record.
+            messages.truncate(1);
+            messages.push(AgentMessage::user("Summary of the earlier turns."));
+            messages.push(assistant("Noted."));
+        }
+        messages.push(AgentMessage::user(step["prompt"].as_str().unwrap()));
+        let usage = &step["usage"];
+        let count = |key: &str| usage[key].as_u64().unwrap();
+        let reported = Usage {
+            input_tokens: count("inputTokens"), output_tokens: count("outputTokens"),
+            cache_read_tokens: count("cachedTokens"), cache_write_tokens: count("cacheWriteTokens"),
+            raw: Some(json!({
+                "input_tokens": count("inputTokens"), "output_tokens": count("outputTokens"),
+                "cache_read_input_tokens": count("cachedTokens"), "cache_creation_input_tokens": count("cacheWriteTokens"),
+            })),
+            ..Default::default()
+        };
+        let routing = mixdog_core_api::domain::provider::AccountRouting {
+            provider: node["provider"].as_str().unwrap().into(), account_id: "recorded-account".into(), session_account_id: None,
+        };
+        let answer = step["answer"].as_str().unwrap();
+        let mut h = Harness::new(Vec::new());
+        h.provider = Arc::new(Scripted {
+            id: ProviderId::from(node["provider"].as_str().unwrap()),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::AccountRouting(routing)), Step::Event(StreamEvent::Usage(reported)), text(answer), done(StopReason::EndTurn)])].into()),
+            requests: Mutex::new(Vec::new()),
+            settled: Mutex::new(Vec::new()),
+            calls_handed: Arc::default(),
+            order: None,
+            released: Mutex::new(Vec::new()),
+            stages: Default::default(),
+            raises_requesting: false,
+            raised: Mutex::new(Vec::new()),
+            hold: Mutex::new(None),
+        });
+        let breaks = Arc::new(CacheBreaks::default());
+        h.failures = Some(breaks.clone());
+        let mut config = RunConfig::new(ThreadId::from(thread), TurnId::from("r"), step["model"].as_str().unwrap());
+        if step["compact"] == true {
+            config.cache_break_intent = Some("manual_compaction".into());
+        }
+        let tools: Vec<Arc<dyn Tool>> = if step["tools"].as_array().unwrap().is_empty() { Vec::new() } else { vec![Echo::tool()] };
+        let names = tools.iter().map(|t| t.spec().name.clone()).collect();
+        let carry = RunCarry { prefix_guard: guard.take(), ..RunCarry::from_saved(&header) };
+        let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(tools, names), h.tool_env(), config, messages.clone(), carry);
+        let output = finish(run).await;
+        // The host saves the run's carry with the record; the usage change saves the send's time (`lastProviderSendAt`).
+        header.extend(output.carry.to_saved());
+        header.insert("lastProviderSendAt".into(), json!(h.clock.0.load(Ordering::SeqCst)));
+        guard = output.carry.prefix_guard.clone();
+        messages.push(assistant(answer));
+
+        let records = breaks.0.lock().unwrap().clone();
+        let rows: Vec<String> = records.iter().map(|record| ours.row(&mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))).collect();
+        let want: Vec<String> = step["rows"].as_array().unwrap().iter().map(|row| theirs.row(row.as_str().unwrap())).collect();
+        assert_eq!(rows, want, "{name}: the trace rows");
+        let lines: Vec<String> = records.iter().map(|record| ours.line(&mixdog_trace::cache_break_line(record))).collect();
+        let want: Vec<String> = step["stderr"].as_array().unwrap().iter().map(|line| theirs.line(line.as_str().unwrap())).collect();
+        assert_eq!(lines, want, "{name}: the stderr lines");
+        assert_eq!(header.get("lastProviderCachedPrefixTokens").cloned().unwrap_or(JsonValue::Null), step["record"]["lastProviderCachedPrefixTokens"], "{name}: the record's cache read plus write");
+    }
+}
+#[cfg(node_twin)]
+/// `fixtures/cache-break` `routes` (record-cache-break.mjs): Node's loop over sessions whose turns change what the guard
+/// compares: a history that shrank and a prefix that was rewritten (each an unexpected break Node traces and then refuses
+/// with `ProviderPrefixMutationError`, before anything is sent), a session routed to another provider (`provider_changed`)
+/// and a native tool added (`native_tool_schema_changed`). Each step is a real turn of the loop over the transcript the step
+/// names, the session's guard carried from the last send that settled, as the loop keeps it: the rows, the stderr lines, what
+/// reached the provider and the refusal are Node's. `deferred_body_compaction` and `request_properties_changed` have no
+/// product path, and the compactions are not recorded through a real compaction; the manifest's `exclusions` name each.
+#[tokio::test]
+async fn real_turns_trace_and_refuse_the_breaks_node_does() {
+    use mixdog_core_api::domain::provider::HostedTool;
+    use mixdog_core_api::domain::provider::HostedWebSearch;
+    use mixdog_core_api::domain::provider::Message;
+    use mixdog_core_api::domain::provider::Role;
+    use mixdog_core_api::domain::provider::Usage;
+    let golden = cache_break_golden();
+    let now = golden["now"].as_i64().unwrap();
+    let mut refused = 0;
+    for scenario in golden["routes"].as_array().unwrap() {
+        let (mut ours, mut theirs) = (Digests::default(), Digests::default());
+        let mut guard = None;
+        for step in scenario["steps"].as_array().unwrap() {
+            let name = format!("{}: {}", scenario["name"].as_str().unwrap(), step["name"].as_str().unwrap());
+            let messages: Vec<AgentMessage> = step["convo"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| {
+                    let text = row[1].as_str().unwrap();
+                    match row[0].as_str().unwrap() {
+                        "system" => AgentMessage::new(Message::new(Role::System, Content::Text(text.into()))),
+                        "assistant" => AgentMessage::new(Message::new(Role::Assistant, Content::Text(text.into()))),
+                        _ => AgentMessage::user(text),
+                    }
+                })
+                .collect();
+            let reported = Usage { input_tokens: 10, output_tokens: 2, ..Default::default() };
+            let mut h = Harness::new(Vec::new());
+            h.provider = Arc::new(Scripted {
+                id: ProviderId::from(step["provider"].as_str().unwrap()),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text("answer"), done(StopReason::EndTurn)])].into()),
+                requests: Mutex::new(Vec::new()),
+                settled: Mutex::new(Vec::new()),
+                calls_handed: Arc::default(),
+                order: None,
+                released: Mutex::new(Vec::new()),
+                stages: Default::default(),
+                raises_requesting: false,
+            raised: Mutex::new(Vec::new()),
+                hold: Mutex::new(None),
+            });
+            let breaks = Arc::new(CacheBreaks::default());
+            h.failures = Some(breaks.clone());
+            let mut config = RunConfig::new(ThreadId::from(scenario["session"].as_str().unwrap()), TurnId::from("r"), scenario["model"].as_str().unwrap());
+            config.options.hosted_tools = step["nativeTools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tool| HostedTool::WebSearch(HostedWebSearch { tool_type: tool["type"].as_str().unwrap().into(), allowed_domains: Vec::new(), user_location: None, max_uses: None, context_size: None, include_sources: false }))
+                .collect();
+            let carry = RunCarry { prefix_guard: guard.clone(), ..RunCarry::from_saved(&serde_json::Map::new()) };
+            let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(Vec::new(), Vec::new()), h.tool_env(), config, messages, carry);
+            match (run.run().await, step["thrown"].is_null()) {
+                (Ok(output), true) => guard = output.carry.prefix_guard.clone(),
+                (Err(failure), false) => {
+                    let AgentError::PrefixMutation(message) = &failure.error else { panic!("{name}: refused as {:?}", failure.error) };
+                    assert_eq!(message, step["thrown"]["message"].as_str().unwrap(), "{name}: the refusal");
+                    refused += 1;
+                }
+                (Ok(_), false) => panic!("{name}: Node refused ({}), the core sent", step["thrown"]),
+                (Err(failure), true) => panic!("{name}: Node sent, the core failed: {}", failure.error),
+            }
+            assert_eq!(h.provider.requests().len() as u64, step["sent"].as_u64().unwrap(), "{name}: what reached the provider");
+            let records = breaks.0.lock().unwrap().clone();
+            let rows: Vec<String> = records.iter().map(|record| ours.row(&mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))).collect();
+            let want: Vec<String> = step["rows"].as_array().unwrap().iter().map(|row| theirs.row(row.as_str().unwrap())).collect();
+            assert_eq!(rows, want, "{name}: the trace rows");
+            let lines: Vec<String> = records.iter().map(|record| ours.line(&mixdog_trace::cache_break_line(record))).collect();
+            let want: Vec<String> = step["stderr"].as_array().unwrap().iter().map(|line| theirs.line(line.as_str().unwrap())).collect();
+            assert_eq!(lines, want, "{name}: the stderr lines");
+        }
+    }
+    assert_eq!(refused, 2, "a shrunk history and a rewritten prefix");
+}
+#[cfg(node_twin)]
+/// `fixtures/cache-break` `compactions` (record-cache-break.mjs): a session whose transcript is compacted for real, then the
+/// send that follows it. The core's own compactor (`FreshCompactor`, over a summary route that answers one fixed text, the only
+/// replaced part) rewrites the transcript, and the loop's trace rows, stderr lines, sends and final transcript are Node's:
+/// - `manual`: three settled turns, a forced compaction (the budget the forced plan asks for) that parks the intent
+///   `manual_compaction`, then the next turn's first send tagged by it;
+/// - `automatic`: the turn whose transcript crosses the window is compacted by the loop's own pre-send pass, which tags the
+///   send itself (`automatic_compaction`); the summary requests it made are Node's count.
+/// `post_turn_compaction` has no product path (the manifest's exclusion names Node's lines).
+#[tokio::test]
+async fn real_compactions_trace_the_cache_breaks_node_traces() {
+    use mixdog_agent::compact::compactor::{FreshCompactor, FreshParts, SessionCompactor, TriggerSeams};
+    use mixdog_agent::compact::estimate::MessageMeter;
+    use mixdog_agent::compact::pressure::{Route, StatusInput, TranscriptSigner, forced_target_budget};
+    use mixdog_agent::compact::summary_run::SummaryMode;
+    use mixdog_agent::compact::tool_schema::RequestTools;
+    use mixdog_core_api::domain::provider::{Message, Role, Usage};
+
+    let golden = cache_break_golden();
+    let now = golden["now"].as_i64().unwrap();
+    let mut compared = 0;
+    for scenario in golden["compactions"].as_array().unwrap() {
+        let name = scenario["name"].as_str().unwrap();
+        let session = scenario["header"].as_object().unwrap();
+        let (provider, model) = (session["provider"].as_str().unwrap(), session["model"].as_str().unwrap());
+        let window = session["contextWindow"].as_u64().unwrap();
+        let calibration = scenario["tokenCalibration"].as_f64().unwrap();
+        let auto = session["compaction"]["auto"] == true;
+        let settings = CompactSettings { auto: true, context_window: Some(window), token_calibration: calibration, ..CompactSettings::default() };
+        let log = Arc::new(SendLog::default());
+        let summary = Arc::new(FixedSummary { text: scenario["summaryText"].as_str().unwrap().into(), calls: Default::default(), log: log.clone() });
+        let plain = Arc::new(PlainText);
+        let compactor = FreshCompactor::for_session(SessionCompactor {
+            settings: settings.clone(),
+            parts: Arc::new(FreshParts {
+                media: plain.clone(),
+                replay_owner: crate::compact_support::replay_owner(),
+                rows: Arc::new(crate::compact_support::Rows),
+                archive: Arc::new(crate::compact_support::PreviewArchive { session: session["id"].as_str().unwrap().into() }),
+                attachments: Arc::new(crate::compact_support::NoAttachments),
+                redactor: Arc::new(crate::compact_support::NoRedaction),
+                blobs: Arc::new(crate::compact_support::NoBlobs),
+                skills: None,
+            }),
+            triggers: TriggerSeams { tool_media: plain.clone(), native_pdf: false },
+            fork: Arc::new(NoFork),
+            resolver: Arc::new(OwnRoute { sender: summary.clone(), model: model.into(), window, calibration }),
+            summary_mode: SummaryMode::Session,
+            conversation_threshold_tokens: session["compaction"]["conversationThresholdTokens"].as_u64(),
+        })
+        .expect("a compactor");
+
+        let mut header = serde_json::Map::new();
+        header.insert("providerCacheOpts".into(), session["providerCacheOpts"].clone());
+        let mut messages = vec![AgentMessage::new(Message::new(Role::System, Content::Text(scenario["system"].as_str().unwrap().into())))];
+        let mut guard = None;
+        let (mut ours, mut theirs) = (Digests::default(), Digests::default());
+        for step in scenario["steps"].as_array().unwrap() {
+            let step_name = format!("{name}: {}", step["name"].as_str().unwrap());
+            let mut config = RunConfig::new(ThreadId::from(session["id"].as_str().unwrap()), TurnId::from("r"), model);
+            if let Some(compaction) = scenario["compaction"].as_object().filter(|_| step["name"] == "after") {
+                // The forced pass: the budget its plan asks for over the session as the recorder had it, then the compaction itself.
+                let owner = crate::compact_support::replay_owner();
+                let meter = MessageMeter { media: &*plain, replay_owner: &owner };
+                let rows = crate::compact_support::Rows;
+                let signer = TranscriptSigner { meter: &meter, images: &*plain, rows: &rows };
+                let status = StatusInput {
+                    session,
+                    route: Route { provider, model, context_window: JsonValue::Null },
+                    cwd: JsonValue::Null,
+                    mode: JsonValue::Null,
+                    messages: &messages,
+                    active: true,
+                    request_tools: RequestTools { native: &[], defined: &[] },
+                    session_tools: RequestTools { native: &[], defined: &[] },
+                    tool_breakdown: &JsonValue::Null,
+                    agent_mode: false,
+                    meter: &meter,
+                    signer: &signer,
+                    env: &crate::compact_support::NoVars,
+                };
+                let budget = forced_target_budget(&status).expect("a window") as u64;
+                let request = CompactRequest { messages: &messages[1..], budget_tokens: budget, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: false, latest_user_prefix: "" };
+                let compacted = compactor.compact(request).await.expect("the compaction");
+                assert!(!compacted.skipped, "{step_name}: the pass changed the transcript");
+                messages.truncate(1);
+                messages.extend(compacted.messages);
+                assert_eq!(summary.calls.load(Ordering::SeqCst) as u64, compaction["summaryRequests"].as_u64().unwrap(), "{step_name}: the summary requests of the forced pass");
+                summary.calls.store(0, Ordering::SeqCst);
+                // The intent the core's own manual compaction parks is checked where that path runs (`mixdog-core`
+                // `manual_compaction`); the loop is handed it here, as the session header hands it on.
+                config.cache_break_intent = compaction["pending"].as_str().map(str::to_owned);
+            }
+            messages.push(AgentMessage::user(step["prompt"].as_str().unwrap()));
+            let answer = step["answer"].as_str().unwrap();
+            let reported = Usage { input_tokens: 10, output_tokens: 2, cache_write_tokens: 100, ..Default::default() };
+            let mut h = Harness::new(Vec::new());
+            h.provider = Arc::new(Scripted {
+                id: ProviderId::from(provider),
+                policy: RetryPolicy::codex_default(),
+                keepalive: KeepaliveSchedule::SPEC,
+                codec: MockCodec,
+                script: Mutex::new(vec![turn(vec![Step::Event(StreamEvent::Usage(reported)), text(answer), done(StopReason::EndTurn)])].into()),
+                requests: Mutex::new(Vec::new()),
+                settled: Mutex::new(Vec::new()),
+                calls_handed: Arc::default(),
+                order: Some(log.clone()),
+                released: Mutex::new(Vec::new()),
+                stages: Default::default(),
+                raises_requesting: false,
+            raised: Mutex::new(Vec::new()),
+                hold: Mutex::new(None),
+            });
+            let breaks = Arc::new(CacheBreaks::default());
+            h.failures = Some(breaks.clone());
+            if auto {
+                h.real_compactor = Some(compactor.clone());
+                config.compact = Some(settings.clone());
+            }
+            let carry = RunCarry { prefix_guard: guard.take(), ..RunCarry::from_saved(&header) };
+            let run = Run::new(h.run_env(), h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(Vec::new(), Vec::new()), h.tool_env(), config, messages.clone(), carry);
+            let output = finish(run).await;
+            header.extend(output.carry.to_saved());
+            header.insert("lastProviderSendAt".into(), json!(h.clock.0.load(Ordering::SeqCst)));
+            guard = output.carry.prefix_guard.clone();
+            messages = output.transcript;
+            if messages.last().is_none_or(|m| m.role() != Role::Assistant) {
+                messages.push(AgentMessage::assistant(answer, Vec::new()));
+            }
+
+            summary.calls.store(0, Ordering::SeqCst);
+            let records = breaks.0.lock().unwrap().clone();
+            let rows: Vec<String> = records.iter().map(|record| ours.row(&mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))).collect();
+            let want: Vec<String> = step["rows"].as_array().unwrap().iter().map(|row| theirs.row(row.as_str().unwrap())).collect();
+            assert_eq!(rows, want, "{step_name}: the trace rows");
+            let lines: Vec<String> = records.iter().map(|record| ours.line(&mixdog_trace::cache_break_line(record))).collect();
+            let want: Vec<String> = step["stderr"].as_array().unwrap().iter().map(|line| theirs.line(line.as_str().unwrap())).collect();
+            assert_eq!(lines, want, "{step_name}: the stderr lines");
+        }
+        let transcript: Vec<(String, String)> = messages.iter().map(|m| (wire_role(m).to_owned(), m.text())).collect();
+        let want: Vec<(String, String)> = scenario["transcript"].as_array().unwrap().iter().map(|m| (m["role"].as_str().unwrap().to_owned(), m["content"].as_str().unwrap().to_owned())).collect();
+        assert_eq!(transcript, want, "{name}: the transcript the compaction and the turns left");
+        // Every send of the scenario, summary requests and turns, whole and in the order the provider received them.
+        let want: Vec<Sent> = scenario["sends"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|send| (send["summary"].as_bool().unwrap(), send["messages"].as_array().unwrap().iter().map(|m| (m["role"].as_str().unwrap().to_owned(), m["content"].as_str().unwrap().to_owned())).collect()))
+            .collect();
+        assert_eq!(*log.0.lock().unwrap(), want, "{name}: the sends, in the order they arrived");
+        compared += 1;
+    }
+    assert_eq!(compared, 2, "a manual and an automatic compaction");
+}
+#[cfg(node_twin)]
+/// `fixtures/cache-break` `guard`: the comparison over Node's own request fingerprints tells each break Node told, with the
+/// same details. The comparison alone: the loop's use of it is `real_turns_trace_and_refuse_the_breaks_node_does`.
+#[test]
+fn the_prefix_guard_tells_every_break_node_tells() {
+    use mixdog_agent::prefix_guard::GuardOptions;
+    use mixdog_agent::prefix_guard::Snapshot;
+    let golden = cache_break_golden();
+    let snapshot = |value: &JsonValue| Snapshot {
+        message_hashes: value["messageHashes"].as_array().unwrap().iter().map(|h| h.as_str().unwrap().to_owned()).collect(),
+        request_prefix_hash: value["requestPrefixHash"].as_str().unwrap().into(),
+        provider: value["provider"].as_str().unwrap().into(),
+        model: value["model"].as_str().unwrap().into(),
+        tool_schema_hash: value["toolSchemaHash"].as_str().unwrap().into(),
+        native_tool_schema_hash: value["nativeToolSchemaHash"].as_str().unwrap().into(),
+    };
+    for case in golden["guard"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let options = &case["options"];
+        let told = mixdog_agent::prefix_guard::compare(
+            Some(&snapshot(&case["previous"])),
+            &snapshot(&case["next"]),
+            &GuardOptions { provider: options["provider"].as_str().unwrap(), model: options["model"].as_str().unwrap(), intent: options["cacheBreakIntent"].as_str(), mutation_source: options["mutationSource"].as_str() },
+        );
+        let want: Vec<JsonValue> = case["breaks"].as_array().unwrap().clone();
+        assert_eq!(told.map(JsonValue::Object).into_iter().collect::<Vec<_>>(), want, "{name}");
+        assert_eq!(case["thrown"].is_null(), want.first().is_none_or(|b| b["classification"] != "unexpected"), "{name}: Node refuses exactly the unexpected breaks");
+    }
+}
+#[cfg(node_twin)]
+/// `fixtures/cache-break` `guard` (the deferred-tool cases): an Anthropic request's fingerprint leaves a deferred tool out of
+/// its prefix, any other provider's keeps it; whether the prefix moved is what Node's comparison found.
+#[test]
+fn a_deferred_tool_moves_the_request_prefix_where_node_says() {
+    use mixdog_core_api::domain::provider::ToolDefinition;
+    let golden = cache_break_golden();
+    let tool = |name: &str, deferred: bool| ToolDefinition { name: name.into(), description: format!("{name}."), input_schema: json!({ "type": "object" }), defer_loading: deferred, freeform: None };
+    for name in ["a deferred tool on anthropic", "a deferred tool elsewhere"] {
+        let case = golden["guard"].as_array().unwrap().iter().find(|c| c["name"] == name).unwrap();
+        let provider = case["options"]["provider"].as_str().unwrap();
+        let before = mixdog_agent::prefix_guard::snapshot::<JsonValue>(&[], &[tool("a", false)], &[], provider, "m1");
+        let after = mixdog_agent::prefix_guard::snapshot::<JsonValue>(&[], &[tool("a", false), tool("d", true)], &[], provider, "m1");
+        assert_eq!(before.request_prefix_hash == after.request_prefix_hash, case["previous"]["requestPrefixHash"] == case["next"]["requestPrefixHash"], "{name}");
+    }
+}
+#[cfg(node_twin)]
+/// `fixtures/cache-break` `prefix`, `seeded`: the Anthropic request fingerprints the cache-miss row names its moved blocks from:
+/// the persisted fingerprint of every body, the changes from the body before, and a restarted process's seed.
+#[test]
+fn the_anthropic_prefix_fingerprints_are_nodes() {
+    use mixdog_ai::providers::anthropic::prefix_trace;
+    let golden = cache_break_golden();
+    // The recording's session ids, kept apart from any other test's by a suffix.
+    let ours = |session: &str| format!("{session}:run_loop");
+    for case in golden["prefix"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let session = ours(case["session"].as_str().unwrap());
+        prefix_trace::record(Some(&session), prefix_trace::fingerprint(case["body"].as_object().unwrap()));
+        assert_eq!(prefix_trace::latest_persistable(&session).unwrap_or(JsonValue::Null), case["persisted"], "{name}: the persisted fingerprint");
+        assert_eq!(prefix_trace::changes(&session).map_or(JsonValue::Null, JsonValue::Object), case["changes"], "{name}: the changes");
+    }
+    let seeded = &golden["seeded"];
+    let session = ours("sess_prefix_seeded");
+    prefix_trace::seed(&session, Some(&seeded["from"]));
+    prefix_trace::seed(&session, Some(&golden["prefix"][3]["persisted"]));
+    assert_eq!(prefix_trace::changes(&session).map_or(JsonValue::Null, JsonValue::Object), seeded["changesBefore"], "a seed alone");
+    prefix_trace::record(Some(&session), prefix_trace::fingerprint(seeded["body"].as_object().unwrap()));
+    assert_eq!(prefix_trace::changes(&session).map_or(JsonValue::Null, JsonValue::Object), seeded["changes"], "the request after a seed");
+}
+#[cfg(node_twin)]
+/// `fixtures/turn-effort/*.json` (`record-turn-effort.mjs`): Node's exec turn over its real runtime, a tool call and a
+/// final reply on an Anthropic route that takes effort updates, with `runtime.turnEffort` read while each request was in
+/// flight and after the turn settled. The route's effort fixed (`high`), absent, and Auto at `medium` with a step judged
+/// after the tool call. The same turn here runs the loop with the route's effort wiring and the step judgment the
+/// recording's judge gave; what the run published last before each request, and last of all, is what Node's getter
+/// answered then. (The judge's distribution to effort is the step-ladder recording's; the judge here answers the effort.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_turn_effort_published_is_the_one_node_answered_at_each_request_and_after_settling() {
+    use mixdog_agent::effort::{EffortMode, EffortRoute, EffortSnapshot, EffortWiring};
+    for name in ["fixed", "none", "auto-step"] {
+        let recorded: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{}/../../fixtures/turn-effort/{name}.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+        assert_eq!(recorded["code"], 0, "{name}");
+        let effort = recorded["route"]["effort"].as_str().map(str::to_owned);
+        let model = recorded["route"]["model"].as_str().unwrap().to_owned();
+        let auto = recorded["autoEffort"] == "on";
+        let mut h = Harness::new(vec![
+            turn(vec![text("reading"), call("c1", "echo", json!({"path": "a.txt"})), done(StopReason::ToolUse)]),
+            turn(vec![text("all done"), done(StopReason::EndTurn)]),
+        ]);
+        // Node awaited the step's judgment before the next request: here the grace's time never passes, so the judgment
+        // is what the request waits for.
+        h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(Arc::new(HeldTimer::default()))));
+        let adapter = Arc::new(SampledEffort { provider: h.provider.clone(), observer: h.observer.clone(), at_sends: Mutex::new(Vec::new()) });
+        let mut cfg = config();
+        // The route's effort as the host puts it on the turn's requests (`assemble.rs`, the header's `effort`).
+        cfg.options.effort = effort.clone();
+        // The turn's snapshot `prepareTurnEffortConfiguration` stamps: none without an effort on the route.
+        cfg.effort = Some(EffortWiring {
+            route: EffortRoute {
+                provider: "anthropic".into(),
+                model: model.clone(),
+                mode: Some(EffortMode::Anthropic),
+                allowed: ["low", "medium", "high"].map(String::from).to_vec(),
+                seed: effort.clone().map(|e| EffortSnapshot { provider: "anthropic".into(), model: model.clone(), mode: EffortMode::Anthropic, initial_effort: e.clone(), effort: e }),
+                wire: Arc::new(|e| Some(e.to_owned())),
+            },
+            adapter: adapter.clone(),
+        });
+        let sends = recorded["sends"].as_array().unwrap();
+        let run = if auto {
+            // The judge model's answers are the recording's script: the turn's distribution sets the base on the route's
+            // ladder (`resolveAutoEffort` at turn start), the step's goes to the core's judge over the same ladder.
+            let options = mixdog_ai::effort::effort_options_for("anthropic", &json!({ "id": model, "reasoningLevels": ["low", "medium", "high"], "customReasoning": true }), None);
+            let probs = |kind: &str| recorded["judge"][kind].as_array().unwrap().iter().map(|p| p.as_f64().unwrap()).collect::<Vec<f64>>();
+            let base = mixdog_services::effort_judge::ladder::resolve_auto_effort(effort.as_deref().unwrap(), &options, &probs("turn")).expect("the route's effort is on its ladder").effort.to_owned();
+            cfg.step_auto_effort = Some(mixdog_agent::step_effort::StepAutoEffort { request: recorded["prompt"].as_str().unwrap().into(), base: base.clone() });
+            let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user(recorded["prompt"].as_str().unwrap())]);
+            let ladder = Arc::new(mixdog_services::effort_judge::AutoLadder { base, options });
+            run.set_step_judge(Arc::new(mixdog_services::effort_judge::EffortJudge::over(Arc::new(RecordedProbs(probs("step"))), ladder)));
+            run
+        } else {
+            h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user(recorded["prompt"].as_str().unwrap())])
+        };
+        run.run().await.expect("run");
+        assert_eq!(h.provider.requests().len(), sends.len(), "{name}");
+        // The published value in force at each request and the effort the request carried, then at the end.
+        let current = h.observer.events().into_iter().filter_map(|e| match e { RunEvent::TurnEffort(effort) => Some(effort), _ => None }).last().flatten();
+        let node: Vec<_> = sends.iter().map(|send| json!({ "turnEffort": send["turnEffort"], "requestEffort": send["requestEffort"] })).collect();
+        assert_eq!(*adapter.at_sends.lock().unwrap(), node, "{name}: at each request");
+        // What a client saw is compared through the session actor (`mixdog-core` `run_host::factory` tests,
+        // `the_actor_publishes_the_turn_effort_sequence_node_published`).
+        assert_eq!(json!(current), recorded["settled"]["turnEffort"], "{name}: after the turn settled");
+    }
+}
+#[cfg(node_twin)]
+#[tokio::test]
+async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
+    let golden: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json")).unwrap();
+    let mut compared = 0;
+    for scenario in golden["scenarios"].as_array().unwrap() {
+        let route = scenario["route"].as_str().unwrap();
+        let Some(stored) = scenario.get("stored") else { continue };
+        let label = format!("{route} / {}", scenario["name"]);
+        let (events, failure) = leaked_events(route, scenario);
+        let real_read = mixdog_tools::fs::ReadTool::new(None, None).with_state(Arc::new(mixdog_tools::fs::ReadState::new(None)));
+        let reader = Arc::new(Reader {
+            real: Arc::new(real_read),
+            ran: Mutex::new(Vec::new()),
+            finished: tokio::sync::Semaphore::new(0),
+            fail: scenario["failing"] == true,
+        });
+        let mut steps: Vec<Step> = events.into_iter().map(Step::Event).collect();
+        // A turn Node's send rejected (`normalizeCompatChatResponse`) reaches the loop as the error the decoder fails with.
+        if let Some(error) = &failure {
+            steps.push(Step::Fail(error.clone()));
+        }
+        let mut h = Harness::new(vec![turn(steps), turn(vec![text("final"), done(StopReason::EndTurn)])]);
+        let (root, files) = leak_sandbox().await;
+        h.sandbox = Some((root.clone(), files));
+        // A denying gate answers with the text Node's PreToolUse deny produced; the tool never runs.
+        let denying = scenario["denying"] == true;
+        // A tool the executor does not have is answered with text too, and never runs.
+        let unknown = scenario["name"].as_str().unwrap().contains("the executor does not have");
+        if denying {
+            let recorded = stored["early"][0]["content"].as_str().unwrap().to_owned();
+            h.gate = Arc::new(DenyAll(recorded));
+        }
+        let tool: Arc<dyn Tool> = reader.clone();
+        if let Some(want_error) = stored.get("turnError") {
+            let failed = h.run(config(), vec![tool], vec![AgentMessage::user("go")]).run().await.expect_err(&label);
+            let AgentError::Provider(error) = &failed.error else { panic!("{label}: not a provider error: {:?}", failed.error) };
+            assert_eq!(error.message, want_error.as_str().unwrap(), "{label}: the error the turn ends with");
+            assert_eq!(h.provider.requests().len() as u64, stored["sends"].as_u64().unwrap(), "{label}: the send is not retried");
+            assert!(reader.ran.lock().unwrap().is_empty(), "{label}: no call ran");
+            let stored_assistants = failed.transcript.iter().filter(|m| m.role() == mixdog_core_api::domain::provider::Role::Assistant).count();
+            assert_eq!(stored_assistants, stored["messages"].as_array().unwrap().len(), "{label}: nothing stored for the cut turn");
+            compared += 1;
+            continue;
+        }
+        let output = finish(h.run(config(), vec![tool], vec![AgentMessage::user("go")])).await;
+        // A call no listed call consumed is left to finish, as in Node: wait for every run Node saw.
+        let expected = if denying || unknown { 0 } else { stored["early"].as_array().unwrap().len() };
+        let _ = reader.finished.acquire_many(expected as u32).await.unwrap();
+
+        let assistants: Vec<&AgentMessage> = output.transcript.iter().filter(|m| m.role() == mixdog_core_api::domain::provider::Role::Assistant).collect();
+        let want = stored["messages"].as_array().unwrap();
+        assert_eq!(assistants.len(), want.len(), "{label}: assistant messages");
+        for (message, want) in assistants.iter().zip(want) {
+            assert_eq!(message.text(), want["content"].as_str().unwrap(), "{label}: content");
+            let got: Vec<JsonValue> = message
+                .tool_calls()
+                .iter()
+                .map(|c| json!({"id": id_shape(&c.id), "name": c.name, "arguments": c.arguments}))
+                .collect();
+            assert_eq!(JsonValue::Array(got), want.get("toolCalls").cloned().unwrap_or_else(|| json!([])), "{label}: stored calls");
+            // Node keeps `thinkingBlocks` on the message; Rust holds them there on a turn without a block replay and
+            // inside the replay otherwise.
+            if let Some(want_blocks) = want.get("thinkingBlocks") {
+                let from_replay: Vec<JsonValue> = message
+                    .message
+                    .provider_replay()
+                    .iter()
+                    .filter_map(|replay| replay.items.as_array())
+                    .flatten()
+                    .filter(|b| matches!(b["type"].as_str(), Some("thinking" | "redacted_thinking")))
+                    .cloned()
+                    .collect();
+                let got_blocks = match &message.message.thinking_blocks {
+                    Some(blocks) => blocks.clone(),
+                    None => JsonValue::Array(from_replay),
+                };
+                assert_eq!(&got_blocks, want_blocks, "{label}: thinking blocks");
+            }
+        }
+        let results: Vec<&AgentMessage> = output.transcript.iter().filter(|m| m.role() == mixdog_core_api::domain::provider::Role::Tool).collect();
+        let want_results = stored["toolResults"].as_array().unwrap();
+        assert_eq!(results.len(), want_results.len(), "{label}: tool results");
+        // Where several calls read `a.txt`, which one the real tool answers with the file's lines and which with its dedup stub
+        // (`[file unchanged`) follows the order the runs reached the file: Node ran the streamed call before the batch's, this
+        // loop starts a native call as its event arrives. Those bodies are not compared (manifest); every other body is.
+        let several_runs = stored["executed"].as_array().unwrap().len() > 1;
+        let body_comparable = |body: &str| !several_runs || !(body.starts_with("[file unchanged") || body.starts_with("[lines 1-1]"));
+        for (message, want) in results.iter().zip(want_results) {
+            assert_eq!(id_shape(message.tool_call_id().unwrap()), want["toolCallId"].as_str().unwrap(), "{label}: result id");
+            if body_comparable(want["content"].as_str().unwrap()) {
+                assert_eq!(rooted(&message.text(), &root), want["content"].as_str().unwrap(), "{label}: result body");
+            }
+        }
+        // The UI's early notices (`__earlyNotify`): one per call that ran a tool, whichever path started it, whether or not
+        // any listed call consumed it; sent the instant the call settles, so wait for every one Node sent.
+        let want_early = stored["early"].as_array().unwrap();
+        let early = || -> Vec<(String, String, bool)> {
+            h.observer
+                .events()
+                .into_iter()
+                .filter_map(|event| match event {
+                    RunEvent::EarlyResult(message) => {
+                        Some((id_shape(message.tool_call_id().unwrap_or_default()), rooted(&message.text(), &root), message.tool_kind == Some(ToolKind::Error)))
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        while early().len() < want_early.len() {
+            let arrived = tokio::time::timeout(Duration::from_secs(30), h.observer.early_arrived.notified()).await;
+            assert!(arrived.is_ok(), "{label}: waited 30 s for early notice {} of {}", early().len() + 1, want_early.len());
+        }
+        let mut got_early = early();
+        got_early.sort();
+        let mut want_early_sorted: Vec<(String, bool)> =
+            want_early.iter().map(|e| (e["toolCallId"].as_str().unwrap().to_owned(), e["isError"].as_bool().unwrap())).collect();
+        want_early_sorted.sort();
+        assert_eq!(got_early.iter().map(|(id, _, err)| (id.clone(), *err)).collect::<Vec<_>>(), want_early_sorted, "{label}: early notices");
+        if scenario["failing"] == true {
+            // A failed run still tells the UI, with the executor's own text (one `Error: ` prefix, as recorded).
+            for (_, content, is_error) in &got_early {
+                assert!(*is_error, "{label}: early notice is an error");
+                assert_eq!(content, want_early[0]["content"].as_str().unwrap(), "{label}: early notice text");
+            }
+            for (message, want) in results.iter().zip(want_results) {
+                assert_eq!(message.text(), want["content"].as_str().unwrap(), "{label}: stored error text");
+            }
+        }
+        if denying || unknown {
+            // Node returns a gate denial (or the unknown-tool text) as text: its early notice is a normal result carrying the denial.
+            for (_, content, is_error) in &got_early {
+                assert!(!*is_error, "{label}: a returned text is not an error notice");
+                assert_eq!(content, want_early[0]["content"].as_str().unwrap(), "{label}: denial text");
+            }
+            for (message, want) in results.iter().zip(want_results) {
+                assert_eq!(message.text(), want["content"].as_str().unwrap(), "{label}: stored denial text");
+            }
+        }
+        // Minted ids share one shape, so the bodies are compared per id as sorted lists.
+        let mut early_ids: Vec<&str> = want_early.iter().map(|e| e["toolCallId"].as_str().unwrap()).collect();
+        early_ids.dedup();
+        for id in early_ids {
+            let mut want_bodies: Vec<&str> = want_early.iter().filter(|e| e["toolCallId"] == id).map(|e| e["content"].as_str().unwrap()).collect();
+            let mut got_bodies: Vec<&str> = got_early.iter().filter(|(got_id, _, _)| got_id == id).map(|(_, body, _)| body.as_str()).collect();
+            want_bodies.sort();
+            got_bodies.sort();
+            if want_bodies.iter().all(|body| body_comparable(body)) {
+                assert_eq!(got_bodies, want_bodies, "{label}: early notice bodies of {id}");
+            }
+        }
+        let mut ran: Vec<String> = reader.ran.lock().unwrap().iter().map(|id| id_shape(id)).collect();
+        ran.sort();
+        ran.dedup();
+        let want_ran: Vec<String> = stored["executed"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect();
+        if !(denying || unknown) {
+            assert_eq!(ran, want_ran, "{label}: the ids a tool ran for");
+        }
+        compared += 1;
+    }
+    assert!(compared > 100, "scenarios compared: {compared}");
 }

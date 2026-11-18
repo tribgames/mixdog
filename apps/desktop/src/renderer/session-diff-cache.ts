@@ -1,7 +1,9 @@
 import {
   decodeSessionDiffFilePatch,
-  sessionDiffFileOmitted,
-  sessionDiffFilePatch,
+  parsedSessionDiff,
+  parseSessionDiff,
+  sessionDiffFileSlice,
+  sameSessionDiffContent,
   type SessionDiffFilePatch,
   type SessionDiffResult,
 } from './session-diff-model';
@@ -19,20 +21,25 @@ import { estimateRetainedChars } from './renderer-value-weight';
  *  revisited session paints its cached rows instantly while revalidating. */
 const SESSION_DIFF_CACHE_LIMIT = 32;
 export const SESSION_DIFF_CACHE_MAX_CHARS = 8 * 1024 * 1024;
-const sessionDiffCache = new RendererLruCache<string, SessionDiffResult>({
+type CachedDiff = {
+  result: SessionDiffResult;
+  files?: Map<string, WeakRef<SessionDiffFilePatch>>;
+};
+const sessionDiffCache = new RendererLruCache<string, CachedDiff>({
   name: 'session-diff',
   maxEntries: SESSION_DIFF_CACHE_LIMIT,
   maxChars: SESSION_DIFF_CACHE_MAX_CHARS,
-  measure: (result) => estimateRetainedChars(result, SESSION_DIFF_CACHE_MAX_CHARS),
+  measure: ({ result }) => estimateRetainedChars(result, SESSION_DIFF_CACHE_MAX_CHARS),
 });
 type DiffFlight = { inflight: Promise<SessionDiffResult>; queuedDirty: boolean };
 const pendingDiffs = new Map<string, DiffFlight>();
 /** Per session: bumps whenever the cached result changes, so a file patch
  *  read on its own is reused only against the result it was read for. */
 const revisions = new Map<string, number>();
-/** Per session: the file patches read on their own for its current revision. */
+/** A settled list remembers only weak hints for its omitted files. Reads
+ *  still running are shared independently of that list's cache budget. */
 const FILE_PATCHES_PER_SESSION = 16;
-const filePatches = new Map<string, { revision: number; files: Map<string, Promise<SessionDiffFilePatch>> }>();
+const pendingFilePatches = new Map<string, Promise<SessionDiffFilePatch>>();
 /** Per session: the change signal its last successful read answered. Bounded
  *  like the result cache (oldest dropped) and cleared with it. */
 const answeredSignals = new Map<string, string>();
@@ -47,14 +54,11 @@ function adoptHost(): void {
   boundScope = scope;
   sessionDiffCache.clear();
   pendingDiffs.clear();
-  filePatches.clear();
   answeredSignals.clear();
 }
 
 registerIdleReclaim(() => {
   sessionDiffCache.clear();
-  pendingDiffs.clear();
-  filePatches.clear();
   answeredSignals.clear();
 });
 
@@ -74,23 +78,20 @@ export function answerSessionDiffSignal(sessionId: string, signal: string): void
     answeredSignals.delete(answeredSignals.keys().next().value as string);
 }
 
-/** Same diff content, compared without re-serialising the (large) patch. */
-export function sameSessionDiff(left: SessionDiffResult | null, right: SessionDiffResult | null): boolean {
-  if (left === right) return true;
-  if (!left || !right || left.patch !== right.patch) return false;
-  return JSON.stringify({ ...left, patch: undefined }) === JSON.stringify({ ...right, patch: undefined });
-}
+export { sameSessionDiffContent as sameSessionDiff };
 
 /** Cache a session's result; a different one starts a new revision. A
  *  `reread` (a change signal or user refresh) always does: an omitted file's
  *  patch can change while its counts and metadata stay equal, so the lazily
  *  read file patches must not outlive any forced read. */
 function storeSessionDiff(id: string, result: SessionDiffResult, reread = false): void {
-  if (reread || !sameSessionDiff(sessionDiffCache.get(id) ?? null, result)) {
+  const held = sessionDiffCache.get(id);
+  if (reread || !sameSessionDiffContent(held?.result ?? null, result)) {
     revisions.set(id, (revisions.get(id) ?? 0) + 1);
-    filePatches.delete(id);
+    sessionDiffCache.set(id, { result });
+  } else {
+    sessionDiffCache.set(id, { result, files: held?.files });
   }
-  sessionDiffCache.set(id, result);
 }
 
 /** The revision of a session's cached result (fingerprints file patches). */
@@ -119,7 +120,7 @@ async function invokeSessionDiff(sessionId: string): Promise<SessionDiffResult> 
  *  refresh runs behind it. */
 export function peekSessionDiff(sessionId: string): SessionDiffResult | null {
   adoptHost();
-  return sessionDiffCache.get(cleanSessionId(sessionId)) ?? null;
+  return sessionDiffCache.get(cleanSessionId(sessionId))?.result ?? null;
 }
 
 /** Seed the cache without a round-trip (tests, optimistic restores). */
@@ -136,8 +137,12 @@ export function releaseSessionDiff(sessionId: string): void {
   const id = cleanSessionId(sessionId);
   sessionDiffCache.delete(id);
   pendingDiffs.delete(id);
-  filePatches.delete(id);
   answeredSignals.delete(id);
+}
+
+async function parsedDelivery(value: SessionDiffResult): Promise<SessionDiffResult> {
+  await parseSessionDiff(value);
+  return value;
 }
 
 /** One round-trip per session at a time: concurrent callers share the same
@@ -158,7 +163,7 @@ export function fetchSessionDiff(
     if (force && options?.join !== true) flight.queuedDirty = true;
     return flight.inflight;
   }
-  const result = sessionDiffCache.get(id);
+  const result = sessionDiffCache.get(id)?.result;
   if (!force && result) return Promise.resolve(result);
   const next: DiffFlight = { inflight: Promise.resolve(emptySessionDiff()), queuedDirty: false };
   const run = async (): Promise<SessionDiffResult> => {
@@ -168,7 +173,17 @@ export function fetchSessionDiff(
       const value = await invokeSessionDiff(id);
       adoptHost();
       // Session released / host changed meanwhile: deliver, never retain.
+      if (pendingDiffs.get(id) !== next) return parsedDelivery(value);
+      if (next.queuedDirty) {
+        reread = true;
+        continue;
+      }
+      // Every delivered result is parsed once, here, in bounded tasks (input
+      // runs between them); an answer equal to the held one shares its parse.
+      await parseSessionDiff(value, sessionDiffCache.get(id)?.result ?? null);
+      adoptHost();
       if (pendingDiffs.get(id) !== next) return value;
+      // A change signal during the parse: this answer is already stale.
       if (next.queuedDirty) {
         reread = true;
         continue;
@@ -199,39 +214,49 @@ async function invokeSessionDiffFilePatch(
 /** One file's patch: its slice of the session's patch, served from the
  *  shared cache so opening a file never recomputes the whole session diff.
  *  A file the result listed without its patch (too large for the reply) is
- *  read on its own, once per file and result revision. */
+ *  read on its own; concurrent callers join and a surviving answer can
+ *  be reused for that exact revision. */
 export async function fetchSessionDiffFilePatchResult(
   sessionId: string,
-  file: { id: string; path: string; oldPath?: string }
+  file: { id: string; path: string; oldPath?: string },
+  binding: 'list' | 'standalone' = 'list'
 ): Promise<SessionDiffFilePatch> {
   const id = cleanSessionId(sessionId);
-  const result = await fetchSessionDiff(id);
-  const slice = sessionDiffFilePatch(typeof result?.patch === 'string' ? result.patch : '', file.path);
+  // The settled result is the one the listed rows were read from: a file's slice comes from it at once. A whole-session
+  // read running behind it (an agent editing re-reads every few seconds, each a full diff on the core) answers a later
+  // list, whose rows ask for their slices again; waiting for it held every open of Changes for that read.
+  const settled = binding === 'list' ? peekSessionDiff(id) : null;
+  const result = settled ?? (await fetchSessionDiff(id));
+  const parsed = parsedSessionDiff(result);
+  const slice = sessionDiffFileSlice(parsed, file.path);
   if (slice || !id) return { patch: slice, tooLarge: false };
-  const clean = (value: unknown) => String(value || '').replace(/\\/g, '/');
-  const listed = (Array.isArray(result?.files) ? result.files : []).find(
-    (entry) => clean(entry?.id || entry?.path) === file.id || clean(entry?.path) === file.path
-  );
-  if (!sessionDiffFileOmitted(listed)) return { patch: '', tooLarge: false };
+  // The listed file, looked up in the parse's index (by ID, else path).
+  const position = parsed.index.byId.get(file.id) ?? parsed.index.byPath.get(file.path) ?? -1;
+  if (parsed.rows[position]?.patchOmitted !== true) return { patch: '', tooLarge: false };
   const revision = sessionDiffRevision(id);
-  let held = filePatches.get(id);
-  if (held?.revision !== revision) {
-    held = { revision, files: new Map() };
-    filePatches.set(id, held);
-  }
-  let read = held.files.get(file.id);
-  if (!read) {
-    read = invokeSessionDiffFilePatch(id, file);
-    const files = held.files;
-    // A failed read is not kept: the next open asks again.
-    read.catch(() => files.delete(file.id));
-    files.set(file.id, read);
+  const held = sessionDiffCache.peek(id);
+  const files = held?.result === result ? (held.files ??= new Map()) : undefined;
+  const cached = files?.get(file.id)?.deref();
+  if (cached) return cached;
+  const key = JSON.stringify([id, revision, file.id]);
+  const pending = pendingFilePatches.get(key);
+  if (pending) return pending;
+  const read = invokeSessionDiffFilePatch(id, file);
+  pendingFilePatches.set(key, read);
+  try {
+    const answer = await read;
+    // A consumer owns the displayed patch. This reuse hint must not keep
+    // its text alive after the consumer releases it.
+    if (!files) return answer;
+    files.set(file.id, new WeakRef(answer));
     while (files.size > FILE_PATCHES_PER_SESSION) files.delete(files.keys().next().value as string);
+    return answer;
+  } finally {
+    pendingFilePatches.delete(key);
   }
-  return read;
 }
 
 /** The patch text of one file (see fetchSessionDiffFilePatchResult). */
 export async function fetchSessionDiffFilePatch(sessionId: string, rel: string): Promise<string> {
-  return (await fetchSessionDiffFilePatchResult(sessionId, { id: rel, path: rel })).patch;
+  return (await fetchSessionDiffFilePatchResult(sessionId, { id: rel, path: rel }, 'standalone')).patch;
 }

@@ -3,7 +3,8 @@ import { test } from 'node:test';
 
 import { DesktopSettingsStore, desktopSettingsFromConfig } from './settings-store.ts';
 import { registerDesktopIpc } from './ipc.ts';
-import { requiredDesktopCapabilityRequest, requiredDesktopSettingKey } from './ipc-validation.ts';
+import { requiredDesktopSettingKey } from './ipc-validation.ts';
+import { requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
 import { DESKTOP_IPC } from '../shared/contract.ts';
 import { defaultBrowserPermissionPolicy } from '../shared/browser-permission-policy.ts';
 import { registerWindowSettingsIpc } from './ipc-window-settings.ts';

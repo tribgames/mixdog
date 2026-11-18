@@ -152,7 +152,7 @@ pub fn desktop_settings(config: &Map<String, Value>) -> DesktopSettings {
         run_in_background: flag(desktop, "runInBackground", true),
         notification_volume: desktop
             .get("notificationVolume")
-            .and_then(Value::as_i64)
+            .and_then(super::notifications::safe_integer)
             .filter(|n| (0..=NOTIFICATION_VOLUME_MAX).contains(n))
             .unwrap_or(NOTIFICATION_VOLUME_DEFAULT),
         session_auto_archive_days: retention(

@@ -534,6 +534,12 @@ static OWNED_SERVERS: std::sync::Mutex<Vec<mixdog_exthost::Containment>> = std::
 /// spawns it and polls readiness), so this only reports an exit that came before readiness.
 type StartRun = tokio::task::JoinHandle<Result<()>>;
 
+#[cfg(test)]
+thread_local! {
+    /// The process id of the `pg_ctl` this thread's last `spawn_start` made.
+    static SPAWNED_START: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
 /// `pg_ctl start` as Node's `startAndWaitReady` spawns it (`process.mjs:407-440`: `spawn` with piped output and `windowsHide`, never killed by its
 /// starter). In Node the postmaster belonged to no job of the daemon and outlived it (`process.mjs:409-416`). Here the server ends with the core: a
 /// quitting core stops it (`stop_for_quit`), and on Windows this child is created suspended and put in a kill-on-close job the core holds for its
@@ -555,8 +561,20 @@ fn spawn_start(runtime: &PgRuntime, args: &[String]) -> Result<(StartRun, StartO
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(false);
     #[cfg(windows)]
-    command.creation_flags(0x0800_0000 | 0x0000_0004); // CREATE_NO_WINDOW, as Node's windowsHide; CREATE_SUSPENDED until it is in its job
+    command.creation_flags(0x0800_0000 | 0x0000_0004 | 0x0000_4000); // CREATE_NO_WINDOW, as Node's windowsHide; CREATE_SUSPENDED until it is in its job; BELOW_NORMAL_PRIORITY_CLASS, which the postmaster and every backend inherit (Node's memory process ran below normal and so did its PostgreSQL)
+    #[cfg(unix)]
+    {
+        // SAFETY: only async-signal-safe operations run between fork and exec.
+        unsafe {
+            command.pre_exec(|| {
+                libc::setpriority(libc::PRIO_PROCESS, 0, 10);
+                Ok(())
+            });
+        }
+    }
     let mut child = command.spawn().map_err(|error| MemoryError::Runtime(format!("pg_ctl failed: {error}")))?;
+    #[cfg(test)]
+    SPAWNED_START.with(|pid| pid.set(child.id()));
     #[cfg(windows)]
     match mixdog_exthost::Containment::attach(&child) {
         Ok(job) => OWNED_SERVERS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(job),
@@ -647,6 +665,24 @@ async fn take_spawn_lock(lock_file: &Path, wait: Duration, cancel: &Cancellation
     }
 }
 
+/// What a cluster start reports to its owner, synchronously at the point each fact becomes true: `admit` is the last check before `pg_ctl start` is
+/// spawned (no await between them), and `established` runs in the poll that attached to a postmaster or saw a started one ready, before `ensure`
+/// returns, with no await between the fact and the call. A plain `Fn() -> bool` admits and records nothing (tests).
+pub(crate) trait Launch {
+    fn admit(&self) -> bool;
+    fn established(&self, cluster: PgCluster) -> PgCluster;
+}
+
+impl<F: Fn() -> bool> Launch for F {
+    fn admit(&self) -> bool {
+        self()
+    }
+
+    fn established(&self, cluster: PgCluster) -> PgCluster {
+        cluster
+    }
+}
+
 impl PgCluster {
     /// `_doEnsure`'s cluster part (`supervisor.mjs:479-628`) for the profile data directory `profile`: the cluster is `<profile>/pgdata` (`_pgdataDir`), the
     /// spawn lock `<profile>/pg-spawn.lock` (`:618`) and the server log `<profile>/pg.log` (`_startFresh`, `:358`), both outside the cluster as in Node (an
@@ -664,7 +700,7 @@ impl PgCluster {
         processes: Processes,
         cancel: &CancellationToken,
         start: &Start,
-        admit: &(dyn Fn() -> bool + Send + Sync),
+        launch: &(dyn Launch + Send + Sync),
     ) -> Result<Self> {
         let data_dir = profile.join("pgdata");
         // `pgdata` itself is made only by `init`, whole.
@@ -672,7 +708,10 @@ impl PgCluster {
         if let Some(port) = read_postmaster_port(lane, &data_dir).await
             && start.healthy(port).await
         {
-            return Ok(Self { runtime, data_dir, port, lane, processes });
+            // A test's hold of this poll between the attach and its record (a thread preempted there), which no revocation can cut.
+            #[cfg(test)]
+            crate::memory::lifecycle::fences::hold("pg-attached");
+            return Ok(launch.established(Self { runtime, data_dir, port, lane, processes }));
         }
         let _spawn_lock = match take_spawn_lock(&profile.join("pg-spawn.lock"), start.lock_wait(), cancel).await {
             Ok(hold) => hold,
@@ -680,7 +719,7 @@ impl PgCluster {
                 if let Some(port) = read_postmaster_port(lane, &data_dir).await
                     && start.healthy(port).await
                 {
-                    return Ok(Self { runtime, data_dir, port, lane, processes });
+                    return Ok(launch.established(Self { runtime, data_dir, port, lane, processes }));
                 }
                 mixdog_rt::memory_stderr!("[supervisor-pg] spawn-lock wait ended: {error}");
                 return Err(MemoryError::Runtime("[supervisor-pg] spawn-lock acquire timeout (concurrent supervisor risk)".to_owned()));
@@ -690,10 +729,10 @@ impl PgCluster {
         if let Some(port) = read_postmaster_port(lane, &data_dir).await
             && start.healthy(port).await
         {
-            return Ok(Self { runtime, data_dir, port, lane, processes });
+            return Ok(launch.established(Self { runtime, data_dir, port, lane, processes }));
         }
         if let Some(port) = settle_leftover_postmaster(lane, &processes, &data_dir, start, cancel).await? {
-            return Ok(Self { runtime, data_dir, port, lane, processes });
+            return Ok(launch.established(Self { runtime, data_dir, port, lane, processes }));
         }
         let log = profile.join("pg.log");
         rotate_log_if_needed(lane, &log).await;
@@ -711,14 +750,14 @@ impl PgCluster {
             None => free_port(from).await?,
         };
         let logged_before = fsio::read_to_string(lane, &log).await.map_or(0, |text| text.len());
-        // The last check before the postmaster starts, made with the spawn: `admit` refuses once the owner's stop began (a cancelled start begins no
-        // postmaster: nothing would own it). An admitted start the stop gives up on at 6 s goes on as Node's does.
-        if cancel.is_cancelled() || !admit() {
-            return Err(MemoryError::Runtime(CANCELLED_START.to_owned()));
-        }
         #[cfg(test)]
         if let Some(gate) = &start.before_spawn {
             gate(port).await;
+        }
+        // The last check before the postmaster starts, in the same poll as the spawn (no await between them): `admit` refuses once the owner's stop
+        // began, and records an admitted start as handed to the OS before it is spawned.
+        if cancel.is_cancelled() || !launch.admit() {
+            return Err(MemoryError::Runtime(CANCELLED_START.to_owned()));
         }
         let args: Vec<String> = [
             "start".to_owned(),
@@ -733,12 +772,14 @@ impl PgCluster {
         // Not waited for, as in Node: `pg_ctl start` is spawned and readiness is polled; the
         // postmaster outlives it. An exit before readiness is a start failure.
         let (run, output) = spawn_start(&runtime, &args).map_err(|error| MemoryError::Runtime(format!("pg_ctl start failed: {}", error.message())))?;
+        #[cfg(test)]
+        crate::memory::lifecycle::fences::pass("pg-launched").await;
         let mut started: Option<StartRun> = Some(run);
         let deadline = tokio::time::Instant::now() + START_DEADLINE;
         let mut early: Option<MemoryError> = None;
         loop {
             if start.healthy(port).await && read_postmaster_port(lane, &data_dir).await == Some(port) {
-                return Ok(Self { runtime, data_dir, port, lane, processes });
+                return Ok(launch.established(Self { runtime, data_dir, port, lane, processes }));
             }
             if started.as_ref().is_some_and(tokio::task::JoinHandle::is_finished)
                 && let Some(done) = started.take()
@@ -754,7 +795,7 @@ impl PgCluster {
                 if error.message().contains("another server might be running")
                     && let Some(winner) = Self::await_race_winner(&runtime, &processes, lane, &data_dir).await
                 {
-                    return Ok(Self { runtime, data_dir, port: winner, lane, processes });
+                    return Ok(launch.established(Self { runtime, data_dir, port: winner, lane, processes }));
                 }
                 let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
                 // A port the replay assigned is the only one it may take: its bind failure is the start's.
@@ -859,6 +900,11 @@ impl PgCluster {
         self.port
     }
 
+    #[cfg(test)]
+    pub(crate) fn runtime(&self) -> &PgRuntime {
+        &self.runtime
+    }
+
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
     }
@@ -885,6 +931,374 @@ impl PgCluster {
             Err(_) if read_postmaster_port(self.lane, &self.data_dir).await.is_none() => Ok(()),
             Err(error) => Err(error),
         }
+    }
+}
+
+/// What the memory stop did with PostgreSQL. A dispatch is a delivered signal, never an observed exit: whether the postmaster exited is a separate
+/// observation ([`await_exit`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StopDispatch {
+    /// A fast-shutdown request was delivered to the postmaster `pid`.
+    Dispatched { pid: u32 },
+    /// No postmaster was running for the data directory.
+    AlreadyAbsent,
+    /// A secondary process: the cluster belongs to the primary, which stops it.
+    SecondaryNotOwned,
+    /// Nothing was opened and no start was handed to the OS.
+    NothingOpened,
+    /// A start was handed to the OS before the stop and no postmaster of it could be reached yet (no pid file): it cannot be recalled. On Windows it
+    /// runs in the core's kill-on-close job ([`OWNED_SERVERS`]) and ends with the core; on Unix the next launch reconciles it
+    /// (`settle_leftover_postmaster`).
+    ExternalStartUnresolved,
+    /// The delivery failed.
+    Failed(String),
+}
+
+/// The whole dispatch's bound: the target's pid (from the record, else one read of `postmaster.pid`), the liveness check and the delivery. On Windows
+/// the delivery is `pg_ctl stop -W`, which only sends the signal (`pgkill` over the postmaster's signal pipe) and exits.
+const DISPATCH_LIMIT: Duration = Duration::from_secs(3);
+
+/// Replaces the next pid read of a dispatch (a stalled lane, a failing read).
+#[cfg(test)]
+pub(crate) static PID_READ: std::sync::Mutex<Option<futures::future::BoxFuture<'static, std::io::Result<Option<u32>>>>> = std::sync::Mutex::new(None);
+
+/// The pid line of `postmaster.pid`: `Ok(None)` only when there is no pid file (or it holds no line yet); any other failure is an error, never
+/// absence.
+async fn read_pid_checked(lane: DurabilityIo, data_dir: &Path) -> std::io::Result<Option<u32>> {
+    #[cfg(test)]
+    {
+        let replaced = PID_READ.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        if let Some(read) = replaced {
+            return read.await;
+        }
+    }
+    match fsio::read_to_string(lane, &data_dir.join("postmaster.pid")).await {
+        Ok(text) => match text.lines().next().map(str::trim).filter(|line| !line.is_empty()) {
+            None => Ok(None),
+            Some(line) => line.parse().map(Some).map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// The postmaster's pid as recorded in `data_dir` now (the opening records it once its cluster is attached or started).
+pub(crate) async fn recorded_pid(lane: DurabilityIo, data_dir: &Path) -> std::io::Result<Option<u32>> {
+    read_pid_checked(lane, data_dir).await
+}
+
+/// Delivers PostgreSQL's fast-shutdown request (`SIGINT`) to the postmaster of `data_dir` and returns without waiting for it to exit: one bounded
+/// step ([`DISPATCH_LIMIT`]) that always ends in an outcome. `known` is the pid the stop's record holds; without one the pid file is read, and
+/// `missing` is the outcome when it names none. A failed read is `Failed`, never absence. Unix signals the pid directly; Windows has no signals, so
+/// `pg_ctl stop -m fast -W` (no wait) delivers it.
+pub(crate) async fn dispatch_fast_stop(
+    runtime: &PgRuntime,
+    processes: &Processes,
+    lane: DurabilityIo,
+    data_dir: &Path,
+    known: Option<u32>,
+    missing: StopDispatch,
+) -> StopDispatch {
+    let delivery = deliver_fast_stop(runtime, processes, lane, data_dir, known, missing);
+    match mixdog_rt::time::timeout(DISPATCH_LIMIT, delivery).await {
+        Ok(outcome) => outcome,
+        Err(_) => StopDispatch::Failed(format!("the stop's dispatch did not end within {} s", DISPATCH_LIMIT.as_secs())),
+    }
+}
+
+#[cfg_attr(unix, allow(unused_variables, reason = "the runtime delivers the signal on Windows only"))]
+async fn deliver_fast_stop(runtime: &PgRuntime, processes: &Processes, lane: DurabilityIo, data_dir: &Path, known: Option<u32>, missing: StopDispatch) -> StopDispatch {
+    let pid = match known {
+        Some(pid) => pid,
+        None => match read_pid_checked(lane, data_dir).await {
+            Ok(Some(pid)) => pid,
+            Ok(None) => return missing,
+            Err(error) => return StopDispatch::Failed(format!("reading postmaster.pid failed: {error}")),
+        },
+    };
+    if !mixdog_statefile::process_exists(pid) {
+        return StopDispatch::AlreadyAbsent;
+    }
+    #[cfg(unix)]
+    {
+        // A pid the OS handed to another program since is no postmaster (`isPostmasterAlive`): it is never signalled.
+        if !is_postgres_pid(processes, pid).await {
+            return StopDispatch::AlreadyAbsent;
+        }
+        // SAFETY: a signal to the pid of the stop's record (or the data directory's pid file), checked alive and a postgres just above.
+        if unsafe { libc::kill(pid as libc::pid_t, libc::SIGINT) } == 0 {
+            return StopDispatch::Dispatched { pid };
+        }
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ESRCH) {
+            return StopDispatch::AlreadyAbsent;
+        }
+        StopDispatch::Failed(error.to_string())
+    }
+    #[cfg(windows)]
+    {
+        let args: Vec<String> = ["stop", "-m", "fast", "-W", "-D"].into_iter().map(str::to_owned).chain([data_dir.to_string_lossy().into_owned()]).collect();
+        match runtime.run(processes, "pg_ctl", &args, DISPATCH_LIMIT, None).await {
+            Ok(_) => StopDispatch::Dispatched { pid },
+            Err(_) if !mixdog_statefile::process_exists(pid) => StopDispatch::AlreadyAbsent,
+            Err(error) => StopDispatch::Failed(error.message()),
+        }
+    }
+}
+
+/// What the stop must reach: nothing, a start handed to the OS whose cluster is not known ready, or a cluster attached to or started (its pid once known).
+#[derive(Clone, Default)]
+pub(crate) enum StopTarget {
+    #[default]
+    None,
+    Handed(PgRuntime),
+    Cluster { runtime: PgRuntime, pid: Option<u32> },
+}
+
+#[derive(Default)]
+struct RecordState {
+    target: StopTarget,
+    /// The stop has read the record for its dispatch.
+    decided: bool,
+    /// The delivery a transition after that decision started itself, synchronously in its own step ([`initiate_fast_stop`]); the stop's controller
+    /// only collects its outcome, after its local acknowledgement ([`StopRecord::late_dispatch`]).
+    late: Option<Initiated>,
+}
+
+/// A fast-stop delivery started without awaiting anything: its outcome, or (Windows) the `pg_ctl stop` child it runs in, owned by the record.
+enum Initiated {
+    Done(StopDispatch),
+    #[cfg(windows)]
+    Running { pid: u32, child: std::process::Child },
+}
+
+/// Starts the fast-stop delivery to the postmaster of `data_dir` synchronously, for a transition that finds the stop already decided: nothing here
+/// awaits, so neither revocation nor an executor that stops driving tasks can hold it back. The pid is `known` or read from the pid file (one small
+/// synchronous read). Unix signals the postmaster directly; Windows spawns `pg_ctl stop -m fast -W`, whose child the record owns and the controller
+/// collects within [`DISPATCH_LIMIT`].
+#[allow(clippy::disallowed_methods, reason = "one synchronous read of the small pid file, inside the transition's step, which must not await")]
+#[cfg_attr(unix, allow(unused_variables, reason = "the runtime delivers the signal on Windows only"))]
+fn initiate_fast_stop(runtime: &PgRuntime, data_dir: &Path, known: Option<u32>) -> Initiated {
+    let pid = match known {
+        Some(pid) => pid,
+        None => match std::fs::read_to_string(data_dir.join("postmaster.pid")) {
+            Ok(text) => match text.lines().next().map(str::trim).filter(|line| !line.is_empty()).map(str::parse::<u32>) {
+                Some(Ok(pid)) => pid,
+                None => return Initiated::Done(StopDispatch::AlreadyAbsent),
+                Some(Err(error)) => return Initiated::Done(StopDispatch::Failed(format!("reading postmaster.pid failed: {error}"))),
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Initiated::Done(StopDispatch::AlreadyAbsent),
+            Err(error) => return Initiated::Done(StopDispatch::Failed(format!("reading postmaster.pid failed: {error}"))),
+        },
+    };
+    if !mixdog_statefile::process_exists(pid) {
+        return Initiated::Done(StopDispatch::AlreadyAbsent);
+    }
+    #[cfg(unix)]
+    {
+        // A pid the OS handed to another program is no postmaster: it is never signalled (`is_postgres_pid`, read without a child process here).
+        if !postgres_named(pid) {
+            return Initiated::Done(StopDispatch::AlreadyAbsent);
+        }
+        // SAFETY: a signal to the pid of the stop's record (or the data directory's pid file), checked alive and a postgres just above.
+        if unsafe { libc::kill(pid as libc::pid_t, libc::SIGINT) } == 0 {
+            return Initiated::Done(StopDispatch::Dispatched { pid });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ESRCH) {
+            return Initiated::Done(StopDispatch::AlreadyAbsent);
+        }
+        Initiated::Done(StopDispatch::Failed(error.to_string()))
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        let spawned = std::process::Command::new(runtime.bin("pg_ctl"))
+            .args(["stop", "-m", "fast", "-W", "-D"])
+            .arg(data_dir)
+            .env_clear()
+            .envs(runtime.env())
+            .current_dir(&runtime.dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW, as Node's windowsHide
+            .spawn();
+        match spawned {
+            Ok(child) => Initiated::Running { pid, child },
+            Err(error) => Initiated::Done(StopDispatch::Failed(format!("pg_ctl failed: {error}"))),
+        }
+    }
+}
+
+/// Whether `pid`'s process is named postgres, read without a child process (Linux procfs, macOS `proc_name`); unreadable is taken as postgres.
+#[cfg(unix)]
+#[allow(clippy::disallowed_methods, reason = "Linux only: one read of procfs, which is memory and not a disk")]
+fn postgres_named(pid: u32) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string(format!("/proc/{pid}/comm")).map_or(true, |comm| comm.contains("postgres"))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut name = [0u8; 256];
+        // SAFETY: the buffer and its length are this function's own.
+        let len = unsafe { libc::proc_name(pid as libc::c_int, name.as_mut_ptr().cast(), name.len() as u32) };
+        len <= 0 || String::from_utf8_lossy(&name[..len as usize]).contains("postgres")
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = pid;
+        true
+    }
+}
+
+impl Initiated {
+    /// The outcome of what was started, collected within [`DISPATCH_LIMIT`]: a `pg_ctl stop` that does not end in time is ended and `Failed`.
+    async fn collect(self) -> StopDispatch {
+        match self {
+            Self::Done(outcome) => outcome,
+            #[cfg(windows)]
+            Self::Running { pid, mut child } => {
+                let until = tokio::time::Instant::now() + DISPATCH_LIMIT;
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(status)) if status.success() => return StopDispatch::Dispatched { pid },
+                        Ok(Some(status)) => {
+                            if !mixdog_statefile::process_exists(pid) {
+                                return StopDispatch::AlreadyAbsent;
+                            }
+                            let mut text = String::new();
+                            if let Some(mut stderr) = child.stderr.take() {
+                                let _ = std::io::Read::read_to_string(&mut stderr, &mut text);
+                            }
+                            let text = text.trim();
+                            return StopDispatch::Failed(format!("pg_ctl failed: {}", if text.is_empty() { status.to_string() } else { text.to_owned() }));
+                        }
+                        Ok(None) if tokio::time::Instant::now() < until => mixdog_rt::time::sleep(Duration::from_millis(20)).await,
+                        Ok(None) => {
+                            // Not waited for: Windows ends a process asynchronously, and this step returns within its limit.
+                            let _ = child.kill();
+                            return StopDispatch::Failed(format!("the stop's dispatch did not end within {} s", DISPATCH_LIMIT.as_secs()));
+                        }
+                        Err(error) => return StopDispatch::Failed(format!("pg_ctl failed: {error}")),
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The one record of the cluster a memory stack's stop must reach, under one lock from the moment a start is handed to the OS or a postmaster is
+/// attached to until it is stopped. Every transition happens under that lock, synchronously where its fact becomes true ([`Launch`]), and the stop
+/// reads it once. A transition that arrives after the stop decided starts the delivery itself, synchronously in that step, and the stop's controller
+/// collects its outcome after the acknowledgement: no schedule leaves a known live cluster unsignalled while the stop waits for local work, nor ends
+/// without a dispatch or an unresolved report. `None` is written only by a stop that succeeded or by evidence that no postmaster is left.
+pub(crate) struct StopRecord {
+    data_dir: PathBuf,
+    lane: DurabilityIo,
+    processes: Processes,
+    /// A secondary process never stops the shared cluster.
+    owned: bool,
+    state: std::sync::Mutex<RecordState>,
+}
+
+impl StopRecord {
+    pub(crate) fn new(data_dir: PathBuf, lane: DurabilityIo, processes: Processes, owned: bool) -> Arc<Self> {
+        Arc::new(Self { data_dir, lane, processes, owned, state: std::sync::Mutex::default() })
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, RecordState> {
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// An admitted start, recorded before it is spawned.
+    pub(crate) fn handed(&self, runtime: &PgRuntime) {
+        self.state().target = StopTarget::Handed(runtime.clone());
+    }
+
+    /// A cluster attached to or started is ready (its pid possibly not known yet). Synchronous, under the lock: after the stop's decision it starts
+    /// the delivery itself, in this step ([`initiate_fast_stop`]), and the record owns what it started.
+    pub(crate) fn reached(&self, runtime: &PgRuntime, pid: Option<u32>) {
+        let mut state = self.state();
+        state.target = StopTarget::Cluster { runtime: runtime.clone(), pid };
+        if state.decided && self.owned && state.late.is_none() {
+            state.late = Some(initiate_fast_stop(runtime, &self.data_dir, pid));
+        }
+    }
+
+    /// Whether the stop has read the record for its dispatch.
+    #[cfg(test)]
+    pub(crate) fn decided(&self) -> bool {
+        self.state().decided
+    }
+
+    /// The pid of the cluster reached, once read.
+    pub(crate) fn known_pid(&self, pid: u32) {
+        if let StopTarget::Cluster { pid: known @ None, .. } = &mut self.state().target {
+            *known = Some(pid);
+        }
+    }
+
+    /// The cluster was stopped (a stop that succeeded).
+    pub(crate) fn cleared(&self) {
+        self.state().target = StopTarget::None;
+    }
+
+    /// A start that failed: the record keeps what is left. Only evidence that no postmaster runs clears it; a postmaster that survived its start's
+    /// cleanup is recorded as reached (with its pid), and a failed read keeps the start unresolved.
+    pub(crate) async fn failed_start(&self) {
+        let StopTarget::Handed(runtime) = self.state().target.clone() else { return };
+        let read = mixdog_rt::time::timeout(DISPATCH_LIMIT, read_pid_checked(self.lane, &self.data_dir)).await;
+        match read {
+            Ok(Ok(Some(pid))) if mixdog_statefile::process_exists(pid) => self.reached(&runtime, Some(pid)),
+            Ok(Ok(_)) => {
+                let mut state = self.state();
+                if matches!(state.target, StopTarget::Handed(_)) {
+                    state.target = StopTarget::None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The stop's dispatch: the record is read once (and marked decided in the same critical section), then delivered within one bound.
+    pub(crate) async fn dispatch(&self) -> StopDispatch {
+        if !self.owned {
+            return StopDispatch::SecondaryNotOwned;
+        }
+        let target = {
+            let mut state = self.state();
+            state.decided = true;
+            state.target.clone()
+        };
+        let (runtime, known, missing) = match target {
+            StopTarget::None => return StopDispatch::NothingOpened,
+            StopTarget::Handed(runtime) => (runtime, None, StopDispatch::ExternalStartUnresolved),
+            StopTarget::Cluster { runtime, pid } => (runtime, pid, StopDispatch::AlreadyAbsent),
+        };
+        dispatch_fast_stop(&runtime, &self.processes, self.lane, &self.data_dir, known, missing).await
+    }
+
+    /// The outcome of the delivery a transition after the stop's decision started, collected by the controller once the local revocation is
+    /// acknowledged (when no transition can follow): `None` when nothing came late. Bounded like the first dispatch; taken once.
+    pub(crate) async fn late_dispatch(&self) -> Option<StopDispatch> {
+        let started = self.state().late.take()?;
+        Some(started.collect().await)
+    }
+}
+
+/// The postmaster `pid`'s exit, observed until `until`: `true` once it is gone. Only the graceful stop waits here, inside its cutoff.
+pub(crate) async fn await_exit(pid: u32, until: tokio::time::Instant) -> bool {
+    const POLL: Duration = Duration::from_millis(50);
+    loop {
+        if !mixdog_statefile::process_exists(pid) {
+            return true;
+        }
+        if tokio::time::Instant::now() >= until {
+            return false;
+        }
+        mixdog_rt::time::sleep(POLL.min(until.saturating_duration_since(tokio::time::Instant::now()))).await;
     }
 }
 

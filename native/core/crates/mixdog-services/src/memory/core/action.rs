@@ -3,7 +3,7 @@
 //! store enforces the writes again. The injection snapshot is republished
 //! after every mutation.
 
-use mixdog_js::{js_trim, slice_utf16, value_to_string};
+use mixdog_js::{js_trim, value_to_string};
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
 
@@ -63,6 +63,10 @@ fn parse_op(value: Option<&Value>) -> Option<Op> {
     })
 }
 
+pub(crate) fn is_delete(args: &Value) -> bool {
+    parse_op(args.get("op")) == Some(Op::Delete)
+}
+
 /// An explicit `project_id` wins ("common" is COMMON); otherwise the pool is
 /// inferred from the active cwd, falling back to COMMON.
 async fn project_of(args: &Value, ctx: &CoreContext<'_>) -> Result<Option<String>> {
@@ -72,6 +76,17 @@ async fn project_of(args: &Value, ctx: &CoreContext<'_>) -> Result<Option<String
         return Ok(resolve_project_scope(ctx.lane, args.get("cwd").and_then(Value::as_str), ctx.session_cwd).await?);
     }
     Ok((text.to_lowercase() != "common").then(|| text.to_owned()))
+}
+
+/// The editor pairs its displayed scope with a folder. The caller's `cwd`
+/// and the tool's `target_cwd` are not that folder assertion.
+async fn check_destination(ctx: &CoreContext<'_>, args: &Value, expected: Option<&str>) -> Result<()> {
+    if let Some(cwd) = args.get("destination_cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty())
+        && resolve_project_scope(ctx.lane, Some(cwd), None).await?.as_deref() != expected
+    {
+        return Err(MemoryError::rejected("Destination memory scope changed. Refresh the instructions and try again."));
+    }
+    Ok(())
 }
 
 /// `agent_id` selects an agent's own pool: "self" is the caller's, another id
@@ -96,7 +111,9 @@ async fn edit_target(args: &Value, project: Option<&str>, ctx: &CoreContext<'_>)
     if let Some(target) = args.get("target_project_id") {
         let value = if target.is_null() { String::new() } else { value_to_string(target) };
         let value = js_trim(&value);
-        return Ok((!value.is_empty() && value.to_lowercase() != "common").then(|| value.to_owned()));
+        let target = (!value.is_empty() && value.to_lowercase() != "common").then(|| value.to_owned());
+        check_destination(ctx, args, target.as_deref()).await?;
+        return Ok(target);
     }
     match args.get("target_cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty()) {
         Some(cwd) => Ok(resolve_project_scope(ctx.lane, Some(cwd), ctx.session_cwd).await?),
@@ -107,7 +124,7 @@ async fn edit_target(args: &Value, project: Option<&str>, ctx: &CoreContext<'_>)
 async fn describe(ctx: &CoreContext<'_>, entry: &store::CoreEntry) -> Result<String> {
     let identity =
         index::public_identity(ctx.db, entry.project_id.as_deref(), entry.agent_id.as_deref(), entry.id).await?;
-    Ok(format!("({identity}): {} — {}", entry.element, slice_utf16(&entry.summary, 200)))
+    Ok(format!("({identity}): {} — {}", entry.element, entry.summary))
 }
 
 async fn refresh_snapshot(ctx: &CoreContext<'_>) -> Result<()> {
@@ -115,18 +132,60 @@ async fn refresh_snapshot(ctx: &CoreContext<'_>) -> Result<()> {
     Ok(())
 }
 
+/// The host's memory-control operation (the rooms' and agents' `list`/`delete`): it holds the stack's handle privately and runs each whole action as
+/// work of the database's owner, so the stop drains it or revokes it, a dropped caller leaves it owned, and a call after the stop began is refused
+/// before it touches the database. No raw database handle leaves the memory runtime this way.
+#[derive(Clone)]
+pub struct ControlScope {
+    db: Db,
+    data_dir: std::path::PathBuf,
+    snapshot_revision: std::sync::Arc<AtomicU64>,
+    lane: DurabilityIo,
+}
+
+/// The reply of a control call the owner refused (the stack is stopping).
+const CONTROL_STOPPING: &str = "core failed: memory service stopping";
+
+impl ControlScope {
+    pub fn new(db: Db, data_dir: std::path::PathBuf, snapshot_revision: std::sync::Arc<AtomicU64>, lane: DurabilityIo) -> Self {
+        Self { db, data_dir, snapshot_revision, lane }
+    }
+
+    /// The `memory` op runner's reply text for `args` (errors included, as text).
+    pub async fn call(&self, args: Value) -> String {
+        let this = self.clone();
+        let work = self.db.scope().spawn("services.memory.control", async move {
+            let ctx = CoreContext { db: &this.db, data_dir: &this.data_dir, session_cwd: None, snapshot_revision: &this.snapshot_revision, lane: this.lane };
+            run(&ctx, &args).await.text
+        });
+        match work {
+            Some(work) => work.await.unwrap_or_else(|| CONTROL_STOPPING.to_owned()),
+            None => CONTROL_STOPPING.to_owned(),
+        }
+    }
+}
+
 /// Runs one `memory` call; failures are reported as an error reply.
 pub async fn run(ctx: &CoreContext<'_>, args: &Value) -> ToolReply {
+    run_cancellable(ctx, args, None, None).await
+}
+
+pub(crate) async fn run_cancellable(
+    ctx: &CoreContext<'_>, args: &Value, cancel: Option<&tokio_util::sync::CancellationToken>, settlement: Option<&store::DeleteSettlement>,
+) -> ToolReply {
     let Some(op) = parse_op(args.get("op")) else {
         return ToolReply::error("core requires op: add | edit | delete | list");
     };
-    match execute(ctx, args, op).await {
+    match execute(ctx, args, op, cancel, settlement).await {
         Ok(reply) => reply,
         Err(error) => ToolReply::error(format!("core {} failed: {}", op.name(), error.message())),
     }
 }
 
-async fn execute(ctx: &CoreContext<'_>, args: &Value, op: Op) -> Result<ToolReply> {
+async fn execute(
+    ctx: &CoreContext<'_>, args: &Value, op: Op, cancel: Option<&tokio_util::sync::CancellationToken>, settlement: Option<&store::DeleteSettlement>,
+) -> Result<ToolReply> {
+    store::check_write_start(cancel)?;
     let caller = MemoryCaller::from_value(args.get("memory_caller"));
     let agent_id = agent_of(args, &caller)?;
     let project_id = if agent_id.is_some() { None } else { project_of(args, ctx).await? };
@@ -164,7 +223,10 @@ async fn execute(ctx: &CoreContext<'_>, args: &Value, op: Op) -> Result<ToolRepl
     match op {
         Op::List => run_list(ctx, args, project, agent, &caller).await,
         Op::Add => {
-            let entry = store::add(ctx.db, &write_args, project, agent, &caller).await?;
+            if agent.is_none() && args.get("project_id").and_then(Value::as_str).is_some_and(|id| !id.trim().is_empty()) {
+                check_destination(ctx, args, project).await?;
+            }
+            let entry = store::add_cancellable(ctx.db, &write_args, project, agent, &caller, cancel).await?;
             refresh_snapshot(ctx).await?;
             Ok(ToolReply::ok(format!("core added {}", describe(ctx, &entry).await?)))
         }
@@ -172,7 +234,6 @@ async fn execute(ctx: &CoreContext<'_>, args: &Value, op: Op) -> Result<ToolRepl
             if agent.is_some() && (args.get("target_project_id").is_some() || args.get("target_cwd").is_some_and(truthy)) {
                 return Err(MemoryError::rejected("agent memory has no project scope"));
             }
-            let target = if agent.is_some() { None } else { edit_target(args, project, ctx).await? };
             let record = index::resolve(
                 ctx.db,
                 project,
@@ -181,7 +242,8 @@ async fn execute(ctx: &CoreContext<'_>, args: &Value, op: Op) -> Result<ToolRepl
                 args.get("index_revision").unwrap_or(&Value::Null),
             )
             .await?;
-            let entry = store::edit(
+            let target = if agent.is_some() { None } else { edit_target(args, project, ctx).await? };
+            let entry = store::edit_cancellable(
                 ctx.db,
                 record,
                 Edit {
@@ -191,6 +253,7 @@ async fn execute(ctx: &CoreContext<'_>, args: &Value, op: Op) -> Result<ToolRepl
                     target_project_id: target.as_deref(),
                     caller: &caller,
                 },
+                cancel,
             )
             .await?;
             refresh_snapshot(ctx).await?;
@@ -199,7 +262,7 @@ async fn execute(ctx: &CoreContext<'_>, args: &Value, op: Op) -> Result<ToolRepl
         Op::Delete => {
             let id = args.get("id").unwrap_or(&Value::Null);
             let record = index::resolve(ctx.db, project, agent, id, args.get("index_revision").unwrap_or(&Value::Null)).await?;
-            let removed = store::delete(ctx.db, record, project, agent, &caller).await?;
+            let removed = store::delete_cancellable(ctx.db, record, project, agent, &caller, cancel, settlement).await?;
             refresh_snapshot(ctx).await?;
             Ok(ToolReply::ok(format!(
                 "core deleted ({} id={}): {}. Remaining indices were compacted; list memories before the next write.",

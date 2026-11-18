@@ -1,6 +1,4 @@
-//! marked 14.1.4's grammar: the rule regexes of its gfm block and inline grammars, copied from its `Lexer.rules` (the
-//! table is `node tests/recorders/record-lexer.mjs`'s `rules` member, and the twin test compares it to the recorded
-//! one), and the regress engine behind them. regress takes the source as ECMAScript reads it, so `\s`, `\b`, the `u`
+//! marked 14.1.4's grammar: the rule regexes of its gfm block and inline grammars, copied from its `Lexer.rules`, and the regress engine behind them. regress takes the source as ECMAScript reads it, so `\s`, `\b`, the `u`
 //! flag's `\p{P}\p{S}` classes and look-arounds behave as in V8. A `g` flag is kept in the table for the record and is
 //! ignored by the engine: a search from an offset is [`Re::exec_from`].
 

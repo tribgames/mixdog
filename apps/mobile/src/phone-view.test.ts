@@ -2,13 +2,16 @@ import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
 import type { ClientEvent, ConnectionStatus, StoreChange } from '../../../packages/protocol-client/src/index.ts';
 import { createViewManager, type ViewClient } from './phone-view.ts';
+import { createLaneFeeds, type LaneClient } from './phone-lanes.ts';
 
 const READY = { state: 'ready' } as unknown as ConnectionStatus;
 const RECONNECTING = { state: 'reconnecting', attempt: 0 } as unknown as ConnectionStatus;
 const REFUSED = { kind: 'rpc', code: -32000, message: 'refused' };
 
-function rig(hold = false) {
+function rig(hold = false, restored: string[] = []) {
   const calls: string[] = [];
+  // What the core answers a wake's question with; each question is counted.
+  const asked = { confirms: 0, answer: true };
   const held: Array<() => void> = [];
   // Settles when the machine's sync is attaching a thread: its own signal (the first sync starts a timer turn after the connection).
   let attaching = (): void => undefined;
@@ -19,6 +22,7 @@ function rig(hold = false) {
     status: READY,
     on: (listener: (event: ClientEvent) => void) => (listeners.add(listener), () => listeners.delete(listener)),
     store: { subscribe: (fn: (change: StoreChange) => void) => (subscribers.add(fn), () => subscribers.delete(fn)) },
+    confirmFeeds: async () => (asked.confirms++, asked.answer),
     subscribeApp: async () => void calls.push('app'),
     resumeThread: async (id: string) => {
       calls.push(`resume:${id}`);
@@ -36,7 +40,7 @@ function rig(hold = false) {
   };
   const events = { synced: 0, errors: 0, recycled: 0 };
   const manager = createViewManager(client, {
-    restored: [],
+    restored,
     wanted: ['t1'],
     onSynced: () => void (events.synced += 1),
     syncing: () => undefined,
@@ -45,10 +49,41 @@ function rig(hold = false) {
     probe: () => undefined,
     silentSince: () => false,
   });
-  return { calls, client, status, store, events, manager, held, resuming };
+  return { calls, client, status, store, events, manager, held, resuming, asked };
 }
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 const settled = (promise: Promise<unknown>): Promise<'open' | 'shut'> => Promise.race([promise.then(() => 'open' as const), tick().then(() => 'shut' as const)]);
+
+test('the terminal lane rejoins from dispatched output once, and redraws if that position is gone', async () => {
+  const feedId = 'process:relay';
+  const calls: unknown[] = [];
+  let emit!: (event: ClientEvent) => void;
+  let redraws = 0;
+  const client = {
+    status: READY,
+    call: async (_method: string, params: unknown) => { calls.push(params); },
+    on(listener: (event: ClientEvent) => void) { emit = listener; return () => undefined; },
+  };
+  const lanes = createLaneFeeds(client as unknown as LaneClient, { redraw: () => { redraws++; }, retire: assert.fail });
+  const status = (next: ConnectionStatus) => {
+    client.status = next;
+    emit({ type: 'status', status: next });
+  };
+  const note = (method: string, epoch: string, seq: number) => emit({ type: 'notification', notification: { method, feed: { id: feedId, epoch, seq } } });
+  lanes.declare('terminal', [feedId]);
+  lanes.use(['terminal']);
+  note('feed/snapshot', 'old', 0);
+  note('process/outputDelta', 'old', 1);
+  status(RECONNECTING);
+  status(READY);
+  lanes.use(['terminal']);
+  assert.deepEqual(lanes.expected(), [feedId]);
+  assert.deepEqual(calls, [{ feedId }, { feedId, resumeFrom: { epoch: 'old', seq: 1 } }]);
+  assert.equal(redraws, 0);
+  note('feed/snapshot', 'new', 0);
+  assert.equal(redraws, 1);
+  lanes.stop();
+});
 
 test('a reconnect whose re-attachment was refused keeps the gate shut and retries on the backoff', async () => {
   const { calls, status, store, events, manager } = rig();
@@ -112,6 +147,42 @@ test('subscription events never open the gate: only the machine finishing a sync
   assert.equal(events.synced, 1);
 });
 
+test('a first attach with K restored conversations sends the app feed and every thread together, and the list gate does not wait for a transcript', async () => {
+  const { calls, manager, held, events, resuming } = rig(true, ['a', 'b', 'c', 'd']);
+  const gate = manager.synced();
+  const list = manager.appSynced();
+  await resuming;
+  assert.equal(await settled(list), 'open', 'the app feed is attached while every transcript is still being resumed');
+  assert.deepEqual([...calls].sort(), ['app', 'resume:a', 'resume:b', 'resume:c', 'resume:d', 'resume:t1'], 'K + 1 requests, none waiting for another');
+  assert.equal(await settled(gate), 'shut');
+  assert.equal(held.length, 5);
+  for (const release of held) release();
+  await gate;
+  assert.equal(events.synced, 1);
+  assert.equal(calls.length, 6, 'nothing is asked twice');
+});
+
+test('a healthy wake costs one question to the core and no re-attach', async () => {
+  const { calls, manager, asked, events } = rig();
+  await manager.synced();
+  const before = calls.length;
+  assert.equal(await manager.wake(), true);
+  assert.equal(asked.confirms, 1, 'the core is asked once');
+  assert.equal(calls.length, before, 'no app subscription and no resume of a thread');
+  assert.equal(events.synced, 1);
+  asked.answer = false;
+  assert.equal(await manager.wake(), false, 'the caller must run gap recovery when the core did not confirm');
+});
+
+test('a wake while a sync is still owed runs that sync instead of asking', async () => {
+  const { calls, manager, asked } = rig(true);
+  const gate = manager.synced();
+  await tick();
+  void gate.catch(() => undefined);
+  const woke = manager.wake();
+  assert.equal(asked.confirms, 0);
+  void woke.catch(() => undefined);
+});
 test('each sync carries its own claim: a reconnect between a sync\'s claim and its write cannot hand its frame to the next sync', async () => {
   mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const { client, status, manager } = rig();
@@ -121,12 +192,16 @@ test('each sync carries its own claim: a reconnect between a sync\'s claim and i
   const first = wrote(0);
   const second = wrote(1);
   let lose!: (error: unknown) => void;
+  const lost = new Promise<void>((_, reject) => (lose = reject));
+  lost.catch(() => undefined);
   client.subscribeApp = async (options?: { sent?: (sent: Promise<void>) => void }) => {
     claims.push(options!.sent!);
     called[claims.length - 1]?.();
     // The first sync's frame is still waiting to be written (the connection is being replaced) until its connection is lost.
-    if (claims.length === 1) await new Promise<void>((_, reject) => (lose = reject));
+    if (claims.length === 1) await lost;
   };
+  // Its thread's resume is out on the same connection and ends with it.
+  client.resumeThread = async () => (claims.length === 1 ? lost : undefined) as never;
   const gate = manager.synced();
   void gate.catch(() => undefined);
   mock.timers.tick(0);

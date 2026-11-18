@@ -8,6 +8,7 @@ import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-
 import { createCapabilityLane } from '../main/protocol/capability-route';
 import type { DesktopCapability } from '../shared/contract';
 import type { PhoneProtocolHost } from './remote-shim-protocol';
+import { phoneTransferCall } from './remote-transfer-call';
 
 type Client = ProtocolClient<SessionFold>;
 
@@ -16,8 +17,9 @@ type Client = ProtocolClient<SessionFold>;
  *  view of the client shares. */
 const controlThreads = new WeakMap<object, Promise<unknown>>();
 
-/** The lane over this call's client: its frames are this call's (the router's send claim). */
-function laneOf(client: Client) {
+/** `client.call` for a capability lane made over this call's client: a `thread/start` of `kind: "control"` is answered by the
+ *  connection's one control thread (started by the first call that needs it), so a lane made per call never starts another. */
+export function callSharingControlThread(client: Client): (method: string, params: unknown) => Promise<unknown> {
   /** Whether the client still holds the thread a start answered with: the library subscribes a control thread it started again
    *  after each redial, and drops it when the core no longer has it (or the client is another one: the store is the client's). */
   const stillHeld = async (reply: unknown): Promise<boolean> => {
@@ -28,9 +30,9 @@ function laneOf(client: Client) {
     await library.whenHeldSettled?.(id);
     return library.threadSubscription(id).held;
   };
-  const call = async (method: string, params: unknown): Promise<unknown> => {
+  return async (method: string, params: unknown): Promise<unknown> => {
     if (method !== 'thread/start' || (params as { kind?: unknown } | null)?.kind !== 'control') {
-      return client.call(method as never, params as never);
+      return phoneTransferCall(client, method, params);
     }
     for (;;) {
       let known = controlThreads.get(client.store);
@@ -48,9 +50,13 @@ function laneOf(client: Client) {
       if (controlThreads.get(client.store) === known) controlThreads.delete(client.store);
     }
   };
+}
+
+/** The lane over this call's client: its frames are this call's (the router's send claim). */
+function laneOf(client: Client) {
   return createCapabilityLane({
     protocol: {
-      call,
+      call: callSharingControlThread(client),
       // The sections the lane reads into a call's session state: the host's shell jobs, the remote channel's session and the
       // config switches.
       snapshot: () => ({

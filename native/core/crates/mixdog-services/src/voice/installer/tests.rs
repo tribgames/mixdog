@@ -107,22 +107,7 @@ async fn world(model_sha: Option<&str>) -> World {
     World { base, log, manifest }
 }
 
-fn installer(data: &Path, manifest: &Value, platform: &str) -> ManagedVoiceInstaller {
-    let tokens = mixdog_rt::testing::tokens();
-    ManagedVoiceInstaller::new(InstallerParts {
-        data_dir: data.to_owned(),
-        manifest: manifest.clone(),
-        platform_keys: vec![platform.to_owned()],
-        env_vars: Vec::new(),
-        pid: std::process::id(),
-        durability: tokens.durability_io,
-        bulk: tokens.cpu_bulk,
-        now: Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64),
-    })
-}
-
-const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/services/voice-installer-twin.json");
-
+#[cfg(node_twin)]
 fn listing(root: &Path) -> Value {
     fn walk(root: &Path, dir: &Path, out: &mut serde_json::Map<String, Value>) {
         let Ok(read) = std::fs::read_dir(dir) else { return };
@@ -143,6 +128,115 @@ fn listing(root: &Path) -> Value {
     Value::Object(out)
 }
 
+const ALL: Missing = Missing { whisper: true, model: true, ffmpeg: true };
+
+fn names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir).map(|r| r.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+    names.sort();
+    names
+}
+
+#[test]
+fn variants_are_picked_by_cuda_then_driver_then_the_catch_all_never_by_order() {
+    let variants = vec![
+        json!({ "id": "base", "requires": null }),
+        json!({ "id": "driver", "requires": { "nvidiaDriver": true } }),
+        json!({ "id": "cuda11", "requires": { "cudaMajor": 11 } }),
+        json!({ "id": "cuda12", "requires": { "cudaMajor": 12 } }),
+    ];
+    let pick = |env: &VariantEnv| pick_variant(&variants, env).map(|v| v["id"].as_str().unwrap().to_owned());
+    let env = |majors: &[u64], driver| VariantEnv { cuda_majors: majors.iter().copied().collect(), nvidia_driver: driver };
+    assert_eq!(pick(&env(&[11, 12], true)).as_deref(), Some("cuda12"));
+    assert_eq!(pick(&env(&[11], false)).as_deref(), Some("cuda11"));
+    assert_eq!(pick(&env(&[], true)).as_deref(), Some("driver"));
+    assert_eq!(pick(&env(&[], false)).as_deref(), Some("base"));
+    assert_eq!(pick_variant(&variants[1..], &env(&[], false)).map(|v| v["id"].clone()), None);
+}
+
+fn installer(data: &Path, manifest: &Value, platform: &str) -> ManagedVoiceInstaller {
+    let tokens = mixdog_rt::testing::tokens();
+    ManagedVoiceInstaller::new(InstallerParts {
+        data_dir: data.to_owned(),
+        manifest: manifest.clone(),
+        platform_keys: vec![platform.to_owned()],
+        env_vars: Vec::new(),
+        pid: std::process::id(),
+        durability: tokens.durability_io,
+        bulk: tokens.cpu_bulk,
+        now: Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64),
+    })
+}
+#[tokio::test]
+async fn a_toggle_on_installs_every_missing_piece_and_cleans_up_after_itself() {
+    let world = world(None).await;
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    // A garbage lock, a superseded runtime, an undeclared weight and a partial download, as a crashed install leaves.
+    std::fs::create_dir_all(data.join("voice-runtime/whisper-0.9.0-cpu")).unwrap();
+    std::fs::write(data.join("voice-runtime/.install.lock"), "garbage").unwrap();
+    std::fs::create_dir_all(data.join("voice/models")).unwrap();
+    std::fs::write(data.join("voice/models/old.bin"), "old").unwrap();
+    std::fs::write(data.join("voice/models/.staging-1-2-m.bin"), "partial").unwrap();
+
+    installer(data, &world.manifest, "test-x64").install(ALL, None).await.unwrap();
+
+    let manifest = RuntimeManifest::from_json(&world.manifest, "test-x64", "standard").unwrap();
+    let runtime = resolve_voice_runtime(data, &manifest);
+    assert!(runtime.installed && !runtime.stale, "{runtime:?}");
+    assert_eq!(std::fs::read_to_string(data.join("voice-runtime/active-version")).unwrap(), "whisper-1.0.0-cpu");
+    assert_eq!(std::fs::read_to_string(data.join("ffmpeg-runtime/active-version")).unwrap(), "ffmpeg-2.0");
+    assert_eq!(std::fs::read(data.join("ffmpeg-runtime/ffmpeg-2.0/ffmpeg")).unwrap(), b"ffmpeg bytes");
+    assert_eq!(names(&data.join("voice-runtime")), ["active-version", "whisper-1.0.0-cpu"]);
+    assert_eq!(names(&data.join("ffmpeg-runtime")), ["active-version", "ffmpeg-2.0"]);
+    assert_eq!(names(&data.join("voice/models")), ["m.bin"]);
+
+    // Nothing missing: nothing is fetched again.
+    let before = world.log.lock().unwrap().len();
+    installer(data, &world.manifest, "test-x64").install(ALL, None).await.unwrap();
+    assert_eq!(world.log.lock().unwrap().len(), before, "an installed component is never re-fetched ({})", world.base);
+}
+#[tokio::test]
+async fn a_digest_that_does_not_match_fails_the_install_and_removes_the_partial_file() {
+    let world = world(Some(&"0".repeat(64))).await;
+    let dir = tempfile::tempdir().unwrap();
+    let error = installer(dir.path(), &world.manifest, "test-x64").install(Missing { whisper: false, model: true, ffmpeg: false }, None).await.unwrap_err();
+    assert!(error.starts_with("[voice-runtime] sha256 mismatch for "), "{error}");
+    assert!(error.contains(&format!("expected {}", "0".repeat(64))), "{error}");
+    assert!(names(&dir.path().join("voice/models")).is_empty(), "no staging file and no lock stay behind");
+}
+#[tokio::test]
+async fn a_missing_asset_fails_with_the_http_status_and_leaves_no_staging_directory() {
+    let mut world = world(None).await;
+    world.manifest["platforms"]["test-x64"]["variants"][0]["url"] = json!(format!("{}/gone.zip", world.base));
+    let dir = tempfile::tempdir().unwrap();
+    let error = installer(dir.path(), &world.manifest, "test-x64").install(Missing { whisper: true, model: false, ffmpeg: false }, None).await.unwrap_err();
+    assert!(error.contains("404"), "{error}");
+    assert!(names(&dir.path().join("voice-runtime")).is_empty(), "{:?}", names(&dir.path().join("voice-runtime")));
+}
+#[tokio::test]
+async fn a_platform_the_manifest_does_not_list_is_named() {
+    let world = world(None).await;
+    let dir = tempfile::tempdir().unwrap();
+    let error = installer(dir.path(), &world.manifest, "nope-x1").install(ALL, None).await.unwrap_err();
+    assert_eq!(error, "voice runtime not supported on nope-x1 — voice transcription is unavailable on this platform");
+}
+#[tokio::test]
+async fn a_lock_is_listed_while_held_and_unlinked_when_its_install_is_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let installer = installer(dir.path(), &json!({}), "x");
+    let (root, path) = (dir.path().join("r"), dir.path().join("r/.install.lock"));
+    let lock = installer.acquire(&root, "install").await.unwrap();
+    assert!(path.exists() && held().contains(&path));
+    drop(lock);
+    assert!(!path.exists() && !held().contains(&path), "a cancelled install leaves no lock behind");
+    let lock = installer.acquire(&root, "install").await.unwrap();
+    installer.release(lock).await;
+    assert!(!path.exists() && !held().contains(&path));
+}
+
+
+#[cfg(node_twin)]
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/services/voice-installer-twin.json");
 /// Node's installer (`record-voice-installer.mjs`: the real `voice-runtime-fetcher.mjs` against a
 /// local release server on a scratch folder): every error text the user can see, the requests
 /// made and the tree left behind must equal Node's. The recording holds `{root}` (the scratch
@@ -150,6 +244,7 @@ fn listing(root: &Path) -> Value {
 /// the replay lays its own scratch folder and server down, fills the placeholders in what it
 /// feeds the installer, and masks its own text the same way. The corrupt archive's text is
 /// PowerShell's own stderr, so only its lead-in is compared.
+#[cfg(node_twin)]
 #[cfg(windows)]
 #[tokio::test]
 async fn installs_match_nodes_recording() {
@@ -220,101 +315,4 @@ async fn installs_match_nodes_recording() {
         assert_eq!(json!(log.lock().unwrap().clone()), scenario["requests"], "{name}: requests");
         assert_eq!(listing(&data), scenario["tree"], "{name}: tree");
     }
-}
-
-const ALL: Missing = Missing { whisper: true, model: true, ffmpeg: true };
-
-fn names(dir: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(dir).map(|r| r.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
-    names.sort();
-    names
-}
-
-#[tokio::test]
-async fn a_toggle_on_installs_every_missing_piece_and_cleans_up_after_itself() {
-    let world = world(None).await;
-    let dir = tempfile::tempdir().unwrap();
-    let data = dir.path();
-    // A garbage lock, a superseded runtime, an undeclared weight and a partial download, as a crashed install leaves.
-    std::fs::create_dir_all(data.join("voice-runtime/whisper-0.9.0-cpu")).unwrap();
-    std::fs::write(data.join("voice-runtime/.install.lock"), "garbage").unwrap();
-    std::fs::create_dir_all(data.join("voice/models")).unwrap();
-    std::fs::write(data.join("voice/models/old.bin"), "old").unwrap();
-    std::fs::write(data.join("voice/models/.staging-1-2-m.bin"), "partial").unwrap();
-
-    installer(data, &world.manifest, "test-x64").install(ALL, None).await.unwrap();
-
-    let manifest = RuntimeManifest::from_json(&world.manifest, "test-x64", "standard").unwrap();
-    let runtime = resolve_voice_runtime(data, &manifest);
-    assert!(runtime.installed && !runtime.stale, "{runtime:?}");
-    assert_eq!(std::fs::read_to_string(data.join("voice-runtime/active-version")).unwrap(), "whisper-1.0.0-cpu");
-    assert_eq!(std::fs::read_to_string(data.join("ffmpeg-runtime/active-version")).unwrap(), "ffmpeg-2.0");
-    assert_eq!(std::fs::read(data.join("ffmpeg-runtime/ffmpeg-2.0/ffmpeg")).unwrap(), b"ffmpeg bytes");
-    assert_eq!(names(&data.join("voice-runtime")), ["active-version", "whisper-1.0.0-cpu"]);
-    assert_eq!(names(&data.join("ffmpeg-runtime")), ["active-version", "ffmpeg-2.0"]);
-    assert_eq!(names(&data.join("voice/models")), ["m.bin"]);
-
-    // Nothing missing: nothing is fetched again.
-    let before = world.log.lock().unwrap().len();
-    installer(data, &world.manifest, "test-x64").install(ALL, None).await.unwrap();
-    assert_eq!(world.log.lock().unwrap().len(), before, "an installed component is never re-fetched ({})", world.base);
-}
-
-#[tokio::test]
-async fn a_digest_that_does_not_match_fails_the_install_and_removes_the_partial_file() {
-    let world = world(Some(&"0".repeat(64))).await;
-    let dir = tempfile::tempdir().unwrap();
-    let error = installer(dir.path(), &world.manifest, "test-x64").install(Missing { whisper: false, model: true, ffmpeg: false }, None).await.unwrap_err();
-    assert!(error.starts_with("[voice-runtime] sha256 mismatch for "), "{error}");
-    assert!(error.contains(&format!("expected {}", "0".repeat(64))), "{error}");
-    assert!(names(&dir.path().join("voice/models")).is_empty(), "no staging file and no lock stay behind");
-}
-
-#[tokio::test]
-async fn a_missing_asset_fails_with_the_http_status_and_leaves_no_staging_directory() {
-    let mut world = world(None).await;
-    world.manifest["platforms"]["test-x64"]["variants"][0]["url"] = json!(format!("{}/gone.zip", world.base));
-    let dir = tempfile::tempdir().unwrap();
-    let error = installer(dir.path(), &world.manifest, "test-x64").install(Missing { whisper: true, model: false, ffmpeg: false }, None).await.unwrap_err();
-    assert!(error.contains("404"), "{error}");
-    assert!(names(&dir.path().join("voice-runtime")).is_empty(), "{:?}", names(&dir.path().join("voice-runtime")));
-}
-
-#[tokio::test]
-async fn a_platform_the_manifest_does_not_list_is_named() {
-    let world = world(None).await;
-    let dir = tempfile::tempdir().unwrap();
-    let error = installer(dir.path(), &world.manifest, "nope-x1").install(ALL, None).await.unwrap_err();
-    assert_eq!(error, "voice runtime not supported on nope-x1 — voice transcription is unavailable on this platform");
-}
-
-#[tokio::test]
-async fn a_lock_is_listed_while_held_and_unlinked_when_its_install_is_dropped() {
-    let dir = tempfile::tempdir().unwrap();
-    let installer = installer(dir.path(), &json!({}), "x");
-    let (root, path) = (dir.path().join("r"), dir.path().join("r/.install.lock"));
-    let lock = installer.acquire(&root, "install").await.unwrap();
-    assert!(path.exists() && held().contains(&path));
-    drop(lock);
-    assert!(!path.exists() && !held().contains(&path), "a cancelled install leaves no lock behind");
-    let lock = installer.acquire(&root, "install").await.unwrap();
-    installer.release(lock).await;
-    assert!(!path.exists() && !held().contains(&path));
-}
-
-#[test]
-fn variants_are_picked_by_cuda_then_driver_then_the_catch_all_never_by_order() {
-    let variants = vec![
-        json!({ "id": "base", "requires": null }),
-        json!({ "id": "driver", "requires": { "nvidiaDriver": true } }),
-        json!({ "id": "cuda11", "requires": { "cudaMajor": 11 } }),
-        json!({ "id": "cuda12", "requires": { "cudaMajor": 12 } }),
-    ];
-    let pick = |env: &VariantEnv| pick_variant(&variants, env).map(|v| v["id"].as_str().unwrap().to_owned());
-    let env = |majors: &[u64], driver| VariantEnv { cuda_majors: majors.iter().copied().collect(), nvidia_driver: driver };
-    assert_eq!(pick(&env(&[11, 12], true)).as_deref(), Some("cuda12"));
-    assert_eq!(pick(&env(&[11], false)).as_deref(), Some("cuda11"));
-    assert_eq!(pick(&env(&[], true)).as_deref(), Some("driver"));
-    assert_eq!(pick(&env(&[], false)).as_deref(), Some("base"));
-    assert_eq!(pick_variant(&variants[1..], &env(&[], false)).map(|v| v["id"].clone()), None);
 }

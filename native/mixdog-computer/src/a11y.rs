@@ -277,7 +277,7 @@ pub trait Accessibility {
         &self,
         window: &WindowInfo,
         path: &[String],
-        authorize: &dyn Fn() -> Result<(), String>,
+        authorize: crate::platform::Authorize<'_>,
     ) -> Result<MenuOutcome, String>;
     /// Gives the snapshot being read one budget of `deadline_ms` from now for
     /// every provider call (Snapshot-Window's MixUiaDeadline); `None` reads
@@ -543,7 +543,7 @@ mod tests {
             &self,
             _: &WindowInfo,
             _: &[String],
-            _: &dyn Fn() -> Result<(), String>,
+            _: crate::platform::Authorize<'_>,
         ) -> Result<MenuOutcome, String> {
             Err("no menu".into())
         }

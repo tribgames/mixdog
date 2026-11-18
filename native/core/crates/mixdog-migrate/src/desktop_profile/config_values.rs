@@ -64,13 +64,14 @@ pub fn retention_state(value: &Value) -> Value {
     Value::Object(state)
 }
 
-/// The stamp `isRemoteActivated` only tests for presence of.
-pub fn remote_activated(value: &Value) -> Result<Value, ApplyError> {
+/// 1.4.5 saw the stamp's presence, not its contents. Keep a real timestamp
+/// when available; use a fixed positive marker otherwise (including on replay).
+fn remote_activated(value: &Value) -> Value {
     value
         .get("activatedAt")
         .and_then(jsvalue::positive)
         .map(|at| Value::Number(at.clone()))
-        .ok_or_else(|| schema_violation("remote-activated.json has no activatedAt"))
+        .unwrap_or_else(|| Value::from(1))
 }
 
 const EVENTS: [(&str, bool); 4] = [
@@ -225,6 +226,12 @@ fn config_value(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<(Value, u64)>
         return Ok((Value::String(text.to_owned()), 0));
     }
     let bytes = source::read_source(cx, super::single_source(item)?)?;
+    if item.kind == ItemKind::RemoteActivated {
+        return Ok(match source::parse_json(&bytes) {
+            Ok(parsed) => (remote_activated(&parsed.value), parsed.replaced_surrogates),
+            Err(_) => (remote_activated(&Value::Null), 0),
+        });
+    }
     let Parsed {
         value,
         replaced_surrogates,
@@ -233,7 +240,6 @@ fn config_value(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<(Value, u64)>
         ItemKind::AgentGreetings => greeted(&value),
         ItemKind::NotificationPreferences => notifications(&value)?,
         ItemKind::RetentionState => retention_state(&value),
-        ItemKind::RemoteActivated => remote_activated(&value)?,
         other => return Err(schema_violation(&format!("{other:?} is not a config item"))),
     };
     Ok((converted, replaced_surrogates))
@@ -370,26 +376,6 @@ mod tests {
         serde_json::from_str(text).unwrap()
     }
 
-    /// A config Node wrote with a profile title a phone sent cut inside an emoji
-    /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): the migration reads the document
-    /// Node's `JSON.parse` reads (the half emoji as U+FFFD) instead of stopping the run.
-    #[test]
-    fn a_config_node_wrote_with_half_an_emoji_is_read_whole() {
-        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
-        let cases: Value = json(&std::fs::read_to_string(set.join("cases.json")).unwrap());
-        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "config-profile").unwrap();
-        let data = tempfile::tempdir().unwrap();
-        std::fs::copy(set.join("config-profile/before").join(CONFIG_FILE), data.path().join(CONFIG_FILE)).unwrap();
-        let (doc, hash) = read_config(data.path()).unwrap();
-        assert_eq!(doc.to_string(), case["before"][CONFIG_FILE].to_string());
-        assert!(hash.is_some());
-        // Node's own rewrite of the document with one more key set: the core stages the same document (U+FFFD where Node
-        // wrote the escape, decisions.md "frame-lone-surrogate").
-        let op = &case["op"]["setPath"];
-        let bytes = rewritten(data.path(), op["key"].as_str().unwrap(), op["value"].clone()).unwrap();
-        assert_eq!(json(std::str::from_utf8(&bytes).unwrap()).to_string(), case["after"][CONFIG_FILE].to_string());
-    }
-
     #[test]
     fn greeted_is_sorted_unique_strings() {
         assert_eq!(greeted(&json(r#"{"seen":["b","a","b",3]}"#)), json(r#"["a","b"]"#));
@@ -445,5 +431,23 @@ mod tests {
         assert_eq!(doc, json(r#"{"desktop":{"zoom":1,"retentionState":{}},"agents":{"greeted":[]}}"#));
         assert_eq!(get_path(&doc, "desktop.zoom"), Some(&json("1")));
         assert!(set_path(&mut doc, "desktop.zoom.x", json("1"), Path::new("c")).is_err());
+    }
+
+
+    /// A config holding a profile title a phone sent cut inside an emoji (a lone surrogate escape): the migration reads
+    /// the document with the half emoji as U+FFFD instead of stopping the run, and stages the same document when it
+    /// sets one more key.
+    #[test]
+    fn a_config_with_half_an_emoji_is_read_whole() {
+        let data = tempfile::tempdir().unwrap();
+        std::fs::write(data.path().join(CONFIG_FILE), r#"{"desktop":{"profile":{"title":"hi \ud83d"}},"keep":1}"#).unwrap();
+        let (doc, hash) = read_config(data.path()).unwrap();
+        assert_eq!(doc["desktop"]["profile"]["title"], "hi \u{FFFD}");
+        assert!(hash.is_some());
+        let bytes = rewritten(data.path(), "desktop.zoom", json("2")).unwrap();
+        let after = json(std::str::from_utf8(&bytes).unwrap());
+        assert_eq!(after["desktop"]["profile"]["title"], "hi \u{FFFD}");
+        assert_eq!(after["desktop"]["zoom"], 2);
+        assert_eq!(after["keep"], 1);
     }
 }

@@ -27,6 +27,14 @@ const PROFILE_TITLE_MAX: usize = 64;
 #[async_trait]
 pub trait ThreadMessages: Send + Sync {
     async fn messages(&self, thread: &ThreadId) -> Result<Vec<Value>, PortError>;
+
+    /// The newest of the thread's messages, widened toward the oldest until one satisfies `wanted` or all are read: whether
+    /// any message satisfies `wanted` is the same answer [`messages`](Self::messages) gives, read without the whole
+    /// conversation when a recent message does.
+    async fn messages_until(&self, thread: &ThreadId, wanted: &(dyn for<'v> Fn(&'v Value) -> bool + Sync)) -> Result<Vec<Value>, PortError> {
+        let _ = wanted;
+        self.messages(thread).await
+    }
 }
 
 /// The live config document (`getConfig()`).

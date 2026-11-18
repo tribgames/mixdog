@@ -75,7 +75,7 @@ impl SessionView {
             .collect()
     }
 
-    fn select(&self, window: &Window) -> Vec<&ThreadItem> {
+    pub(crate) fn select(&self, window: &Window) -> Vec<&ThreadItem> {
         let all = self.items.iter().map(|item| item.as_ref());
         match window {
             Window::Fixed => all.collect(),
@@ -108,7 +108,7 @@ impl SessionView {
 /// window sent only the newest `sent` of the view's `held` rows. The desktop follows a thread with `lastItems: 32` of a
 /// view of up to 200, and pages older rows only while this says some exist: a thread whose whole history fitted the
 /// view answered "none older" and the rows above its newest 32 could not be scrolled to.
-fn snapshot_has_older(store_has_older: bool, window: &Window, sent: usize, held: usize) -> bool {
+pub(crate) fn snapshot_has_older(store_has_older: bool, window: &Window, sent: usize, held: usize) -> bool {
     store_has_older || (matches!(window, Window::LastItems(_) | Window::LastTurns(_)) && sent < held)
 }
 
@@ -132,6 +132,20 @@ impl FeedView for SessionView {
             &at.epoch,
             at.seq,
         )
+    }
+
+    /// A thread that is retrying shows the wait left when the snapshot is delivered, not when it was first encoded: the cached bytes
+    /// serve every attach at the seq, so each delivery gets a copy with the digits of `retryInMs` set (the frame's size in copying,
+    /// nothing in encoding), and only while the view's spinner is `reconnecting`.
+    fn at_delivery(&self, frame: Bytes) -> Bytes {
+        let reconnecting = self.state.runtime.as_ref().and_then(|runtime| runtime.spinner.as_ref()).and_then(|spinner| spinner.get("mode")).and_then(serde_json::Value::as_str) == Some("reconnecting");
+        if !reconnecting {
+            return frame;
+        }
+        match super::spinner::project_retry_bytes(&frame, super::spinner::core_now_ms()) {
+            Some(projected) => Bytes::from(projected),
+            None => frame,
+        }
     }
 }
 

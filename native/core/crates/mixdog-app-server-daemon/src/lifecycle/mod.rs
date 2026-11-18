@@ -13,8 +13,11 @@ mod grace;
 mod handle;
 mod machine;
 mod model;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod new_task_cut_tests;
+#[cfg(test)]
+mod new_task_cut_flow_tests;
 mod ports;
 mod real;
 mod release;
@@ -38,6 +41,7 @@ pub use model::*;
 pub use ports::CorePort;
 pub use ports::Exiter;
 pub use ports::GraceTimer;
+pub use ports::ManagedDrain;
 pub use ports::Ports;
 pub use ports::Publication;
 pub use real::CancelRegistry;

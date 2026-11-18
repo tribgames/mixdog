@@ -13,4 +13,7 @@
 
 pub trait StatusSignals: Send + Sync {
     fn worker_rows(&self, session: &str);
+    /// A Lead pool row was written (1.4.5's separate `lead-workers.json`, which no agent status read listened to): only the
+    /// Agents pool lists it.
+    fn lead_rows(&self, _session: &str) {}
 }

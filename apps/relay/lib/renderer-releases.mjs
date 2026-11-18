@@ -7,19 +7,9 @@
 //   index.json      the registry below (written atomically by deploy tooling)
 //   <releaseId>/    one complete staged renderer tree per release
 //
-// Selection rule (selectRelease), first match wins:
-//   1. the device reported a renderer release id (shell version hash) that a
-//      retained release carries                          -> that release
-//   2. the device reported an app version equal to a retained release's
-//      desktop version                                   -> newest such release
-//   3. the device reported an app version and some retained release is for an
-//      older-or-equal desktop version -> the highest such version (the newest
-//      compatible build; a desktop newer than every retained release gets the
-//      newest one)
-//   4. everything else (old desktops that never report a version, versions
-//      older than every retained release)                -> the LEGACY release,
-//      i.e. the renderer that was current when this feature shipped
-//   5. no legacy release registered                      -> the newest release
+// A reported app version and shell hash must not conflict. An adopted shell
+// that has no version metadata can match by exact hash if no known version
+// contradicts it. Only silent PCs get a default.
 //
 // Retention rule (planRetention): the legacy release is never collected; the
 // newest KEEP_LATEST_RELEASES releases are kept; any release still selected for
@@ -85,7 +75,7 @@ export function readReleaseIndex(releasesDir) {
   try {
     text = readFileSync(join(releasesDir, RELEASE_INDEX_FILE), 'utf8');
   } catch (error) {
-    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
+    if (error?.code === 'ENOENT') return null;
     throw error;
   }
   return parseReleaseIndex(JSON.parse(text));
@@ -99,31 +89,20 @@ function newestOf(entries) {
 
 /** The registry entry a device should be served; see the rule at the top. */
 export function selectRelease(index, { appVersion = '', rendererRelease = '' } = {}) {
-  const entries = index.releases.filter((entry) => !entry.legacy);
-  if (rendererRelease) {
-    const hit = newestOf(entries.filter((entry) => entry.shellVersion === rendererRelease));
-    if (hit) return hit;
-  }
+  const entries = index.releases;
+  const exact = appVersion ? entries.filter((entry) => entry.desktopVersion === appVersion) : [];
+  const match = (entry) => entry.shellVersion === rendererRelease;
   if (appVersion) {
-    const exact = newestOf(entries.filter((entry) => entry.desktopVersion === appVersion));
-    if (exact) return exact;
-    const wanted = parseVersion(appVersion);
-    if (wanted) {
-      let best = null;
-      let bestVersion = null;
-      for (const entry of entries) {
-        const version = parseVersion(entry.desktopVersion);
-        if (!version || compareVersions(version, wanted) > 0) continue;
-        const order = bestVersion ? compareVersions(version, bestVersion) : 1;
-        if (order > 0 || (order === 0 && entry.addedAt >= best.addedAt)) {
-          best = entry;
-          bestVersion = version;
-        }
-      }
-      if (best) return best;
+    if (rendererRelease) {
+      const pinned = newestOf(exact.filter(match));
+      if (pinned) return pinned;
+      const adopted = entries.find((entry) => entry.legacy && !entry.desktopVersion && match(entry));
+      if (adopted && !entries.some((entry) => entry.desktopVersion && match(entry))) return adopted;
     }
+    return newestOf(exact);
   }
-  return index.releases.find((entry) => entry.legacy) ?? newestOf(entries);
+  if (rendererRelease) return newestOf(entries.filter(match));
+  return entries.find((entry) => entry.legacy) ?? newestOf(entries);
 }
 
 /** The oldest desktop version any retained non-legacy release is built for
@@ -180,7 +159,7 @@ export function planRetention(
  *  exactly as before. */
 export function createRendererCatalog({ rendererDir = '', releasesDir = '', cacheMs = 1000, now = Date.now } = {}) {
   let cached = null;
-  let expiresAt = 0;
+  let expiresAt = -Infinity;
   const selectFrom = (registry, report) => (registry?.releases.length ? selectRelease(registry, report) : null);
   const index = () => {
     if (!releasesDir) return null;
@@ -189,7 +168,8 @@ export function createRendererCatalog({ rendererDir = '', releasesDir = '', cach
     try {
       cached = readReleaseIndex(releasesDir);
     } catch {
-      cached = null;
+      // null is reserved for a genuinely absent registry.
+      cached = undefined;
     }
     expiresAt = time + cacheMs;
     return cached;
@@ -198,19 +178,27 @@ export function createRendererCatalog({ rendererDir = '', releasesDir = '', cach
     rendererDir,
     releasesDir,
     index,
-    /** { minVersion } when `report` would be served the legacy release, else null. */
+    /** Only unmatched PCs see update advice; a verified legacy match still works. */
     legacyFor(report) {
       const registry = index();
-      return selectFrom(registry, report)?.legacy ? { minVersion: oldestSupportedVersion(registry) } : null;
+      if (!registry) return null;
+      const selected = selectFrom(registry, report);
+      const minVersion = oldestSupportedVersion(registry);
+      if (!report.appVersion) return !report.rendererRelease && selected?.legacy ? { minVersion } : null;
+      const current = parseVersion(report.appVersion);
+      const min = parseVersion(minVersion);
+      return !selected && current && min && compareVersions(current, min) < 0 ? { minVersion } : null;
     },
     dirFor(report) {
-      const selected = selectFrom(index(), report);
-      if (!selected) return rendererDir;
+      const registry = index();
+      if (registry === null) return rendererDir;
+      const selected = selectFrom(registry, report);
+      if (!selected) return null;
       const dir = join(releasesDir, selected.id);
       try {
-        return statSync(join(dir, 'index.html')).isFile() ? dir : rendererDir;
+        return statSync(join(dir, 'index.html')).isFile() ? dir : null;
       } catch {
-        return rendererDir;
+        return null;
       }
     },
   };

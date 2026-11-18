@@ -37,27 +37,6 @@ impl Default for WindowTuning {
     }
 }
 
-impl WindowTuning {
-    /// The tunables as `var` (an environment lookup) sets them.
-    pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> Self {
-        let default = Self::default();
-        let read = |name: &str, fallback: usize| positive_int(var(name), fallback as u64) as usize;
-        Self {
-            min_items: read("MIXDOG_TUI_TRANSCRIPT_WINDOW_MIN_ITEMS", default.min_items),
-            overscan_rows: read("MIXDOG_TUI_TRANSCRIPT_OVERSCAN_ROWS", default.overscan_rows),
-            max_items: read("MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS", default.max_items),
-            tail_overscan_rows: read("MIXDOG_TUI_TRANSCRIPT_TAIL_OVERSCAN_ROWS", default.tail_overscan_rows),
-            tail_max_items: read("MIXDOG_TUI_TRANSCRIPT_WINDOW_TAIL_ITEMS", default.tail_max_items),
-        }
-    }
-
-    /// The tunables of this process, read once.
-    pub fn current() -> Self {
-        static CURRENT: OnceLock<WindowTuning> = OnceLock::new();
-        *CURRENT.get_or_init(|| Self::from_vars(|name| std::env::var(name).ok()))
-    }
-}
-
 /// The window over the items for one frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RenderWindow {
@@ -289,5 +268,27 @@ mod tests {
         assert!(!transcript_swap_returns_to_tail(5, 5, Some("a"), Some("a")));
         assert!(transcript_swap_returns_to_tail(5, 5, Some("b"), Some("a")), "a compaction trims the head and keeps the count");
         assert!(!transcript_swap_returns_to_tail(5, 5, None, Some("a")));
+    }
+}
+
+
+impl WindowTuning {
+    /// The tunables as `var` (an environment lookup) sets them.
+    pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> Self {
+        let default = Self::default();
+        let read = |name: &str, fallback: usize| positive_int(var(name), fallback as u64) as usize;
+        Self {
+            min_items: read("MIXDOG_TUI_TRANSCRIPT_WINDOW_MIN_ITEMS", default.min_items),
+            overscan_rows: read("MIXDOG_TUI_TRANSCRIPT_OVERSCAN_ROWS", default.overscan_rows),
+            max_items: read("MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS", default.max_items),
+            tail_overscan_rows: read("MIXDOG_TUI_TRANSCRIPT_TAIL_OVERSCAN_ROWS", default.tail_overscan_rows),
+            tail_max_items: read("MIXDOG_TUI_TRANSCRIPT_WINDOW_TAIL_ITEMS", default.tail_max_items),
+        }
+    }
+
+    /// The tunables of this process, read once.
+    pub fn current() -> Self {
+        static CURRENT: OnceLock<WindowTuning> = OnceLock::new();
+        *CURRENT.get_or_init(|| Self::from_vars(|name| std::env::var(name).ok()))
     }
 }

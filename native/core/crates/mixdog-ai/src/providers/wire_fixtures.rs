@@ -31,10 +31,12 @@ pub(crate) struct Recorded {
     pub result: Value,
 }
 
+#[cfg(node_twin)]
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/provider-wire")
 }
 
+#[cfg(node_twin)]
 #[allow(clippy::disallowed_methods, reason = "test-only read of checked-in fixture files")]
 pub(crate) fn load(group: &str, scenario: &str) -> Recorded {
     let dir = root().join(group).join(scenario);
@@ -46,6 +48,7 @@ pub(crate) fn load(group: &str, scenario: &str) -> Recorded {
 }
 
 /// The recorded scenario names of `group`, in directory order.
+#[cfg(node_twin)]
 #[allow(clippy::disallowed_methods, reason = "test-only listing of checked-in fixture files")]
 pub(crate) fn scenarios(group: &str) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(root().join(group))
@@ -58,6 +61,7 @@ pub(crate) fn scenarios(group: &str) -> Vec<String> {
 
 /// A Node transcript message (`{role, content, toolCalls, toolCallId, providerReplay}`) as the neutral message. A Gemini-shaped
 /// replay (`items` a parts array, `requestContext.model`) becomes the Google codecs' envelope `{parts, model}`.
+#[cfg(node_twin)]
 pub(crate) fn message(node: &Value) -> Message {
     let role = match node["role"].as_str().expect("role") {
         "system" => Role::System,
@@ -91,6 +95,7 @@ pub(crate) fn message(node: &Value) -> Message {
 
 /// A replay envelope as Node's result carries it (`createProviderReplay`): the Google codecs' `{parts, model}` is
 /// Node's parts list with the model under `requestContext` (the inverse of [`message`]).
+#[cfg(node_twin)]
 fn node_replay(replay: &ProviderReplay) -> Value {
     let mut out = Map::new();
     out.insert("version".into(), json!(1));
@@ -162,12 +167,14 @@ pub(crate) fn node_result(result: &Value) -> Value {
 /// calls. A provider-native block other than a search call is one of the replay's blocks (checked here); the live
 /// events (`ItemStart`, `Progress`, `ChunkProgress`, notices, the deltas) are Node's stream callbacks, which its result
 /// does not keep: [`core_events`] compares them with the callbacks Node made, in order.
+#[cfg(node_twin)]
 pub(crate) fn core_result(events: &[StreamEvent], requested: &str) -> Value {
     core_result_at(events, &vec![START; events.len()], requested)
 }
 
 /// [`core_result`] of events each stamped with the virtual clock's time when the stream yielded it: the generation
 /// window (Node `generationMs`) runs from the output's start ([`StreamEvent::OutputStarted`]) to the terminal event.
+#[cfg(node_twin)]
 pub(crate) fn core_result_at(events: &[StreamEvent], at: &[i64], requested: &str) -> Value {
     assert_eq!(events.len(), at.len(), "one time per event");
     let mut output_at = None;
@@ -256,6 +263,7 @@ pub(crate) fn core_result_at(events: &[StreamEvent], at: &[i64], requested: &str
             | StreamEvent::ToolCallStart { .. }
             | StreamEvent::ToolCallArgsDelta { .. }
             | StreamEvent::ReasoningDelta(_)
+            | StreamEvent::ProgressDelta(_)
             | StreamEvent::ProviderKeepalive
             | StreamEvent::Progress(_)
             | StreamEvent::ChunkProgress(_) => {}
@@ -306,6 +314,7 @@ fn differences(path: &str, core: &Value, node: &Value, out: &mut Vec<String>) {
 }
 
 /// The whole-result comparison of `name`: every difference is named by its JSON pointer.
+#[cfg(node_twin)]
 pub(crate) fn assert_same_result(core: &Value, node: &Value, name: &str) {
     // A provider state's `updatedAt` is the wall clock when the state was taken (the recorder pins Node's `Date.now`
     // to its START, the core reads the system clock): compared for presence, declared in the manifest.
@@ -335,6 +344,7 @@ fn stream_delta(kind: &str) -> Value {
 /// caller passed (`input.json` `callbacks`) and nothing else, in order. A text or reasoning delta also reports its kind
 /// (`onStreamDelta('text')`) unless the stream announced its chunks ([`StreamEvent::progress_kinds`]); a chunk's kind is
 /// `ChunkProgress` and a semantic step `Progress`; a dispatched call is `onToolCall`, a notice `onStageChange('notice')`.
+#[cfg(node_twin)]
 pub(crate) fn core_events(events: &[StreamEvent], callbacks: &Value) -> Vec<Value> {
     let passed = |name: &str| callbacks.as_array().expect("callbacks").iter().any(|c| c == name);
     let mut out = Vec::new();
@@ -349,7 +359,8 @@ pub(crate) fn core_events(events: &[StreamEvent], callbacks: &Value) -> Vec<Valu
             }
             StreamEvent::Progress(kind) => out.push(stream_delta(kind.name())),
             StreamEvent::ProviderKeepalive => out.push(stream_delta("keepalive")),
-            StreamEvent::TextDelta(text) => {
+            // `relayProgressUpdate`: an update goes out the text callback.
+            StreamEvent::TextDelta(text) | StreamEvent::ProgressDelta(text) => {
                 if passed("onTextDelta") {
                     out.push(json!({ "on": "textDelta", "text": text }));
                 }
@@ -426,6 +437,7 @@ fn canonical_events(events: &[Value]) -> Vec<Value> {
 }
 
 /// The callbacks the core's events make equal Node's, in recorded order.
+#[cfg(node_twin)]
 pub(crate) fn assert_same_events(events: &[StreamEvent], recorded: &Recorded, name: &str) {
     let core = canonical_events(&core_events(events, &recorded.input["callbacks"]));
     let node = canonical_events(recorded.result["events"].as_array().expect("events"));
@@ -437,6 +449,7 @@ pub(crate) fn assert_same_events(events: &[StreamEvent], recorded: &Recorded, na
 const UNEQUAL_HEADERS: [&str; 1] = ["x-grok-req-id"];
 
 /// The Node runtime the recorder ran under (the manifest's `nodeVersion`).
+#[cfg(node_twin)]
 #[allow(clippy::disallowed_methods, reason = "test-only read of the checked-in manifest")]
 fn recorder_node() -> String {
     let manifest: Value = serde_json::from_slice(&std::fs::read(root().join("MANIFEST.json")).expect("manifest")).expect("json");
@@ -525,6 +538,7 @@ fn recorded_head(record: &Value) -> Vec<(String, String)> {
 /// One request compared whole with Node's: the method, the URL, every header in order (only the values of
 /// [`UNEQUAL_HEADERS`] aside), and the body's bytes (with `drawn`, the top-level body fields drawn per send, compared
 /// for presence only).
+#[cfg(node_twin)]
 pub(crate) fn assert_same_request(sent: &WireRequest, record: &Value, drawn: &[&str], name: &str) {
     assert_eq!(sent.method, record["method"].as_str().expect("method"), "{name}: method");
     assert_eq!(sent.url, format!("{}{}", record["origin"].as_str().expect("origin"), record["path"].as_str().expect("path")), "{name}: url");
@@ -556,6 +570,7 @@ fn sent_by_the_send(method: &str) -> bool {
 }
 
 /// Every request the core sent, compared whole and in order with the ones Node's send made.
+#[cfg(node_twin)]
 pub(crate) fn assert_same_requests(sent: &[WireRequest], recorded: &Recorded, drawn: &[&str], name: &str) {
     let sent: Vec<&WireRequest> = sent.iter().filter(|r| sent_by_the_send(&r.method)).collect();
     let node: Vec<&Value> =
@@ -742,6 +757,7 @@ impl crate::registry::keys::Environment for ScenarioEnv {
 /// The provider the recorder built (`input.json` `provider`, `config`, `credential`), built by the production builder
 /// (`DefaultProviderBuilder::build`) over the hub, in a data directory holding the recorded credential file and with the
 /// recorder's environment (`MIXDOG_OAI_TRANSPORT=http`; gcloud's login named by `GOOGLE_APPLICATION_CREDENTIALS`).
+#[cfg(node_twin)]
 pub(crate) async fn built(
     recorded: &Recorded,
     hub: Arc<Hub>,
@@ -751,6 +767,7 @@ pub(crate) async fn built(
 }
 
 /// [`built`] over any HTTP seam: the product's own client pinned to a loopback endpoint, where a replay needs the socket.
+#[cfg(node_twin)]
 pub(crate) async fn built_on(
     recorded: &Recorded,
     hub: Arc<dyn crate::transport::HttpSend>,
@@ -808,6 +825,7 @@ pub(crate) async fn built_on(
 }
 
 /// Every event of one attempt, each with the hub's virtual time when the stream yielded it.
+#[cfg(node_twin)]
 pub(crate) async fn timed_attempt(
     adapter: &dyn mixdog_core_api::domain::provider::ProviderAdapter,
     request: Arc<mixdog_core_api::domain::provider::ModelRequest>,
@@ -823,6 +841,7 @@ pub(crate) async fn timed_attempt(
 }
 
 /// Every event of one attempt.
+#[cfg(node_twin)]
 pub(crate) async fn attempt(
     adapter: &dyn mixdog_core_api::domain::provider::ProviderAdapter,
     request: Arc<mixdog_core_api::domain::provider::ModelRequest>,
@@ -837,6 +856,7 @@ pub(crate) async fn attempt(
 
 /// Node's send arguments as the request the core's loop makes of them: the messages, the tools, and the options Node's
 /// send read (`sessionId`, `effort`, `sourceType`).
+#[cfg(node_twin)]
 pub(crate) fn request_of(recorded: &Recorded) -> mixdog_core_api::domain::provider::ModelRequest {
     let input = &recorded.input;
     let opts = &input["opts"];

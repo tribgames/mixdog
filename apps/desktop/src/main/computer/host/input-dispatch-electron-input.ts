@@ -2,53 +2,18 @@
  *  debugger input channel. Chromium ignores window-message keys, and this
  *  channel needs neither OS focus nor the pointer, so the window is never
  *  raised and the user's foreground window stays where it is. */
-import type { WebContents } from 'electron';
 import { createKeyboardInput } from '../../browser/input-keyboard';
 import { createMouseInput } from '../../browser/input-mouse';
-import {
-  type BrowserMouseButton,
-  cssPoint,
-  normalizeModifierMask,
-  type SendBrowserInput,
-} from '../../browser/input-primitives';
+import { type BrowserMouseButton, cssPoint, normalizeModifierMask } from '../../browser/input-primitives';
 import { dipToNative, nativeToDip } from '../shared/native-coordinates';
 import type { ComputerCommand, PowerShellResponse } from '../shared/types';
+import { runRendererInput, type ScopeEndpoint } from './electron-input-port';
 import type { DispatchAuthority, ElectronTextDispatch } from './input-dispatch-electron-text';
 import { electronKeyPresses } from './input-electron-keys';
 import { assertObservationInputAllowed } from './observation-policy';
 
 /** CSS pixels one wheel notch scrolls, the step Chromium itself uses. */
 const WHEEL_NOTCH = 100;
-
-/** The tail of each window's queued input operations. Sessions run their commands on separate
- *  chains, so without this one session could detach the debugger between another's keydown and keyup. */
-const operationTails = new WeakMap<WebContents, Promise<unknown>>();
-
-/** Run `work` with the window's debugger attached, releasing it only if this call attached it.
- *  Whole operations (attach, work, detach) run one at a time per window. */
-async function withDebugger<T>(contents: WebContents, work: (send: SendBrowserInput) => Promise<T>): Promise<T> {
-  const previous = operationTails.get(contents) ?? Promise.resolve();
-  const run = previous.then(() => attachedOperation(contents, work));
-  operationTails.set(
-    contents,
-    run.catch(() => undefined)
-  );
-  return run;
-}
-
-async function attachedOperation<T>(contents: WebContents, work: (send: SendBrowserInput) => Promise<T>): Promise<T> {
-  const cdp = contents.debugger;
-  const attachedHere = !cdp.isAttached();
-  if (attachedHere) cdp.attach('1.3');
-  try {
-    return await work(async (_guest, method, params) => {
-      await cdp.sendCommand(method, params);
-      return 'completed';
-    });
-  } finally {
-    if (attachedHere && !contents.isDestroyed() && cdp.isAttached()) cdp.detach();
-  }
-}
 
 /** A native physical point as the renderer's CSS pixels. */
 function rendererPoint(renderer: ElectronTextDispatch['renderer'], native: { x: number; y: number }): { x: number; y: number } {
@@ -77,11 +42,12 @@ function wheelPoint(input: ElectronTextDispatch): { x: number; y: number } {
 export async function sendElectronPointer(
   renderer: ElectronTextDispatch['renderer'],
   native: { x: number; y: number },
-  pointer: { kind: 'click' | 'move'; button?: BrowserMouseButton; clicks?: number; modifiers?: number }
+  pointer: { kind: 'click' | 'move'; button?: BrowserMouseButton; clicks?: number; modifiers?: number },
+  scope: ScopeEndpoint
 ): Promise<void> {
   const contents = renderer.webContents;
   const point = rendererPoint(renderer, native);
-  await withDebugger(contents, async (send) => {
+  await runRendererInput(contents, scope, async ({ send }) => {
     const mouse = createMouseInput(send);
     if (pointer.kind === 'move') return mouse.hoverAt(contents, point.x, point.y);
     for (let count = 1; count <= (pointer.clicks ?? 1); count++) {
@@ -140,7 +106,7 @@ export async function dispatchElectronInput(input: ElectronTextDispatch): Promis
   };
   if (command.action === 'key') {
     const presses = electronKeyPresses(String(command.keys || ''));
-    await withDebugger(contents, async (send) => {
+    await runRendererInput(contents, input.scope, async ({ send }) => {
       const { pressKey } = createKeyboardInput(send, { allowClipboard: true });
       for (const press of presses) {
         await authorizeStep();
@@ -166,7 +132,7 @@ export async function dispatchElectronInput(input: ElectronTextDispatch): Promis
       : dipToNative({ x: Math.round(bounds.x + bounds.width / 2), y: Math.round(bounds.y + bounds.height / 2) })),
     action: 'scroll',
   });
-  await withDebugger(contents, async (send) => {
+  await runRendererInput(contents, input.scope, async ({ send }) => {
     await send(contents, 'Input.dispatchMouseEvent', {
       type: 'mouseWheel',
       ...point,
@@ -193,7 +159,7 @@ export async function dispatchElectronPointer(
   await authorizeDispatch();
   assertObservationInputAllowed(command, host.isObserveOnly());
   const modifiers = modifierMask(pointer.modifiers);
-  await sendElectronPointer(renderer, native, { ...pointer, modifiers });
+  await sendElectronPointer(renderer, native, { ...pointer, modifiers }, input.scope);
   input.showCursor?.({ sessionId: host.sessionIdFor(command), windowId: target.targetWindowId, ...native, action: pointer.kind });
   return delivered(
     input,

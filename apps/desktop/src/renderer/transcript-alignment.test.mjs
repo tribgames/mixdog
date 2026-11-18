@@ -112,6 +112,34 @@ test('a repeated tail window retains the displayed row ids across source namespa
   );
 });
 
+test('the live row is matched by its id from frame to frame; its text is read only when it settles under another id', () => {
+  let reads = 0;
+  const counted = (value) => ({
+    toString() {
+      reads += 1;
+      return value;
+    },
+  });
+  const user = { id: 'u1', kind: 'user', text: 'question' };
+  const items = [user];
+  const reconciler = createTranscriptIdentityReconciler();
+  for (const text of ['Hel', 'Hello', 'Hello wor', 'Hello world\n']) {
+    const shown = reconciler.reconcile({
+      sessionId: 's',
+      items,
+      streamingTail: { id: 'live-1', kind: 'assistant', streaming: true, text: counted(text) },
+    });
+    assert.equal(shown.streamingTail.id, 'live-1');
+  }
+  assert.equal(reads, 0, 'a live row that keeps its id is never read for content');
+  // The reply settles as a row of another id namespace: its content is compared once, and it keeps the id it streamed under.
+  const settled = reconciler.reconcile({ sessionId: 's', items: [user, { id: 'disk-7', kind: 'assistant', text: 'Hello world\n' }] });
+  assert.deepEqual(
+    settled.items.map((item) => item.id),
+    ['u1', 'live-1']
+  );
+});
+
 test('a row that moved down keeps its id: the row landing in its place never takes it', () => {
   // A group room: the speaking member's typing row ends the log; its message
   // lands in that place while the typing row is still shown below it.

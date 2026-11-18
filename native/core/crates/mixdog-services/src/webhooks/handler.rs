@@ -2,8 +2,10 @@
 //! body parse, dispatch. Pure over its store and dispatcher, so the transport only moves
 //! bytes. Each request is independent; nothing here is shared between requests.
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::collections::{HashMap, HashSet};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
 use mixdog_rt::{Scope, Scoped};
@@ -110,8 +112,15 @@ pub trait WebhookStore: Send + Sync {
     async fn any_enabled_endpoint(&self) -> Result<bool, String> {
         Ok(false)
     }
-    /// Atomic claim and dedup in one step; false when the delivery was already claimed.
+    /// Atomic claim and dedup in one step; only a failed handoff (not a failed bot run) can be reclaimed.
     async fn claim_delivery(&self, endpoint: &str, delivery_id: &str, claim: Claim<'_>) -> Result<bool, String>;
+    /// Release a claim whose request did not hand off a job.
+    async fn fail_handoff(&self, endpoint: &str, delivery_id: &str, error: &str) -> Result<(), String> {
+        self.update_delivery_status(endpoint, delivery_id, "failed", Some(error)).await
+    }
+    async fn resuming_rule_handoff(&self, _name: &str, _id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
     async fn update_delivery_status(
         &self,
         endpoint: &str,
@@ -121,9 +130,22 @@ pub trait WebhookStore: Send + Sync {
     ) -> Result<(), String>;
 }
 
+pub enum WebhookRoute {
+    Reply(HttpReply),
+    Rule(Pin<Box<dyn Future<Output = Result<HttpReply, String>> + Send>>),
+}
+
 /// Hands an accepted event to the owner's routine run and answers the sender.
 #[async_trait]
 pub trait WebhookDispatch: Send + Sync {
+    /// Bot dispatch stays in the request scope. Only an identified rule's durability handoff
+    /// can take ownership of the claim and outlive the HTTP waiter.
+    async fn route(
+        &self, name: &str, payload: Value, headers: &Headers, delivery_id: &str, endpoint_in_table: bool,
+    ) -> Result<WebhookRoute, String> {
+        self.handle(name, payload, headers, delivery_id, endpoint_in_table).await.map(WebhookRoute::Reply)
+    }
+
     async fn handle(
         &self,
         name: &str,
@@ -140,11 +162,67 @@ pub trait WebhookDispatch: Send + Sync {
 /// (`decisions.md`, "hang-services").
 pub(crate) const PROCESS: std::time::Duration = std::time::Duration::from_secs(25);
 
+type ActiveDeliveries = Arc<Mutex<HashSet<(String, String)>>>;
+
+struct ActiveDelivery {
+    active: ActiveDeliveries,
+    key: (String, String),
+}
+
+impl ActiveDelivery {
+    fn begin(active: &ActiveDeliveries, name: &str, id: &str) -> Option<Self> {
+        let key = (name.to_owned(), id.to_owned());
+        active.lock().unwrap().insert(key.clone()).then(|| Self { active: active.clone(), key })
+    }
+}
+
+impl Drop for ActiveDelivery {
+    fn drop(&mut self) {
+        self.active.lock().unwrap().remove(&self.key);
+    }
+}
+
+/// The writer can commit even when the request has stopped waiting for its answer. Send
+/// a ticket, not a bool: if the receiver is gone (even after send), dropping it closes
+/// the claim before the next request can acquire this delivery.
+struct ClaimedDelivery {
+    owner: Option<ActiveDelivery>,
+    store: Arc<dyn WebhookStore>,
+    work: Option<WorkGuard>,
+}
+
+impl ClaimedDelivery {
+    async fn fail(mut self, error: &str, retryable: bool) {
+        let Some(owner) = &self.owner else { return };
+        fail(&*self.store, &owner.key.0, &owner.key.1, error, retryable).await;
+        self.owner.take();
+    }
+
+    fn settled(mut self) {
+        self.owner.take();
+    }
+}
+
+impl Drop for ClaimedDelivery {
+    fn drop(&mut self) {
+        if let Some(owner) = self.owner.take() {
+            let store = self.store.clone();
+            let work = self.work.take();
+            drop(tokio::spawn(async move {
+                let _work = work;
+                fail(&*store, &owner.key.0, &owner.key.1, "processing cancelled", true).await;
+                drop(owner);
+            }));
+        }
+    }
+}
+
 pub struct WebhookService {
     store: Arc<dyn WebhookStore>,
     dispatch: Arc<dyn WebhookDispatch>,
     config: RwLock<WebhookConfig>,
     work: RunningWork,
+    active: ActiveDeliveries,
     now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
     warned_unsigned: std::sync::atomic::AtomicBool,
 }
@@ -210,6 +288,7 @@ impl WebhookService {
             dispatch,
             config: RwLock::new(config),
             work,
+            active: Default::default(),
             now_ms,
             warned_unsigned: Default::default(),
         }
@@ -314,20 +393,18 @@ impl WebhookService {
         Ok(())
     }
 
-    async fn fail(&self, name: &str, id: &str, error: &str) {
-        if let Err(err) = self.store.update_delivery_status(name, id, "failed", Some(error)).await {
-            mixdog_rt::node_stderr!("mixdog webhook: failed to mark delivery {name}/{id} failed — {err}");
-        }
-    }
-
     pub async fn process(&self, name: &str, headers: &Headers, raw_body: &[u8]) -> HttpReply {
-        let mut claimed_id: Option<String> = None;
-        let deadline = std::time::Instant::now() + PROCESS;
-        let bounded = Scope::new().deadline(Some(deadline)).run(self.process_inner(name, headers, raw_body, &mut claimed_id)).await;
+        let mut claimed = None;
+        let bounded = Scope::new()
+            .within(PROCESS)
+            .run(self.process_inner(name, headers, raw_body, &mut claimed))
+            .await;
         let Scoped::Done(outcome) = bounded else {
             tracing::warn!("webhook {name}: processing timed out");
-            if let Some(id) = &claimed_id {
-                self.fail(name, id, "processing timeout").await;
+            // A claim still held here never reached a handoff: a rule handoff or a started
+            // bot run takes the ticket out of `claimed` before it can be awaited.
+            if let Some(ticket) = claimed {
+                ticket.fail("processing timeout", true).await;
             }
             return HttpReply::error(504, "processing timeout");
         };
@@ -335,16 +412,15 @@ impl WebhookService {
             Ok(reply) => reply,
             Err(Failure::Invalid(message)) => {
                 mixdog_rt::node_stderr!("mixdog webhook: JSON parse error for {name}: {message}");
-                if let Some(id) = &claimed_id {
-                    self.fail(name, id, &format!("invalid JSON: {message}")).await;
+                if let Some(ticket) = claimed {
+                    ticket.fail(&format!("invalid JSON: {message}"), false).await;
                 }
                 HttpReply::error(400, "invalid JSON")
             }
             Err(Failure::Internal(message)) => {
                 mixdog_rt::node_stderr!("mixdog webhook: {name}: request failed: {message}");
-                // A terminal failed row closes the `received` claim so retries don't loop on dedup.
-                if let Some(id) = &claimed_id {
-                    self.fail(name, id, &message).await;
+                if let Some(ticket) = claimed {
+                    ticket.fail(&message, false).await;
                 }
                 HttpReply::error(500, "internal error")
             }
@@ -356,7 +432,7 @@ impl WebhookService {
         name: &str,
         headers: &Headers,
         raw_body: &[u8],
-        claimed_id: &mut Option<String>,
+        claimed: &mut Option<ClaimedDelivery>,
     ) -> Result<HttpReply, Failure> {
         let db_endpoint = self.store.load_endpoint(name).await.map_err(Failure::Internal)?;
         let endpoint = db_endpoint.clone().or_else(|| self.config_endpoint(name));
@@ -389,25 +465,34 @@ impl WebhookService {
         }
         let body_text = String::from_utf8_lossy(raw_body);
         let id = delivery_id(headers, raw_body);
-        let event = headers.get("x-github-event").filter(|v| !v.is_empty()).map(String::as_str);
-        let claim = Claim {
-            status: "received",
-            event,
-            headers_summary: headers_summary(headers),
-            payload_preview: mixdog_js::slice_utf16(&body_text, 512),
+        let Some(owner) = ActiveDelivery::begin(&self.active, name, &id) else {
+            return Ok(HttpReply { status: 503, body: json!({"error":"delivery in progress","id":id}) });
         };
-        let claimed = self.store.claim_delivery(name, &id, claim).await.map_err(Failure::Internal)?;
-        *claimed_id = Some(id.clone());
-        if !claimed {
+        let event = headers.get("x-github-event").filter(|v| !v.is_empty()).cloned();
+        let (store, claim_event, headers_summary, payload_preview, work) =
+            (self.store.clone(), event.clone(), headers_summary(headers), mixdog_js::slice_utf16(&body_text, 512), self.work.begin());
+        let ticket = tokio::spawn(async move {
+            let claim = Claim { status: "received", event: claim_event.as_deref(), headers_summary, payload_preview };
+            if store.claim_delivery(&owner.key.0, &owner.key.1, claim).await? {
+                Ok(Some(ClaimedDelivery { owner: Some(owner), store, work: Some(work) }))
+            } else {
+                Ok(None)
+            }
+        })
+        .await
+        .map_err(|error| Failure::Internal(error.to_string()))?
+        .map_err(Failure::Internal)?;
+        let Some(ticket) = ticket else {
             mixdog_rt::node_stderr!("mixdog webhook: {name}: dedup {id}");
             return Ok(HttpReply { status: 200, body: json!({"status":"dedup","id":id}) });
-        }
+        };
+        *claimed = Some(ticket);
         let ctype = headers.get("content-type").map(|v| v.to_lowercase()).unwrap_or_default();
         let looks_json = ctype.contains("application/json") || ctype.contains("+json");
         if !raw_body.is_empty() && !looks_json {
             // A terminal failed row resolves the `received` claim so retries don't dedup forever.
             let shown = if ctype.is_empty() { "<none>" } else { &ctype };
-            self.fail(name, &id, &format!("unsupported content-type: {shown}")).await;
+            claimed.take().unwrap().fail(&format!("unsupported content-type: {shown}"), false).await;
             return Ok(HttpReply { status: 415, body: json!({"error":"unsupported content-type","expected":"application/json"}) });
         }
         let parsed: Value = if raw_body.is_empty() {
@@ -417,14 +502,46 @@ impl WebhookService {
             serde_json::from_str(&body_text).map_err(|e| Failure::Invalid(e.to_string()))?
         };
         // Our own issue comments carry this marker; forwarding one would self-trigger.
-        let own_comment = event == Some("issue_comment")
+        let own_comment = event.as_deref() == Some("issue_comment")
             && parsed["comment"]["body"].as_str().is_some_and(|b| b.starts_with("[mixdog "));
         if own_comment {
             self.store.update_delivery_status(name, &id, "self-comment-skip", None).await.map_err(Failure::Internal)?;
+            claimed.take().unwrap().settled();
             return Ok(HttpReply { status: 202, body: json!({"status":"self-comment-skip","id":id}) });
         }
         self.store.update_delivery_status(name, &id, "pending", None).await.map_err(Failure::Internal)?;
-        self.dispatch.handle(name, parsed, headers, &id, in_table).await.map_err(Failure::Internal)
+        let route = self.dispatch.route(name, parsed, headers, &id, in_table).await.map_err(Failure::Internal)?;
+        let ticket = claimed.take().unwrap();
+        let handoff = match route {
+            WebhookRoute::Reply(reply) => {
+                ticket.settled();
+                return Ok(reply);
+            }
+            WebhookRoute::Rule(handoff) => handoff,
+        };
+
+        tokio::spawn(async move {
+            let outcome = handoff.await;
+            match &outcome {
+                Ok(_) => ticket.settled(),
+                Err(error) => ticket.fail(error, true).await,
+            }
+            outcome
+        })
+        .await
+        .map_err(|error| Failure::Internal(error.to_string()))?
+        .map_err(Failure::Internal)
+    }
+}
+
+async fn fail(store: &dyn WebhookStore, name: &str, id: &str, error: &str, retryable: bool) {
+    let result = if retryable {
+        store.fail_handoff(name, id, error).await
+    } else {
+        store.update_delivery_status(name, id, "failed", Some(error)).await
+    };
+    if let Err(err) = result {
+        mixdog_rt::node_stderr!("mixdog webhook: failed to mark delivery {name}/{id} failed — {err}");
     }
 }
 

@@ -721,7 +721,7 @@ mod tests {
             &self,
             _: &WindowInfo,
             _: &[String],
-            _: &dyn Fn() -> Result<(), String>,
+            _: crate::platform::Authorize<'_>,
         ) -> Result<MenuOutcome, String> {
             Err("fake".into())
         }
@@ -848,6 +848,7 @@ mod tests {
             Box::new(screen),
             Observer::new(),
             Box::new(crate::lease_api::NoLease),
+            crate::port::Scope::open(1),
         );
         (host, elevated)
     }

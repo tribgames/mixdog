@@ -9,6 +9,7 @@
 import type { ComputerPresence } from '../computer/presence/mirror';
 import { registerComputerHandlers, type ComputerControlSource, type ComputerHostDeps } from './computer';
 import { registerComputerCommand, type ComputerCommandHostSource } from './computer-command';
+import { type ComputerSwitch, registerComputerScopes } from './computer-scope';
 import { bindComputerEnvironment } from './computer-environment';
 import { registerComputerPermissions, type ComputerPermissionReads } from './computer-permissions';
 import { coreDrivesComputer } from './computer-user-control';
@@ -34,12 +35,16 @@ export interface ComputerHostWiring {
   desktopHostScreen: ComputerControlSource;
   /** The same host's bridge answer (`host/computer/command`) while it runs, else null. */
   desktopHostCommand: ComputerCommandHostSource;
+  /** Computer Use's switch: every handler commits its effects under the request's automation scope, which follows it, and
+   *  `host/computer/revokeScopes` is always served (`computer-scope.ts`). */
+  computerSwitch: ComputerSwitch;
 }
 
 /** Registers the handlers and starts the environment reports once the app is ready; the returned function stops the reports (a
  *  connection's handlers end with it). */
 export function registerComputerHost(connection: HostConnection, wiring: ComputerHostWiring): () => void {
   const { mirror, environment } = wiring;
+  const scopes = registerComputerScopes(connection, wiring.computerSwitch);
   registerComputerHandlers(connection, wiring.desktopHostScreen, {
     appInput: {
       // The arrow follows the native physical point. A click is the phase the mirror paints as one; the other actions are its own words.
@@ -47,9 +52,10 @@ export function registerComputerHost(connection: HostConnection, wiring: Compute
         mirror.pointerProgress(sessionId, { x, y, held: false, mode: 'background', phase: action === 'click' ? 'release' : action }),
     },
     pixels: wiring.pixels,
+    scopes,
   });
   registerComputerPermissions(connection, wiring.permissions);
-  registerComputerCommand(connection, wiring.desktopHostCommand);
+  registerComputerCommand(connection, wiring.desktopHostCommand, scopes);
   let stopped = false;
   let unbind: () => void = () => undefined;
   void environment.ready.then(() => {

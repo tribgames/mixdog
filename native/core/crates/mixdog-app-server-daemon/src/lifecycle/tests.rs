@@ -27,10 +27,10 @@ fn last_exit(dir: &std::path::Path) -> serde_json::Value {
 
 const RELEASE_ORDER: [&str; 6] = [
     "final_barriers",
+    "close_data_handles",
+    "withdraw",
     "close_connections",
     "close_ext_host",
-    "withdraw",
-    "close_data_handles",
     "exit",
 ];
 
@@ -57,66 +57,6 @@ fn the_last_client_leaving_an_idle_core_stops_it_when_no_grace_is_configured() {
     assert_eq!(exit["reason"], "noClients");
     assert_eq!(exit["instanceId"], "instance-1");
     assert_eq!(*fx.lifecycle.state().borrow(), CoreState::Stopped);
-}
-
-/// Node's grace (`client-grace.mjs`) through the real handle on a clock the test moves: a flapping client does not end the core.
-#[test]
-fn a_client_leaving_and_returning_inside_the_grace_does_not_stop_the_core() {
-    use std::time::Duration;
-    let timer = super::testing::ManualTimer::new();
-    let fx = super::testing::fixture_with_grace(ClientGrace::node(), timer.clone());
-    fx.lifecycle.set_serving().unwrap();
-    drop(fx.lifecycle.connection(ClientKind::Session));
-    assert_eq!(timer.armed(), [Duration::from_secs(10)]);
-    timer.advance(Duration::from_secs(9));
-    assert!(!fx.recorder.has_exited());
-    let back = fx.lifecycle.connection(ClientKind::Session);
-    assert!(timer.armed().is_empty(), "the client's return cancels the grace");
-    timer.advance(Duration::from_secs(3600));
-    assert!(!fx.recorder.has_exited());
-    assert_eq!(*fx.lifecycle.state().borrow(), CoreState::Serving);
-    drop(back);
-    assert_eq!(timer.armed(), [Duration::from_secs(10)], "a full grace again");
-    timer.advance(Duration::from_secs(10));
-    fx.recorder.wait_exit();
-    assert_eq!(release_reason(&fx.recorder.events()), ["no live session clients"]);
-    assert_eq!(last_exit(fx.runtime_root.path())["reason"], "noClients");
-}
-
-#[test]
-fn a_remote_client_leaving_gets_the_long_grace_and_the_turn_it_left_running_is_not_cut() {
-    use std::time::Duration;
-    let timer = super::testing::ManualTimer::new();
-    let grace = ClientGrace { local: ClientGrace::NODE_LOCAL, remote: Some(ClientGrace::NODE_REMOTE) };
-    let fx = super::testing::fixture_with_grace(grace, timer.clone());
-    fx.lifecycle.set_serving().unwrap();
-    let client = fx.lifecycle.connection(ClientKind::Remote);
-    let work = fx.lifecycle.begin_activity(turn());
-    drop(client);
-    assert_eq!(timer.armed(), [Duration::from_secs(1800)]);
-    timer.advance(Duration::from_secs(1799));
-    assert!(!fx.recorder.has_exited());
-    timer.advance(Duration::from_secs(1));
-    assert!(!fx.recorder.has_exited(), "the running turn defers the stop");
-    assert!(fx.recorder.cancelled().is_empty(), "and is not cancelled");
-    drop(work);
-    fx.recorder.wait_exit();
-    assert_eq!(release_reason(&fx.recorder.events()), ["busy service work settled"]);
-}
-
-#[test]
-fn a_client_arriving_while_the_core_is_winding_down_does_not_undo_the_release() {
-    use std::time::Duration;
-    let timer = super::testing::ManualTimer::new();
-    let fx = super::testing::fixture_with_grace(ClientGrace::node(), timer.clone());
-    fx.lifecycle.set_serving().unwrap();
-    drop(fx.lifecycle.connection(ClientKind::Session));
-    timer.advance(Duration::from_secs(10));
-    let late = fx.lifecycle.connection(ClientKind::Session);
-    fx.recorder.wait_exit();
-    drop(late);
-    timer.advance(Duration::from_secs(3600));
-    assert_eq!(release_events(&fx.recorder.events()), RELEASE_ORDER, "one release");
 }
 
 fn release_reason(events: &[String]) -> Vec<&str> {
@@ -220,44 +160,6 @@ fn a_lost_owner_lock_names_its_file() {
     assert_eq!(release_reason(&fx.recorder.events()), ["owner lock file /data/daemon-owner.lock was deleted or replaced"]);
 }
 
-/// Node's `POST /shutdown` with and without a client attached, recorded from the real daemon
-/// (`fixtures/self-shutdown-deferral`, `record-self-shutdown-deferral.mjs`): the request with a client is put off, and the stop that
-/// follows it (the last client leaving) and the stop without one carry the text Node logged.
-#[test]
-fn a_stop_request_waits_for_zero_clients_as_node_s_shutdown_does() {
-    let twin: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/self-shutdown-deferral/twin.json")).unwrap();
-    let reason_of = |line: &str| line.split_once('(').and_then(|(_, rest)| rest.split_once(')')).map(|(reason, _)| reason.to_owned()).unwrap();
-    for case in twin["cases"].as_array().unwrap() {
-        let name = case["name"].as_str().unwrap();
-        let alive = case["aliveAfter"].as_bool().unwrap();
-        let fx = fixture();
-        fx.lifecycle.set_serving().unwrap();
-        let clients: Vec<_> = (0..case["clients"].as_u64().unwrap()).map(|_| fx.lifecycle.connection(ClientKind::Session)).collect();
-        if alive {
-            fx.lifecycle.request_stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-            assert!(!fx.recorder.has_exited(), "{name}: the request is put off");
-            assert_eq!(fx.lifecycle.status().clients, clients.len(), "{name}: the clients are kept");
-            assert!(release_reason(&fx.recorder.events()).is_empty(), "{name}: nothing was released");
-            // The last client leaving then stops it, with the text of the same registry (`daemon.mjs:1245`).
-            drop(clients);
-        } else {
-            // Work running when the request comes (the recorded turn): the stop waits for it and reads what settled.
-            let work = case["running"].is_string().then(|| fx.lifecycle.begin_activity(turn()));
-            fx.lifecycle.request_stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-            // Only a recorded running turn has a recorded state to compare: the process exit of an idle stop is a release on
-            // its own thread, so whether it has run yet by now is not a state Node recorded.
-            if let Some(alive) = case["aliveWhileRunning"].as_bool() {
-                assert_eq!(!fx.recorder.has_exited(), alive, "{name}");
-            }
-            drop(work);
-        }
-        fx.recorder.wait_exit();
-        // The stop Node ended with: its `shutting down (..)` line, else (a request that was put off) the deferral's registry.
-        let ended = case["log"].as_array().unwrap().iter().filter_map(|l| l.as_str()).rfind(|l| l.starts_with("shutting down")).unwrap_or_else(|| case["log"][0].as_str().unwrap());
-        assert_eq!(release_reason(&fx.recorder.events()), [reason_of(ended)], "{name}");
-    }
-}
-
 /// A `Quit` request held back by a service call in flight reads 'service calls settled' (`daemon.mjs:543`, `drainDeferral` ->
 /// 'calls'), the one recheck text that no recording could drive (no call stays in flight from outside); the order of the two kinds
 /// follows Node's recheck chain: the kind that ends last names the stop.
@@ -342,30 +244,6 @@ fn goals_schedules_and_channels_keep_it_alive() {
     }
 }
 
-/// Node's hold lapses by itself (`daemon-work-gate.mjs`: 120 s by default), so an installer that died never leaves the core refusing
-/// work; a release before that drops the timer, and a hold taken while work runs is not taken.
-#[test]
-fn a_hold_lapses_after_its_ttl_and_a_release_drops_the_timer() {
-    let timer = super::testing::ManualTimer::new();
-    let fx = super::testing::fixture_with_grace(ClientGrace::immediate(), timer.clone());
-    fx.lifecycle.set_serving().unwrap();
-    fx.lifecycle.hold(true, None).unwrap();
-    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Held);
-    timer.advance(std::time::Duration::from_secs(119));
-    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Held);
-    timer.advance(std::time::Duration::from_secs(1));
-    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Open, "the TTL released the hold");
-    assert!(!fx.lifecycle.status().hold);
-
-    fx.lifecycle.hold(true, None).unwrap();
-    fx.lifecycle.hold(false, None).unwrap();
-    assert!(timer.armed().is_empty(), "a release drops the timer");
-
-    let _work = fx.lifecycle.begin_activity(turn());
-    fx.lifecycle.hold(true, None).unwrap();
-    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Open, "running work keeps admission open");
-}
-
 #[test]
 fn an_update_stop_waits_for_running_work_and_nothing_times_it() {
     let fx = fixture();
@@ -412,6 +290,69 @@ fn abort_needs_the_token_the_status_shows_and_then_cancels() {
     assert_eq!(fx.recorder.cancelled().len(), 1);
     assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Closed(DrainReason::Quit), "no turn starts after the abort");
     fx.recorder.wait_exit();
+}
+
+/// The desktop's quit: its clients are gone before it asks, so no drain notice reaches anyone to confirm. One `Force` request cancels the running
+/// turn, waits for it to end, and the core leaves through its release with a recorded process-exit reason (what makes the exit close the agents).
+#[test]
+fn a_forced_stop_aborts_the_running_work_in_one_request_and_leaves_through_the_release() {
+    let fx = fixture();
+    fx.lifecycle.set_serving().unwrap();
+    let work = Arc::new(Mutex::new(Some(fx.lifecycle.begin_activity(turn()))));
+    let ending = Arc::clone(&work);
+    *fx.recorder.on_cancel.lock().unwrap() = Some(Box::new(move |_| drop(ending.lock().unwrap().take())));
+
+    fx.lifecycle.request_stop(StopMode::Force, StopReason::UserStop, None).unwrap();
+    fx.recorder.wait_exit();
+
+    let cancelled = fx.recorder.cancelled();
+    assert_eq!(cancelled.len(), 1, "the running work was cancelled");
+    assert_eq!(cancelled[0].len(), 1);
+    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Closed(DrainReason::Quit), "no turn starts after the abort");
+    let events = fx.recorder.events();
+    assert_eq!(release_events(&events), RELEASE_ORDER);
+    assert_eq!(release_reason(&events), [FORCED_STOP_TEXT]);
+    assert!(mixdog_core_session::session::is_process_exit_reason(FORCED_STOP_TEXT), "the session directory closes the agents for it");
+    assert_eq!(last_exit(fx.runtime_root.path())["reason"], "userStop");
+    assert_eq!(fx.recorder.exit_code(), Some(0));
+}
+
+/// Node's forced `shutdown()` does not wait for the cancelled work (`daemon.mjs:268-296`): a turn that never answers its cancel does not hold the release
+/// back, whose first steps (the sessions' teardown) finalise it; and a stop that waited for it would be killed by the launcher's wait first.
+#[test]
+fn a_forced_stop_does_not_wait_for_work_that_ignores_its_cancel() {
+    let fx = fixture();
+    fx.lifecycle.set_serving().unwrap();
+    let _stuck = fx.lifecycle.begin_activity(turn());
+    fx.lifecycle.request_stop(StopMode::Force, StopReason::UserStop, None).unwrap();
+    fx.recorder.wait_exit();
+    assert_eq!(fx.recorder.cancelled().len(), 1, "it was cancelled");
+    let events = fx.recorder.events();
+    assert_eq!(release_events(&events), RELEASE_ORDER);
+    // What must not be lost runs first: the stop steps (sessions, records, database) come before the connections and the extension host.
+    let at = |name: &str| events.iter().position(|e| e == name).unwrap();
+    assert!(at("close_data_handles") < at("close_connections") && at("close_data_handles") < at("close_ext_host"));
+}
+
+/// A forced stop of an idle core is just the release, and one that arrives in a drain already waiting for the work aborts it.
+#[test]
+fn a_forced_stop_of_an_idle_core_or_of_a_waiting_drain() {
+    let fx = fixture();
+    fx.lifecycle.set_serving().unwrap();
+    fx.lifecycle.request_stop(StopMode::Force, StopReason::UserStop, None).unwrap();
+    fx.recorder.wait_exit();
+    assert!(fx.recorder.cancelled().iter().all(Vec::is_empty), "nothing ran, nothing was cancelled");
+
+    let fx = fixture();
+    fx.lifecycle.set_serving().unwrap();
+    let work = Arc::new(Mutex::new(Some(fx.lifecycle.begin_activity(turn()))));
+    let ending = Arc::clone(&work);
+    *fx.recorder.on_cancel.lock().unwrap() = Some(Box::new(move |_| drop(ending.lock().unwrap().take())));
+    fx.lifecycle.request_stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+    assert!(fx.recorder.cancelled().is_empty(), "the idle wait cancels nothing");
+    fx.lifecycle.request_stop(StopMode::Force, StopReason::UserStop, None).unwrap();
+    fx.recorder.wait_exit();
+    assert_eq!(fx.recorder.cancelled().len(), 1);
 }
 
 #[test]
@@ -467,6 +408,97 @@ fn a_discovery_that_cannot_be_published_ends_the_core_through_the_release_with_e
     assert_eq!(release_reason(&fx.recorder.events()), ["fatal boot error"]);
     assert_eq!(last_exit(fx.runtime_root.path())["reason"], "fatalBoot");
     assert_eq!(*fx.lifecycle.state().borrow(), CoreState::Stopped);
+}
+
+#[test]
+fn a_completed_stop_distinguishes_the_managed_drain_outcomes() {
+    use mixdog_spawn::ShutdownOutcome;
+
+    for (outcome, code, reason) in [
+        (ShutdownOutcome::Clean, 0, "userStop"),
+        (ShutdownOutcome::Unverified, 0, "userStop (managed process drain coverage unverified)"),
+        (ShutdownOutcome::ConfirmedFailure, 1, "userStop (managed process drain failed)"),
+    ] {
+        let fx = fixture();
+        assert!(fx.recorder.managed_drain.set(outcome).is_ok());
+        fx.lifecycle.set_serving().unwrap();
+        fx.lifecycle.request_stop(StopMode::Force, StopReason::UserStop, None).unwrap();
+        fx.recorder.wait_exit();
+        assert_eq!(fx.recorder.exit_code(), Some(code));
+        assert_eq!(release_events(&fx.recorder.events()), RELEASE_ORDER);
+        assert_eq!(last_exit(fx.runtime_root.path())["reason"], reason);
+    }
+}
+
+#[test]
+fn the_backstop_preserves_a_published_survivor_and_any_fatal_exit_code_while_flush_is_blocked() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use super::handle::TestBackstop;
+    use super::testing::Recorder;
+    use mixdog_spawn::ShutdownOutcome;
+
+    struct ExitProbe {
+        recorder: Arc<Recorder>,
+        codes: mpsc::Sender<i32>,
+    }
+
+    impl Exiter for ExitProbe {
+        fn exit(&self, code: i32) {
+            self.recorder.exit(code);
+            let _ = self.codes.send(code);
+        }
+    }
+
+    const WAIT: Duration = Duration::from_secs(10);
+    for (fatal_boot, code, reason) in [
+        (false, 1, "userStop (managed process drain failed)"),
+        (true, 2, "fatalBoot (managed process drain failed)"),
+    ] {
+        let recorder = Arc::new(Recorder::default());
+        let root = tempfile::tempdir().unwrap();
+        let (codes, exits) = mpsc::channel();
+        let lifecycle = Lifecycle::with_budgets(
+            LifecycleConfig { instance_id: "instance-1".into(), version: "1.4.6".into(), runtime_root: root.path().to_owned() },
+            Ports { core: recorder.clone(), discovery: recorder.clone(), exiter: Arc::new(ExitProbe { recorder: recorder.clone(), codes }) },
+            ReleaseBudgets::default(),
+        );
+        let (expire_now, expire) = mpsc::channel();
+        let (recorded, record_written) = mpsc::channel();
+        *lifecycle.test_backstop.lock().unwrap() = Some(TestBackstop { expire, recorded });
+        let (entered, flush_entered) = mpsc::channel();
+        let (unblock, blocked_flush) = mpsc::channel::<()>();
+        recorder.managed_drain.set(ShutdownOutcome::ConfirmedFailure).unwrap();
+        *recorder.after_managed_drain.lock().unwrap() = Some(Box::new(move || {
+            let _ = entered.send(());
+            let _ = blocked_flush.recv();
+        }));
+
+        if fatal_boot {
+            lifecycle.fail_boot();
+        } else {
+            lifecycle.set_serving().unwrap();
+            lifecycle.request_stop(StopMode::Force, StopReason::UserStop, None).unwrap();
+        }
+        flush_entered.recv_timeout(WAIT).expect("flush started after the manager result was published");
+        assert_eq!(release_events(&recorder.events()), ["final_barriers", "close_data_handles"]);
+        expire_now.send(()).unwrap();
+        assert_eq!(exits.recv_timeout(WAIT).expect("backstop exited with the flush still blocked"), code);
+        record_written.recv_timeout(WAIT).expect("backstop exit record was written");
+        let exit = last_exit(root.path());
+        assert_eq!(exit["reason"], reason);
+        assert_eq!(exit["stuckStep"], "shutdownBudget");
+        assert_eq!(release_events(&recorder.events()), ["final_barriers", "close_data_handles", "exit"]);
+
+        // The recorder stands in for process exit. Let the abandoned release finish so no thread is left blocked.
+        unblock.send(()).unwrap();
+        assert_eq!(exits.recv_timeout(WAIT).expect("release finished after unblocking the flush"), code);
+        let events = recorder.events();
+        let mut ordered = release_events(&events);
+        assert_eq!(ordered.remove(2), "exit", "the backstop exited before teardown resumed");
+        assert_eq!(ordered, RELEASE_ORDER);
+    }
 }
 
 #[test]
@@ -531,4 +563,125 @@ fn concurrent_sessions_register_and_end_without_losing_the_count() {
     }
     assert!(fx.lifecycle.status().running.is_empty());
     assert!(!fx.recorder.has_exited());
+}
+
+/// Node's grace (`client-grace.mjs`) through the real handle on a clock the test moves: a flapping client does not end the core.
+#[test]
+fn a_client_leaving_and_returning_inside_the_grace_does_not_stop_the_core() {
+    use std::time::Duration;
+    let timer = super::testing::ManualTimer::new();
+    let fx = super::testing::fixture_with_grace(ClientGrace::node(), timer.clone());
+    fx.lifecycle.set_serving().unwrap();
+    drop(fx.lifecycle.connection(ClientKind::Session));
+    assert_eq!(timer.armed(), [Duration::from_secs(10)]);
+    timer.advance(Duration::from_secs(9));
+    assert!(!fx.recorder.has_exited());
+    let back = fx.lifecycle.connection(ClientKind::Session);
+    assert!(timer.armed().is_empty(), "the client's return cancels the grace");
+    timer.advance(Duration::from_secs(3600));
+    assert!(!fx.recorder.has_exited());
+    assert_eq!(*fx.lifecycle.state().borrow(), CoreState::Serving);
+    drop(back);
+    assert_eq!(timer.armed(), [Duration::from_secs(10)], "a full grace again");
+    timer.advance(Duration::from_secs(10));
+    fx.recorder.wait_exit();
+    assert_eq!(release_reason(&fx.recorder.events()), ["no live session clients"]);
+    assert_eq!(last_exit(fx.runtime_root.path())["reason"], "noClients");
+}
+#[test]
+fn a_remote_client_leaving_gets_the_long_grace_and_the_turn_it_left_running_is_not_cut() {
+    use std::time::Duration;
+    let timer = super::testing::ManualTimer::new();
+    let grace = ClientGrace { local: ClientGrace::NODE_LOCAL, remote: Some(ClientGrace::NODE_REMOTE) };
+    let fx = super::testing::fixture_with_grace(grace, timer.clone());
+    fx.lifecycle.set_serving().unwrap();
+    let client = fx.lifecycle.connection(ClientKind::Remote);
+    let work = fx.lifecycle.begin_activity(turn());
+    drop(client);
+    assert_eq!(timer.armed(), [Duration::from_secs(1800)]);
+    timer.advance(Duration::from_secs(1799));
+    assert!(!fx.recorder.has_exited());
+    timer.advance(Duration::from_secs(1));
+    assert!(!fx.recorder.has_exited(), "the running turn defers the stop");
+    assert!(fx.recorder.cancelled().is_empty(), "and is not cancelled");
+    drop(work);
+    fx.recorder.wait_exit();
+    assert_eq!(release_reason(&fx.recorder.events()), ["busy service work settled"]);
+}
+#[test]
+fn a_client_arriving_while_the_core_is_winding_down_does_not_undo_the_release() {
+    use std::time::Duration;
+    let timer = super::testing::ManualTimer::new();
+    let fx = super::testing::fixture_with_grace(ClientGrace::node(), timer.clone());
+    fx.lifecycle.set_serving().unwrap();
+    drop(fx.lifecycle.connection(ClientKind::Session));
+    timer.advance(Duration::from_secs(10));
+    let late = fx.lifecycle.connection(ClientKind::Session);
+    fx.recorder.wait_exit();
+    drop(late);
+    timer.advance(Duration::from_secs(3600));
+    assert_eq!(release_events(&fx.recorder.events()), RELEASE_ORDER, "one release");
+}
+/// Node's hold lapses by itself (`daemon-work-gate.mjs`: 120 s by default), so an installer that died never leaves the core refusing
+/// work; a release before that drops the timer, and a hold taken while work runs is not taken.
+#[test]
+fn a_hold_lapses_after_its_ttl_and_a_release_drops_the_timer() {
+    let timer = super::testing::ManualTimer::new();
+    let fx = super::testing::fixture_with_grace(ClientGrace::immediate(), timer.clone());
+    fx.lifecycle.set_serving().unwrap();
+    fx.lifecycle.hold(true, None).unwrap();
+    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Held);
+    timer.advance(std::time::Duration::from_secs(119));
+    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Held);
+    timer.advance(std::time::Duration::from_secs(1));
+    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Open, "the TTL released the hold");
+    assert!(!fx.lifecycle.status().hold);
+
+    fx.lifecycle.hold(true, None).unwrap();
+    fx.lifecycle.hold(false, None).unwrap();
+    assert!(timer.armed().is_empty(), "a release drops the timer");
+
+    let _work = fx.lifecycle.begin_activity(turn());
+    fx.lifecycle.hold(true, None).unwrap();
+    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Open, "running work keeps admission open");
+}
+
+
+#[cfg(node_twin)]
+/// Node's `POST /shutdown` with and without a client attached, recorded from the real daemon
+/// (`fixtures/self-shutdown-deferral`, `record-self-shutdown-deferral.mjs`): the request with a client is put off, and the stop that
+/// follows it (the last client leaving) and the stop without one carry the text Node logged.
+#[test]
+fn a_stop_request_waits_for_zero_clients_as_node_s_shutdown_does() {
+    let twin: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/self-shutdown-deferral/twin.json")).unwrap();
+    let reason_of = |line: &str| line.split_once('(').and_then(|(_, rest)| rest.split_once(')')).map(|(reason, _)| reason.to_owned()).unwrap();
+    for case in twin["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let alive = case["aliveAfter"].as_bool().unwrap();
+        let fx = fixture();
+        fx.lifecycle.set_serving().unwrap();
+        let clients: Vec<_> = (0..case["clients"].as_u64().unwrap()).map(|_| fx.lifecycle.connection(ClientKind::Session)).collect();
+        if alive {
+            fx.lifecycle.request_stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+            assert!(!fx.recorder.has_exited(), "{name}: the request is put off");
+            assert_eq!(fx.lifecycle.status().clients, clients.len(), "{name}: the clients are kept");
+            assert!(release_reason(&fx.recorder.events()).is_empty(), "{name}: nothing was released");
+            // The last client leaving then stops it, with the text of the same registry (`daemon.mjs:1245`).
+            drop(clients);
+        } else {
+            // Work running when the request comes (the recorded turn): the stop waits for it and reads what settled.
+            let work = case["running"].is_string().then(|| fx.lifecycle.begin_activity(turn()));
+            fx.lifecycle.request_stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+            // Only a recorded running turn has a recorded state to compare: the process exit of an idle stop is a release on
+            // its own thread, so whether it has run yet by now is not a state Node recorded.
+            if let Some(alive) = case["aliveWhileRunning"].as_bool() {
+                assert_eq!(!fx.recorder.has_exited(), alive, "{name}");
+            }
+            drop(work);
+        }
+        fx.recorder.wait_exit();
+        // The stop Node ended with: its `shutting down (..)` line, else (a request that was put off) the deferral's registry.
+        let ended = case["log"].as_array().unwrap().iter().filter_map(|l| l.as_str()).rfind(|l| l.starts_with("shutting down")).unwrap_or_else(|| case["log"][0].as_str().unwrap());
+        assert_eq!(release_reason(&fx.recorder.events()), [reason_of(ended)], "{name}");
+    }
 }

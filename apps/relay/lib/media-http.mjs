@@ -71,11 +71,12 @@ export function parseRange(header, size) {
  *   variant: string,
  *   rangeHeader?: string | string[] | null,
  *   ifNoneMatch?: string | string[] | null,
+ *   ifRange?: string | null,
  *   cacheControl?: string,
  * }} input
  */
 export function mediaResponsePlan(input) {
-  const { size, mime, assetId, variant, rangeHeader, ifNoneMatch, cacheControl = CACHE_CONTROL } = input;
+  const { size, mime, assetId, variant, rangeHeader, ifNoneMatch, ifRange, cacheControl = CACHE_CONTROL } = input;
   const etag = mediaEtag(assetId, variant, size);
   const headers = {
     'Content-Type': mime || 'application/octet-stream',
@@ -84,7 +85,9 @@ export function mediaResponsePlan(input) {
     ETag: etag,
   };
   if (String(ifNoneMatch || '') === etag) return { status: 304, headers, start: 0, end: -1 };
-  const range = parseRange(rangeHeader, size);
+  // A range of an entity the client no longer holds (If-Range names another validator) is answered with the whole current one.
+  const stale = ifRange !== undefined && ifRange !== null && String(ifRange) !== '' && String(ifRange) !== etag;
+  const range = stale ? null : parseRange(rangeHeader, size);
   if (range?.unsatisfiable) {
     return {
       status: 416,

@@ -96,6 +96,9 @@ export function approvalInstanceKey(id: unknown): string;
 export function normalizeApplyPatch(value: unknown): string;
 export function diffFileStatus(section: unknown): string;
 export function parseUnifiedDiff(patch: string): DiffData[];
+export function splitUnifiedDiff(patch: string): string[];
+export function hasLeadingDiffContent(prefix: string): boolean;
+export function parseUnifiedDiffSection(section: string): DiffData;
 export function capPatchLines(patch: string, max: number): { text: string; cut: boolean };
 export function patchLineCounts(patch: string): { additions: number; deletions: number };
 export interface PatchFileAnalysis {

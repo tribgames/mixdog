@@ -14,10 +14,12 @@ import type {
   DesktopTranscriptHistoryRequest,
   SessionSnapshot,
 } from '../shared/contract';
+import { CORE_TRANSCRIPT_HISTORY_POSITION, validTranscriptHistoryPosition } from '../shared/contract-session';
 import { blankSnapshot, remoteSessionIdOf, startFolder, withRemoteSession } from '../shared/blank-snapshot.ts';
 import type { StartCall } from '../shared/blank-snapshot.ts';
 import { MAX_SECRET_LENGTH, SECRET_REQUEST_ID } from '../shared/secret-slots.ts';
 import { viewIsStale } from '../main/remote-view-staleness.ts';
+import { historyPositionOf } from '../../../../packages/protocol-client/src/rows.ts';
 // Types only: the adapter module (remote-protocol-chat.ts) imports this one, so nothing here may need it loaded first.
 import type { ChatApi, ChatClient, ChatShared } from './remote-protocol-chat.ts';
 
@@ -31,7 +33,6 @@ export const STALE_SESSION_VIEW_MESSAGE = 'This conversation changed on another 
 /** ipc-validation.ts: the page size of a historical-position read. */
 const HISTORY_PAGE_ITEMS = 512;
 const HISTORY_ROW_ID_MAX_CHARS = 512;
-const HISTORY_POSITION = /^(?:s:\d{1,15}:\d{1,15}|a:\d{1,15}:\d{1,15}:\d{1,15})$/;
 /** session-service transcript-window.mjs: the newest rows read to judge what the connection has not been shown. */
 const LATEST_ROWS = HISTORY_PAGE_ITEMS;
 /** session-host.ts agentRoomAction */
@@ -71,7 +72,7 @@ export function requiredTranscriptHistoryRequest(value: unknown): DesktopTranscr
     (limit as number) < 1 ||
     (limit as number) > HISTORY_PAGE_ITEMS ||
     (budget !== undefined && budget !== null && (!Number.isSafeInteger(budget) || (budget as number) < 1)) ||
-    (input.position != null && (typeof input.position !== 'string' || !HISTORY_POSITION.test(input.position)))
+    (input.position != null && !validTranscriptHistoryPosition(input.position))
   ) {
     throw new TypeError('transcript history request is invalid.');
   }
@@ -159,14 +160,19 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
     setFast: async (...args: Parameters<ChatApi['setFast']>) => decorated(await base.setFast(...args)),
     readTranscriptHistory: async (sessionId: string, request: DesktopTranscriptHistoryRequest): Promise<DesktopTranscriptHistoryPage> => {
       const history = requiredTranscriptHistoryRequest(request);
-      if (!shared.sessionStateOf(sessionId)) throw new Error(READ_NOT_VIEWED);
+      const state = shared.sessionStateOf(sessionId);
+      if (!state) throw new Error(READ_NOT_VIEWED);
       const older = 'before' in history;
       const anchor = (history as { before?: string; after?: string })[older ? 'before' : 'after'];
+      const boundary = older ? state.items?.[0] : state.items?.at(-1);
+      const cursor = history.position && CORE_TRANSCRIPT_HISTORY_POSITION.test(history.position)
+        ? history.position
+        : boundary?.id === anchor ? historyPositionOf(boundary, older ? 'before' : 'after') : undefined;
       let page: { data?: unknown[]; hasOlder?: boolean; hasNewer?: boolean };
       try {
         page = (await send('thread/items/list', {
           threadId: sessionId,
-          cursor: { type: 'item', itemId: anchor },
+          cursor: cursor ?? { type: 'item', itemId: anchor },
           sortDirection: older ? 'desc' : 'asc',
           limit: history.limit,
           ...(history.byteBudget ? { byteBudget: history.byteBudget } : {}),
@@ -176,7 +182,19 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
         if (reasonOf(error) === 'cursorInvalidated') return { items: [], hasOlder: false, hasNewer: false, reset: true } as DesktopTranscriptHistoryPage;
         throw error;
       }
-      return { items: shared.foldRows(page.data ?? []), hasOlder: page.hasOlder === true, hasNewer: page.hasNewer === true } as DesktopTranscriptHistoryPage;
+      const items = shared.foldRows(page.data ?? []);
+      const positions = items.map((item) => historyPositionOf(item, older ? 'before' : 'after') ?? null);
+      const positionEdges = items.map((item) => {
+        const before = historyPositionOf(item, 'before');
+        const after = historyPositionOf(item, 'after');
+        return before === after ? null : { ...(before === undefined ? {} : { before }), ...(after === undefined ? {} : { after }) };
+      });
+      return {
+        items,
+        hasOlder: page.hasOlder === true, hasNewer: page.hasNewer === true,
+        ...(positions.some((position) => position !== null) ? { positions } : {}),
+        ...(positionEdges.some((edges) => edges !== null) ? { positionEdges } : {}),
+      } as DesktopTranscriptHistoryPage;
     },
     provideSecretInput: async (requestId: string, value: string): Promise<boolean> => {
       const id = requiredString(requestId, 'secret request id', 120);

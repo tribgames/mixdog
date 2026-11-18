@@ -17,7 +17,6 @@ use mixdog_ledger::stats::session_usage_snapshot;
 use mixdog_ledger::sums::build_sums_step;
 use mixdog_ledger::sums::sums_complete;
 use mixdog_ledger::writer::UsageWriter;
-use serde_json::Value;
 
 /// A ledger holding `records` whose sums are not built yet.
 fn unbuilt(path: &Path, records: &[UsageRecord]) {
@@ -31,51 +30,6 @@ fn unbuilt(path: &Path, records: &[UsageRecord]) {
         "DELETE FROM usage_session_days; UPDATE usage_session_days_state SET complete=0,next=0",
     )
     .unwrap();
-}
-
-/// Node's rounding case (`record-ledger-sums.mjs`): a session of 1,000 records at 0.000001 and
-/// one at 0.0000005. Summed whole it is 0.0010004999999999999, which Node's six-decimal display
-/// writes as 0.001; sums added slice by slice show 0.001001.
-#[tokio::test]
-async fn a_large_session_sums_and_formats_as_node_does() {
-    let golden: Value = serde_json::from_slice(
-        &std::fs::read(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../fixtures/ledger-queries/sums-rounding.json"
-        ))
-        .unwrap(),
-    )
-    .unwrap();
-    let records: Vec<UsageRecord> = golden["records"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|r| serde_json::from_value(r.clone()).unwrap())
-        .collect();
-    assert_eq!(records.len(), 1_001);
-
-    let tokens = mixdog_rt::testing::tokens();
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("ledger.sqlite");
-    unbuilt(&path, &records);
-    // The default budget: the session is larger than a batch and is still summed whole.
-    let writer =
-        UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
-    writer.sums_built().await.unwrap();
-
-    let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
-    let usage = reader
-        .session_usage(vec!["rounding".into()], vec![])
-        .await
-        .unwrap();
-    let bytes = |v: &Value| mixdog_js::json_stringify(v);
-    assert_eq!(bytes(&usage), bytes(&golden["usage"]));
-    assert_eq!(
-        bytes(&session_usage_snapshot(&usage)),
-        bytes(&golden["snapshot"])
-    );
-    assert_eq!(usage["costUsd"].as_f64().unwrap(), 0.0010004999999999999);
-    assert_eq!(golden["snapshot"]["costUsd"], 0.001);
 }
 
 fn record(n: u64, session: &str) -> UsageRecord {
@@ -144,4 +98,45 @@ async fn a_build_interrupted_midway_resumes_after_a_reopen() {
         )
         .unwrap();
     assert_eq!(mismatched, 0);
+}
+
+
+/// A session of 1,000 records at 0.000001 and one at 0.0000005. Summed whole it is 0.0010004999999999999, which the
+/// six-decimal display writes as 0.001; sums added slice by slice would show 0.001001.
+#[tokio::test]
+async fn a_large_session_sums_whole_and_its_cost_displays_at_six_decimals() {
+    let priced = |n: u64, cost: f64| -> UsageRecord {
+        serde_json::from_value(serde_json::json!({
+            "id": format!("{n:064x}"), "ts": 1_000 + n, "day": "2026-01-01", "provider": "p", "model": "m",
+            "kind": "api", "sessionId": "rounding", "sourceType": "user", "input": 10, "output": 5,
+            "cacheRead": 1, "cacheWrite": 2, "costUsd": cost, "costSource": "catalog", "origin": "live",
+            "durationMs": 100
+        }))
+        .unwrap()
+    };
+    let mut records: Vec<UsageRecord> = (0..1_000).map(|n| priced(n, 0.000001)).collect();
+    records.push(priced(1_000, 0.0000005));
+    assert_eq!(records.len(), 1_001);
+
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ledger.sqlite");
+    unbuilt(&path, &records);
+    // The default budget: the session is larger than a batch and is still summed whole.
+    let writer =
+        UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
+    writer.sums_built().await.unwrap();
+
+    let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
+    let usage = reader
+        .session_usage(vec!["rounding".into()], vec![])
+        .await
+        .unwrap();
+    assert_eq!(usage["turns"], 1_001);
+    assert_eq!(usage["input"], 10_010);
+    assert_eq!(usage["costUsd"].as_f64().unwrap(), 0.0010004999999999999);
+    let snapshot = session_usage_snapshot(&usage);
+    assert_eq!(snapshot["costUsd"], 0.001);
+    assert_eq!(snapshot["turns"], 1_001);
+    assert_eq!(snapshot["costKnownTurns"], 1_001);
 }

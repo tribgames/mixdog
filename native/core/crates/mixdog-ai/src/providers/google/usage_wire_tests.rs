@@ -4,21 +4,35 @@
 //! recorder's hub: the request is compared whole with Node's, the recorded stream's reading whole with Node's result,
 //! and the stream callbacks in order.
 
+#[cfg(node_twin)]
 use std::sync::Arc;
 
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::Hub;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::Inputs;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::assert_same_events;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::assert_same_requests;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::assert_same_result;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::attempt;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::built;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::core_result;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::load;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::node_result;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::request_of;
+#[cfg(node_twin)]
 use crate::providers::wire_fixtures::scenarios;
 
+#[cfg(node_twin)]
 #[tokio::test]
 async fn every_usage_shape_reads_as_node_reads_it() {
     let names = scenarios("gemini-usage");

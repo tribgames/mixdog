@@ -16,7 +16,7 @@ const INTEGRITY_VALUE_BLOCK: [u8; 8] = [0xa0, 0x67, 0x7f, 0x02, 0xb2, 0x2c, 0x84
 const SEGMENT_LENGTH: usize = 4096;
 const AES_BLOCK: usize = 16;
 
-/// Why a decryption step failed: the messages Node's crypto gave, or the package's own.
+/// Why a decryption step failed: the messages OpenSSL-style crypto gives, or the package's own.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CryptoError {
     /// `createDecipheriv`: the key is not 16, 24 or 32 bytes.

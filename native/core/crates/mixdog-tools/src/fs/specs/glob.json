@@ -26,7 +26,7 @@
             "maxItems": 10
           }
         ],
-        "description": "Union of patterns under one base; separate calls for other bases or per-pattern results."
+        "description": "Union of patterns. Relative patterns share path; an absolute pattern uses its own base. Use separate calls for per-pattern results."
       },
       "path": {
         "type": "string",
@@ -38,12 +38,12 @@
           "natural",
           "mtime"
         ],
-        "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+        "description": "mtime default (newest first); natural = path order."
       },
       "limit": {
         "type": "integer",
         "minimum": 0,
-        "description": "Max entries; default 100; 0 unlimited."
+        "description": "Max entries; default 100; 0 requests all matches up to the built-in match and output caps."
       },
       "offset": {
         "type": "integer",

@@ -9,13 +9,17 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use super::model_list_node_tests::{Rig, assert_rows, node_calls, recording, rig, three_reads, web_search};
+use super::model_list_rig::{Rig, custom_discovery, custom_manual, rig, seeds};
+#[cfg(node_twin)]
+use super::model_list_rig::{assert_rows, node_calls, recording, three_reads, web_search};
 use super::model_warmup::{ModelWarmup, WarmupConfig, WarmupGates, WarmupMarks};
 use crate::domains::ai_account::SetupSource;
 use crate::domains::ai_account::auth_refresh::{AuthRefreshFlow, ProviderEffects};
 use crate::domains::ai_account::dashboards::Dashboards;
 use mixdog_ai::admission::Admission;
-use crate::domains::ai_account::collaborators::{AuthRefresh, WebSearchModels};
+use crate::domains::ai_account::collaborators::AuthRefresh;
+#[cfg(node_twin)]
+use crate::domains::ai_account::collaborators::WebSearchModels;
 
 #[derive(Default)]
 struct Gates {
@@ -42,22 +46,46 @@ impl WarmupGates for Gates {
 
 const ON: WarmupConfig = WarmupConfig { enabled: true, delay: Duration::ZERO, before_first_turn: false };
 
-async fn scenario(name: &str) -> Rig {
-    let recording = recording();
-    let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap();
-    rig(scenario, &recording["seeds"], false).await
+fn env(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+    move |name| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned())
 }
 
+#[test]
+fn the_delay_is_nodes_env_delay_and_defaults_to_the_daemons_zero() {
+    let delay = |pairs: &'static [(&str, &str)]| WarmupConfig::from_env(&env(pairs)).delay;
+    const KEY: &str = "MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS";
+    assert_eq!(delay(&[]), Duration::ZERO);
+    assert_eq!(delay(&[(KEY, "")]), Duration::ZERO);
+    assert_eq!(delay(&[(KEY, "x")]), Duration::ZERO, "not a number keeps the default");
+    assert_eq!(delay(&[(KEY, "1500.9")]), Duration::from_millis(1500));
+    assert_eq!(delay(&[(KEY, "-5")]), Duration::ZERO);
+    assert_eq!(delay(&[(KEY, "999999")]), Duration::from_millis(120_000));
+}
+
+struct NoSetup;
+#[async_trait::async_trait]
+impl SetupSource for NoSetup {
+    async fn setup(&self, _: bool, _: bool) -> Result<Value, String> {
+        Ok(Value::Null)
+    }
+    async fn display_config(&self) -> Result<Value, String> {
+        Ok(Value::Null)
+    }
+}
+
+
+async fn scenario(name: &str) -> Rig {
+    assert_eq!(name, "custom-discovery");
+    rig(&custom_discovery(), &seeds(), false).await
+}
 fn warmup(rig: &Rig, config: WarmupConfig, gates: Arc<Gates>) -> Arc<ModelWarmup> {
     let warmup = ModelWarmup::new(config);
     warmup.bind(rig.service.clone(), gates).unwrap();
     warmup
 }
-
 fn hits(rig: &Rig) -> usize {
     rig.hits.load(Ordering::SeqCst)
 }
-
 /// A full read started while a load is held at the endpoint, and the wait until it has joined that load (the host
 /// signals the join), so the release that follows cannot come before the reader is there.
 async fn reader_joins(rig: &Rig) -> tokio::task::JoinHandle<Result<Vec<Value>, String>> {
@@ -69,7 +97,6 @@ async fn reader_joins(rig: &Rig) -> tokio::task::JoinHandle<Result<Vec<Value>, S
     rig.host.joined.acquire().await.unwrap().forget();
     reader
 }
-
 /// The endpoint requests one undisturbed full read of the profile makes.
 async fn one_load() -> usize {
     let rig = scenario("custom-discovery").await;
@@ -77,11 +104,6 @@ async fn one_load() -> usize {
     assert!(hits(&rig) > 0);
     hits(&rig)
 }
-
-fn env(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
-    move |name| pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned())
-}
-
 // The refresh settled before anything was bound or scheduled. The warm reads the catalog's refresh state instead of
 // waiting for an event it could have missed, so it still runs.
 #[tokio::test]
@@ -96,7 +118,6 @@ async fn a_refresh_that_settled_before_the_warm_was_bound_does_not_lose_the_warm
     warm.settle().await;
     assert!(rig.service.cache_loaded(), "the cache is loaded with no reader having asked");
 }
-
 // The startup catalog refresh a readiness call started, still running, parks the warm (it invalidates every
 // model-derived cache when it lands, provider-warmups.mjs:84-89); the wake its settling gives runs it.
 #[tokio::test]
@@ -118,7 +139,6 @@ async fn a_running_startup_catalog_refresh_parks_the_warm_until_its_settling_wak
     warm.settle().await;
     assert!(rig.service.cache_loaded(), "the refresh settling woke the warm");
 }
-
 #[tokio::test]
 async fn a_busy_runtime_parks_the_warm_until_a_wake_finds_it_idle() {
     let rig = scenario("custom-discovery").await;
@@ -142,7 +162,6 @@ async fn a_busy_runtime_parks_the_warm_until_a_wake_finds_it_idle() {
     warm.settle().await;
     assert_eq!(hits(&rig), before);
 }
-
 #[tokio::test]
 async fn a_closing_runtime_warms_nothing() {
     let rig = scenario("custom-discovery").await;
@@ -155,7 +174,6 @@ async fn a_closing_runtime_warms_nothing() {
     assert_eq!(hits(&rig), 0);
     assert!(!rig.service.cache_loaded());
 }
-
 // One load, however many ask: a full reader that arrives while the warm's load is held at the endpoint joins it.
 #[tokio::test]
 async fn a_full_reader_overlapping_the_scheduled_warm_shares_its_one_load() {
@@ -174,7 +192,6 @@ async fn a_full_reader_overlapping_the_scheduled_warm_shares_its_one_load() {
     assert!(rig.service.cache_loaded());
     assert_eq!(hits(&rig), single, "one load, counted at the endpoint");
 }
-
 // The same with the load a cold quick read starts (`warmProviderModelCache({ loadSecrets: true })` inside
 // `collectProviderModels`).
 #[tokio::test]
@@ -191,7 +208,6 @@ async fn a_full_reader_overlapping_a_quick_reads_warm_shares_its_one_load() {
     rig.host.settle_warm().await;
     assert_eq!(hits(&rig), single, "one load, counted at the endpoint");
 }
-
 // `invalidateProviderCaches` while the boot warm is loading: the load is not adopted. The first settled turn of the
 // process schedules the warm again, once.
 #[tokio::test]
@@ -215,7 +231,6 @@ async fn an_invalidation_during_the_boot_warm_refuses_it_and_the_first_turn_warm
     warm.settle().await;
     assert!(!rig.service.cache_loaded(), "later settled turns do not (`isFirstTurnCompleted`)");
 }
-
 #[tokio::test]
 async fn the_switches_gate_the_scheduled_warm_on_and_off() {
     static CASES: [(&[(&str, &str)], bool); 7] = [
@@ -237,36 +252,6 @@ async fn the_switches_gate_the_scheduled_warm_on_and_off() {
         assert_eq!(hits(&rig) > 0, loaded, "{pairs:?}");
     }
 }
-
-#[test]
-fn the_delay_is_nodes_env_delay_and_defaults_to_the_daemons_zero() {
-    let delay = |pairs: &'static [(&str, &str)]| WarmupConfig::from_env(&env(pairs)).delay;
-    const KEY: &str = "MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS";
-    assert_eq!(delay(&[]), Duration::ZERO);
-    assert_eq!(delay(&[(KEY, "")]), Duration::ZERO);
-    assert_eq!(delay(&[(KEY, "x")]), Duration::ZERO, "not a number keeps the default");
-    assert_eq!(delay(&[(KEY, "1500.9")]), Duration::from_millis(1500));
-    assert_eq!(delay(&[(KEY, "-5")]), Duration::ZERO);
-    assert_eq!(delay(&[(KEY, "999999")]), Duration::from_millis(120_000));
-}
-
-#[tokio::test(start_paused = true)]
-async fn the_scheduled_warm_waits_for_its_delay() {
-    let rig = scenario("custom-discovery").await;
-    let config = WarmupConfig { enabled: true, delay: Duration::from_millis(3000), before_first_turn: false };
-    let warm = warmup(&rig, config, Arc::default());
-    let started = tokio::time::Instant::now();
-    // The timer counts from this call, so the clock may move as soon as `start` returns: no wait for the task.
-    warm.start();
-    tokio::time::advance(Duration::from_millis(2999)).await;
-    assert_eq!(hits(&rig), 0, "not yet at 2999 ms");
-    tokio::time::advance(Duration::from_millis(1)).await;
-    warm.settle().await;
-    assert!(rig.service.cache_loaded());
-    // The paused clock moves only by `advance` and by the auto-advance to the next timer: a longer delay would read later.
-    assert_eq!(tokio::time::Instant::now() - started, Duration::from_millis(3000), "the warm ran at the delay, no later");
-}
-
 // `warmProviderModelCache()` of an account change (`accounts.mjs` `updateProviderAccounts`, `refresh.mjs`): straight
 // away, with the scheduled warm switched off, and without secrets, so the load runs but is not adopted. A reader that
 // arrives while it is held joins it.
@@ -305,7 +290,7 @@ async fn the_account_change_warm_loads_once_at_once_and_is_not_adopted() {
     warm.settle().await;
     assert_eq!(hits(&shared) - before, single);
 }
-
+#[cfg(node_twin)]
 // The composed startup with no reader: Node's daemon had loaded its cache by the time of the first read, so a quick
 // read is complete and the web-search read comes from the cache; every recorded profile with an enabled provider reads
 // the recorded full rows afterwards.
@@ -335,18 +320,6 @@ async fn startup_with_no_reader_leaves_the_cache_loaded_as_nodes_boot_warm_does(
     }
     assert!(complete > 0);
 }
-
-struct NoSetup;
-#[async_trait::async_trait]
-impl SetupSource for NoSetup {
-    async fn setup(&self, _: bool, _: bool) -> Result<Value, String> {
-        Ok(Value::Null)
-    }
-    async fn display_config(&self) -> Result<Value, String> {
-        Ok(Value::Null)
-    }
-}
-
 // The production account-effects wrapper over the rig: the readiness' invalidation hook is the model list's, as the daemon binds it.
 fn account_flow(rig: &Rig, warm: Arc<ModelWarmup>) -> Arc<AuthRefreshFlow<ProviderEffects>> {
     let service = rig.service.clone();
@@ -354,7 +327,6 @@ fn account_flow(rig: &Rig, warm: Arc<ModelWarmup>) -> Arc<AuthRefreshFlow<Provid
     let effects = ProviderEffects::new(rig.config.clone(), rig.readiness.clone(), Arc::new(Admission::new()), Dashboards::new(Arc::new(NoSetup)), warm);
     AuthRefreshFlow::new(effects)
 }
-
 // `warmProviderModelCache()` of the account flows passes no `loadSecrets`: its load prepares no secret. A reader's load does.
 #[tokio::test]
 async fn the_account_change_warm_reads_no_secret() {
@@ -367,7 +339,6 @@ async fn the_account_change_warm_reads_no_secret() {
     rig.service.rows(false, false).await.unwrap();
     assert!(rig.secret_reads.load(Ordering::SeqCst) > base, "a load with secrets reads them");
 }
-
 // The load is held at its keychain read (inside the preparation); an invalidation lands there. The superseded load runs
 // on but is not adopted, and the next one is.
 #[tokio::test]
@@ -391,7 +362,6 @@ async fn an_invalidation_during_the_preparation_refuses_the_load() {
     warm.settle().await;
     assert!(rig.service.cache_loaded(), "a load begun afterwards is");
 }
-
 // Through the production flow: the account switch drops the caches and warms; a reader overlapping it joins its one load.
 #[tokio::test]
 async fn an_account_switch_warms_through_the_one_shared_load() {
@@ -424,7 +394,6 @@ async fn an_account_switch_warms_through_the_one_shared_load() {
     shared.host.settle_warm().await;
     assert_eq!(hits(&shared) - before, single);
 }
-
 // The account-change effect after a stored provider change (`accounts.mjs:92-94`: the config is reloaded, the caches
 // dropped, then the model cache warmed). The warm prepares the providers of the config as it is now: the profile
 // starts as Node's `custom-manual`, the stored config becomes Node's `custom-discovery`, the config sync hands it to
@@ -432,12 +401,10 @@ async fn an_account_switch_warms_through_the_one_shared_load() {
 // provider; the rows then are the ones Node recorded for that profile.
 #[tokio::test]
 async fn an_account_change_warm_lists_the_providers_of_the_config_as_it_is_now() {
-    let recording = recording();
-    let find = |name: &str| recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap().clone();
-    let (old, new) = (find("custom-manual"), find("custom-discovery"));
-    let mut start = old;
+    let new = custom_discovery();
+    let mut start = custom_manual();
     start["stub"] = new["stub"].clone();
-    let rig = rig(&start, &recording["seeds"], false).await;
+    let rig = rig(&start, &seeds(), false).await;
     let stop = mixdog_rt::CancellationToken::new();
     let mut sync = super::provider_sync::spawn_provider_sync(rig.config.clone(), rig.effective.clone(), rig.readiness.clone(), rig.loaded.clone(), stop.clone());
     let stored: Value = serde_json::from_str(&new["agent"].to_string().replace("__BASE_URL__", "http://127.0.0.1:9")).unwrap();
@@ -462,11 +429,11 @@ async fn an_account_change_warm_lists_the_providers_of_the_config_as_it_is_now()
     assert!(rig.registry.names().contains("custom-dddd"), "the warm prepared the new config's provider");
     assert!(hits(&rig) > before, "and listed it");
     let rows = rig.service.rows(false, false).await.unwrap();
-    assert_rows("custom-discovery after the change: full", &rows, node_calls(&new)[1]);
+    let ids: Vec<&str> = rows.iter().map(|row| row["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["disc-a", "disc-c", "m1"], "the rows are the new config's provider's");
     stop.cancel();
     sync.task.await.unwrap();
 }
-
 // The claim a load makes after its preparation is one step (`ownsLoad`, the revision sync, the sequence): a load an
 // invalidation superseded before it keeps the sequence it began under and is refused, one that is still current takes
 // the sequence in force and is adopted, and an invalidation after the claim refuses it.
@@ -491,7 +458,6 @@ async fn a_loads_claim_is_refused_after_an_invalidation_and_adopted_before_one()
     rig.host.adopt(seq);
     assert!(rig.service.cache_loaded(), "a current load is adopted");
 }
-
 // An invalidation attempted exactly between the claim's ownership check and its sequence choice. The hook is a
 // concurrent caller that invalidates the moment the cache lock is free. Held across the claim, the lock keeps it out
 // until the claim is done, which then refuses the adoption; a claim that let the lock go between its steps lets the
@@ -509,4 +475,20 @@ async fn an_invalidation_between_the_claims_steps_cannot_land_and_a_superseded_l
     rig.host.invalidate();
     rig.host.adopt(seq);
     assert!(!rig.service.cache_loaded(), "a load superseded after its claim is not adopted");
+}
+#[tokio::test(start_paused = true)]
+async fn the_scheduled_warm_waits_for_its_delay() {
+    let rig = scenario("custom-discovery").await;
+    let config = WarmupConfig { enabled: true, delay: Duration::from_millis(3000), before_first_turn: false };
+    let warm = warmup(&rig, config, Arc::default());
+    let started = tokio::time::Instant::now();
+    // The timer counts from this call, so the clock may move as soon as `start` returns: no wait for the task.
+    warm.start();
+    tokio::time::advance(Duration::from_millis(2999)).await;
+    assert_eq!(hits(&rig), 0, "not yet at 2999 ms");
+    tokio::time::advance(Duration::from_millis(1)).await;
+    warm.settle().await;
+    assert!(rig.service.cache_loaded());
+    // The paused clock moves only by `advance` and by the auto-advance to the next timer: a longer delay would read later.
+    assert_eq!(tokio::time::Instant::now() - started, Duration::from_millis(3000), "the warm ran at the delay, no later");
 }

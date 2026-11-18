@@ -23,19 +23,6 @@ struct Announcer {
     totals: std::collections::HashMap<String, u64>,
 }
 
-fn announcer() -> Option<&'static Mutex<Announcer>> {
-    static ANNOUNCER: OnceLock<Option<Mutex<Announcer>>> = OnceLock::new();
-    ANNOUNCER
-        .get_or_init(|| {
-            let address = std::env::var(ENV).ok()?;
-            // A core started under a replay's barrier must not run without it.
-            let stream = TcpStream::connect(&address).unwrap_or_else(|error| panic!("the replay's byte barrier at {address}: {error}"));
-            let _ = stream.set_nodelay(true);
-            Some(Mutex::new(Announcer { stream, totals: std::collections::HashMap::new() }))
-        })
-        .as_ref()
-}
-
 /// A response body whose chunks are announced as handled when its reader asks for the next (or the body ends).
 pub(crate) struct Counted {
     inner: Box<dyn BodyStream>,
@@ -47,24 +34,6 @@ pub(crate) struct Counted {
 pub(crate) fn counted(url: &url::Url, body: Box<dyn BodyStream>) -> Box<dyn BodyStream> {
     let origin = format!("{}:{}", url.host_str().unwrap_or_default(), url.port_or_known_default().unwrap_or_default());
     Box::new(Counted { inner: body, held: 0, origin })
-}
-
-#[async_trait]
-impl BodyStream for Counted {
-    fn hold_connection(&mut self) {
-        self.inner.hold_connection();
-    }
-
-    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
-        handled(&self.origin, std::mem::take(&mut self.held));
-        let item = parked(self.inner.next()).await;
-        match &item {
-            Some(Ok(bytes)) => self.held = bytes.len(),
-            None => handled(&self.origin, std::mem::take(&mut self.held)),
-            Some(Err(_)) => {}
-        }
-        item
-    }
 }
 
 // A replay's settled signal (mixdog-core-session `replay_settled.rs`) asks whether every turn is parked: waiting on the model (its
@@ -266,6 +235,40 @@ mod settled_tests {
     }
 }
 
+
+fn announcer() -> Option<&'static Mutex<Announcer>> {
+    static ANNOUNCER: OnceLock<Option<Mutex<Announcer>>> = OnceLock::new();
+    ANNOUNCER
+        .get_or_init(|| {
+            let address = std::env::var(ENV).ok()?;
+            // A core started under a replay's barrier must not run without it.
+            let stream = TcpStream::connect(&address).unwrap_or_else(|error| panic!("the replay's byte barrier at {address}: {error}"));
+            let _ = stream.set_nodelay(true);
+            Some(Mutex::new(Announcer { stream, totals: std::collections::HashMap::new() }))
+        })
+        .as_ref()
+}
+#[async_trait]
+impl BodyStream for Counted {
+    fn hold_connection(&mut self) {
+        self.inner.hold_connection();
+    }
+
+    fn connection(&self) -> Option<mixdog_core_api::domain::provider::ConnectionInfo> {
+        self.inner.connection()
+    }
+
+    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+        handled(&self.origin, std::mem::take(&mut self.held));
+        let item = parked(self.inner.next()).await;
+        match &item {
+            Some(Ok(bytes)) => self.held = bytes.len(),
+            None => handled(&self.origin, std::mem::take(&mut self.held)),
+            Some(Err(_)) => {}
+        }
+        item
+    }
+}
 /// `bytes` more of a response from `origin` were handled.
 fn handled(origin: &str, bytes: usize) {
     if bytes == 0 {

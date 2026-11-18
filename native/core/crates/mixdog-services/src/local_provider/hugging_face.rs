@@ -178,6 +178,151 @@ fn repository_id(value: Option<&Value>) -> Result<&str, HfError> {
     v.ok_or_else(|| HfError::Invalid("repository must be an owner/name Hugging Face model id.".into()))
 }
 
+/// A split shard: `-00001-of-00003.gguf`.
+fn is_shard(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    let Some(stem) = lower.strip_suffix(".gguf") else { return false };
+    let b = stem.as_bytes();
+    b.len() >= 15 && {
+        let t = &b[b.len() - 15..];
+        t[0] == b'-' && t[1..6].iter().all(u8::is_ascii_digit) && &t[6..10] == b"-of-" && t[10..].iter().all(u8::is_ascii_digit)
+    }
+}
+
+/// `URLSearchParams` value encoding (space becomes `+`).
+fn encode(value: &str) -> String {
+    let mut out = String::new();
+    for b in value.bytes() {
+        match b {
+            b'*' | b'-' | b'.' | b'_' => out.push(b as char),
+            b' ' => out.push('+'),
+            b if b.is_ascii_alphanumeric() => out.push(b as char),
+            b => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::gguf::tests::sample;
+    use super::*;
+
+    struct Fake {
+        info: Value,
+        gguf: Vec<u8>,
+    }
+
+    #[async_trait::async_trait]
+    impl HfHttp for Fake {
+        async fn get_json(&self, url: &str, _: usize) -> Result<Value, String> {
+            if url.contains("/api/models?") {
+                Ok(json!([{"id": "o/n", "downloads": 5}, {"id": "bad id", "downloads": 1}]))
+            } else {
+                Ok(self.info.clone())
+            }
+        }
+        async fn get_range(&self, _: &str, end: u64) -> Result<RangeResponse, String> {
+            let total = self.gguf.len() as u64;
+            let end = end.min(total - 1);
+            Ok(RangeResponse { status: 206, content_range: format!("bytes 0-{end}/{total}"), https: true, body: self.gguf[..=end as usize].to_vec() })
+        }
+    }
+
+    #[cfg(node_twin)]
+    /// Records every URL fetched; answers no rows.
+    struct Asked(Arc<Mutex<Vec<String>>>);
+
+    #[cfg(node_twin)]
+    #[async_trait::async_trait]
+    impl HfHttp for Asked {
+        async fn get_json(&self, url: &str, _: usize) -> Result<Value, String> {
+            self.0.lock().unwrap().push(url.to_owned());
+            Ok(json!([]))
+        }
+        async fn get_range(&self, _: &str, _: u64) -> Result<RangeResponse, String> {
+            Err("no range requests here".into())
+        }
+    }
+
+    #[test]
+    fn shards_and_ranges_are_recognised() {
+        assert!(is_shard("x-00001-of-00004.GGUF") && !is_shard("x-1-of-4.gguf"));
+        assert_eq!(content_range("bytes 0-9/100"), Some((9, 100)));
+        assert_eq!(content_range("bytes 5-9/100"), None);
+    }
+
+    fn catalog(dir: &std::path::Path, gated: bool) -> HuggingFaceCatalog {
+        let gguf = sample(131_072);
+        let size = gguf.len();
+        let info = json!({
+            "sha": "c".repeat(40), "gated": gated, "cardData": {"license": "apache-2.0"},
+            "siblings": [{"rfilename": "m.gguf", "size": size, "lfs": {"sha256": "d".repeat(64), "size": size}}, {"rfilename": "readme.md"}],
+        });
+        HuggingFaceCatalog::new(Box::new(Fake { info, gguf }), Arc::new(RegisteredModels::new(dir, mixdog_rt::testing::tokens().durability_io)))
+    }
+    #[tokio::test]
+    async fn search_filters_unusable_rows_and_validates_the_query() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = catalog(dir.path(), false);
+        let found = c.search(Some(&json!("llama 3"))).await.unwrap();
+        assert_eq!(found["models"], json!([{"repository": "o/n", "downloads": 5.0, "source": "https://huggingface.co/o/n"}]));
+        assert!(c.search(Some(&json!("  "))).await.is_err());
+        assert!(c.search(None).await.is_err());
+    }
+    #[tokio::test]
+    async fn inspect_lists_files_then_previews_one_and_register_needs_the_license() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = catalog(dir.path(), false);
+        let listing = c.inspect(&json!({"repository": "o/n"}), 0).await.unwrap();
+        assert_eq!(listing["files"].as_array().unwrap().len(), 1);
+        assert_eq!(listing["license"], "apache-2.0");
+        let preview = c.inspect(&json!({"repository": "o/n", "filename": "m.gguf"}), 0).await.unwrap();
+        let model = &preview["model"];
+        assert!(model["id"].as_str().unwrap().starts_with("hf-"));
+        assert_eq!(model["contextWindow"], 16_384, "no GPU holds the default window");
+        assert_eq!(model["supportsImages"], false);
+        let id = preview["previewId"].as_str().unwrap();
+        assert!(matches!(c.register(id, false).await, Err(HfError::Invalid(_))));
+        let done = c.register(id, true).await.unwrap();
+        assert_eq!(done["registered"], true);
+        assert_eq!(c.registry().list().len(), 1);
+        assert!(c.register(id, true).await.is_err(), "a used preview is consumed");
+    }
+    #[tokio::test]
+    async fn gated_models_shards_traversal_and_bad_contexts_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(catalog(dir.path(), true).inspect(&json!({"repository": "o/n"}), 0).await.is_err());
+        let c = catalog(dir.path(), false);
+        for name in ["m-00001-of-00002.gguf", "../m.gguf", "a\\b.gguf"] {
+            assert!(matches!(c.inspect(&json!({"repository": "o/n", "filename": name}), 0).await, Err(HfError::Invalid(_))), "{name}");
+        }
+        assert!(c.inspect(&json!({"repository": "o/n", "filename": "other.gguf"}), 0).await.is_err());
+        assert!(c.inspect(&json!({"repository": "../x"}), 0).await.is_err());
+        assert!(c.inspect(&json!({"repository": "o/n", "filename": "m.gguf", "contextWindow": 1000}), 0).await.is_err());
+    }
+
+
+    /// A query a person typed holding half an emoji (`native/core/fixtures/lone-surrogate-wire` `hf-search-lone`,
+    /// record-lone-surrogate-wire.mjs): Node's `URLSearchParams` writes the lone unit as the UTF-8 of U+FFFD, and the core,
+    /// which reads it as U+FFFD (the query is free text), fetches the same URL and answers as Node did.
+    #[cfg(node_twin)]
+    #[tokio::test]
+    async fn a_query_holding_a_lone_surrogate_is_the_url_node_fetched() {
+        let text = mixdog_testkit::fixture!("../../fixtures/lone-surrogate-wire/golden.json");
+        let golden: Value = serde_json::from_str(&mixdog_js::json_well_formed_str(text)).unwrap();
+        let case = golden["cases"].as_array().unwrap().iter().find(|case| case["name"] == "hf-search-lone").expect("the case");
+        let fetched = Arc::new(Mutex::new(Vec::new()));
+        let dir = tempfile::tempdir().unwrap();
+        let c = HuggingFaceCatalog::new(Box::new(Asked(fetched.clone())), Arc::new(RegisteredModels::new(dir.path(), mixdog_rt::testing::tokens().durability_io)));
+        // The query as the frame decoder gives it: the golden's `asked.query` read with each lone unit as U+FFFD.
+        let answer = c.search(Some(&case["asked"]["query"])).await.unwrap();
+        assert_eq!(json!({"ok": true, "value": answer}), case["node"]["answer"]);
+        assert_eq!(json!(*fetched.lock().unwrap()), case["node"]["fetched"]);
+    }
+}
+
+
 impl HuggingFaceCatalog {
     /// `registry` is the catalog's own registry: both must see the same registered models.
     pub fn new(http: Box<dyn HfHttp>, registry: Arc<RegisteredModels>) -> Self {
@@ -309,148 +454,5 @@ impl HuggingFaceCatalog {
         let registered = self.registry.register(&model).await?;
         self.previews.lock().unwrap().remove(preview_id);
         Ok(json!({"model": registered, "registered": true, "downloadStarted": false}))
-    }
-}
-
-/// A split shard: `-00001-of-00003.gguf`.
-fn is_shard(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    let Some(stem) = lower.strip_suffix(".gguf") else { return false };
-    let b = stem.as_bytes();
-    b.len() >= 15 && {
-        let t = &b[b.len() - 15..];
-        t[0] == b'-' && t[1..6].iter().all(u8::is_ascii_digit) && &t[6..10] == b"-of-" && t[10..].iter().all(u8::is_ascii_digit)
-    }
-}
-
-/// `URLSearchParams` value encoding (space becomes `+`).
-fn encode(value: &str) -> String {
-    let mut out = String::new();
-    for b in value.bytes() {
-        match b {
-            b'*' | b'-' | b'.' | b'_' => out.push(b as char),
-            b' ' => out.push('+'),
-            b if b.is_ascii_alphanumeric() => out.push(b as char),
-            b => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::gguf::tests::sample;
-    use super::*;
-
-    struct Fake {
-        info: Value,
-        gguf: Vec<u8>,
-    }
-
-    #[async_trait::async_trait]
-    impl HfHttp for Fake {
-        async fn get_json(&self, url: &str, _: usize) -> Result<Value, String> {
-            if url.contains("/api/models?") {
-                Ok(json!([{"id": "o/n", "downloads": 5}, {"id": "bad id", "downloads": 1}]))
-            } else {
-                Ok(self.info.clone())
-            }
-        }
-        async fn get_range(&self, _: &str, end: u64) -> Result<RangeResponse, String> {
-            let total = self.gguf.len() as u64;
-            let end = end.min(total - 1);
-            Ok(RangeResponse { status: 206, content_range: format!("bytes 0-{end}/{total}"), https: true, body: self.gguf[..=end as usize].to_vec() })
-        }
-    }
-
-    fn catalog(dir: &std::path::Path, gated: bool) -> HuggingFaceCatalog {
-        let gguf = sample(131_072);
-        let size = gguf.len();
-        let info = json!({
-            "sha": "c".repeat(40), "gated": gated, "cardData": {"license": "apache-2.0"},
-            "siblings": [{"rfilename": "m.gguf", "size": size, "lfs": {"sha256": "d".repeat(64), "size": size}}, {"rfilename": "readme.md"}],
-        });
-        HuggingFaceCatalog::new(Box::new(Fake { info, gguf }), Arc::new(RegisteredModels::new(dir, mixdog_rt::testing::tokens().durability_io)))
-    }
-
-    #[tokio::test]
-    async fn search_filters_unusable_rows_and_validates_the_query() {
-        let dir = tempfile::tempdir().unwrap();
-        let c = catalog(dir.path(), false);
-        let found = c.search(Some(&json!("llama 3"))).await.unwrap();
-        assert_eq!(found["models"], json!([{"repository": "o/n", "downloads": 5.0, "source": "https://huggingface.co/o/n"}]));
-        assert!(c.search(Some(&json!("  "))).await.is_err());
-        assert!(c.search(None).await.is_err());
-    }
-
-    /// Records every URL fetched; answers no rows.
-    struct Asked(Arc<Mutex<Vec<String>>>);
-
-    #[async_trait::async_trait]
-    impl HfHttp for Asked {
-        async fn get_json(&self, url: &str, _: usize) -> Result<Value, String> {
-            self.0.lock().unwrap().push(url.to_owned());
-            Ok(json!([]))
-        }
-        async fn get_range(&self, _: &str, _: u64) -> Result<RangeResponse, String> {
-            Err("no range requests here".into())
-        }
-    }
-
-    /// A query a person typed holding half an emoji (`native/core/fixtures/lone-surrogate-wire` `hf-search-lone`,
-    /// record-lone-surrogate-wire.mjs): Node's `URLSearchParams` writes the lone unit as the UTF-8 of U+FFFD, and the core,
-    /// which reads it as U+FFFD (the query is free text), fetches the same URL and answers as Node did.
-    #[tokio::test]
-    async fn a_query_holding_a_lone_surrogate_is_the_url_node_fetched() {
-        let text = mixdog_testkit::fixture!("../../fixtures/lone-surrogate-wire/golden.json");
-        let golden: Value = serde_json::from_str(&mixdog_js::json_well_formed_str(text)).unwrap();
-        let case = golden["cases"].as_array().unwrap().iter().find(|case| case["name"] == "hf-search-lone").expect("the case");
-        let fetched = Arc::new(Mutex::new(Vec::new()));
-        let dir = tempfile::tempdir().unwrap();
-        let c = HuggingFaceCatalog::new(Box::new(Asked(fetched.clone())), Arc::new(RegisteredModels::new(dir.path(), mixdog_rt::testing::tokens().durability_io)));
-        // The query as the frame decoder gives it: the golden's `asked.query` read with each lone unit as U+FFFD.
-        let answer = c.search(Some(&case["asked"]["query"])).await.unwrap();
-        assert_eq!(json!({"ok": true, "value": answer}), case["node"]["answer"]);
-        assert_eq!(json!(*fetched.lock().unwrap()), case["node"]["fetched"]);
-    }
-
-    #[tokio::test]
-    async fn inspect_lists_files_then_previews_one_and_register_needs_the_license() {
-        let dir = tempfile::tempdir().unwrap();
-        let c = catalog(dir.path(), false);
-        let listing = c.inspect(&json!({"repository": "o/n"}), 0).await.unwrap();
-        assert_eq!(listing["files"].as_array().unwrap().len(), 1);
-        assert_eq!(listing["license"], "apache-2.0");
-        let preview = c.inspect(&json!({"repository": "o/n", "filename": "m.gguf"}), 0).await.unwrap();
-        let model = &preview["model"];
-        assert!(model["id"].as_str().unwrap().starts_with("hf-"));
-        assert_eq!(model["contextWindow"], 16_384, "no GPU holds the default window");
-        assert_eq!(model["supportsImages"], false);
-        let id = preview["previewId"].as_str().unwrap();
-        assert!(matches!(c.register(id, false).await, Err(HfError::Invalid(_))));
-        let done = c.register(id, true).await.unwrap();
-        assert_eq!(done["registered"], true);
-        assert_eq!(c.registry().list().len(), 1);
-        assert!(c.register(id, true).await.is_err(), "a used preview is consumed");
-    }
-
-    #[tokio::test]
-    async fn gated_models_shards_traversal_and_bad_contexts_are_refused() {
-        let dir = tempfile::tempdir().unwrap();
-        assert!(catalog(dir.path(), true).inspect(&json!({"repository": "o/n"}), 0).await.is_err());
-        let c = catalog(dir.path(), false);
-        for name in ["m-00001-of-00002.gguf", "../m.gguf", "a\\b.gguf"] {
-            assert!(matches!(c.inspect(&json!({"repository": "o/n", "filename": name}), 0).await, Err(HfError::Invalid(_))), "{name}");
-        }
-        assert!(c.inspect(&json!({"repository": "o/n", "filename": "other.gguf"}), 0).await.is_err());
-        assert!(c.inspect(&json!({"repository": "../x"}), 0).await.is_err());
-        assert!(c.inspect(&json!({"repository": "o/n", "filename": "m.gguf", "contextWindow": 1000}), 0).await.is_err());
-    }
-
-    #[test]
-    fn shards_and_ranges_are_recognised() {
-        assert!(is_shard("x-00001-of-00004.GGUF") && !is_shard("x-1-of-4.gguf"));
-        assert_eq!(content_range("bytes 0-9/100"), Some((9, 100)));
-        assert_eq!(content_range("bytes 5-9/100"), None);
     }
 }

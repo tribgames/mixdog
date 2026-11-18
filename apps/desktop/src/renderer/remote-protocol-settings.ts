@@ -5,8 +5,8 @@
 // Node's argument checks first, with Node's texts, then the core request, then the value the relay frame carried.
 //
 // What the core publishes as state the page asked Node for is read from the sections this connection holds: the `config` subtrees
-// (`desktop`, `agent`, `notifications`), the `remote` section (paired devices), `hostState.displayPreferences` and `update` (the PC
-// window's updater state). The events Node's relay pushed are the core's announcements and the `update` section (install below).
+// (`desktop`, `agent`, `notifications`), `hostState.displayPreferences` and `update` (the PC window's updater state). The paired
+// device roster is a separate request, not the host's `remote` section. Pushes come from announcements and `update` (install below).
 // `libreOfficeStatus` and `installLibreOffice` are answered by the source-control group (remote-protocol-scm.ts).
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { normalizeActivityRailPins, storedPinsState, type ActivityRailPinsState } from '../shared/activity-rail-pins';
@@ -20,6 +20,7 @@ import {
   storedOverrides,
 } from '../shared/notification-state';
 import { announcedEvent } from '../shared/core-announcements';
+import { configuredOrchestrationMode } from '../shared/orchestration-mode';
 import type { ProviderModelsChange } from '../shared/provider-models';
 import { requiredString } from '../shared/remote-arguments';
 import { SETTINGS_CHANGED_EVENT, type SettingsChange } from '../shared/settings-changed';
@@ -101,24 +102,25 @@ async function request(host: PhoneProtocolHost, method: string, params: unknown)
   }
 }
 
-/** The paired devices: Node asked the relay on every call (notification-center.ts listClients); `remoteAccess/state` asks it
- *  while the leg has not answered a listing yet and then answers the roster the core keeps, which the held `remote` section
- *  only shows once some window asked. */
-const pairedDevices = (host: PhoneProtocolHost): Promise<unknown> => request(host, 'remoteAccess/state', {});
+/** The core's relay view contains only the roster inputs notification settings need, not a host provisioning descriptor. */
+async function notificationRoster(host: PhoneProtocolHost) {
+  const { settings, clients, pushRegistered } = record(await request(host, 'remoteAccess/state', {}));
+  return { settings: { name: record(settings).name }, clients, pushRegistered };
+}
 
 /** The notification settings as Node's `notificationPreferencesState(currentDeviceId, null)` answered them: whether this PC shows
  *  notifications (Node asked its window, desktop-service.ts:866) and the stored document after every listed device's default was
- *  written, from the core (`notify/state`); the devices from `pairedDevices`. The current device is this connection's paired
+ *  written, from the core (`notify/state`); the devices from `notificationRoster`. The current device is this connection's paired
  *  credential. */
 async function notificationState(host: PhoneProtocolHost) {
-  const remote = await pairedDevices(host);
+  const remote = await notificationRoster(host);
   const state = record(await request(host, 'notify/state', {}));
   return notificationPreferencesStateOf({
     remote,
     notifications: state.notifications ?? undefined,
     currentDeviceId: host.ctx.browserId ?? '',
     pcCanNotify: state.supported === true,
-    // The PC's name is the remote section's (the core fills in the machine's when none was set).
+    // The core uses the machine's name when none was set.
     hostName: () => '',
   });
 }
@@ -184,7 +186,7 @@ const calls: Record<string, NodeCall> = {
   setNotificationPreferences: call(async ([deviceId, patch], host) => {
     const id = requiredNotificationDeviceId(deviceId);
     const value = requiredNotificationPreferencesPatch(patch);
-    const mode = notificationWriteMode(id, await pairedDevices(host), held(host.client(), 'config', 'notifications'));
+    const mode = notificationWriteMode(id, await notificationRoster(host), held(host.client(), 'config', 'notifications'));
     await request(host, 'config/value/write', { path: `notifications.devices.${id}`, value, mode });
     return notificationState(host);
   }),
@@ -202,16 +204,27 @@ const calls: Record<string, NodeCall> = {
   }),
 };
 
-/** Node's relay pushed `settings-changed`, `provider-models-changed` and the window's `updater-state` to every paired device
- *  (remote-relay-push-lanes.ts:50-60, :113-117). The first two are the core's announcements (`ui/settings/changed`,
- *  `ui/providerModels/changed`, shared/core-announcements.ts); the updater state is the `update` section the core publishes,
- *  each change of it that event. Wired per client: a re-pairing dials a new one. */
+/** Notifications and held config/state reach the page through the same listeners as Node's relay. */
 function install(host: PhoneProtocolHost): (() => void) | undefined {
   const { ctx } = host;
   let unwire: (() => void) | undefined;
+  let toldMode: ReturnType<typeof configuredOrchestrationMode> | undefined;
   const wire = (client: Client): void => {
     unwire?.();
+    const followMode = (): void => {
+      const mode = configuredOrchestrationMode(held(client, 'config', 'agent'));
+      const previous = toldMode;
+      toldMode = mode;
+      if (previous !== undefined && mode !== previous) ctx.fanOut(ctx.orchestrationModeListeners, { mode });
+    };
+    if (client.store.appFeed()) followMode();
     const offStore = client.store.subscribe((change) => {
+      if (
+        change.type === 'appSnapshot' ||
+        (change.type === 'section' && change.section === 'config' && change.key === 'agent' && !announcingSnapshot(client))
+      ) {
+        followMode();
+      }
       if (change.type !== 'section' || change.section !== 'update') return;
       const state = client.store.section('update' as never, null)?.value as { status?: unknown } | undefined;
       if (state && typeof state === 'object' && typeof state.status === 'string') ctx.fanOut(ctx.updaterListeners, state as never);
@@ -232,9 +245,11 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
     };
   };
   const off = host.onClient?.(wire);
+  const offReset = host.onPairingReset?.(() => unwire?.());
   if (!off) void ctx.phone.start().then(() => wire(host.client()), () => undefined);
   return () => {
     off?.();
+    offReset?.();
     unwire?.();
   };
 }

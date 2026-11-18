@@ -1,7 +1,7 @@
 {
   "name": "session",
   "title": "Session",
-  "description": "Inspect sessions or control another by exact ID, never a guessed one. send acknowledges queue intake, not completion: promise a report of it only when its result has reportsBack: true. create returns status: started — started, not done yet; it reports its final answer, after the agents it started finish, unless its result says reportsBack: false. reportsBack: false carries reportsBackReason, the reason to tell the user. Cancel/delete require the user’s request. Other actions affect only the current session. A new session’s initial location (Project folder branch or its own worktree) is set here, with create’s worktree; worktree operations on existing sessions (enter, return, merge, remove, list, prune) use the git tool’s action:\"worktree\". Pass files on with attachments; a reported turn returns the files it produced as attachments.",
+  "description": "Inspect sessions or control another by exact ID, never a guessed one. send returns accepted (queue intake, not completion); only reportsBack:true promises a report. create returns status:started, not completion. When present, reportsBackReason explains why no report will arrive. Cancel/delete require the user's request and return aborted/deleted; false means nothing was stopped/deleted. Heartbeat turns can only read sessions, inspect bots and record proposals. Set a new session’s initial worktree here; manage existing worktrees with git. Pass files on with attachments; a reported turn can return produced files as attachments.",
   "annotations": {
     "title": "Session",
     "readOnlyHint": false,
@@ -33,7 +33,7 @@
           "archive",
           "suggest"
         ],
-        "description": "status defaults to current; list pages sessions, without sub-agent or archived ones unless include_agents/include_archived; bots shows each bot’s activity, work, approvals, routines and attention flags, or with session_id (a bot id or its chat) its routines and recent sessions; read returns latest items; send queues prompt (reportsBack: the turn result reports back here); cancel stops the turn; delete removes the session. create (bot conversations; only for a big multi-step plan, smaller work goes to agent) starts a visible agent task session from brief (started, not done yet); unknown Project: list-projects first, still ambiguous: ask the user. compact runs after this turn; fork copies it without switching. suggest (Mixy’s chat only) records a proposal made to the user under key; value false records that the user declined it."
+        "description": "Omit for current status, or set-project if path is present. list pages visible sessions; bots reports bot activity or details for one bot. read pages transcript items. create starts a visible task session from brief in an attended bot conversation. rename/compact/fork/set-project/favorite/archive apply to the current session; compact schedules work after this turn and fork never switches into the copy. suggest records a proposal in Mixy's chat or heartbeat; value:false records a decline."
       },
       "title": {
         "type": "string",
@@ -45,11 +45,11 @@
       },
       "session_id": {
         "type": "string",
-        "description": "ID from list; required for read/send/cancel/delete, optional for status/bots. send/cancel/delete cannot target the caller. read/send/status also take a bot id (its home chat)."
+        "description": "ID from list; required for read/send/cancel/delete, optional for status/bots. An explicit status target, including this session, returns busy, agentsWorking and quotaResume. send/cancel/delete cannot target the caller. read/send/status also take a bot id (its home chat)."
       },
       "prompt": {
         "type": "string",
-        "description": "send: message to enqueue; loads a cold session."
+        "description": "Required for send: nonblank message to enqueue; loads a cold session."
       },
       "to": {
         "type": "string",
@@ -59,7 +59,7 @@
         "type": "integer",
         "minimum": 1,
         "maximum": 100,
-        "description": "list/read: maximum rows, default 25; bots: sessions, default 10. Output: 8KiB per page, 12KiB for initial read tail; follow nextOffset/nextTextOffset for more."
+        "description": "list/read: maximum rows, default 25; bots: sessions, default 10. Follow nextCursor from list, nextOffset for older transcript rows, and each row's nextTextOffset for more of that row. Null nextCursor/nextOffset means no more rows."
       },
       "cursor": {
         "type": "string",
@@ -101,7 +101,7 @@
       },
       "brief": {
         "type": "string",
-        "description": "create: self-contained instruction, the first message."
+        "description": "Required for create: nonblank self-contained instruction, the first message."
       },
       "project": {
         "type": "string",

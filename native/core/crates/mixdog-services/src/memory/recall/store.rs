@@ -1,23 +1,23 @@
 //! Query helpers of the recall read path.
 
 use crate::memory::error::Result;
-use crate::memory::pg::db::Db;
+use crate::memory::pg::db::{Db, transaction};
 use crate::memory::recall::row::{P, Row, refs};
 
 /// Statements of the hybrid read path run inside a transaction so a runaway
 /// scan is cut at 30 seconds instead of holding a connection.
 pub async fn read_query_pg(db: &Db, sql: &str, params: &[P]) -> Result<Vec<tokio_postgres::Row>> {
     const TIMEOUT: &str = "SET LOCAL statement_timeout = '30s'";
-    let mut client = db.client().await?;
-    let tx = client.transaction().await?;
-    #[cfg(test)]
-    observe(TIMEOUT, &[]);
-    tx.batch_execute(TIMEOUT).await?;
-    #[cfg(test)]
-    observe(sql, params);
-    let rows = tx.query(sql, &refs(params)).await?;
-    tx.commit().await?;
-    #[cfg(test)]
+    let rows = transaction(db, async |tx| {
+        #[cfg(test)]
+        observe(TIMEOUT, &[]);
+        tx.batch_execute(TIMEOUT).await?;
+        #[cfg(test)]
+        observe(sql, params);
+        Ok(tx.query(sql, &refs(params)).await?)
+    })
+    .await?;
+    #[cfg(all(node_twin, test))]
     ANSWERS.with(|answers| {
         if let Some(answers) = answers.borrow_mut().as_mut() {
             answers.push(rows.iter().map(crate::memory::replays::pg::node_pg_row).collect());
@@ -49,6 +49,7 @@ thread_local! {
     /// is preceded by its `SET LOCAL`).
     pub(crate) static STATEMENTS: std::cell::RefCell<Option<Vec<(String, Vec<P>)>>> = const { std::cell::RefCell::new(None) };
     /// When set, the rows PostgreSQL answered each read-path statement on this thread with, as node-pg gives them.
+    #[cfg(all(node_twin, test))]
     pub(crate) static ANSWERS: std::cell::RefCell<Option<Vec<Vec<mixdog_testkit::Exact>>>> = const { std::cell::RefCell::new(None) };
 }
 

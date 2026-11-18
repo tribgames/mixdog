@@ -8,7 +8,7 @@
   ],
   "recorder": {
     "remote-protocol-chat-live.record.mjs": "b7c328a7775e8af0acca2b22e23b3f5619f303ec66c61a5946cc30bde9575bb2",
-    "../../../../packages/protocol-client/src/client.ts": "3298a34866083d1ad450acb00822d4add08f5b346fbe5da34cce5cc7bb381eac",
+    "../../../../packages/protocol-client/src/client.ts": "1f5a71c4c1ea6afd2f88b7c5fbb34a174ebfc8a95e2acfbdbc235078c08cbfe0",
     "remote-protocol-chat-abort-procs.mjs": "2283528c6a2dc4c5e8ce0b1f9f251fdb1e873ee06bcbf4cbff4a832ae4125f61"
   }
 }

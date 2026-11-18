@@ -109,18 +109,40 @@ pub fn policy_finish_code(reason: &str) -> Option<&'static str> {
     }
 }
 
-fn count(um: &Value, camel: &str, snake: &str) -> Option<u64> {
-    let v = um.get(camel).or_else(|| um.get(snake))?;
-    v.as_u64().or_else(|| v.as_f64().map(|f| f.max(0.0) as u64))
+const PROMPT: &[&str] = &["promptTokenCount", "prompt_token_count"];
+const TOOL_PROMPT: &[&str] = &["toolUsePromptTokenCount", "tool_use_prompt_token_count"];
+const CANDIDATES: &[&str] = &["candidatesTokenCount", "candidates_token_count"];
+const THOUGHTS: &[&str] = &["thoughtsTokenCount", "thoughts_token_count"];
+const TOTAL: &[&str] = &["totalTokenCount", "total_token_count"];
+const GATEWAY_CACHE: &[&str] = &["cachedContentTokenCount", "cached_content_token_count"];
+const GEMINI_CACHE: &[&str] = &["cachedContentTokenCount", "cached_content_token_count", "totalCachedTokens", "total_cached_tokens"];
+
+fn token_count(value: &Value) -> Option<u64> {
+    value.as_u64().or_else(|| value.as_f64().filter(|n| n.is_finite() && *n >= 0.0).map(|n| n as u64))
 }
 
-/// `firstFinite` of `_resolveGeminiCacheUsage`: the first of the two spellings that is a positive number, else 0.
-fn first_positive(um: &Value, camel: &str, snake: &str) -> u64 {
-    [camel, snake]
-        .iter()
-        .filter_map(|key| um.get(*key).and_then(Value::as_f64))
-        .find(|n| n.is_finite() && *n > 0.0)
-        .map_or(0, |n| n as u64)
+fn count(um: &Value, keys: &[&str]) -> Option<u64> {
+    keys.iter().find_map(|key| um.get(*key).and_then(token_count))
+}
+
+/// Each count is a cumulative snapshot, not a delta. Drop older spellings of an updated field so a later
+/// explicit zero under a different alias wins; a missing or null count does not replace an observation.
+fn merge_usage(current: &mut Option<Value>, next: &serde_json::Map<String, Value>, style: UsageStyle) {
+    let cache = if style == UsageStyle::ToolUseAdded { GATEWAY_CACHE } else { GEMINI_CACHE };
+    let families = [PROMPT, TOOL_PROMPT, CANDIDATES, THOUGHTS, TOTAL, cache];
+    let current = current.get_or_insert_with(|| Value::Object(serde_json::Map::new())).as_object_mut().expect("usage is an object");
+    for family in families {
+        if family.iter().any(|key| next.get(*key).and_then(token_count).is_some()) {
+            for key in family {
+                current.shift_remove(*key);
+            }
+        }
+    }
+    for (key, value) in next {
+        if token_count(value).is_some() || !families.iter().any(|family| family.contains(&key.as_str())) {
+            current.insert(key.clone(), value.clone());
+        }
+    }
 }
 
 /// `_resolveGeminiCacheUsage` (gemini-cache.mjs:245-285) as `normalizeGeminiUsage` reads it: the prompt is
@@ -129,28 +151,21 @@ fn first_positive(um: &Value, camel: &str, snake: &str) -> u64 {
 /// number (a 0 is a measured miss), at most the prompt. The attached cache's size (`cachedFallbackTokens`) only feeds
 /// Node's cache trace: `normalizeGeminiUsage` (gemini-response.mjs:87-95) books the reported count.
 fn gemini_input_and_cache(um: &Value) -> (u64, u64) {
-    let explicit = ["promptTokenCount", "prompt_token_count"].iter().any(|key| um.get(*key).is_some());
-    let input = if explicit {
-        first_positive(um, "promptTokenCount", "prompt_token_count")
-            + first_positive(um, "toolUsePromptTokenCount", "tool_use_prompt_token_count")
+    let input = if let Some(prompt) = count(um, PROMPT) {
+        prompt.saturating_add(count(um, TOOL_PROMPT).unwrap_or(0))
     } else {
-        let output = first_positive(um, "candidatesTokenCount", "candidates_token_count")
-            + first_positive(um, "thoughtsTokenCount", "thoughts_token_count");
-        first_positive(um, "totalTokenCount", "total_token_count").saturating_sub(output)
+        let output = count(um, CANDIDATES).unwrap_or(0).saturating_add(count(um, THOUGHTS).unwrap_or(0));
+        count(um, TOTAL).unwrap_or(0).saturating_sub(output)
     };
-    let reported = ["cachedContentTokenCount", "cached_content_token_count", "totalCachedTokens", "total_cached_tokens"]
-        .iter()
-        .filter_map(|key| um.get(*key).and_then(Value::as_f64))
-        .find(|n| n.is_finite() && *n >= 0.0)
-        .map_or(0, |n| n as u64);
+    let reported = count(um, GEMINI_CACHE).unwrap_or(0);
     (input, clamp(reported, input))
 }
 
 pub fn usage_of(um: &Value, style: UsageStyle) -> Usage {
-    let prompt = count(um, "promptTokenCount", "prompt_token_count").unwrap_or(0);
-    let reported_cache = count(um, "cachedContentTokenCount", "cached_content_token_count").unwrap_or(0);
-    let thoughts = count(um, "thoughtsTokenCount", "thoughts_token_count");
-    let candidates = count(um, "candidatesTokenCount", "candidates_token_count").unwrap_or(0);
+    let prompt = count(um, PROMPT).unwrap_or(0);
+    let reported_cache = count(um, GATEWAY_CACHE).unwrap_or(0);
+    let thoughts = count(um, THOUGHTS);
+    let candidates = count(um, CANDIDATES).unwrap_or(0);
     let (input, cached) = match style {
         UsageStyle::Inclusive => gemini_input_and_cache(um),
         // `toVertexExclusiveUsage` (vertex-ai-maas.mjs:33-45) over the same resolution.
@@ -159,13 +174,13 @@ pub fn usage_of(um: &Value, style: UsageStyle) -> Usage {
             (input.saturating_sub(cached), cached)
         }
         UsageStyle::ToolUseAdded => (
-            prompt + count(um, "toolUsePromptTokenCount", "tool_use_prompt_token_count").unwrap_or(0),
+            prompt.saturating_add(count(um, TOOL_PROMPT).unwrap_or(0)),
             reported_cache,
         ),
     };
     Usage {
         input_tokens: input,
-        output_tokens: candidates + thoughts.unwrap_or(0),
+        output_tokens: candidates.saturating_add(thoughts.unwrap_or(0)),
         cache_read_tokens: cached,
         cache_write_tokens: 0,
         cache_write_1h_tokens: 0,
@@ -185,6 +200,17 @@ fn truncated(message: &str, exposure: Exposure) -> ProviderError {
     err.exposure = exposure;
     err.message = message.to_owned();
     err
+}
+
+/// `/\bno longer (?:available|supported)\b/i`.
+fn says_retired(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    ["no longer available", "no longer supported"].iter().any(|phrase| {
+        lower.match_indices(phrase).any(|(at, _)| {
+            !lower[..at].chars().next_back().is_some_and(word) && !lower[at + phrase.len()..].chars().next().is_some_and(word)
+        })
+    })
 }
 
 fn complete_call(call: &Value) -> bool {
@@ -207,6 +233,7 @@ pub struct GeminiDecoder {
     saw_chunk: bool,
     finish: Option<String>,
     usage: Option<Value>,
+    usage_updated: bool,
     sources: Vec<String>,
     citations: Vec<Value>,
     open: Option<ItemKind>,
@@ -265,6 +292,7 @@ impl GeminiDecoder {
             saw_chunk: false,
             finish: None,
             usage: None,
+            usage_updated: false,
             sources: Vec::new(),
             citations: Vec::new(),
             open: None,
@@ -303,6 +331,7 @@ impl GeminiDecoder {
         self
     }
 
+    #[cfg(node_twin)]
     /// The calls recovered from text and not yet released (what Node's guard returns as `getLeakedToolCalls()`).
     #[cfg(test)]
     pub(super) fn held_leaked_calls(&self) -> &[ToolCall] {
@@ -409,6 +438,10 @@ impl GeminiDecoder {
         } else {
             payload
         };
+        if let Some(um) = chunk.get("usageMetadata").and_then(Value::as_object) {
+            merge_usage(&mut self.usage, um, self.dialect.usage);
+            self.usage_updated = true;
+        }
         if let Some(mut err) = in_band(&chunk, &self.dialect.errors, (self.clock)()) {
             err.exposure = self.exposure;
             return Err(err);
@@ -420,9 +453,6 @@ impl GeminiDecoder {
             && finish_kind(reason) != FinishKind::Unfinished
         {
             self.finish.get_or_insert_with(|| format!("PROMPT_{reason}"));
-        }
-        if let Some(um) = chunk.get("usageMetadata").filter(|v| v.is_object()) {
-            self.usage = Some(um.clone());
         }
         let Some(candidate) = chunk.pointer("/candidates/0") else {
             return Ok(());
@@ -491,6 +521,7 @@ impl GeminiDecoder {
         } else {
             self.open_item(ItemKind::Text, out);
             self.exposure.text_emitted = true;
+            self.raw.push_str(text);
             out.push(StreamEvent::TextDelta(text.to_owned()));
         }
     }
@@ -532,6 +563,27 @@ impl GeminiDecoder {
         err
     }
 
+    /// `retiredModelError` (`antigravity-stream.mjs:19-29`): a retired wire id answers with one plain-text notice and no
+    /// `finishReason`, which is a terminal answer about the model (HTTP 404, never resent), not a truncated stream. Only on
+    /// the Antigravity route, and only when the text the stream carried says the model is "no longer available" or
+    /// "no longer supported".
+    fn retired_model(&self) -> Option<ProviderError> {
+        self.dialect.errors.antigravity_endpoint.as_ref()?;
+        let text = self.raw.trim();
+        if !says_retired(text) {
+            return None;
+        }
+        let mut err = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::Accepted);
+        err.code = Some("MODEL_RETIRED".into());
+        err.status = Some(404);
+        err.unsafe_to_retry = true;
+        err.should_retry = Some(false);
+        err.recovery_terminal = true;
+        err.message = format!("Antigravity retired {}: {text}", self.model.as_deref().unwrap_or_default());
+        err.exposure = self.exposure;
+        Some(err)
+    }
+
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn conclude(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
         let mut out = Vec::new();
@@ -546,7 +598,9 @@ impl GeminiDecoder {
         // none); only an output cutoff or an unmapped finish is named.
         let stop = match kind {
             FinishKind::Unfinished if whole_calls => None,
-            FinishKind::Unfinished => return Err(truncated(&format!("{label} truncated: no finishReason"), self.exposure)),
+            FinishKind::Unfinished => {
+                return Err(self.retired_model().unwrap_or_else(|| truncated(&format!("{label} truncated: no finishReason"), self.exposure)));
+            }
             _ if self.incomplete_call => {
                 return Err(truncated("stream truncated: unfinished function call", self.exposure));
             }
@@ -623,6 +677,38 @@ impl GeminiDecoder {
     }
 }
 
+impl GeminiDecoder {
+    pub(super) fn take_usage_update(&mut self) -> Option<(Usage, Option<String>)> {
+        if std::mem::take(&mut self.usage_updated) {
+            self.usage.as_ref().map(|um| (usage_of(um, self.dialect.usage), self.model.clone()))
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn stamp_failure(&self, err: &mut ProviderError) {
+        err.exposure.tool_input_cut |= self.incomplete_call;
+        if self.finish.as_deref().and_then(policy_finish_code).is_some() {
+            err.recovery_terminal = true;
+        }
+        if err.partial_usage.is_none() && let Some(usage) = &self.usage {
+            err.partial_usage = Some(Box::new(usage_of(usage, self.dialect.usage)));
+            err.partial_model = self.model.as_deref().map(Into::into);
+        }
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value")]
+    pub(super) fn unary(&mut self, payload: Value) -> Result<Vec<StreamEvent>, ProviderError> {
+        let mut out = Vec::new();
+        let end = self.chunk(payload, &mut out).and_then(|()| self.conclude()).map_err(|mut err| {
+            self.stamp_failure(&mut err);
+            err
+        })?;
+        out.extend(end);
+        Ok(out)
+    }
+}
+
 impl WireDecoder for GeminiDecoder {
     fn feed(&mut self, unit: &[u8]) -> Result<Vec<StreamEvent>, ProviderError> {
         if let Some(err) = self.failed.take() {
@@ -632,9 +718,10 @@ impl WireDecoder for GeminiDecoder {
         let mut out = Vec::new();
         while let Some(end) = self.buf.iter().position(|b| *b == b'\n') {
             let line: Vec<u8> = self.buf.drain(..=end).collect();
-            if let Err(err) = self.line(&line[..line.len() - 1], &mut out) {
+            if let Err(mut err) = self.line(&line[..line.len() - 1], &mut out) {
                 // Node relays every chunk before the failing one of the same read (`relayChunk` per payload): those
                 // events go out first, and the failure ends the stream on the next call.
+                self.stamp_failure(&mut err);
                 if out.is_empty() {
                     return Err(err);
                 }
@@ -651,8 +738,11 @@ impl WireDecoder for GeminiDecoder {
         }
         let rest = std::mem::take(&mut self.buf);
         let mut out = Vec::new();
-        self.line(&rest, &mut out)?;
-        out.extend(self.conclude()?);
+        let end = self.line(&rest, &mut out).and_then(|()| self.conclude()).map_err(|mut err| {
+            self.stamp_failure(&mut err);
+            err
+        })?;
+        out.extend(end);
         Ok(out)
     }
 
@@ -676,6 +766,35 @@ mod tests {
             usage: UsageStyle::Inclusive,
             errors: ErrorDialect::gemini("Gemini REST streamGenerateContent"),
         })
+    }
+
+    fn antigravity_decoder() -> GeminiDecoder {
+        GeminiDecoder::new(DecodeDialect {
+            owner: ProviderId::from("antigravity"),
+            envelope: true,
+            usage: UsageStyle::Inclusive,
+            errors: ErrorDialect::antigravity("https://cloudcode-pa.googleapis.com"),
+        })
+    }
+
+    /// A stream the gateway ends on a plain-text notice about the model, with no `finishReason`
+    /// (`retiredModelError`): on Antigravity alone, a terminal 404 that is never resent; anything else is the truncation.
+    #[test]
+    fn a_retirement_notice_without_a_finish_reason_is_a_terminal_404_on_antigravity_only() {
+        let chunk = |text: &str| format!("data: {{\"response\":{{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"{text}\"}}]}}}}]}}}}\n\n");
+        for notice in [("Model X is no lon", "ger available."), ("This model is NO LONGER ", "Supported, pick another")] {
+            let err = run(&mut antigravity_decoder(), &(chunk(notice.0) + &chunk(notice.1))).unwrap_err();
+            assert_eq!((err.code.as_deref(), err.status, err.recovery_terminal, err.unsafe_to_retry), (Some("MODEL_RETIRED"), Some(404), true, true), "{notice:?}");
+            assert_eq!(err.transport, None, "a verdict about the model, not a cut stream");
+        }
+        let cut = run(&mut antigravity_decoder(), &chunk("The answer so far")).unwrap_err();
+        assert_eq!((cut.transport, cut.status), (Some(TransportFault::TruncatedStream), None));
+        let unrelated = run(&mut antigravity_decoder(), &chunk("a longer-available option")).unwrap_err();
+        assert_eq!(unrelated.transport, Some(TransportFault::TruncatedStream));
+        let answered = format!("data: {{\"response\":{{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"The old API is no longer supported.\"}}]}},\"finishReason\":\"STOP\"}}]}}}}\n\n");
+        assert!(run(&mut antigravity_decoder(), &answered).is_ok(), "a finished answer that mentions it is an answer");
+        let gemini = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"it is no longer available\"}]}}]}\n\n";
+        assert_eq!(run(&mut decoder(false), gemini).unwrap_err().transport, Some(TransportFault::TruncatedStream));
     }
 
     fn run(d: &mut GeminiDecoder, wire: &str) -> Result<Vec<StreamEvent>, ProviderError> {

@@ -33,8 +33,6 @@ impl std::fmt::Display for ProfileError {
     }
 }
 
-impl std::error::Error for ProfileError {}
-
 /// A step of building the profile, named to a hook that stands in for the file system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -410,3 +408,6 @@ mod tests {
         assert!(redacted.contains("could not copy"), "{redacted}");
     }
 }
+
+
+impl std::error::Error for ProfileError {}

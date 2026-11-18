@@ -1,7 +1,4 @@
-//! `POST /feedback`: the HTTP-level cases of `lib/feedback.test.mjs` (methods, content type, rate limits per address and global,
-//! the body cap, the body timeout, the limit on bodies read at once, mail not configured, the error bodies and which refusals
-//! close the connection), run over real sockets against the http1 layer with a scripted sender, and the real mailer against
-//! a scripted SMTP server that speaks implicit TLS with a certificate made for the test.
+//! `POST /feedback` over real sockets: methods, content type, rate limits per address and global, body size and time caps, the busy answer, storage failures and the mailed result.
 
 use std::future::Future;
 use std::net::SocketAddr;

@@ -1,11 +1,13 @@
 // Cached worktree settings (global, not per session): loaded with the rest of
-// the settings data, so Settings → Work mode renders them in its first frame,
+// the settings data, so Settings → Worktrees renders them in its first frame,
 // and revalidated whenever that page opens or a setup-tool change is announced.
 import type { DesktopWorktreeSettings } from '../../shared/contract';
+import { windowSectionStore } from '../section-store';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import { invokeWorktree } from '../worktree-branch-model';
 
 type Patch = Partial<DesktopWorktreeSettings>;
+type Problems = { read: string | null; save: string | null };
 
 /** The last value the host confirmed. */
 let committed: DesktopWorktreeSettings | null = null;
@@ -19,8 +21,46 @@ let readAgain = false;
 let confirmations = 0;
 let writes: Promise<void> = Promise.resolve();
 const listeners = new Set<() => void>();
+const readbackListeners = new Set<() => void>();
+const problemListeners = new Set<() => void>();
+let problems: Problems = { read: null, save: null };
+let watchers = 0;
+let stopWatching: (() => void) | undefined;
 
 export const peekWorktreeSettings = (): DesktopWorktreeSettings | null => current;
+export const peekConfirmedWorktreeSettings = (): DesktopWorktreeSettings | null => committed;
+export const peekWorktreeSettingsProblems = (): Problems => problems;
+
+export function subscribeWorktreeSettingsProblems(listener: () => void): () => void {
+  problemListeners.add(listener);
+  return () => {
+    problemListeners.delete(listener);
+  };
+}
+
+export function subscribeConfirmedWorktreeSettings(listener: () => void): () => void {
+  readbackListeners.add(listener);
+  return () => {
+    readbackListeners.delete(listener);
+  };
+}
+
+function setProblem(kind: keyof Problems, reason: string | null): void {
+  if (problems[kind] === reason) return;
+  problems = { ...problems, [kind]: reason };
+  for (const listener of [...problemListeners]) listener();
+}
+
+function adopt(value: DesktopWorktreeSettings): void {
+  const before = committed;
+  if (before && (Object.keys(value) as (keyof DesktopWorktreeSettings)[]).every((key) => before[key] === value[key])) return;
+  committed = value;
+  for (const listener of [...readbackListeners]) listener();
+}
+
+function problemText(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
 
 export function subscribeWorktreeSettings(listener: () => void): () => void {
   listeners.add(listener);
@@ -44,7 +84,7 @@ function publish(): void {
 
 /** Reads the host's value into the cache. Calls during a read share it and ask
  *  for one more after it, so a change announced mid-read is never missed; a
- *  failed read (a backend without worktree support) leaves the cache as is. */
+ *  failed read leaves the cache as is and is visible separately. */
 export function refreshWorktreeSettings(): Promise<void> {
   if (read) {
     readAgain = true;
@@ -54,10 +94,13 @@ export function refreshWorktreeSettings(): Promise<void> {
   read = invokeWorktree<DesktopWorktreeSettings>('getWorktreeSettings')
     .then((value) => {
       if (seen !== confirmations) return;
-      committed = value;
+      adopt(value);
+      setProblem('read', null);
       publish();
     })
-    .catch(() => {})
+    .catch((reason: unknown) => {
+      if (seen === confirmations) setProblem('read', problemText(reason));
+    })
     .finally(() => {
       read = null;
       if (!readAgain) return;
@@ -74,20 +117,48 @@ export function loadWorktreeSettings(): Promise<void> {
   return read ?? refreshWorktreeSettings();
 }
 
-/** For a mounted Work mode page: revalidates the cache now (another window or
- *  the setup tool may have changed it since it was filled) and again on every
- *  announced setup change, until the returned stop is called. */
+/** Share one watch across the settings groups. The list follows confirmed values. */
 export function watchWorktreeSettings(): () => void {
-  void refreshWorktreeSettings();
-  return subscribeSetupChanges(() => void refreshWorktreeSettings());
+  if (watchers++ === 0) {
+    const refresh = () => void refreshWorktreeSettings();
+    const sections = windowSectionStore();
+    const storedWorktree = () => {
+      const agent = sections?.get('config', 'agent')?.value as { worktree?: unknown } | undefined;
+      return JSON.stringify(agent?.worktree);
+    };
+    let held = storedWorktree();
+    const stopConfig = sections?.subscribe('config', () => {
+      const next = storedWorktree();
+      if (next === held) return;
+      held = next;
+      refresh();
+    });
+    const stopSetup = subscribeSetupChanges(refresh);
+    window.addEventListener('focus', refresh);
+    stopWatching = () => {
+      stopConfig?.();
+      stopSetup();
+      window.removeEventListener('focus', refresh);
+    };
+    refresh();
+  }
+  return () => {
+    if (--watchers !== 0) return;
+    stopWatching?.();
+    stopWatching = undefined;
+  };
 }
 
 async function confirm(save: Patch): Promise<void> {
   try {
-    committed = await invokeWorktree<DesktopWorktreeSettings>('setWorktreeSettings', [save]);
+    const value = await invokeWorktree<DesktopWorktreeSettings>('setWorktreeSettings', [save]);
     confirmations++;
-  } catch {
-    // Not saved: the page falls back to the last confirmed value.
+    adopt(value);
+    setProblem('read', null);
+  } catch (reason) {
+    setProblem('save', problemText(reason));
+    // A lost reply can hide an applied write. Never retry the write; read back instead.
+    void refreshWorktreeSettings();
   }
   unconfirmed.splice(unconfirmed.indexOf(save), 1);
   publish();
@@ -98,6 +169,7 @@ async function confirm(save: Patch): Promise<void> {
  *  leaving the last confirmed value with the still-unconfirmed saves on top. */
 export function saveWorktreeSettings(patch: Patch): void {
   if (!committed) return;
+  setProblem('save', null);
   const save = { ...patch };
   unconfirmed.push(save);
   publish();

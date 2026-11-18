@@ -51,26 +51,39 @@ impl SideWiring {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(node_twin)]
     use std::collections::HashMap;
 
-    use mixdog_agent::compact::summary_run::{SummaryFailure, SummaryResponse, SummaryRoute};
-    use mixdog_agent::env::{Clock, SendTicket};
+    #[cfg(node_twin)]
+    use mixdog_agent::compact::summary_run::SummaryFailure;
+    #[cfg(node_twin)]
+    use mixdog_agent::compact::summary_run::SummaryResponse;
+    #[cfg(node_twin)]
+    use mixdog_agent::compact::summary_run::SummaryRoute;
+    use mixdog_agent::env::Clock;
+    #[cfg(node_twin)]
+    use mixdog_agent::env::SendTicket;
     use mixdog_agent::response::ModelResponse;
     use mixdog_core_api::domain::mock::{MockAttempt, MockProvider};
     use mixdog_core_api::domain::provider::{Content, Message, ModelRequest, RequestOptions, Role};
     use mixdog_core_api::ids::ThreadId;
-    use mixdog_core_session::session::turn_ops::{ask_side_question, SideRun, SIDE_QUESTION_NO_REQUEST};
+    use mixdog_core_session::session::turn_ops::{ask_side_question, SIDE_QUESTION_NO_REQUEST};
+    #[cfg(node_twin)]
+    use mixdog_core_session::session::turn_ops::SideRun;
+    #[cfg(node_twin)]
     use mixdog_rt::CancellationToken;
-    use serde_json::{json, Value};
+    use serde_json::json;
+    #[cfg(node_twin)]
+    use serde_json::Value;
 
     use super::super::side_requests::RunSide;
+    #[cfg(node_twin)]
     use mixdog_agent::compact::summary_run::ForkSource;
-    use super::super::summary_routes::{ForkSender, SessionFork};
+    #[cfg(node_twin)]
+    use super::super::summary_routes::ForkSender;
+    #[cfg(node_twin)]
+    use super::super::summary_routes::SessionFork;
     use super::*;
-
-    /// What Node's store kept at every step of the recorded scenarios
-    /// (`benchmarks/rust-core/recorders/record-side-question-store.mjs`).
-    const GOLDEN: &str = include_str!("../../../../fixtures/side-question-store/golden.json");
 
     struct Fixed;
     impl Clock for Fixed {
@@ -79,8 +92,10 @@ mod tests {
         }
     }
 
+    #[cfg(node_twin)]
     struct Never;
     #[async_trait::async_trait]
+    #[cfg(node_twin)]
     impl ForkSender for Never {
         async fn send(&self, _: &SummaryRoute) -> Result<SummaryResponse, SummaryFailure> {
             unreachable!("the replay only reads the saved request")
@@ -116,6 +131,7 @@ mod tests {
         ModelResponse { content: "reply".into(), ..ModelResponse::default() }
     }
 
+    #[cfg(node_twin)]
     fn header(owner: Option<&str>) -> serde_json::Map<String, Value> {
         let Value::Object(header) = (match owner {
             Some(owner) => json!({ "owner": owner }),
@@ -127,6 +143,7 @@ mod tests {
     }
 
     /// The state Node's `sideQuestionRequest` and `compactionForkRequest` read back.
+    #[cfg(node_twin)]
     fn observed(wiring: &SideWiring, session: &str) -> Value {
         let thread = ThreadId::from(session);
         let saved = wiring.requests.store.saved_request(&thread);
@@ -137,7 +154,79 @@ mod tests {
         })
     }
 
+    struct Rewrites;
+
     #[tokio::test]
+    async fn a_question_asked_during_a_turn_is_answered_from_the_saved_request_and_a_clear_ends_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let wiring = wiring(dir.path()).await;
+        let questions = wiring.questions();
+        let thread = ThreadId::from("t");
+        let provider = Arc::new(MockProvider::new([MockAttempt::Body(b"t:the answer\ndone\n".to_vec())]));
+        let run = RunSide { thread: thread.clone(), provider_name: "mock".into(), provider, agent_owner: false };
+        wiring.requests().tap(run).begin(&request(1)).settle(&reply());
+
+        assert_eq!(ask_side_question(&*questions, &thread, " why ", true).await.unwrap(), "the answer");
+
+        questions.forget(&thread, false);
+        let refused = ask_side_question(&*questions, &thread, "again", true).await.unwrap_err();
+        assert!(format!("{refused:?}").contains(SIDE_QUESTION_NO_REQUEST), "{refused:?}");
+    }
+
+    #[async_trait::async_trait]
+    impl mixdog_agent::env::Compactor for Rewrites {
+        fn estimate_tokens(&self, _: &[mixdog_agent::message::AgentMessage]) -> u64 {
+            0
+        }
+        async fn reduces(&self, _: &mixdog_agent::env::CompactRequest<'_>) -> bool {
+            true
+        }
+        async fn compact(&self, request: mixdog_agent::env::CompactRequest<'_>) -> Result<mixdog_agent::env::CompactOutput, mixdog_agent::env::CompactError> {
+            Ok(mixdog_agent::env::CompactOutput {
+                messages: request.messages.to_vec(),
+                usage: None,
+                input_excludes_cache: false,
+                dropped_count: 0,
+                dropped: None,
+                skipped: request.budget_tokens == 0,
+                pipeline_ms: 0.0,
+                summary_ms: None,
+                summary_route: None,
+            })
+        }
+        fn request_media(&self, _: &[mixdog_agent::message::AgentMessage]) -> bool {
+            false
+        }
+    }
+    #[tokio::test]
+    async fn a_compaction_that_rewrote_the_transcript_retires_the_fork_and_a_skipped_one_does_not() {
+        use mixdog_agent::env::{CompactRequest, CompactTrigger, Compactor};
+        let dir = tempfile::tempdir().unwrap();
+        let compaction = super::super::compaction_world::tests::services(dir.path(), json!({}), Arc::default()).await;
+        let store = compaction.requests.saved.clone();
+        let world: Arc<dyn super::super::compactors::CompactionWorld> = Arc::new(super::super::compaction_world::ProcessCompactionWorld::new(compaction));
+        let thread = ThreadId::from("t");
+        let retiring = super::super::retiring_compactor::RetiringCompactor::new(Arc::new(Rewrites), world, thread.clone());
+        let provider = Arc::new(MockProvider::new([]));
+        let run = RunSide { thread: thread.clone(), provider_name: "mock".into(), provider, agent_owner: false };
+        let saved = |compacted: bool| store.saved_request(&thread).map(|r| r.compacted == compacted);
+        let side = SideWiring::new(SideRequests { store: store.clone(), ..requests(dir.path()).await });
+        side.requests().tap(run).begin(&request(1)).settle(&reply());
+        let ask = |budget_tokens| CompactRequest { messages: &[], budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: true, latest_user_prefix: "" };
+
+        retiring.compact(ask(0)).await.unwrap();
+        assert_eq!(saved(false), Some(true), "a skipped pass adopts nothing");
+        retiring.compact(ask(1)).await.unwrap();
+        assert_eq!(saved(true), Some(true), "the saved request is marked as rewritten");
+    }
+
+
+    /// What Node's store kept at every step of the recorded scenarios
+    /// (`benchmarks/rust-core/recorders/record-side-question-store.mjs`).
+    #[cfg(node_twin)]
+    const GOLDEN: &str = include_str!("../../../../fixtures/side-question-store/golden.json");
+    #[tokio::test]
+    #[cfg(node_twin)]
     async fn every_recorded_step_of_nodes_store_is_reached_through_the_wiring() {
         let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
         let dir = tempfile::tempdir().unwrap();
@@ -185,74 +274,5 @@ mod tests {
             }
         }
         assert_eq!(steps_run, 57);
-    }
-
-    struct Rewrites;
-    #[async_trait::async_trait]
-    impl mixdog_agent::env::Compactor for Rewrites {
-        fn estimate_tokens(&self, _: &[mixdog_agent::message::AgentMessage]) -> u64 {
-            0
-        }
-        async fn reduces(&self, _: &mixdog_agent::env::CompactRequest<'_>) -> bool {
-            true
-        }
-        async fn compact(&self, request: mixdog_agent::env::CompactRequest<'_>) -> Result<mixdog_agent::env::CompactOutput, mixdog_agent::env::CompactError> {
-            Ok(mixdog_agent::env::CompactOutput {
-                messages: request.messages.to_vec(),
-                usage: None,
-                input_excludes_cache: false,
-                dropped_count: 0,
-                dropped: None,
-                skipped: request.budget_tokens == 0,
-                pipeline_ms: 0.0,
-                summary_ms: None,
-                summary_route: None,
-            })
-        }
-        fn cache_expired(&self) -> bool {
-            false
-        }
-        fn request_media(&self, _: &[mixdog_agent::message::AgentMessage]) -> bool {
-            false
-        }
-    }
-
-    #[tokio::test]
-    async fn a_compaction_that_rewrote_the_transcript_retires_the_fork_and_a_skipped_one_does_not() {
-        use mixdog_agent::env::{CompactRequest, CompactTrigger, Compactor};
-        let dir = tempfile::tempdir().unwrap();
-        let compaction = super::super::compaction_world::tests::services(dir.path(), json!({}), Arc::default()).await;
-        let store = compaction.requests.saved.clone();
-        let world: Arc<dyn super::super::compactors::CompactionWorld> = Arc::new(super::super::compaction_world::ProcessCompactionWorld::new(compaction));
-        let thread = ThreadId::from("t");
-        let retiring = super::super::retiring_compactor::RetiringCompactor::new(Arc::new(Rewrites), world, thread.clone());
-        let provider = Arc::new(MockProvider::new([]));
-        let run = RunSide { thread: thread.clone(), provider_name: "mock".into(), provider, agent_owner: false };
-        let saved = |compacted: bool| store.saved_request(&thread).map(|r| r.compacted == compacted);
-        let side = SideWiring::new(SideRequests { store: store.clone(), ..requests(dir.path()).await });
-        side.requests().tap(run).begin(&request(1)).settle(&reply());
-        let ask = |budget_tokens| CompactRequest { messages: &[], budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: true, latest_user_prefix: "" };
-
-        retiring.compact(ask(0)).await.unwrap();
-        assert_eq!(saved(false), Some(true), "a skipped pass adopts nothing");
-        retiring.compact(ask(1)).await.unwrap();
-        assert_eq!(saved(true), Some(true), "the saved request is marked as rewritten");
-    }
-
-    #[tokio::test]
-    async fn a_question_asked_during_a_turn_is_answered_from_the_saved_request_and_a_clear_ends_it() {
-        let dir = tempfile::tempdir().unwrap();
-        let wiring = wiring(dir.path()).await;
-        let questions = wiring.questions();
-        let thread = ThreadId::from("t");
-        let provider = Arc::new(MockProvider::new([MockAttempt::Body(b"t:the answer\ndone\n".to_vec())]));
-        let run = RunSide { thread: thread.clone(), provider_name: "mock".into(), provider, agent_owner: false };
-        wiring.requests().tap(run).begin(&request(1)).settle(&reply());
-
-        assert_eq!(ask_side_question(&*questions, &thread, " why ").await.unwrap(), "the answer");
-
-        questions.forget(&thread, false);
-        let refused = ask_side_question(&*questions, &thread, "again").await.unwrap_err();
-        assert!(format!("{refused:?}").contains(SIDE_QUESTION_NO_REQUEST), "{refused:?}");
     }
 }

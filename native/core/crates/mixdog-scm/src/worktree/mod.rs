@@ -20,6 +20,7 @@ pub mod menu;
 pub mod merge;
 pub mod names;
 pub mod ownership;
+pub(crate) mod path_lock;
 pub mod registry;
 pub mod retention;
 pub mod review_bases;

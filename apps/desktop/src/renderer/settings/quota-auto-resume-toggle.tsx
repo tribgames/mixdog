@@ -1,31 +1,21 @@
 // Settings → Providers: whether a session stopped by an exhausted provider
 // quota resumes by itself when the quota resets.
-import { useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
 
 import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
-import { subscribeSetupChanges } from '../setup-change-refresh';
 import { Group, ToggleRow } from './capability-controls';
-import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from './desktop-status-cache';
+import { writeDesktopStatus } from './desktop-status-cache';
+import { useDesktopStatus } from './use-desktop-status';
 
 const desktopApi = () => (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
 
 export function QuotaAutoResumeToggle() {
   const api = desktopApi();
-  const [enabled, setEnabled] = useState<boolean | null>(() => getCachedDesktopStatus(api, 'quotaAutoResume') ?? null);
-  useEffect(() => {
-    let live = true;
-    const read = () =>
-      void readDesktopStatus(desktopApi(), 'quotaAutoResume')
-        ?.then((value) => live && setEnabled(value))
-        .catch(() => {});
-    read();
-    const unsubscribe = subscribeSetupChanges(read);
-    return () => {
-      live = false;
-      unsubscribe();
-    };
-  }, []);
+  // Hidden only while unknown; a late or failed first read is corrected by the next settings announcement.
+  const enabled = useDesktopStatus(api, 'quotaAutoResume');
+  const latestWrite = useRef(0);
+  const [failed, setFailed] = useState(false);
   if (enabled === null || !api?.setQuotaAutoResume) return null;
   return (
     <Group
@@ -37,14 +27,25 @@ export function QuotaAutoResumeToggle() {
       <ToggleRow
         title={t('Resume automatically when the limit resets')}
         checked={enabled}
+        optimistic={false}
         onChange={(next) => {
-          setEnabled(next);
-          void api
-            .setQuotaAutoResume?.(next)
-            .then((saved) => storeDesktopStatus(api, 'quotaAutoResume', saved))
-            .catch(() => setEnabled(!next));
+          const write = ++latestWrite.current;
+          setFailed(false);
+          // The choice shows while the write is in flight; a failed write leaves the confirmed value.
+          const report = (saved: boolean | undefined) => {
+            if (write === latestWrite.current) setFailed(saved !== next);
+          };
+          void writeDesktopStatus(api, 'quotaAutoResume', () => api.setQuotaAutoResume?.(next), next).then(
+            report,
+            () => report(undefined)
+          );
         }}
       />
+      {failed && (
+        <p className="settings-error" role="alert">
+          {t('Could not save the auto-resume setting. Try again.')}
+        </p>
+      )}
     </Group>
   );
 }

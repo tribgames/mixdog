@@ -53,11 +53,6 @@ pub fn supports_extended_keys_with(var: impl Fn(&str) -> Option<String>) -> bool
     term_program.as_deref() == Some("iTerm.app")
 }
 
-/// [`supports_extended_keys_with`] over the process environment.
-pub fn supports_extended_keys() -> bool {
-    supports_extended_keys_with(|name| std::env::var(name).ok())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,4 +110,10 @@ mod tests {
         }
         assert!(gate(&[("MIXDOG_TUI_EXTENDED_KEYS", "maybe"), ("WT_SESSION", "x")]));
     }
+}
+
+
+/// [`supports_extended_keys_with`] over the process environment.
+pub fn supports_extended_keys() -> bool {
+    supports_extended_keys_with(|name| std::env::var(name).ok())
 }

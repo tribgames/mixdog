@@ -34,11 +34,10 @@ pub trait QuotaAutoResumeSetting: Send + Sync {
     fn enabled(&self) -> bool;
 }
 
-/// The switch is the config's top-level `quotaResume.autoResume`, on unless it is `false`: read at every
-/// call, so a settings change shows at once.
+/// The one reader of the switch, read at every call, so a settings change shows at once.
 impl QuotaAutoResumeSetting for Config {
     fn enabled(&self) -> bool {
-        self.agent().get("quotaResume").and_then(|section| section.get("autoResume")) != Some(&Value::Bool(false))
+        self.quota_auto_resume_enabled()
     }
 }
 

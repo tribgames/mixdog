@@ -8,13 +8,13 @@
     "idempotentHint": false,
     "openWorldHint": false
   },
-  "description": "Manage shell tasks. Completion is delivered automatically; wait only when no other work remains, never poll with read. wait returns when the task finishes, or when new user input or any task notification arrives (the task keeps running). read/wait return new output, prioritizing the tail on completion. Use read on the log path for omitted content.",
+  "description": "Manage background shell and agent tasks by task_id (from list, shell backgrounding, or agent spawn/send; sess_* session IDs are rejected). Completion is delivered automatically; wait only when no other work remains, never poll with read. wait returns when the task finishes, or when new user input or any task notification arrives (the task keeps running). For shell tasks, read/wait return new output, prioritizing the tail on completion; use read on the log path for omitted content.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "task_id": {
         "type": "string",
-        "description": "Shell task_id; required for read/wait/cancel."
+        "description": "Background task_id (shell or agent task_id, not a sess_* session id); required for read/wait/cancel."
       },
       "action": {
         "type": "string",

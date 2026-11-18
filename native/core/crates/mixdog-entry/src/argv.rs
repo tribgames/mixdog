@@ -71,7 +71,7 @@ pub struct Invocation {
     pub kind: Kind,
     /// Absent for a refusal that is made while the line is read.
     pub options: Option<Options>,
-    /// The run never touches the host's data folder: no lifecycle ledger, no staged-update swap, no live-session mark (an exec
+    /// The run never touches the host's data folder: no lifecycle ledger, no live-session mark (an exec
     /// and every refusal made before the host matters, `skipHostPrelude`).
     pub skip_host_prelude: bool,
 }
@@ -348,6 +348,46 @@ mod tests {
         assert!(!line(&["--help"]).skip_host_prelude);
         // Flags are read from the whole line, past a `--` too.
         assert_eq!(line(&["--", "--help"]).kind, Kind::Help);
+    }
+
+    /// The table `bin/invocation.mjs` (the npm launcher's own reading of `skipHostPrelude`) is tested against too.
+    #[test]
+    fn the_launchers_prelude_table_is_what_classify_answers() {
+        let cases: Vec<Value> = serde_json::from_str(include_str!("../tests/prelude-cases.json")).unwrap();
+        assert!(cases.len() > 20);
+        for case in cases {
+            let words: Vec<&str> = case["argv"].as_array().unwrap().iter().map(|word| word.as_str().unwrap()).collect();
+            assert_eq!(line(&words).skip_host_prelude, case["skip"].as_bool().unwrap(), "{words:?}");
+        }
+    }
+
+    #[test]
+    fn each_flag_and_route_option_sets_its_own_option_wherever_it_stands_and_repeating_a_flag_changes_nothing() {
+        let options = line(&["--fast", "--effort", "high", "--web-search", "--provider", "anthropic", "--remote", "--onboarding", "--model", "m", "--fast"]).options.unwrap();
+        assert_eq!(
+            (options.fast, options.web_search, options.remote, options.force_onboarding, options.json, options.tool_mode),
+            (true, true, true, true, false, ToolMode::Full)
+        );
+        assert_eq!((options.effort.as_deref(), options.provider.as_deref(), options.model.as_deref()), (Some("high"), Some("anthropic"), Some("m")));
+        // An exec keeps the options that it supports, `--json` among them.
+        let exec = line(&["exec", "--json", "--fast", "go"]);
+        assert_eq!(exec.kind, Kind::Exec { message: "go".to_owned() });
+        let options = exec.options.unwrap();
+        assert!(options.json && options.fast);
+    }
+
+    #[test]
+    fn an_exec_message_is_the_words_after_the_verb_joined_by_spaces_whatever_they_hold() {
+        // Words are joined by one space each and only the ends of the whole are trimmed.
+        assert_eq!(line(&["exec", "안녕", "  세계 ", "😀"]).kind, Kind::Exec { message: "안녕   세계  😀".to_owned() });
+        assert_eq!(line(&["exec", "--", "--json", "-x"]).kind, Kind::Exec { message: "--json -x".to_owned() }, "after `--` every word is text");
+        assert_eq!(line(&["--", "-x"]).kind, Kind::General, "a word after `--` that looks like an option is text, not an unknown option");
+    }
+
+    #[test]
+    fn an_option_the_exec_does_not_have_is_refused_before_the_host_with_its_name() {
+        assert_eq!(error(&["exec", "--tool-mode", "readonly", "hi"]), ("unknown option --tool-mode".to_owned(), true));
+        assert_eq!(error(&["--bogus", "exec", "hi"]), ("unknown option --bogus".to_owned(), true));
     }
 
     #[test]

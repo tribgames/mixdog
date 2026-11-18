@@ -14,6 +14,7 @@ use mixdog_testkit::Exact;
 
 use crate::provider_case::error_field;
 use crate::provider_case::error_field_unread;
+#[cfg(node_twin)]
 use crate::replay_world::Events;
 
 /// What left the provider layer: the error (none for a cancelled send) and the events the sink saw.
@@ -325,6 +326,7 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
         "unsafeToRetry" => assert_eq!(left.replay_unsafe(), opt_bool(value), "{what}: {mapping}"),
         "timeoutPhase" => {
             let phase = match left.error(field).timeout_phase {
+                Some(StreamTimeoutPhase::Headers) => Some("headers"),
                 Some(StreamTimeoutPhase::FirstChunk) => Some("first-chunk"),
                 Some(StreamTimeoutPhase::Idle) => Some("idle"),
                 None => None,

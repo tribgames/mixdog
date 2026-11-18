@@ -1,8 +1,10 @@
-//! One refresh per credential at a time. Concurrent callers for the same
-//! credential file share the refresh already running and get its result, so a
+//! One refresh per credential at a time. Concurrent callers holding the same
+//! credential share the refresh already running and get its result, so a
 //! single-use refresh token is never spent twice and providers keep no gate
-//! of their own. The flight is keyed by the credential path and the result
-//! type, process-wide: two handles on one file share it.
+//! of their own. The flight is keyed by the credential path, the credential the
+//! callers hold and the result type, process-wide: two handles on one file
+//! share it, and a login that replaced the file's credential never joins (and is
+//! never handed the result of) the previous login's refresh.
 //!
 //! A caller that arrives after the flight finished starts a new one; it
 //! should re-read the credential first (another process may have refreshed
@@ -27,7 +29,7 @@ use mixdog_rt::Expired;
 
 use crate::transport::deadlines::REFRESH_FLIGHT;
 
-type Key = (PathBuf, TypeId);
+type Key = (PathBuf, String, TypeId);
 
 /// A running flight: its identity (what its end removes, and nothing put there after it) and its shared result.
 type Flight = (Arc<()>, Box<dyn Any + Send>);
@@ -61,16 +63,17 @@ pub(crate) fn reset() {
 }
 
 /// Runs `refresh` unless one with the same result type is already running for
-/// `credential`; then waits for that one and returns its result, or the
-/// [`Expired`] that ended the flight. The refresh runs to its end as a task of
-/// its own, as Node's promise does, whether or not a caller still waits: a
-/// refreshed credential is written even when every caller went away.
-pub(crate) async fn refresh_once<T, F>(credential: &Path, refresh: F) -> Result<T, Expired>
+/// `held`, the credential the caller read from the file `credential`; then waits
+/// for that one and returns its result, or the [`Expired`] that ended the
+/// flight. The refresh runs to its end as a task of its own, as Node's promise
+/// does, whether or not a caller still waits: a refreshed credential is written
+/// even when every caller went away.
+pub(crate) async fn refresh_once<T, F>(credential: &Path, held: &str, refresh: F) -> Result<T, Expired>
 where
     T: Clone + Send + Sync + 'static,
     F: Future<Output = T> + Send + 'static,
 {
-    let key: Key = (credential.to_owned(), TypeId::of::<T>());
+    let key: Key = (credential.to_owned(), held.to_owned(), TypeId::of::<T>());
     let (flight, start) = {
         let mut map = flights();
         match map
@@ -135,7 +138,7 @@ mod tests {
     async fn concurrent_callers_for_one_credential_share_one_refresh() {
         let path = Path::new("a-oauth.json");
         let counter = Arc::new(AtomicUsize::new(0));
-        let calls = (0..8).map(|_| refresh_once(path, slow(counter.clone(), 7)));
+        let calls = (0..8).map(|_| refresh_once(path, "r", slow(counter.clone(), 7)));
         let results = futures::future::join_all(calls).await;
         assert!(results.iter().all(|r| *r == Ok(7)));
         assert_eq!(
@@ -144,7 +147,7 @@ mod tests {
             "one refresh for eight callers"
         );
         // The flight is over: the next caller refreshes again.
-        assert_eq!(refresh_once(path, slow(counter.clone(), 8)).await, Ok(8));
+        assert_eq!(refresh_once(path, "r", slow(counter.clone(), 8)).await, Ok(8));
         assert_eq!(counter.load(Ordering::SeqCst), 2);
     }
 
@@ -152,19 +155,37 @@ mod tests {
     async fn different_credentials_do_not_share() {
         let counter = Arc::new(AtomicUsize::new(0));
         let (a, b) = tokio::join!(
-            refresh_once(Path::new("x-oauth.json"), slow(counter.clone(), 1)),
-            refresh_once(Path::new("y-oauth.json"), slow(counter.clone(), 2)),
+            refresh_once(Path::new("x-oauth.json"), "r", slow(counter.clone(), 1)),
+            refresh_once(Path::new("y-oauth.json"), "r", slow(counter.clone(), 2)),
         );
         assert_eq!((a, b), (Ok(1), Ok(2)));
         assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+
+    /// A login that replaced the file's credential while the previous login's refresh runs holds another credential: it
+    /// refreshes its own and is never handed the previous login's result.
+    #[tokio::test]
+    async fn a_refresh_of_one_login_is_not_joined_by_the_login_that_replaced_it() {
+        let path = Path::new("replaced-oauth.json");
+        let (release, released) = tokio::sync::oneshot::channel::<()>();
+        let previous = tokio::spawn(refresh_once(path, "refresh-of-login-1", async move {
+            released.await.ok();
+            1u32
+        }));
+        tokio::task::yield_now().await;
+        let replaced = tokio::spawn(refresh_once(path, "refresh-of-login-2", async { 2u32 }));
+        tokio::task::yield_now().await;
+        release.send(()).ok();
+        assert_eq!(replaced.await.unwrap(), Ok(2), "the new login's caller got its own refresh, not the previous login's");
+        assert_eq!(previous.await.unwrap(), Ok(1));
     }
 
     #[tokio::test]
     async fn a_dropped_first_caller_does_not_strand_the_others() {
         let path = Path::new("z-oauth.json");
         let counter = Arc::new(AtomicUsize::new(0));
-        let first = refresh_once(path, slow(counter.clone(), 3));
-        let second = refresh_once(path, slow(counter.clone(), 3));
+        let first = refresh_once(path, "r", slow(counter.clone(), 3));
+        let second = refresh_once(path, "r", slow(counter.clone(), 3));
         let mut first = Box::pin(first);
         assert!((&mut first).now_or_never().is_none(), "still pending");
         drop(first);
@@ -172,32 +193,16 @@ mod tests {
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
 
-    // Node's refresh promise runs to its end when its callers went away; the refreshed credential is written.
-    #[tokio::test(start_paused = true)]
-    async fn a_refresh_whose_callers_all_went_away_runs_to_its_end() {
-        let (ended, end) = tokio::sync::oneshot::channel();
-        let refresh = async move {
-            tokio::task::yield_now().await;
-            ended.send(()).ok();
-            4u32
-        };
-        let mut caller = Box::pin(refresh_once(Path::new("left-oauth.json"), refresh));
-        assert!((&mut caller).now_or_never().is_none(), "the refresh is under way");
-        drop(caller);
-        let deadline = std::time::Duration::from_secs(60);
-        assert!(matches!(mixdog_rt::time::timeout(deadline, end).await, Ok(Ok(()))), "the refresh ended with no caller waiting");
-    }
-
     // A replay starts as a new process: a refresh left running by an earlier one is not joined. The reset is the
     // one a replay makes (`reset_process_state`), so dropping this module's call from it fails here.
     #[tokio::test(start_paused = true)]
     async fn after_a_reset_the_next_caller_starts_its_own_refresh() {
         let path = Path::new("reset-oauth.json");
-        let mut left = Box::pin(refresh_once(path, std::future::pending::<u32>()));
+        let mut left = Box::pin(refresh_once(path, "r", std::future::pending::<u32>()));
         assert!((&mut left).now_or_never().is_none(), "the refresh is under way");
         drop(left);
         crate::reset_process_state();
-        assert_eq!(refresh_once(path, async { 9u32 }).await, Ok(9));
+        assert_eq!(refresh_once(path, "r", async { 9u32 }).await, Ok(9));
     }
 
     async fn broken() -> u32 {
@@ -208,31 +213,9 @@ mod tests {
     #[tokio::test]
     async fn a_refresh_that_panicked_is_not_joined_by_the_next_caller() {
         let path = Path::new("panicked-oauth.json");
-        let first = tokio::spawn(refresh_once(path, broken()));
+        let first = tokio::spawn(refresh_once(path, "r", broken()));
         assert!(first.await.is_err_and(|error| error.is_panic()), "the caller of the broken refresh gets its panic");
-        assert_eq!(refresh_once(path, async { 6u32 }).await, Ok(6));
-    }
-
-    // A runtime that ends drops the refresh it was running; a later runtime of the process starts its own.
-    #[test]
-    fn a_refresh_dropped_with_its_runtime_is_not_joined_in_the_next() {
-        let path = Path::new("shutdown-oauth.json");
-        let runtime = || tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let first = runtime();
-        first.block_on(async {
-            let (running, run) = tokio::sync::oneshot::channel();
-            let refresh = async move {
-                running.send(()).ok();
-                std::future::pending::<u32>().await
-            };
-            let mut caller = Box::pin(refresh_once(path, refresh));
-            assert!((&mut caller).now_or_never().is_none(), "the refresh is under way");
-            // The refresh's own task says it runs, so what the runtime drops is a refresh in flight.
-            let deadline = std::time::Duration::from_secs(60);
-            assert!(matches!(mixdog_rt::time::timeout(deadline, run).await, Ok(Ok(()))), "the refresh's task ran");
-        });
-        drop(first);
-        assert_eq!(runtime().block_on(refresh_once(path, async { 7u32 })), Ok(7));
+        assert_eq!(refresh_once(path, "r", async { 6u32 }).await, Ok(6));
     }
 
     // A runtime that has shut down drops a task where it is spawned. The flight's end takes the map's lock, so the
@@ -247,23 +230,60 @@ mod tests {
         drop(closed);
         let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _context = handle.enter();
-            refresh_once(path, async { 1u32 }).now_or_never()
+            refresh_once(path, "r", async { 1u32 }).now_or_never()
         }));
         assert!(attempt.is_err(), "the caller on the dead runtime is told its refresh was cancelled");
-        assert_eq!(runtime().block_on(refresh_once(path, async { 8u32 })), Ok(8));
+        assert_eq!(runtime().block_on(refresh_once(path, "r", async { 8u32 })), Ok(8));
     }
 
+
+    // Node's refresh promise runs to its end when its callers went away; the refreshed credential is written.
+    #[tokio::test(start_paused = true)]
+    async fn a_refresh_whose_callers_all_went_away_runs_to_its_end() {
+        let (ended, end) = tokio::sync::oneshot::channel();
+        let refresh = async move {
+            tokio::task::yield_now().await;
+            ended.send(()).ok();
+            4u32
+        };
+        let mut caller = Box::pin(refresh_once(Path::new("left-oauth.json"), "r", refresh));
+        assert!((&mut caller).now_or_never().is_none(), "the refresh is under way");
+        drop(caller);
+        let deadline = std::time::Duration::from_secs(60);
+        assert!(matches!(mixdog_rt::time::timeout(deadline, end).await, Ok(Ok(()))), "the refresh ended with no caller waiting");
+    }
+    // A runtime that ends drops the refresh it was running; a later runtime of the process starts its own.
+    #[test]
+    fn a_refresh_dropped_with_its_runtime_is_not_joined_in_the_next() {
+        let path = Path::new("shutdown-oauth.json");
+        let runtime = || tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let first = runtime();
+        first.block_on(async {
+            let (running, run) = tokio::sync::oneshot::channel();
+            let refresh = async move {
+                running.send(()).ok();
+                std::future::pending::<u32>().await
+            };
+            let mut caller = Box::pin(refresh_once(path, "r", refresh));
+            assert!((&mut caller).now_or_never().is_none(), "the refresh is under way");
+            // The refresh's own task says it runs, so what the runtime drops is a refresh in flight.
+            let deadline = std::time::Duration::from_secs(60);
+            assert!(matches!(mixdog_rt::time::timeout(deadline, run).await, Ok(Ok(()))), "the refresh's task ran");
+        });
+        drop(first);
+        assert_eq!(runtime().block_on(refresh_once(path, "r", async { 7u32 })), Ok(7));
+    }
     #[tokio::test(start_paused = true)]
     async fn a_refresh_that_never_answers_ends_and_frees_the_credential() {
         let path = Path::new("hung-oauth.json");
-        let owner = refresh_once(path, std::future::pending::<u32>());
-        let joiner = refresh_once(path, std::future::pending::<u32>());
+        let owner = refresh_once(path, "r", std::future::pending::<u32>());
+        let joiner = refresh_once(path, "r", std::future::pending::<u32>());
         let (owner, joiner) = tokio::join!(owner, joiner);
         let expired = Err(Expired {
             after: std::time::Duration::from_secs(150),
         });
         assert_eq!((owner, joiner), (expired, expired));
         // The dead flight is gone: the next caller starts a new refresh.
-        assert_eq!(refresh_once(path, async { 5u32 }).await, Ok(5));
+        assert_eq!(refresh_once(path, "r", async { 5u32 }).await, Ok(5));
     }
 }

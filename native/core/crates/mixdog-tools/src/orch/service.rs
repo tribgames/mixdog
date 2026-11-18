@@ -58,6 +58,12 @@ pub struct ServiceCall<'a> {
 
 #[async_trait]
 pub trait ToolService: Send + Sync {
+    /// A service that arbitrates cancellation against an irreversible commit must return
+    /// its own outcome; a wrapper must not race that outcome against the same token.
+    fn settles_cancellation(&self, _args: &JsonValue) -> bool {
+        false
+    }
+
     /// The reply parts; a refusal or failure is a typed [`PortError`] with the existing text.
     async fn call(&self, call: ServiceCall<'_>) -> Result<Vec<ToolPart>, PortError>;
 }
@@ -103,10 +109,15 @@ impl Tool for ServiceTool {
             super::setup_input::validate(&args, &self.spec.input_schema)?;
         }
         let call = ServiceCall { thread: &ctx.thread_id, surface: ctx.surface, cwd: &ctx.cwd, args: &args, cancel: &ctx.cancel };
-        let parts = tokio::select! {
-            biased;
-            _ = ctx.cancel.cancelled() => return Err(cancelled()),
-            r = with_call_approvals(CallApprovals { gate: ctx.approvals.clone(), call_id: ctx.call_id.clone() }, self.service.call(call)) => r?,
+        let work = with_call_approvals(CallApprovals { gate: ctx.approvals.clone(), call_id: ctx.call_id.clone() }, self.service.call(call));
+        let parts = if self.service.settles_cancellation(&args) {
+            work.await?
+        } else {
+            tokio::select! {
+                biased;
+                _ = ctx.cancel.cancelled() => return Err(cancelled()),
+                r = work => r?,
+            }
         };
         Ok(ToolOutput { parts, ..ToolOutput::default() })
     }

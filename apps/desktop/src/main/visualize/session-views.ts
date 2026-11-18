@@ -195,6 +195,16 @@ export function createSessionViews(
 
 export type SessionViews = ReturnType<typeof createSessionViews>;
 
+/** The hold a publish of this session carries right now, as the producer knows it (turn-hold.ts): `held` and since when. A snapshot
+ *  carries the same on each session, so a consumer that reads it knows what the live events would have told it. */
+export function publishedHold(
+  ctx: Pick<VisualizeServiceContext, 'holds'>,
+  sessionId: string
+): { held: true; heldSince: number } | Record<string, never> {
+  const hold = ctx.holds.get(sessionId);
+  return hold && hold.bypass === 0 ? { held: true, heldSince: hold.since } : {};
+}
+
 /** `publish` of the service: a picture of an older revision is stopped first
  *  (every revision change is published, so it stops mid-capture instead of
  *  running to its end), then the desktop window and the remote mirror get

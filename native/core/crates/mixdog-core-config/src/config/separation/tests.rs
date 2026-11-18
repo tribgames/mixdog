@@ -7,17 +7,16 @@ use std::path::Path;
 use std::sync::Arc;
 
 use mixdog_core_api::mock::MockStatePublisher;
+#[cfg(node_twin)]
 use serde_json::Value;
 
 use super::*;
+#[cfg(node_twin)]
 use crate::config::AgentRoutes;
 use crate::config::ConfigLanes;
 
+#[cfg(node_twin)]
 const NOW_MS: i64 = 1_800_000_000_123;
-
-fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/defaults-separation/twin.json")).expect("twin.json")
-}
 
 pub(in crate::config) async fn open(dir: &Path) -> Config {
     let tokens = mixdog_rt::testing::tokens();
@@ -41,14 +40,64 @@ pub(in crate::config) async fn put(path: std::path::PathBuf, text: String) {
 }
 
 /// The file at `path` as text.
+#[cfg(node_twin)]
 async fn text_of(path: std::path::PathBuf) -> Vec<u8> {
     lane(move |_| mixdog_statefile::read_content(&path).expect("read").expect("a file")).await
 }
 
+#[cfg(node_twin)]
 fn same(got: &Doc, want: &Value) -> bool {
     js_deep_equal(&Value::Object(got.clone()), want)
 }
 
+/// Two claims of the same name are given different folders (`mkdirSync` throwing `EEXIST` moves on to the next
+/// name): a name already taken, and two claims racing for one name.
+#[tokio::test]
+async fn claims_that_collide_get_different_folders() {
+    let dir = tempfile::tempdir().expect("dir");
+    let parent = dir.path().to_path_buf();
+    let taken = parent.join("defaults-separation-x");
+    lane({
+        let taken = taken.clone();
+        move |lane| mixdog_statefile::create_dir_all(lane, &taken).expect("taken")
+    })
+    .await;
+    let claimed = lane({
+        let parent = parent.clone();
+        move |lane| claim_dir(lane, &parent, "defaults-separation-x").expect("claim")
+    })
+    .await;
+    assert_eq!(claimed, parent.join("defaults-separation-x-1"), "a taken name moves on to the next");
+
+    let claim = |parent: std::path::PathBuf| lane(move |lane| claim_dir(lane, &parent, "defaults-separation-y").expect("claim"));
+    let (first, second) = tokio::join!(claim(parent.clone()), claim(parent.clone()));
+    assert_ne!(first, second, "two claims for one name never share a folder");
+    let mut names: Vec<_> = [first, second].iter().map(|dir| dir.file_name().expect("name").to_string_lossy().into_owned()).collect();
+    names.sort();
+    assert_eq!(names, ["defaults-separation-y", "defaults-separation-y-1"]);
+}
+
+
+#[cfg(node_twin)]
+fn twin() -> Value {
+    serde_json::from_str(include_str!("../../../../../fixtures/defaults-separation/twin.json")).expect("twin.json")
+}
+/// The data directory a case starts from. Node kept one shared model list per route; the core keeps the signed-in
+/// account's own, named by the saved credential, so a recorded list is written as that account's.
+#[cfg(node_twin)]
+async fn put_files(dir: &std::path::Path, case: &Value) {
+    const ACCOUNT: &str = "acct-1";
+    let key = mixdog_ai::catalog::account_fingerprint(&[ACCOUNT]);
+    for (rel, text) in case["files"].as_object().expect("files") {
+        let text = text.as_str().expect("text");
+        let (file, text) = mixdog_ai::catalog::keyed_from_shared(rel, text, &key);
+        if file != *rel {
+            put(dir.join("openai-oauth.json"), serde_json::json!({ "account_id": ACCOUNT }).to_string()).await;
+        }
+        put(dir.join(file), text).await;
+    }
+}
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_boot_pass_leaves_the_file_node_left() {
     let twin = twin();
@@ -57,9 +106,7 @@ async fn the_boot_pass_leaves_the_file_node_left() {
     for case in cases {
         let name = case["name"].as_str().expect("name");
         let dir = tempfile::tempdir().expect("dir");
-        for (rel, text) in case["files"].as_object().expect("files") {
-            put(dir.path().join(rel), text.as_str().expect("text").to_owned()).await;
-        }
+        put_files(dir.path(), case).await;
         let input = case["inputText"].as_str().expect("input");
         put(dir.path().join("mixdog-config.json"), input.to_owned()).await;
         let config = open(dir.path()).await;
@@ -90,16 +137,14 @@ async fn the_boot_pass_leaves_the_file_node_left() {
         }
     }
 }
-
 /// The pass alone (what Node's `ensureDefaultsSeparated` published, before the agent section was made canonical).
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_pass_alone_writes_what_node_published() {
     for case in twin()["cases"].as_array().expect("cases") {
         let name = case["name"].as_str().expect("name");
         let dir = tempfile::tempdir().expect("dir");
-        for (rel, text) in case["files"].as_object().expect("files") {
-            put(dir.path().join(rel), text.as_str().expect("text").to_owned()).await;
-        }
+        put_files(dir.path(), case).await;
         let input = case["input"].as_object().expect("input");
         if !needs_separation(input) {
             // No separation to publish: Node's first write is then `loadConfig`'s save of the canonical agent
@@ -116,9 +161,9 @@ async fn the_pass_alone_writes_what_node_published() {
         assert!(same(&written, &case["output"]), "{name}: {written:?}");
     }
 }
-
 /// A file created by this code is born separated (`withFreshDefaultsVersion`): the first write into
 /// an empty config stamps the marker, whatever it writes.
+#[cfg(node_twin)]
 #[tokio::test]
 async fn the_first_write_into_an_empty_config_stamps_the_marker() {
     let twin = twin();
@@ -136,31 +181,4 @@ async fn the_first_write_into_an_empty_config_stamps_the_marker() {
     let config = open(empty.path()).await;
     config.update(|_| Ok(())).await.expect("write");
     assert!(same(&config.full(), &twin["born"]["empty"]), "{:?}", config.full());
-}
-
-/// Two claims of the same name are given different folders (`mkdirSync` throwing `EEXIST` moves on to the next
-/// name): a name already taken, and two claims racing for one name.
-#[tokio::test]
-async fn claims_that_collide_get_different_folders() {
-    let dir = tempfile::tempdir().expect("dir");
-    let parent = dir.path().to_path_buf();
-    let taken = parent.join("defaults-separation-x");
-    lane({
-        let taken = taken.clone();
-        move |lane| mixdog_statefile::create_dir_all(lane, &taken).expect("taken")
-    })
-    .await;
-    let claimed = lane({
-        let parent = parent.clone();
-        move |lane| claim_dir(lane, &parent, "defaults-separation-x").expect("claim")
-    })
-    .await;
-    assert_eq!(claimed, parent.join("defaults-separation-x-1"), "a taken name moves on to the next");
-
-    let claim = |parent: std::path::PathBuf| lane(move |lane| claim_dir(lane, &parent, "defaults-separation-y").expect("claim"));
-    let (first, second) = tokio::join!(claim(parent.clone()), claim(parent.clone()));
-    assert_ne!(first, second, "two claims for one name never share a folder");
-    let mut names: Vec<_> = [first, second].iter().map(|dir| dir.file_name().expect("name").to_string_lossy().into_owned()).collect();
-    names.sort();
-    assert_eq!(names, ["defaults-separation-y", "defaults-separation-y-1"]);
 }

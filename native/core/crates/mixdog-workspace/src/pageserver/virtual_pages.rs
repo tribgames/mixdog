@@ -101,11 +101,6 @@ mod tests {
         }
     }
 
-    fn lanes() -> Lanes {
-        let tokens = mixdog_rt::testing::tokens();
-        Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk }
-    }
-
     struct Reply {
         status: u16,
         headers: HashMap<String, String>,
@@ -142,28 +137,6 @@ mod tests {
         server: Arc<PageServer>,
         mock: Arc<Mock>,
         port: u16,
-    }
-
-    impl Fx {
-        async fn new() -> Self {
-            let dir = tempfile::tempdir().unwrap();
-            let mock = Arc::new(Mock::default());
-            let server = PageServer::new(dir.path().join("state").join("page.port"), mock.clone(), lanes());
-            let port = server.origin().await.unwrap().rsplit(':').next().unwrap().parse().unwrap();
-            Self { _dir: dir, server, mock, port }
-        }
-
-        async fn url(&self, owner: Option<&str>) -> String {
-            self.server.lease_virtual(page_files(), owner.map(str::to_string)).await.unwrap()
-        }
-
-        fn path_of(&self, url: &str) -> String {
-            url.strip_prefix(&format!("http://127.0.0.1:{}", self.port)).unwrap().to_string()
-        }
-
-        async fn get(&self, url: &str) -> Reply {
-            request(self.port, "GET", &self.path_of(url)).await
-        }
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -243,18 +216,6 @@ mod tests {
         assert_eq!(fx.get(&next).await.status, 200);
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_lease_expires_after_its_ttl() {
-        let dir = tempfile::tempdir().unwrap();
-        let server = PageServer::with_ttl(dir.path().join("page.port"), Arc::new(Mock::default()), lanes(), Duration::from_millis(400));
-        let port: u16 = server.origin().await.unwrap().rsplit(':').next().unwrap().parse().unwrap();
-        let url = server.lease_virtual(page_files(), None).await.unwrap();
-        let path = url.strip_prefix(&format!("http://127.0.0.1:{port}")).unwrap().to_string();
-        assert_eq!(request(port, "GET", &path).await.status, 200);
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        assert_eq!(request(port, "GET", &path).await.status, 404);
-    }
-
     #[test]
     fn files_are_checked_when_the_page_is_made() {
         let ok = || input("index.html", "text/html", "x");
@@ -274,5 +235,43 @@ mod tests {
         assert!(files["index.html"].is_html());
         assert!(!files["sub/x.css"].is_html());
         assert!(build_files([VirtualFileInput { data_base64: Some("!!".into()), text: None, ..ok() }]).is_err());
+    }
+
+
+    fn lanes() -> Lanes {
+        let tokens = mixdog_rt::testing::tokens();
+        Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk }
+    }
+    impl Fx {
+        async fn new() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let mock = Arc::new(Mock::default());
+            let server = PageServer::new(dir.path().join("state").join("page.port"), mock.clone(), lanes());
+            let port = server.origin().await.unwrap().rsplit(':').next().unwrap().parse().unwrap();
+            Self { _dir: dir, server, mock, port }
+        }
+
+        async fn url(&self, owner: Option<&str>) -> String {
+            self.server.lease_virtual(page_files(), owner.map(str::to_string)).await.unwrap()
+        }
+
+        fn path_of(&self, url: &str) -> String {
+            url.strip_prefix(&format!("http://127.0.0.1:{}", self.port)).unwrap().to_string()
+        }
+
+        async fn get(&self, url: &str) -> Reply {
+            request(self.port, "GET", &self.path_of(url)).await
+        }
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_lease_expires_after_its_ttl() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = PageServer::with_ttl(dir.path().join("page.port"), Arc::new(Mock::default()), lanes(), Duration::from_millis(400));
+        let port: u16 = server.origin().await.unwrap().rsplit(':').next().unwrap().parse().unwrap();
+        let url = server.lease_virtual(page_files(), None).await.unwrap();
+        let path = url.strip_prefix(&format!("http://127.0.0.1:{port}")).unwrap().to_string();
+        assert_eq!(request(port, "GET", &path).await.status, 200);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(request(port, "GET", &path).await.status, 404);
     }
 }

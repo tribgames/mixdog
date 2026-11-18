@@ -36,11 +36,19 @@ mod undo;
 
 #[cfg(test)]
 mod tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod git_bound_tests;
 #[cfg(test)]
 mod store_tests;#[cfg(any(test, feature = "test-support"))]
+#[cfg(node_twin)]
 pub mod signal_replay;
+#[cfg(test)]
+mod git_limit_tests;
+#[cfg(test)]
+mod review_rules_tests;
+#[cfg(test)]
+mod turn_flow_tests;
 #[cfg(test)]
 mod signal_tests;
 #[cfg(any(test, feature = "test-support"))]
@@ -57,3 +65,5 @@ pub use seams::ToolReviewRecorder;
 pub use service::Config;
 pub use service::TurnReview;
 pub use store::Store;
+#[cfg(test)]
+mod diff_feature_tests;

@@ -9,7 +9,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use mixdog_fonts::discovery::{HostEnv, scan};
 use mixdog_fsio::Unlaned;
 use mixdog_office_base::write_note::NoWriteNote;
 use mixdog_office_com::{OfficeCom, OfficeComConfig};
@@ -17,7 +16,7 @@ use mixdog_office_pdf::preview::{
     DocumentPreview, PagesOptions, PreviewError, PreviewOptions, RasterPages, SystemEngines, remove_tracked_preview_scratch_sync,
 };
 use mixdog_ooxml::soffice::Soffice;
-use mixdog_rt::{CancellationToken, InLane, LaneToken, LaneTokens, MaintenanceIo};
+use mixdog_rt::{CancellationToken, LaneToken, LaneTokens, MaintenanceIo};
 use tokio::sync::OnceCell;
 
 use mixdog_fonts::install::{BoxFuture as FontFuture, Downloaded, FontDirs, FontHost, OfficeFonts, RegisterCommand};
@@ -26,35 +25,27 @@ use super::document::{DocumentEngine, PagesRequest, PdfPreview, PreviewRequest, 
 use crate::error::CodedError;
 use crate::registry::{BoxFuture, Registry};
 
-/// The lanes of this process: production executors started once, kept for the life of the process.
+/// The lanes of this process: the one set of executors [`super::pdf_render::lanes`] owns. The process installs its backend once,
+/// so a second owner here made whichever of a PDF render and a document preview ran second fail with "backend already installed".
 #[cfg(not(feature = "test-support"))]
 fn lanes() -> Result<LaneTokens, CodedError> {
-    use std::sync::OnceLock;
-    static LANES: OnceLock<Result<(Arc<mixdog_rt::exec::Executors>, LaneTokens), String>> = OnceLock::new();
-    LANES
-        .get_or_init(|| mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::detect()).map_err(|error| error.to_string()))
-        .as_ref()
-        .map(|(_, tokens)| *tokens)
-        .map_err(|error| CodedError::failed(error.clone()))
+    super::pdf_render::lanes()
+}
+
+#[cfg(all(test, not(feature = "test-support")))]
+mod tests {
+    #[test]
+    fn the_document_engine_and_the_pdf_tools_share_one_set_of_lanes() {
+        super::lanes().expect("first boot");
+        super::super::pdf_render::lanes().expect("the same lanes, not a second install");
+        super::lanes().expect("and again");
+    }
 }
 
 /// The lanes of a test process: the inline executors every test shares.
 #[cfg(feature = "test-support")]
 fn lanes() -> Result<LaneTokens, CodedError> {
     Ok(mixdog_rt::testing::tokens())
-}
-
-/// The system's fonts, scanned on a lane of their own.
-async fn system_fonts(lanes: LaneTokens) -> Result<mixdog_fonts::registry::Registry, CodedError> {
-    let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).unwrap_or_default();
-    let env = HostEnv::current(&|name| std::env::var(name).ok(), Path::new(&home));
-    let cancel = CancellationToken::new();
-    let handle = lanes
-        .maintenance_io
-        .submit_wait(&cancel, move |lane: &InLane<MaintenanceIo>| scan(lane, &env).registry)
-        .await
-        .map_err(|error| CodedError::failed(error.to_string()))?;
-    handle.await.map_err(|error| CodedError::failed(error.to_string()))
 }
 
 /// What a preview error answers: its code when it has one, the cancellation of the call when it is an abort.
@@ -84,11 +75,12 @@ impl OfficeEngine {
 async fn preview_of(cell: &OnceCell<DocumentPreview>, cache_root: &str) -> Result<DocumentPreview, CodedError> {
     cell.get_or_try_init(|| async {
         let lanes = lanes()?;
-        let registry = system_fonts(lanes).await?;
+        // The process's one font scan: a second registry here held every system font's data twice.
+        let registry = super::pdf_render::fonts(lanes, &CancellationToken::new()).await?;
         let data_dir = if cache_root.is_empty() { std::env::temp_dir() } else { PathBuf::from(cache_root) };
         let office = OfficeCom::new(OfficeComConfig::new(data_dir, lanes));
         let engines = Arc::new(SystemEngines::new(lanes, office));
-        let renderer = Arc::new(RasterPages::new(lanes, Arc::new(registry), Arc::new(NoWriteNote)));
+        let renderer = Arc::new(RasterPages::new(lanes, registry,Arc::new(NoWriteNote)));
         Ok(DocumentPreview::new(lanes, engines, renderer))
     })
     .await

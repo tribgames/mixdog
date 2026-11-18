@@ -120,8 +120,6 @@ impl std::fmt::Display for JsonSyntaxError {
     }
 }
 
-impl std::error::Error for JsonSyntaxError {}
-
 enum Frame {
     Array(Vec<Value>),
     Object { map: Map<String, Value>, key: Option<String> },
@@ -391,25 +389,6 @@ mod tests {
     use super::*;
     use crate::json::stringify_indent_parsed;
 
-    /// `[input, {ok: JSON.stringify(JSON.parse(input), null, 2)} | {err: true}]` written by Node
-    /// (`testdata/json_parse.mjs`).
-    const ROWS: &str = include_str!("../testdata/json_parse.json");
-
-    #[test]
-    fn parse_and_rewrite_match_node() {
-        let rows: Vec<(String, Value)> = serde_json::from_str(ROWS).expect("fixture");
-        assert!(rows.len() > 60);
-        for (input, expected) in rows {
-            match (parse(&input), expected.get("ok")) {
-                (Ok(value), Some(text)) => {
-                    assert_eq!(Value::String(stringify_indent_parsed(&value, 2)), *text, "{input:?}");
-                }
-                (Err(_), None) => {}
-                (got, _) => panic!("{input:?}: Node says {expected}, got {got:?}"),
-            }
-        }
-    }
-
     #[test]
     fn nesting_has_no_limit() {
         let depth = 20_000;
@@ -444,5 +423,66 @@ mod tests {
         assert_eq!(stringify_indent_parsed(&plain, 0), "\"a\u{f0001}b\u{e000}\"");
         let with_esc = Value::from(parsed_text("x\u{f0000}d800"));
         assert_eq!(stringify_indent_parsed(&with_esc, 0), "\"x\u{f0000}d800\"");
+    }
+
+
+    #[test]
+    fn text_the_json_grammar_does_not_allow_is_rejected() {
+        for input in [
+            "", " ", "{", "[1,]", "[,1]", "{\"a\":1,}", "{a:1}", "{'a':1}", "'x'", "01", "-", "+1", "1.", ".5", "1e", "0x10", "NaN", "Infinity",
+            "undefined", "tru", "nul", "[1 2]", "{\"a\" 1}", "\"a\nb\"", "\"\t\"", "\"\\x41\"", "\"\\u12\"", "\"\\'\"", "[1] 2", "{} {}",
+            "\u{a0}1", "\u{feff}1", "// c\n1", "/* c */1",
+        ] {
+            assert!(parse(input).is_err(), "{input:?}");
+        }
+    }
+
+    #[test]
+    fn text_the_json_grammar_allows_is_accepted_and_rewritten_canonically() {
+        // Only space, tab, line feed and carriage return are JSON white space.
+        for (input, text) in [
+            (" \t\r\n1 \t\r\n", "1"),
+            ("-0", "0"),
+            ("1E2", "100"),
+            ("1e+2", "100"),
+            ("0.5e-1", "0.05"),
+            ("\"\\u0041\\/\"", "\"A/\""),
+            ("\"\\ud83d\\ude00\"", "\"😀\""),
+            ("[ 1 , 2 ]", "[\n  1,\n  2\n]"),
+            ("{\"a\":1,\"a\":2}", "{\n  \"a\": 2\n}"),
+            ("{\"__proto__\":1}", "{\n  \"__proto__\": 1\n}"),
+            ("{\"b\":1,\"a\":2,\"1\":3}", "{\n  \"1\": 3,\n  \"b\": 1,\n  \"a\": 2\n}"),
+        ] {
+            let value = parse(input).unwrap_or_else(|error| panic!("{input:?}: {error:?}"));
+            assert_eq!(stringify_indent_parsed(&value, 2), text, "{input:?}");
+        }
+    }
+}
+
+
+impl std::error::Error for JsonSyntaxError {}
+
+/// The rows of the recorded JSON answers of the reference runtime; compiled only on the machine that holds them.
+#[cfg(all(test, node_twin))]
+mod node_twin {
+    use super::*;
+    use crate::json::stringify_indent_parsed;
+
+    /// `[input, {ok: JSON.stringify(JSON.parse(input), null, 2)} | {err: true}]` rows.
+    const ROWS: &str = include_str!("../testdata/json_parse.json");
+
+    #[test]
+    fn parse_and_rewrite_match_the_recorded_rows() {
+        let rows: Vec<(String, Value)> = serde_json::from_str(ROWS).expect("fixture");
+        assert!(rows.len() > 60);
+        for (input, expected) in rows {
+            match (parse(&input), expected.get("ok")) {
+                (Ok(value), Some(text)) => {
+                    assert_eq!(Value::String(stringify_indent_parsed(&value, 2)), *text, "{input:?}");
+                }
+                (Err(_), None) => {}
+                (got, _) => panic!("{input:?}: recorded {expected}, got {got:?}"),
+            }
+        }
     }
 }

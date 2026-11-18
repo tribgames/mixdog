@@ -24,11 +24,27 @@ use crate::ids::ServerRequestId;
 use crate::ids::ThreadId;
 use crate::ids::TurnId;
 
+/// A room Stop as the room took it: whether an exchange or a message on its way was stopped, and the completion of every durable
+/// stop it owes (each frozen member submission's `work_stop`). `saved` failing names the operation that could not be saved; the
+/// member cancellations already saved stay terminal.
+pub struct RoomStopped {
+    pub stopped: bool,
+    pub saved: std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), CoreError>> + Send>>,
+}
+
 /// Every thread of the core.
 #[async_trait]
 pub trait ThreadDirectory: Send + Sync {
     /// The loaded thread, if any. O(1) under a sharded `std` lock; never loads or waits.
     fn get(&self, id: &ThreadId) -> Option<Arc<dyn ThreadHandle>>;
+
+    /// A Stop on the room log `id` as the room takes it (`agentRooms.stop(sessionId)`): by the room's identity, whether or not the
+    /// log thread is loaded. `Some`: `id` is a hosted room's log, and the Stop was latched (its exchange sealed and its member
+    /// submissions frozen); its success is answered only once [`RoomStopped::saved`] completes. `None`: it is not a room log, and
+    /// the Stop is the thread's.
+    fn stop_room(&self, _id: &ThreadId) -> Option<RoomStopped> {
+        None
+    }
 
     /// The loaded thread, or a cold open: concurrent opens of one thread share one load
     /// (two serial read jobs, RL §5.5, §7.3). Cancelling `ctx` stops this waiter only.

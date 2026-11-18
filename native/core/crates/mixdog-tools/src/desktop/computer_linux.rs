@@ -752,6 +752,9 @@ impl Probes for SystemProbes {
 }
 
 #[cfg(test)]
+mod rules_tests;
+
+#[cfg(all(test, node_twin))]
 mod tests {
     use std::sync::MutexGuard;
     use std::sync::atomic::AtomicU64;
@@ -808,10 +811,6 @@ mod tests {
 
     fn strings(value: &Value) -> Vec<String> {
         value.as_array().expect("a list").iter().map(|item| item.as_str().expect("a string").to_owned()).collect()
-    }
-
-    fn bytes_of(base64: &Value) -> Vec<u8> {
-        base64::engine::general_purpose::STANDARD.decode(base64.as_str().expect("base64")).expect("base64 bytes")
     }
 
     /// The session and desktop of every recorded environment.
@@ -1243,3 +1242,5 @@ mod tests {
         assert_eq!(seen.diagnosed, 8);
     }
 }
+
+

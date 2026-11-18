@@ -3896,6 +3896,47 @@
       ],
       "type": "object"
     },
+    "DeliveredCompletion": {
+      "description": "One completion a woken batch delivered, located in the row's joined text: the row's text is the entries' texts joined by a newline, and `start`/`end` are the entry's own text as UTF-16 code unit offsets (`text.slice(start, end)` in JavaScript).",
+      "properties": {
+        "end": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "executionId": {
+          "description": "The execution the entry reports; absent for an entry that named none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "description": "The job's final status as the queued entry recorded it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "surface": {
+          "description": "The job's surface (`agent`, `shell`, ...) as the queued entry recorded it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "end",
+        "start"
+      ],
+      "type": "object"
+    },
     "DeliveryState": {
       "enum": [
         "notSent",
@@ -4703,6 +4744,23 @@
             "path"
           ],
           "type": "object"
+        },
+        {
+          "description": "A visualize export rendered for the validated conversation.",
+          "properties": {
+            "input": true,
+            "kind": {
+              "enum": [
+                "export"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "input",
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -4824,6 +4882,54 @@
       "required": [
         "on",
         "opId"
+      ],
+      "type": "object"
+    },
+    "FeedHeadsParams": {
+      "description": "The live subscriptions whose heads the client needs to check after waking.",
+      "properties": {
+        "feedIds": {
+          "description": "If omitted, check every live subscription on this connection.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "FeedHeadsResponse": {
+      "description": "A head for each requested subscription, in request order; null if not live on this connection.",
+      "properties": {
+        "feedIds": {
+          "description": "The corresponding feed ids when the request did not specify any.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "positions": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/FeedPosition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "positions"
       ],
       "type": "object"
     },
@@ -6418,7 +6524,7 @@
       "type": "object"
     },
     "HostStateSetParams": {
-      "description": "Publishes desktop-owned state into section `hostState`: `{key, value}`, the value's shape picked by the key. Only `visualize` is typed; the others stay the desktop's own JSON.",
+      "description": "Publishes desktop-owned state into section `hostState`: `{key, value}`, the value's shape picked by the key.",
       "oneOf": [
         {
           "properties": {
@@ -6445,6 +6551,28 @@
               "type": "string"
             },
             "value": true
+          },
+          "required": [
+            "key",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Session ids only, including an empty list when the last desktop browser dialog closes.",
+          "properties": {
+            "key": {
+              "enum": [
+                "browserDialogApprovalSessions"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
           },
           "required": [
             "key",
@@ -6556,6 +6684,160 @@
         }
       ],
       "description": "`id` of an image chip: the paste number or a string id."
+    },
+    "ImageRecoveryAction": {
+      "description": "What the person chose for a refused image: every choice is local (no model is called and no history record is changed), and each can be undone.",
+      "oneOf": [
+        {
+          "description": "The overlay as it stands and where the restore check of the history is; changes nothing.",
+          "properties": {
+            "type": {
+              "enum": [
+                "state"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Leave these images out of what is sent from now on (the person has confirmed, naming them).",
+          "properties": {
+            "images": {
+              "items": {
+                "$ref": "#/definitions/ImageRecoveryTarget"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "continueWithout"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "images",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Stand a picture the person chose in the place of one image (`data` is base64 of the picture; it is attached, checked and kept like any attachment, and a picture that cannot be attached is refused in words).",
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "image": {
+              "$ref": "#/definitions/ImageRecoveryTarget"
+            },
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "replace"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "data",
+            "image",
+            "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Put these images back.",
+          "properties": {
+            "images": {
+              "items": {
+                "$ref": "#/definitions/ImageRecoveryTarget"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "undo"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "images",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Send from the conversation's latest prompt on, without what came before it.",
+          "properties": {
+            "type": {
+              "enum": [
+                "newBranchWithoutContext"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Take back the new branch: the earlier messages are sent again.",
+          "properties": {
+            "type": {
+              "enum": [
+                "undoNewBranch"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Run the restore check of the history's images again.",
+          "properties": {
+            "type": {
+              "enum": [
+                "recheckHistory"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ImageRecoveryTarget": {
+      "description": "One image of a conversation, by the message it sits in and its position there (the ids a refusal names it by).",
+      "properties": {
+        "messageId": {
+          "type": "string"
+        },
+        "part": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "messageId",
+        "part"
+      ],
+      "type": "object"
     },
     "ImageRef": {
       "description": "The stored original of one restored `[Image: …]` line (`imageRefs`); an image without a stored original has no `ref`, so later images keep their slot.",
@@ -7161,6 +7443,12 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "maxUploadInFlightBytes": {
+          "description": "How much base64 payload of `transfer/writeChunk` requests a sender may have sent and not yet had answered, across every file upload on one connection (`4 * ceil(rawChunkLength / 3)` per request; JSON, WebSocket and SSH overhead are not counted, the frame bound covers the request's envelope). A core that states it also applies one upload's chunks in the order they arrive, so a sender may pipeline them. The raw chunk of an upload is `maxBlobPutChunkBytes`. Interactive calls never take part in this window.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
         "orderedQueueBytes": {
           "description": "The ordered class's event room (events never dropped, P §6.5), apart from `queueBytes`: one event of any size enters an empty room; behind it, events queue while the queued bytes stay within this bound, and the connection closes 4000 when the peer has not drained them.",
           "format": "uint64",
@@ -7204,6 +7492,7 @@
         "maxMediaFrameBytes",
         "maxProcesses",
         "maxSnapshotBytes",
+        "maxUploadInFlightBytes",
         "orderedQueueBytes",
         "queueBytes",
         "ringBytes",
@@ -9379,6 +9668,13 @@
             "boolean",
             "null"
           ]
+        },
+        "withCatalogState": {
+          "description": "Return the models with read completeness, including when there are no rows.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -10280,6 +10576,16 @@
           "type": [
             "string",
             "null"
+          ]
+        },
+        "notice": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshMessage"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "remotePort": {
@@ -12028,6 +12334,13 @@
         },
         {
           "properties": {
+            "complete": {
+              "description": "Whether the PC has an authoritative listing, even when it is empty.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
             "models": {
               "items": {
                 "$ref": "#/definitions/ProxyModel"
@@ -12211,6 +12524,29 @@
             "method": {
               "enum": [
                 "send"
+              ],
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/definitions/ProxyRequest"
+            }
+          },
+          "required": [
+            "method",
+            "provider",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A send whose transcript a session of the server owns: the PC posts each attempt only as that owner judges it, asking with [`ProxyEvent::TailAsk`] immediately before the POST and returning its usage with [`ProxyEvent::TailSettle`]; the owner answers each ask with `model/proxy/tail`. A PC that does not know this call never claims it.",
+          "properties": {
+            "method": {
+              "enum": [
+                "sessionSend"
               ],
               "type": "string"
             },
@@ -12811,6 +13147,34 @@
                 "integer",
                 "null"
               ]
+            }
+          },
+          "required": [
+            "fault"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fault": {
+              "enum": [
+                "tooManyEncodings"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "fault"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fault": {
+              "enum": [
+                "corruptBody"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -13535,6 +13899,7 @@
       "oneOf": [
         {
           "properties": {
+            "cacheControl": true,
             "text": {
               "type": "string"
             },
@@ -14467,7 +14832,7 @@
           "type": "boolean"
         },
         "secretInput": {
-          "description": "A handoff secret typed on the phone (`approval/provideSecret`).",
+          "description": "Legacy flag, always false: handoff secrets must be entered on the PC.",
           "type": "boolean"
         },
         "termSizeOwner": {
@@ -15711,13 +16076,34 @@
       "type": "object"
     },
     "SshCleanupDone": {
-      "description": "`{ ok: true, hosts, detail? }` of a cleanup.",
+      "description": "`{ ok: true, hosts, detail?, forget? }` of a cleanup.",
       "properties": {
         "detail": {
           "type": [
             "string",
             "null"
           ]
+        },
+        "detailNotice": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshMessage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "forget": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshLocalForget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Present when the request asked to forget the server: how that went on this PC."
         },
         "hosts": {
           "items": {
@@ -15738,14 +16124,22 @@
     "SshCleanupParams": {
       "properties": {
         "id": {
+          "default": "",
+          "description": "The saved server to clean up; empty when `target` names a server that was never saved.",
           "type": "string"
         },
         "request": {
           "$ref": "#/definitions/SshCleanupRequest"
+        },
+        "target": {
+          "description": "A server that is not saved (a first connection that failed): the `user@host[:port]` the connect dialog was given. Used when `id` is empty; the request's `forget` is then meaningless and ignored.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
-        "id",
         "request"
       ],
       "type": "object"
@@ -16492,9 +16886,69 @@
             "string",
             "null"
           ]
+        },
+        "notice": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshMessage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The words of the failure by code, in the interface language; the kind's `message` is their English fallback."
         }
       },
       "type": "object"
+    },
+    "SshForgetDone": {
+      "description": "`{ ok: true }` of a forget: the saved entry is gone. This PC's host-key pins and ssh settings stay as they are.",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "type": "object"
+    },
+    "SshForgetFailed": {
+      "description": "`{ ok: false, message, notice? }` of a forget that could not finish: the server stays saved.",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "notice": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshMessage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "message",
+        "ok"
+      ],
+      "type": "object"
+    },
+    "SshForgetResult": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SshForgetFailed"
+        },
+        {
+          "$ref": "#/definitions/SshForgetDone"
+        }
+      ],
+      "description": "`connections/ssh/forget`: the saved entry is removed, or why it could not be (a typed answer, so the reason reaches the window by code)."
     },
     "SshHopKey": {
       "description": "One server on the way to the target (a ProxyJump hop, then the target itself).",
@@ -16739,6 +17193,16 @@
             "message": {
               "type": "string"
             },
+            "notice": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SshMessage"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "sshMissing": {
               "anyOf": [
                 {
@@ -16889,6 +17353,34 @@
       ],
       "type": "object"
     },
+    "SshLocalForget": {
+      "description": "The local half of a cleanup that also forgets the server: whether its saved entry was removed (the remote half is the cleanup's own result). When it failed the server stays saved so Forget can be retried.",
+      "properties": {
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notice": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshMessage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "type": "object"
+    },
     "SshLogView": {
       "description": "The connection log of one server (ring buffer, secrets removed). `copyText` is the same text with the server's user and host replaced by `<server>`.",
       "properties": {
@@ -16905,6 +17397,24 @@
       "required": [
         "copyText",
         "lines"
+      ],
+      "type": "object"
+    },
+    "SshMessage": {
+      "description": "A message the interface words in the user's language: `code` is a stable name (the set is the `message` lists, exported to TypeScript as `sshMessages`) that picks the text, `params` fill the names and numbers in it. The sentence the sender also has in English is only a fallback for logs and for a code a client does not know.",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "code"
       ],
       "type": "object"
     },
@@ -18211,6 +18721,28 @@
       ],
       "type": "object"
     },
+    "ThreadImageRecoveryParams": {
+      "description": "Params of `thread/imageRecovery`.",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/ImageRecoveryAction"
+        },
+        "opId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action",
+        "opId"
+      ],
+      "type": "object"
+    },
     "ThreadInheritancePreflightParams": {
       "description": "Params of `thread/inheritancePreflight`.",
       "properties": {
@@ -19478,6 +20010,13 @@
         "busy": {
           "description": "The room has an exchange state: the log reads busy (so the composer offers stop).",
           "type": "boolean"
+        },
+        "deciding": {
+          "description": "The supervisor is choosing the next speaker (between two members' turns, or before the first): `typing` is then the hand-off row, which names nobody, so the band keeps its place until the next speaker replaces it or the room finishes.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "handoffQuestions": {
           "description": "The questions of sessions the members handed work to, while they wait.",
@@ -21712,6 +22251,13 @@
           "description": "The pasted images and texts of the handed-back prompt, read from the attachment store."
         },
         "pastedTexts": true,
+        "reason": {
+          "description": "`could-not-stop`: something was under way that the core could not stop. Absent otherwise, including Node's idle reply.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "restoreText": {
           "description": "The prompt handed back to the composer of the device that cancelled; empty when the prompt stays in the transcript, or travels to the device that sent it through `thread/promptRestore`.",
           "type": "string"
@@ -22106,6 +22652,13 @@
           },
           "type": "array"
         },
+        "completions": {
+          "description": "The completions a woken batch of several delivered, each located in the row's text (see [`DeliveredCompletion`]).",
+          "items": {
+            "$ref": "#/definitions/DeliveredCompletion"
+          },
+          "type": "array"
+        },
         "consumedExecutionIds": {
           "description": "The executions a woken batch delivered; `null` keeps the position of an entry that named none.",
           "items": {
@@ -22494,6 +23047,21 @@
             "null"
           ]
         },
+        "held": {
+          "description": "In the producer's snapshot: the session's agent turn is held now (the same fact an event states with `held`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "heldSince": {
+          "description": "With `held`: when the turn started (ms).",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "history": {
           "items": {
             "$ref": "#/definitions/VisualizeHistoryItem"
@@ -22647,6 +23215,10 @@
         },
         {
           "$ref": "#/definitions/VisualizeHostEvent"
+        },
+        {
+          "description": "Either of the two above as JSON text: a value over the inbound frame travels as a blob (`{\"$blobRef\", \"as\": \"text\"}` at `/value`, expanded before the method runs) and arrives as this string; the handler parses it.",
+          "type": "string"
         }
       ],
       "description": "What the desktop publishes under `visualize`: the visualize service's `hostSnapshot()` (every session's state, sent again on each claim) or one `publishRemote` change event."
@@ -23987,7 +24559,7 @@
         "$ref": "#/definitions/ConnectionsIdParams"
       },
       "result": {
-        "$ref": "#/definitions/EmptyResult"
+        "$ref": "#/definitions/SshForgetResult"
       }
     },
     "connections/ssh/inspect": {
@@ -24296,6 +24868,14 @@
         "$ref": "#/definitions/FastSetParams"
       },
       "result": true
+    },
+    "feed/heads": {
+      "params": {
+        "$ref": "#/definitions/FeedHeadsParams"
+      },
+      "result": {
+        "$ref": "#/definitions/FeedHeadsResponse"
+      }
     },
     "feed/subscribe": {
       "params": {
@@ -26117,6 +26697,12 @@
     "thread/goal/set": {
       "params": {
         "$ref": "#/definitions/ThreadGoalSetParams"
+      },
+      "result": true
+    },
+    "thread/imageRecovery": {
+      "params": {
+        "$ref": "#/definitions/ThreadImageRecoveryParams"
       },
       "result": true
     },

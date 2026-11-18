@@ -1,8 +1,0 @@
-{
-  "dispatchedToolCalls": [],
-  "error": {
-    "message": "OpenAI HTTP fallback 401: fixture upstream error",
-    "name": "Error",
-    "status": 401
-  }
-}

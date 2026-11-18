@@ -25,6 +25,7 @@ use serde_json::Value;
 use tokio::sync::watch;
 
 use super::digest::PayloadDigest;
+use super::digest::replay_audience;
 use super::store::OpRecord;
 use super::store::OpRetention;
 use super::store::OpState;
@@ -155,7 +156,21 @@ struct Slot {
 
 enum SlotKind {
     Busy,
-    Executing { digest: PayloadDigest },
+    Executing { request: OpRequest, audience: PayloadDigest },
+}
+
+fn may_read_status(ctx: &CallContext, method: &str) -> bool {
+    use mixdog_app_protocol::boundary::window_scope;
+    use mixdog_app_protocol::methods::CLIENT_METHODS;
+    use mixdog_core_api::call::Caller;
+
+    matches!(&ctx.caller, Caller::Internal(_))
+        || (CLIENT_METHODS.iter().any(|spec| spec.method == method && spec.allows(ctx.origin))
+            && (ctx.window.is_none() || window_scope::allows(method).is_ok()))
+}
+
+fn status_denied(ctx: &CallContext) -> CoreError {
+    CoreError::PermissionDenied { method: "op/status".into(), origin: ctx.origin }
 }
 
 impl OpGate {
@@ -202,17 +217,18 @@ impl OpGate {
     pub async fn begin(&self, req: &OpRequest, ctx: &CallContext) -> Result<Begin, CoreError> {
         let at = op_time_ms(&req.id, "opId")?;
         self.inner.unexpired(&req.id, at)?;
+        let audience = replay_audience(ctx);
         let claim = loop {
             let (signal, executing) = {
                 let mut slots = self.inner.lock();
                 match slots.get(&req.id) {
                     None => break self.inner.claim(&mut slots, &req.id),
                     Some(Slot {
-                        kind: SlotKind::Executing { digest },
+                        kind: SlotKind::Executing { request, audience: owner },
                         signal,
                         ..
                     }) => {
-                        if *digest != req.digest {
+                        if request != req || owner != &audience {
                             return Err(CoreError::OpIdConflict {
                                 op_id: req.id.clone(),
                             });
@@ -234,8 +250,8 @@ impl OpGate {
             Some(OpRecord::Fenced) => Err(CoreError::OpFenced {
                 op_id: req.id.clone(),
             }),
-            Some(OpRecord::Settled { digest, state, .. }) => {
-                if digest == req.digest {
+            Some(OpRecord::Settled { method, digest, audience: owner, state }) => {
+                if method == req.method && digest == req.digest && owner.as_ref() == Some(&audience) {
                     Ok(Begin::Done(OpOutcome::from_state(state)))
                 } else {
                     Err(CoreError::OpIdConflict {
@@ -246,7 +262,7 @@ impl OpGate {
             None => {
                 // A prune that raced the lookup moved the watermark before deleting.
                 self.inner.unexpired(&req.id, at)?;
-                Ok(Begin::Execute(claim.execute(req.clone())))
+                Ok(Begin::Execute(claim.execute(req.clone(), audience)))
             }
         }
     }
@@ -276,15 +292,21 @@ impl OpGate {
         if self.inner.unexpired(id, at).is_err() {
             return Ok(OpStatus::Expired);
         }
+        let audience = replay_audience(ctx);
         let _claim = loop {
             let busy = {
                 let mut slots = self.inner.lock();
                 match slots.get(id) {
                     None => break self.inner.claim(&mut slots, id),
                     Some(Slot {
-                        kind: SlotKind::Executing { .. },
+                        kind: SlotKind::Executing { request, audience: owner },
                         ..
-                    }) => return Ok(OpStatus::InProgress),
+                    }) => {
+                        if owner != &audience || !may_read_status(ctx, &request.method) {
+                            return Err(status_denied(ctx));
+                        }
+                        return Ok(OpStatus::InProgress);
+                    }
                     Some(slot) => slot.signal.clone(),
                 }
             };
@@ -292,7 +314,12 @@ impl OpGate {
         };
         let status = match self.inner.store.get(id).await? {
             Some(OpRecord::Fenced) => OpStatus::NotApplied,
-            Some(OpRecord::Settled { state, .. }) => OpOutcome::from_state(state).into_status(),
+            Some(OpRecord::Settled { method, audience: owner, state, .. }) => {
+                if owner.as_ref() != Some(&audience) || !may_read_status(ctx, &method) {
+                    return Err(status_denied(ctx));
+                }
+                OpOutcome::from_state(state).into_status()
+            }
             None if self.inner.unexpired(id, at).is_err() => OpStatus::Expired,
             None => {
                 if fence {
@@ -419,18 +446,20 @@ struct Claim {
 }
 
 impl Claim {
-    fn execute(self, request: OpRequest) -> OpTicket {
+    fn execute(self, request: OpRequest, audience: PayloadDigest) -> OpTicket {
         if let Some(slot) = self.inner.lock().get_mut(&self.id)
             && slot.claim == self.claim
         {
             slot.kind = SlotKind::Executing {
-                digest: request.digest.clone(),
+                request: request.clone(),
+                audience: audience.clone(),
             };
         }
         self.signal.send_replace(None);
         OpTicket {
             claim: self,
             request,
+            audience,
         }
     }
 }
@@ -453,11 +482,22 @@ impl Drop for Claim {
 pub struct OpTicket {
     claim: Claim,
     request: OpRequest,
+    audience: PayloadDigest,
 }
 
 impl OpTicket {
     pub fn request(&self) -> &OpRequest {
         &self.request
+    }
+
+    /// The record for an owner that commits its effect and op result in one transaction.
+    pub fn settled_record(&self, state: OpState) -> OpRecord {
+        OpRecord::Settled {
+            method: self.request.method.clone(),
+            digest: self.request.digest.clone(),
+            audience: Some(self.audience.clone()),
+            state,
+        }
     }
 
     /// Records `externalPending{effect, target}` durably; call before the external action
@@ -486,11 +526,7 @@ impl OpTicket {
     }
 
     async fn record(&self, state: OpState) -> Result<(), CoreError> {
-        let record = OpRecord::Settled {
-            method: self.request.method.clone(),
-            digest: self.request.digest.clone(),
-            state,
-        };
+        let record = self.settled_record(state);
         self.claim.inner.store.put(&self.request.id, record).await
     }
 }

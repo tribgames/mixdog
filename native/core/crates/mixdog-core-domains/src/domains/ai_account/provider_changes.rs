@@ -117,6 +117,175 @@ impl ProviderChangeEffects for LiveProviderEffects {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    #[cfg(node_twin)]
+    use std::sync::Mutex;
+
+    #[cfg(node_twin)]
+    use mixdog_core_api::mock::MockStatePublisher;
+    #[cfg(node_twin)]
+    use mixdog_core_config::config::ConfigLanes;
+    #[cfg(node_twin)]
+    use mixdog_secrets::MemoryStore;
+    #[cfg(node_twin)]
+    use mixdog_secrets::SecretStore;
+    #[cfg(node_twin)]
+    use serde_json::Map;
+
+    use super::*;
+
+    /// Records the effects; the first `reinit` fails when `fail_first`.
+    #[cfg(node_twin)]
+    struct Recording {
+        calls: Mutex<Vec<String>>,
+        fail_first: bool,
+    }
+
+    #[cfg(node_twin)]
+    impl ProviderChangeEffects for Recording {
+        fn release_admission_cooldowns(&self) {
+            self.calls.lock().unwrap().push("releaseAdmissionCooldowns".to_owned());
+        }
+
+        fn warn(&self, line: &str) {
+            self.calls.lock().unwrap().push(format!("warn: {line}"));
+        }
+
+        fn reinit_providers(&self) -> BoxFuture<'static, Result<(), String>> {
+            let mut calls = self.calls.lock().unwrap();
+            calls.push("reinitProviders".to_owned());
+            let failed = self.fail_first && calls.iter().filter(|c| *c == "reinitProviders").count() == 1;
+            Box::pin(async move { if failed { Err("registry refused".to_owned()) } else { Ok(()) } })
+        }
+    }
+
+    #[cfg(node_twin)]
+    fn set_in(doc: &mut Map<String, Value>, path: &[Value], value: &Value) {
+        let (last, parents) = path.split_last().unwrap();
+        let mut node = doc;
+        for key in parents {
+            let slot = node.entry(key.as_str().unwrap().to_owned()).or_insert_with(|| Value::Object(Map::new()));
+            node = slot.as_object_mut().unwrap();
+        }
+        node.insert(last.as_str().unwrap().to_owned(), value.clone());
+    }
+
+    #[cfg(node_twin)]
+    struct World {
+        _dir: tempfile::TempDir,
+        config: Config,
+        store: Arc<dyn SecretStore>,
+        secrets: Arc<SecretChanges>,
+        effects: Arc<Recording>,
+        task: JoinHandle<()>,
+    }
+
+    /// `failed()`: the same failure again is not warned about until the effect recovers.
+    #[test]
+    fn a_failure_is_warned_about_once_per_message() {
+        let mut warned = None;
+        let line = failure_notice(&mut warned, "registry refused");
+        assert_eq!(line.as_deref(), Some("[config] applying the providers change failed: registry refused"));
+        assert_eq!(failure_notice(&mut warned, "registry refused"), None);
+        assert!(failure_notice(&mut warned, "another").is_some(), "a different message is warned about");
+        warned = None;
+        assert!(failure_notice(&mut warned, "another").is_some(), "after a recovery the same message is warned about again");
+    }
+
+    #[cfg(node_twin)]
+    async fn world(fail_first: bool, retry: Duration) -> World {
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let dir = tempfile::tempdir().unwrap();
+        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+        config
+            .update(|doc| {
+                doc.insert("agent".into(), json!({ "providers": { "openai": { "enabled": false } }, "theme": "old" }));
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let secrets = SecretChanges::open(config.clone()).await;
+        let store: Arc<dyn SecretStore> = mixdog_core_config::config::AnnouncingStore::new(Arc::new(MemoryStore::default()), secrets.clone());
+        let effects = Arc::new(Recording { calls: Mutex::default(), fail_first });
+        let task = spawn_provider_changes(config.clone(), secrets.clone(), effects.clone(), vec![retry]);
+        // The subscriber takes its baseline and subscribes when it first runs; a test edit made
+        // before that would be part of the baseline, not a change.
+        tokio::task::yield_now().await;
+        World { _dir: dir, config, store, secrets, effects, task }
+    }
+    #[cfg(node_twin)]
+    async fn quiet() {
+        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
+    }
+
+
+    /// Which changes re-initialize the providers, against the recorded Node run: its real
+    /// `applyConfigChange` over config edits and key saves. Only the provider effects are compared.
+    #[cfg(node_twin)]
+    #[tokio::test(start_paused = true)]
+    async fn the_same_changes_reinitialize_the_providers_as_in_node() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/provider-change-effects/golden.json")).unwrap();
+        let w = world(false, Duration::from_secs(1)).await;
+        let steps = golden["steps"].as_array().unwrap();
+        assert_eq!(steps.len(), 14);
+        for step in steps {
+            let name = step["name"].as_str().unwrap();
+            w.effects.calls.lock().unwrap().clear();
+            match step["op"].as_str().unwrap() {
+                "agent" => {
+                    let (path, value) = (step["path"].as_array().unwrap().clone(), step["value"].clone());
+                    w.config.update_agent(move |agent| {
+                        set_in(agent, &path, &value);
+                        Ok(())
+                    })
+                    .await
+                    .unwrap();
+                }
+                "secret" => w.store.set(step["account"].as_str().unwrap(), "value").await.unwrap(),
+                "delete" => w.store.delete(step["account"].as_str().unwrap()).await.unwrap(),
+                "announce" => w.secrets.announce(&format!("#{}", step["key"].as_str().unwrap()), false).await,
+                _ => {}
+            }
+            quiet().await;
+            let want: Vec<&str> = step["calls"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c.as_str().unwrap())
+                .filter(|c| matches!(*c, "releaseAdmissionCooldowns" | "reinitProviders"))
+                .collect();
+            assert_eq!(*w.effects.calls.lock().unwrap(), want, "{name}");
+        }
+        w.task.abort();
+    }
+    /// A re-init that fails is run again after the backoff, with the cooldowns released again.
+    #[cfg(node_twin)]
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_reinit_is_retried_after_the_backoff() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/provider-change-effects/golden.json")).unwrap();
+        let strings = |value: &Value| value.as_array().unwrap().iter().map(|c| c.as_str().unwrap().to_owned()).collect::<Vec<_>>();
+        let provider_calls = |calls: Vec<String>| calls.into_iter().filter(|c| matches!(c.as_str(), "releaseAdmissionCooldowns" | "reinitProviders")).collect::<Vec<_>>();
+        let w = world(true, Duration::from_millis(60)).await;
+        w.config
+            .update_agent(|agent| {
+                set_in(agent, &[json!("providers"), json!("openai"), json!("enabled")], &json!(true));
+                Ok(())
+            })
+            .await
+            .unwrap();
+        mixdog_rt::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(provider_calls(w.effects.calls.lock().unwrap().clone()), provider_calls(strings(&golden["retried"]["firstAttempt"])));
+        let warnings = |calls: &[String]| calls.iter().filter(|c| c.starts_with("warn: ")).cloned().collect::<Vec<_>>();
+        assert_eq!(warnings(&w.effects.calls.lock().unwrap()), ["warn: [config] applying the providers change failed: registry refused"]);
+        quiet().await;
+        assert_eq!(provider_calls(w.effects.calls.lock().unwrap().clone()), provider_calls(strings(&golden["retried"]["afterBackoff"])));
+        w.task.abort();
+    }
+}
+
+
 /// Starts the subscriber. The signature at the start is the baseline (Node's boot snapshot), so
 /// nothing runs until something differs. Dropping the handle does not stop it; aborting does.
 pub fn spawn_provider_changes(
@@ -167,159 +336,4 @@ pub fn spawn_provider_changes(
             }
         }
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Mutex;
-
-    use mixdog_core_api::mock::MockStatePublisher;
-    use mixdog_core_config::config::ConfigLanes;
-    use mixdog_secrets::MemoryStore;
-    use mixdog_secrets::SecretStore;
-    use serde_json::Map;
-
-    use super::*;
-
-    /// Records the effects; the first `reinit` fails when `fail_first`.
-    struct Recording {
-        calls: Mutex<Vec<String>>,
-        fail_first: bool,
-    }
-
-    impl ProviderChangeEffects for Recording {
-        fn release_admission_cooldowns(&self) {
-            self.calls.lock().unwrap().push("releaseAdmissionCooldowns".to_owned());
-        }
-
-        fn warn(&self, line: &str) {
-            self.calls.lock().unwrap().push(format!("warn: {line}"));
-        }
-
-        fn reinit_providers(&self) -> BoxFuture<'static, Result<(), String>> {
-            let mut calls = self.calls.lock().unwrap();
-            calls.push("reinitProviders".to_owned());
-            let failed = self.fail_first && calls.iter().filter(|c| *c == "reinitProviders").count() == 1;
-            Box::pin(async move { if failed { Err("registry refused".to_owned()) } else { Ok(()) } })
-        }
-    }
-
-    fn set_in(doc: &mut Map<String, Value>, path: &[Value], value: &Value) {
-        let (last, parents) = path.split_last().unwrap();
-        let mut node = doc;
-        for key in parents {
-            let slot = node.entry(key.as_str().unwrap().to_owned()).or_insert_with(|| Value::Object(Map::new()));
-            node = slot.as_object_mut().unwrap();
-        }
-        node.insert(last.as_str().unwrap().to_owned(), value.clone());
-    }
-
-    struct World {
-        _dir: tempfile::TempDir,
-        config: Config,
-        store: Arc<dyn SecretStore>,
-        secrets: Arc<SecretChanges>,
-        effects: Arc<Recording>,
-        task: JoinHandle<()>,
-    }
-
-    async fn world(fail_first: bool, retry: Duration) -> World {
-        let tokens = mixdog_rt::testing::tokens();
-        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let dir = tempfile::tempdir().unwrap();
-        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-        config
-            .update(|doc| {
-                doc.insert("agent".into(), json!({ "providers": { "openai": { "enabled": false } }, "theme": "old" }));
-                Ok(())
-            })
-            .await
-            .unwrap();
-        let secrets = SecretChanges::open(config.clone()).await;
-        let store: Arc<dyn SecretStore> = mixdog_core_config::config::AnnouncingStore::new(Arc::new(MemoryStore::default()), secrets.clone());
-        let effects = Arc::new(Recording { calls: Mutex::default(), fail_first });
-        let task = spawn_provider_changes(config.clone(), secrets.clone(), effects.clone(), vec![retry]);
-        // The subscriber takes its baseline and subscribes when it first runs; a test edit made
-        // before that would be part of the baseline, not a change.
-        tokio::task::yield_now().await;
-        World { _dir: dir, config, store, secrets, effects, task }
-    }
-
-    async fn quiet() {
-        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
-    }
-
-    /// Which changes re-initialize the providers, against the recorded Node run: its real
-    /// `applyConfigChange` over config edits and key saves. Only the provider effects are compared.
-    #[tokio::test(start_paused = true)]
-    async fn the_same_changes_reinitialize_the_providers_as_in_node() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/provider-change-effects/golden.json")).unwrap();
-        let w = world(false, Duration::from_secs(1)).await;
-        let steps = golden["steps"].as_array().unwrap();
-        assert_eq!(steps.len(), 14);
-        for step in steps {
-            let name = step["name"].as_str().unwrap();
-            w.effects.calls.lock().unwrap().clear();
-            match step["op"].as_str().unwrap() {
-                "agent" => {
-                    let (path, value) = (step["path"].as_array().unwrap().clone(), step["value"].clone());
-                    w.config.update_agent(move |agent| {
-                        set_in(agent, &path, &value);
-                        Ok(())
-                    })
-                    .await
-                    .unwrap();
-                }
-                "secret" => w.store.set(step["account"].as_str().unwrap(), "value").await.unwrap(),
-                "delete" => w.store.delete(step["account"].as_str().unwrap()).await.unwrap(),
-                "announce" => w.secrets.announce(&format!("#{}", step["key"].as_str().unwrap()), false).await,
-                _ => {}
-            }
-            quiet().await;
-            let want: Vec<&str> = step["calls"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|c| c.as_str().unwrap())
-                .filter(|c| matches!(*c, "releaseAdmissionCooldowns" | "reinitProviders"))
-                .collect();
-            assert_eq!(*w.effects.calls.lock().unwrap(), want, "{name}");
-        }
-        w.task.abort();
-    }
-
-    /// `failed()`: the same failure again is not warned about until the effect recovers.
-    #[test]
-    fn a_failure_is_warned_about_once_per_message() {
-        let mut warned = None;
-        let line = failure_notice(&mut warned, "registry refused");
-        assert_eq!(line.as_deref(), Some("[config] applying the providers change failed: registry refused"));
-        assert_eq!(failure_notice(&mut warned, "registry refused"), None);
-        assert!(failure_notice(&mut warned, "another").is_some(), "a different message is warned about");
-        warned = None;
-        assert!(failure_notice(&mut warned, "another").is_some(), "after a recovery the same message is warned about again");
-    }
-
-    /// A re-init that fails is run again after the backoff, with the cooldowns released again.
-    #[tokio::test(start_paused = true)]
-    async fn a_failed_reinit_is_retried_after_the_backoff() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/provider-change-effects/golden.json")).unwrap();
-        let strings = |value: &Value| value.as_array().unwrap().iter().map(|c| c.as_str().unwrap().to_owned()).collect::<Vec<_>>();
-        let provider_calls = |calls: Vec<String>| calls.into_iter().filter(|c| matches!(c.as_str(), "releaseAdmissionCooldowns" | "reinitProviders")).collect::<Vec<_>>();
-        let w = world(true, Duration::from_millis(60)).await;
-        w.config
-            .update_agent(|agent| {
-                set_in(agent, &[json!("providers"), json!("openai"), json!("enabled")], &json!(true));
-                Ok(())
-            })
-            .await
-            .unwrap();
-        mixdog_rt::time::sleep(Duration::from_millis(30)).await;
-        assert_eq!(provider_calls(w.effects.calls.lock().unwrap().clone()), provider_calls(strings(&golden["retried"]["firstAttempt"])));
-        let warnings = |calls: &[String]| calls.iter().filter(|c| c.starts_with("warn: ")).cloned().collect::<Vec<_>>();
-        assert_eq!(warnings(&w.effects.calls.lock().unwrap()), ["warn: [config] applying the providers change failed: registry refused"]);
-        quiet().await;
-        assert_eq!(provider_calls(w.effects.calls.lock().unwrap().clone()), provider_calls(strings(&golden["retried"]["afterBackoff"])));
-        w.task.abort();
-    }
 }

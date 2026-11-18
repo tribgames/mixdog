@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::GeminiCacheState;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireRequest;
@@ -141,6 +142,13 @@ impl ExplicitCache {
     /// `dropRejectedGeminiCache`, registry half: the server refused `name`.
     pub fn forget(&self, name: &str) {
         self.registry.invalidate_name(name);
+    }
+
+    /// Unary recovery may reuse a live attachment, but never creates or renews one.
+    pub(in crate::providers::google) fn can_reattach(&self, state: &GeminiCacheState, ask: &Ask<'_>) -> bool {
+        !self.tuning.disabled && policy::decide(
+            Some(state), ask.model, &self.fingerprint, &ask.request, ask.iteration, self.now_ms(), &self.tuning,
+        ).can_attach
     }
 
     fn wire(&self, method: &str, url: String, body: Vec<u8>) -> WireRequest {
@@ -316,6 +324,7 @@ impl Drop for FlightGuard {
         }
     }
 }
+
 
 impl CreateJob {
     /// `_createGeminiCache`: never fails; a failure resolves `None` so every

@@ -119,17 +119,6 @@ fn plain(error: MemoryError) -> MemoryError {
     }
 }
 
-// ---- search, dump_session_roots ----------------------------------------------------------------
-
-/// The `search` action: `handleSearch(args)` itself, the ranked rows without the recall tool's cap.
-pub fn search_reply(outcome: crate::memory::recall::RecallOutcome) -> ToolReply {
-    let mut reply = if outcome.is_error { ToolReply::error(outcome.text) } else { ToolReply::ok(outcome.text) };
-    if let (false, Some(cursor)) = (reply.is_error, &outcome.next_cursor) {
-        reply = reply.with_field("nextCursor", cursor);
-    }
-    reply
-}
-
 /// One stored row of a session, as a chunk of its dump.
 #[derive(Debug, Clone, PartialEq)]
 struct Chunk {
@@ -387,20 +376,6 @@ fn cycle1_summary(result: &Cycle1Result) -> String {
     )
 }
 
-/// `flushSearchEmbeddings`: the roots without a vector are embedded; an incomplete flush is an error,
-/// never a quiet partial success. Answers how many were embedded.
-async fn flush_embeddings(flush: &Arc<RawEmbedFlush>, cancel: &CancellationToken) -> Result<usize> {
-    let done = flush.flush_roots(cancel).await.map_err(|error| MemoryError::rejected(error.to_string()))?;
-    if done.timed_out || !done.failed.is_empty() {
-        return Err(MemoryError::rejected(format!(
-            "embedding maintenance incomplete: failed={} timedOut={}",
-            done.failed.len(),
-            done.timed_out
-        )));
-    }
-    Ok(done.succeeded)
-}
-
 // ---- rebuild ----------------------------------------------------------------------------------
 
 /// The classification columns cleared before demotion: demoting the roots first and cleaning
@@ -601,6 +576,296 @@ fn invalid_category(op: &str, category: &str) -> ToolReply {
     ToolReply::error(format!("manage {op}: invalid category \"{category}\". Valid: {}", VALID_CATEGORIES.join(", ")))
 }
 
+async fn manage_delete(db: &Db, args: &Value) -> Result<ToolReply> {
+    let Some(id) = numeric_id(args.get("id")) else {
+        return Ok(ToolReply::error("manage delete requires numeric id"));
+    };
+    let Some(info) = db.query_opt("SELECT category, element, is_root FROM entries WHERE id = $1", &[&id]).await? else {
+        return Ok(ToolReply::error(format!("manage delete: no entry with id={id}")));
+    };
+    let removed = if info.get::<_, i16>("is_root") == 1 {
+        db.execute("DELETE FROM entries WHERE id = $1 OR chunk_root = $2", &[&id, &id]).await
+    } else {
+        db.execute("DELETE FROM entries WHERE id = $1", &[&id]).await
+    };
+    Ok(match removed {
+        Ok(rows) => {
+            let category = info.get::<_, Option<String>>("category").unwrap_or_else(|| "-".to_owned());
+            ToolReply::ok(format!("deleted (id={id}, rows={rows}): [{category}] {}", info.get::<_, Option<String>>("element").unwrap_or_default()))
+        }
+        Err(error) => ToolReply::error(format!("manage delete failed: {}", error.message())),
+    })
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test setup writes transcript files")]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::memory::pg::db::Schema;
+    use crate::memory::schema::ensure_memory_schema;
+    use crate::memory::tests::support::TestPg;
+
+    #[test]
+    fn an_action_outside_the_table_is_unknown_and_a_missing_one_is_core() {
+        assert_eq!(parse_action(&json!({ "op": "list" })), Ok(Action::Core));
+        assert_eq!(parse_action(&json!({ "action": "flush" })), Ok(Action::Flush));
+        assert_eq!(parse_action(&json!({ "action": "dump_session_roots" })), Ok(Action::DumpSessionRoots));
+        assert_eq!(parse_action(&json!({ "action": "drop_everything" })), Err("drop_everything".into()));
+        assert_eq!(parse_action(&json!({ "action": null })), Err(String::new()));
+        for name in ["core", "status", "cycle1", "search", "flush", "rebuild", "prune", "backfill", "ingest_session", "dump_session_roots", "manage", "purge"] {
+            assert!(parse_action(&json!({ "action": name })).is_ok(), "{name}");
+        }
+        let reply = unknown_action_reply("drop_everything");
+        assert!(reply.is_error);
+        assert_eq!(reply.text, "unknown memory action: drop_everything; valid: core, status. Mutation verbs belong in op.");
+    }
+
+    #[test]
+    fn the_cycle1_overrides_are_pinned_at_the_top_level_and_the_concurrency_is_capped() {
+        let args = json!({ "min_batch": 3, "windowSize": "40", "maxRowsPerSession": 7, "sessionId": " s1 ", "concurrency": 20.9, "batch_size": -1, "session_cap": "x" });
+        let config = cycle1_config_from_args(&args, json!({ "batch_size": 50, "interval": "10m" }));
+        assert_eq!(config, json!({ "batch_size": 50, "interval": "10m", "min_batch": 3, "window_size": 40, "rows_per_session": 7, "session_id": "s1", "concurrency": 8 }));
+        assert_eq!(cycle1_config_from_args(&json!({}), json!({})), json!({}));
+    }
+
+    #[test]
+    fn the_cycle1_summary_counts_what_the_run_left_out() {
+        let result = Cycle1Result {
+            chunks: 4,
+            processed: 9,
+            skipped: 1,
+            omitted_row_ids: vec![1, 2],
+            failed_row_ids: vec![3],
+            pending_rows: Some(12),
+            timed_out_waiting: true,
+            ..Cycle1Result::default()
+        };
+        assert_eq!(
+            cycle1_summary(&result),
+            "cycle1: chunks=4 processed=9 skipped_chunks=1 omitted=2 prefiltered=0 failed_rows=1 invalid_chunks=0 pending=12 inFlight=false timedOut=true"
+        );
+    }
+
+    #[test]
+    fn the_backfill_window_and_scope_are_normalised_like_the_old_driver() {
+        assert_eq!(normalize_backfill_window(" Week "), "7d");
+        assert_eq!(normalize_backfill_window("3 day"), "3d");
+        assert_eq!(normalize_backfill_window("off"), "none");
+        assert_eq!(normalize_backfill_window("whenever"), "all");
+        assert_eq!(normalize_backfill_scope("Current"), "workspace");
+        assert_eq!(normalize_backfill_scope("everything"), "all");
+        assert_eq!(backfill_since_ms("1d", 100_000_000), Some(100_000_000.0 - 86_400_000.0));
+        assert_eq!(backfill_since_ms("all", 1), None);
+        assert_eq!(backfill_since_ms("none", 1), None);
+    }
+
+    #[test]
+    fn a_workspace_holds_itself_and_what_is_inside_it() {
+        let workspace = Path::new(if cfg!(windows) { "C:\\work\\app" } else { "/work/app" });
+        let inside = workspace.join("packages").join("a");
+        let outside = workspace.parent().unwrap().join("other");
+        assert!(within(workspace, workspace));
+        assert!(within(workspace, &inside));
+        assert!(!within(workspace, &outside));
+    }
+
+    #[test]
+    fn the_session_chunks_are_ordered_by_turn_then_time_and_labelled() {
+        let root = Chunk { id: 7, root: true, chunk_root: None, ts: 5, source_turn: Some(2), category: Some("fact".into()), summary: "el — sum".into(), text: "user: hi".into() };
+        let pending = Chunk { id: 9, root: false, chunk_root: None, ts: 1, source_turn: None, category: None, summary: String::new(), text: "user: later".into() };
+        let terminal = Chunk { id: 8, root: false, chunk_root: Some(8), ts: 9, source_turn: Some(1), category: None, summary: String::new(), text: "assistant: first".into() };
+        let mut chunks = vec![pending, root, terminal];
+        sort_chunks(&mut chunks);
+        assert_eq!(chunks.iter().map(|c| c.id).collect::<Vec<_>>(), [8, 7, 9]);
+        assert_eq!(
+            render_chunks(&chunks),
+            "# raw_terminal 1 id=8\nassistant: first\n\n# chunk 2 root=7 category=fact\nsummary: el — sum\nuser: hi\n\n# raw_pending 3 id=9\nuser: later"
+        );
+        assert_eq!(render_chunks(&[]), "(no results)");
+    }
+
+    async fn store() -> (TestPg, Db) {
+        let pg = TestPg::start().await;
+        let db = pg.db(Schema::Memory).await;
+        ensure_memory_schema(&db, 384, &Value::Null).await.expect("schema");
+        (pg, db)
+    }
+
+    async fn count(db: &Db, sql: &str) -> i64 {
+        db.query(sql, &[]).await.expect("count")[0].get(0)
+    }
+
+    #[tokio::test]
+    async fn prune_and_purge_need_their_phrase_and_purge_keeps_the_curated_core() {
+        let (_pg, db) = store().await;
+        let day = 86_400_000_i64;
+        let old = now_ms() - 40 * day;
+        db.execute("INSERT INTO entries(ts, role, content, source_ref) VALUES ($1, 'user', 'old raw', 'a'), ($2, 'user', 'new raw', 'b')", &[&old, &now_ms()]).await.unwrap();
+        db.execute("INSERT INTO core_entries(element, summary, category, created_at, updated_at) VALUES ('e', 's', 'fact', 1, 1)", &[]).await.unwrap();
+        assert!(prune(&db, &json!({})).await.unwrap().is_error);
+        assert!(purge(&db, &json!({ "confirm": "delete all memory" })).await.unwrap().is_error);
+        assert_eq!(count(&db, "SELECT COUNT(*) FROM entries").await, 2);
+        let pruned = prune(&db, &json!({ "confirm": "PRUNE OLD ENTRIES", "maxDays": 30 })).await.unwrap();
+        assert_eq!(pruned.text, "prune: deleted 1 unclassified entries older than 30 days");
+        assert_eq!(count(&db, "SELECT COUNT(*) FROM entries").await, 1);
+        let core = count(&db, "SELECT COUNT(*) FROM core_entries").await;
+        let purged = purge(&db, &json!({ "confirm": "DELETE ALL MEMORY" })).await.unwrap();
+        assert_eq!(purged.text, format!("purged generated memory entries (count=1); user core preserved (core_entries={core})"));
+        assert_eq!(count(&db, "SELECT COUNT(*) FROM entries").await, 0);
+        assert_eq!(count(&db, "SELECT COUNT(*) FROM core_entries").await, core);
+    }
+
+    #[tokio::test]
+    async fn the_session_dump_lists_roots_with_their_members_and_the_raw_leaves() {
+        let (_pg, db) = store().await;
+        db.execute(
+            "INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn) VALUES
+             (1, 'user', 'hello there', 'r1', 's1', 1), (2, 'assistant', 'general reply', 'r2', 's1', 2), (3, 'user', 'still raw', 'r3', 's1', 3), (4, 'user', 'other', 'r4', 's2', 1)",
+            &[],
+        )
+        .await
+        .unwrap();
+        let root: i64 = db.query("SELECT id FROM entries WHERE source_ref = 'r1'", &[]).await.unwrap()[0].get(0);
+        db.execute("UPDATE entries SET is_root = 1, chunk_root = $1, element = 'greeting', category = 'fact', summary = 'said hello' WHERE id = $1", &[&root]).await.unwrap();
+        db.execute("UPDATE entries SET chunk_root = $1 WHERE source_ref = 'r2'", &[&root]).await.unwrap();
+        let reply = dump_session_roots(&db, &json!({ "sessionId": "s1" })).await.unwrap();
+        assert_eq!(
+            reply.text,
+            format!("# chunk 1 root={root} category=fact\nsummary: greeting — said hello\nassistant: general reply\n\n# raw_pending 2 id={}\nuser: still raw",
+                db.query("SELECT id FROM entries WHERE source_ref = 'r3'", &[]).await.unwrap()[0].get::<_, i64>(0))
+        );
+        let rootless = dump_session_roots(&db, &json!({ "session_id": "s1", "includeRaw": false })).await.unwrap();
+        assert!(!rootless.text.contains("raw_pending"));
+        let none = dump_session_roots(&db, &json!({})).await.unwrap();
+        assert!(none.is_error && none.text == "(no current session)");
+    }
+
+
+    #[tokio::test]
+    async fn the_backfill_takes_the_newest_files_of_the_window_oldest_first_and_skips_agent_transcripts() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let project = dir.path().join("proj");
+        std::fs::create_dir_all(&project).expect("project dir");
+        std::fs::create_dir_all(dir.path().join("tmp")).expect("skipped dir");
+        let write = |path: PathBuf, age_secs: u64| {
+            std::fs::write(&path, "{}\n").expect("transcript");
+            let file = std::fs::File::options().write(true).open(&path).expect("open");
+            file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(age_secs)).expect("mtime");
+        };
+        write(project.join("old.jsonl"), 10 * 86_400);
+        write(project.join("mid.jsonl"), 3_600);
+        write(project.join("new.jsonl"), 60);
+        write(project.join("agent-x.jsonl"), 60);
+        write(project.join("notes.txt"), 60);
+        write(dir.path().join("tmp").join("skip.jsonl"), 60);
+        let lane = mixdog_rt::testing::tokens().maintenance_io;
+        let names = |paths: Vec<PathBuf>| paths.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>();
+        let all = select_transcripts(lane, dir.path(), None, None, None).await;
+        assert_eq!(names(all), ["old.jsonl", "mid.jsonl", "new.jsonl"]);
+        let week = select_transcripts(lane, dir.path(), backfill_since_ms("7d", now_ms()), None, None).await;
+        assert_eq!(names(week), ["mid.jsonl", "new.jsonl"]);
+        let newest = select_transcripts(lane, dir.path(), None, Some(2.0), None).await;
+        assert_eq!(names(newest), ["mid.jsonl", "new.jsonl"]);
+    }
+    fn maintenance(db: &Db) -> Maintenance {
+        let tokens = mixdog_rt::testing::tokens();
+        Maintenance::new(
+            None,
+            Arc::new(RawEmbedFlush::new(db.clone(), None)),
+            crate::memory::transcript::TranscriptIngest::new(
+                db.clone(),
+                crate::memory::transcript::TranscriptIo { maintenance: tokens.maintenance_io, durability: tokens.durability_io },
+                Arc::new(now_ms),
+            ),
+            None,
+            tokens.maintenance_io,
+            tokens.durability_io,
+        )
+    }
+    #[tokio::test]
+    async fn manage_adds_edits_and_deletes_a_root_and_the_chunk_it_owns() {
+        let (_pg, db) = store().await;
+        let m = maintenance(&db);
+        let reply = m.manage(&db, &json!({ "op": "add", "element": "deploy", "summary": "ships on friday", "category": "Rule" })).await.unwrap();
+        assert!(!reply.is_error && reply.text.starts_with("added (id=") && reply.text.ends_with("[rule] deploy — ships on friday"), "{}", reply.text);
+        let id: i64 = db.query("SELECT id FROM entries WHERE is_root = 1", &[]).await.unwrap()[0].get(0);
+        assert_eq!(count(&db, "SELECT COUNT(*) FROM entries WHERE chunk_root = id AND status = 'pending' AND content = 'deploy — ships on friday'").await, 1);
+        let bad = m.manage(&db, &json!({ "op": "add", "element": "x", "category": "nonsense" })).await.unwrap();
+        assert!(bad.is_error && bad.text.starts_with("manage add: invalid category \"nonsense\". Valid: rule, constraint"));
+        let edited = m.manage(&db, &json!({ "op": "edit", "id": id, "summary": "ships on monday", "category": "decision" })).await.unwrap();
+        assert_eq!(edited.text, format!("edited (id={id}): [decision] deploy — ships on monday"));
+        assert_eq!(count(&db, "SELECT COUNT(*) FROM entries WHERE content = 'deploy — ships on monday' AND category = 'decision'").await, 1);
+        let none = m.manage(&db, &json!({ "op": "edit", "id": id })).await.unwrap();
+        assert_eq!(none.text, "manage edit requires at least one field: element, summary, category");
+        db.execute("INSERT INTO entries(ts, role, content, source_ref, chunk_root) VALUES (1, 'user', 'member', 'm1', $1)", &[&id]).await.unwrap();
+        let gone = m.manage(&db, &json!({ "op": "delete", "id": id })).await.unwrap();
+        assert_eq!(gone.text, format!("deleted (id={id}, rows=2): [decision] deploy"));
+        assert_eq!(m.manage(&db, &json!({ "op": "delete", "id": id })).await.unwrap().text, format!("manage delete: no entry with id={id}"));
+        assert_eq!(m.manage(&db, &json!({ "op": "sideways" })).await.unwrap().text, "manage requires op: \"add\" | \"edit\" | \"delete\"");
+        assert_eq!(m.manage(&db, &json!({ "op": "add", "status": "active" })).await.unwrap().text, "manage: history importance classification is no longer supported");
+    }
+    #[tokio::test]
+    async fn a_cancelled_caller_ends_a_backfill_at_its_first_step_and_frees_the_mutex() {
+        let (_pg, db) = store().await;
+        let m = maintenance(&db);
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let ended = m.backfill(&db, &json!({}), &cancel).await;
+        assert_eq!(ended.unwrap_err().message(), "aborted");
+        // The mutex was released: a live caller is not told a backfill is in progress.
+        let live = m.backfill(&db, &json!({ "window": "none" }), &CancellationToken::new()).await.unwrap();
+        assert!(live.text.starts_with("backfill: window=none"), "{}", live.text);
+        let waiting = unless_cancelled(&cancel, std::future::pending::<Result<()>>()).await;
+        assert_eq!(waiting.unwrap_err().message(), "aborted");
+    }
+    #[tokio::test]
+    async fn the_rebuild_reset_clears_every_classification_and_demotes_the_roots() {
+        let (_pg, db) = store().await;
+        db.execute("INSERT INTO entries(ts, role, content, source_ref) VALUES (1, 'user', 'a', 'a'), (2, 'user', 'b', 'b')", &[]).await.unwrap();
+        let ids: Vec<i64> = db.query("SELECT id FROM entries ORDER BY id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+        db.execute(
+            "UPDATE entries SET chunk_root = $1, is_root = 1, element = 'e', category = 'fact', summary = 's', status = 'active' WHERE id = $1",
+            &[&ids[0]],
+        )
+        .await
+        .unwrap();
+        db.execute("UPDATE entries SET chunk_root = $1 WHERE id = $2", &[&ids[0], &ids[1]]).await.unwrap();
+        reset_classification(&db).await.unwrap();
+        assert_eq!(count(&db, "SELECT COUNT(*) FROM entries WHERE is_root = 0 AND chunk_root IS NULL AND status IS NULL AND element IS NULL AND category IS NULL AND summary IS NULL").await, 2);
+        let m = maintenance(&db);
+        assert!(m.rebuild(&db, &json!({ "confirm": "nope" }), &CancellationToken::new()).await.unwrap().is_error);
+        let refused = m.rebuild(&db, &json!({ "confirm": "REBUILD MEMORY" }), &CancellationToken::new()).await;
+        assert_eq!(refused.unwrap_err().message(), "memory cycles are not running in this process");
+    }
+}
+
+
+// ---- search, dump_session_roots ----------------------------------------------------------------
+
+/// The `search` action: `handleSearch(args)` itself, the ranked rows without the recall tool's cap.
+pub fn search_reply(outcome: crate::memory::recall::RecallOutcome) -> ToolReply {
+    let mut reply = if outcome.is_error { ToolReply::error(outcome.text) } else { ToolReply::ok(outcome.text) };
+    if let (false, Some(cursor)) = (reply.is_error, &outcome.next_cursor) {
+        reply = reply.with_field("nextCursor", cursor);
+    }
+    reply
+}
+
+/// `flushSearchEmbeddings`: the roots without a vector are embedded; an incomplete flush is an error,
+/// never a quiet partial success. Answers how many were embedded.
+async fn flush_embeddings(flush: &Arc<RawEmbedFlush>, cancel: &CancellationToken) -> Result<usize> {
+    let done = flush.flush_roots(cancel).await.map_err(|error| MemoryError::rejected(error.to_string()))?;
+    if done.timed_out || !done.failed.is_empty() {
+        return Err(MemoryError::rejected(format!(
+            "embedding maintenance incomplete: failed={} timedOut={}",
+            done.failed.len(),
+            done.timed_out
+        )));
+    }
+    Ok(done.succeeded)
+}
 /// The pieces the maintenance actions beyond the database need.
 pub struct Maintenance {
     /// The scheduler cycle1 runs through and the memory section it reads, when this process runs cycles.
@@ -614,7 +879,6 @@ pub struct Maintenance {
     pub durability: DurabilityIo,
     backfill_running: AtomicBool,
 }
-
 impl Maintenance {
     pub fn new(
         cycles: Option<(CycleScheduler, Arc<dyn CycleConfig>)>,
@@ -894,273 +1158,5 @@ impl Maintenance {
         }
         let tail = if summary_text.is_empty() { String::new() } else { format!(" — {}", slice_utf16(&summary_text, 200)) };
         Ok(ToolReply::ok(format!("edited (id={id}): [{}] {element_text}{tail}", category.as_deref().unwrap_or(""))))
-    }
-}
-
-async fn manage_delete(db: &Db, args: &Value) -> Result<ToolReply> {
-    let Some(id) = numeric_id(args.get("id")) else {
-        return Ok(ToolReply::error("manage delete requires numeric id"));
-    };
-    let Some(info) = db.query_opt("SELECT category, element, is_root FROM entries WHERE id = $1", &[&id]).await? else {
-        return Ok(ToolReply::error(format!("manage delete: no entry with id={id}")));
-    };
-    let removed = if info.get::<_, i16>("is_root") == 1 {
-        db.execute("DELETE FROM entries WHERE id = $1 OR chunk_root = $2", &[&id, &id]).await
-    } else {
-        db.execute("DELETE FROM entries WHERE id = $1", &[&id]).await
-    };
-    Ok(match removed {
-        Ok(rows) => {
-            let category = info.get::<_, Option<String>>("category").unwrap_or_else(|| "-".to_owned());
-            ToolReply::ok(format!("deleted (id={id}, rows={rows}): [{category}] {}", info.get::<_, Option<String>>("element").unwrap_or_default()))
-        }
-        Err(error) => ToolReply::error(format!("manage delete failed: {}", error.message())),
-    })
-}
-
-#[cfg(test)]
-#[allow(clippy::disallowed_methods, reason = "test setup writes transcript files")]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-    use crate::memory::pg::db::Schema;
-    use crate::memory::schema::ensure_memory_schema;
-    use crate::memory::tests::support::TestPg;
-
-    #[test]
-    fn an_action_outside_the_table_is_unknown_and_a_missing_one_is_core() {
-        assert_eq!(parse_action(&json!({ "op": "list" })), Ok(Action::Core));
-        assert_eq!(parse_action(&json!({ "action": "flush" })), Ok(Action::Flush));
-        assert_eq!(parse_action(&json!({ "action": "dump_session_roots" })), Ok(Action::DumpSessionRoots));
-        assert_eq!(parse_action(&json!({ "action": "drop_everything" })), Err("drop_everything".into()));
-        assert_eq!(parse_action(&json!({ "action": null })), Err(String::new()));
-        for name in ["core", "status", "cycle1", "search", "flush", "rebuild", "prune", "backfill", "ingest_session", "dump_session_roots", "manage", "purge"] {
-            assert!(parse_action(&json!({ "action": name })).is_ok(), "{name}");
-        }
-        let reply = unknown_action_reply("drop_everything");
-        assert!(reply.is_error);
-        assert_eq!(reply.text, "unknown memory action: drop_everything; valid: core, status. Mutation verbs belong in op.");
-    }
-
-    #[test]
-    fn the_cycle1_overrides_are_pinned_at_the_top_level_and_the_concurrency_is_capped() {
-        let args = json!({ "min_batch": 3, "windowSize": "40", "maxRowsPerSession": 7, "sessionId": " s1 ", "concurrency": 20.9, "batch_size": -1, "session_cap": "x" });
-        let config = cycle1_config_from_args(&args, json!({ "batch_size": 50, "interval": "10m" }));
-        assert_eq!(config, json!({ "batch_size": 50, "interval": "10m", "min_batch": 3, "window_size": 40, "rows_per_session": 7, "session_id": "s1", "concurrency": 8 }));
-        assert_eq!(cycle1_config_from_args(&json!({}), json!({})), json!({}));
-    }
-
-    #[test]
-    fn the_cycle1_summary_counts_what_the_run_left_out() {
-        let result = Cycle1Result {
-            chunks: 4,
-            processed: 9,
-            skipped: 1,
-            omitted_row_ids: vec![1, 2],
-            failed_row_ids: vec![3],
-            pending_rows: Some(12),
-            timed_out_waiting: true,
-            ..Cycle1Result::default()
-        };
-        assert_eq!(
-            cycle1_summary(&result),
-            "cycle1: chunks=4 processed=9 skipped_chunks=1 omitted=2 prefiltered=0 failed_rows=1 invalid_chunks=0 pending=12 inFlight=false timedOut=true"
-        );
-    }
-
-    #[test]
-    fn the_backfill_window_and_scope_are_normalised_like_the_old_driver() {
-        assert_eq!(normalize_backfill_window(" Week "), "7d");
-        assert_eq!(normalize_backfill_window("3 day"), "3d");
-        assert_eq!(normalize_backfill_window("off"), "none");
-        assert_eq!(normalize_backfill_window("whenever"), "all");
-        assert_eq!(normalize_backfill_scope("Current"), "workspace");
-        assert_eq!(normalize_backfill_scope("everything"), "all");
-        assert_eq!(backfill_since_ms("1d", 100_000_000), Some(100_000_000.0 - 86_400_000.0));
-        assert_eq!(backfill_since_ms("all", 1), None);
-        assert_eq!(backfill_since_ms("none", 1), None);
-    }
-
-    #[test]
-    fn a_workspace_holds_itself_and_what_is_inside_it() {
-        let workspace = Path::new(if cfg!(windows) { "C:\\work\\app" } else { "/work/app" });
-        let inside = workspace.join("packages").join("a");
-        let outside = workspace.parent().unwrap().join("other");
-        assert!(within(workspace, workspace));
-        assert!(within(workspace, &inside));
-        assert!(!within(workspace, &outside));
-    }
-
-    #[test]
-    fn the_session_chunks_are_ordered_by_turn_then_time_and_labelled() {
-        let root = Chunk { id: 7, root: true, chunk_root: None, ts: 5, source_turn: Some(2), category: Some("fact".into()), summary: "el — sum".into(), text: "user: hi".into() };
-        let pending = Chunk { id: 9, root: false, chunk_root: None, ts: 1, source_turn: None, category: None, summary: String::new(), text: "user: later".into() };
-        let terminal = Chunk { id: 8, root: false, chunk_root: Some(8), ts: 9, source_turn: Some(1), category: None, summary: String::new(), text: "assistant: first".into() };
-        let mut chunks = vec![pending, root, terminal];
-        sort_chunks(&mut chunks);
-        assert_eq!(chunks.iter().map(|c| c.id).collect::<Vec<_>>(), [8, 7, 9]);
-        assert_eq!(
-            render_chunks(&chunks),
-            "# raw_terminal 1 id=8\nassistant: first\n\n# chunk 2 root=7 category=fact\nsummary: el — sum\nuser: hi\n\n# raw_pending 3 id=9\nuser: later"
-        );
-        assert_eq!(render_chunks(&[]), "(no results)");
-    }
-
-    #[tokio::test]
-    async fn the_backfill_takes_the_newest_files_of_the_window_oldest_first_and_skips_agent_transcripts() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let project = dir.path().join("proj");
-        std::fs::create_dir_all(&project).expect("project dir");
-        std::fs::create_dir_all(dir.path().join("tmp")).expect("skipped dir");
-        let write = |path: PathBuf, age_secs: u64| {
-            std::fs::write(&path, "{}\n").expect("transcript");
-            let file = std::fs::File::options().write(true).open(&path).expect("open");
-            file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(age_secs)).expect("mtime");
-        };
-        write(project.join("old.jsonl"), 10 * 86_400);
-        write(project.join("mid.jsonl"), 3_600);
-        write(project.join("new.jsonl"), 60);
-        write(project.join("agent-x.jsonl"), 60);
-        write(project.join("notes.txt"), 60);
-        write(dir.path().join("tmp").join("skip.jsonl"), 60);
-        let lane = mixdog_rt::testing::tokens().maintenance_io;
-        let names = |paths: Vec<PathBuf>| paths.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>();
-        let all = select_transcripts(lane, dir.path(), None, None, None).await;
-        assert_eq!(names(all), ["old.jsonl", "mid.jsonl", "new.jsonl"]);
-        let week = select_transcripts(lane, dir.path(), backfill_since_ms("7d", now_ms()), None, None).await;
-        assert_eq!(names(week), ["mid.jsonl", "new.jsonl"]);
-        let newest = select_transcripts(lane, dir.path(), None, Some(2.0), None).await;
-        assert_eq!(names(newest), ["mid.jsonl", "new.jsonl"]);
-    }
-
-    async fn store() -> (TestPg, Db) {
-        let pg = TestPg::start().await;
-        let db = pg.db(Schema::Memory).await;
-        ensure_memory_schema(&db, 384, &Value::Null).await.expect("schema");
-        (pg, db)
-    }
-
-    async fn count(db: &Db, sql: &str) -> i64 {
-        db.query(sql, &[]).await.expect("count")[0].get(0)
-    }
-
-    fn maintenance(db: &Db) -> Maintenance {
-        let tokens = mixdog_rt::testing::tokens();
-        Maintenance::new(
-            None,
-            Arc::new(RawEmbedFlush::new(db.clone(), None)),
-            crate::memory::transcript::TranscriptIngest::new(
-                db.clone(),
-                crate::memory::transcript::TranscriptIo { maintenance: tokens.maintenance_io, durability: tokens.durability_io },
-                Arc::new(now_ms),
-            ),
-            None,
-            tokens.maintenance_io,
-            tokens.durability_io,
-        )
-    }
-
-    #[tokio::test]
-    async fn manage_adds_edits_and_deletes_a_root_and_the_chunk_it_owns() {
-        let (_pg, db) = store().await;
-        let m = maintenance(&db);
-        let reply = m.manage(&db, &json!({ "op": "add", "element": "deploy", "summary": "ships on friday", "category": "Rule" })).await.unwrap();
-        assert!(!reply.is_error && reply.text.starts_with("added (id=") && reply.text.ends_with("[rule] deploy — ships on friday"), "{}", reply.text);
-        let id: i64 = db.query("SELECT id FROM entries WHERE is_root = 1", &[]).await.unwrap()[0].get(0);
-        assert_eq!(count(&db, "SELECT COUNT(*) FROM entries WHERE chunk_root = id AND status = 'pending' AND content = 'deploy — ships on friday'").await, 1);
-        let bad = m.manage(&db, &json!({ "op": "add", "element": "x", "category": "nonsense" })).await.unwrap();
-        assert!(bad.is_error && bad.text.starts_with("manage add: invalid category \"nonsense\". Valid: rule, constraint"));
-        let edited = m.manage(&db, &json!({ "op": "edit", "id": id, "summary": "ships on monday", "category": "decision" })).await.unwrap();
-        assert_eq!(edited.text, format!("edited (id={id}): [decision] deploy — ships on monday"));
-        assert_eq!(count(&db, "SELECT COUNT(*) FROM entries WHERE content = 'deploy — ships on monday' AND category = 'decision'").await, 1);
-        let none = m.manage(&db, &json!({ "op": "edit", "id": id })).await.unwrap();
-        assert_eq!(none.text, "manage edit requires at least one field: element, summary, category");
-        db.execute("INSERT INTO entries(ts, role, content, source_ref, chunk_root) VALUES (1, 'user', 'member', 'm1', $1)", &[&id]).await.unwrap();
-        let gone = m.manage(&db, &json!({ "op": "delete", "id": id })).await.unwrap();
-        assert_eq!(gone.text, format!("deleted (id={id}, rows=2): [decision] deploy"));
-        assert_eq!(m.manage(&db, &json!({ "op": "delete", "id": id })).await.unwrap().text, format!("manage delete: no entry with id={id}"));
-        assert_eq!(m.manage(&db, &json!({ "op": "sideways" })).await.unwrap().text, "manage requires op: \"add\" | \"edit\" | \"delete\"");
-        assert_eq!(m.manage(&db, &json!({ "op": "add", "status": "active" })).await.unwrap().text, "manage: history importance classification is no longer supported");
-    }
-
-    #[tokio::test]
-    async fn a_cancelled_caller_ends_a_backfill_at_its_first_step_and_frees_the_mutex() {
-        let (_pg, db) = store().await;
-        let m = maintenance(&db);
-        let cancel = CancellationToken::new();
-        cancel.cancel();
-        let ended = m.backfill(&db, &json!({}), &cancel).await;
-        assert_eq!(ended.unwrap_err().message(), "aborted");
-        // The mutex was released: a live caller is not told a backfill is in progress.
-        let live = m.backfill(&db, &json!({ "window": "none" }), &CancellationToken::new()).await.unwrap();
-        assert!(live.text.starts_with("backfill: window=none"), "{}", live.text);
-        let waiting = unless_cancelled(&cancel, std::future::pending::<Result<()>>()).await;
-        assert_eq!(waiting.unwrap_err().message(), "aborted");
-    }
-
-    #[tokio::test]
-    async fn prune_and_purge_need_their_phrase_and_purge_keeps_the_curated_core() {
-        let (_pg, db) = store().await;
-        let day = 86_400_000_i64;
-        let old = now_ms() - 40 * day;
-        db.execute("INSERT INTO entries(ts, role, content, source_ref) VALUES ($1, 'user', 'old raw', 'a'), ($2, 'user', 'new raw', 'b')", &[&old, &now_ms()]).await.unwrap();
-        db.execute("INSERT INTO core_entries(element, summary, category, created_at, updated_at) VALUES ('e', 's', 'fact', 1, 1)", &[]).await.unwrap();
-        assert!(prune(&db, &json!({})).await.unwrap().is_error);
-        assert!(purge(&db, &json!({ "confirm": "delete all memory" })).await.unwrap().is_error);
-        assert_eq!(count(&db, "SELECT COUNT(*) FROM entries").await, 2);
-        let pruned = prune(&db, &json!({ "confirm": "PRUNE OLD ENTRIES", "maxDays": 30 })).await.unwrap();
-        assert_eq!(pruned.text, "prune: deleted 1 unclassified entries older than 30 days");
-        assert_eq!(count(&db, "SELECT COUNT(*) FROM entries").await, 1);
-        let core = count(&db, "SELECT COUNT(*) FROM core_entries").await;
-        let purged = purge(&db, &json!({ "confirm": "DELETE ALL MEMORY" })).await.unwrap();
-        assert_eq!(purged.text, format!("purged generated memory entries (count=1); user core preserved (core_entries={core})"));
-        assert_eq!(count(&db, "SELECT COUNT(*) FROM entries").await, 0);
-        assert_eq!(count(&db, "SELECT COUNT(*) FROM core_entries").await, core);
-    }
-
-    #[tokio::test]
-    async fn the_rebuild_reset_clears_every_classification_and_demotes_the_roots() {
-        let (_pg, db) = store().await;
-        db.execute("INSERT INTO entries(ts, role, content, source_ref) VALUES (1, 'user', 'a', 'a'), (2, 'user', 'b', 'b')", &[]).await.unwrap();
-        let ids: Vec<i64> = db.query("SELECT id FROM entries ORDER BY id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
-        db.execute(
-            "UPDATE entries SET chunk_root = $1, is_root = 1, element = 'e', category = 'fact', summary = 's', status = 'active' WHERE id = $1",
-            &[&ids[0]],
-        )
-        .await
-        .unwrap();
-        db.execute("UPDATE entries SET chunk_root = $1 WHERE id = $2", &[&ids[0], &ids[1]]).await.unwrap();
-        reset_classification(&db).await.unwrap();
-        assert_eq!(count(&db, "SELECT COUNT(*) FROM entries WHERE is_root = 0 AND chunk_root IS NULL AND status IS NULL AND element IS NULL AND category IS NULL AND summary IS NULL").await, 2);
-        let m = maintenance(&db);
-        assert!(m.rebuild(&db, &json!({ "confirm": "nope" }), &CancellationToken::new()).await.unwrap().is_error);
-        let refused = m.rebuild(&db, &json!({ "confirm": "REBUILD MEMORY" }), &CancellationToken::new()).await;
-        assert_eq!(refused.unwrap_err().message(), "memory cycles are not running in this process");
-    }
-
-    #[tokio::test]
-    async fn the_session_dump_lists_roots_with_their_members_and_the_raw_leaves() {
-        let (_pg, db) = store().await;
-        db.execute(
-            "INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn) VALUES
-             (1, 'user', 'hello there', 'r1', 's1', 1), (2, 'assistant', 'general reply', 'r2', 's1', 2), (3, 'user', 'still raw', 'r3', 's1', 3), (4, 'user', 'other', 'r4', 's2', 1)",
-            &[],
-        )
-        .await
-        .unwrap();
-        let root: i64 = db.query("SELECT id FROM entries WHERE source_ref = 'r1'", &[]).await.unwrap()[0].get(0);
-        db.execute("UPDATE entries SET is_root = 1, chunk_root = $1, element = 'greeting', category = 'fact', summary = 'said hello' WHERE id = $1", &[&root]).await.unwrap();
-        db.execute("UPDATE entries SET chunk_root = $1 WHERE source_ref = 'r2'", &[&root]).await.unwrap();
-        let reply = dump_session_roots(&db, &json!({ "sessionId": "s1" })).await.unwrap();
-        assert_eq!(
-            reply.text,
-            format!("# chunk 1 root={root} category=fact\nsummary: greeting — said hello\nassistant: general reply\n\n# raw_pending 2 id={}\nuser: still raw",
-                db.query("SELECT id FROM entries WHERE source_ref = 'r3'", &[]).await.unwrap()[0].get::<_, i64>(0))
-        );
-        let rootless = dump_session_roots(&db, &json!({ "session_id": "s1", "includeRaw": false })).await.unwrap();
-        assert!(!rootless.text.contains("raw_pending"));
-        let none = dump_session_roots(&db, &json!({})).await.unwrap();
-        assert!(none.is_error && none.text == "(no current session)");
     }
 }

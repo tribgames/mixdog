@@ -406,36 +406,6 @@ async fn executor_ids_are_checked_when_a_routine_is_saved() {
     assert!(f.rt.assert_routine_executor(&json!("ghost")).await.unwrap_err().contains("is not an available sub-agent"));
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_heartbeat_turn_is_cut_off_at_its_wall_clock_cap() {
-    let f = fixture().await;
-    *f.host.hold.lock().unwrap() = true;
-    f.host.heartbeats.lock().unwrap().insert("sess_hidden_beat".into());
-    let args = TurnArgs {
-        kind: RoutineKind::Schedule,
-        name: "heartbeat".into(),
-        owner_agent_id: None,
-        prompt: "check in".into(),
-        skill_selection: None,
-        attachments: None,
-        cwd: None,
-        event: String::new(),
-        session_id: Some("sess_hidden_beat".into()),
-        header: Some("[Routine trigger] Heartbeat".into()),
-        executor_agent_id: None,
-    };
-    let rt = f.rt.clone();
-    let run = tokio::spawn(async move { rt.run_routine_turn(args, &never_cancelled()).await });
-    while f.host.turns().is_empty() {
-        tokio::task::yield_now().await;
-    }
-    tokio::time::advance(Duration::from_millis(routine::HEARTBEAT_WALL_CLOCK_MS + 1)).await;
-    let outcome = run.await.unwrap().unwrap();
-    assert_eq!((outcome.result.as_str(), outcome.timed_out), ("", true));
-    assert!(content_of(&f.host.turns()[0]).starts_with("[Routine trigger] Heartbeat\n\ncheck in"));
-    assert_eq!(f.host.turns()[0].session_id, "sess_hidden_beat");
-}
-
 async fn seeded_with_result(f: &Fixture) {
     f.schedules.upsert(&sched("daily")).await.unwrap();
     let entry = json!({"state": "pending", "at": "2025-01-01T00:00:00Z", "result": {"ok": true, "text": "done", "runSessionId": "s9"}});
@@ -493,15 +463,6 @@ async fn received(f: &Fixture, name: &str, id: &str) {
     assert!(f.webhooks.claim_delivery(name, id, claim).await.unwrap());
 }
 
-/// The delivery once its run has ended. Every run holds a guard of `work` until it has settled its delivery, so the signal
-/// is `work` going idle; the deadline only turns a run that never ends into a failure naming the delivery.
-async fn settled_delivery(f: &Fixture, work: &RunningWork, name: &str, id: &str) -> (String, Option<String>) {
-    mixdog_rt::time::timeout(Duration::from_secs(10), work.idle())
-        .await
-        .unwrap_or_else(|_| panic!("the run of delivery {id} of webhook {name} never ended: the delivery stays `processing`"));
-    f.webhooks.delivery_row(name, id).await.unwrap()
-}
-
 async fn endpoint(f: &Fixture) -> (HomeWebhookDispatch, RunningWork) {
     f.webhooks
         .upsert(&EndpointRecord {
@@ -517,13 +478,192 @@ async fn endpoint(f: &Fixture) -> (HomeWebhookDispatch, RunningWork) {
     (HomeWebhookDispatch::new(f.rt.clone(), f.webhooks.clone(), None, work.clone()), work)
 }
 
+struct Pipeline(bool);
+
+#[async_trait]
+impl WebhookEvents for Pipeline {
+    fn matches(&self, _name: &str) -> bool {
+        self.0
+    }
+
+    async fn handle_webhook(&self, _name: &str, _body: &Value, _headers: &Headers, _id: &str) -> Result<bool, String> {
+        Ok(self.0)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_parser_only_endpoint_goes_to_the_event_pipeline_or_is_unknown() {
+    let f = fixture().await;
+    let taken = HomeWebhookDispatch::new(f.rt.clone(), f.webhooks.clone(), Some(Arc::new(Pipeline(true))), RunningWork::new());
+    received(&f, "parser", "d1").await;
+    let reply = taken.handle("parser", json!({}), &headers(&[]), "d1", false).await.unwrap();
+    assert_eq!((reply.status, reply.body), (200, json!({"status": "accepted", "id": "d1"})));
+    assert_eq!(f.webhooks.delivery_row("parser", "d1").await.unwrap().0, "done");
+
+    let refused = HomeWebhookDispatch::new(f.rt.clone(), f.webhooks.clone(), Some(Arc::new(Pipeline(false))), RunningWork::new());
+    received(&f, "parser", "d2").await;
+    let reply = refused.handle("parser", json!({}), &headers(&[]), "d2", false).await.unwrap();
+    assert_eq!((reply.status, reply.body), (404, json!({"error": "unknown endpoint"})));
+    assert_eq!(f.webhooks.delivery_row("parser", "d2").await.unwrap(), ("failed".to_string(), Some("unknown endpoint".to_string())));
+    assert!(f.host.turns().is_empty());
+}
+
+/// An event pipeline that, while it holds the event, lets the sender's retry arrive: what the retry's claim answers.
+struct RetryDuringFallback {
+    webhooks: Arc<StateWebhookStore>,
+    retry_claimed: Arc<Mutex<Option<bool>>>,
+}
+
+#[async_trait]
+impl WebhookEvents for RetryDuringFallback {
+    fn matches(&self, _name: &str) -> bool {
+        true
+    }
+
+    async fn handle_webhook(&self, name: &str, _body: &Value, _headers: &Headers, _id: &str) -> Result<bool, String> {
+        let claim = Claim { status: "received", event: None, headers_summary: json!({}), payload_preview: "{}".into() };
+        let claimed = self.webhooks.claim_delivery(name, "d1", claim).await.unwrap();
+        *self.retry_claimed.lock().unwrap() = Some(claimed);
+        Ok(true)
+    }
+}
+
+#[derive(Default)]
+struct FailingQueue {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+    attempts: std::sync::atomic::AtomicUsize,
+    queued: Mutex<Vec<Value>>,
+}
+
+#[async_trait]
+impl WebhookEvents for FailingQueue {
+    fn matches(&self, _name: &str) -> bool {
+        true
+    }
+
+    async fn handle_webhook(&self, _name: &str, body: &Value, _headers: &Headers, _id: &str) -> Result<bool, String> {
+        if self.attempts.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+            self.entered.notify_one();
+            self.release.notified().await;
+            return Err("queue write failed".into());
+        }
+        self.queued.lock().unwrap().push(body.clone());
+        Ok(true)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rule_delivery_is_accepted_only_after_enqueue_and_a_failed_write_can_be_retried_once() {
+    use crate::webhooks::{Endpoint, WebhookConfig, WebhookService};
+
+    let f = fixture().await;
+    let queue = Arc::new(FailingQueue::default());
+    let work = RunningWork::new();
+    let dispatch = HomeWebhookDispatch::new(f.rt.clone(), f.webhooks.clone(), Some(queue.clone()), work.clone());
+    let config = WebhookConfig {
+        endpoints: [("rule".into(), Endpoint { allow_unsigned: Some(true), ..Default::default() })].into(),
+        ..Default::default()
+    };
+    let webhook = WebhookService::new(f.webhooks.clone(), Arc::new(dispatch), config, work, Arc::new(|| 0));
+    let headers = headers(&[("content-type", "application/json"), ("x-delivery-id", "d1")]);
+    let post = || webhook.handle_post("/webhook/rule", &headers, b"{}");
+    let (failed, ()) = tokio::join!(post(), async {
+        mixdog_rt::time::timeout(Duration::from_secs(10), queue.entered.notified()).await.unwrap();
+        assert_eq!(post().await.status, 503, "a concurrent replay must not acknowledge an unsettled write");
+        queue.release.notify_one();
+    });
+    assert_eq!(failed.status, 500);
+    let rows = f.webhooks.delivery_rows().await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["status"], "failed");
+    assert_eq!(rows[0]["error"], "queue write failed");
+    assert!(queue.queued.lock().unwrap().is_empty());
+
+    let accepted = post().await;
+    assert_eq!((accepted.status, accepted.body["status"].as_str()), (200, Some("accepted")));
+    assert_eq!(accepted.body["id"], rows[0]["delivery_id"]);
+    assert_eq!(*queue.queued.lock().unwrap(), [json!({})]);
+    assert_eq!(f.webhooks.delivery_rows().await[0]["status"], "done");
+    let duplicate = post().await;
+    assert_eq!((duplicate.status, duplicate.body["status"].as_str()), (200, Some("dedup")));
+    assert_eq!(duplicate.body["id"], accepted.body["id"]);
+    assert_eq!(queue.queued.lock().unwrap().len(), 1);
+}
+
+/// `failed` ends an attempt, and a retry may claim a failed delivery: a dispatch error whose event fallback still runs the event is
+/// not an ended attempt, so a retry that arrives meanwhile is a duplicate and the delivery settles `done`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dispatch_error_is_not_failed_while_the_event_fallback_still_runs_it() {
+    let f = fixture().await;
+    let seen = Arc::new(Mutex::new(None));
+    let events = RetryDuringFallback { webhooks: f.webhooks.clone(), retry_claimed: seen.clone() };
+    let dispatch = HomeWebhookDispatch::new(f.rt.clone(), f.webhooks.clone(), Some(Arc::new(events)), RunningWork::new());
+    received(&f, "gone", "d1").await;
+    let reply = dispatch.handle("gone", json!({}), &headers(&[]), "d1", true).await.unwrap();
+    assert_eq!(reply.status, 200);
+    assert_eq!(*seen.lock().unwrap(), Some(false), "the retry during the fallback is a duplicate");
+    assert_eq!(f.webhooks.delivery_row("gone", "d1").await.unwrap().0, "done");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_table_endpoint_that_vanished_falls_through_as_a_failed_delivery() {
+    let f = fixture().await;
+    let dispatch = HomeWebhookDispatch::new(f.rt.clone(), f.webhooks.clone(), None, RunningWork::new());
+    received(&f, "gone", "d1").await;
+    let reply = dispatch.handle("gone", json!({}), &headers(&[]), "d1", true).await.unwrap();
+    assert_eq!(reply.status, 404);
+    assert_eq!(f.webhooks.delivery_row("gone", "d1").await.unwrap().1.as_deref(), Some("unknown endpoint"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_heartbeat_turn_is_cut_off_at_its_wall_clock_cap() {
+    let f = fixture().await;
+    *f.host.hold.lock().unwrap() = true;
+    f.host.heartbeats.lock().unwrap().insert("sess_hidden_beat".into());
+    let args = TurnArgs {
+        kind: RoutineKind::Schedule,
+        name: "heartbeat".into(),
+        owner_agent_id: None,
+        prompt: "check in".into(),
+        skill_selection: None,
+        attachments: None,
+        cwd: None,
+        event: String::new(),
+        session_id: Some("sess_hidden_beat".into()),
+        header: Some("[Routine trigger] Heartbeat".into()),
+        executor_agent_id: None,
+    };
+    let rt = f.rt.clone();
+    let run = tokio::spawn(async move { rt.run_routine_turn(args, &never_cancelled()).await });
+    while f.host.turns().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    tokio::time::advance(Duration::from_millis(routine::HEARTBEAT_WALL_CLOCK_MS + 1)).await;
+    let outcome = run.await.unwrap().unwrap();
+    assert_eq!((outcome.result.as_str(), outcome.timed_out), ("", true));
+    assert!(content_of(&f.host.turns()[0]).starts_with("[Routine trigger] Heartbeat\n\ncheck in"));
+    assert_eq!(f.host.turns()[0].session_id, "sess_hidden_beat");
+}
+/// The delivery once its run has ended. Every run holds a guard of `work` until it has settled its delivery, so the signal
+/// is `work` going idle; the deadline only turns a run that never ends into a failure naming the delivery.
+async fn settled_delivery(f: &Fixture, work: &RunningWork, name: &str, id: &str) -> (String, Option<String>) {
+    mixdog_rt::time::timeout(Duration::from_secs(10), work.idle())
+        .await
+        .unwrap_or_else(|_| panic!("the run of delivery {id} of webhook {name} never ended: the delivery stays `processing`"));
+    f.webhooks.delivery_row(name, id).await.unwrap()
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_webhook_is_answered_202_and_its_run_settles_the_delivery() {
     let f = fixture().await;
-    let (dispatch, work) = endpoint(&f).await;
+    let (_, work) = endpoint(&f).await;
+    let dispatch = HomeWebhookDispatch::new(f.rt.clone(), f.webhooks.clone(), Some(Arc::new(Pipeline(true))), work.clone());
     received(&f, "gh", "d1").await;
     let sent = headers(&[("x-github-event", "push"), ("authorization", "Bearer secret")]);
-    let reply = dispatch.handle("gh", json!({"action": "created"}), &sent, "d1", true).await.unwrap();
+    let route = dispatch.route("gh", json!({"action": "created"}), &sent, "d1", true).await.unwrap();
+    let crate::webhooks::handler::WebhookRoute::Reply(reply) = route else {
+        panic!("the table endpoint must reply without transferring ownership to the rule queue");
+    };
     assert_eq!((reply.status, reply.body), (202, json!({"status": "accepted", "handler": "session", "id": "d1"})));
 
     // The run is its own task: wait for it to end.
@@ -538,32 +678,6 @@ async fn a_webhook_is_answered_202_and_its_run_settles_the_delivery() {
     let stored = f.webhooks.load("gh").await.unwrap().unwrap();
     assert!(stored.last_success_at.is_some());
     assert_eq!(stored.last_payload, Some(json!({"body": {"action": "created"}, "headers": {"x-github-event": "push"}})));
-}
-
-/// Node's `webhookRunPrompt` / `webhookEventSummary` over the recorded deliveries (`webhook-run-prompt/golden.json`): what the run hands
-/// the owner's session is Node's whole prompt, trusted skill-selection input and event label, the label read from every header the sender sent.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_delivery_reaches_the_session_as_nodes_prompt_selection_and_label() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/webhook-run-prompt/golden.json")).expect("golden");
-    let f = fixture().await;
-    let (dispatch, work) = endpoint(&f).await;
-    for (index, case) in golden["cases"].as_array().expect("cases").iter().enumerate() {
-        let mut stored = f.webhooks.load("gh").await.unwrap().unwrap();
-        stored.instructions = case["instructions"].as_str().expect("instructions").to_string();
-        f.webhooks.upsert(&stored).await.unwrap();
-        let id = format!("d{index}");
-        received(&f, "gh", &id).await;
-        let sent: Headers = case["headers"].as_object().expect("headers").iter().map(|(k, v)| (k.clone(), v.as_str().expect("text").to_string())).collect();
-        dispatch.handle("gh", case["body"].clone(), &sent, &id, true).await.unwrap();
-        settled_delivery(&f, &work, "gh", &id).await;
-        let turn = &f.host.turns()[index];
-        let name = &case["name"];
-        // The turn opens with the routine preamble; the webhook prompt is what follows it, whole (an empty instruction leaves its blank lines to the join).
-        let prompt = case["prompt"].as_str().expect("prompt").trim_start_matches('\n');
-        assert!(content_of(turn).ends_with(&format!("\n\n{prompt}")), "{name}: prompt");
-        assert_eq!(json!(turn.skill_selection), case["skillSelection"], "{name}: selection");
-        assert_eq!(json!(turn.trigger.event.clone().unwrap_or_default()), case["summary"], "{name}: label");
-    }
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_or_overlapping_webhook_run_marks_its_delivery_and_endpoint() {
@@ -586,37 +700,30 @@ async fn a_failed_or_overlapping_webhook_run_marks_its_delivery_and_endpoint() {
     assert!(f.webhooks.load("gh").await.unwrap().unwrap().last_skipped_at.is_some());
 }
 
-struct Pipeline(bool);
 
-impl WebhookEvents for Pipeline {
-    fn handle_webhook(&self, _name: &str, _body: &Value, _headers: &Headers) -> bool {
-        self.0
+/// Node's `webhookRunPrompt` / `webhookEventSummary` over the recorded deliveries (`webhook-run-prompt/golden.json`): what the run hands
+/// the owner's session is Node's whole prompt, trusted skill-selection input and event label, the label read from every header the sender sent.
+#[cfg(node_twin)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delivery_reaches_the_session_as_nodes_prompt_selection_and_label() {
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/webhook-run-prompt/golden.json")).expect("golden");
+    let f = fixture().await;
+    let (dispatch, work) = endpoint(&f).await;
+    for (index, case) in golden["cases"].as_array().expect("cases").iter().enumerate() {
+        let mut stored = f.webhooks.load("gh").await.unwrap().unwrap();
+        stored.instructions = case["instructions"].as_str().expect("instructions").to_string();
+        f.webhooks.upsert(&stored).await.unwrap();
+        let id = format!("d{index}");
+        received(&f, "gh", &id).await;
+        let sent: Headers = case["headers"].as_object().expect("headers").iter().map(|(k, v)| (k.clone(), v.as_str().expect("text").to_string())).collect();
+        dispatch.handle("gh", case["body"].clone(), &sent, &id, true).await.unwrap();
+        settled_delivery(&f, &work, "gh", &id).await;
+        let turn = &f.host.turns()[index];
+        let name = &case["name"];
+        // The turn opens with the routine preamble; the webhook prompt is what follows it, whole (an empty instruction leaves its blank lines to the join).
+        let prompt = case["prompt"].as_str().expect("prompt").trim_start_matches('\n');
+        assert!(content_of(turn).ends_with(&format!("\n\n{prompt}")), "{name}: prompt");
+        assert_eq!(json!(turn.skill_selection), case["skillSelection"], "{name}: selection");
+        assert_eq!(json!(turn.trigger.event.clone().unwrap_or_default()), case["summary"], "{name}: label");
     }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_parser_only_endpoint_goes_to_the_event_pipeline_or_is_unknown() {
-    let f = fixture().await;
-    let taken = HomeWebhookDispatch::new(f.rt.clone(), f.webhooks.clone(), Some(Arc::new(Pipeline(true))), RunningWork::new());
-    received(&f, "parser", "d1").await;
-    let reply = taken.handle("parser", json!({}), &headers(&[]), "d1", false).await.unwrap();
-    assert_eq!((reply.status, reply.body), (200, json!({"status": "accepted", "id": "d1"})));
-    assert_eq!(f.webhooks.delivery_row("parser", "d1").await.unwrap().0, "done");
-
-    let refused = HomeWebhookDispatch::new(f.rt.clone(), f.webhooks.clone(), Some(Arc::new(Pipeline(false))), RunningWork::new());
-    received(&f, "parser", "d2").await;
-    let reply = refused.handle("parser", json!({}), &headers(&[]), "d2", false).await.unwrap();
-    assert_eq!((reply.status, reply.body), (404, json!({"error": "unknown endpoint"})));
-    assert_eq!(f.webhooks.delivery_row("parser", "d2").await.unwrap(), ("failed".to_string(), Some("unknown endpoint".to_string())));
-    assert!(f.host.turns().is_empty());
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_table_endpoint_that_vanished_falls_through_as_a_failed_delivery() {
-    let f = fixture().await;
-    let dispatch = HomeWebhookDispatch::new(f.rt.clone(), f.webhooks.clone(), None, RunningWork::new());
-    received(&f, "gone", "d1").await;
-    let reply = dispatch.handle("gone", json!({}), &headers(&[]), "d1", true).await.unwrap();
-    assert_eq!(reply.status, 404);
-    assert_eq!(f.webhooks.delivery_row("gone", "d1").await.unwrap().1.as_deref(), Some("unknown endpoint"));
 }

@@ -7,6 +7,7 @@ import { useTranscriptEndPin } from './transcript-list-end-pin';
 import { logicalScrollOffset, type TranscriptVirtualizer } from './transcript-list-geometry';
 import { transcriptRowVariant } from './transcript-list-estimates';
 import { useSessionAttentionIndex } from './session-attention-index';
+import { useSurfaceActive } from './surface-activity';
 import { useMarkdownPrefetch } from './transcript-list-markdown-prefetch';
 import { useReadingAnchor } from './transcript-list-reading-anchor';
 import { useVirtualizerResizePatch } from './transcript-list-resize-patch';
@@ -14,6 +15,7 @@ import { useMountedRowMeasurement } from './transcript-list-row-measure';
 import { useTranscriptRowRegistration } from './transcript-list-row-registration';
 import { useTranscriptScrollGeometry } from './transcript-list-scroll-geometry';
 import { useSelectionPin } from './transcript-list-selection-pin';
+import { createTranscriptRowNodes, paintsNothing, type TranscriptRowNodes } from './transcript-list-row-nodes';
 import { useTouchScrollDeviation } from './transcript-list-touch-deviation';
 import { useActiveRowIndexes, useTranscriptVirtualizer } from './transcript-list-virtualizer';
 import type { TranscriptRowSurface } from './transcript-row-estimates';
@@ -240,27 +242,32 @@ export function TranscriptList({
   );
 
   const virtualRows = virtualizer.getVirtualItems();
+  const shown = useSurfaceActive();
   // The core's visible range (overscan excluded), current after the read above.
   const visible = virtualizer.range;
-  useMarkdownPrefetch(rows, visible?.startIndex ?? -1, visible?.endIndex ?? -1);
-  // Each row's node, rendered once per commit: a row's step reads whether the
-  // rows above it paint anything.
-  const nodes = new Map<number, ReactNode>();
-  const nodeAt = (index: number): ReactNode => {
-    if (!nodes.has(index)) nodes.set(index, renderRow(rows[index] as TranscriptRowModel, index, rows));
-    return nodes.get(index);
-  };
+  useMarkdownPrefetch(rows, shown && visible ? visible.startIndex : -1, visible?.endIndex ?? -1);
+  // Each row's node, rendered once per (rows, renderRow): a row's step reads
+  // whether the rows around it paint anything. A list-internal render (the
+  // visible range moved) reuses the nodes and neighbour walks.
+  // A hidden pane keeps the spacer, measurements and scroll owner, not the
+  // nodes accumulated on the way to this range. Keep pinned live/question
+  // rows mounted: a question's unsubmitted picks live in its card.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: visibility starts a fresh node cache
+  const rowNodes = useMemo(() => createTranscriptRowNodes(rows, renderRow), [rows, renderRow, shown]);
+  // A zero-height viewport has no extracted range, even in the commit
+  // that reveals the pane. Its full measurement list still has the pins.
+  const mounted = shown && visible ? virtualRows : activeIndexesRef.current.flatMap((index) => virtualizer.measurementsCache[index] ?? []);
   return (
     // directDomUpdates owns this height synchronously through containerRef.
     // A React height prop can commit an older render after a native wheel
     // reaches the bottom and temporarily clip one pane at stale geometry.
     <div className="transcript-virtual-space" ref={bindSpacer}>
-      {virtualRows.map((virtualRow) =>
+      {mounted.map((virtualRow) =>
         renderVirtualRow(
           virtualRow,
           rows,
           measureRow,
-          nodeAt,
+          rowNodes,
           visible !== null && (virtualRow.index < visible.startIndex || virtualRow.index > visible.endIndex),
           waiting
         )
@@ -271,8 +278,6 @@ export function TranscriptList({
 
 const noTouchScroll = () => false;
 
-const paintsNothing = (node: ReactNode) => node === null || node === undefined || node === false;
-
 /** How a row sits against its neighbours: whether it paints, and the gaps and
  *  bands the stylesheet keys off (12-transcript.css). */
 function rowSteps(
@@ -280,7 +285,7 @@ function rowSteps(
   index: number,
   rows: readonly TranscriptRowModel[],
   node: ReactNode,
-  nodeAt: (index: number) => ReactNode
+  rowNodes: TranscriptRowNodes
 ) {
   // A row that renders nothing (an agent chat's tool round or unfinished
   // reply) takes no room and no step, and the row below it steps from the
@@ -288,12 +293,10 @@ function rowSteps(
   // tool round moved the agent's typing bubble 8px and the reply then landed
   // 16px above it, so the thread shook while the reply was generated.
   const blank = paintsNothing(node);
-  let above = index - 1;
-  while (above >= 0 && paintsNothing(nodeAt(above))) above -= 1;
+  const above = rowNodes.paintedAbove(index);
   // Rows below that paint nothing (a reaction-only turn's tool round) do not
   // keep the turn open: the turn ends at the next painted row.
-  let nextIndex = index + 1;
-  while (nextIndex < rows.length && paintsNothing(nodeAt(nextIndex))) nextIndex += 1;
+  const nextIndex = rowNodes.paintedBelow(index);
   const next = rows[nextIndex];
   const before = rows[above];
   const previous = blank ? undefined : before?._tag;
@@ -321,15 +324,15 @@ function renderVirtualRow(
   virtualRow: VirtualItem,
   rows: readonly TranscriptRowModel[],
   measureRow: ReturnType<typeof useTranscriptRowRegistration>['measureRow'],
-  nodeAt: (index: number) => ReactNode,
+  rowNodes: TranscriptRowNodes,
   offscreen: boolean,
   /** Sessions waiting for the user now (a wait report shows only for them). */
   waiting: ReadonlySet<string>
 ) {
   const row = rows[virtualRow.index];
   if (!row) return null;
-  const node = nodeAt(virtualRow.index);
-  const { blank, bandLead, stepBefore, turnEnd, afterChanges } = rowSteps(row, virtualRow.index, rows, node, nodeAt);
+  const node = rowNodes.nodeAt(virtualRow.index);
+  const { blank, bandLead, stepBefore, turnEnd, afterChanges } = rowSteps(row, virtualRow.index, rows, node, rowNodes);
   // What the row paints from other rows (hand-off lines, a hidden report),
   // from the same rows as its node: its measurements are recorded under it
   // (transcript-list-estimates.ts).

@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
 
 use mixdog_core_api::CoreError;
-use mixdog_core_api::Reply;
 use mixdog_core_api::ThreadDirectory;
 use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::call::CallContext;
@@ -150,8 +149,8 @@ fn header_patch(handle: &SessionHandle, title: &str) -> CoreRequest {
     CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") }
 }
 
-/// The write of the burst fails (rolled back): the post is told once with one notice (`_recordSaveFailure`), nothing of it is
-/// stored or shown, and its rows stay queued: the next write of the thread takes them first, in order, then its own record.
+/// The request hears the failure, but its whole burst stays queued. It raises a warning even before the rows are shown.
+/// The next write takes the retained rows first, and its acknowledgement withdraws the warning.
 #[tokio::test(start_paused = true)]
 async fn a_failed_write_of_a_burst_keeps_its_rows_for_the_next_write() {
     let rig = Rig::new();
@@ -163,7 +162,7 @@ async fn a_failed_write_of_a_burst_keeps_its_rows_for_the_next_write() {
     rig.store.fail_next.store(true, SeqCst);
     let failed = handle.request(inherited_append(conversation())).await;
     assert!(matches!(failed, Err(CoreError::BarrierFailed { .. })), "{failed:?}");
-    assert_eq!(*lock(&rig.notices.0), ["save-failed"]);
+    eventually_on!(&[&rig.notices.1], || (lock(&rig.notices.0).as_slice() == ["save-failed"]).then_some(())).await;
     assert!(stored(&rig, &handle.id).is_empty());
     assert!(handle.cell.view.load_full().items.is_empty(), "no prefix of the burst is shown");
     handle.request(header_patch(&handle, "next")).await.expect("the next write lands");
@@ -175,7 +174,28 @@ async fn a_failed_write_of_a_burst_keeps_its_rows_for_the_next_write() {
     );
     let shown = handle.cell.view.load_full().items.len();
     assert!(shown > 0, "the rows show once landed");
-    assert_eq!(*lock(&rig.notices.0), ["save-failed"], "the failure was told once");
+    eventually_on!(&[&rig.notices.1], || (lock(&rig.notices.0).as_slice() == ["save-failed", "save-resolved"]).then_some(())).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_indeterminate_room_commit_warns_after_its_rows_leave_the_outbox() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    rig.store.indeterminate_next.store(true, SeqCst);
+    let failed = handle.request(inherited_append(vec![json!({ "role": "user", "content": "uncertain" })])).await;
+    assert!(matches!(failed, Err(CoreError::StorageIndeterminate { .. })), "{failed:?}");
+    eventually_on!(&[&rig.notices.1, &handle.cell.stepped], || {
+        (handle.recovered()
+            && lock(&rig.notices.2).last().map(|(event, id)| (*event, id.as_str())) == Some(("save-failed", handle.id.as_str()))).then_some(())
+    }).await;
+    assert!(handle.cell.view.load_full().items.is_empty(), "the refused rows were not shown");
+
+    handle.retry_storage().expect("request reconciliation");
+    eventually_on!(&[&rig.notices.1], || {
+        (lock(&rig.notices.2).last().map(|(event, id)| (*event, id.as_str())) == Some(("save-resolved", handle.id.as_str()))).then_some(())
+    }).await;
+    assert!(stored(&rig, &handle.id).is_empty(), "reconciliation did not replay the refused rows");
 }
 
 /// `inheritFrom` answers as Node's (whose save it does not await) when the heir's write fails: the inheritance succeeds,
@@ -201,7 +221,7 @@ async fn an_inheritance_whose_write_fails_answers_and_its_rows_land_with_the_nex
         ctx: CallContext::connection(mixdog_core_api::ids::ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new()),
     };
     directory.request(fork).await.expect("the inheritance answers");
-    assert_eq!(*lock(&rig.notices.0), ["save-failed"]);
+    assert_eq!(*lock(&rig.notices.0), ["save-failed"], "the heir holds accepted rows the disk lacks");
     assert!(stored(&rig, &heir).is_empty());
     let stored_header = rig.store.stored_header(&heir).expect("the heir's header");
     assert!(mixdog_store::offload_sources::mark(&stored_header).is_some(), "the heir's stored header still holds the copy mark: {stored_header:?}");

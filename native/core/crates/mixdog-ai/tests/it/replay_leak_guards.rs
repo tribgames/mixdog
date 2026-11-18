@@ -19,6 +19,7 @@ use crate::provider_case::Endpoint;
 use crate::provider_case::plain;
 use crate::provider_case::within;
 use crate::replay_anthropic;
+#[cfg(node_twin)]
 use crate::replay_world;
 
 fn entry(key: &str, value: Exact) -> (String, Exact) {
@@ -27,6 +28,7 @@ fn entry(key: &str, value: Exact) -> (String, Exact) {
 
 /// The n-th send of the case with `messages` (Node transcript messages): its model and tools; `opts` holds only the
 /// observing callbacks.
+#[cfg(node_twin)]
 fn request(case: &Case, n: usize, messages: &[Exact]) -> ModelRequest {
     let args = case.args_of("#send", n);
     for (key, value) in args[3].entries() {
@@ -112,6 +114,7 @@ fn num(n: u64) -> Exact {
 
 /// Node's `send` result of the Chat, Responses and Gemini routes (`openai-compat.mjs` `_sendChat` / `_sendResponses`,
 /// `gemini.mjs` `geminiSendResult`) from the core's events, in Node's key order.
+#[cfg(node_twin)]
 fn route_result(route: &str, events: &[StreamEvent], requested: &str) -> Exact {
     let mut content = String::new();
     let mut model = requested.to_owned();
@@ -213,6 +216,7 @@ fn route_result(route: &str, events: &[StreamEvent], requested: &str) -> Exact {
 
 /// The n-th send's request over `messages`; a transcript message's `providerState` is the session state the agent hands
 /// the send (`opts.providerState` in the core), not part of the message.
+#[cfg(node_twin)]
 fn send_request(case: &Case, n: usize, messages: &[Exact]) -> ModelRequest {
     let mut request = request(case, n, messages);
     for message in messages {
@@ -244,6 +248,7 @@ fn transcript(history: &[Exact], first: &Exact) -> Vec<Exact> {
 }
 
 /// One case's two sends against `endpoint`, compared with Node's.
+#[cfg(node_twin)]
 async fn replay(set: &CaseSet, case: &Case, endpoint: &Endpoint) {
     let route = case.input.get("route").as_str();
     let home = tempfile::tempdir().expect("a home");
@@ -282,14 +287,17 @@ async fn replay(set: &CaseSet, case: &Case, endpoint: &Endpoint) {
     set.assert_requests(case, &endpoint.arrivals(), None);
 }
 
+#[cfg(node_twin)]
 pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "leak-guards", run: every_case_replays_as_nodes }];
 
 /// Run in the replay's own scope (`run_scoped`), on the paused clock: its scripted draws and wall time are its own.
+#[cfg(node_twin)]
 #[test]
 fn every_case_replays_as_nodes() {
     mixdog_ai::random::run_scoped(every_case());
 }
 
+#[cfg(node_twin)]
 async fn every_case() {
     use futures::FutureExt as _;
     tokio::time::pause();

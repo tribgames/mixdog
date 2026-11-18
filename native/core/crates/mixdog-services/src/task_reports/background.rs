@@ -37,30 +37,38 @@ impl BoardReads {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, node_twin))]
 mod tests {
+    #[cfg(node_twin)]
     use std::sync::Arc;
 
+    #[cfg(node_twin)]
     use mixdog_agent::agent_tool::board::{Completion, JobOwner, NewJob, JobMeta};
     use mixdog_agent::env::Clock;
     use serde_json::Value;
 
+    #[cfg(node_twin)]
     use super::*;
 
+    #[cfg(node_twin)]
     const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/session-activity/golden.json");
 
+    #[cfg(node_twin)]
     struct Fixed;
+    #[cfg(node_twin)]
     impl Clock for Fixed {
         fn now_ms(&self) -> i64 {
             1_800_000_000_000
         }
     }
 
+    #[cfg(node_twin)]
     fn text(value: &Value) -> Option<String> {
         value.as_str().filter(|s| !s.is_empty()).map(str::to_owned)
     }
 
     /// The recorded registrations on a board; only the agent surface lives there.
+    #[cfg(node_twin)]
     fn recorded_board() -> (JobBoard, Value) {
         let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let background = golden["backgroundTasks"].clone();
@@ -82,6 +90,7 @@ mod tests {
         (board, background)
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn the_agent_tasks_equal_node_s_rows() {
         let (board, background) = recorded_board();
@@ -95,6 +104,7 @@ mod tests {
         assert_eq!(rows, expected);
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn the_task_owners_equal_node_s_active_session_ids() {
         let (board, background) = recorded_board();
@@ -104,3 +114,4 @@ mod tests {
         assert_eq!(owners, expected);
     }
 }
+

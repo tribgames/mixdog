@@ -23,26 +23,31 @@ pub mod models;
 pub mod policy;
 pub mod maas;
 pub mod redirect;
+pub mod roster_cache;
 pub mod request;
 pub mod schema;
 pub mod serving;
 pub mod tool_accept;
 pub mod traits;
 mod watchdog;
-pub use watchdog::StreamWatch;
+pub use watchdog::stream_call;
 
 #[cfg(test)]
 mod claude_replay_wire_tests;
 #[cfg(test)]
 mod first_response_budget_tests;
 #[cfg(test)]
+mod head_wait_tests;
+#[cfg(test)]
 mod conformance;
 #[cfg(test)]
 pub(crate) mod wire_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod tool_accept_tests;
 #[cfg(test)]
 mod maas_wire_tests;
+#[cfg(node_twin)]
 #[cfg(test)]
 mod stream_replay_tests;
 #[cfg(test)]
@@ -51,6 +56,8 @@ mod usage_wire_tests;
 mod vertex_claude_cancel_wire_tests;
 #[cfg(test)]
 mod vertex_claude_wire_tests;
+#[cfg(test)]
+mod boundary_regressions;
 
 use adapter::GoogleAdapter;
 use auth::ApiKeyAuth;
@@ -63,6 +70,7 @@ use crate::providers::key_source::ApiKeySource;
 use crate::transport::HttpSend;
 use traits::ModelTraits;
 
+
 /// `gemini`: the Gemini API with an API key.
 pub fn gemini(
     api_key: impl Into<String>,
@@ -71,7 +79,6 @@ pub fn gemini(
 ) -> GoogleAdapter {
     gemini_keyed(Arc::new(auth::HeldKey(api_key.into())), http, traits)
 }
-
 /// [`gemini`] with a key read at each request and re-read after a 401 (`resolveProviderApiKey`,
 /// `reloadProviderApiKey`).
 pub fn gemini_keyed(
@@ -88,7 +95,6 @@ pub fn gemini_keyed(
         cache::policy::Tuning::from_env(|name| std::env::var(name).ok()),
     )
 }
-
 /// [`gemini`] over the given clock/task seam, cache registry and tuning: the one wiring, so a test drives the
 /// production adapter with a virtual clock.
 pub fn gemini_with(
@@ -118,7 +124,6 @@ pub fn gemini_with(
     .with_key_reload(key)
     .with_cache(cache)
 }
-
 /// `vertex-ai` on a project, with minted tokens or a key. `place` decides each
 /// request's location ([`serving::VertexPlace::choose`]); `identity` is the
 /// credential's ([`auth::vertex::VertexAuth::identity`]); `claude_caps` the
@@ -133,16 +138,24 @@ pub fn vertex(
 ) -> GoogleAdapter {
     GoogleAdapter::new(GoogleCodec::vertex(place, traits).with_claude_caps(claude_caps), policy::gemini(), http, auth, identity)
 }
-
 /// `vertex-ai` in express mode: an API key on the global endpoint.
 pub fn vertex_express(
     api_key: impl Into<String>,
     http: Arc<dyn HttpSend>,
     traits: Arc<dyn ModelTraits>,
 ) -> GoogleAdapter {
-    // An express key serves Gemini models only: no Claude request is built.
+    vertex_express_at(api_key, None, http, traits)
+}
+
+/// Express ignores ambient location but must validate a location explicitly set by its caller.
+pub fn vertex_express_at(
+    api_key: impl Into<String>,
+    configured_location: Option<&str>,
+    http: Arc<dyn HttpSend>,
+    traits: Arc<dyn ModelTraits>,
+) -> GoogleAdapter {
     vertex(
-        serving::VertexPlace::express(),
+        serving::VertexPlace::express_at(configured_location),
         Arc::new(ApiKeyAuth::new(api_key)),
         String::new(),
         http,
@@ -150,7 +163,6 @@ pub fn vertex_express(
         Arc::new(|_| None),
     )
 }
-
 /// `antigravity-oauth`, bound to the signed-in account's Cloud project. A
 /// new sign-in with another project needs a new adapter; the old one then
 /// refuses to send.

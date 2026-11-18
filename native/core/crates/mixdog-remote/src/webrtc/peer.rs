@@ -214,121 +214,6 @@ pub(crate) struct MediaSetup {
     pub registry: Registry,
 }
 
-pub(crate) async fn open(
-    config: &PeerConfig,
-    media: Option<MediaSetup>,
-) -> Result<Opened, PeerFault> {
-    config.validate()?;
-    let mdns = mdns_mode(config);
-    #[cfg(test)]
-    config.hooks.builds.lock().unwrap().push(mdns);
-    let (tx, rx) = mpsc::unbounded_channel();
-    let pc = build(config, media, mdns, tx)
-        .await
-        .map_err(|e| PeerFault::new(PeerFailure::PeerHostUnavailable, e.to_string()))?;
-    Ok(Opened {
-        events: PeerEvents {
-            rx,
-            pc: Arc::clone(&pc),
-        },
-        pc,
-    })
-}
-
-/// Whether this machine lets a connection resolve a peer's mDNS `.local` candidates.
-///
-/// With mDNS on, the crate's driver opens and joins one multicast socket
-/// (`MulticastSocket::new().into_std()`: bind `0.0.0.0:5353`, join 224.0.0.251 on the interface
-/// the system routes multicast to, rtc-mdns `socket.rs:171-209`) and fails the whole build when
-/// the machine refuses it: a Windows whose multicast route leads to an adapter without a usable
-/// address answers the join with `WSAEHOSTUNREACH` (os error 10065). That refusal reaches
-/// `build` only as `Error::Other(text)` (webrtc `driver.rs:645` `?`, `:741`), the same shape as
-/// any other transport failure, so it cannot be told apart there. The same socket is therefore
-/// opened and joined here first, with the same options, and closed again before the build;
-/// mDNS is left off only when this machine refuses it. Node's peer is Chromium's
-/// `RTCPeerConnection` (`remote-transport-peer.ts:728`, `remote-webrtc-sender/main.ts:173-177`),
-/// which comes up whatever mDNS can do and only leaves such a name unresolved (Node accepts
-/// `.local` candidates, `shared/remote-webrtc.ts:1003-1011`).
-fn mdns_mode(config: &PeerConfig) -> MulticastDnsMode {
-    match open_mdns_socket(config) {
-        // Closed here, before the driver binds the same port.
-        Ok(socket) => {
-            drop(socket);
-            MulticastDnsMode::QueryOnly
-        }
-        Err(error) => {
-            tracing::warn!("mixdog remote: this machine refuses the mDNS socket ({error}); the peer connection runs without resolving .local candidates");
-            MulticastDnsMode::Disabled
-        }
-    }
-}
-
-fn open_mdns_socket(config: &PeerConfig) -> std::io::Result<std::net::UdpSocket> {
-    #[cfg(test)]
-    if let Some(open) = config.hooks.mdns_socket {
-        return open();
-    }
-    let _ = config;
-    rtc::mdns::MulticastSocket::new().into_std()
-}
-
-async fn build(
-    config: &PeerConfig,
-    media: Option<MediaSetup>,
-    mdns: MulticastDnsMode,
-    tx: mpsc::UnboundedSender<Raw>,
-) -> Result<Arc<dyn PeerConnection>, webrtc::error::Error> {
-    let ice_servers = config
-        .ice_servers
-        .iter()
-        .map(|server| RTCIceServer {
-            urls: server.urls.clone(),
-            username: server.username.clone().unwrap_or_default(),
-            credential: server.credential.clone().unwrap_or_default(),
-        })
-        .collect();
-    let rtc_config = RTCConfigurationBuilder::new()
-        .with_ice_servers(ice_servers)
-        .with_ice_transport_policy(RTCIceTransportPolicy::All)
-        .with_bundle_policy(RTCBundlePolicy::MaxBundle)
-        .build();
-    let settings = SettingEngineBuilder::new()
-        .with_include_loopback_candidate(config.include_loopback)
-        .with_multicast_dns_mode(mdns)
-        .build();
-    let mut builder = PeerConnectionBuilder::new()
-        .with_configuration(rtc_config)
-        .with_setting_engine(settings)
-        .with_handler(Arc::new(Handler { tx }))
-        .with_udp_addrs(config.udp_bind.clone());
-    if let Some(media) = media {
-        builder = builder
-            .with_media_engine(media.engine)
-            .with_interceptor_registry(media.registry);
-    }
-    #[cfg(test)]
-    if let Some(runtime) = &config.hooks.runtime {
-        builder = builder.with_runtime(Arc::clone(runtime));
-    }
-    Ok(Arc::new(builder.build().await?))
-}
-
-/// The first offer, or an ICE restart on the same connection. Returns the local SDP.
-pub(crate) async fn make_offer(pc: &dyn PeerConnection, ice_restart: bool) -> Result<String, PeerFault> {
-    let options = ice_restart.then_some(RTCOfferOptions { ice_restart: true });
-    let protocol = |e: webrtc::error::Error| PeerFault::new(PeerFailure::ProtocolError, e.to_string());
-    let offer = pc.create_offer(options).await.map_err(protocol)?;
-    pc.set_local_description(offer.clone()).await.map_err(protocol)?;
-    let local = pc.local_description().await;
-    Ok(local.map_or(offer.sdp, |description| description.sdp))
-}
-
-pub(crate) async fn apply_answer(pc: &dyn PeerConnection, sdp: String) -> Result<(), PeerFault> {
-    let protocol = |e: webrtc::error::Error| PeerFault::new(PeerFailure::ProtocolError, e.to_string());
-    let answer = RTCSessionDescription::answer(sdp).map_err(protocol)?;
-    pc.set_remote_description(answer).await.map_err(protocol)
-}
-
 /// A candidate the connection refuses (one of an earlier ICE generation) changes nothing; the
 /// connection stands. `None` is the peer's end of candidates.
 pub(crate) async fn add_candidate(pc: &dyn PeerConnection, candidate: Option<Candidate>) {
@@ -420,6 +305,12 @@ mod tests {
         std::net::UdpSocket::bind("127.0.0.1:0")
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn a_step_that_finishes_returns_its_value() {
+        assert_eq!(PeerBudget::default().step("stats", async { 7 }).await.unwrap(), 7);
+    }
+
+
     /// A machine that allows the mDNS socket builds the connection with `.local` resolution on.
     /// Only the mode is asserted: whether the driver's own join then succeeds is the machine's
     /// (this PC refuses it at times), so the build's outcome is not part of this test.
@@ -431,7 +322,6 @@ mod tests {
         let _built = mixdog_rt::time::timeout(Duration::from_secs(20), open(&config, None)).await.expect("the open answers within the test bound");
         assert_eq!(*config.hooks.builds.lock().unwrap(), vec![MulticastDnsMode::QueryOnly], "one build, with mDNS resolution on");
     }
-
     #[tokio::test(start_paused = true)]
     async fn a_step_that_never_finishes_ends_at_the_budget() {
         let started = tokio::time::Instant::now();
@@ -443,7 +333,6 @@ mod tests {
         assert_eq!(fault.reason, PeerFailure::PeerHostUnavailable);
         assert_eq!(fault.detail.as_deref(), Some("create offer timed out"));
     }
-
     #[tokio::test(start_paused = true)]
     async fn closing_the_budget_ends_a_pending_step_at_once() {
         let budget = PeerBudget::default();
@@ -453,9 +342,115 @@ mod tests {
         assert_eq!(started.elapsed(), Duration::ZERO);
         assert_eq!(fault.detail.as_deref(), Some("connection closed"));
     }
+}
 
-    #[tokio::test(start_paused = true)]
-    async fn a_step_that_finishes_returns_its_value() {
-        assert_eq!(PeerBudget::default().step("stats", async { 7 }).await.unwrap(), 7);
+
+pub(crate) async fn open(
+    config: &PeerConfig,
+    media: Option<MediaSetup>,
+) -> Result<Opened, PeerFault> {
+    config.validate()?;
+    let mdns = mdns_mode(config);
+    #[cfg(test)]
+    config.hooks.builds.lock().unwrap().push(mdns);
+    let (tx, rx) = mpsc::unbounded_channel();
+    let pc = build(config, media, mdns, tx)
+        .await
+        .map_err(|e| PeerFault::new(PeerFailure::PeerHostUnavailable, e.to_string()))?;
+    Ok(Opened {
+        events: PeerEvents {
+            rx,
+            pc: Arc::clone(&pc),
+        },
+        pc,
+    })
+}
+/// Whether this machine lets a connection resolve a peer's mDNS `.local` candidates.
+///
+/// With mDNS on, the crate's driver opens and joins one multicast socket
+/// (`MulticastSocket::new().into_std()`: bind `0.0.0.0:5353`, join 224.0.0.251 on the interface
+/// the system routes multicast to, rtc-mdns `socket.rs:171-209`) and fails the whole build when
+/// the machine refuses it: a Windows whose multicast route leads to an adapter without a usable
+/// address answers the join with `WSAEHOSTUNREACH` (os error 10065). That refusal reaches
+/// `build` only as `Error::Other(text)` (webrtc `driver.rs:645` `?`, `:741`), the same shape as
+/// any other transport failure, so it cannot be told apart there. The same socket is therefore
+/// opened and joined here first, with the same options, and closed again before the build;
+/// mDNS is left off only when this machine refuses it. Node's peer is Chromium's
+/// `RTCPeerConnection` (`remote-transport-peer.ts:728`, `remote-webrtc-sender/main.ts:173-177`),
+/// which comes up whatever mDNS can do and only leaves such a name unresolved (Node accepts
+/// `.local` candidates, `shared/remote-webrtc.ts:1003-1011`).
+fn mdns_mode(config: &PeerConfig) -> MulticastDnsMode {
+    match open_mdns_socket(config) {
+        // Closed here, before the driver binds the same port.
+        Ok(socket) => {
+            drop(socket);
+            MulticastDnsMode::QueryOnly
+        }
+        Err(error) => {
+            tracing::warn!("mixdog remote: this machine refuses the mDNS socket ({error}); the peer connection runs without resolving .local candidates");
+            MulticastDnsMode::Disabled
+        }
     }
+}
+fn open_mdns_socket(config: &PeerConfig) -> std::io::Result<std::net::UdpSocket> {
+    #[cfg(test)]
+    if let Some(open) = config.hooks.mdns_socket {
+        return open();
+    }
+    let _ = config;
+    rtc::mdns::MulticastSocket::new().into_std()
+}
+async fn build(
+    config: &PeerConfig,
+    media: Option<MediaSetup>,
+    mdns: MulticastDnsMode,
+    tx: mpsc::UnboundedSender<Raw>,
+) -> Result<Arc<dyn PeerConnection>, webrtc::error::Error> {
+    let ice_servers = config
+        .ice_servers
+        .iter()
+        .map(|server| RTCIceServer {
+            urls: server.urls.clone(),
+            username: server.username.clone().unwrap_or_default(),
+            credential: server.credential.clone().unwrap_or_default(),
+        })
+        .collect();
+    let rtc_config = RTCConfigurationBuilder::new()
+        .with_ice_servers(ice_servers)
+        .with_ice_transport_policy(RTCIceTransportPolicy::All)
+        .with_bundle_policy(RTCBundlePolicy::MaxBundle)
+        .build();
+    let settings = SettingEngineBuilder::new()
+        .with_include_loopback_candidate(config.include_loopback)
+        .with_multicast_dns_mode(mdns)
+        .build();
+    let mut builder = PeerConnectionBuilder::new()
+        .with_configuration(rtc_config)
+        .with_setting_engine(settings)
+        .with_handler(Arc::new(Handler { tx }))
+        .with_udp_addrs(config.udp_bind.clone());
+    if let Some(media) = media {
+        builder = builder
+            .with_media_engine(media.engine)
+            .with_interceptor_registry(media.registry);
+    }
+    #[cfg(test)]
+    if let Some(runtime) = &config.hooks.runtime {
+        builder = builder.with_runtime(Arc::clone(runtime));
+    }
+    Ok(Arc::new(builder.build().await?))
+}
+/// The first offer, or an ICE restart on the same connection. Returns the local SDP.
+pub(crate) async fn make_offer(pc: &dyn PeerConnection, ice_restart: bool) -> Result<String, PeerFault> {
+    let options = ice_restart.then_some(RTCOfferOptions { ice_restart: true });
+    let protocol = |e: webrtc::error::Error| PeerFault::new(PeerFailure::ProtocolError, e.to_string());
+    let offer = pc.create_offer(options).await.map_err(protocol)?;
+    pc.set_local_description(offer.clone()).await.map_err(protocol)?;
+    let local = pc.local_description().await;
+    Ok(local.map_or(offer.sdp, |description| description.sdp))
+}
+pub(crate) async fn apply_answer(pc: &dyn PeerConnection, sdp: String) -> Result<(), PeerFault> {
+    let protocol = |e: webrtc::error::Error| PeerFault::new(PeerFailure::ProtocolError, e.to_string());
+    let answer = RTCSessionDescription::answer(sdp).map_err(protocol)?;
+    pc.set_remote_description(answer).await.map_err(protocol)
 }

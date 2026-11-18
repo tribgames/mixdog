@@ -253,7 +253,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     getQuotaAutoResume: () => call('getQuotaAutoResume', []),
     viewerDevice: () => call('viewerDevice', []),
     getTaskWorkspace: () => call('getTaskWorkspace', []),
-    readTranscriptItem: (sessionId, itemId) => call('readTranscriptItem', [sessionId, itemId]),
+    readTranscriptItem: (sessionId, itemId, replayToken) =>
+      call('readTranscriptItem', replayToken === undefined ? [sessionId, itemId] : [sessionId, itemId, replayToken]),
     setQuotaAutoResume: (enabled) => call('setQuotaAutoResume', [enabled]),
     setSessionArchived: (sessionId: string, archived: boolean) => call('setSessionArchived', [sessionId, archived]),
     openAgentHome: (agentId: string) => call('openAgentHome', [agentId]),
@@ -289,8 +290,11 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       } catch {
         /* the next launch simply waits for React, as before */
       }
-      // The threads open on the core; false asks the page to name them again.
-      return ctx.phone.setVisibleSessions(requested);
+      // The threads open on the core; false asks the page to name them again. Settled either way, the threads the view let go
+      // of are no longer the client's (remote-session-states.ts ends their lanes).
+      return ctx.phone.setVisibleSessions(requested).finally(() => {
+        for (const listener of [...ctx.viewSettledListeners]) listener();
+      });
     },
     searchProjectFiles: (projectIdOrWorkspaceId, query, limit, includeIgnored, includeDirectories) =>
       call('searchProjectFiles', [
@@ -425,10 +429,9 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       );
     },
     submitToSession: (sessionId, prompt, options) => {
-      // An older host does not dedupe, so a retry could double-submit: send once.
-      if (!parity()) return call('submitToSession', [sessionId, prompt, options]);
-      // Stable id: the host dedupes by it, so replaying after a lost reply
-      // cannot double-submit and the optimistic row keeps reconciling.
+      // Always with a stable id, whatever else this host serves (the flag that once gated this, `remoteParity`, waits on unrelated
+      // calls): the core dedupes a start by `clientSubmissionId`, so replaying after a lost reply cannot double-submit and the
+      // optimistic row keeps reconciling.
       const stable = { ...options, id: options?.id || newBrowserId() };
       return recoverableCreation(
         () => call('submitToSession', [sessionId, prompt, stable]),
@@ -448,6 +451,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     listConversationNotifications: () => call('listConversationNotifications'),
     setConversationNotification: (target, setting) => call('setConversationNotification', [target, setting]),
     subscribeSessionState: (listener) => sessionInbox.subscribe(listener),
+    sessionStreamPosition: (sessionId) => call('sessionStreamPosition', [sessionId]),
     inheritSession: (sourceSessionId, selection, options) =>
       call('inheritSession', [sourceSessionId, hostSelection(selection ?? null), options ?? null]),
     listProviderModels: (options) => call('listProviderModels', [options]),
@@ -589,17 +593,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
   Object.defineProperty(api, 'remoteTermSizeOwner', { enumerable: true, get: () => ctx.peerTermSizeOwner === true });
   // Read per access: a reconnect may reach a host that predates `usageRequests`.
   Object.defineProperty(api, 'remoteUsageRequests', { enumerable: true, get: () => ctx.peerUsageRequests === true });
-  // A handoff secret typed on this phone (ApprovalCard). Present only over an
-  // encrypted channel to a host that advertised `secretInput`; otherwise the
-  // card keeps "Enter it on your PC" and the value is never sent. It rides the
-  // plain relay call: no grant-refresh wrapper, no retry, nothing retained.
-  Object.defineProperty(api, 'provideSecretInput', {
-    enumerable: true,
-    get: () =>
-      ctx.peerSecretInput === true && ctx.e2eePairing
-        ? (requestId: string, value: string) => relayCall<boolean>('provideSecretInput', [requestId, value])
-        : undefined,
-  });
+  // Never expose provideSecretInput, even if an older host advertises it:
+  // ApprovalCard keeps "Enter it on your PC" and still offers Cancel.
   // Absent on a host that predates `hostDirectories`, so the folder browser
   // keeps its legacy fallback.
   Object.defineProperty(api, 'listHostDirectories', {

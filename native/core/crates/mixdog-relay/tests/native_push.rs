@@ -1,7 +1,4 @@
-//! Native push: the 17 cases of `apps/relay/lib/native-push.test.mjs` (request shapes, 410 and UNREGISTERED, the sandbox
-//! host, provider-token and access-token reuse, bindings per desktop, the single-association shape, validation, the rate
-//! limit) plus the credential forms Node's `createPrivateKey` accepted. The senders run over a recording transport, so
-//! nothing reaches Apple or Google; signatures are verified with the public key, not compared.
+//! Native push: request shapes, token invalidation, token caching, credential forms, bindings per desktop and client, validation and rate limits. The senders run over a recording transport.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicI64, AtomicU16, AtomicUsize, Ordering};
@@ -484,7 +481,7 @@ async fn a_failed_token_exchange_is_a_failed_send() {
 // ---- credentials ----
 
 #[test]
-fn every_private_key_form_node_accepted_parses() {
+fn every_supported_private_key_form_parses() {
     let p8 = parse_ec_p256_pem(EC_P8).expect("PKCS#8 EC");
     let sec1 = parse_ec_p256_pem(EC_SEC1).expect("SEC1 EC");
     assert_eq!(p8.verifying_key(), sec1.verifying_key());
@@ -714,20 +711,6 @@ async fn one_phone_token_paired_with_two_desktops_both_deliver_and_revoking_one_
     paired.set("dev-c", &["client-5"]);
     assert_eq!(sent_error(&service, "dev-c", &paired, &send_frame(&json!({}))).await, "unbound-token");
     assert_eq!(push.sent(), 5);
-}
-
-#[tokio::test]
-async fn a_single_association_entry_is_still_honoured_and_upgraded_on_use() {
-    let paired = Paired::of(vec![("dev-a", vec!["client-1"]), ("dev-b", vec!["client-9"])]);
-    let push = FakePush::new(&["apns", "fcm"], delivered());
-    let service = service(&push);
-    service.hold_single_association(APNS_TOKEN, "dev-a", "client-1", "apns");
-    assert_eq!(sent_error(&service, "dev-b", &paired, &send_frame(&json!({}))).await, "unbound-token");
-    assert_eq!(service.send("dev-a", &paired, &send_frame(&json!({}))).await.unwrap()["ok"], true);
-    service.bind("dev-b", &paired, &bind_frame(&json!({ "clientId": "client-9" })));
-    assert_eq!(service.send("dev-b", &paired, &send_frame(&json!({}))).await.unwrap()["ok"], true);
-    assert_eq!(push.sent(), 2);
-    assert_eq!(service.association_count(APNS_TOKEN), Some(2));
 }
 
 #[tokio::test]

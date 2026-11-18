@@ -225,15 +225,6 @@ struct Download {
     armed: u64,
 }
 
-pub struct ServerDownloads {
-    me: Weak<ServerDownloads>,
-    max_bytes: u64,
-    idle: Duration,
-    lanes: Lanes,
-    downloads: Mutex<HashMap<String, Download>>,
-    finished: Mutex<HashSet<PathBuf>>,
-}
-
 #[cfg(unix)]
 fn write_all_at(file: &File, mut bytes: &[u8], mut offset: u64) -> std::io::Result<()> {
     while !bytes.is_empty() {
@@ -264,6 +255,248 @@ fn gone() -> WsError {
     WsError::plain("The download is gone: it was cancelled or sat idle too long.")
 }
 
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    struct Fake {
+        data: Vec<u8>,
+        /// The size the stat claims.
+        stat_size: u64,
+        /// The size each chunk claims.
+        chunk_size: u64,
+        /// At most this many bytes per read.
+        per_read: usize,
+        /// Answers the requested length plus this many bytes (a server that ignores the request).
+        extra: usize,
+    }
+
+    impl Fake {
+        fn of(data: &[u8]) -> Self {
+            Self { data: data.to_vec(), stat_size: data.len() as u64, chunk_size: data.len() as u64, per_read: usize::MAX, extra: 0 }
+        }
+    }
+
+    #[async_trait]
+    impl RemoteFileReader for Fake {
+        async fn stat(&self, _: &str, _: &str) -> WsResult<serde_json::Value> {
+            Ok(json!({ "size": self.stat_size, "mtimeMs": 1700.5 }))
+        }
+        async fn read_range(&self, _: &str, _: &str, offset: u64, length: u64) -> WsResult<serde_json::Value> {
+            let start = (offset as usize).min(self.data.len());
+            let end = (start + (length as usize).min(self.per_read) + self.extra).min(self.data.len());
+            Ok(json!({
+                "offset": offset,
+                "size": self.chunk_size,
+                "mtimeMs": 1700.5,
+                "data": base64::engine::general_purpose::STANDARD.encode(&self.data[start..end]),
+            }))
+        }
+    }
+
+    fn parts(dir: &Path) -> Vec<String> {
+        std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".part")).collect()
+    }
+
+    #[test]
+    fn names_lose_separators_dots_and_device_names() {
+        assert_eq!(local_download_name("a/b\\c"), "a_b_c");
+        assert_eq!(local_download_name("a<>:\"|?*b"), "a_b");
+        assert_eq!(local_download_name("..hidden"), "hidden");
+        assert_eq!(local_download_name(".."), "download");
+        assert_eq!(local_download_name(""), "download");
+        assert_eq!(local_download_name("trailing. . "), "trailing");
+        assert_eq!(local_download_name("con"), "_con");
+        assert_eq!(local_download_name("NUL.txt"), "_NUL.txt");
+        assert_eq!(local_download_name("com1.log"), "_com1.log");
+        assert_eq!(local_download_name("LPT\u{b2}"), "_LPT\u{b2}");
+        assert_eq!(local_download_name("console.txt"), "console.txt");
+        assert_eq!(local_download_name("com10"), "com10");
+        assert_eq!(local_download_name("a\u{85}"), "a\u{85}");
+        assert_eq!(local_download_name("a\u{feff}\u{a0}"), "a");
+        assert_eq!(local_download_name(&"x".repeat(300)).len(), 200);
+        assert_eq!(posix_basename("/a/b/c.txt"), "c.txt");
+        assert_eq!(posix_basename("/a/b/"), "b");
+    }
+
+    #[test]
+    fn a_stat_is_checked() {
+        assert_eq!(server_file_stat(&json!({ "size": 12, "mtimeMs": 3.5 })).unwrap(), (12, 3.5));
+        assert_eq!(server_file_stat(&json!({ "size": 12.0, "mtimeMs": 0 })).unwrap(), (12, 0.0));
+        for bad in [json!(null), json!([]), json!({ "mtimeMs": 1 }), json!({ "size": -1, "mtimeMs": 1 }), json!({ "size": 1.5, "mtimeMs": 1 }), json!({ "size": "7", "mtimeMs": 1 }), json!({ "size": 9007199254740992u64, "mtimeMs": 1 }), json!({ "size": 1, "mtimeMs": -1 }), json!({ "size": 1 })] {
+            assert!(server_file_stat(&bad).unwrap_err().message.starts_with("The server sent an invalid response"), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_chunk_is_checked_before_it_is_decoded() {
+        let ok = |offset: serde_json::Value, data: &str| json!({ "offset": offset, "size": 9, "mtimeMs": 1, "data": data });
+        let (bytes, size, mtime) = server_read_range(&ok(json!(3), "YWJj"), 3, 3).unwrap();
+        assert_eq!((&bytes[..], size, mtime), (&b"abc"[..], 9, 1.0));
+        assert!(server_read_range(&ok(json!(3), ""), 3, 3).unwrap().0.is_empty());
+        for (offset, data, requested) in [(json!(4), "YWJj", 3u64), (json!("3"), "YWJj", 3), (json!(3), "YWJjZA==", 3), (json!(3), "YW Jj", 3), (json!(3), "YWJ", 3), (json!(3), "=YWJ", 3), (json!(3), "YQ===", 3), (json!(3), "YWJj", 2)] {
+            assert!(server_read_range(&ok(offset.clone(), data), 3, requested).is_err(), "{offset} {data} {requested}");
+        }
+        assert!(server_read_range(&json!({ "offset": 3, "size": 9, "mtimeMs": 1, "data": 5 }), 3, 3).is_err());
+        assert!(server_read_range(&json!("x"), 3, 3).is_err());
+    }
+
+
+    fn lanes() -> Lanes {
+        let tokens = mixdog_rt::testing::tokens();
+        Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk }
+    }
+    async fn fetch(downloads: &ServerDownloads, reader: Fake, dir: &Path, rel: &str) -> WsResult<PathBuf> {
+        let begun = downloads.begin(Arc::new(reader), dir, "/srv", rel).await?;
+        loop {
+            if downloads.step(&begun.download_id).await?.done {
+                return downloads.finish(&begun.download_id).await;
+            }
+        }
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_download_lands_under_its_name_and_may_then_be_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = ServerDownloads::new(1 << 20, lanes());
+        let begun = downloads.begin(Arc::new(Fake::of(b"0123456789")), dir.path(), "/srv", "a/b/report.txt").await.unwrap();
+        assert_eq!((begun.name.as_str(), begun.size), ("report.txt", 10));
+        assert_eq!(parts(dir.path()).len(), 1);
+        assert!(downloads.finish(&begun.download_id).await.unwrap_err().message.contains("incomplete"));
+        let step = downloads.step(&begun.download_id).await.unwrap();
+        assert_eq!((step.received, step.size, step.done), (10, 10, true));
+        assert!(downloads.step(&begun.download_id).await.unwrap().done);
+        let path = downloads.finish(&begun.download_id).await.unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"0123456789");
+        assert!(downloads.was_downloaded(&path));
+        assert!(!downloads.was_downloaded(&dir.path().join("other.txt")));
+        assert!(parts(dir.path()).is_empty());
+        assert!(!downloads.abort(&begun.download_id));
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_short_read_advances_by_what_arrived() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = ServerDownloads::new(1 << 20, lanes());
+        let mut reader = Fake::of(b"abcdefghij");
+        reader.per_read = 3;
+        let path = fetch(&downloads, reader, dir.path(), "x.bin").await.unwrap();
+        assert_eq!(std::fs::read(path).unwrap(), b"abcdefghij");
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_file_over_the_cap_is_refused_before_anything_is_created() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = ServerDownloads::new(5, lanes());
+        let error = downloads.begin(Arc::new(Fake::of(b"0123456789")), dir.path(), "/srv", "x").await.err().unwrap();
+        assert!(error.message.contains("download limit"), "{}", error.message);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_server_that_sends_more_than_asked_fails_and_leaves_no_part() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = ServerDownloads::new(1 << 20, lanes());
+        let mut reader = Fake::of(b"0123456789");
+        reader.stat_size = 4;
+        reader.chunk_size = 4;
+        reader.extra = 3;
+        let error = fetch(&downloads, reader, dir.path(), "x").await.unwrap_err();
+        assert!(error.message.contains("longer than the 4 bytes requested"), "{}", error.message);
+        assert!(parts(dir.path()).is_empty());
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_size_that_changes_between_stat_and_read_fails_the_download() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = ServerDownloads::new(1 << 20, lanes());
+        let mut reader = Fake::of(b"0123456789");
+        reader.chunk_size = 11;
+        let error = fetch(&downloads, reader, dir.path(), "x").await.unwrap_err();
+        assert!(error.message.contains("changed while it was downloading"), "{}", error.message);
+        assert!(parts(dir.path()).is_empty());
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_lying_stat_size_larger_than_the_file_ends_on_an_empty_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = ServerDownloads::new(1 << 20, lanes());
+        let mut reader = Fake::of(b"0123");
+        reader.stat_size = 9;
+        reader.chunk_size = 9;
+        let error = fetch(&downloads, reader, dir.path(), "x").await.unwrap_err();
+        assert!(error.message.contains("changed while it was downloading"), "{}", error.message);
+        assert!(parts(dir.path()).is_empty());
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_taken_name_gets_the_next_number_and_never_clobbers() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), b"mine").unwrap();
+        let downloads = ServerDownloads::new(1 << 20, lanes());
+        let second = fetch(&downloads, Fake::of(b"one"), dir.path(), "f.txt").await.unwrap();
+        let third = fetch(&downloads, Fake::of(b"two"), dir.path(), "f.txt").await.unwrap();
+        assert_eq!(second.file_name().unwrap(), "f (2).txt");
+        assert_eq!(third.file_name().unwrap(), "f (3).txt");
+        assert_eq!(std::fs::read(dir.path().join("f.txt")).unwrap(), b"mine");
+        assert_eq!(std::fs::read(third).unwrap(), b"two");
+        assert!(parts(dir.path()).is_empty());
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_idle_download_expires_with_its_part() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = ServerDownloads::with_idle(1 << 20, Duration::from_millis(60), lanes());
+        let begun = downloads.begin(Arc::new(Fake::of(b"0123")), dir.path(), "/srv", "x").await.unwrap();
+        assert_eq!(parts(dir.path()).len(), 1);
+        for _ in 0..100 {
+            if parts(dir.path()).is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(parts(dir.path()).is_empty());
+        assert!(downloads.step(&begun.download_id).await.unwrap_err().message.contains("gone"));
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn abort_removes_the_part_and_the_download() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = ServerDownloads::new(1 << 20, lanes());
+        let begun = downloads.begin(Arc::new(Fake::of(b"0123")), dir.path(), "/srv", "x").await.unwrap();
+        assert!(downloads.abort(&begun.download_id));
+        for _ in 0..100 {
+            if parts(dir.path()).is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(parts(dir.path()).is_empty());
+        assert!(!downloads.abort(&begun.download_id));
+        assert!(downloads.step(&begun.download_id).await.is_err());
+        assert!(downloads.finish(&begun.download_id).await.is_err());
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dispose_removes_every_unfinished_part() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = ServerDownloads::new(1 << 20, lanes());
+        let first = downloads.begin(Arc::new(Fake::of(b"0123")), dir.path(), "/srv", "x").await.unwrap();
+        downloads.begin(Arc::new(Fake::of(b"4567")), dir.path(), "/srv", "y").await.unwrap();
+        assert_eq!(parts(dir.path()).len(), 2);
+        downloads.dispose().await;
+        assert!(parts(dir.path()).is_empty());
+        assert!(downloads.step(&first.download_id).await.unwrap_err().message.contains("gone"));
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn no_download_folder_is_refused() {
+        let downloads = ServerDownloads::new(1 << 20, lanes());
+        let error = downloads.begin(Arc::new(Fake::of(b"0")), Path::new(""), "/srv", "x").await.err().unwrap();
+        assert!(error.message.contains("no download folder"));
+    }
+}
+
+
+pub struct ServerDownloads {
+    me: Weak<ServerDownloads>,
+    max_bytes: u64,
+    idle: Duration,
+    lanes: Lanes,
+    downloads: Mutex<HashMap<String, Download>>,
+    finished: Mutex<HashSet<PathBuf>>,
+}
 impl ServerDownloads {
     pub fn new(max_bytes: u64, lanes: Lanes) -> Arc<Self> {
         Self::with_idle(max_bytes, SERVER_DOWNLOAD_IDLE, lanes)
@@ -462,249 +695,5 @@ impl ServerDownloads {
     /// Only a file this process downloaded may be handed to the OS.
     pub fn was_downloaded(&self, path: &Path) -> bool {
         self.finished.lock().expect("finished").contains(path)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    struct Fake {
-        data: Vec<u8>,
-        /// The size the stat claims.
-        stat_size: u64,
-        /// The size each chunk claims.
-        chunk_size: u64,
-        /// At most this many bytes per read.
-        per_read: usize,
-        /// Answers the requested length plus this many bytes (a server that ignores the request).
-        extra: usize,
-    }
-
-    impl Fake {
-        fn of(data: &[u8]) -> Self {
-            Self { data: data.to_vec(), stat_size: data.len() as u64, chunk_size: data.len() as u64, per_read: usize::MAX, extra: 0 }
-        }
-    }
-
-    #[async_trait]
-    impl RemoteFileReader for Fake {
-        async fn stat(&self, _: &str, _: &str) -> WsResult<serde_json::Value> {
-            Ok(json!({ "size": self.stat_size, "mtimeMs": 1700.5 }))
-        }
-        async fn read_range(&self, _: &str, _: &str, offset: u64, length: u64) -> WsResult<serde_json::Value> {
-            let start = (offset as usize).min(self.data.len());
-            let end = (start + (length as usize).min(self.per_read) + self.extra).min(self.data.len());
-            Ok(json!({
-                "offset": offset,
-                "size": self.chunk_size,
-                "mtimeMs": 1700.5,
-                "data": base64::engine::general_purpose::STANDARD.encode(&self.data[start..end]),
-            }))
-        }
-    }
-
-    fn lanes() -> Lanes {
-        let tokens = mixdog_rt::testing::tokens();
-        Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk }
-    }
-
-    async fn fetch(downloads: &ServerDownloads, reader: Fake, dir: &Path, rel: &str) -> WsResult<PathBuf> {
-        let begun = downloads.begin(Arc::new(reader), dir, "/srv", rel).await?;
-        loop {
-            if downloads.step(&begun.download_id).await?.done {
-                return downloads.finish(&begun.download_id).await;
-            }
-        }
-    }
-
-    fn parts(dir: &Path) -> Vec<String> {
-        std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".part")).collect()
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_download_lands_under_its_name_and_may_then_be_opened() {
-        let dir = tempfile::tempdir().unwrap();
-        let downloads = ServerDownloads::new(1 << 20, lanes());
-        let begun = downloads.begin(Arc::new(Fake::of(b"0123456789")), dir.path(), "/srv", "a/b/report.txt").await.unwrap();
-        assert_eq!((begun.name.as_str(), begun.size), ("report.txt", 10));
-        assert_eq!(parts(dir.path()).len(), 1);
-        assert!(downloads.finish(&begun.download_id).await.unwrap_err().message.contains("incomplete"));
-        let step = downloads.step(&begun.download_id).await.unwrap();
-        assert_eq!((step.received, step.size, step.done), (10, 10, true));
-        assert!(downloads.step(&begun.download_id).await.unwrap().done);
-        let path = downloads.finish(&begun.download_id).await.unwrap();
-        assert_eq!(std::fs::read(&path).unwrap(), b"0123456789");
-        assert!(downloads.was_downloaded(&path));
-        assert!(!downloads.was_downloaded(&dir.path().join("other.txt")));
-        assert!(parts(dir.path()).is_empty());
-        assert!(!downloads.abort(&begun.download_id));
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_short_read_advances_by_what_arrived() {
-        let dir = tempfile::tempdir().unwrap();
-        let downloads = ServerDownloads::new(1 << 20, lanes());
-        let mut reader = Fake::of(b"abcdefghij");
-        reader.per_read = 3;
-        let path = fetch(&downloads, reader, dir.path(), "x.bin").await.unwrap();
-        assert_eq!(std::fs::read(path).unwrap(), b"abcdefghij");
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_file_over_the_cap_is_refused_before_anything_is_created() {
-        let dir = tempfile::tempdir().unwrap();
-        let downloads = ServerDownloads::new(5, lanes());
-        let error = downloads.begin(Arc::new(Fake::of(b"0123456789")), dir.path(), "/srv", "x").await.err().unwrap();
-        assert!(error.message.contains("download limit"), "{}", error.message);
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_server_that_sends_more_than_asked_fails_and_leaves_no_part() {
-        let dir = tempfile::tempdir().unwrap();
-        let downloads = ServerDownloads::new(1 << 20, lanes());
-        let mut reader = Fake::of(b"0123456789");
-        reader.stat_size = 4;
-        reader.chunk_size = 4;
-        reader.extra = 3;
-        let error = fetch(&downloads, reader, dir.path(), "x").await.unwrap_err();
-        assert!(error.message.contains("longer than the 4 bytes requested"), "{}", error.message);
-        assert!(parts(dir.path()).is_empty());
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_size_that_changes_between_stat_and_read_fails_the_download() {
-        let dir = tempfile::tempdir().unwrap();
-        let downloads = ServerDownloads::new(1 << 20, lanes());
-        let mut reader = Fake::of(b"0123456789");
-        reader.chunk_size = 11;
-        let error = fetch(&downloads, reader, dir.path(), "x").await.unwrap_err();
-        assert!(error.message.contains("changed while it was downloading"), "{}", error.message);
-        assert!(parts(dir.path()).is_empty());
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_lying_stat_size_larger_than_the_file_ends_on_an_empty_read() {
-        let dir = tempfile::tempdir().unwrap();
-        let downloads = ServerDownloads::new(1 << 20, lanes());
-        let mut reader = Fake::of(b"0123");
-        reader.stat_size = 9;
-        reader.chunk_size = 9;
-        let error = fetch(&downloads, reader, dir.path(), "x").await.unwrap_err();
-        assert!(error.message.contains("changed while it was downloading"), "{}", error.message);
-        assert!(parts(dir.path()).is_empty());
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_taken_name_gets_the_next_number_and_never_clobbers() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("f.txt"), b"mine").unwrap();
-        let downloads = ServerDownloads::new(1 << 20, lanes());
-        let second = fetch(&downloads, Fake::of(b"one"), dir.path(), "f.txt").await.unwrap();
-        let third = fetch(&downloads, Fake::of(b"two"), dir.path(), "f.txt").await.unwrap();
-        assert_eq!(second.file_name().unwrap(), "f (2).txt");
-        assert_eq!(third.file_name().unwrap(), "f (3).txt");
-        assert_eq!(std::fs::read(dir.path().join("f.txt")).unwrap(), b"mine");
-        assert_eq!(std::fs::read(third).unwrap(), b"two");
-        assert!(parts(dir.path()).is_empty());
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn an_idle_download_expires_with_its_part() {
-        let dir = tempfile::tempdir().unwrap();
-        let downloads = ServerDownloads::with_idle(1 << 20, Duration::from_millis(60), lanes());
-        let begun = downloads.begin(Arc::new(Fake::of(b"0123")), dir.path(), "/srv", "x").await.unwrap();
-        assert_eq!(parts(dir.path()).len(), 1);
-        for _ in 0..100 {
-            if parts(dir.path()).is_empty() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        assert!(parts(dir.path()).is_empty());
-        assert!(downloads.step(&begun.download_id).await.unwrap_err().message.contains("gone"));
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn abort_removes_the_part_and_the_download() {
-        let dir = tempfile::tempdir().unwrap();
-        let downloads = ServerDownloads::new(1 << 20, lanes());
-        let begun = downloads.begin(Arc::new(Fake::of(b"0123")), dir.path(), "/srv", "x").await.unwrap();
-        assert!(downloads.abort(&begun.download_id));
-        for _ in 0..100 {
-            if parts(dir.path()).is_empty() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        assert!(parts(dir.path()).is_empty());
-        assert!(!downloads.abort(&begun.download_id));
-        assert!(downloads.step(&begun.download_id).await.is_err());
-        assert!(downloads.finish(&begun.download_id).await.is_err());
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn dispose_removes_every_unfinished_part() {
-        let dir = tempfile::tempdir().unwrap();
-        let downloads = ServerDownloads::new(1 << 20, lanes());
-        let first = downloads.begin(Arc::new(Fake::of(b"0123")), dir.path(), "/srv", "x").await.unwrap();
-        downloads.begin(Arc::new(Fake::of(b"4567")), dir.path(), "/srv", "y").await.unwrap();
-        assert_eq!(parts(dir.path()).len(), 2);
-        downloads.dispose().await;
-        assert!(parts(dir.path()).is_empty());
-        assert!(downloads.step(&first.download_id).await.unwrap_err().message.contains("gone"));
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn no_download_folder_is_refused() {
-        let downloads = ServerDownloads::new(1 << 20, lanes());
-        let error = downloads.begin(Arc::new(Fake::of(b"0")), Path::new(""), "/srv", "x").await.err().unwrap();
-        assert!(error.message.contains("no download folder"));
-    }
-
-    #[test]
-    fn names_lose_separators_dots_and_device_names() {
-        assert_eq!(local_download_name("a/b\\c"), "a_b_c");
-        assert_eq!(local_download_name("a<>:\"|?*b"), "a_b");
-        assert_eq!(local_download_name("..hidden"), "hidden");
-        assert_eq!(local_download_name(".."), "download");
-        assert_eq!(local_download_name(""), "download");
-        assert_eq!(local_download_name("trailing. . "), "trailing");
-        assert_eq!(local_download_name("con"), "_con");
-        assert_eq!(local_download_name("NUL.txt"), "_NUL.txt");
-        assert_eq!(local_download_name("com1.log"), "_com1.log");
-        assert_eq!(local_download_name("LPT\u{b2}"), "_LPT\u{b2}");
-        assert_eq!(local_download_name("console.txt"), "console.txt");
-        assert_eq!(local_download_name("com10"), "com10");
-        assert_eq!(local_download_name("a\u{85}"), "a\u{85}");
-        assert_eq!(local_download_name("a\u{feff}\u{a0}"), "a");
-        assert_eq!(local_download_name(&"x".repeat(300)).len(), 200);
-        assert_eq!(posix_basename("/a/b/c.txt"), "c.txt");
-        assert_eq!(posix_basename("/a/b/"), "b");
-    }
-
-    #[test]
-    fn a_stat_is_checked() {
-        assert_eq!(server_file_stat(&json!({ "size": 12, "mtimeMs": 3.5 })).unwrap(), (12, 3.5));
-        assert_eq!(server_file_stat(&json!({ "size": 12.0, "mtimeMs": 0 })).unwrap(), (12, 0.0));
-        for bad in [json!(null), json!([]), json!({ "mtimeMs": 1 }), json!({ "size": -1, "mtimeMs": 1 }), json!({ "size": 1.5, "mtimeMs": 1 }), json!({ "size": "7", "mtimeMs": 1 }), json!({ "size": 9007199254740992u64, "mtimeMs": 1 }), json!({ "size": 1, "mtimeMs": -1 }), json!({ "size": 1 })] {
-            assert!(server_file_stat(&bad).unwrap_err().message.starts_with("The server sent an invalid response"), "{bad}");
-        }
-    }
-
-    #[test]
-    fn a_chunk_is_checked_before_it_is_decoded() {
-        let ok = |offset: serde_json::Value, data: &str| json!({ "offset": offset, "size": 9, "mtimeMs": 1, "data": data });
-        let (bytes, size, mtime) = server_read_range(&ok(json!(3), "YWJj"), 3, 3).unwrap();
-        assert_eq!((&bytes[..], size, mtime), (&b"abc"[..], 9, 1.0));
-        assert!(server_read_range(&ok(json!(3), ""), 3, 3).unwrap().0.is_empty());
-        for (offset, data, requested) in [(json!(4), "YWJj", 3u64), (json!("3"), "YWJj", 3), (json!(3), "YWJjZA==", 3), (json!(3), "YW Jj", 3), (json!(3), "YWJ", 3), (json!(3), "=YWJ", 3), (json!(3), "YQ===", 3), (json!(3), "YWJj", 2)] {
-            assert!(server_read_range(&ok(offset.clone(), data), 3, requested).is_err(), "{offset} {data} {requested}");
-        }
-        assert!(server_read_range(&json!({ "offset": 3, "size": 9, "mtimeMs": 1, "data": 5 }), 3, 3).is_err());
-        assert!(server_read_range(&json!("x"), 3, 3).is_err());
     }
 }

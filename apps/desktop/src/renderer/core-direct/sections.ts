@@ -8,7 +8,6 @@ import {
   EVENT_SECTIONS,
   isRendererProtocolMethod,
   isScopedSectionFeed,
-  type DesktopProtocolStatus,
   type DesktopSectionEntry,
   type DesktopSectionsApi,
   type DesktopSectionsPush,
@@ -19,9 +18,6 @@ import type { RendererWindow } from './renderer-connection.ts';
 
 type FsChange = { watchId: string; changedPaths: string[]; kind?: string };
 type LoginUpdate = { flowId: string; state: unknown };
-
-const toStatus = (state: string): DesktopProtocolStatus =>
-  state === 'ready' ? 'ready' : state === 'closed' ? 'closed' : 'reconnecting';
 
 export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'sections'> {
   const { connection } = ctx;
@@ -50,15 +46,20 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
     },
   };
   connection.attach(window);
+  // Whether the connection has been open: the window is composed before its first open, whose app snapshot reaches the window as
+  // section changes, so only a ready after that one is a leg that came back. Set after the first open's own status push.
+  let opened = connection.client() !== null;
+  void connection.whenSynced().then(() => void (opened = true), () => undefined);
+  connection.onReplaced(() => void (opened = true));
 
   // The whole store at once, then the status: a store refolded from another core (a restarted one numbers its revisions
   // again and drops what it no longer holds) is taken whole, never through the revision guard of single changes.
   const replaceWhole = (send: (push: DesktopSectionsPush) => void): void => {
-    const { entries, epoch, status } = connection.snapshot();
+    const { entries, epoch, status, link } = connection.snapshot();
     send({ kind: 'replace', stage: 'begin' });
     send({ kind: 'replace', stage: 'chunk', entries });
     send({ kind: 'replace', stage: 'commit', epoch });
-    send({ kind: 'status', status });
+    send({ kind: 'status', status, ...(link ? { link } : {}) });
   };
 
   const subscribeSource = (listener: (push: DesktopSectionsPush) => void): (() => void) => {
@@ -114,28 +115,23 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
       dirty.set(`${change.section}\u0000${change.key ?? ''}`, { section: change.section, key: change.key ?? null });
       schedule();
     });
-    const offEvent = connection.onEvent((event) => {
-      if (event.type !== 'status') return;
-      const next = toStatus((event as { status: { state: string } }).status.state);
-      // The connection's status is still the previous one while its listeners run.
-      if (next === 'ready' && connection.status !== 'ready') awaitingAppSnapshot = true;
-      listener({ kind: 'status', status: next });
+    // What the window shows of the connection is the connection's own state, published at every change (the ladder, a reopen,
+    // an open that failed): nothing here keeps a second account of it.
+    let shown = connection.status;
+    const offState = connection.onState(() => {
+      if (!pushListeners.has(listener)) return;
+      const next = connection.status;
+      if (next === 'ready' && shown !== 'ready' && opened) awaitingAppSnapshot = true;
+      shown = next;
+      listener({ kind: 'status', status: next, link: connection.link() });
     });
     // A replaced connection holds another client's store, already folded when it is announced.
     const offReplaced = connection.onReplaced(() => replaceAll());
-    // A reopen drops the client first: the window shows `reconnecting` from its start, not only once the new client reports.
-    const offReopening = connection.onReopening(() => listener({ kind: 'status', status: 'reconnecting' }));
-    // The first open has no event of its own: its outcome is the status.
-    const settled = (): void => {
-      if (pushListeners.has(listener)) listener({ kind: 'status', status: connection.status });
-    };
-    connection.whenSynced().then(settled, settled);
     return () => {
       pushListeners.delete(listener);
       offStore();
-      offEvent();
+      offState();
       offReplaced();
-      offReopening();
     };
   };
 
@@ -143,6 +139,7 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
     core: async () => true,
     snapshot: async () => connection.snapshot(),
     subscribe: subscribeSource,
+    reconnect: () => connection.reopen(),
     async call(method, params) {
       // A typo guard only: the core's Window allowlist is the boundary.
       if (!isRendererProtocolMethod(method)) throw new Error('This core method is not available to the window.');

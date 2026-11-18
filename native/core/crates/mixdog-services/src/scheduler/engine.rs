@@ -12,11 +12,13 @@ use std::time::Duration as StdDuration;
 use chrono::{Duration, Utc};
 use chrono_tz::Tz;
 use serde::Serialize;
+
 use tokio::task::JoinHandle;
 
 use super::cron::{CronExpr, plan_beat};
 use super::model::{Schedule, ScheduleError, ScheduleStatus};
 use super::store::{Clock, RunOutcome, ScheduleRunner, ScheduleStore, Ts};
+use super::zone::ScheduleZone;
 use crate::channels::running::{RunningWork, WorkGuard};
 
 /// Longest single timer wait; a farther instant re-arms instead of firing early.
@@ -103,8 +105,13 @@ fn iso(t: Ts) -> String {
     t.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-fn tz_of(schedule: &Schedule, fallback: Tz) -> Tz {
-    schedule.timezone.as_deref().and_then(|t| mixdog_js::js_trim(t).parse().ok()).unwrap_or(fallback)
+/// The zone a schedule's cron runs in: its own, or the machine's when it names none. A zone that
+/// does not parse is an error, never the machine's zone: the schedule would fire at the wrong hour.
+fn zone_of(schedule: &Schedule, local: Tz) -> Result<ScheduleZone, String> {
+    match schedule.timezone.as_deref().map(mixdog_js::js_trim).filter(|t| !t.is_empty()) {
+        None => Ok(ScheduleZone::Named(local)),
+        Some(zone) => super::zone::resolve(zone).ok_or_else(|| format!("invalid schedule timezone \"{zone}\"")),
+    }
 }
 
 /// node-cron `getDelay`: a heartbeat waits at most a day.
@@ -423,7 +430,13 @@ impl Inner {
             mixdog_rt::node_stderr!("mixdog scheduler: invalid cron \"{}\" ({expression}) — skipped", schedule.name);
             return;
         };
-        let tz = tz_of(schedule, self.local_tz);
+        let tz = match zone_of(schedule, self.local_tz) {
+            Ok(tz) => tz,
+            Err(error) => {
+                mixdog_rt::node_stderr!("mixdog scheduler: failed to register cron \"{}\" ({expression}): {error} — skipped", schedule.name);
+                return;
+            }
+        };
         let name = schedule.name.clone();
         let inner = Arc::clone(self);
         let mut expected = expr.next_after(whole_seconds(self.clock.now()), tz);
@@ -472,18 +485,24 @@ impl Inner {
         let inner = Arc::clone(self);
         let n = name.to_string();
         self.update(name, |s| s.next_fire_at = Some(shown));
-        let store = Arc::clone(&self.store);
-        let persist_name = name.to_string();
         self.spawn_task(name, async move {
-            let _ = store.set_next_fire(&persist_name, Some(shown)).await;
-            loop {
-                let wait = (fire_at - inner.clock.now()).num_milliseconds();
-                if wait <= 0 {
-                    break;
+            let persist = async {
+                if let Err(err) = inner.store.set_next_fire(&n, Some(shown)).await {
+                    mixdog_rt::node_stderr!("mixdog scheduler: {n} setNextFire failed: {err}");
                 }
-                mixdog_rt::time::sleep(std_delay(wait)).await;
-            }
-            inner.fire_one_shot(&n).await;
+            };
+            let fire = async {
+                loop {
+                    let wait = (fire_at - inner.clock.now()).num_milliseconds();
+                    if wait <= 0 {
+                        break;
+                    }
+                    mixdog_rt::time::sleep(std_delay(wait)).await;
+                }
+                inner.fire_one_shot(&n).await;
+            };
+            // Queue the display write before any completion writes, without awaiting its acknowledgement.
+            tokio::join!(biased; persist, fire);
         });
     }
 
@@ -494,7 +513,7 @@ impl Inner {
             .when_cron
             .as_deref()
             .and_then(|c| CronExpr::parse(c).ok())
-            .and_then(|c| c.next_after(scheduled_at, tz_of(&armed, self.local_tz)));
+            .and_then(|c| c.next_after(scheduled_at, zone_of(&armed, self.local_tz).ok()?));
         self.update(name, |s| s.next_fire_at = next);
         if self.skip_until(name).is_some() {
             if let Err(err) = self.store.advance_cursor(name, scheduled_at, next).await {
@@ -636,8 +655,10 @@ impl Inner {
         if let Err(err) = self.store.mark_fired(name, started).await {
             mixdog_rt::node_stderr!("mixdog scheduler: {name} markFired failed: {err}");
         }
-        // `scheduler.mjs:371`: a failed success mark is the run's failure (the caller marks it failed, logs and notifies).
-        self.store.mark_success(name, now).await?;
+        // The turn completed; a failed display stamp must not prevent marking it done.
+        if let Err(err) = self.store.mark_success(name, now).await {
+            mixdog_rt::node_stderr!("mixdog scheduler: {name} markSuccess failed: {err}");
+        }
         self.mark_done_with_retry(name).await;
         Ok(())
     }

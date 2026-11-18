@@ -475,18 +475,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_turn_waits_for_its_sessions_transition_and_runs_after_it() {
-        let gate = AdmissionGate::new();
-        let transition = gate.begin_transition("lead", "t").unwrap();
-        let cancel = CancellationToken::new();
-        let mut admit = std::pin::pin!(gate.admit_turn("lead", cwd("/p"), &Plain, &cancel));
-        // One poll runs the gate through everything that does not wait, to its decision: an admitted turn would be `Ready`.
-        assert!(futures::poll!(admit.as_mut()).is_pending(), "the turn waits for the transition");
-        drop(transition);
-        let _guard = crate::session::testing::awaiting(|| "the turn to be admitted once the transition is dropped".to_owned(), admit).await.unwrap();
-    }
-
-    #[tokio::test]
     async fn an_abort_while_waiting_registers_nothing() {
         let gate = AdmissionGate::new();
         let _transition = gate.begin_transition("lead", "t").unwrap();
@@ -532,5 +520,18 @@ mod tests {
         assert_eq!(gate.workspace_cwd_lock(&["x", "a"]).as_deref(), Some("/w"));
         gate.set_workspace_cwd_lock("a", None);
         assert_eq!(gate.workspace_cwd_lock(&["a"]), None);
+    }
+
+
+    #[tokio::test]
+    async fn a_turn_waits_for_its_sessions_transition_and_runs_after_it() {
+        let gate = AdmissionGate::new();
+        let transition = gate.begin_transition("lead", "t").unwrap();
+        let cancel = CancellationToken::new();
+        let mut admit = std::pin::pin!(gate.admit_turn("lead", cwd("/p"), &Plain, &cancel));
+        // One poll runs the gate through everything that does not wait, to its decision: an admitted turn would be `Ready`.
+        assert!(futures::poll!(admit.as_mut()).is_pending(), "the turn waits for the transition");
+        drop(transition);
+        let _guard = crate::session::testing::awaiting(|| "the turn to be admitted once the transition is dropped".to_owned(), admit).await.unwrap();
     }
 }

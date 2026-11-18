@@ -45,12 +45,14 @@ function heldHost() {
 }
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
+/** An endpoint that admits everything, under `signal`. */
+const endpoint = (signal) => ({ signal, commit() {}, track() {} });
 
 test('an abandoned capture ends its session as a dropped HTTP caller did, and a finished one does not', async () => {
   const held = heldHost();
   const answer = createBridgeServer(held.host).answerCommand;
   const gone = new AbortController();
-  const abandoned = answer(CAPTURE, gone.signal);
+  const abandoned = answer(CAPTURE, endpoint(gone.signal));
   await settle();
   assert.equal(held.started.length, 1);
   gone.abort();
@@ -62,7 +64,7 @@ test('an abandoned capture ends its session as a dropped HTTP caller did, and a 
   const finished = heldHost();
   finished.release();
   const kept = new AbortController();
-  assert.deepEqual(await createBridgeServer(finished.host).answerCommand(CAPTURE, kept.signal), {
+  assert.deepEqual(await createBridgeServer(finished.host).answerCommand(CAPTURE, endpoint(kept.signal)), {
     ok: true,
     value: { text: 'frame' },
   });
@@ -104,13 +106,13 @@ test('the capture request and the HTTP command spend one allowance of 32 and are
   };
   const signal = new AbortController().signal;
   const rpc = [];
-  for (let at = 0; at < 31; at++) rpc.push(answerAdmittedCommand(held.host, state, CAPTURE, signal));
+  for (let at = 0; at < 31; at++) rpc.push(answerAdmittedCommand(held.host, state, CAPTURE, endpoint(signal)));
   const first = http();
   await settle();
   assert.equal(state.activeRequests, 32);
 
   // Saturated: the host protocol is refused as HTTP is, and neither dispatches.
-  assert.equal(await answerAdmittedCommand(held.host, state, CAPTURE, signal), null);
+  assert.equal(await answerAdmittedCommand(held.host, state, CAPTURE, endpoint(signal)), null);
   assert.deepEqual(await http(), { status: 429, body: { ok: false, error: CAPACITY_REFUSAL } });
   const bridge = createBridgeServer(held.host);
   assert.equal(held.started.length, 32);
@@ -118,16 +120,16 @@ test('the capture request and the HTTP command spend one allowance of 32 and are
   held.release();
   await Promise.all([...rpc, first]);
   assert.equal(state.activeRequests, 0);
-  assert.deepEqual(await bridge.answerCommand(CAPTURE, signal), { ok: true, value: { text: 'frame' } });
+  assert.deepEqual(await bridge.answerCommand(CAPTURE, endpoint(signal)), { ok: true, value: { text: 'frame' } });
 });
 
 test('the host protocol answers a spent allowance as a failed request naming the refusal', async () => {
   const held = heldHost();
   const answer = createBridgeServer(held.host).answerCommand;
   const signal = new AbortController().signal;
-  const running = Array.from({ length: 32 }, () => answer(CAPTURE, signal));
+  const running = Array.from({ length: 32 }, () => answer(CAPTURE, endpoint(signal)));
   await settle();
-  assert.deepEqual(await answer(CAPTURE, signal), { ok: false, error: CAPACITY_REFUSAL });
+  assert.deepEqual(await answer(CAPTURE, endpoint(signal)), { ok: false, error: CAPACITY_REFUSAL });
   assert.equal(held.started.length, 32);
   held.release();
   await Promise.all(running);

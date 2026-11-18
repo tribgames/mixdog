@@ -57,6 +57,8 @@ impl FeatureProbes for HostFeatureProbes {
         };
         // A feature whose tool this core did not register (`computer` with no helper) is not up. The tool-deny gate still lets a
         // `MIXDOG_FEATURE_*` override outrank this fact, which allows a tool that does not exist.
+        // Where the computer helper is, looked for now: a helper placed or removed since the last listing counts at this one.
+        self.bridges.refresh().await;
         let up = |feature: &str| self.bridges.present(feature) && self.bridges.registered(feature);
         Ok(FeatureFacts { browser: up("browser"), computer: up("computer"), terminal: up("terminal"), visualize: up("visualize"), git })
     }

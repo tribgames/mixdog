@@ -23,6 +23,7 @@ pub use binding::has_explicit_provider_auth_binding;
 pub use binding::replace_provider_auth_bindings;
 pub use binding::with_provider_account;
 pub use model::Account;
+pub use model::REMAINING;
 pub use model::Block;
 pub use model::Policy;
 pub use model::Pool;
@@ -193,6 +194,13 @@ pub struct QuotaWindowInput {
     pub models: Option<Vec<String>>,
     pub except: Option<Vec<String>>,
     pub limit: Option<String>,
+    /// See `Window::binding`.
+    pub binding: Option<bool>,
+    /// What the provider states is left of the window (credits or dollars), apart from its rounded percent. A full
+    /// percent with something left is not exhaustion evidence (`policy::window_full`).
+    pub remaining: Option<f64>,
+    /// The stamp of the sign-in that measured the window (`model::CREDENTIAL`); none when unproven.
+    pub credential: Option<String>,
 }
 
 /// How a block was scheduled and what it is evidence of.
@@ -220,20 +228,6 @@ fn model_tokens(tokens: Option<Vec<String>>) -> Option<Vec<String>> {
 
 type SelectionHook = Arc<dyn Fn() + Send + Sync>;
 
-/// Handle on one data directory's account roster.
-#[derive(Clone)]
-pub struct AccountStore {
-    dir: PathBuf,
-    io: CredentialIo,
-    on_selection_change: Option<SelectionHook>,
-    /// The service clock: stored cooldowns and rotation waits read this one.
-    clock: Arc<dyn Pace>,
-    /// A remote-mode server holds no model credentials: every credential file reads as absent.
-    remote_client: bool,
-    /// The environment whose `*_OAUTH_CREDENTIALS_PATH` names a provider's own file in place of the data dir's.
-    env: Option<Arc<dyn crate::registry::keys::Environment>>,
-}
-
 /// `(provider, file in the data folder, variable that names another file)` of each OAuth provider's own credential
 /// (`*_CREDENTIALS_PATH` of the provider modules' `loadTokens()`).
 const OWN_FILES: [(&str, &str, &str); 10] = [
@@ -249,6 +243,30 @@ const OWN_FILES: [(&str, &str, &str); 10] = [
     ("antigravity-oauth", "antigravity-oauth.json", "ANTIGRAVITY_OAUTH_CREDENTIALS_PATH"),
 ];
 
+#[cfg(test)]
+mod sign_in_rules_tests;
+#[cfg(test)]
+mod rotation_tests;
+#[cfg(test)]
+mod tests;
+#[cfg(node_twin)]
+#[cfg(test)]
+mod validity_tests;
+
+
+/// Handle on one data directory's account roster.
+#[derive(Clone)]
+pub struct AccountStore {
+    dir: PathBuf,
+    io: CredentialIo,
+    on_selection_change: Option<SelectionHook>,
+    /// The service clock: stored cooldowns and rotation waits read this one.
+    clock: Arc<dyn Pace>,
+    /// A remote-mode server holds no model credentials: every credential file reads as absent.
+    remote_client: bool,
+    /// The environment whose `*_OAUTH_CREDENTIALS_PATH` names a provider's own file in place of the data dir's.
+    env: Option<Arc<dyn crate::registry::keys::Environment>>,
+}
 impl AccountStore {
     pub fn new(dir: PathBuf, io: CredentialIo) -> Self {
         Self {
@@ -317,6 +335,12 @@ impl AccountStore {
     pub fn on_selection_change(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
         self.on_selection_change = Some(Arc::new(hook));
         self
+    }
+
+    /// The plugin data folder (`getPluginData()`), where the roster and model caches live whatever a credential
+    /// file's own path override says.
+    pub fn data_dir(&self) -> &std::path::Path {
+        &self.dir
     }
 
     pub fn roster_path(&self) -> PathBuf {
@@ -405,6 +429,24 @@ impl AccountStore {
             Probe::Present(_) | Probe::Absent => CredentialState::Absent,
             Probe::Unreadable => CredentialState::Unreadable,
         })
+    }
+
+    /// The sign-in a stored plan reading may describe, read without refreshing auth.
+    pub(crate) async fn quota_credential(&self, provider: &str, slot: &str) -> Option<String> {
+        // Cursor's default credential can come from outside the roster file. A file reading
+        // cannot prove anything about that override.
+        if provider == "cursor-oauth" && slot == "default"
+            && self.env.as_ref().and_then(|env| env.key_var("CURSOR_ACCESS_TOKEN")).is_some_and(|token| !token.is_empty())
+        {
+            return None;
+        }
+        let Probe::Present(doc) = self.credential_file(provider, slot).ok()?.load_document().await else {
+            return None;
+        };
+        if !validity::credential_valid(provider, &doc, self.now_ms() as f64) {
+            return None;
+        }
+        crate::service::oauth_usage::credential_stamp(provider, &doc)
     }
 
     async fn update(
@@ -606,7 +648,17 @@ impl AccountStore {
                         .limit
                         .map(|l| slice_utf16(js_trim(&l), 80))
                         .filter(|l| !l.is_empty()),
-                    extra: Default::default(),
+                    binding: w.binding,
+                    extra: {
+                        let mut extra = serde_json::Map::new();
+                        if let Some(n) = w.remaining.and_then(serde_json::Number::from_f64) {
+                            extra.insert(model::REMAINING.to_owned(), Value::Number(n));
+                        }
+                        if let Some(stamp) = w.credential.filter(|s| !s.is_empty()) {
+                            extra.insert(model::CREDENTIAL.to_owned(), Value::String(stamp));
+                        }
+                        extra
+                    },
                 }
             })
             .collect();
@@ -637,6 +689,33 @@ impl AccountStore {
         })
         .await?;
         Ok(())
+    }
+
+    /// A reading of the sign-in `stamp` that succeeded and states no window (every cap withdrawn) retires the meters
+    /// that same sign-in measured: only when every stored window carries that stamp. A row measured by another sign-in,
+    /// or one whose windows are unstamped, is left alone, and so are the account's refusal blocks (their own evidence).
+    /// Returns whether the usage was retired.
+    pub async fn retire_usage(&self, provider: &str, id: &str, stamp: &str) -> Result<bool, AccountError> {
+        let (id, stamp) = (id.to_owned(), stamp.to_owned());
+        let retired = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = retired.clone();
+        let clock = self.clock.clone();
+        self.update(provider, move |pool| {
+            let Some(row) = pool.accounts.iter_mut().find(|r| r.id == id) else {
+                return Ok(());
+            };
+            let ours = row.usage.as_ref().is_some_and(|u| {
+                !u.windows.is_empty()
+                    && u.windows.iter().all(|w| w.extra.get(model::CREDENTIAL).and_then(Value::as_str) == Some(stamp.as_str()))
+            });
+            if ours {
+                row.usage = Some(Usage { windows: Vec::new(), checked_at: i64::try_from(clock.now_ms()).unwrap_or(i64::MAX) });
+                flag.store(true, std::sync::atomic::Ordering::Release);
+            }
+            Ok(())
+        })
+        .await?;
+        Ok(retired.load(std::sync::atomic::Ordering::Acquire))
     }
 
     /// Blocks `id` until `until` (Unix ms). A new refusal of the same model
@@ -758,10 +837,3 @@ impl AccountStore {
         self.custom_key_ids(provider).await
     }
 }
-
-#[cfg(test)]
-mod rotation_tests;
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod validity_tests;

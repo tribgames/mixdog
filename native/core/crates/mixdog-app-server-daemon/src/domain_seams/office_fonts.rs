@@ -77,7 +77,6 @@ impl OfficeFonts {
 #[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]
 mod tests {
     use super::*;
-    use crate::domain_seams::golden;
     use crate::domain_seams::portable;
     use async_trait::async_trait;
     use mixdog_services::local_provider::assets::Body;
@@ -91,9 +90,10 @@ mod tests {
         FontDef { id: leak(id), family: leak(family), file_name: leak(file_name), registry_name: "", path: leak(path), bytes, sha256: leak(sha256) }
     }
 
+    #[cfg(node_twin)]
     #[test]
     fn the_noto_definitions_are_nodes() {
-        let golden = golden();
+        let golden = crate::domain_seams::golden();
         let nodes = golden["fonts"]["definitions"].as_array().unwrap();
         assert_eq!(NOTO_FONTS.len(), nodes.len());
         for (ours, node) in NOTO_FONTS.iter().zip(nodes) {
@@ -108,8 +108,15 @@ mod tests {
     }
 
     #[test]
-    fn a_buffer_is_verified_with_nodes_messages() {
-        for case in golden()["fonts"]["verify"].as_array().unwrap() {
+    fn a_buffer_is_verified_by_its_size_and_its_sha256() {
+        let verify = json!([
+            {"name": "ok", "family": "F", "bytes": 15, "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc", "buffer": "good-font-bytes", "error": null},
+            {"name": "size", "family": "F", "bytes": 16, "sha256": "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc", "buffer": "good-font-bytes",
+             "error": "Font F size mismatch: expected 16 bytes, got 15"},
+            {"name": "sha", "family": "F", "bytes": 15, "sha256": "a5b472f23a1964cd3fe2e888a345383bdf83a4240470e5dfcfc54a3009e08a16", "buffer": "good-font-bytes",
+             "error": "Font F sha256 mismatch: expected a5b472f23a1964cd3fe2e888a345383bdf83a4240470e5dfcfc54a3009e08a16, got 1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc"}
+        ]);
+        for case in verify.as_array().unwrap() {
             let font = def("id", case["family"].as_str().unwrap(), "f.ttf", "f", case["bytes"].as_u64().unwrap() as usize, case["sha256"].as_str().unwrap());
             let verdict = OfficeFonts::verify(&font, case["buffer"].as_str().unwrap().as_bytes());
             match case["error"].as_str() {
@@ -128,7 +135,7 @@ mod tests {
         }
     }
 
-    /// Serves the recorded responses by the last segment of the URL.
+    /// Serves the scripted responses by the last segment of the URL.
     struct Served(Vec<(String, u16, Vec<u8>)>);
 
     #[async_trait]
@@ -140,13 +147,30 @@ mod tests {
         }
     }
 
-    /// Every face of Node's `prepareOfficeFonts` scenario that ends without an OS font
+
+    /// Every face of the `prepareOfficeFonts` scenario that ends without an OS font
     /// registration: a face already installed and the three that fail. The face that downloads
-    /// (`fresh`) would write the font into the OS registry, so it is not run here.
+    /// would write the font into the OS registry, so it is not run here.
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_faces_that_end_without_a_download_match_nodes() {
-        let golden = golden();
-        let prepare = &golden["fonts"]["prepare"];
+    async fn the_faces_that_end_without_a_download_are_present_or_failed() {
+        let sha = "1d3d0b20551d318c2a005e2711acb90d15c96365e9f3427fb880c022a2fac7dc";
+        let target = |id: &str, file_name: &str, served: &str| json!({"id": id, "family": format!("Family {id}"), "fileName": file_name, "bytes": 15, "sha256": sha, "served": served});
+        let prepare = json!({
+            "targets": [target("present", "Present.ttf", "/ok.ttf"), target("missing", "missing.ttf", "/missing.ttf"), target("short", "short.ttf", "/short.ttf"), target("wrong", "wrong.ttf", "/wrong.ttf")],
+            "served": {
+                "/ok.ttf": {"status": 200, "body": "good-font-bytes"},
+                "/missing.ttf": {"status": 404, "body": ""},
+                "/short.ttf": {"status": 200, "body": "short"},
+                "/wrong.ttf": {"status": 200, "body": "wrong-font-byte"}
+            },
+            "presentFile": "Present.ttf",
+            "results": {
+                "present": {"installed": true, "skipped": true, "path": "<root>/home/.local/share/fonts/Present.ttf"},
+                "missing": {"installed": false, "error": "Failed to download font Family missing (404)"},
+                "short": {"installed": false, "error": "Font Family short size mismatch: expected 15 bytes, got 5"},
+                "wrong": {"installed": false, "error": format!("Font Family wrong sha256 mismatch: expected {sha}, got 546308d937fccbbb5f99870a26637b30efad79a2a52d2022e95a89325e08634a")}
+            }
+        });
         let dir = tempfile::tempdir().unwrap();
         let user = dir.path().join("home").join(".local").join("share").join("fonts");
         std::fs::create_dir_all(&user).unwrap();
@@ -166,7 +190,6 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .filter(|t| t["id"] != "fresh")
             .map(|t| def(t["id"].as_str().unwrap(), t["family"].as_str().unwrap(), t["fileName"].as_str().unwrap(), t["served"].as_str().unwrap().trim_start_matches('/'), t["bytes"].as_u64().unwrap() as usize, t["sha256"].as_str().unwrap()))
             .collect();
         let mut results = serde_json::Map::new();
@@ -178,8 +201,6 @@ mod tests {
             };
             results.insert(id.to_owned(), shown);
         }
-        let mut expected = prepare["results"].as_object().unwrap().clone();
-        expected.retain(|id, _| id != "fresh");
-        assert_eq!(portable(&Value::Object(results), dir.path()), Value::Object(expected));
+        assert_eq!(portable(&Value::Object(results), dir.path()), prepare["results"]);
     }
 }

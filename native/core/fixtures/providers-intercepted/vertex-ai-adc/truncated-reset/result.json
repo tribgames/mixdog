@@ -1,8 +1,0 @@
-{
-  "dispatchedToolCalls": [],
-  "error": {
-    "message": "terminated",
-    "name": "TypeError",
-    "status": null
-  }
-}

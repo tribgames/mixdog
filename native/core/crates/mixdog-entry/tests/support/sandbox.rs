@@ -57,8 +57,6 @@ impl Sandbox {
             ("NO_PROXY".into(), "127.0.0.1,localhost".into()),
             ("MIXDOG_SKIP_USER_DATA_BACKUP".into(), "1".into()),
             ("MIXDOG_DISABLE_TOOL_PREWARM".into(), "1".into()),
-            ("MIXDOG_DISABLE_STAGED_INSTALL".into(), "1".into()),
-            ("MIXDOG_DISABLE_STAGED_SWAP".into(), "1".into()),
         ];
         for name in ["SystemRoot", "MIXDOGD_BIN"] {
             if let Some(value) = std::env::var_os(name) {

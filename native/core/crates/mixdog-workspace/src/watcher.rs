@@ -1,9 +1,10 @@
 //! The one OS watcher (DS §4.3): a single `notify` backend for the whole core,
 //! every consumer attached by reference. Changes are pushed; nothing polls.
 //! Events of a watch are collected for a fixed trailing 250 ms window and pushed
-//! as one `fs/changed` per kind. A recursive watch of a checkout also follows
-//! its git dirs (a linked worktree keeps them outside the folder), skipping the
-//! object store; those events carry kind `git`.
+//! as one `fs/changed` per kind. A recursive watch of a checkout, or of a folder
+//! inside one, also follows its repository's git dirs (a linked worktree keeps
+//! them outside the folder, a sub-folder has them above it), skipping the object
+//! store; those events carry kind `git`.
 
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -11,6 +12,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use std::time::Instant;
 
@@ -58,8 +60,36 @@ pub trait ChangeSink: Send + Sync + 'static {
 }
 
 enum Message {
-    Event(notify::Result<notify::Event>),
+    Event(notify::Result<notify::Event>, QueuedChange),
     Stop,
+}
+
+/// Covers ingress through application, not just the public feed's batch window.
+/// The notify callback cannot take the watcher state lock: registering a watch
+/// under that lock can wait for the backend thread.
+struct QueuedChange(Option<Arc<AtomicUsize>>);
+
+impl QueuedChange {
+    fn new(pending: &Arc<AtomicUsize>, event: &notify::Result<notify::Event>) -> Self {
+        let changes_coverage = event.as_ref().map_or(true, |event| event.need_rescan() || !matches!(event.kind, EventKind::Access(_)));
+        Self(changes_coverage.then(|| {
+            pending.fetch_add(1, Ordering::SeqCst);
+            pending.clone()
+        }))
+    }
+}
+
+impl Drop for QueuedChange {
+    fn drop(&mut self) {
+        if let Some(pending) = &self.0 {
+            pending.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+}
+
+fn enqueue_event(tx: &Sender<Message>, pending: &Arc<AtomicUsize>, event: notify::Result<notify::Event>) {
+    let change = QueuedChange::new(pending, &event);
+    let _ = tx.send(Message::Event(event, change));
 }
 
 struct Sub {
@@ -74,6 +104,7 @@ struct Sub {
 struct OsPath {
     recursive_refs: usize,
     direct_refs: usize,
+    coverage: Option<Arc<()>>,
 }
 
 struct State {
@@ -86,19 +117,25 @@ struct State {
 pub struct FolderWatcher {
     state: Arc<Mutex<State>>,
     stop: Sender<Message>,
+    pending: Arc<AtomicUsize>,
 }
 
-/// The git dir and common dir of a checkout folder: `.git` itself, or the
+/// The git dir and common dir of the repository a folder belongs to, found as
+/// git finds it: the nearest `.git` at or above the folder, so a folder below
+/// its repository's root follows that root's metadata. `.git` itself, or the
 /// targets a linked worktree's `.git` file names.
-#[allow(clippy::disallowed_methods, reason = "two tiny reads, called only inside the lane job that registers a watch")]
+#[allow(clippy::disallowed_methods, reason = "a stat per ancestor and two tiny reads, called only inside the lane job that registers a watch")]
 pub fn git_dirs_of(dir: &Path) -> Vec<PathBuf> {
-    let dot_git = dir.join(".git");
+    let Some(checkout) = dir.ancestors().find(|folder| folder.join(".git").exists()) else {
+        return Vec::new();
+    };
+    let dot_git = checkout.join(".git");
     let mut dirs = Vec::new();
     if dot_git.is_dir() {
         dirs.push(dot_git);
     } else if let Ok(text) = std::fs::read_to_string(&dot_git)
         && let Some(target) = text.trim().strip_prefix("gitdir:") {
-        let git_dir = dir.join(target.trim());
+        let git_dir = checkout.join(target.trim());
         if let Ok(common) = std::fs::read_to_string(git_dir.join("commondir")) {
             dirs.push(crate::pathguard::lexical(&git_dir.join(common.trim())));
         }
@@ -156,24 +193,28 @@ fn classify(kind: &EventKind) -> ChangeKind {
 impl State {
     fn apply(&mut self, path: &Path) -> WsResult<()> {
         let key = comparable(path);
-        let Some(entry) = self.os.get(&key) else {
+        let Some(entry) = self.os.get_mut(&key) else {
             if let Some(w) = self.watcher.as_mut() {
                 let _ = w.unwatch(path);
             }
             return Ok(());
         };
+        entry.coverage = None;
         let mode = if entry.recursive_refs > 0 { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
         let Some(w) = self.watcher.as_mut() else { return Ok(()) };
         let _ = w.unwatch(path);
-        w.watch(path, mode).map_err(|error| watch_failure(&error, path))
+        w.watch(path, mode).map_err(|error| watch_failure(&error, path))?;
+        entry.coverage = Some(Arc::new(()));
+        Ok(())
     }
 
     fn add_os(&mut self, path: &Path, recursive: bool) -> WsResult<()> {
         let entry = self.os.entry(comparable(path)).or_default();
         let before = (entry.recursive_refs > 0, entry.direct_refs + entry.recursive_refs > 0);
+        let uncovered = entry.coverage.is_none();
         if recursive { entry.recursive_refs += 1 } else { entry.direct_refs += 1 }
         let after = (entry.recursive_refs > 0, true);
-        if before != after
+        if (before != after || uncovered)
             && let Err(error) = self.apply(path) {
             self.remove_os(path, recursive);
             return Err(error);
@@ -201,8 +242,10 @@ impl FolderWatcher {
     pub fn new(sink: Arc<dyn ChangeSink>) -> WsResult<Self> {
         let (tx, rx) = unbounded::<Message>();
         let callback_tx = tx.clone();
+        let pending = Arc::new(AtomicUsize::new(0));
+        let callback_pending = pending.clone();
         let watcher = notify::recommended_watcher(move |event| {
-            let _ = callback_tx.send(Message::Event(event));
+            enqueue_event(&callback_tx, &callback_pending, event);
         })
         .map_err(|e| WsError::new(Reason::Io, format!("Cannot start the file watcher: {e}")))?;
         let state = Arc::new(Mutex::new(State {
@@ -216,7 +259,7 @@ impl FolderWatcher {
             .name("mixdog-fs-watcher".into())
             .spawn(move || run(rx, worker_state, sink))
             .map_err(|e| WsError::new(Reason::Io, e.to_string()))?;
-        Ok(Self { state, stop: tx })
+        Ok(Self { state, stop: tx, pending })
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -259,6 +302,37 @@ impl FolderWatcher {
         }
     }
 
+    /// The current root revision under uninterrupted recursive coverage, shared
+    /// by all subscribers. `None` means the registration cannot validate a cache.
+    pub(crate) fn coverage(&self, id: &str) -> Option<Arc<()>> {
+        let state = self.lock();
+        if self.pending.load(Ordering::SeqCst) != 0 {
+            return None;
+        }
+        let sub = state.subs.get(id).filter(|sub| sub.recursive)?;
+        state.os.get(&comparable(&sub.path))?.coverage.clone()
+    }
+
+    /// A cache can borrow an existing recursive watch, but not a direct watch
+    /// or a registration whose backend has lost coverage.
+    pub fn recursive_revision(&self, path: &Path) -> Option<Arc<()>> {
+        let state = self.lock();
+        if self.pending.load(Ordering::SeqCst) != 0 {
+            return None;
+        }
+        state.subs.values()
+            .filter(|sub| sub.recursive && is_within(&sub.path, path))
+            .filter_map(|sub| {
+                let revision = state.os.get(&comparable(&sub.path))?.coverage.as_ref()?;
+                let git_covered = sub.git_dirs.iter().filter(|dir| !is_within(&sub.path, dir)).all(|dir| {
+                    state.os.get(&comparable(dir)).is_some_and(|watch| watch.recursive_refs > 0 && watch.coverage.is_some())
+                });
+                git_covered.then_some((sub.path.components().count(), revision))
+            })
+            .min_by_key(|(depth, _)| *depth)
+            .map(|(_, revision)| revision.clone())
+    }
+
     /// Live OS watches (shared ones counted once).
     pub fn open_watches(&self) -> usize {
         self.lock().os.len()
@@ -274,15 +348,20 @@ impl Drop for FolderWatcher {
 
 type Pending = HashMap<(String, ChangeKind), BTreeSet<String>>;
 
-fn route(state: &State, event: &notify::Event, pending: &mut Pending) {
-    let overflow = event.need_rescan();
+fn route(state: &mut State, event: &notify::Event, pending: &mut Pending) {
     let base_kind = classify(&event.kind);
-    if matches!(event.kind, EventKind::Access(_)) && !overflow {
+    if matches!(event.kind, EventKind::Access(_)) {
         return;
     }
-    for path in &event.paths {
-        for (id, sub) in &state.subs {
+    let mut changed_roots = BTreeSet::new();
+    for (id, sub) in &state.subs {
+        for path in &event.paths {
             let in_git = sub.git_dirs.iter().find(|g| is_within(g, path));
+            // Cache coverage observes every change, including git events the
+            // public feed deliberately filters out.
+            if sub.recursive && (in_git.is_some() || is_within(&sub.path, path)) {
+                changed_roots.insert(comparable(&sub.path));
+            }
             let kind = if let Some(git) = in_git {
                 let relative = path.strip_prefix(git).unwrap_or(Path::new(""));
                 if !git_event_delivered(relative) {
@@ -292,11 +371,20 @@ fn route(state: &State, event: &notify::Event, pending: &mut Pending) {
             } else if is_within(&sub.path, path)
                 && (sub.recursive || path.parent().is_some_and(|p| comparable(p) == comparable(&sub.path)) || comparable(path) == comparable(&sub.path))
             {
-                if overflow { ChangeKind::Overflow } else { base_kind }
+                base_kind
             } else {
                 continue;
             };
             pending.entry((id.clone(), kind)).or_default().insert(path.to_string_lossy().into_owned());
+        }
+    }
+    // Search freshness follows the OS root, not the subscriber that owned a
+    // queued batch. The subscriber can disappear before that batch is pushed.
+    for root in changed_roots {
+        if let Some(path) = state.os.get_mut(&root)
+            && path.coverage.is_some()
+        {
+            path.coverage = Some(Arc::new(()));
         }
     }
 }
@@ -313,7 +401,19 @@ struct Batcher {
 }
 
 impl Batcher {
-    fn event(&mut self, state: &State, event: &notify::Event, now: Instant) {
+    fn event(&mut self, state: &mut State, event: &notify::Event, now: Instant) {
+        if event.need_rescan() {
+            // A pathless event can conceal loss of the watch itself.
+            self.lost(state, now);
+            return;
+        }
+        if matches!(classify(&event.kind), ChangeKind::Removed | ChangeKind::Renamed) {
+            for (root, path) in &mut state.os {
+                if event.paths.iter().any(|affected| is_within(affected, root)) {
+                    path.coverage = None;
+                }
+            }
+        }
         route(state, event, &mut self.pending);
         self.arm(state, now);
     }
@@ -328,12 +428,19 @@ impl Batcher {
         }
     }
 
-    /// The backend lost events: every watch re-reads.
-    fn lost(&mut self, state: &State, now: Instant) {
+    fn overflow(&mut self, state: &State, now: Instant) {
         for id in state.subs.keys() {
             self.pending.entry((id.clone(), ChangeKind::Overflow)).or_default();
         }
         self.arm(state, now);
+    }
+
+    /// A backend error cannot establish which registrations still cover their roots.
+    fn lost(&mut self, state: &mut State, now: Instant) {
+        for path in state.os.values_mut() {
+            path.coverage = None;
+        }
+        self.overflow(state, now);
     }
 
     /// The earliest deadline of a watch with events collected.
@@ -354,6 +461,14 @@ impl Batcher {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn queue_test_change(watcher: &FolderWatcher, path: PathBuf) {
+    let event = notify::Event::new(EventKind::Modify(ModifyKind::Any)).add_path(path);
+    let mut batcher = Batcher::default();
+    batcher.event(&mut watcher.lock(), &event, Instant::now());
+    // Deliberately do not deliver the batch: search freshness must not depend on it.
+}
+
 fn run(rx: Receiver<Message>, state: Arc<Mutex<State>>, sink: Arc<dyn ChangeSink>) {
     let mut batcher = Batcher::default();
     loop {
@@ -368,14 +483,22 @@ fn run(rx: Receiver<Message>, state: Arc<Mutex<State>>, sink: Arc<dyn ChangeSink
                 Err(_) => return,
             },
         };
+        let now = Instant::now();
         match message {
             Some(Message::Stop) => return,
-            Some(Message::Event(Ok(event))) => batcher.event(&state.lock().expect("watcher state"), &event, Instant::now()),
-            Some(Message::Event(Err(_))) => batcher.lost(&state.lock().expect("watcher state"), Instant::now()),
-            None => {
-                for ((id, kind), paths) in batcher.flush(Instant::now()) {
-                    sink.changed(&id, paths.into_iter().collect(), kind);
+            Some(Message::Event(event, queued)) => {
+                let mut state = state.lock().expect("watcher state");
+                match event {
+                    Ok(event) => batcher.event(&mut state, &event, now),
+                    Err(_) => batcher.lost(&mut state, now),
                 }
+                drop(queued);
+            }
+            None => {}
+        }
+        if batcher.deadline().is_some_and(|deadline| deadline <= now) {
+            for ((id, kind), paths) in batcher.flush(now) {
+                sink.changed(&id, paths.into_iter().collect(), kind);
             }
         }
     }
@@ -421,10 +544,10 @@ mod tests {
         let start = Instant::now();
         let mut batcher = Batcher::default();
         {
-            let state = watcher.lock();
+            let mut state = watcher.lock();
             for i in 0..200u32 {
                 let event = notify::Event::new(EventKind::Modify(ModifyKind::Any)).add_path(root.join(format!("f{i}.txt")));
-                batcher.event(&state, &event, start + Duration::from_millis(u64::from(i)));
+                batcher.event(&mut state, &event, start + Duration::from_millis(u64::from(i)));
             }
         }
         assert_eq!(batcher.deadline(), Some(start + Duration::from_millis(BATCH_WINDOW_MS)), "later events must not move the window");
@@ -454,9 +577,9 @@ mod tests {
         let start = Instant::now();
         let mut batcher = Batcher::default();
         {
-            let state = watcher.lock();
+            let mut state = watcher.lock();
             let event = notify::Event::new(EventKind::Modify(ModifyKind::Any)).add_path(root.join("a.txt"));
-            batcher.event(&state, &event, start);
+            batcher.event(&mut state, &event, start);
         }
         assert_eq!(batcher.deadline(), Some(start + Duration::from_millis(40)));
         let first = batcher.flush(start + Duration::from_millis(40));
@@ -464,6 +587,48 @@ mod tests {
         assert_eq!(batcher.deadline(), Some(start + Duration::from_millis(BATCH_WINDOW_MS)), "the other watch is not hurried");
         let second = batcher.flush(start + Duration::from_millis(BATCH_WINDOW_MS));
         assert_eq!(second.iter().map(|((id, _), _)| id.as_str()).collect::<Vec<_>>(), ["slow"]);
+    }
+
+    #[test]
+    fn an_enqueued_change_blocks_coverage_before_the_worker_applies_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::pathguard::canonical(dir.path()).unwrap();
+        let (watcher, _rx) = watcher();
+        watcher.watch("root", &root, true).unwrap();
+        let before = watcher.recursive_revision(&root).unwrap();
+        let (tx, worker_queue) = unbounded();
+        let event = notify::Event::new(EventKind::Modify(ModifyKind::Any)).add_path(root.join("changed.txt"));
+        enqueue_event(&tx, &watcher.pending, Ok(event));
+        assert!(watcher.recursive_revision(&root).is_none());
+        let Message::Event(Ok(event), queued) = worker_queue.recv().unwrap() else { panic!("queued change") };
+        Batcher::default().event(&mut watcher.lock(), &event, Instant::now());
+        assert!(watcher.recursive_revision(&root).is_none());
+        drop(queued);
+        assert!(!Arc::ptr_eq(&before, &watcher.recursive_revision(&root).unwrap()));
+    }
+
+    #[test]
+    fn a_pathless_rescan_revokes_coverage_and_reaches_every_watch() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::pathguard::canonical(dir.path()).unwrap();
+        let (watcher, _rx) = watcher();
+        watcher.watch("one", &root, true).unwrap();
+        watcher.watch("two", &root, true).unwrap();
+        let before = watcher.coverage("one").expect("initial coverage");
+        let rescan = notify::Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan);
+        let start = Instant::now();
+        let mut batcher = Batcher::default();
+        batcher.event(&mut watcher.lock(), &rescan, start);
+        assert!(watcher.coverage("one").is_none());
+        assert!(watcher.coverage("two").is_none());
+        let batch = batcher.flush(start + Duration::from_millis(BATCH_WINDOW_MS));
+        assert_eq!(batch, [
+            (("one".into(), ChangeKind::Overflow), BTreeSet::new()),
+            (("two".into(), ChangeKind::Overflow), BTreeSet::new()),
+        ]);
+        watcher.watch("reopened", &root, true).unwrap();
+        let after = watcher.coverage("one").expect("rearmed coverage");
+        assert!(!Arc::ptr_eq(&before, &after));
     }
 
     #[test]
@@ -491,6 +656,71 @@ mod tests {
         }
         assert!(git_paths.iter().any(|p| p.ends_with("index")));
         assert!(!git_paths.iter().any(|p| p.contains("objects")));
+    }
+
+    /// The git events of a watch until both `wanted` file names were announced; panics if the watcher goes quiet first.
+    fn git_events_until(rx: &mpsc::Receiver<(String, Vec<String>, ChangeKind)>, wanted: &[&str]) -> Vec<String> {
+        let mut git_paths: Vec<String> = Vec::new();
+        while !wanted.iter().all(|name| git_paths.iter().any(|p| p.ends_with(name))) {
+            let (_, paths, kind) = rx.recv_timeout(Duration::from_secs(5)).expect("a git event");
+            if kind == ChangeKind::Git {
+                git_paths.extend(paths);
+            }
+        }
+        git_paths
+    }
+
+    /// A project opened below its repository's root (`/repo/app`) follows the repository's own metadata: a commit (the branch ref
+    /// moves) and a branch change (HEAD is rewritten) made outside the folder reach the watch as git events.
+    #[test]
+    fn a_folder_below_its_repository_root_sees_a_commit_and_a_branch_change_outside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = crate::pathguard::canonical(dir.path()).unwrap();
+        std::fs::create_dir_all(repo.join(".git/refs/heads")).unwrap();
+        std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::create_dir_all(repo.join("app/src")).unwrap();
+        let app = repo.join("app");
+        assert_eq!(git_dirs_of(&app), vec![repo.join(".git")]);
+        assert_eq!(git_dirs_of(&app.join("src")), vec![repo.join(".git")], "any depth below the root");
+        let (watcher, rx) = watcher();
+        watcher.watch("app", &app, true).unwrap();
+        assert_eq!(watcher.open_watches(), 2, "the folder and its repository's git dir");
+        std::fs::write(repo.join(".git/refs/heads/main"), "0123456789abcdef0123456789abcdef01234567\n").unwrap();
+        std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/feature\n").unwrap();
+        let git_paths = git_events_until(&rx, &["main", "HEAD"]);
+        assert!(git_paths.iter().all(|p| is_within(&repo.join(".git"), Path::new(p))));
+        watcher.unwatch("app");
+        assert_eq!(watcher.open_watches(), 0);
+    }
+
+    /// A linked worktree's sub-folder follows the worktree's own git dir and the common dir its branches live in.
+    #[test]
+    fn a_folder_below_a_linked_worktree_follows_its_git_dir_and_common_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = crate::pathguard::canonical(dir.path()).unwrap();
+        let common = base.join("main/.git");
+        let git_dir = common.join("worktrees/wt");
+        std::fs::create_dir_all(&git_dir).unwrap();
+        std::fs::write(git_dir.join("commondir"), "../..\n").unwrap();
+        std::fs::create_dir_all(base.join("wt/app")).unwrap();
+        std::fs::write(base.join("wt/.git"), format!("gitdir: {}\n", git_dir.display())).unwrap();
+        assert_eq!(git_dirs_of(&base.join("wt/app")), git_dirs_of(&base.join("wt")));
+        assert_eq!(git_dirs_of(&base.join("wt/app")), vec![common, git_dir]);
+    }
+
+    /// A folder at its repository's root keeps its own `.git` (inside the watch: no second OS watch), as before.
+    #[test]
+    fn a_root_level_folder_keeps_its_own_git_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = crate::pathguard::canonical(dir.path()).unwrap();
+        std::fs::create_dir_all(repo.join(".git/refs/heads")).unwrap();
+        assert_eq!(git_dirs_of(&repo), vec![repo.join(".git")]);
+        let (watcher, rx) = watcher();
+        watcher.watch("root", &repo, true).unwrap();
+        assert_eq!(watcher.open_watches(), 1);
+        std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/feature\n").unwrap();
+        git_events_until(&rx, &["HEAD"]);
+        watcher.unwatch("root");
     }
 
     #[test]

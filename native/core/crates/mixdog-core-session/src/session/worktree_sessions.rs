@@ -46,6 +46,8 @@ use crate::session::sub_agent_retention::activity_at;
 pub struct StoredWorktreeSessions {
     stored: Arc<StoredSearchSessions>,
     tasks: Arc<TaskRegistry>,
+    /// The archive authority the archived sessions resolve through (an entry overrides a header's stamp).
+    archive: Arc<mixdog_store::archive_state::ArchiveStates>,
     /// The marked sessions per header key. Finding them reads every stored session's header on the interactive io lane (a
     /// thousand jobs for a long-lived profile), and Node read one small sidebar file instead: a scan stands until a mark is
     /// written (the store's retention version moves), and overlapping asks share one.
@@ -58,21 +60,23 @@ impl StoredWorktreeSessions {
     /// Over the store view the search backfill and [`StoredConsumers`](super::StoredConsumers)
     /// already share (one listing, one header read) and the shell runtime's task registry
     /// (`ShellControl::tasks()`).
-    pub fn new(stored: Arc<StoredSearchSessions>, tasks: Arc<TaskRegistry>) -> Self {
-        Self { stored, tasks, marks: Aged::new(Duration::MAX), scans: AtomicUsize::new(0) }
+    pub fn new(stored: Arc<StoredSearchSessions>, tasks: Arc<TaskRegistry>, archive: Arc<mixdog_store::archive_state::ArchiveStates>) -> Self {
+        Self { stored, tasks, archive, marks: Aged::new(Duration::MAX), scans: AtomicUsize::new(0) }
     }
 
     async fn marked(&self, key: &'static str) -> Result<HashSet<String>, ScmFailure> {
+        // The archive marks also move with the authority's commits: its version is part of the scan's.
+        let version = self.stored.retention().wrapping_add(if key == "archivedAt" { self.archive.snapshot().version() } else { 0 });
         self.marks
-            .get_at(key, self.stored.retention(), || async {
+            .get_at(key, version, || async {
                 self.scans.fetch_add(1, Ordering::Relaxed);
-                let mut marked = HashSet::new();
-                for id in self.stored_session_ids().await? {
-                    if self.stored.header(&id).await.is_some_and(|header| sidebar_flag(&header, key)) {
-                        marked.insert(id);
-                    }
-                }
-                Ok(marked)
+                let rows = self.stored.catalog_rows().await.map_err(plain)?;
+                // The index resolves each row's archived flag through the archive authority.
+                Ok(rows
+                    .into_iter()
+                    .filter(|listed| if key == "archivedAt" { listed.archived } else { sidebar_flag(&listed.row, key) })
+                    .filter_map(|listed| listed.row.get("id").and_then(Value::as_str).map(str::to_owned))
+                    .collect())
             })
             .await
     }
@@ -133,6 +137,10 @@ impl SessionSource for StoredWorktreeSessions {
     }
 }
 
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
+#[cfg(node_twin)]
 #[cfg(test)]
 #[path = "worktree_sessions_tests.rs"]
 mod tests;

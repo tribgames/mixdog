@@ -18,12 +18,16 @@ mod color;
 pub mod decode;
 pub mod encode;
 pub mod error;
+pub mod format_table;
 mod heif;
 pub mod jpeg_enc;
 pub mod policy;
 pub mod resize;
 pub mod still;
+pub mod svg_limits;
 pub mod tool_jpeg;
+pub mod os_heic;
+pub mod validate;
 
 pub use cache::CacheStats;
 pub use cache::image_resize_cache_stats;
@@ -78,7 +82,7 @@ pub enum Branch {
 pub struct Resized {
     /// The image bytes (Node returns them as base64).
     pub data: Vec<u8>,
-    /// `image/<format>`.
+    /// The media type of `data`: one of `image/png`, `image/jpeg`, `image/gif`, `image/webp`.
     pub mime: String,
     pub dimensions: Dimensions,
     pub branch: Branch,
@@ -112,12 +116,15 @@ struct Rendition {
 fn render_rendition(bytes: &[u8], decoded: &Decoded, profile: Profile) -> Result<Rendition, ImagingError> {
     let target = target_dimensions(decoded.width, decoded.height, profile);
     let needs_resize = target.width != decoded.width || target.height != decoded.height;
-    if needs_resize || bytes.len() as u64 > IMAGE_TARGET_RAW_SIZE {
+    // A provider takes PNG, JPEG, GIF or WebP: an image in any other format (markup, TIFF, AVIF) is never handed on
+    // as it is but as the PNG of its pixels, and the media type names what is written.
+    let carried = decoded.format.carried_as();
+    if needs_resize || carried != decoded.format || bytes.len() as u64 > IMAGE_TARGET_RAW_SIZE {
         let resized = fit_inside(&decoded.raster, target.width, target.height, !target.allow_enlargement);
-        let data = encode_in_format(&resized, decoded.format)?;
-        return Ok(Rendition { data, media_type: decoded.format.name().to_owned(), display: (resized.width, resized.height), branch: Branch::Rendition });
+        let data = encode_in_format(&resized, carried)?;
+        return Ok(Rendition { data, media_type: carried.media_type().to_owned(), display: (resized.width, resized.height), branch: Branch::Rendition });
     }
-    Ok(Rendition { data: bytes.to_vec(), media_type: decoded.format.name().to_owned(), display: (decoded.width, decoded.height), branch: Branch::Original })
+    Ok(Rendition { data: bytes.to_vec(), media_type: decoded.format.media_type().to_owned(), display: (decoded.width, decoded.height), branch: Branch::Original })
 }
 
 /// The token-budget gate: recompress to JPEG q50 at the (already resized) display size, then the 400x400 JPEG q20
@@ -126,7 +133,7 @@ fn fit_to_token_budget(decoded: &Decoded, rendition: &mut Rendition, max_tokens:
     let (display_width, display_height) = rendition.display;
     let at_display = fit_inside(&decoded.raster, display_width, display_height, true);
     rendition.data = encode_jpeg(&at_display, 50, 0);
-    rendition.media_type = "jpeg".to_owned();
+    rendition.media_type = Format::Jpeg.media_type().to_owned();
     rendition.display = (at_display.width, at_display.height);
     rendition.branch = Branch::TokenJpeg;
     if est_tokens_of_bytes(rendition.data.len()) <= max_tokens {
@@ -147,7 +154,7 @@ fn resize_uncached(bytes: &[u8], options: ResizeOptions) -> Result<Resized, Imag
         fit_to_token_budget(&decoded, &mut rendition, options.max_tokens);
     }
     Ok(Resized {
-        mime: format!("image/{}", rendition.media_type),
+        mime: rendition.media_type,
         dimensions: Dimensions {
             original_width: decoded.width,
             original_height: decoded.height,
