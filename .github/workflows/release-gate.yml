@@ -2121,8 +2121,6 @@ jobs:
       MIXDOG_LEG: ${{ matrix.os }}/core-real/1of1
       MIXDOG_LEG_OS: ${{ matrix.os }}
       CARGO_BUILD_JOBS: "3"
-      # Every test step below leaves its own receipt here (scripts/ci/node-runner.mjs, scripts/ci/run-receipt.mjs), named in the check.
-      RECEIPTS: ${{ runner.temp }}/receipts
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -2206,6 +2204,7 @@ jobs:
       # does not build.
       - name: Check that no test of core-real skipped outside the reviewed list
         env:
+          RECEIPTS: ${{ runner.temp }}/receipts
           UNIX: ${{ matrix.unix }}
           EVENT: ${{ github.event_name }}
         run: |
