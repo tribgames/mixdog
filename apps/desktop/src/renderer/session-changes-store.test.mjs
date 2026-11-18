@@ -310,13 +310,15 @@ test('a last-turn review-bar parse cannot overwrite a newer scheduler answer', a
   assert.deepEqual(states.a.rows.map((row) => row.path), ['fresh.ts']);
 });
 
-test('a review bar answer during a workspace switch leaves validation to the new workspace read', async (t) => {
+test('workspace validation reveals the newest pending bar rows only for that workspace generation', async (t) => {
   const gate = Promise.withResolvers();
+  const abandoned = Promise.withResolvers();
   const sessionId = 'turn-switch';
   let path = 'old.ts';
   const view = mount(t, {
     gitStatus: async (cwd) => {
       if (cwd === 'C:/new') await gate.promise;
+      if (cwd === 'C:/abandoned') await abandoned.promise;
       return { repository: true, root: cwd, files: [] };
     },
     invokeCapability: async () => ({ value: { supported: true, authoritative: true, files: [reviewFile(path)], patch: '' } }),
@@ -328,16 +330,22 @@ test('a review bar answer during a workspace switch leaves validation to the new
   await render('C:/old');
   await view.settle();
   assert.equal(states.a.rows[0].path, 'old.ts');
+  await render('C:/abandoned');
+  const oldTicket = nextLastTurnRequest();
+  await adoptLastTurnReview(sessionId, { files: [reviewFile('abandoned.ts')], leadPatch: null }, oldTicket);
   path = 'new.ts';
   await render('C:/new');
+  const delayed = nextLastTurnRequest();
   await act(async () => {
     await adoptLastTurnReview(sessionId, { files: [reviewFile('bar.ts')], leadPatch: null }, nextLastTurnRequest());
+    await adoptLastTurnReview(sessionId, { files: [reviewFile('delayed.ts')], leadPatch: null }, delayed);
+    abandoned.resolve();
   });
   assert.equal(states.a.ready, false);
   gate.resolve();
   await view.settle();
   assert.equal(states.a.root, 'C:/new');
-  assert.deepEqual(states.a.rows.map((row) => row.path), ['new.ts']);
+  assert.deepEqual(states.a.rows.map((row) => row.path), ['bar.ts']);
 });
 
 test('a session-source refresh adopts a file whose patch moved while its counts held', async (t) => {

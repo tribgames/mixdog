@@ -7,6 +7,7 @@ interface TranscriptRowLike {
   id?: unknown;
   kind?: unknown;
   device?: unknown;
+  finalAssistantId?: unknown;
 }
 
 /** `held`: the rows this connection was last sent (null when it holds none);
@@ -24,16 +25,21 @@ export function viewIsStale(
   for (const row of held as readonly TranscriptRowLike[]) {
     if (row?.id !== undefined && row.id !== null) known.add(row.id);
   }
-  const first = (held as readonly TranscriptRowLike[])[0]?.id;
-  const from =
-    first === undefined || first === null
-      ? 0
-      : Math.max(
-          0,
-          (latest as readonly TranscriptRowLike[]).findIndex((row) => row?.id === first)
-        );
-  return (latest as readonly TranscriptRowLike[])
-    .slice(from)
+  const first = (held as readonly TranscriptRowLike[])[0];
+  const rows = latest as readonly TranscriptRowLike[];
+  let from = first?.id == null ? -1 : rows.findIndex((row) => row?.id === first.id);
+  if (from < 0 && first?.kind === 'turndone' && typeof first.finalAssistantId === 'string' && first.finalAssistantId) {
+    // Live and restored completions can have different display IDs. Scan
+    // from their shared final reply, not from a later row across an unseen gap.
+    const isReply = (row: TranscriptRowLike) => row?.kind === 'assistant' && row.id === first.finalAssistantId;
+    const at = rows.findIndex(isReply);
+    if (at >= 0 && !rows.slice(at + 1).some(isReply) &&
+        rows.slice(at + 1).some((row) => row?.kind === 'turndone' && row.finalAssistantId === first.finalAssistantId)) {
+      from = at;
+    }
+  }
+  return rows
+    .slice(Math.max(0, from))
     .some(
       (row) =>
         row?.kind === 'user' &&

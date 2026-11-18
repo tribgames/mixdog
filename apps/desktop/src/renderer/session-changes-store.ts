@@ -427,16 +427,23 @@ function loadChanges(target: ChangesTarget, mode: LoadMode): Promise<boolean> {
   const pending = requests.get(key);
   if (pending) return pending;
   const ticket = target.source === 'last-turn' ? nextLastTurnRequest() : undefined;
-  if (ticket !== undefined) lastTurnAdoptions.set(key, { ticket, cwd: target.cwd });
+  const validation: LastTurnAdoption | undefined = ticket === undefined ? undefined : { ticket, cwd: target.cwd };
+  if (validation) lastTurnAdoptions.set(key, validation);
   const superseded = () => ticket !== undefined && lastTurnAdoptions.get(key)?.ticket !== ticket;
   const request = readChanges(target, mode).then(
     (read) => {
       if (superseded()) return false;
-      adopt(target, read, mode);
+      const bar = validation?.pending;
+      if (validation) delete validation.pending;
+      if (bar && validation && read.repository) {
+        validation.ticket = bar.ticket;
+        adopt(target, { ...read, rows: bar.rows, diffTooLarge: bar.diffTooLarge }, mode);
+      } else adopt(target, read, mode);
       return true;
     },
     (reason: unknown) => {
       if (superseded()) return false;
+      if (validation) delete validation.pending;
       // A failed read of a switched cwd must not bring back the old cwd's rows.
       const previous = staleKeys.delete(key) ? undefined : entries.get(key);
       publish(key, {
@@ -497,7 +504,12 @@ let lastTurnRequest = 0;
 export function nextLastTurnRequest(): number {
   return ++lastTurnRequest;
 }
-const lastTurnAdoptions = new Map<string, { ticket: number; cwd: string }>();
+type LastTurnAdoption = {
+  ticket: number;
+  cwd: string;
+  pending?: { ticket: number; rows: ChangesRead['rows']; diffTooLarge: boolean };
+};
+const lastTurnAdoptions = new Map<string, LastTurnAdoption>();
 
 /** The turn review bar's own read answered: the session's last-turn entry follows it. */
 export function adoptLastTurnReview(
@@ -508,16 +520,22 @@ export function adoptLastTurnReview(
   const key = `last-turn\0${sessionId}`;
   // Only the scheduler reads the workspace's repository status. A bar
   // answer (including an unchanged or failed read) cannot validate it.
-  const canAdopt = () => !staleKeys.has(key) && ticket >= (lastTurnAdoptions.get(key)?.ticket ?? 0);
-  if (!canAdopt() || entries.get(key)?.repository !== true) return;
+  const validation = lastTurnAdoptions.get(key);
+  if (!validation || ticket < validation.ticket) return;
+  if (!staleKeys.has(key) && entries.get(key)?.repository !== true) return;
   return lastTurnRows(decoded).then((rows) => {
-    // A newer answer superseded this one while it was parsed.
+    if (lastTurnAdoptions.get(key) !== validation || ticket < (validation.pending?.ticket ?? validation.ticket)) return;
+    const diffTooLarge = decoded.diffTooLarge === true;
+    if (staleKeys.has(key)) {
+      // Keep the rows with this validation, not the session. A switch
+      // replaces the record, and only a successful repository read uses it.
+      validation.pending = { ticket, rows, diffTooLarge };
+      return;
+    }
     const previous = entries.get(key);
-    if (!canAdopt() || previous?.repository !== true) return;
-    const validation = lastTurnAdoptions.get(key);
-    if (!validation) return;
+    if (previous?.repository !== true) return;
     validation.ticket = ticket;
-    const read = { ...previous, rows: keepRows(previous.rows, rows), diffTooLarge: decoded.diffTooLarge === true };
+    const read = { ...previous, rows: keepRows(previous.rows, rows), diffTooLarge };
     if (
       previous.rows === read.rows && previous.diffTooLarge === read.diffTooLarge &&
       !previous.loading && !previous.error
