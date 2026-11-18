@@ -5,6 +5,7 @@ import { createContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopAbortOptions, DesktopPromptContent, DesktopSubmitOptions } from '../shared/contract';
 import type { ComposerProps } from './Composer';
 import { restoreAttachmentsFromRecord } from './composer-attachment-restore';
+import { composerSubmitErrorText } from './composer-submit-error';
 import {
   composerScopeHasContent,
   rejectComposerSubmissionRecovery,
@@ -259,16 +260,17 @@ export function useSteerActions({
       const { submit: send } = latest.current;
       const origin = originScope();
       let accepted: unknown = false;
+      let refusal: string | undefined;
       try {
         accepted = await send(content, options);
-      } catch {
-        accepted = false;
+      } catch (error) {
+        refusal = composerSubmitErrorText(error);
       }
       // Sent again after the turn ended and refused: the message would be
       // gone, so it goes back into the editor it came from.
       if (accepted !== true) {
         restoreDraft(draft, origin, promptRestoreRecord(content, options), {
-          notice: t('The message was not sent. It has been kept for retry.'),
+          notice: refusal || t('The message was not sent. It has been kept for retry.'),
         });
       }
     };

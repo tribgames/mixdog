@@ -85,21 +85,26 @@ test('phone send: a refused or failed submit removes the row and keeps the text 
   try {
     const { createRoot } = await import('react-dom/client');
     const { useComposerSubmission } = await import('./use-composer-submission.ts');
+    const { useAppInvocation } = await import('./app-root/use-app-invocation.ts');
     const { takeRejectedComposerSubmissionRecoveries } = await import('./composer-draft.ts');
-    for (const outcome of ['refused', 'thrown']) {
+    for (const outcome of ['refused', 'thrown', 'stale']) {
       const { useConversationComposerActions } = await import('./conversation-support.tsx');
       const errors = [];
       const drafts = [];
       const state = { send: null, prompts: [], versions: 0, actions: null };
+      const stale = 'This conversation changed on another device. Review the latest messages, then send again.';
       const submitHost = () =>
-        outcome === 'refused' ? Promise.resolve(false) : Promise.reject(new Error('PC offline'));
+        outcome === 'refused' ? Promise.resolve(false) : Promise.reject(new Error(outcome === 'stale' ? stale : 'PC offline'));
       function Harness() {
         const [prompts, setPrompts] = useState([]);
+        const { invokeResult } = useAppInvocation({
+          error: '', connected: true, setError: (message) => { if (message) errors.push(message); },
+        });
         state.prompts = prompts;
         const actions = useConversationComposerActions({
           armFollowOnSubmitRef: { current: () => {} },
           composerActions: {
-            current: { invokeResult: (action) => Promise.resolve().then(action), submit: submitHost },
+            current: { invokeResult, submit: submitHost },
           },
           draftModeRef: { current: false },
           goalSubmission: { current: null },
@@ -155,7 +160,7 @@ test('phone send: a refused or failed submit removes the row and keeps the text 
       assert.equal(errors.length, 1, `${outcome}: the failure is surfaced as an error`);
       assert.equal(
         errors[0],
-        outcome === 'refused' ? 'The message was not sent. It has been kept for retry.' : 'PC offline'
+        outcome === 'refused' ? 'The message was not sent. It has been kept for retry.' : outcome === 'stale' ? stale : 'PC offline'
       );
       const recovered = takeRejectedComposerSubmissionRecoveries(`scope-${outcome}`);
       assert.deepEqual(

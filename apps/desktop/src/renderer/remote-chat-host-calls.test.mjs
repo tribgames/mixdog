@@ -219,6 +219,20 @@ test('a blank prompt answers false and nothing reaches the core', async () => {
   assert.deepEqual(sent, []);
 });
 
+test('a phone window starting inside a tool group does not mistake older desktop prompts for new ones', async () => {
+  const read = (id) => ({ type: 'toolCall', id, name: 'read', input: { path: id }, output: 'ok', meta: { status: 'completed', at: 1 } });
+  const oldPrompt = itemOf({ kind: 'user', id: 'old', text: 'already behind the window', device: 'Desktop' });
+  const latest = [oldPrompt, read('one'), read('two'), itemOf({ kind: 'assistant', id: 'answer', text: 'done' })];
+  const state = { items: foldRows(latest.slice(2)) };
+  const { api, sent } = adapter({ state, replies: {
+    'thread/items/list': { data: latest }, 'turn/start': { kind: 'started', turnId: 't1' },
+  } });
+  assert.equal(await api.submitToSession(S, 'next', {}), true);
+  latest.push({ ...oldPrompt, id: 'new' });
+  await assert.rejects(api.submitToSession(S, 'another', {}), /changed on another device/);
+  assert.equal(sent.filter((call) => call.method === 'turn/start').length, 1);
+});
+
 test('a failure of a real send still throws', async () => {
   const { api } = adapter({ replies: { 'turn/start': domainError('OTHER', 'boom') } });
   await assert.rejects(api.submitToSession(S, 'hi', {}), { message: 'boom' });

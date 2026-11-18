@@ -19,7 +19,7 @@ import { blankSnapshot, remoteSessionIdOf, startFolder, withRemoteSession } from
 import type { StartCall } from '../shared/blank-snapshot.ts';
 import { MAX_SECRET_LENGTH, SECRET_REQUEST_ID } from '../shared/secret-slots.ts';
 import { viewIsStale } from '../main/remote-view-staleness.ts';
-import { historyPositionOf } from '../../../../packages/protocol-client/src/rows.ts';
+import { historyPositionOf, rowsOf } from '../../../../packages/protocol-client/src/rows.ts';
 // Types only: the adapter module (remote-protocol-chat.ts) imports this one, so nothing here may need it loaded first.
 import type { ChatApi, ChatClient, ChatShared } from './remote-protocol-chat.ts';
 
@@ -116,10 +116,11 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
     const { cwd, projectPath: project } = await startFolder(({ method, params }) => send(method, params), call, projectPath);
     return blankSnapshot(cwd, project, remoteId());
   };
-  /** The rows the core holds newest in a thread, as the transcript rows this client would fold. */
+  /** Keep individual row IDs here: a tool group in this page can begin before
+   * the phone's window and otherwise swallow its first row's ID. */
   const latestRows = async (threadId: string): Promise<unknown[]> => {
-    const page = (await send('thread/items/list', { threadId, limit: LATEST_ROWS })) as { data?: unknown[] };
-    return shared.foldRows(page.data ?? []);
+    const page = (await send('thread/items/list', { threadId, limit: LATEST_ROWS })) as { data?: Parameters<typeof rowsOf>[0][] };
+    return (page.data ?? []).flatMap(rowsOf);
   };
   /** remote-relay-device-methods.ts staleView: the rows this connection holds against the thread's latest rows. */
   const staleView = async (threadId: string): Promise<boolean> => {
